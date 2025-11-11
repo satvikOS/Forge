@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import PromptInput from './components/PromptInput';
-import Viewer3D from './components/Viewer3D';
-import DesignInfo from './components/DesignInfo';
+import BottomPromptBar from './components/BottomPromptBar';
+import WorkbenchViewer from './components/WorkbenchViewer';
+import PropertiesPanel from './components/PropertiesPanel';
+import Toolbar from './components/Toolbar';
 import apiService from './services/api';
 import './styles/index.css';
 
@@ -11,6 +12,8 @@ function App() {
   const [compliance, setCompliance] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [viewMode, setViewMode] = useState('solid');
+  const [isExploded, setIsExploded] = useState(false);
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -40,102 +43,153 @@ function App() {
 
   return (
     <div style={{
-      minHeight: '100vh',
-      padding: '20px',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--bg-primary)',
     }}>
       {/* Header */}
       <header style={{
-        textAlign: 'center',
-        marginBottom: '30px',
-        color: 'white',
+        padding: '15px 20px',
+        background: 'var(--bg-secondary)',
+        borderBottom: '2px solid var(--border-color)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
       }}>
-        <h1 style={{
-          fontSize: '48px',
-          fontWeight: 'bold',
-          marginBottom: '10px',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.3)',
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <h1 style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            color: 'var(--text-primary)',
+            margin: 0,
+          }}>
+            ArchDisc
+          </h1>
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            padding: '4px 10px',
+            background: 'var(--bg-tertiary)',
+            borderRadius: '12px',
+          }}>
+            AI-Powered Design Workbench
+          </div>
+        </div>
+        
+        {/* Status indicator */}
+        <div style={{
+          fontSize: '12px',
+          color: 'var(--text-secondary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
         }}>
-          ArchDisc
-        </h1>
-        <p style={{
-          fontSize: '18px',
-          textShadow: '1px 1px 2px rgba(0,0,0,0.3)',
-        }}>
-          AI-Powered Design Platform - Create Anything from Cars to Buildings
-        </p>
+          <div style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: loading ? 'var(--accent-orange)' : '#4caf50',
+          }} />
+          {loading ? 'Generating...' : 'Ready'}
+        </div>
       </header>
 
       {/* Error Message */}
       {error && (
         <div style={{
+          padding: '12px 20px',
           background: '#f44336',
           color: 'white',
-          padding: '15px',
-          borderRadius: '8px',
-          marginBottom: '20px',
-          textAlign: 'center',
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}>
-          {error}
+          <span>{error}</span>
+          <button
+            onClick={() => setError(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '18px',
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div style={{
+        flex: 1,
         display: 'grid',
-        gridTemplateColumns: '1fr 2fr',
-        gap: '20px',
-        maxWidth: '1400px',
-        margin: '0 auto',
+        gridTemplateColumns: '1fr 350px',
+        overflow: 'hidden',
       }}>
-        {/* Left Panel - Input and Info */}
+        {/* Left - 3D Viewer */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '20px',
+          borderRight: '1px solid var(--border-color)',
         }}>
-          <PromptInput onSubmit={handleGenerateDesign} loading={loading} />
-          <DesignInfo design={design} analysis={analysis} compliance={compliance} />
+          {/* Toolbar */}
+          <Toolbar
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            isExploded={isExploded}
+            onExplodeToggle={() => setIsExploded(!isExploded)}
+          />
+          
+          {/* 3D Viewer */}
+          <div style={{ flex: 1, position: 'relative' }}>
+            {loading ? (
+              <div style={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+              }}>
+                <div className="spinner" style={{ 
+                  width: '48px', 
+                  height: '48px',
+                  borderWidth: '4px',
+                  marginBottom: '20px',
+                }} />
+                <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                  Generating your design...
+                </div>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  This may take a few moments
+                </div>
+              </div>
+            ) : (
+              <WorkbenchViewer 
+                modelData={design?.model}
+                viewMode={viewMode}
+                isExploded={isExploded}
+              />
+            )}
+          </div>
         </div>
 
-        {/* Right Panel - 3D Viewer */}
-        <div style={{
-          background: 'white',
-          borderRadius: '8px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          overflow: 'hidden',
-          height: '700px',
-        }}>
-          {loading ? (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              background: '#1a1a2e',
-              color: 'white',
-              fontSize: '18px',
-            }}>
-              Generating your design...
-            </div>
-          ) : (
-            <Viewer3D modelData={design?.model} />
-          )}
-        </div>
+        {/* Right - Properties Panel */}
+        <PropertiesPanel 
+          design={design}
+          analysis={analysis}
+          compliance={compliance}
+        />
       </div>
 
-      {/* Footer */}
-      <footer style={{
-        textAlign: 'center',
-        marginTop: '40px',
-        color: 'white',
-        fontSize: '14px',
-        opacity: 0.8,
-      }}>
-        <p>ArchDisc - Democratizing Design Through AI</p>
-        <p style={{ marginTop: '5px' }}>
-          Unifying ideation, 3D modeling, analysis, and legality into one intelligent workspace
-        </p>
-      </footer>
+      {/* Bottom Prompt Bar */}
+      <div style={{ paddingBottom: '70px' }}>
+        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+      </div>
     </div>
   );
 }
