@@ -1,8 +1,14 @@
 # Using the GitHub Actions Workflow
 
-## Automated Setup (Recommended)
+## Important Note
 
-The easiest way to push the `copilot/create-archdisc-software` branch and set it as the default is to use the GitHub Actions workflow.
+**The GitHub Actions workflow will only appear in the Actions UI after this PR is merged to the default branch.** GitHub only displays `workflow_dispatch` workflows from the default branch, not from PR branches.
+
+Until this PR is merged, please use the manual steps below.
+
+## After PR is Merged - Automated Setup (Recommended)
+
+After merging this PR to the default branch, the easiest way to complete the setup is to use the GitHub Actions workflow.
 
 ### Steps:
 
@@ -34,9 +40,9 @@ If the workflow fails:
 - Check that the `GITHUB_TOKEN` has sufficient permissions
 - Review the workflow logs for specific error messages
 
-## Manual Setup (Alternative)
+## Before PR is Merged - Manual Setup
 
-If you prefer to do this manually or the workflow doesn't work, see:
+If you need to set up the default branch before merging this PR, see:
 - [SET_DEFAULT_BRANCH.md](SET_DEFAULT_BRANCH.md) for detailed manual instructions
 - Run `./setup-default-branch.sh` from the command line
 

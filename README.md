@@ -2,29 +2,40 @@
 
 ## Default Branch Setup
 
-This repository is configured to use `copilot/create-archdisc-software` as the default branch.
+This repository will use `copilot/create-archdisc-software` as the default branch.
 
-### Current Status
-- ✅ Branch `copilot/create-archdisc-software` has been created locally
-- ⏳ Branch needs to be pushed to GitHub
-- ⏳ Branch needs to be set as default in GitHub repository settings
+### Quick Setup (After Merging This PR)
 
-### Quick Start - Automated (Recommended)
+**Step 1: Create and push the branch**
+```bash
+# From the repository root
+git checkout copilot/make-default-branch-push
+git checkout -b copilot/create-archdisc-software
+git push origin copilot/create-archdisc-software
+```
 
-Use the GitHub Actions workflow to automatically push the branch and set it as default:
+**Step 2: Set as default branch**
 
-1. Go to [Actions](../../actions) tab
-2. Select **"Setup Default Branch"** workflow
-3. Click **"Run workflow"**
-4. Type `confirm` and click **"Run workflow"**
+Option A - GitHub UI:
+1. Go to https://github.com/satvikOS/archdiscv1/settings/branches
+2. Click the switch icon next to "Default branch"
+3. Select `copilot/create-archdisc-software`
+4. Click "Update" and confirm
 
-See [WORKFLOW_INSTRUCTIONS.md](WORKFLOW_INSTRUCTIONS.md) for detailed steps.
+Option B - GitHub CLI:
+```bash
+gh repo edit satvikOS/archdiscv1 --default-branch copilot/create-archdisc-software
+```
 
-### Quick Start - Manual (Alternative)
+### Alternative: Use the Shell Script
 
-To push the branch and set it as default manually, run:
+After merging this PR, you can also use the provided script:
 ```bash
 ./setup-default-branch.sh
 ```
 
-For detailed manual instructions, see [SET_DEFAULT_BRANCH.md](SET_DEFAULT_BRANCH.md)
+### Note About GitHub Actions Workflow
+
+The workflow `setup-default-branch.yml` will only appear in the Actions UI after this PR is merged to the default branch. Until then, use the manual steps above.
+
+See [SET_DEFAULT_BRANCH.md](SET_DEFAULT_BRANCH.md) for more detailed instructions.

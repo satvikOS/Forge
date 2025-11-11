@@ -34,27 +34,45 @@
 
 ## What Still Needs to Be Done ⏳
 
-The branch `copilot/create-archdisc-software` exists locally but needs to be pushed to GitHub and set as the default branch.
+The `copilot/create-archdisc-software` branch needs to be created and pushed to GitHub, then set as the default branch.
 
-### Choose One Method:
+### Immediate Solution (3 simple commands):
+
+```bash
+# 1. Create the branch from this PR
+git checkout copilot/make-default-branch-push
+git checkout -b copilot/create-archdisc-software
+
+# 2. Push to GitHub
+git push origin copilot/create-archdisc-software
+
+# 3. Set as default (choose one):
+# Via GitHub CLI:
+gh repo edit satvikOS/archdiscv1 --default-branch copilot/create-archdisc-software
+
+# OR via GitHub UI:
+# Go to https://github.com/satvikOS/archdiscv1/settings/branches
+# Click switch icon → Select copilot/create-archdisc-software → Update
+```
+
+### Alternative: After Merging This PR
+
+Once this PR is merged to the default branch:
 
 #### Method 1: GitHub Actions (Easiest) ⭐
-1. Go to: https://github.com/satvikOS/archdiscv1/actions
-2. Click "Setup Default Branch" workflow
-3. Click "Run workflow" button
-4. Type "confirm" in the input field
-5. Click the green "Run workflow" button
-6. Wait ~30 seconds for completion
+The workflow will appear in the Actions tab and you can run it with one click.
 
 #### Method 2: Shell Script (Quick)
 ```bash
-cd /home/runner/work/archdiscv1/archdiscv1
 ./setup-default-branch.sh
-# Then follow the instructions to set as default in GitHub UI
 ```
 
 #### Method 3: Manual (Step by Step)
 Follow the instructions in `SET_DEFAULT_BRANCH.md`
+
+### Why The Workflow Doesn't Appear Yet
+
+GitHub only shows `workflow_dispatch` workflows from the default branch. Since this PR is on a feature branch, the workflow won't appear in the Actions UI until the PR is merged.
 
 ## Files Created
 
