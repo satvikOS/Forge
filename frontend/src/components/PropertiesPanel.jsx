@@ -57,7 +57,7 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
               borderBottom: activeTab === tab.id ? '2px solid var(--accent-orange)' : '2px solid transparent',
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
               cursor: 'pointer',
-              fontSize: '13px',
+              fontSize: '12px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -263,7 +263,7 @@ function PropertyGroup({ title, children }) {
   return (
     <div style={{ marginBottom: '20px' }}>
       <h3 style={{
-        fontSize: '14px',
+        fontSize: '12px',
         color: 'var(--accent-orange)',
         marginBottom: '10px',
         fontWeight: 'bold',
@@ -287,7 +287,7 @@ function Property({ label, value, valueColor }) {
       display: 'flex',
       justifyContent: 'space-between',
       marginBottom: '8px',
-      fontSize: '13px',
+      fontSize: '12px',
     }}>
       <span style={{ color: 'var(--text-secondary)' }}>{label}:</span>
       <span style={{ 
@@ -307,7 +307,7 @@ function EditableProperty({ label, value, unit }) {
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: '8px',
-      fontSize: '13px',
+      fontSize: '12px',
     }}>
       <span style={{ color: 'var(--text-secondary)', flex: '0 0 80px' }}>{label}:</span>
       <input

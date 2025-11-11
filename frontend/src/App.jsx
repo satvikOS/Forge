@@ -59,7 +59,7 @@ function App() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <h1 style={{
-            fontSize: '24px',
+            fontSize: '14px',
             fontWeight: 'bold',
             color: 'var(--text-primary)',
             margin: 0,
@@ -101,7 +101,7 @@ function App() {
           padding: '12px 20px',
           background: '#f44336',
           color: 'white',
-          fontSize: '14px',
+          fontSize: '12px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -114,7 +114,7 @@ function App() {
               border: 'none',
               color: 'white',
               cursor: 'pointer',
-              fontSize: '18px',
+              fontSize: '12px',
             }}
           >
             ×
@@ -161,10 +161,10 @@ function App() {
                   borderWidth: '4px',
                   marginBottom: '20px',
                 }} />
-                <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '12px', marginBottom: '10px' }}>
                   Generating your design...
                 </div>
-                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                   This may take a few moments
                 </div>
               </div>

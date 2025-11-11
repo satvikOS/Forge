@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const aiService = require('../services/aiService');
+const projectService = require('../services/projectService');
 
 /**
  * POST /api/design/generate
@@ -32,6 +33,56 @@ router.post('/generate', async (req, res) => {
   } catch (error) {
     console.error('Error generating design:', error);
     res.status(500).json({ error: 'Failed to generate design', message: error.message });
+  }
+});
+
+/**
+ * POST /api/design/proposals
+ * Generate 3 design proposal variations from prompt
+ */
+router.post('/proposals', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    // Generate 3 proposal variations
+    const proposalsData = await aiService.generateProposals(prompt);
+
+    res.json({
+      success: true,
+      ...proposalsData,
+    });
+  } catch (error) {
+    console.error('Error generating proposals:', error);
+    res.status(500).json({ error: 'Failed to generate proposals', message: error.message });
+  }
+});
+
+/**
+ * POST /api/design/project-info
+ * Generate comprehensive project information (BOM, budget, regulations, blueprint)
+ */
+router.post('/project-info', async (req, res) => {
+  try {
+    const { specifications } = req.body;
+
+    if (!specifications) {
+      return res.status(400).json({ error: 'Design specifications are required' });
+    }
+
+    // Generate project information
+    const projectInfo = await projectService.generateProjectInfo(specifications);
+
+    res.json({
+      success: true,
+      projectInfo,
+    });
+  } catch (error) {
+    console.error('Error generating project info:', error);
+    res.status(500).json({ error: 'Failed to generate project info', message: error.message });
   }
 });
 

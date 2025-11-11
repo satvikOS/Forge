@@ -78,7 +78,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
                   border: '1px solid var(--border-color)',
                   borderRadius: '6px',
                   color: 'var(--text-primary)',
-                  fontSize: '14px',
+                  fontSize: '12px',
                   cursor: loading ? 'not-allowed' : 'pointer',
                   textAlign: 'left',
                 }}
@@ -132,7 +132,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               justifyContent: 'center',
               color: 'var(--text-secondary)',
               cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '12px',
               flexShrink: 0,
             }}
             onMouseEnter={(e) => {
@@ -162,7 +162,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               border: '1px solid var(--border-color)',
               borderRadius: '6px',
               color: 'var(--text-primary)',
-              fontSize: '14px',
+              fontSize: '12px',
               outline: 'none',
             }}
             onFocus={(e) => {
@@ -188,7 +188,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               justifyContent: 'center',
               color: 'white',
               cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '12px',
               flexShrink: 0,
             }}
             onMouseEnter={(e) => {

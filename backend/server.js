@@ -10,6 +10,19 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Import AI service for validation
+const aiService = require('./services/aiService');
+
+// Validate API key on startup
+(async () => {
+  try {
+    await aiService.validateApiKey();
+  } catch (error) {
+    console.error('⚠️  Startup validation warning:', error.message);
+    console.error('⚠️  Server will continue but API functionality may be limited');
+  }
+})();
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
