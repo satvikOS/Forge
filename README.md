@@ -16,7 +16,7 @@ ArchDisc is an AI-powered design platform that lets anyone create and build any 
 
 ### Backend
 - **Node.js** with Express
-- **OpenAI API** for natural language processing
+- **Google Gemini API** for natural language processing and AI-powered design generation
 - RESTful API architecture
 - Modular service-based design
 
@@ -74,7 +74,9 @@ cp .env.example .env
 
 Edit `.env` and set your configuration:
 - `PORT`: Backend server port (default: 5000)
-- `OPENAI_API_KEY`: Your OpenAI API key (set to 'demo-mode' for demo responses)
+- `GEMINI_API_KEY`: Your Google Gemini API key (set to 'demo-mode' for demo responses)
+  - Get your API key from: https://makersuite.google.com/app/apikey
+- `GEMINI_MODEL`: Optional - Choose from gemini-1.5-pro, gemini-1.5-flash, or gemini-1.0-pro (default: gemini-1.5-pro)
 
 ### Running the Application
 
@@ -192,10 +194,19 @@ Automated verification against:
 
 ## Demo Mode
 
-The platform can run in demo mode without an OpenAI API key. Set `OPENAI_API_KEY=demo-mode` in your `.env` file. Demo mode provides pre-configured responses for:
+The platform can run in demo mode without a Gemini API key. Set `GEMINI_API_KEY=demo-mode` in your `.env` file. Demo mode provides pre-configured responses for:
 - Cars
 - Buildings
 - Furniture
+
+## AI Models
+
+ArchDisc uses Google's latest Gemini models for AI-powered design generation:
+- **gemini-1.5-pro** (default): Most capable model with advanced reasoning
+- **gemini-1.5-flash**: Fast and efficient for quick generations
+- **gemini-1.0-pro**: Stable production model
+
+Configure your preferred model via the `GEMINI_MODEL` environment variable.
 
 ## Future Enhancements
 

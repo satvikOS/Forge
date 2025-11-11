@@ -1,11 +1,24 @@
-const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class AIService {
   constructor() {
-    this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || 'demo-mode',
-    });
-    this.isDemoMode = !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo-mode';
+    // Initialize Gemini API client
+    this.apiKey = process.env.GEMINI_API_KEY || 'demo-mode';
+    this.isDemoMode = !process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'demo-mode';
+    
+    if (!this.isDemoMode) {
+      this.genAI = new GoogleGenerativeAI(this.apiKey);
+      // Use the latest and most capable Gemini model
+      this.model = this.genAI.getGenerativeModel({ 
+        model: process.env.GEMINI_MODEL || 'gemini-1.5-pro',
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 2048,
+          topP: 0.95,
+          topK: 40,
+        },
+      });
+    }
   }
 
   /**
@@ -17,33 +30,36 @@ class AIService {
     }
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert AI design assistant for ArchDisc, a platform that helps users create 3D designs from natural language. 
-            Your task is to interpret user prompts and generate structured design specifications including:
-            - Object type (car, building, furniture, etc.)
-            - Key dimensions and measurements
-            - Materials and textures
-            - Design style and aesthetic
-            - Functional requirements
-            Respond in JSON format with these fields.`
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-      });
+      const systemPrompt = `You are an expert AI design assistant for ArchDisc, a platform that helps users create 3D designs from natural language. 
+Your task is to interpret user prompts and generate structured design specifications.
 
-      const content = response.choices[0].message.content;
+IMPORTANT: You must respond with ONLY valid JSON in this exact format (no markdown, no code blocks, no additional text):
+{
+  "objectType": "car|building|furniture|object",
+  "description": "detailed description of the design",
+  "dimensions": {
+    "length": number,
+    "width": number,
+    "height": number,
+    "depth": number
+  },
+  "materials": ["material1", "material2"],
+  "style": "design style",
+  "features": ["feature1", "feature2"]
+}
+
+User prompt: ${prompt}
+
+Respond with JSON only:`;
+
+      const result = await this.model.generateContent(systemPrompt);
+      const response = await result.response;
+      const content = response.text();
+      
       return this.parseAIResponse(content);
     } catch (error) {
-      console.error('Error calling OpenAI API:', error);
+      console.error('Error calling Gemini API:', error);
+      // Fallback to demo mode on error
       return this.generateDemoResponse(prompt);
     }
   }
@@ -53,9 +69,28 @@ class AIService {
    */
   parseAIResponse(content) {
     try {
+      // Remove markdown code blocks if present
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/```\n?/g, '');
+      }
+      
       // Try to parse as JSON
-      return JSON.parse(content);
-    } catch (e) {
+      const parsed = JSON.parse(cleanContent.trim());
+      
+      // Ensure all required fields are present
+      return {
+        objectType: parsed.objectType || this.extractObjectType(content),
+        description: parsed.description || 'AI-generated design',
+        dimensions: parsed.dimensions || { width: 10, height: 10, depth: 10 },
+        materials: parsed.materials || ['default'],
+        style: parsed.style || 'modern',
+        features: parsed.features || [],
+      };
+    } catch (error) {
+      console.warn('Failed to parse AI response as JSON:', error.message);
       // If not JSON, extract information from text
       return {
         objectType: this.extractObjectType(content),
@@ -63,6 +98,7 @@ class AIService {
         dimensions: { width: 10, height: 10, depth: 10 },
         materials: ['default'],
         style: 'modern',
+        features: [],
       };
     }
   }
