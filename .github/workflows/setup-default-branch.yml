@@ -1,0 +1,56 @@
+name: Setup Default Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "confirm" to create and set default branch'
+        required: true
+        default: ''
+
+jobs:
+  setup-default-branch:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'confirm'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Create and push copilot/create-archdisc-software branch
+        run: |
+          # Check if branch exists remotely
+          if git ls-remote --heads origin copilot/create-archdisc-software | grep -q copilot/create-archdisc-software; then
+            echo "Branch already exists remotely"
+            git fetch origin copilot/create-archdisc-software
+            git checkout copilot/create-archdisc-software
+          elif git show-ref --verify --quiet refs/heads/copilot/create-archdisc-software; then
+            echo "Branch exists locally, pushing to remote"
+            git checkout copilot/create-archdisc-software
+            git push -u origin copilot/create-archdisc-software
+          else
+            echo "Creating new branch from current HEAD"
+            git checkout -b copilot/create-archdisc-software
+            git push -u origin copilot/create-archdisc-software
+          fi
+      
+      - name: Set as default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh repo edit ${{ github.repository }} --default-branch copilot/create-archdisc-software
+      
+      - name: Verify default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Current default branch:"
+          gh repo view ${{ github.repository }} --json defaultBranchRef --jq '.defaultBranchRef.name'
