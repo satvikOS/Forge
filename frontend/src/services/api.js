@@ -17,6 +17,32 @@ class APIService {
   }
 
   /**
+   * Generate 3 design proposal variations
+   */
+  async generateProposals(prompt) {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/design/proposals`, { prompt });
+      return response.data;
+    } catch (error) {
+      console.error('Error generating proposals:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate project information (BOM, budget, regulations, blueprint)
+   */
+  async generateProjectInfo(specifications) {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/design/project-info`, { specifications });
+      return response.data;
+    } catch (error) {
+      console.error('Error generating project info:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Analyze design
    */
   async analyzeDesign(design) {

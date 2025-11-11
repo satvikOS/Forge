@@ -1,8 +1,16 @@
+import AssetsLibrary from './AssetsLibrary';
+
 export default function Toolbar({ viewMode, onViewModeChange, isExploded, onExplodeToggle }) {
   const tools = [
     { id: 'solid', label: 'Solid', icon: '◼' },
     { id: 'wireframe', label: 'Wireframe', icon: '▢' },
   ];
+
+  const handleAssetSelect = (asset) => {
+    console.log('Asset selected:', asset);
+    // TODO: Implement asset insertion into canvas
+    alert(`Asset "${asset.name}" selected. Asset insertion coming soon!`);
+  };
 
   return (
     <div style={{
@@ -55,6 +63,16 @@ export default function Toolbar({ viewMode, onViewModeChange, isExploded, onExpl
           </button>
         ))}
       </div>
+
+      {/* Separator */}
+      <div style={{
+        width: '1px',
+        height: '30px',
+        background: 'var(--border-color)',
+      }} />
+
+      {/* 3D Assets Library */}
+      <AssetsLibrary onAssetSelect={handleAssetSelect} />
 
       {/* Separator */}
       <div style={{

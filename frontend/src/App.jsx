@@ -91,7 +91,7 @@ function App() {
             borderRadius: '50%',
             background: loading ? 'var(--accent-orange)' : '#4caf50',
           }} />
-          {loading ? 'Generating...' : 'Ready'}
+          {loading && 'Generating...'}
         </div>
       </header>
 

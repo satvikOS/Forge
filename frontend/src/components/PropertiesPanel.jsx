@@ -1,7 +1,31 @@
 import { useState, useEffect } from 'react';
+import ProjectInfoPanel from './ProjectInfoPanel';
+import apiService from '../services/api';
 
 export default function PropertiesPanel({ design, analysis, compliance }) {
   const [activeTab, setActiveTab] = useState('specs');
+  const [showProjectInfo, setShowProjectInfo] = useState(false);
+  const [projectInfo, setProjectInfo] = useState(null);
+  const [loadingProjectInfo, setLoadingProjectInfo] = useState(false);
+
+  const handleShowProjectInfo = async () => {
+    if (projectInfo) {
+      setShowProjectInfo(true);
+      return;
+    }
+
+    setLoadingProjectInfo(true);
+    try {
+      const result = await apiService.generateProjectInfo(design.specifications);
+      setProjectInfo(result.projectInfo);
+      setShowProjectInfo(true);
+    } catch (error) {
+      console.error('Error loading project info:', error);
+      alert('Failed to load project information. Please try again.');
+    } finally {
+      setLoadingProjectInfo(false);
+    }
+  };
 
   const tabs = [
     { id: 'specs', label: 'Specifications', icon: '📋' },
@@ -39,6 +63,14 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
       flexDirection: 'column',
       background: 'var(--bg-secondary)',
     }}>
+      {/* Project Info Panel */}
+      {showProjectInfo && (
+        <ProjectInfoPanel
+          projectInfo={projectInfo}
+          onClose={() => setShowProjectInfo(false)}
+        />
+      )}
+
       {/* Tabs */}
       <div style={{
         display: 'flex',
@@ -79,6 +111,57 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
             <span>{tab.label}</span>
           </button>
         ))}
+      </div>
+
+      {/* Project Info Button */}
+      <div style={{
+        padding: '10px',
+        borderBottom: '1px solid var(--border-color)',
+        background: 'var(--bg-tertiary)',
+      }}>
+        <button
+          onClick={handleShowProjectInfo}
+          disabled={loadingProjectInfo}
+          style={{
+            width: '100%',
+            padding: '10px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, var(--accent-orange) 100%)',
+            border: 'none',
+            borderRadius: '6px',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: 'bold',
+            cursor: loadingProjectInfo ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.2s',
+            opacity: loadingProjectInfo ? 0.6 : 1,
+          }}
+          onMouseEnter={(e) => {
+            if (!loadingProjectInfo) {
+              e.target.style.transform = 'translateY(-2px)';
+              e.target.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.3)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.transform = 'translateY(0)';
+            e.target.style.boxShadow = 'none';
+          }}
+        >
+          {loadingProjectInfo ? (
+            <>
+              <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
+              <span>Loading...</span>
+            </>
+          ) : (
+            <>
+              <span>📋</span>
+              <span>View Project Information</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Content */}
