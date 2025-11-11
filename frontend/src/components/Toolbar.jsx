@@ -8,35 +8,37 @@ export default function Toolbar({ viewMode, onViewModeChange, isExploded, onExpl
     <div style={{
       display: 'flex',
       gap: '10px',
-      padding: '10px',
-      background: 'var(--bg-secondary)',
-      borderBottom: '1px solid var(--border-color)',
+      padding: '8px 12px',
+      background: 'rgba(26, 26, 26, 0.95)',
+      backdropFilter: 'blur(10px)',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
       alignItems: 'center',
+      height: '44px',
     }}>
       {/* View mode selector */}
       <div style={{
         display: 'flex',
-        gap: '5px',
+        gap: '4px',
         background: 'var(--bg-tertiary)',
         borderRadius: '6px',
-        padding: '4px',
+        padding: '3px',
       }}>
         {tools.map((tool) => (
           <button
             key={tool.id}
             onClick={() => onViewModeChange(tool.id)}
             style={{
-              padding: '8px 16px',
+              padding: '6px 14px',
               background: viewMode === tool.id ? 'var(--accent-orange)' : 'transparent',
               border: 'none',
               borderRadius: '4px',
               color: viewMode === tool.id ? 'white' : 'var(--text-secondary)',
               cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: viewMode === tool.id ? 'bold' : 'normal',
+              fontSize: '13px',
+              fontWeight: viewMode === tool.id ? '600' : 'normal',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: '5px',
               transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
@@ -59,25 +61,25 @@ export default function Toolbar({ viewMode, onViewModeChange, isExploded, onExpl
       {/* Separator */}
       <div style={{
         width: '1px',
-        height: '30px',
-        background: 'var(--border-color)',
+        height: '24px',
+        background: 'rgba(255, 255, 255, 0.1)',
       }} />
 
       {/* Explode view toggle */}
       <button
         onClick={onExplodeToggle}
         style={{
-          padding: '8px 16px',
+          padding: '6px 14px',
           background: isExploded ? 'var(--accent-orange)' : 'var(--bg-tertiary)',
-          border: '1px solid var(--border-color)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '6px',
           color: isExploded ? 'white' : 'var(--text-secondary)',
           cursor: 'pointer',
-          fontSize: '14px',
-          fontWeight: isExploded ? 'bold' : 'normal',
+          fontSize: '13px',
+          fontWeight: isExploded ? '600' : 'normal',
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          gap: '5px',
           transition: 'all 0.2s',
         }}
         onMouseEnter={(e) => {
@@ -92,47 +94,44 @@ export default function Toolbar({ viewMode, onViewModeChange, isExploded, onExpl
         }}
       >
         <span>💥</span>
-        <span>Explode View</span>
-      </button>
-
-      {/* Separator */}
-      <div style={{
-        width: '1px',
-        height: '30px',
-        background: 'var(--border-color)',
-      }} />
-
-      {/* Render button (placeholder) */}
-      <button
-        disabled
-        style={{
-          padding: '8px 16px',
-          background: 'var(--bg-tertiary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '6px',
-          color: 'var(--text-disabled)',
-          cursor: 'not-allowed',
-          fontSize: '14px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          opacity: 0.5,
-        }}
-      >
-        <span>🎨</span>
-        <span>Render (Coming Soon)</span>
+        <span>Explode</span>
       </button>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Help text */}
-      <div style={{
-        fontSize: '12px',
-        color: 'var(--text-secondary)',
-        fontStyle: 'italic',
-      }}>
-        Click on parts to select and edit them individually
+      {/* Quick tools */}
+      <div style={{ display: 'flex', gap: '4px' }}>
+        {[
+          { icon: '↻', label: 'Reset View' },
+          { icon: '📷', label: 'Screenshot' },
+          { icon: '⚙', label: 'Settings' },
+        ].map((tool, idx) => (
+          <button
+            key={idx}
+            title={tool.label}
+            style={{
+              padding: '6px 10px',
+              background: 'transparent',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '6px',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '14px',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'var(--bg-hover)';
+              e.target.style.color = 'var(--text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'transparent';
+              e.target.style.color = 'var(--text-secondary)';
+            }}
+          >
+            {tool.icon}
+          </button>
+        ))}
       </div>
     </div>
   );
