@@ -77,21 +77,26 @@ function App() {
           </div>
         </div>
         
-        {/* Status indicator */}
+        {/* AI Online Indicator */}
         <div style={{
-          fontSize: '12px',
-          color: 'var(--text-secondary)',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
         }}>
+          <span style={{
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+          }}>
+            AI
+          </span>
           <div style={{
-            width: '8px',
-            height: '8px',
+            width: '10px',
+            height: '10px',
             borderRadius: '50%',
-            background: loading ? 'var(--accent-orange)' : '#4caf50',
+            background: loading ? '#f44336' : '#4caf50',
+            boxShadow: loading ? '0 0 8px rgba(244, 67, 54, 0.6)' : '0 0 8px rgba(76, 175, 80, 0.6)',
+            transition: 'all 0.3s ease',
           }} />
-          {loading ? 'Generating...' : 'Ready'}
         </div>
       </header>
 

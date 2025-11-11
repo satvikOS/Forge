@@ -4,16 +4,16 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
   const [activeTab, setActiveTab] = useState('specs');
 
   const tabs = [
-    { id: 'specs', label: 'Specifications', icon: '📋' },
-    { id: 'analysis', label: 'Analysis', icon: '📊' },
-    { id: 'compliance', label: 'Compliance', icon: '✓' },
-    { id: 'edit', label: 'Edit Properties', icon: '⚙' },
+    { id: 'specs', label: 'Specifications' },
+    { id: 'analysis', label: 'Analysis' },
+    { id: 'compliance', label: 'Compliance' },
+    { id: 'projectInfo', label: 'Project Info' },
+    { id: 'edit', label: 'Edit Properties' },
   ];
 
   if (!design) {
     return (
       <div style={{
-        height: '100%',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -22,8 +22,7 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
         padding: '20px',
       }}>
         <div>
-          <div style={{ fontSize: '48px', marginBottom: '10px' }}>🎨</div>
-          <div>No design generated yet</div>
+          <div style={{ fontSize: '14px', marginBottom: '10px' }}>No design generated yet</div>
           <div style={{ fontSize: '12px', marginTop: '5px' }}>
             Use the prompt bar below to create a design
           </div>
@@ -75,7 +74,6 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
               }
             }}
           >
-            <span>{tab.icon}</span>
             <span>{tab.label}</span>
           </button>
         ))}
@@ -95,6 +93,9 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
         )}
         {activeTab === 'compliance' && compliance && (
           <ComplianceTab compliance={compliance} />
+        )}
+        {activeTab === 'projectInfo' && (
+          <ProjectInfoTab design={design} />
         )}
         {activeTab === 'edit' && (
           <EditTab />
@@ -218,6 +219,428 @@ function ComplianceTab({ compliance }) {
           ))}
         </PropertyGroup>
       )}
+    </div>
+  );
+}
+
+function ProjectInfoTab({ design }) {
+  const [budget, setBudget] = useState('$50,000');
+  const [showBOM, setShowBOM] = useState(false);
+  const [showBlueprint, setShowBlueprint] = useState(false);
+  
+  // Location fields for regulation & legality
+  const [location, setLocation] = useState({
+    country: '',
+    state: '',
+    city: '',
+    region: '',
+    area: '',
+    pincode: ''
+  });
+
+  const handleLocationChange = (field, value) => {
+    setLocation(prev => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <div>
+      {/* Notice Banner */}
+      <div style={{
+        padding: '12px',
+        background: 'rgba(255, 107, 53, 0.1)',
+        border: '1px solid var(--accent-orange)',
+        borderRadius: '6px',
+        marginBottom: '20px',
+        fontSize: '11px',
+        color: 'var(--text-secondary)',
+        textAlign: 'center',
+      }}>
+        ⚠️ All values are AI-generated estimates and should be considered tentative
+      </div>
+
+      {/* Budget */}
+      <PropertyGroup title="Budget (Estimated)">
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          marginBottom: '8px',
+        }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Total:</span>
+          <input
+            type="text"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '4px',
+              color: 'var(--accent-orange)',
+              fontSize: '14px',
+              fontWeight: 'bold',
+            }}
+          />
+        </div>
+        <div style={{
+          fontSize: '11px',
+          color: 'var(--text-secondary)',
+          fontStyle: 'italic',
+        }}>
+          Editable - Adjust based on your requirements
+        </div>
+      </PropertyGroup>
+
+      {/* Regulation & Legality */}
+      <PropertyGroup title="Regulation & Legality">
+        {/* Location Input Fields */}
+        <div style={{ marginBottom: '15px' }}>
+          <div style={{ 
+            fontSize: '11px', 
+            color: 'var(--accent-orange)', 
+            fontWeight: 'bold',
+            marginBottom: '8px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px'
+          }}>
+            Project Location
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+            <input
+              type="text"
+              placeholder="Country"
+              value={location.country}
+              onChange={(e) => handleLocationChange('country', e.target.value)}
+              style={{
+                padding: '8px 10px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="State/Province"
+              value={location.state}
+              onChange={(e) => handleLocationChange('state', e.target.value)}
+              style={{
+                padding: '8px 10px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+              }}
+            />
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+            <input
+              type="text"
+              placeholder="City"
+              value={location.city}
+              onChange={(e) => handleLocationChange('city', e.target.value)}
+              style={{
+                padding: '8px 10px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Region/District"
+              value={location.region}
+              onChange={(e) => handleLocationChange('region', e.target.value)}
+              style={{
+                padding: '8px 10px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+              }}
+            />
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <input
+              type="text"
+              placeholder="Area/Neighborhood"
+              value={location.area}
+              onChange={(e) => handleLocationChange('area', e.target.value)}
+              style={{
+                padding: '8px 10px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Pincode/ZIP"
+              value={location.pincode}
+              onChange={(e) => handleLocationChange('pincode', e.target.value)}
+              style={{
+                padding: '8px 10px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+              }}
+            />
+          </div>
+
+          <button
+            onClick={() => {
+              console.log('Fetching regulations for:', location);
+              // TODO: Call API to get location-specific regulations
+            }}
+            style={{
+              width: '100%',
+              marginTop: '10px',
+              padding: '8px',
+              background: 'var(--accent-orange)',
+              border: 'none',
+              borderRadius: '4px',
+              color: 'white',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'var(--accent-orange-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'var(--accent-orange)';
+            }}
+          >
+            Get Location-Specific Regulations
+          </button>
+        </div>
+
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+          <div style={{ marginBottom: '8px' }}>
+            <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Building Codes:</span>
+            <div style={{ marginTop: '4px', paddingLeft: '10px' }}>
+              • International Building Code (IBC) compliance required<br />
+              • Local zoning regulations must be verified<br />
+              • Permit required before construction
+            </div>
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Safety Standards:</span>
+            <div style={{ marginTop: '4px', paddingLeft: '10px' }}>
+              • Fire safety codes must be followed<br />
+              • Structural integrity certification needed<br />
+              • Electrical and plumbing inspections required
+            </div>
+          </div>
+          <div>
+            <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Legal Requirements:</span>
+            <div style={{ marginTop: '4px', paddingLeft: '10px' }}>
+              • Professional architect/engineer review recommended<br />
+              • Insurance considerations<br />
+              • Property line and easement compliance
+            </div>
+          </div>
+        </div>
+      </PropertyGroup>
+
+      {/* BOM - Bill of Materials */}
+      <PropertyGroup title="Bill of Materials (BOM)">
+        <button
+          onClick={() => setShowBOM(!showBOM)}
+          style={{
+            width: '100%',
+            padding: '10px',
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '4px',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '8px',
+          }}
+        >
+          <span>View Materials & Sources</span>
+          <span>{showBOM ? '▲' : '▼'}</span>
+        </button>
+        {showBOM && (
+          <div style={{
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            background: 'var(--bg-primary)',
+            padding: '10px',
+            borderRadius: '4px',
+            maxHeight: '200px',
+            overflowY: 'auto',
+          }}>
+            <div style={{ marginBottom: '10px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Structural Materials:</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                • Concrete (5 cubic yards) - Home Depot, Lowes<br />
+                • Steel beams (4x 20ft) - Metal Supermarkets<br />
+                • Lumber 2x4 (50 pieces) - Home Depot, Menards<br />
+                • Rebar (#4, 100ft) - Home Depot, Construction supply
+              </div>
+            </div>
+            <div style={{ marginBottom: '10px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Finishing Materials:</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                • Drywall sheets (30 panels) - Home Depot, Lowes<br />
+                • Paint (10 gallons) - Sherwin-Williams, Benjamin Moore<br />
+                • Flooring (500 sq ft) - Floor & Decor, Lumber Liquidators<br />
+                • Windows (6 units) - Andersen, Pella dealers
+              </div>
+            </div>
+            <div style={{ marginBottom: '10px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Hardware & Fixtures:</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                • Nails/Screws (assorted) - Home Depot, Lowes<br />
+                • Door hardware - Home Depot, Build.com<br />
+                • Electrical fixtures - Home Depot, Electrical supply stores<br />
+                • Plumbing fixtures - Home Depot, Ferguson
+              </div>
+            </div>
+          </div>
+        )}
+      </PropertyGroup>
+
+      {/* DIY Blueprint */}
+      <PropertyGroup title="Complete DIY Blueprint">
+        <button
+          onClick={() => setShowBlueprint(!showBlueprint)}
+          style={{
+            width: '100%',
+            padding: '10px',
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '4px',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '8px',
+          }}
+        >
+          <span>View Step-by-Step Instructions</span>
+          <span>{showBlueprint ? '▲' : '▼'}</span>
+        </button>
+        {showBlueprint && (
+          <div style={{
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            background: 'var(--bg-primary)',
+            padding: '10px',
+            borderRadius: '4px',
+            maxHeight: '200px',
+            overflowY: 'auto',
+          }}>
+            <div style={{ marginBottom: '12px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Phase 1: Preparation (1-2 weeks)</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                1. Obtain necessary permits and approvals<br />
+                2. Clear and level the construction site<br />
+                3. Set up temporary utilities<br />
+                4. Establish safety perimeter
+              </div>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Phase 2: Foundation (2-3 weeks)</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                1. Excavate foundation area<br />
+                2. Install footings and drainage<br />
+                3. Pour concrete foundation<br />
+                4. Allow curing time (minimum 7 days)
+              </div>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Phase 3: Framing (3-4 weeks)</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                1. Install floor joists and subfloor<br />
+                2. Erect wall frames<br />
+                3. Install roof trusses<br />
+                4. Add sheathing and weatherproofing
+              </div>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Phase 4: MEP Systems (2-3 weeks)</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                1. Rough electrical wiring<br />
+                2. Rough plumbing installation<br />
+                3. HVAC ductwork<br />
+                4. Inspections
+              </div>
+            </div>
+            <div>
+              <span style={{ color: 'var(--accent-orange)', fontWeight: 'bold' }}>Phase 5: Finishing (4-6 weeks)</span>
+              <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                1. Install insulation<br />
+                2. Hang and finish drywall<br />
+                3. Install flooring<br />
+                4. Paint and final touches<br />
+                5. Install fixtures and trim<br />
+                6. Final inspections
+              </div>
+            </div>
+          </div>
+        )}
+      </PropertyGroup>
+
+      {/* Duration */}
+      <PropertyGroup title="Duration to Complete">
+        <Property label="Estimated Timeline" value="12-16 weeks" valueColor="var(--accent-orange)" />
+        <div style={{
+          fontSize: '11px',
+          color: 'var(--text-secondary)',
+          marginTop: '8px',
+          paddingTop: '8px',
+          borderTop: '1px solid var(--border-color)',
+        }}>
+          <div style={{ marginBottom: '4px' }}>
+            • Preparation: 1-2 weeks<br />
+            • Foundation: 2-3 weeks<br />
+            • Framing: 3-4 weeks<br />
+            • MEP Systems: 2-3 weeks<br />
+            • Finishing: 4-6 weeks
+          </div>
+          <div style={{ marginTop: '8px', fontStyle: 'italic' }}>
+            Timeline may vary based on weather, inspections, and material availability
+          </div>
+        </div>
+      </PropertyGroup>
+
+      {/* Disclaimer */}
+      <div style={{
+        marginTop: '20px',
+        padding: '12px',
+        background: 'rgba(244, 67, 54, 0.1)',
+        border: '1px solid #f44336',
+        borderRadius: '6px',
+        fontSize: '11px',
+        color: 'var(--text-secondary)',
+        lineHeight: '1.5',
+      }}>
+        <div style={{ color: '#f44336', fontWeight: 'bold', marginBottom: '6px' }}>
+          ⚠️ IMPORTANT DISCLAIMER
+        </div>
+        AI can make mistakes. Please consult with professionals before proceeding with construction. This information is for reference only and should not be considered as professional advice. Always verify with licensed architects, engineers, and contractors.
+      </div>
     </div>
   );
 }
