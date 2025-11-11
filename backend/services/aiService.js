@@ -1,11 +1,14 @@
-const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class AIService {
   constructor() {
-    this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || 'demo-mode',
-    });
-    this.isDemoMode = !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo-mode';
+    const apiKey = process.env.GEMINI_API_KEY || 'demo-mode';
+    this.isDemoMode = !process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'demo-mode';
+    
+    if (!this.isDemoMode) {
+      this.client = new GoogleGenerativeAI(apiKey);
+      this.model = this.client.getGenerativeModel({ model: 'gemini-pro' });
+    }
   }
 
   /**
@@ -17,33 +20,24 @@ class AIService {
     }
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert AI design assistant for ArchDisc, a platform that helps users create 3D designs from natural language. 
-            Your task is to interpret user prompts and generate structured design specifications including:
-            - Object type (car, building, furniture, etc.)
-            - Key dimensions and measurements
-            - Materials and textures
-            - Design style and aesthetic
-            - Functional requirements
-            Respond in JSON format with these fields.`
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-      });
+      const systemPrompt = `You are an expert AI design assistant for ArchDisc, a platform that helps users create 3D designs from natural language. 
+Your task is to interpret user prompts and generate structured design specifications including:
+- Object type (car, building, furniture, etc.)
+- Key dimensions and measurements
+- Materials and textures
+- Design style and aesthetic
+- Functional requirements
+Respond in JSON format with these fields.`;
 
-      const content = response.choices[0].message.content;
+      const fullPrompt = `${systemPrompt}\n\nUser request: ${prompt}`;
+      
+      const result = await this.model.generateContent(fullPrompt);
+      const response = await result.response;
+      const content = response.text();
+      
       return this.parseAIResponse(content);
     } catch (error) {
-      console.error('Error calling OpenAI API:', error);
+      console.error('Error calling Gemini API:', error);
       return this.generateDemoResponse(prompt);
     }
   }
@@ -53,8 +47,19 @@ class AIService {
    */
   parseAIResponse(content) {
     try {
+      // Remove markdown code blocks if present
+      let cleanedContent = content.trim();
+      
+      // Check for markdown code blocks with json
+      if (cleanedContent.startsWith('```json')) {
+        cleanedContent = cleanedContent.replace(/^```json\s*\n/, '').replace(/\n```\s*$/, '');
+      } else if (cleanedContent.startsWith('```')) {
+        // Handle generic code blocks
+        cleanedContent = cleanedContent.replace(/^```\s*\n/, '').replace(/\n```\s*$/, '');
+      }
+      
       // Try to parse as JSON
-      return JSON.parse(content);
+      return JSON.parse(cleanedContent);
     } catch (e) {
       // If not JSON, extract information from text
       return {
