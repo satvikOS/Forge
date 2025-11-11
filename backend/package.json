@@ -5,6 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -18,5 +20,8 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "openai": "^6.8.1"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1"
   }
 }
