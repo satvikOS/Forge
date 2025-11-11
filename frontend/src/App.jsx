@@ -26,6 +26,9 @@ function App() {
       // Generate design
       const designResult = await apiService.generateDesign(prompt);
       setDesign(designResult.design);
+      
+      // Auto-expand panel when design is generated
+      setIsPanelCollapsed(false);
 
       // Perform analysis
       const analysisResult = await apiService.analyzeDesign(designResult.design.specifications);

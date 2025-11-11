@@ -79,13 +79,14 @@ export default function PropertiesPanel({ design, analysis, compliance, isCollap
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-secondary)',
+        position: 'relative',
       }}>
-        {/* Collapse/Expand Button */}
+        {/* Collapse/Expand Button - positioned at left edge of panel */}
         <button
           onClick={onToggleCollapse}
           style={{
             position: 'absolute',
-            right: '355px',
+            left: '-30px',
             top: '85px',
             width: '30px',
             height: '30px',
@@ -143,12 +144,12 @@ export default function PropertiesPanel({ design, analysis, compliance, isCollap
       background: 'var(--bg-secondary)',
       position: 'relative',
     }}>
-      {/* Collapse/Expand Button */}
+      {/* Collapse/Expand Button - positioned at left edge of panel */}
       <button
         onClick={onToggleCollapse}
         style={{
           position: 'absolute',
-          right: '355px',
+          left: '-30px',
           top: '5px',
           width: '30px',
           height: '30px',

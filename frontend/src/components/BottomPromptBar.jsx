@@ -95,6 +95,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               lineHeight: '20px',
               fontFamily: 'inherit',
               transition: 'all 0.2s',
+              overflow: 'hidden',
             }}
             onFocus={(e) => {
               e.target.style.borderColor = 'var(--accent-orange)';
