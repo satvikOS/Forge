@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, Environment } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { Suspense } from 'react';
 
 function Box({ dimensions, position, color }) {
@@ -94,8 +94,6 @@ export default function Viewer3D({ modelData }) {
           <directionalLight position={[-10, -10, -5]} intensity={0.5} />
           
           <Model geometry={modelData?.geometry} />
-          
-          <Environment preset="city" />
           
           <gridHelper args={[20, 20, '#444', '#222']} />
         </Suspense>
