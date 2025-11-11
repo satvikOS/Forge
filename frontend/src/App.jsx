@@ -14,7 +14,7 @@ function App() {
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('solid');
   const [isExploded, setIsExploded] = useState(false);
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true); // Start collapsed
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false); // Start expanded
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);

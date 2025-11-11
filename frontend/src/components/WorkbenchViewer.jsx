@@ -278,8 +278,8 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
           {/* Axes Helper */}
           <axesHelper args={[5]} />
 
-          {/* Gizmo */}
-          <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
+          {/* Gizmo - Rotating cube at top-right corner */}
+          <GizmoHelper alignment="top-right" margin={[80, 80]}>
             <GizmoViewcube color="#ff6b35" hoverColor="#ff8555" />
           </GizmoHelper>
         </Suspense>
