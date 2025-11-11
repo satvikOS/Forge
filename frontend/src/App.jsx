@@ -60,19 +60,20 @@ function App() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <h1 style={{
-            fontSize: '24px',
-            fontWeight: 'bold',
+            fontSize: '20px',
+            fontWeight: '400',
             color: 'var(--text-primary)',
             margin: 0,
           }}>
             ArchDisc
           </h1>
           <div style={{
-            fontSize: '12px',
+            fontSize: '10px',
             color: 'var(--text-secondary)',
-            padding: '4px 10px',
+            padding: '3px 8px',
             background: 'var(--bg-tertiary)',
-            borderRadius: '12px',
+            borderRadius: '10px',
+            fontWeight: '300',
           }}>
             AI-Powered Design Workbench
           </div>
@@ -84,12 +85,6 @@ function App() {
           alignItems: 'center',
           gap: '8px',
         }}>
-          <span style={{
-            fontSize: '12px',
-            color: 'var(--text-secondary)',
-          }}>
-            AI
-          </span>
           <div style={{
             width: '10px',
             height: '10px',

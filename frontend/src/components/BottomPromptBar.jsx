@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 
 export default function BottomPromptBar({ onSubmit, loading }) {
   const [prompt, setPrompt] = useState('');
-  const [isExpanded, setIsExpanded] = useState(false);
   const textareaRef = useRef(null);
 
   // Auto-resize textarea
@@ -28,88 +27,8 @@ export default function BottomPromptBar({ onSubmit, loading }) {
     }
   };
 
-  const examplePrompts = [
-    'Design a modern sports car',
-    'Create a contemporary office building',
-    'Design an ergonomic office chair',
-  ];
-
   return (
     <>
-      {/* Example prompts popup */}
-      {isExpanded && (
-        <div style={{
-          position: 'fixed',
-          bottom: '90px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '12px',
-          padding: '15px',
-          maxWidth: '600px',
-          width: '90%',
-          zIndex: 999,
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
-        }}>
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            marginBottom: '10px',
-          }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Try these examples:
-            </span>
-            <button
-              onClick={() => setIsExpanded(false)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: '18px',
-              }}
-            >
-              ×
-            </button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {examplePrompts.map((example, index) => (
-              <button
-                key={index}
-                onClick={() => {
-                  setPrompt(example);
-                  setIsExpanded(false);
-                }}
-                disabled={loading}
-                style={{
-                  padding: '10px',
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '6px',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.target.style.background = 'var(--bg-hover)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'var(--bg-tertiary)';
-                }}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Floating Curved Prompt Bar */}
       <div style={{
         position: 'fixed',
@@ -130,38 +49,27 @@ export default function BottomPromptBar({ onSubmit, loading }) {
           gap: '8px',
           alignItems: 'flex-end',
         }}>
-          {/* Expand button */}
-          <button
-            type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            disabled={loading}
+          {/* ArchPro Badge */}
+          <div
             style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
+              background: 'linear-gradient(135deg, var(--accent-orange) 0%, #ff8555 100%)',
+              border: 'none',
               borderRadius: '20px',
-              width: '40px',
+              padding: '0 12px',
               height: '40px',
-              minWidth: '40px',
+              minWidth: '85px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'var(--text-secondary)',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              color: 'white',
+              fontSize: '13px',
+              fontWeight: 'bold',
               flexShrink: 0,
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) {
-                e.target.style.background = 'var(--bg-hover)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'var(--bg-tertiary)';
+              letterSpacing: '0.5px',
             }}
           >
-            ⋯
-          </button>
+            ArchPro
+          </div>
 
           {/* Textarea field */}
           <textarea

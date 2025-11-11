@@ -190,17 +190,18 @@ export default function PropertiesPanel({ design, analysis, compliance, isCollap
             onClick={() => setActiveTab(tab.id)}
             style={{
               flex: 1,
-              padding: '12px 8px',
+              padding: '10px 6px',
               background: activeTab === tab.id ? 'var(--bg-secondary)' : 'transparent',
               border: 'none',
               borderBottom: activeTab === tab.id ? '2px solid var(--accent-orange)' : '2px solid transparent',
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
               cursor: 'pointer',
-              fontSize: '13px',
+              fontSize: '11px',
+              fontWeight: '300',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px',
+              gap: '4px',
               transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
@@ -368,19 +369,8 @@ function ProjectInfoTab({ design }) {
   const [showBOM, setShowBOM] = useState(false);
   const [showBlueprint, setShowBlueprint] = useState(false);
   
-  // Location fields for regulation & legality
-  const [location, setLocation] = useState({
-    country: '',
-    state: '',
-    city: '',
-    region: '',
-    area: '',
-    pincode: ''
-  });
-
-  const handleLocationChange = (field, value) => {
-    setLocation(prev => ({ ...prev, [field]: value }));
-  };
+  // Single location field for regulation & legality
+  const [location, setLocation] = useState('');
 
   return (
     <div>
@@ -447,98 +437,22 @@ function ProjectInfoTab({ design }) {
             Project Location
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <input
-              type="text"
-              placeholder="Country"
-              value={location.country}
-              onChange={(e) => handleLocationChange('country', e.target.value)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-                fontSize: '12px',
-              }}
-            />
-            <input
-              type="text"
-              placeholder="State/Province"
-              value={location.state}
-              onChange={(e) => handleLocationChange('state', e.target.value)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-                fontSize: '12px',
-              }}
-            />
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <input
-              type="text"
-              placeholder="City"
-              value={location.city}
-              onChange={(e) => handleLocationChange('city', e.target.value)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-                fontSize: '12px',
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Region/District"
-              value={location.region}
-              onChange={(e) => handleLocationChange('region', e.target.value)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-                fontSize: '12px',
-              }}
-            />
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <input
-              type="text"
-              placeholder="Area/Neighborhood"
-              value={location.area}
-              onChange={(e) => handleLocationChange('area', e.target.value)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-                fontSize: '12px',
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Pincode/ZIP"
-              value={location.pincode}
-              onChange={(e) => handleLocationChange('pincode', e.target.value)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-                fontSize: '12px',
-              }}
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="Enter location (e.g., San Francisco, CA, USA or full address)"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '4px',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              marginBottom: '10px',
+            }}
+          />
 
           <button
             onClick={() => {
