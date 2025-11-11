@@ -26,6 +26,18 @@ ArchDisc is an AI-powered design platform that lets anyone create and build any 
 - **React Three Drei** for enhanced 3D components
 - Responsive and modern UI
 
+## Deployment
+
+### Deploy to Vercel
+
+ArchDisc is fully configured for one-click deployment to Vercel. See the [Vercel Deployment Guide](./VERCEL_DEPLOYMENT.md) for detailed instructions.
+
+**Quick Deploy:**
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/satvikOS/archdiscv1)
+
+For step-by-step instructions, environment variables, and troubleshooting, refer to [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md).
+
 ## Getting Started
 
 ### Prerequisites
