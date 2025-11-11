@@ -12,6 +12,9 @@ jobs:
   setup-default-branch:
     runs-on: ubuntu-latest
     if: github.event.inputs.confirm == 'confirm'
+    permissions:
+      contents: write
+      administration: write
     
     steps:
       - name: Checkout repository
