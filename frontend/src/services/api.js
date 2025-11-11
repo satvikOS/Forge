@@ -17,6 +17,19 @@ class APIService {
   }
 
   /**
+   * Generate multiple design proposals (ArchPro feature)
+   */
+  async generateProposals(prompt, count = 3) {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/design/proposals`, { prompt, count });
+      return response.data;
+    } catch (error) {
+      console.error('Error generating proposals:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Analyze design
    */
   async analyzeDesign(design) {
