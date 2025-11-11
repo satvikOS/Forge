@@ -114,10 +114,109 @@ function Model({ geometry, selectedPart, onSelectPart, isWireframe, isExploded }
 
 export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
   const [selectedPart, setSelectedPart] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
   const isWireframe = viewMode === 'wireframe';
 
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+    });
+  };
+
+  const handleClick = () => {
+    setContextMenu(null);
+  };
+
+  const contextMenuOptions = [
+    { label: 'Reset View', icon: '🔄' },
+    { label: 'Focus on Part', icon: '🎯', disabled: selectedPart === null },
+    { label: 'Duplicate Part', icon: '📋', disabled: selectedPart === null },
+    { separator: true },
+    { label: 'Export Model', icon: '💾' },
+    { label: 'Take Screenshot', icon: '📸' },
+    { separator: true },
+    { label: 'Grid Settings', icon: '⚙️' },
+  ];
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}>
+    <div 
+      style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}
+      onContextMenu={handleContextMenu}
+      onClick={handleClick}
+    >
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+            padding: '6px',
+            zIndex: 10000,
+            minWidth: '180px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.6)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenuOptions.map((option, index) => {
+            if (option.separator) {
+              return (
+                <div
+                  key={index}
+                  style={{
+                    height: '1px',
+                    background: 'var(--border-color)',
+                    margin: '4px 0',
+                  }}
+                />
+              );
+            }
+            
+            return (
+              <button
+                key={index}
+                disabled={option.disabled}
+                onClick={() => {
+                  console.log('Context menu action:', option.label);
+                  setContextMenu(null);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: option.disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
+                  cursor: option.disabled ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s',
+                  opacity: option.disabled ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!option.disabled) {
+                    e.target.style.background = 'var(--bg-hover)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'transparent';
+                }}
+              >
+                <span>{option.icon}</span>
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {/* View info overlay */}
       <div style={{
         position: 'absolute',

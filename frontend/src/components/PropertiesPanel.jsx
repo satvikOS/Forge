@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-export default function PropertiesPanel({ design, analysis, compliance }) {
+export default function PropertiesPanel({ design, analysis, compliance, isCollapsed, onToggleCollapse }) {
   const [activeTab, setActiveTab] = useState('specs');
 
   const tabs = [
@@ -11,20 +11,124 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
     { id: 'edit', label: 'Edit Properties' },
   ];
 
+  if (isCollapsed) {
+    return (
+      <div style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--bg-secondary)',
+        borderLeft: '1px solid var(--border-color)',
+      }}>
+        {/* Collapse/Expand Button */}
+        <button
+          onClick={onToggleCollapse}
+          style={{
+            padding: '15px 10px',
+            background: 'var(--bg-tertiary)',
+            border: 'none',
+            borderBottom: '1px solid var(--border-color)',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontSize: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = 'var(--bg-hover)';
+            e.target.style.color = 'var(--accent-orange)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'var(--bg-tertiary)';
+            e.target.style.color = 'var(--text-secondary)';
+          }}
+          title="Expand Panel"
+        >
+          ◀
+        </button>
+        
+        {/* Vertical text hint */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px 0',
+        }}>
+          <div style={{
+            transform: 'rotate(-90deg)',
+            whiteSpace: 'nowrap',
+            color: 'var(--text-secondary)',
+            fontSize: '11px',
+            textTransform: 'uppercase',
+            letterSpacing: '1px',
+          }}>
+            Properties
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!design) {
     return (
       <div style={{
+        height: '100%',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--text-secondary)',
-        textAlign: 'center',
-        padding: '20px',
+        flexDirection: 'column',
+        background: 'var(--bg-secondary)',
       }}>
-        <div>
-          <div style={{ fontSize: '14px', marginBottom: '10px' }}>No design generated yet</div>
-          <div style={{ fontSize: '12px', marginTop: '5px' }}>
-            Use the prompt bar below to create a design
+        {/* Collapse/Expand Button */}
+        <button
+          onClick={onToggleCollapse}
+          style={{
+            position: 'absolute',
+            right: '355px',
+            top: '85px',
+            width: '30px',
+            height: '30px',
+            background: 'var(--bg-tertiary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '4px 0 0 4px',
+            borderRight: 'none',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = 'var(--bg-hover)';
+            e.target.style.color = 'var(--accent-orange)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'var(--bg-tertiary)';
+            e.target.style.color = 'var(--text-secondary)';
+          }}
+          title="Collapse Panel"
+        >
+          ▶
+        </button>
+        
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--text-secondary)',
+          textAlign: 'center',
+          padding: '20px',
+        }}>
+          <div>
+            <div style={{ fontSize: '14px', marginBottom: '10px' }}>No design generated yet</div>
+            <div style={{ fontSize: '12px', marginTop: '5px' }}>
+              Use the prompt bar below to create a design
+            </div>
           </div>
         </div>
       </div>
@@ -37,7 +141,43 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
       display: 'flex',
       flexDirection: 'column',
       background: 'var(--bg-secondary)',
+      position: 'relative',
     }}>
+      {/* Collapse/Expand Button */}
+      <button
+        onClick={onToggleCollapse}
+        style={{
+          position: 'absolute',
+          right: '355px',
+          top: '5px',
+          width: '30px',
+          height: '30px',
+          background: 'var(--bg-tertiary)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '4px 0 0 4px',
+          borderRight: 'none',
+          color: 'var(--text-secondary)',
+          cursor: 'pointer',
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10,
+          transition: 'all 0.2s',
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.background = 'var(--bg-hover)';
+          e.target.style.color = 'var(--accent-orange)';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.background = 'var(--bg-tertiary)';
+          e.target.style.color = 'var(--text-secondary)';
+        }}
+        title="Collapse Panel"
+      >
+        ▶
+      </button>
+      
       {/* Tabs */}
       <div style={{
         display: 'flex',

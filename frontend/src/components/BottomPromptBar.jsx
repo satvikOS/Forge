@@ -1,13 +1,23 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function BottomPromptBar({ onSubmit, loading }) {
   const [prompt, setPrompt] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  const textareaRef = useRef(null);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px';
+    }
+  }, [prompt]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (prompt.trim() && !loading) {
       onSubmit(prompt);
+      setPrompt('');
     }
   };
 
@@ -30,16 +40,17 @@ export default function BottomPromptBar({ onSubmit, loading }) {
       {isExpanded && (
         <div style={{
           position: 'fixed',
-          bottom: '80px',
+          bottom: '90px',
           left: '50%',
           transform: 'translateX(-50%)',
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border-color)',
-          borderRadius: '8px',
+          borderRadius: '12px',
           padding: '15px',
           maxWidth: '600px',
           width: '90%',
           zIndex: 999,
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
         }}>
           <div style={{ 
             display: 'flex', 
@@ -81,6 +92,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
                   fontSize: '14px',
                   cursor: loading ? 'not-allowed' : 'pointer',
                   textAlign: 'left',
+                  transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
                   if (!loading) {
@@ -98,23 +110,25 @@ export default function BottomPromptBar({ onSubmit, loading }) {
         </div>
       )}
 
-      {/* Bottom prompt bar */}
+      {/* Floating Curved Prompt Bar */}
       <div style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
+        bottom: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
         background: 'var(--bg-secondary)',
-        borderTop: '2px solid var(--border-color)',
-        padding: '15px 20px',
+        border: '1px solid var(--border-color)',
+        borderRadius: '28px',
+        padding: '8px',
+        maxWidth: '800px',
+        width: '90%',
         zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
       }}>
         <form onSubmit={handleSubmit} style={{
-          maxWidth: '1200px',
-          margin: '0 auto',
           display: 'flex',
-          gap: '10px',
-          alignItems: 'center',
+          gap: '8px',
+          alignItems: 'flex-end',
         }}>
           {/* Expand button */}
           <button
@@ -124,9 +138,10 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             style={{
               background: 'var(--bg-tertiary)',
               border: '1px solid var(--border-color)',
-              borderRadius: '6px',
+              borderRadius: '20px',
               width: '40px',
               height: '40px',
+              minWidth: '40px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -134,6 +149,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               cursor: loading ? 'not-allowed' : 'pointer',
               fontSize: '18px',
               flexShrink: 0,
+              transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               if (!loading) {
@@ -147,23 +163,30 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             ⋯
           </button>
 
-          {/* Input field */}
-          <input
-            type="text"
+          {/* Textarea field */}
+          <textarea
+            ref={textareaRef}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Describe what you want to design..."
             disabled={loading}
+            rows={1}
             style={{
               flex: 1,
-              padding: '12px 16px',
+              padding: '10px 16px',
               background: 'var(--bg-tertiary)',
               border: '1px solid var(--border-color)',
-              borderRadius: '6px',
+              borderRadius: '20px',
               color: 'var(--text-primary)',
               fontSize: '14px',
               outline: 'none',
+              resize: 'none',
+              minHeight: '40px',
+              maxHeight: '150px',
+              lineHeight: '20px',
+              fontFamily: 'inherit',
+              transition: 'all 0.2s',
             }}
             onFocus={(e) => {
               e.target.style.borderColor = 'var(--accent-orange)';
@@ -180,9 +203,10 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             style={{
               background: loading || !prompt.trim() ? 'var(--bg-tertiary)' : 'var(--accent-orange)',
               border: 'none',
-              borderRadius: '6px',
+              borderRadius: '20px',
               width: '40px',
               height: '40px',
+              minWidth: '40px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -190,6 +214,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
               fontSize: '18px',
               flexShrink: 0,
+              transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               if (!loading && prompt.trim()) {
@@ -203,7 +228,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             }}
           >
             {loading ? (
-              <div className="spinner" />
+              <div className="spinner" style={{ width: '20px', height: '20px' }} />
             ) : (
               <span style={{ transform: 'rotate(-90deg)', display: 'inline-block' }}>→</span>
             )}

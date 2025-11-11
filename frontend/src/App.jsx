@@ -14,6 +14,7 @@ function App() {
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('solid');
   const [isExploded, setIsExploded] = useState(false);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true); // Start collapsed
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -131,8 +132,9 @@ function App() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '1fr 350px',
+        gridTemplateColumns: isPanelCollapsed ? '1fr 50px' : '1fr 350px',
         overflow: 'hidden',
+        transition: 'grid-template-columns 0.3s ease',
       }}>
         {/* Left - 3D Viewer */}
         <div style={{
@@ -188,13 +190,13 @@ function App() {
           design={design}
           analysis={analysis}
           compliance={compliance}
+          isCollapsed={isPanelCollapsed}
+          onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
         />
       </div>
 
-      {/* Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Bottom Prompt Bar - Now Floating */}
+      <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
     </div>
   );
 }
