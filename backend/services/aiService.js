@@ -30,7 +30,9 @@ class AIService {
       return true;
     } catch (error) {
       console.error('✗ Gemini API key validation failed:', error.message);
-      throw new Error('Invalid or missing GEMINI_API_KEY. Please check your environment configuration.');
+      console.warn('⚠️  Falling back to DEMO mode');
+      this.isDemoMode = true; // Fallback to demo mode
+      return false;
     }
   }
 

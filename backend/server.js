@@ -19,7 +19,6 @@ const aiService = require('./services/aiService');
     await aiService.validateApiKey();
   } catch (error) {
     console.error('⚠️  Startup validation warning:', error.message);
-    console.error('⚠️  Server will continue but API functionality may be limited');
   }
 })();
 
