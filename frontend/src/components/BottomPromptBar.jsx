@@ -104,23 +104,27 @@ export default function BottomPromptBar({ onSubmit, loading }) {
         </div>
       )}
 
-      {/* Glassmorphic Curved Bottom Prompt Bar */}
+      {/* Floating Glassmorphic Curved Prompt Bar */}
       <div style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: 'rgba(26, 26, 26, 0.8)',
-        backdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-        padding: '16px 20px',
+        bottom: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 'calc(100% - 280px)',
+        maxWidth: '1200px',
+        minWidth: '600px',
+        background: 'rgba(15, 15, 15, 0.75)',
+        backdropFilter: 'blur(30px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+        border: '1px solid rgba(255, 255, 255, 0.15)',
+        borderRadius: '20px',
+        padding: '8px 12px',
         zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
       }}>
         <form onSubmit={handleSubmit} style={{
-          maxWidth: '1400px',
-          margin: '0 auto',
           display: 'flex',
-          gap: '10px',
+          gap: '8px',
           alignItems: 'center',
         }}>
           {/* Expand button */}
@@ -131,15 +135,15 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             style={{
               background: 'rgba(255, 255, 255, 0.05)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '12px',
-              width: '44px',
-              height: '44px',
+              borderRadius: '10px',
+              width: '36px',
+              height: '36px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'rgba(255, 255, 255, 0.7)',
               cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '16px',
               flexShrink: 0,
               transition: 'all 0.2s',
             }}
@@ -165,16 +169,18 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             onKeyDown={handleKeyDown}
             placeholder="Describe what you want to design or model..."
             disabled={loading}
+            autoComplete="off"
             style={{
               flex: 1,
-              padding: '12px 20px',
+              padding: '8px 16px',
               background: 'rgba(255, 255, 255, 0.05)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '24px',
+              borderRadius: '18px',
               color: '#ffffff',
               fontSize: '14px',
               outline: 'none',
               transition: 'all 0.2s',
+              height: '36px',
             }}
             onFocus={(e) => {
               e.target.style.background = 'rgba(255, 255, 255, 0.08)';
@@ -195,15 +201,15 @@ export default function BottomPromptBar({ onSubmit, loading }) {
                 ? 'rgba(255, 255, 255, 0.05)' 
                 : 'linear-gradient(135deg, #ff6b35 0%, #ff8555 100%)',
               border: 'none',
-              borderRadius: '12px',
-              width: '44px',
-              height: '44px',
+              borderRadius: '10px',
+              width: '36px',
+              height: '36px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
               cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '16px',
               flexShrink: 0,
               transition: 'all 0.2s',
               boxShadow: loading || !prompt.trim() 
@@ -225,8 +231,8 @@ export default function BottomPromptBar({ onSubmit, loading }) {
           >
             {loading ? (
               <div className="spinner" style={{
-                width: '20px',
-                height: '20px',
+                width: '18px',
+                height: '18px',
                 border: '2px solid rgba(255, 255, 255, 0.3)',
                 borderTopColor: 'white',
                 borderRadius: '50%',
@@ -234,8 +240,8 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               }} />
             ) : (
               <svg
-                width="20"
-                height="20"
+                width="18"
+                height="18"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

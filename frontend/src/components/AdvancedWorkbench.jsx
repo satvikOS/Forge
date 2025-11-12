@@ -380,11 +380,13 @@ export default function AdvancedWorkbench({
 
       <Canvas shadows ref={canvasRef}>
         <Suspense fallback={null}>
-          <PerspectiveCamera makeDefault position={[5, 5, 5]} />
+          <PerspectiveCamera makeDefault position={[15, 15, 15]} fov={50} />
           <OrbitControls 
             enableDamping 
             dampingFactor={0.05}
             makeDefault
+            maxDistance={100}
+            minDistance={2}
           />
           
           {/* Lighting */}
@@ -406,16 +408,16 @@ export default function AdvancedWorkbench({
             onSelect={handleObjectSelect}
           />
           
-          {/* Grid */}
+          {/* Industry-Grade Grid */}
           <Grid
-            args={[20, 20]}
+            args={[100, 100]}
             cellSize={1}
-            cellThickness={0.5}
-            cellColor="#333333"
-            sectionSize={5}
-            sectionThickness={1}
+            cellThickness={0.6}
+            cellColor="#2a2a2a"
+            sectionSize={10}
+            sectionThickness={1.2}
             sectionColor="#444444"
-            fadeDistance={50}
+            fadeDistance={100}
             fadeStrength={1}
             position={[0, 0, 0]}
           />

@@ -373,17 +373,18 @@ function App() {
       }}>
         {/* Left Sidebar - Tools (Retractable) */}
         <div style={{
-          borderRight: '1px solid var(--border-color)',
+          borderRight: sidebarCollapsed ? 'none' : '1px solid var(--border-color)',
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--bg-primary)',
-          overflow: 'hidden',
+          overflow: 'visible',
           position: 'relative',
         }}>
           {!sidebarCollapsed && (
             <div style={{
               height: '100%',
               overflow: 'hidden',
+              width: '220px',
             }}>
               <AdvancedToolbar
                 activeTool={activeTool}
@@ -398,26 +399,35 @@ function App() {
             </div>
           )}
           
-          {/* Toggle button */}
+          {/* Toggle button - Always visible */}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             style={{
               position: 'absolute',
-              right: '-10px',
+              right: sidebarCollapsed ? '-12px' : '-10px',
               top: '50%',
               transform: 'translateY(-50%)',
-              width: '20px',
-              height: '40px',
+              width: '24px',
+              height: '50px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
-              borderRadius: '0 4px 4px 0',
+              borderRadius: '0 6px 6px 0',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'var(--text-secondary)',
-              fontSize: '10px',
-              zIndex: 10,
+              fontSize: '12px',
+              zIndex: 100,
+              boxShadow: '2px 0 8px rgba(0,0,0,0.2)',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'var(--accent-orange)';
+              e.target.style.color = 'white';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'var(--bg-secondary)';
+              e.target.style.color = 'var(--text-secondary)';
             }}
           >
             {sidebarCollapsed ? '▶' : '◀'}
@@ -472,40 +482,55 @@ function App() {
 
         {/* Right Panel - Properties (Retractable) */}
         <div style={{
-          borderLeft: '1px solid var(--border-color)',
+          borderLeft: rightPanelCollapsed ? 'none' : '1px solid var(--border-color)',
           display: 'flex',
           flexDirection: 'column',
           position: 'relative',
-          overflow: 'hidden',
+          overflow: 'visible',
         }}>
           {!rightPanelCollapsed && (
-            <PropertiesPanel 
-              design={design}
-              analysis={analysis}
-              compliance={compliance}
-            />
+            <div style={{
+              width: '350px',
+              height: '100%',
+              overflow: 'hidden',
+            }}>
+              <PropertiesPanel 
+                design={design}
+                analysis={analysis}
+                compliance={compliance}
+              />
+            </div>
           )}
           
-          {/* Toggle button */}
+          {/* Toggle button - Always visible */}
           <button
             onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
             style={{
               position: 'absolute',
-              left: '-10px',
+              left: rightPanelCollapsed ? '-12px' : '-10px',
               top: '50%',
               transform: 'translateY(-50%)',
-              width: '20px',
-              height: '40px',
+              width: '24px',
+              height: '50px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
-              borderRadius: '4px 0 0 4px',
+              borderRadius: '6px 0 0 6px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'var(--text-secondary)',
-              fontSize: '10px',
-              zIndex: 10,
+              fontSize: '12px',
+              zIndex: 100,
+              boxShadow: '-2px 0 8px rgba(0,0,0,0.2)',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'var(--accent-orange)';
+              e.target.style.color = 'white';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'var(--bg-secondary)';
+              e.target.style.color = 'var(--text-secondary)';
             }}
           >
             {rightPanelCollapsed ? '◀' : '▶'}
@@ -513,10 +538,8 @@ function App() {
         </div>
       </div>
 
-      {/* Glassmorphic Curved Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Floating Glassmorphic Curved Bottom Prompt Bar */}
+      <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
 
       {/* Help Panel */}
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
