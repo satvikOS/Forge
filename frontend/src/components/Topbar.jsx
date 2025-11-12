@@ -207,13 +207,17 @@ export default function Topbar({ status = 'Ready', loading = false }) {
         alignItems: 'center',
         gap: '8px',
       }}>
-        <div style={{
-          width: '8px',
-          height: '8px',
-          borderRadius: '50%',
-          background: loading ? 'var(--accent-orange)' : '#4caf50',
-        }} />
-        {loading ? 'Generating...' : status}
+        {loading && (
+          <>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: 'var(--accent-orange)',
+            }} />
+            Generating...
+          </>
+        )}
       </div>
 
       {/* Click outside to close menu */}

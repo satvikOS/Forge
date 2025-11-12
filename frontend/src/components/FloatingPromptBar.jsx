@@ -25,6 +25,25 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
     setShowExamples(false);
   };
 
+  const handleArchDiscClick = async () => {
+    if (loading) return;
+    
+    // Generate 3 proposal designs of different themes
+    const themes = [
+      'modern minimalist style',
+      'industrial contemporary style',
+      'traditional classic style'
+    ];
+    
+    const proposals = themes.map((theme, idx) => 
+      `Proposal ${idx + 1}: Design with ${theme}`
+    );
+    
+    setShowExamples(!showExamples);
+    console.log('Generate 3 proposals with different themes:', proposals);
+    // Future: trigger actual proposal generation
+  };
+
   return (
     <div style={{
       position: 'fixed',
@@ -113,22 +132,22 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
             e.currentTarget.style.borderColor = 'var(--border-color)';
           }}
         >
-          {/* Examples Button */}
+          {/* ArchDisc Button */}
           <button
             type="button"
-            onClick={() => setShowExamples(!showExamples)}
+            onClick={handleArchDiscClick}
             disabled={loading}
             style={{
               background: showExamples ? 'var(--accent-orange)' : 'var(--bg-tertiary)',
               border: 'none',
-              borderRadius: '50%',
-              width: '36px',
-              height: '36px',
+              borderRadius: '20px',
+              padding: '8px 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '13px',
+              fontWeight: '600',
               color: showExamples ? 'white' : 'var(--text-primary)',
               transition: 'all 0.2s',
               flexShrink: 0,
@@ -146,7 +165,7 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
               }
             }}
           >
-            💡
+            ArchDisc
           </button>
 
           {/* Input Field */}
@@ -205,7 +224,7 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
                 borderWidth: '2px',
               }} />
             ) : (
-              '→'
+              '✈'
             )}
           </button>
         </div>
@@ -219,7 +238,7 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
         color: 'var(--text-secondary)',
         opacity: 0.6,
       }}>
-        Press Enter to generate • Click 💡 for examples
+        Press Enter to generate • Click ArchDisc for examples
       </div>
     </div>
   );

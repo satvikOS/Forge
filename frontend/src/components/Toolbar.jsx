@@ -125,15 +125,6 @@ export default function Toolbar({ viewMode, onViewModeChange, isExploded, onExpl
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
-
-      {/* Help text */}
-      <div style={{
-        fontSize: '12px',
-        color: 'var(--text-secondary)',
-        fontStyle: 'italic',
-      }}>
-        Click on parts to select and edit them individually
-      </div>
     </div>
   );
 }
