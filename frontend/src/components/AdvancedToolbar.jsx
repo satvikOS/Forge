@@ -139,6 +139,23 @@ export default function AdvancedToolbar({
     { id: 'delete', name: 'Delete', icon: '🗑️', shortcut: 'Del' },
   ];
 
+  // Drawing Tools
+  const drawingTools = [
+    { id: 'line', name: 'Line', icon: '📏', shortcut: 'L' },
+    { id: 'rectangle', name: 'Rectangle', icon: '▭', shortcut: 'Shift+R' },
+    { id: 'circle_draw', name: 'Circle', icon: '○', shortcut: 'Shift+C' },
+    { id: 'polygon', name: 'Polygon', icon: '⬡', shortcut: 'Shift+P' },
+  ];
+
+  // Measurement Tools
+  const measurementTools = [
+    { id: 'tape_measure', name: 'Measure', icon: '📏', shortcut: 'M' },
+    { id: 'protractor', name: 'Angle', icon: '📐' },
+    { id: 'dimension', name: 'Dimension', icon: '↔' },
+    { id: 'area_calculator', name: 'Area', icon: '▭' },
+    { id: 'volume_calculator', name: 'Volume', icon: '⬚' },
+  ];
+
   // Light Tools
   const lightTools = [
     { id: 'add_point_light', name: 'Point', icon: '💡' },
@@ -199,6 +216,21 @@ export default function AdvancedToolbar({
           tools={modelingTools}
           activeTool={activeTool}
           onToolSelect={onToolSelect}
+        />
+        
+        <ToolGroup
+          title="Drawing"
+          tools={drawingTools}
+          activeTool={activeTool}
+          onToolSelect={onToolSelect}
+        />
+        
+        <ToolGroup
+          title="Measurement"
+          tools={measurementTools}
+          activeTool={activeTool}
+          onToolSelect={onToolSelect}
+          collapsed={true}
         />
         
         <ToolGroup

@@ -22,6 +22,8 @@ import {
   ExtrudeTool, PushPullTool, BevelTool, SubdivideTool,
   DuplicateTool, DeleteTool, MirrorTool
 } from '../tools/ModelingTools';
+import { LineTool, RectangleTool, CircleTool, PolygonTool } from '../tools/DrawingTools';
+import { TapeMeasureTool, ProtractorTool, DimensionTool, AreaCalculatorTool, VolumeCalculatorTool } from '../tools/MeasurementTools';
 
 // Scene Object Renderer - Renders objects from the scene manager
 function SceneObject({ sceneObject, isSelected, onSelect }) {
@@ -214,6 +216,19 @@ export default function AdvancedWorkbench({
     tm.registerTool(new DuplicateTool());
     tm.registerTool(new DeleteTool());
     tm.registerTool(new MirrorTool());
+    
+    // Register drawing tools
+    tm.registerTool(new LineTool());
+    tm.registerTool(new RectangleTool());
+    tm.registerTool(new CircleTool());
+    tm.registerTool(new PolygonTool());
+    
+    // Register measurement tools
+    tm.registerTool(new TapeMeasureTool());
+    tm.registerTool(new ProtractorTool());
+    tm.registerTool(new DimensionTool());
+    tm.registerTool(new AreaCalculatorTool());
+    tm.registerTool(new VolumeCalculatorTool());
     
     tm.setDefaultTool('select');
     return tm;
