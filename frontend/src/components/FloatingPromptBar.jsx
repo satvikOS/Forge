@@ -186,12 +186,12 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
             }}
           />
 
-          {/* Submit Button */}
+          {/* Submit Button - GitHub Copilot style */}
           <button
             type="submit"
             disabled={loading || !prompt.trim()}
             style={{
-              background: loading ? 'var(--bg-tertiary)' : 'var(--accent-orange)',
+              background: (loading || !prompt.trim()) ? 'var(--bg-tertiary)' : 'var(--accent-orange)',
               border: 'none',
               borderRadius: '50%',
               width: '44px',
@@ -200,11 +200,12 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
               alignItems: 'center',
               justifyContent: 'center',
               cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
-              fontSize: '20px',
+              fontSize: '18px',
               color: 'white',
               transition: 'all 0.2s',
               flexShrink: 0,
               opacity: loading || !prompt.trim() ? 0.5 : 1,
+              position: 'relative',
             }}
             onMouseEnter={(e) => {
               if (!loading && prompt.trim()) {
@@ -224,7 +225,24 @@ export default function FloatingPromptBar({ onSubmit, loading = false }) {
                 borderWidth: '2px',
               }} />
             ) : (
-              '✈'
+              <svg 
+                width="20" 
+                height="20" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg"
+                style={{
+                  transform: 'rotate(-45deg)',
+                }}
+              >
+                <path 
+                  d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" 
+                  stroke="currentColor" 
+                  strokeWidth="2.5" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                />
+              </svg>
             )}
           </button>
         </div>

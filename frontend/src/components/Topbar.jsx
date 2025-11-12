@@ -41,8 +41,38 @@ export default function Topbar({ status = 'Ready', loading = false }) {
       position: 'relative',
       zIndex: 1000,
     }}>
-      {/* Left - Menu Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+      {/* Left - ArchDisc Logo and Menu Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        {/* ArchDisc Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h1 style={{
+            fontSize: '18px',
+            fontWeight: 'bold',
+            color: 'var(--text-primary)',
+            margin: 0,
+          }}>
+            ArchDisc
+          </h1>
+          <div style={{
+            fontSize: '10px',
+            color: 'var(--text-secondary)',
+            padding: '2px 8px',
+            background: 'var(--bg-tertiary)',
+            borderRadius: '10px',
+          }}>
+            AI
+          </div>
+        </div>
+
+        {/* Separator */}
+        <div style={{
+          width: '1px',
+          height: '24px',
+          background: 'var(--border-color)',
+        }} />
+
+        {/* Menu Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
         {Object.keys(menus).map((menuName) => (
           <div key={menuName} style={{ position: 'relative' }}>
             <button
@@ -197,9 +227,10 @@ export default function Topbar({ status = 'Ready', loading = false }) {
             )}
           </div>
         ))}
+        </div>
       </div>
 
-      {/* Right - Status Indicator */}
+      {/* Right - AI Status Indicator */}
       <div style={{
         fontSize: '12px',
         color: 'var(--text-secondary)',
@@ -214,9 +245,19 @@ export default function Topbar({ status = 'Ready', loading = false }) {
               height: '8px',
               borderRadius: '50%',
               background: 'var(--accent-orange)',
+              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
             }} />
             Generating...
           </>
+        )}
+        {!loading && (
+          <div style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: '#4caf50',
+            boxShadow: '0 0 4px rgba(76, 175, 80, 0.5)',
+          }} />
         )}
       </div>
 
