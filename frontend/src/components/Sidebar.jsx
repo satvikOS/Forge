@@ -25,12 +25,14 @@ export default function Sidebar({
     return (
       <div style={{
         width: '40px',
+        minWidth: '40px',
         background: 'var(--bg-secondary)',
         borderLeft: '1px solid var(--border-color)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         padding: '10px 0',
+        transition: 'width 0.3s ease',
       }}>
         <button
           onClick={() => setIsCollapsed(false)}
@@ -53,11 +55,13 @@ export default function Sidebar({
   return (
     <div style={{
       width: '350px',
+      minWidth: '350px',
       background: 'var(--bg-secondary)',
       borderLeft: '1px solid var(--border-color)',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
+      transition: 'width 0.3s ease',
     }}>
       {/* Header with collapse button */}
       <div style={{
