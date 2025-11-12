@@ -142,7 +142,7 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
 
       <Canvas shadows>
         <Suspense fallback={null}>
-          <PerspectiveCamera makeDefault position={[5, 5, 5]} />
+          <PerspectiveCamera makeDefault position={[20, 20, 20]} fov={60} />
           <OrbitControls 
             enableDamping 
             dampingFactor={0.05}
@@ -170,13 +170,13 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
             isExploded={isExploded}
           />
           
-          {/* Grid */}
+          {/* Grid - Expanded to 360x360 with 36 divisions */}
           <gridHelper 
-            args={[20, 20, '#333333', '#1a1a1a']} 
+            args={[360, 36, '#333333', '#1a1a1a']} 
             position={[0, -0.01, 0]}
           />
 
-          {/* Axes Helper */}
+          {/* Axes Helper - Shortened to 5 units */}
           <axesHelper args={[5]} />
 
           {/* Gizmo */}
