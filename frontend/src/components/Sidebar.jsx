@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 export default function Sidebar({ design, analysis, compliance }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('properties');
 
   return (
     <>
@@ -20,23 +21,72 @@ export default function Sidebar({ design, analysis, compliance }) {
         boxShadow: isOpen ? '-4px 0 16px rgba(0, 0, 0, 0.3)' : 'none',
       }}>
         <div style={{ padding: '20px' }}>
-          {/* Header */}
+          {/* Header with Tabs */}
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
             marginBottom: '20px',
-            paddingBottom: '15px',
+            paddingBottom: '0',
             borderBottom: '1px solid var(--border-color)',
           }}>
-            <h2 style={{
-              fontSize: '18px',
-              fontWeight: 'bold',
-              color: 'var(--text-primary)',
-              margin: 0,
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              marginBottom: '-1px',
             }}>
-              Properties
-            </h2>
+              <button
+                onClick={() => setActiveTab('properties')}
+                style={{
+                  padding: '10px 16px',
+                  background: activeTab === 'properties' ? 'var(--bg-primary)' : 'transparent',
+                  border: 'none',
+                  borderBottom: activeTab === 'properties' ? '2px solid var(--accent-orange)' : '2px solid transparent',
+                  color: activeTab === 'properties' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontSize: '14px',
+                  fontWeight: activeTab === 'properties' ? '600' : 'normal',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (activeTab !== 'properties') {
+                    e.target.style.color = 'var(--text-primary)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (activeTab !== 'properties') {
+                    e.target.style.color = 'var(--text-secondary)';
+                  }
+                }}
+              >
+                Properties
+              </button>
+              {design && (
+                <button
+                  onClick={() => setActiveTab('outputs')}
+                  style={{
+                    padding: '10px 16px',
+                    background: activeTab === 'outputs' ? 'var(--bg-primary)' : 'transparent',
+                    border: 'none',
+                    borderBottom: activeTab === 'outputs' ? '2px solid var(--accent-orange)' : '2px solid transparent',
+                    color: activeTab === 'outputs' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    fontSize: '14px',
+                    fontWeight: activeTab === 'outputs' ? '600' : 'normal',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activeTab !== 'outputs') {
+                      e.target.style.color = 'var(--text-primary)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activeTab !== 'outputs') {
+                      e.target.style.color = 'var(--text-secondary)';
+                    }
+                  }}
+                >
+                  Outputs
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Content */}
@@ -54,7 +104,7 @@ export default function Sidebar({ design, analysis, compliance }) {
                 Generate a design to view properties
               </div>
             </div>
-          ) : (
+          ) : activeTab === 'properties' ? (
             <>
               {/* Design Info */}
               <div style={{ marginBottom: '24px' }}>
@@ -251,6 +301,72 @@ export default function Sidebar({ design, analysis, compliance }) {
                 </div>
               )}
             </>
+          ) : (
+            // Outputs Tab
+            <div>
+              {/* Problem & Objectives */}
+              <OutputSection
+                title="Problem & Objectives"
+                icon="🎯"
+                content={design.outputs?.problemObjectives || generateProblemObjectives(design)}
+              />
+
+              {/* Functional Requirements & KPIs */}
+              <OutputSection
+                title="Functional Requirements & KPIs"
+                icon="📋"
+                content={design.outputs?.requirements || generateRequirements(design)}
+              />
+
+              {/* System Architecture & Components */}
+              <OutputSection
+                title="System Architecture & Components"
+                icon="🏗️"
+                content={design.outputs?.architecture || generateArchitecture(design)}
+              />
+
+              {/* Starter BOM (rough) */}
+              <OutputSection
+                title="Starter BOM (rough)"
+                icon="📦"
+                content={design.outputs?.bom || generateBOM(design)}
+              />
+
+              {/* Regulatory & Legal Checklist */}
+              <OutputSection
+                title="Regulatory & Legal Checklist"
+                icon="⚖️"
+                content={design.outputs?.regulatory || generateRegulatory(design)}
+              />
+
+              {/* Risks & Mitigations */}
+              <OutputSection
+                title="Risks & Mitigations"
+                icon="⚠️"
+                content={design.outputs?.risks || generateRisks(design)}
+              />
+
+              {/* Development Timeline */}
+              <OutputSection
+                title="Development Timeline"
+                icon="📅"
+                content={design.outputs?.timeline || generateTimeline(design)}
+              />
+
+              {/* Rough Costing */}
+              <OutputSection
+                title="Rough Costing"
+                icon="💰"
+                content={design.outputs?.costing || generateCosting(design)}
+              />
+
+              {/* Next Steps */}
+              <OutputSection
+                title="Next Steps"
+                icon="🚀"
+                content={design.outputs?.nextSteps || generateNextSteps(design)}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -289,4 +405,181 @@ export default function Sidebar({ design, analysis, compliance }) {
       </button>
     </>
   );
+}
+
+// OutputSection Component
+function OutputSection({ title, icon, content }) {
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px',
+          background: 'var(--bg-tertiary)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          transition: 'all 0.2s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-hover)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'var(--bg-tertiary)';
+        }}
+      >
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <span style={{ fontSize: '16px' }}>{icon}</span>
+          <span style={{
+            fontSize: '13px',
+            fontWeight: '600',
+            color: 'var(--text-primary)',
+          }}>
+            {title}
+          </span>
+        </div>
+        <span style={{
+          fontSize: '12px',
+          color: 'var(--text-secondary)',
+        }}>
+          {isExpanded ? '▼' : '▶'}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div style={{
+          padding: '12px',
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border-color)',
+          borderTop: 'none',
+          borderBottomLeftRadius: '8px',
+          borderBottomRightRadius: '8px',
+          fontSize: '12px',
+          color: 'var(--text-primary)',
+          lineHeight: '1.6',
+        }}>
+          {Array.isArray(content) ? (
+            <ul style={{
+              margin: 0,
+              paddingLeft: '20px',
+            }}>
+              {content.map((item, idx) => (
+                <li key={idx} style={{ marginBottom: '6px' }}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <div>{content}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Helper functions to generate content based on design
+function generateProblemObjectives(design) {
+  const category = design.category || 'architectural design';
+  return [
+    `Address the need for ${category} solutions`,
+    `Optimize space utilization and functionality`,
+    `Ensure structural integrity and safety`,
+    `Meet user requirements and expectations`,
+    `Maintain cost-effectiveness and sustainability`
+  ];
+}
+
+function generateRequirements(design) {
+  return [
+    `✓ Load-bearing capacity: Meet structural standards`,
+    `✓ Space efficiency: Optimize floor area usage`,
+    `✓ Accessibility: Comply with accessibility standards`,
+    `✓ Energy efficiency: Target 30% reduction vs baseline`,
+    `✓ Material durability: 20+ year lifespan`
+  ];
+}
+
+function generateArchitecture(design) {
+  return [
+    `Foundation System: Reinforced concrete base`,
+    `Structural Framework: Steel/wood frame construction`,
+    `Envelope: Weather-resistant exterior cladding`,
+    `MEP Systems: Integrated mechanical, electrical, plumbing`,
+    `Interior Systems: Modular partition walls and finishes`
+  ];
+}
+
+function generateBOM(design) {
+  return [
+    `Structural materials: Steel beams, concrete, lumber`,
+    `Exterior finishes: Cladding, roofing, windows`,
+    `Interior finishes: Drywall, flooring, paint`,
+    `MEP components: HVAC units, electrical panels, plumbing fixtures`,
+    `Hardware & fixtures: Doors, handles, lighting`
+  ];
+}
+
+function generateRegulatory(design) {
+  return [
+    `☐ Building permit application`,
+    `☐ Zoning compliance verification`,
+    `☐ Fire safety code review`,
+    `☐ Structural engineering approval`,
+    `☐ Environmental impact assessment`,
+    `☐ Accessibility standards compliance`
+  ];
+}
+
+function generateRisks(design) {
+  return [
+    `Weather delays → Mitigation: Build buffer time into schedule`,
+    `Cost overruns → Mitigation: 15% contingency budget`,
+    `Material shortages → Mitigation: Pre-order long-lead items`,
+    `Code violations → Mitigation: Early permit review`,
+    `Site conditions → Mitigation: Thorough site survey`
+  ];
+}
+
+function generateTimeline(design) {
+  return [
+    `Phase 1: Design & Permits (2-3 months)`,
+    `Phase 2: Site Preparation (2-4 weeks)`,
+    `Phase 3: Foundation Work (4-6 weeks)`,
+    `Phase 4: Structural Build (8-12 weeks)`,
+    `Phase 5: Systems & Finishes (6-8 weeks)`,
+    `Phase 6: Final Inspection (1-2 weeks)`
+  ];
+}
+
+function generateCosting(design) {
+  return [
+    `Design & Engineering: $15,000 - $25,000`,
+    `Permits & Fees: $5,000 - $10,000`,
+    `Site Work: $20,000 - $40,000`,
+    `Materials: $150,000 - $250,000`,
+    `Labor: $100,000 - $180,000`,
+    `Contingency (15%): $43,500 - $75,750`,
+    `Total Estimated Range: $333,500 - $580,750`
+  ];
+}
+
+function generateNextSteps(design) {
+  return [
+    `1. Review and approve design concept`,
+    `2. Engage structural engineer for detailed plans`,
+    `3. Submit permit applications to local authorities`,
+    `4. Obtain project financing and insurance`,
+    `5. Select and contract with general contractor`,
+    `6. Schedule site survey and geotechnical testing`,
+    `7. Finalize material selections and order long-lead items`
+  ];
 }
