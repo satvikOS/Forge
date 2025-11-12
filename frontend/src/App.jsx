@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import BottomPromptBar from './components/BottomPromptBar';
+import Topbar from './components/Topbar';
+import FloatingPromptBar from './components/FloatingPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
-import PropertiesPanel from './components/PropertiesPanel';
+import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import apiService from './services/api';
 import './styles/index.css';
@@ -48,52 +49,8 @@ function App() {
       flexDirection: 'column',
       background: 'var(--bg-primary)',
     }}>
-      {/* Header */}
-      <header style={{
-        padding: '15px 20px',
-        background: 'var(--bg-secondary)',
-        borderBottom: '2px solid var(--border-color)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <h1 style={{
-            fontSize: '24px',
-            fontWeight: 'bold',
-            color: 'var(--text-primary)',
-            margin: 0,
-          }}>
-            ArchDisc
-          </h1>
-          <div style={{
-            fontSize: '12px',
-            color: 'var(--text-secondary)',
-            padding: '4px 10px',
-            background: 'var(--bg-tertiary)',
-            borderRadius: '12px',
-          }}>
-            AI-Powered Design Workbench
-          </div>
-        </div>
-        
-        {/* Status indicator */}
-        <div style={{
-          fontSize: '12px',
-          color: 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: loading ? 'var(--accent-orange)' : '#4caf50',
-          }} />
-          {loading ? 'Generating...' : 'Ready'}
-        </div>
-      </header>
+      {/* Industry-Standard Topbar */}
+      <Topbar />
 
       {/* Error Message */}
       {error && (
@@ -125,71 +82,62 @@ function App() {
       {/* Main Content Area */}
       <div style={{
         flex: 1,
-        display: 'grid',
-        gridTemplateColumns: '1fr 350px',
+        display: 'flex',
+        flexDirection: 'column',
         overflow: 'hidden',
       }}>
-        {/* Left - 3D Viewer */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          borderRight: '1px solid var(--border-color)',
-        }}>
-          {/* Toolbar */}
-          <Toolbar
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            isExploded={isExploded}
-            onExplodeToggle={() => setIsExploded(!isExploded)}
-          />
-          
-          {/* 3D Viewer */}
-          <div style={{ flex: 1, position: 'relative' }}>
-            {loading ? (
-              <div style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-              }}>
-                <div className="spinner" style={{ 
-                  width: '48px', 
-                  height: '48px',
-                  borderWidth: '4px',
-                  marginBottom: '20px',
-                }} />
-                <div style={{ fontSize: '18px', marginBottom: '10px' }}>
-                  Generating your design...
-                </div>
-                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                  This may take a few moments
-                </div>
-              </div>
-            ) : (
-              <WorkbenchViewer 
-                modelData={design?.model}
-                viewMode={viewMode}
-                isExploded={isExploded}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Right - Properties Panel */}
-        <PropertiesPanel 
-          design={design}
-          analysis={analysis}
-          compliance={compliance}
+        {/* Toolbar */}
+        <Toolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          isExploded={isExploded}
+          onExplodeToggle={() => setIsExploded(!isExploded)}
         />
+        
+        {/* 3D Viewer */}
+        <div style={{ flex: 1, position: 'relative' }}>
+          {loading ? (
+            <div style={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+            }}>
+              <div className="spinner" style={{ 
+                width: '48px', 
+                height: '48px',
+                borderWidth: '4px',
+                marginBottom: '20px',
+              }} />
+              <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                Generating your design...
+              </div>
+              <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                This may take a few moments
+              </div>
+            </div>
+          ) : (
+            <WorkbenchViewer 
+              modelData={design?.model}
+              viewMode={viewMode}
+              isExploded={isExploded}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Retractable Sidebar */}
+      <Sidebar 
+        design={design}
+        analysis={analysis}
+        compliance={compliance}
+      />
+
+      {/* Floating Prompt Bar */}
+      <FloatingPromptBar onSubmit={handleGenerateDesign} loading={loading} />
     </div>
   );
 }
