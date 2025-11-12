@@ -33,9 +33,11 @@ export default function Sidebar({
         flexDirection: 'column',
         alignItems: 'center',
         padding: '10px 0',
-        transition: 'all 0.3s ease',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         overflow: 'hidden',
         flexShrink: 0,
+        flexGrow: 0,
+        height: '100%',
       }}>
         <button
           onClick={() => setIsCollapsed(false)}
@@ -65,9 +67,10 @@ export default function Sidebar({
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
-      transition: 'all 0.3s ease',
+      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       overflow: 'hidden',
       flexShrink: 0,
+      flexGrow: 0,
     }}>
       {/* Header with collapse button */}
       <div style={{
