@@ -2,6 +2,26 @@
 
 ArchDisc is an AI-powered design platform that lets anyone create and build any object from cars to buildings through natural prompts or sketches. It unifies ideation, 3D modeling, analysis, and legality into one intelligent workspace.
 
+## ✨ New: Comprehensive 3D Editor
+
+ArchDisc now includes a **professional-grade 3D editor** with 70+ tools for manual 3D design! Switch between AI-powered generation and hands-on modeling.
+
+### Key 3D Editor Features
+
+- 🎨 **70+ Professional Tools**: Complete toolset including selection, transform, modeling, drawing, and measurement tools
+- 🏗️ **Modular Architecture**: Industry-standard tool system inspired by Blender and SketchUp
+- ⌨️ **Full Keyboard Support**: Professional shortcuts (G=Move, R=Rotate, E=Extrude, etc.)
+- 📁 **File I/O**: Save/load projects, export to OBJ, STL, GLTF, GLB
+- 🔄 **Undo/Redo**: 50-level history system
+- 🎨 **Material System**: 10+ presets with full customization
+- 🔧 **Modifier System**: Non-destructive editing with 8 modifiers
+- 📏 **Measurement Tools**: Distance, angle, area, volume calculations
+- 📐 **Drawing Tools**: Professional line, rectangle, circle, polygon tools
+- 📷 **Camera System**: View presets and smart framing
+- ❓ **Help System**: Comprehensive documentation and shortcuts
+
+**See the [3D Editor Guide](./3D_EDITOR_GUIDE.md) for complete documentation.**
+
 ## Features
 
 - **Natural Language Design**: Describe what you want to create in plain English
