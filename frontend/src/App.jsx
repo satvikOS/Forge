@@ -6,6 +6,7 @@ import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
 import AdvancedToolbar from './components/AdvancedToolbar';
 import SceneHierarchyPanel from './components/SceneHierarchyPanel';
+import HelpPanel from './components/HelpPanel';
 import SceneManager from './systems/SceneManager';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import apiService from './services/api';
@@ -24,6 +25,7 @@ function App() {
   const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
   const sceneManagerRef = useRef(null);
   const [selectedObjects, setSelectedObjects] = useState(new Set());
+  const [showHelp, setShowHelp] = useState(false);
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -290,6 +292,23 @@ function App() {
             </>
           )}
           
+          {/* Help Button */}
+          <button
+            onClick={() => setShowHelp(true)}
+            style={{
+              padding: '6px 12px',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+            title="Help & Shortcuts (F1)"
+          >
+            ❓ Help
+          </button>
+          
           {/* Status indicator */}
           <div style={{
             fontSize: '12px',
@@ -456,6 +475,9 @@ function App() {
           <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
         </div>
       )}
+
+      {/* Help Panel */}
+      {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
     </div>
   );
 }

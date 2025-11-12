@@ -24,6 +24,7 @@ import {
 } from '../tools/ModelingTools';
 import { LineTool, RectangleTool, CircleTool, PolygonTool } from '../tools/DrawingTools';
 import { TapeMeasureTool, ProtractorTool, DimensionTool, AreaCalculatorTool, VolumeCalculatorTool } from '../tools/MeasurementTools';
+import { TopViewTool, FrontViewTool, SideViewTool, PerspectiveViewTool, FocusSelectionTool, FrameAllTool } from '../tools/CameraTools';
 
 // Scene Object Renderer - Renders objects from the scene manager
 function SceneObject({ sceneObject, isSelected, onSelect }) {
@@ -230,6 +231,14 @@ export default function AdvancedWorkbench({
     tm.registerTool(new AreaCalculatorTool());
     tm.registerTool(new VolumeCalculatorTool());
     
+    // Register camera tools
+    tm.registerTool(new TopViewTool());
+    tm.registerTool(new FrontViewTool());
+    tm.registerTool(new SideViewTool());
+    tm.registerTool(new PerspectiveViewTool());
+    tm.registerTool(new FocusSelectionTool());
+    tm.registerTool(new FrameAllTool());
+    
     tm.setDefaultTool('select');
     return tm;
   });
@@ -247,6 +256,8 @@ export default function AdvancedWorkbench({
         toolManager,
         needsRender: false,
         raycaster: new THREE.Raycaster(),
+        camera: null, // Will be set by Three.js
+        controls: null, // Will be set by Three.js
       };
     }
   }, [sceneManager, toolManager]);

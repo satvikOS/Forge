@@ -156,17 +156,23 @@ export default function AdvancedToolbar({
     { id: 'volume_calculator', name: 'Volume', icon: '⬚' },
   ];
 
+  // Camera Tools
+  const cameraTools = [
+    { id: 'view_top', name: 'Top', icon: '⬇' },
+    { id: 'view_front', name: 'Front', icon: '⬅' },
+    { id: 'view_side', name: 'Side', icon: '⬆' },
+    { id: 'view_perspective', name: 'Perspective', icon: '🔲' },
+    { id: 'focus_selection', name: 'Focus', icon: '🎯', shortcut: 'F' },
+    { id: 'frame_all', name: 'Frame All', icon: '🖼️', shortcut: 'Home' },
+    { id: 'add_camera', name: 'Add Camera', icon: '📷' },
+  ];
+
   // Light Tools
   const lightTools = [
     { id: 'add_point_light', name: 'Point', icon: '💡' },
     { id: 'add_directional_light', name: 'Sun', icon: '☀️' },
     { id: 'add_spot_light', name: 'Spot', icon: '🔦' },
     { id: 'add_area_light', name: 'Area', icon: '▭' },
-  ];
-
-  // Camera
-  const cameraTools = [
-    { id: 'add_camera', name: 'Camera', icon: '📷' },
   ];
 
   const viewModes = [
@@ -228,6 +234,14 @@ export default function AdvancedToolbar({
         <ToolGroup
           title="Measurement"
           tools={measurementTools}
+          activeTool={activeTool}
+          onToolSelect={onToolSelect}
+          collapsed={true}
+        />
+        
+        <ToolGroup
+          title="Camera"
+          tools={cameraTools}
           activeTool={activeTool}
           onToolSelect={onToolSelect}
           collapsed={true}
