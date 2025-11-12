@@ -170,14 +170,14 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
             isExploded={isExploded}
           />
           
-          {/* Grid - 18x larger (360x360 with 20px per square) */}
+          {/* Grid - 18x larger (360x360 total, with visible 1-unit squares) */}
           <gridHelper 
-            args={[360, 360, '#333333', '#1a1a1a']} 
+            args={[360, 36, '#333333', '#1a1a1a']} 
             position={[0, -0.01, 0]}
           />
 
-          {/* Axes Helper - larger for bigger canvas */}
-          <axesHelper args={[20]} />
+          {/* Axes Helper - shorter for better visibility */}
+          <axesHelper args={[5]} />
 
           {/* Gizmo */}
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
