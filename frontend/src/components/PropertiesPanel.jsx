@@ -5,9 +5,10 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
 
   const tabs = [
     { id: 'specs', label: 'Specifications', icon: '📋' },
+    { id: 'project', label: 'Project Specs', icon: '📐' },
     { id: 'analysis', label: 'Analysis', icon: '📊' },
     { id: 'compliance', label: 'Compliance', icon: '✓' },
-    { id: 'edit', label: 'Edit Properties', icon: '⚙' },
+    { id: 'properties', label: 'Properties', icon: '⚙' },
   ];
 
   if (!design) {
@@ -44,25 +45,31 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
         display: 'flex',
         borderBottom: '1px solid var(--border-color)',
         background: 'var(--bg-tertiary)',
+        overflowX: 'auto',
       }}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
-              flex: 1,
-              padding: '12px 8px',
+              flex: '1 1 0',
+              minWidth: '60px',
+              padding: '10px 4px',
               background: activeTab === tab.id ? 'var(--bg-secondary)' : 'transparent',
               border: 'none',
               borderBottom: activeTab === tab.id ? '2px solid var(--accent-orange)' : '2px solid transparent',
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
               cursor: 'pointer',
-              fontSize: '13px',
+              fontSize: '11px',
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px',
+              gap: '4px',
               transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
             onMouseEnter={(e) => {
               if (activeTab !== tab.id) {
@@ -75,8 +82,12 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
               }
             }}
           >
-            <span>{tab.icon}</span>
-            <span>{tab.label}</span>
+            <span style={{ fontSize: '16px' }}>{tab.icon}</span>
+            <span style={{ 
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}>{tab.label}</span>
           </button>
         ))}
       </div>
@@ -90,14 +101,17 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
         {activeTab === 'specs' && design.specifications && (
           <SpecificationsTab specs={design.specifications} />
         )}
+        {activeTab === 'project' && design.specifications && (
+          <ProjectSpecificationsTab specs={design.specifications} />
+        )}
         {activeTab === 'analysis' && analysis && (
           <AnalysisTab analysis={analysis} />
         )}
         {activeTab === 'compliance' && compliance && (
           <ComplianceTab compliance={compliance} />
         )}
-        {activeTab === 'edit' && (
-          <EditTab />
+        {activeTab === 'properties' && (
+          <PropertiesTab />
         )}
       </div>
     </div>
@@ -222,7 +236,106 @@ function ComplianceTab({ compliance }) {
   );
 }
 
-function EditTab() {
+function ProjectSpecificationsTab({ specs }) {
+  return (
+    <div>
+      <PropertyGroup title="Design Specifications">
+        <Property label="Type" value={specs.objectType || 'N/A'} />
+        <Property label="Description" value={specs.description || 'N/A'} />
+        {specs.style && <Property label="Style" value={specs.style} />}
+        {specs.dimensions && (
+          <div style={{ marginTop: '10px' }}>
+            <div style={{ 
+              fontSize: '12px', 
+              color: 'var(--text-secondary)',
+              marginBottom: '5px',
+              fontWeight: 'bold',
+            }}>
+              Dimensions:
+            </div>
+            {Object.entries(specs.dimensions).map(([key, value]) => (
+              <Property key={key} label={key} value={`${value}mm`} />
+            ))}
+          </div>
+        )}
+      </PropertyGroup>
+
+      <PropertyGroup title="Material Requirements">
+        {specs.materials && specs.materials.length > 0 ? (
+          <>
+            <Property label="Materials" value={specs.materials.join(', ')} />
+            <div style={{
+              marginTop: '10px',
+              padding: '8px',
+              background: 'var(--bg-primary)',
+              borderRadius: '4px',
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+            }}>
+              <div style={{ marginBottom: '4px' }}>Material Properties:</div>
+              <Property label="Durability" value="High" />
+              <Property label="Weight Class" value="Medium" />
+              <Property label="Cost Efficiency" value="Standard" />
+            </div>
+          </>
+        ) : (
+          <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+            No specific materials specified
+          </div>
+        )}
+      </PropertyGroup>
+
+      <PropertyGroup title="Manufacturing Constraints">
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+          <Property label="Min. Wall Thickness" value="2.0mm" />
+          <Property label="Max. Build Volume" value="300×300×300mm" />
+          <Property label="Layer Resolution" value="0.1-0.3mm" />
+          <Property label="Support Required" value="As needed" />
+        </div>
+      </PropertyGroup>
+
+      <PropertyGroup title="Tolerances">
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+          <Property label="Dimensional Tolerance" value="±0.1mm" />
+          <Property label="Angular Tolerance" value="±0.5°" />
+          <Property label="Surface Finish" value="Ra 3.2μm" />
+          <Property label="Flatness" value="0.05mm/100mm" />
+        </div>
+      </PropertyGroup>
+
+      <PropertyGroup title="Assembly Instructions">
+        <div style={{
+          padding: '10px',
+          background: 'var(--bg-primary)',
+          borderRadius: '4px',
+          fontSize: '12px',
+          color: 'var(--text-secondary)',
+        }}>
+          {specs.features && specs.features.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: '20px' }}>
+              {specs.features.map((feature, idx) => (
+                <li key={idx} style={{ marginBottom: '5px' }}>{feature}</li>
+              ))}
+            </ul>
+          ) : (
+            <div>Standard assembly procedures apply. Refer to technical drawings for specific requirements.</div>
+          )}
+        </div>
+      </PropertyGroup>
+
+      <PropertyGroup title="Technical Specifications">
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+          <Property label="CAD Format" value="STEP, IGES, STL" />
+          <Property label="Units" value="Metric (mm)" />
+          <Property label="Coordinate System" value="Right-handed" />
+          <Property label="Revision" value="1.0" />
+        </div>
+      </PropertyGroup>
+    </div>
+  );
+}
+
+function PropertiesTab() {
   return (
     <div>
       <PropertyGroup title="Transform">

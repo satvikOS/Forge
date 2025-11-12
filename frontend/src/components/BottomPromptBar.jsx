@@ -38,14 +38,18 @@ export default function BottomPromptBar({ onSubmit, loading }) {
           borderRadius: '8px',
           padding: '15px',
           maxWidth: '600px',
+          maxHeight: '400px',
           width: '90%',
           zIndex: 999,
+          display: 'flex',
+          flexDirection: 'column',
         }}>
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
             alignItems: 'center',
             marginBottom: '10px',
+            flexShrink: 0,
           }}>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               Try these examples:
@@ -63,7 +67,13 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               ×
             </button>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '8px',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          }}>
             {examplePrompts.map((example, index) => (
               <button
                 key={index}
