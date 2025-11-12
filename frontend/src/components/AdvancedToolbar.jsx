@@ -182,207 +182,69 @@ export default function AdvancedToolbar({
 
   return (
     <div style={{
-      display: 'flex',
-      background: 'var(--bg-secondary)',
-      borderBottom: '1px solid var(--border-color)',
       height: '100%',
-      overflow: 'hidden',
+      overflowY: 'auto',
+      padding: '8px',
+      background: 'var(--bg-primary)',
     }}>
-      {/* Left Sidebar - Tool Categories */}
-      <div style={{
-        width: '220px',
-        borderRight: '1px solid var(--border-color)',
-        overflowY: 'auto',
-        padding: '8px',
-        background: 'var(--bg-primary)',
-      }}>
-        <ToolGroup
-          title="Selection"
-          tools={selectionTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-        />
-        
-        <ToolGroup
-          title="Transform"
-          tools={transformTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-        />
-        
-        <ToolGroup
-          title="Mesh Primitives"
-          tools={meshTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-        />
-        
-        <ToolGroup
-          title="Modeling"
-          tools={modelingTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-        />
-        
-        <ToolGroup
-          title="Drawing"
-          tools={drawingTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-        />
-        
-        <ToolGroup
-          title="Measurement"
-          tools={measurementTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-          collapsed={true}
-        />
-        
-        <ToolGroup
-          title="Camera"
-          tools={cameraTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-          collapsed={true}
-        />
-        
-        <ToolGroup
-          title="Lights"
-          tools={lightTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-          collapsed={true}
-        />
-        
-        <ToolGroup
-          title="Camera"
-          tools={cameraTools}
-          activeTool={activeTool}
-          onToolSelect={onToolSelect}
-          collapsed={true}
-        />
-      </div>
-
-      {/* Top Bar - Quick Actions & View Controls */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        padding: '8px 12px',
-        flexWrap: 'wrap',
-      }}>
-        {/* View Mode */}
-        <div style={{
-          display: 'flex',
-          gap: '4px',
-          background: 'var(--bg-tertiary)',
-          borderRadius: '6px',
-          padding: '4px',
-        }}>
-          {viewModes.map((mode) => (
-            <button
-              key={mode.id}
-              onClick={() => onViewModeChange(mode.id)}
-              style={{
-                padding: '6px 12px',
-                background: viewMode === mode.id ? 'var(--accent-orange)' : 'transparent',
-                border: 'none',
-                borderRadius: '4px',
-                color: viewMode === mode.id ? 'white' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <span>{mode.icon}</span>
-              <span>{mode.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Separator */}
-        <div style={{
-          width: '1px',
-          height: '30px',
-          background: 'var(--border-color)',
-        }} />
-
-        {/* Undo/Redo */}
-        <div style={{ display: 'flex', gap: '4px' }}>
-          <button
-            onClick={onUndo}
-            disabled={!canUndo}
-            title="Undo (Ctrl+Z)"
-            style={{
-              padding: '6px 12px',
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              color: canUndo ? 'var(--text-primary)' : 'var(--text-disabled)',
-              cursor: canUndo ? 'pointer' : 'not-allowed',
-              fontSize: '14px',
-              opacity: canUndo ? 1 : 0.5,
-            }}
-          >
-            ↶
-          </button>
-          <button
-            onClick={onRedo}
-            disabled={!canRedo}
-            title="Redo (Ctrl+Shift+Z)"
-            style={{
-              padding: '6px 12px',
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              color: canRedo ? 'var(--text-primary)' : 'var(--text-disabled)',
-              cursor: canRedo ? 'pointer' : 'not-allowed',
-              fontSize: '14px',
-              opacity: canRedo ? 1 : 0.5,
-            }}
-          >
-            ↷
-          </button>
-        </div>
-
-        {/* Separator */}
-        <div style={{
-          width: '1px',
-          height: '30px',
-          background: 'var(--border-color)',
-        }} />
-
-        {/* Active Tool Display */}
-        <div style={{
-          padding: '6px 12px',
-          background: 'var(--bg-tertiary)',
-          borderRadius: '6px',
-          fontSize: '12px',
-          color: 'var(--accent-orange)',
-          fontWeight: 'bold',
-        }}>
-          Active: {activeTool || 'None'}
-        </div>
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* Help */}
-        <div style={{
-          fontSize: '11px',
-          color: 'var(--text-secondary)',
-          fontStyle: 'italic',
-          padding: '6px 12px',
-          background: 'var(--bg-tertiary)',
-          borderRadius: '6px',
-        }}>
-          Press tool shortcut keys for quick access
-        </div>
-      </div>
+      <ToolGroup
+        title="Selection"
+        tools={selectionTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+      />
+      
+      <ToolGroup
+        title="Transform"
+        tools={transformTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+      />
+      
+      <ToolGroup
+        title="Mesh Primitives"
+        tools={meshTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+      />
+      
+      <ToolGroup
+        title="Modeling"
+        tools={modelingTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+      />
+      
+      <ToolGroup
+        title="Drawing"
+        tools={drawingTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+      />
+      
+      <ToolGroup
+        title="Measurement"
+        tools={measurementTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+        collapsed={true}
+      />
+      
+      <ToolGroup
+        title="Camera"
+        tools={cameraTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+        collapsed={true}
+      />
+      
+      <ToolGroup
+        title="Lights"
+        tools={lightTools}
+        activeTool={activeTool}
+        onToolSelect={onToolSelect}
+        collapsed={true}
+      />
     </div>
   );
 }

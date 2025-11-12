@@ -3,6 +3,7 @@ import BottomPromptBar from './components/BottomPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
 import AdvancedWorkbench from './components/AdvancedWorkbench';
 import PropertiesPanel from './components/PropertiesPanel';
+import Toolbar from './components/Toolbar';
 import AdvancedToolbar from './components/AdvancedToolbar';
 import SceneHierarchyPanel from './components/SceneHierarchyPanel';
 import HelpPanel from './components/HelpPanel';
@@ -11,113 +12,6 @@ import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from
 import apiService from './services/api';
 import './styles/index.css';
 
-// MenuButton component for top menu bar
-function MenuButton({ label, items }) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        onBlur={() => setTimeout(() => setIsOpen(false), 200)}
-        style={{
-          padding: '8px 12px',
-          background: isOpen ? 'var(--bg-tertiary)' : 'transparent',
-          border: 'none',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
-          fontSize: '13px',
-          borderRadius: '4px',
-        }}
-        onMouseEnter={(e) => {
-          if (!isOpen) e.target.style.background = 'var(--bg-hover)';
-        }}
-        onMouseLeave={(e) => {
-          if (!isOpen) e.target.style.background = 'transparent';
-        }}
-      >
-        {label}
-      </button>
-
-      {isOpen && (
-        <div style={{
-          position: 'absolute',
-          top: '100%',
-          left: 0,
-          marginTop: '2px',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '6px',
-          minWidth: '200px',
-          zIndex: 10000,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-        }}>
-          {items.map((item, index) => {
-            if (item.label === 'divider') {
-              return (
-                <div
-                  key={index}
-                  style={{
-                    height: '1px',
-                    background: 'var(--border-color)',
-                    margin: '4px 0',
-                  }}
-                />
-              );
-            }
-
-            return (
-              <button
-                key={index}
-                onClick={() => {
-                  if (item.onClick) item.onClick();
-                  setIsOpen(false);
-                }}
-                disabled={item.disabled}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  background: item.selected ? 'var(--bg-tertiary)' : 'transparent',
-                  border: 'none',
-                  color: item.disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
-                  cursor: item.disabled ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  textAlign: 'left',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  opacity: item.disabled ? 0.5 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!item.disabled && !item.selected) {
-                    e.target.style.background = 'var(--bg-hover)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!item.disabled && !item.selected) {
-                    e.target.style.background = 'transparent';
-                  }
-                }}
-              >
-                <span>{item.label}</span>
-                {item.shortcut && (
-                  <span style={{
-                    fontSize: '10px',
-                    color: 'var(--text-secondary)',
-                    marginLeft: '20px',
-                  }}>
-                    {item.shortcut}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function App() {
   const [design, setDesign] = useState(null);
   const [analysis, setAnalysis] = useState(null);
@@ -125,9 +19,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('solid');
+  const [isExploded, setIsExploded] = useState(false);
   const [activeTool, setActiveTool] = useState('select');
   const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
-  const sceneManagerRef = useRef(new SceneManager());
+  const sceneManagerRef = useRef(null);
   const [selectedObjects, setSelectedObjects] = useState(new Set());
   const [showHelp, setShowHelp] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -333,6 +228,86 @@ function App() {
           <span>{loading ? 'Generating...' : 'AI Ready'}</span>
         </div>
       </header>
+                  📤 Export
+                </button>
+                <div style={{
+                  display: 'none',
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '4px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  padding: '4px',
+                  zIndex: 1000,
+                  minWidth: '120px',
+                }}>
+                  {['obj', 'stl', 'gltf', 'glb'].map(format => (
+                    <button
+                      key={format}
+                      onClick={() => {
+                        handleExport(format);
+                        document.activeElement.blur();
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 12px',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                    >
+                      {format.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          
+          {/* Help Button */}
+          <button
+            onClick={() => setShowHelp(true)}
+            style={{
+              padding: '6px 12px',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+            title="Help & Shortcuts (F1)"
+          >
+            ❓ Help
+          </button>
+          
+          {/* Status indicator */}
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginLeft: '8px',
+          }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: loading ? 'var(--accent-orange)' : '#4caf50',
+            }} />
+            {loading ? 'Generating...' : 'Ready'}
+          </div>
+        </div>
+      </header>
 
       {/* Error Message */}
       {error && (
@@ -365,26 +340,38 @@ function App() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: sidebarCollapsed 
-          ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 350px')
-          : (rightPanelCollapsed ? '220px 1fr 0px' : '220px 1fr 350px'),
+        gridTemplateColumns: mode === 'advanced' ? '250px 1fr 350px' : '1fr 350px',
         overflow: 'hidden',
-        transition: 'grid-template-columns 0.3s ease',
       }}>
-        {/* Left Sidebar - Tools (Retractable) */}
+        {/* Left Sidebar - Scene Hierarchy (Advanced Mode Only) */}
+        {mode === 'advanced' && sceneManagerRef.current && (
+          <div style={{
+            borderRight: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <SceneHierarchyPanel
+              sceneManager={sceneManagerRef.current}
+              selectedObjects={selectedObjects}
+              onObjectSelect={(id) => {
+                if (sceneManagerRef.current) {
+                  sceneManagerRef.current.selectObject(id, 'toggle');
+                  setSelectedObjects(new Set(sceneManagerRef.current.selectedObjects));
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* Center - 3D Viewer */}
         <div style={{
-          borderRight: '1px solid var(--border-color)',
           display: 'flex',
           flexDirection: 'column',
-          background: 'var(--bg-primary)',
-          overflow: 'hidden',
-          position: 'relative',
+          borderRight: '1px solid var(--border-color)',
         }}>
-          {!sidebarCollapsed && (
-            <div style={{
-              height: '100%',
-              overflow: 'hidden',
-            }}>
+          {/* Toolbar */}
+          {mode === 'advanced' ? (
+            <div style={{ height: '60px', borderBottom: '1px solid var(--border-color)' }}>
               <AdvancedToolbar
                 activeTool={activeTool}
                 onToolSelect={setActiveTool}
@@ -396,64 +383,48 @@ function App() {
                 canRedo={canRedo}
               />
             </div>
+          ) : (
+            <Toolbar
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              isExploded={isExploded}
+              onExplodeToggle={() => setIsExploded(!isExploded)}
+            />
           )}
           
-          {/* Toggle button */}
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            style={{
-              position: 'absolute',
-              right: '-10px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: '20px',
-              height: '40px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '0 4px 4px 0',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-secondary)',
-              fontSize: '10px',
-              zIndex: 10,
-            }}
-          >
-            {sidebarCollapsed ? '▶' : '◀'}
-          </button>
-        </div>
-
-        {/* Center - 3D Viewer */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-        }}>
+          {/* 3D Viewer */}
           <div style={{ flex: 1, position: 'relative' }}>
-            {loading ? (
-              <div style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-              }}>
-                <div className="spinner" style={{ 
-                  width: '48px', 
-                  height: '48px',
-                  borderWidth: '4px',
-                  marginBottom: '20px',
-                }} />
-                <div style={{ fontSize: '18px', marginBottom: '10px' }}>
-                  Generating your design...
+            {mode === 'simple' ? (
+              loading ? (
+                <div style={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                }}>
+                  <div className="spinner" style={{ 
+                    width: '48px', 
+                    height: '48px',
+                    borderWidth: '4px',
+                    marginBottom: '20px',
+                  }} />
+                  <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                    Generating your design...
+                  </div>
+                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    This may take a few moments
+                  </div>
                 </div>
-                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                  This may take a few moments
-                </div>
-              </div>
+              ) : (
+                <WorkbenchViewer 
+                  modelData={design?.model}
+                  viewMode={viewMode}
+                  isExploded={isExploded}
+                />
+              )
             ) : (
               <AdvancedWorkbench
                 activeTool={activeTool}
@@ -470,53 +441,20 @@ function App() {
           </div>
         </div>
 
-        {/* Right Panel - Properties (Retractable) */}
-        <div style={{
-          borderLeft: '1px solid var(--border-color)',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          overflow: 'hidden',
-        }}>
-          {!rightPanelCollapsed && (
-            <PropertiesPanel 
-              design={design}
-              analysis={analysis}
-              compliance={compliance}
-            />
-          )}
-          
-          {/* Toggle button */}
-          <button
-            onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
-            style={{
-              position: 'absolute',
-              left: '-10px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: '20px',
-              height: '40px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '4px 0 0 4px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-secondary)',
-              fontSize: '10px',
-              zIndex: 10,
-            }}
-          >
-            {rightPanelCollapsed ? '◀' : '▶'}
-          </button>
-        </div>
+        {/* Right - Properties Panel */}
+        <PropertiesPanel 
+          design={design}
+          analysis={analysis}
+          compliance={compliance}
+        />
       </div>
 
-      {/* Glassmorphic Curved Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Bottom Prompt Bar - Only in Simple Mode */}
+      {mode === 'simple' && (
+        <div style={{ paddingBottom: '70px' }}>
+          <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+        </div>
+      )}
 
       {/* Help Panel */}
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
