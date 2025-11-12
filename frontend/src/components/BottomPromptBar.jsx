@@ -3,6 +3,7 @@ import { useState } from 'react';
 export default function BottomPromptBar({ onSubmit, loading }) {
   const [prompt, setPrompt] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -105,23 +106,38 @@ export default function BottomPromptBar({ onSubmit, loading }) {
       )}
 
       {/* Floating Glassmorphic Curved Prompt Bar */}
-      <div style={{
-        position: 'fixed',
-        bottom: '20px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: 'calc(100% - 280px)',
-        maxWidth: '1200px',
-        minWidth: '600px',
-        background: 'rgba(15, 15, 15, 0.75)',
-        backdropFilter: 'blur(30px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(30px) saturate(180%)',
-        border: '1px solid rgba(255, 255, 255, 0.15)',
-        borderRadius: '20px',
-        padding: '8px 12px',
-        zIndex: 1000,
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-      }}>
+      <div 
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 'calc(100% - 280px)',
+          maxWidth: '1200px',
+          minWidth: '600px',
+          background: isHovered 
+            ? 'rgba(25, 25, 25, 0.85)' 
+            : 'rgba(15, 15, 15, 0.75)',
+          backdropFilter: isHovered 
+            ? 'blur(35px) saturate(200%)' 
+            : 'blur(30px) saturate(180%)',
+          WebkitBackdropFilter: isHovered 
+            ? 'blur(35px) saturate(200%)' 
+            : 'blur(30px) saturate(180%)',
+          border: isHovered 
+            ? '1px solid rgba(255, 107, 53, 0.4)' 
+            : '1px solid rgba(255, 255, 255, 0.15)',
+          borderRadius: '20px',
+          padding: '8px 12px',
+          zIndex: 1000,
+          boxShadow: isHovered 
+            ? '0 12px 40px rgba(255, 107, 53, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
+            : '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+          transition: 'all 0.3s ease',
+        }}
+      >
         <form onSubmit={handleSubmit} style={{
           display: 'flex',
           gap: '8px',
