@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import BottomPromptBar from './components/BottomPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
+import AdvancedWorkbench from './components/AdvancedWorkbench';
 import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
+import AdvancedToolbar from './components/AdvancedToolbar';
+import SceneHierarchyPanel from './components/SceneHierarchyPanel';
+import SceneManager from './systems/SceneManager';
+import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import apiService from './services/api';
 import './styles/index.css';
 
@@ -14,6 +19,11 @@ function App() {
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('solid');
   const [isExploded, setIsExploded] = useState(false);
+  const [mode, setMode] = useState('advanced'); // 'simple' or 'advanced'
+  const [activeTool, setActiveTool] = useState('select');
+  const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
+  const sceneManagerRef = useRef(null);
+  const [selectedObjects, setSelectedObjects] = useState(new Set());
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -40,6 +50,74 @@ function App() {
       setLoading(false);
     }
   };
+
+  const handleSaveProject = () => {
+    if (sceneManagerRef.current) {
+      saveProject(sceneManagerRef.current);
+    }
+  };
+
+  const handleLoadProject = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.archdisc,.json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (sceneManagerRef.current && loadProject(event.target.result, sceneManagerRef.current)) {
+            setError(null);
+          } else {
+            setError('Failed to load project file.');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
+  const handleExport = (format) => {
+    if (!sceneManagerRef.current) return;
+    
+    try {
+      switch (format) {
+        case 'obj':
+          exportToOBJ(sceneManagerRef.current);
+          break;
+        case 'stl':
+          exportToSTL(sceneManagerRef.current);
+          break;
+        case 'gltf':
+          exportToGLTF(sceneManagerRef.current);
+          break;
+        case 'glb':
+          exportToGLTF(sceneManagerRef.current, true);
+          break;
+        default:
+          console.error('Unknown export format:', format);
+      }
+    } catch (err) {
+      setError(`Failed to export as ${format.toUpperCase()}`);
+      console.error(err);
+    }
+  };
+
+  const handleUndo = () => {
+    if (sceneManagerRef.current) {
+      sceneManagerRef.current.undo();
+    }
+  };
+
+  const handleRedo = () => {
+    if (sceneManagerRef.current) {
+      sceneManagerRef.current.redo();
+    }
+  };
+
+  const canUndo = sceneManagerRef.current ? sceneManagerRef.current.canUndo() : false;
+  const canRedo = sceneManagerRef.current ? sceneManagerRef.current.canRedo() : false;
 
   return (
     <div style={{
@@ -75,23 +153,160 @@ function App() {
           }}>
             AI-Powered Design Workbench
           </div>
+          
+          {/* Mode Toggle */}
+          <div style={{
+            display: 'flex',
+            gap: '4px',
+            background: 'var(--bg-tertiary)',
+            borderRadius: '8px',
+            padding: '4px',
+          }}>
+            <button
+              onClick={() => setMode('simple')}
+              style={{
+                padding: '6px 12px',
+                background: mode === 'simple' ? 'var(--accent-orange)' : 'transparent',
+                border: 'none',
+                borderRadius: '6px',
+                color: mode === 'simple' ? 'white' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: mode === 'simple' ? 'bold' : 'normal',
+              }}
+            >
+              AI Mode
+            </button>
+            <button
+              onClick={() => setMode('advanced')}
+              style={{
+                padding: '6px 12px',
+                background: mode === 'advanced' ? 'var(--accent-orange)' : 'transparent',
+                border: 'none',
+                borderRadius: '6px',
+                color: mode === 'advanced' ? 'white' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: mode === 'advanced' ? 'bold' : 'normal',
+              }}
+            >
+              3D Editor
+            </button>
+          </div>
         </div>
         
-        {/* Status indicator */}
-        <div style={{
-          fontSize: '12px',
-          color: 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}>
+        {/* File Menu */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {mode === 'advanced' && (
+            <>
+              <button
+                onClick={handleSaveProject}
+                style={{
+                  padding: '6px 12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                }}
+                title="Save Project"
+              >
+                💾 Save
+              </button>
+              <button
+                onClick={handleLoadProject}
+                style={{
+                  padding: '6px 12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                }}
+                title="Load Project"
+              >
+                📁 Load
+              </button>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  style={{
+                    padding: '6px 12px',
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                  }}
+                  onClick={(e) => {
+                    const menu = e.target.nextSibling;
+                    menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+                  }}
+                  title="Export"
+                >
+                  📤 Export
+                </button>
+                <div style={{
+                  display: 'none',
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '4px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  padding: '4px',
+                  zIndex: 1000,
+                  minWidth: '120px',
+                }}>
+                  {['obj', 'stl', 'gltf', 'glb'].map(format => (
+                    <button
+                      key={format}
+                      onClick={() => {
+                        handleExport(format);
+                        document.activeElement.blur();
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 12px',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                    >
+                      {format.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          
+          {/* Status indicator */}
           <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: loading ? 'var(--accent-orange)' : '#4caf50',
-          }} />
-          {loading ? 'Generating...' : 'Ready'}
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginLeft: '8px',
+          }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: loading ? 'var(--accent-orange)' : '#4caf50',
+            }} />
+            {loading ? 'Generating...' : 'Ready'}
+          </div>
         </div>
       </header>
 
@@ -126,53 +341,102 @@ function App() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '1fr 350px',
+        gridTemplateColumns: mode === 'advanced' ? '250px 1fr 350px' : '1fr 350px',
         overflow: 'hidden',
       }}>
-        {/* Left - 3D Viewer */}
+        {/* Left Sidebar - Scene Hierarchy (Advanced Mode Only) */}
+        {mode === 'advanced' && sceneManagerRef.current && (
+          <div style={{
+            borderRight: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <SceneHierarchyPanel
+              sceneManager={sceneManagerRef.current}
+              selectedObjects={selectedObjects}
+              onObjectSelect={(id) => {
+                if (sceneManagerRef.current) {
+                  sceneManagerRef.current.selectObject(id, 'toggle');
+                  setSelectedObjects(new Set(sceneManagerRef.current.selectedObjects));
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* Center - 3D Viewer */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           borderRight: '1px solid var(--border-color)',
         }}>
           {/* Toolbar */}
-          <Toolbar
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            isExploded={isExploded}
-            onExplodeToggle={() => setIsExploded(!isExploded)}
-          />
+          {mode === 'advanced' ? (
+            <div style={{ height: '60px', borderBottom: '1px solid var(--border-color)' }}>
+              <AdvancedToolbar
+                activeTool={activeTool}
+                onToolSelect={setActiveTool}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
+              />
+            </div>
+          ) : (
+            <Toolbar
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              isExploded={isExploded}
+              onExplodeToggle={() => setIsExploded(!isExploded)}
+            />
+          )}
           
           {/* 3D Viewer */}
           <div style={{ flex: 1, position: 'relative' }}>
-            {loading ? (
-              <div style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-              }}>
-                <div className="spinner" style={{ 
-                  width: '48px', 
-                  height: '48px',
-                  borderWidth: '4px',
-                  marginBottom: '20px',
-                }} />
-                <div style={{ fontSize: '18px', marginBottom: '10px' }}>
-                  Generating your design...
+            {mode === 'simple' ? (
+              loading ? (
+                <div style={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                }}>
+                  <div className="spinner" style={{ 
+                    width: '48px', 
+                    height: '48px',
+                    borderWidth: '4px',
+                    marginBottom: '20px',
+                  }} />
+                  <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                    Generating your design...
+                  </div>
+                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    This may take a few moments
+                  </div>
                 </div>
-                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                  This may take a few moments
-                </div>
-              </div>
+              ) : (
+                <WorkbenchViewer 
+                  modelData={design?.model}
+                  viewMode={viewMode}
+                  isExploded={isExploded}
+                />
+              )
             ) : (
-              <WorkbenchViewer 
-                modelData={design?.model}
+              <AdvancedWorkbench
+                activeTool={activeTool}
+                onToolChange={setActiveTool}
                 viewMode={viewMode}
-                isExploded={isExploded}
+                onSceneUpdate={(info) => {
+                  setSceneInfo(info);
+                  if (info.sceneManager) {
+                    sceneManagerRef.current = info.sceneManager;
+                  }
+                }}
               />
             )}
           </div>
@@ -186,10 +450,12 @@ function App() {
         />
       </div>
 
-      {/* Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Bottom Prompt Bar - Only in Simple Mode */}
+      {mode === 'simple' && (
+        <div style={{ paddingBottom: '70px' }}>
+          <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+        </div>
+      )}
     </div>
   );
 }
