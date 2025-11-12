@@ -144,18 +144,18 @@ function App() {
       flexDirection: 'column',
       background: 'var(--bg-primary)',
     }}>
-      {/* Header */}
+      {/* Header - Compact */}
       <header style={{
-        padding: '12px 20px',
+        padding: '6px 16px',
         background: 'var(--bg-secondary)',
-        borderBottom: '2px solid var(--border-color)',
+        borderBottom: '1px solid var(--border-color)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <h1 style={{
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: 'bold',
             color: 'var(--text-primary)',
             margin: 0,
@@ -163,11 +163,11 @@ function App() {
             ArchDisc
           </h1>
           <div style={{
-            fontSize: '12px',
+            fontSize: '10px',
             color: 'var(--text-secondary)',
-            padding: '4px 10px',
+            padding: '2px 8px',
             background: 'var(--bg-tertiary)',
-            borderRadius: '12px',
+            borderRadius: '10px',
           }}>
             AI-Powered Design Workbench
           </div>
@@ -175,15 +175,15 @@ function App() {
         
         {/* Status indicator */}
         <div style={{
-          fontSize: '12px',
+          fontSize: '10px',
           color: 'var(--text-secondary)',
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '6px',
         }}>
           <div style={{
-            width: '8px',
-            height: '8px',
+            width: '6px',
+            height: '6px',
             borderRadius: '50%',
             background: loading ? 'var(--accent-orange)' : '#4caf50',
           }} />
@@ -313,10 +313,8 @@ function App() {
         onAction={handleContextAction}
       />
 
-      {/* Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Bottom Prompt Bar - Floating */}
+      <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
     </div>
   );
 }

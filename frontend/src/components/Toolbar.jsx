@@ -23,8 +23,8 @@ export default function Toolbar({
   return (
     <div style={{
       display: 'flex',
-      gap: '10px',
-      padding: '8px 10px',
+      gap: '6px',
+      padding: '4px 8px',
       background: 'var(--bg-secondary)',
       borderBottom: '1px solid var(--border-color)',
       alignItems: 'center',
@@ -36,7 +36,7 @@ export default function Toolbar({
       {/* Separator */}
       <div style={{
         width: '1px',
-        height: '30px',
+        height: '20px',
         background: 'var(--border-color)',
       }} />
 
@@ -50,34 +50,34 @@ export default function Toolbar({
       {/* Separator */}
       <div style={{
         width: '1px',
-        height: '30px',
+        height: '20px',
         background: 'var(--border-color)',
       }} />
 
       {/* View mode selector */}
       <div style={{
         display: 'flex',
-        gap: '5px',
+        gap: '2px',
         background: 'var(--bg-tertiary)',
-        borderRadius: '6px',
-        padding: '4px',
+        borderRadius: '4px',
+        padding: '2px',
       }}>
         {viewModes.map((mode) => (
           <button
             key={mode.id}
             onClick={() => onViewModeChange(mode.id)}
             style={{
-              padding: '6px 12px',
+              padding: '3px 8px',
               background: viewMode === mode.id ? 'var(--accent-orange)' : 'transparent',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: '3px',
               color: viewMode === mode.id ? 'white' : 'var(--text-secondary)',
               cursor: 'pointer',
-              fontSize: '12px',
+              fontSize: '10px',
               fontWeight: viewMode === mode.id ? '500' : 'normal',
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
+              gap: '3px',
               transition: 'all 0.15s',
             }}
             onMouseEnter={(e) => {
@@ -101,17 +101,17 @@ export default function Toolbar({
       <button
         onClick={onExplodeToggle}
         style={{
-          padding: '6px 12px',
+          padding: '3px 8px',
           background: isExploded ? 'var(--accent-orange)' : 'var(--bg-tertiary)',
           border: '1px solid var(--border-color)',
-          borderRadius: '6px',
+          borderRadius: '4px',
           color: isExploded ? 'white' : 'var(--text-secondary)',
           cursor: 'pointer',
-          fontSize: '12px',
+          fontSize: '10px',
           fontWeight: isExploded ? '500' : 'normal',
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
+          gap: '3px',
           transition: 'all 0.15s',
         }}
         onMouseEnter={(e) => {
@@ -133,17 +133,17 @@ export default function Toolbar({
       <button
         onClick={onGridToggle}
         style={{
-          padding: '6px 12px',
+          padding: '3px 8px',
           background: showGrid ? 'var(--accent-orange)' : 'var(--bg-tertiary)',
           border: '1px solid var(--border-color)',
-          borderRadius: '6px',
+          borderRadius: '4px',
           color: showGrid ? 'white' : 'var(--text-secondary)',
           cursor: 'pointer',
-          fontSize: '12px',
+          fontSize: '10px',
           fontWeight: showGrid ? '500' : 'normal',
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
+          gap: '3px',
           transition: 'all 0.15s',
         }}
         onMouseEnter={(e) => {
@@ -165,17 +165,17 @@ export default function Toolbar({
       <button
         onClick={onSnapToggle}
         style={{
-          padding: '6px 12px',
+          padding: '3px 8px',
           background: showSnap ? 'var(--accent-orange)' : 'var(--bg-tertiary)',
           border: '1px solid var(--border-color)',
-          borderRadius: '6px',
+          borderRadius: '4px',
           color: showSnap ? 'white' : 'var(--text-secondary)',
           cursor: 'pointer',
-          fontSize: '12px',
+          fontSize: '10px',
           fontWeight: showSnap ? '500' : 'normal',
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
+          gap: '3px',
           transition: 'all 0.15s',
         }}
         onMouseEnter={(e) => {
@@ -198,7 +198,7 @@ export default function Toolbar({
 
       {/* Help text */}
       <div style={{
-        fontSize: '12px',
+        fontSize: '10px',
         color: 'var(--text-secondary)',
       }}>
         {activeTool ? `${activeTool} tool active` : 'Select a tool or object'}

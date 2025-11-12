@@ -7,10 +7,10 @@ export default function ToolSelector({ currentMode, activeTool, onToolChange }) 
     <div
       style={{
         display: 'flex',
-        gap: '4px',
+        gap: '2px',
         background: 'var(--bg-tertiary)',
-        borderRadius: '6px',
-        padding: '4px',
+        borderRadius: '4px',
+        padding: '2px',
       }}
     >
       {modeTools.map((tool) => (
@@ -19,17 +19,17 @@ export default function ToolSelector({ currentMode, activeTool, onToolChange }) 
           onClick={() => onToolChange(tool.id)}
           title={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
           style={{
-            padding: '8px 12px',
+            padding: '3px 6px',
             background: activeTool === tool.id ? 'var(--accent-orange)' : 'transparent',
             border: 'none',
-            borderRadius: '4px',
+            borderRadius: '3px',
             color: activeTool === tool.id ? 'white' : 'var(--text-secondary)',
             cursor: 'pointer',
-            fontSize: '12px',
+            fontSize: '10px',
             fontWeight: activeTool === tool.id ? '500' : 'normal',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '3px',
             transition: 'all 0.15s',
           }}
           onMouseEnter={(e) => {
@@ -45,7 +45,7 @@ export default function ToolSelector({ currentMode, activeTool, onToolChange }) 
             }
           }}
         >
-          <span style={{ fontSize: '16px' }}>{tool.icon}</span>
+          <span style={{ fontSize: '12px' }}>{tool.icon}</span>
           <span>{tool.label}</span>
         </button>
       ))}

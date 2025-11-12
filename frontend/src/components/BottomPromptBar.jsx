@@ -98,20 +98,24 @@ export default function BottomPromptBar({ onSubmit, loading }) {
         </div>
       )}
 
-      {/* Bottom prompt bar */}
+      {/* Bottom prompt bar - Floating with glassmorphic effect */}
       <div style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: 'var(--bg-secondary)',
-        borderTop: '2px solid var(--border-color)',
-        padding: '15px 20px',
+        bottom: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '90%',
+        maxWidth: '1200px',
+        background: 'rgba(26, 26, 26, 0.7)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        border: '1px solid rgba(255, 107, 53, 0.3)',
+        borderRadius: '12px',
+        padding: '12px 16px',
         zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
       }}>
         <form onSubmit={handleSubmit} style={{
-          maxWidth: '1200px',
-          margin: '0 auto',
           display: 'flex',
           gap: '10px',
           alignItems: 'center',
@@ -122,26 +126,26 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             onClick={() => setIsExpanded(!isExpanded)}
             disabled={loading}
             style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              width: '40px',
-              height: '40px',
+              background: 'rgba(42, 42, 42, 0.6)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px',
+              width: '36px',
+              height: '36px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'var(--text-secondary)',
               cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '16px',
               flexShrink: 0,
             }}
             onMouseEnter={(e) => {
               if (!loading) {
-                e.target.style.background = 'var(--bg-hover)';
+                e.target.style.background = 'rgba(51, 51, 51, 0.8)';
               }
             }}
             onMouseLeave={(e) => {
-              e.target.style.background = 'var(--bg-tertiary)';
+              e.target.style.background = 'rgba(42, 42, 42, 0.6)';
             }}
           >
             ⋯
@@ -157,19 +161,21 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             disabled={loading}
             style={{
               flex: 1,
-              padding: '12px 16px',
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
+              padding: '10px 14px',
+              background: 'rgba(42, 42, 42, 0.6)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px',
               color: 'var(--text-primary)',
               fontSize: '14px',
               outline: 'none',
             }}
             onFocus={(e) => {
               e.target.style.borderColor = 'var(--accent-orange)';
+              e.target.style.background = 'rgba(42, 42, 42, 0.8)';
             }}
             onBlur={(e) => {
-              e.target.style.borderColor = 'var(--border-color)';
+              e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+              e.target.style.background = 'rgba(42, 42, 42, 0.6)';
             }}
           />
 
@@ -178,17 +184,17 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             type="submit"
             disabled={loading || !prompt.trim()}
             style={{
-              background: loading || !prompt.trim() ? 'var(--bg-tertiary)' : 'var(--accent-orange)',
+              background: loading || !prompt.trim() ? 'rgba(42, 42, 42, 0.6)' : 'var(--accent-orange)',
               border: 'none',
-              borderRadius: '6px',
-              width: '40px',
-              height: '40px',
+              borderRadius: '8px',
+              width: '36px',
+              height: '36px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
               cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
-              fontSize: '18px',
+              fontSize: '16px',
               flexShrink: 0,
             }}
             onMouseEnter={(e) => {

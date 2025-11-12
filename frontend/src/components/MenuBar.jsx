@@ -123,10 +123,10 @@ export default function MenuBar({ onMenuAction }) {
       ref={menuBarRef}
       style={{
         display: 'flex',
-        gap: '2px',
+        gap: '1px',
         background: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-color)',
-        padding: '0 8px',
+        padding: '0 6px',
         userSelect: 'none',
       }}
     >
@@ -135,11 +135,11 @@ export default function MenuBar({ onMenuAction }) {
           <button
             onClick={() => handleMenuClick(key)}
             style={{
-              padding: '8px 12px',
+              padding: '4px 10px',
               background: openMenu === key ? 'var(--bg-hover)' : 'transparent',
               border: 'none',
               color: 'var(--text-primary)',
-              fontSize: '12px',
+              fontSize: '11px',
               cursor: 'pointer',
               transition: 'background 0.1s',
             }}
