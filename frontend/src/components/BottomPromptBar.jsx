@@ -14,12 +14,15 @@ export default function BottomPromptBar({ onSubmit, loading }) {
   };
 
   const handleKeyDown = (e) => {
-    // Allow normal key behavior (including backspace)
+    // Stop event from bubbling up to global handlers
+    e.stopPropagation();
+    
+    // Only prevent default for Enter key
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
     }
-    // Don't prevent default for other keys - let them work normally
+    // Allow all other keys (backspace, delete, arrows, etc.) to work normally
   };
 
   const examplePrompts = [
