@@ -105,110 +105,107 @@ export default function BottomPromptBar({ onSubmit, loading }) {
         </div>
       )}
 
-      {/* Floating Glassmorphic Curved Prompt Bar */}
-      <div 
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        style={{
-          position: 'fixed',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 'calc(100% - 280px)',
-          maxWidth: '1200px',
-          minWidth: '600px',
-          background: isHovered 
-            ? 'rgba(25, 25, 25, 0.85)' 
-            : 'rgba(15, 15, 15, 0.75)',
-          backdropFilter: isHovered 
-            ? 'blur(35px) saturate(200%)' 
-            : 'blur(30px) saturate(180%)',
-          WebkitBackdropFilter: isHovered 
-            ? 'blur(35px) saturate(200%)' 
-            : 'blur(30px) saturate(180%)',
-          border: isHovered 
-            ? '1px solid rgba(255, 107, 53, 0.4)' 
-            : '1px solid rgba(255, 255, 255, 0.15)',
-          borderRadius: '20px',
-          padding: '8px 12px',
-          zIndex: 1000,
-          boxShadow: isHovered 
-            ? '0 12px 40px rgba(255, 107, 53, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
-            : '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-          transition: 'all 0.3s ease',
-        }}
-      >
-        <form onSubmit={handleSubmit} style={{
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'center',
-        }}>
-          {/* Expand button */}
-          <button
-            type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            disabled={loading}
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '10px',
-              width: '36px',
-              height: '36px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'rgba(255, 255, 255, 0.7)',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '16px',
-              flexShrink: 0,
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) {
-                e.target.style.background = 'rgba(255, 255, 255, 0.1)';
-                e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
-              e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-            }}
-          >
-            ⋯
-          </button>
+      {/* Single Layer Floating Glassmorphic Prompt Bar - 9cm (340px) */}
+      <div style={{
+        position: 'fixed',
+        bottom: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        display: 'flex',
+        gap: '10px',
+        alignItems: 'center',
+        zIndex: 1000,
+      }}>
+        {/* ArchPro button - outside the main bar */}
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          disabled={loading}
+          style={{
+            background: 'rgba(15, 15, 15, 0.75)',
+            backdropFilter: 'blur(30px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '12px',
+            padding: '8px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(255, 255, 255, 0.9)',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontSize: '13px',
+            fontWeight: '600',
+            flexShrink: 0,
+            transition: 'all 0.2s',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+            height: '42px',
+          }}
+          onMouseEnter={(e) => {
+            if (!loading) {
+              e.target.style.background = 'rgba(25, 25, 25, 0.85)';
+              e.target.style.borderColor = 'rgba(255, 107, 53, 0.4)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'rgba(15, 15, 15, 0.75)';
+            e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+          }}
+        >
+          ArchPro
+        </button>
 
-          {/* Input field with glassmorphic styling */}
+        {/* Main prompt bar - exactly 9cm (340px) */}
+        <form 
+          onSubmit={handleSubmit}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          style={{
+            width: '340px',
+            background: isHovered 
+              ? 'rgba(25, 25, 25, 0.85)' 
+              : 'rgba(15, 15, 15, 0.75)',
+            backdropFilter: isHovered 
+              ? 'blur(35px) saturate(200%)' 
+              : 'blur(30px) saturate(180%)',
+            WebkitBackdropFilter: isHovered 
+              ? 'blur(35px) saturate(200%)' 
+              : 'blur(30px) saturate(180%)',
+            border: isHovered 
+              ? '1px solid rgba(255, 107, 53, 0.4)' 
+              : '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '20px',
+            padding: '6px',
+            boxShadow: isHovered 
+              ? '0 12px 40px rgba(255, 107, 53, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
+              : '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+            transition: 'all 0.3s ease',
+            display: 'flex',
+            gap: '6px',
+            alignItems: 'center',
+          }}
+        >
+          {/* Input field */}
           <input
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe what you want to design or model..."
+            placeholder="Describe your design..."
             disabled={loading}
             autoComplete="off"
             style={{
               flex: 1,
-              padding: '8px 16px',
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '18px',
+              padding: '6px 14px',
+              background: 'transparent',
+              border: 'none',
               color: '#ffffff',
-              fontSize: '14px',
+              fontSize: '13px',
               outline: 'none',
-              transition: 'all 0.2s',
-              height: '36px',
-            }}
-            onFocus={(e) => {
-              e.target.style.background = 'rgba(255, 255, 255, 0.08)';
-              e.target.style.borderColor = 'rgba(255, 107, 53, 0.5)';
-            }}
-            onBlur={(e) => {
-              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
-              e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+              height: '30px',
             }}
           />
 
-          {/* Submit button - Paper Plane Icon */}
+          {/* Submit button - Paper Plane Icon inside the bar */}
           <button
             type="submit"
             disabled={loading || !prompt.trim()}
@@ -217,15 +214,15 @@ export default function BottomPromptBar({ onSubmit, loading }) {
                 ? 'rgba(255, 255, 255, 0.05)' 
                 : 'linear-gradient(135deg, #ff6b35 0%, #ff8555 100%)',
               border: 'none',
-              borderRadius: '10px',
-              width: '36px',
-              height: '36px',
+              borderRadius: '14px',
+              width: '30px',
+              height: '30px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
               cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer',
-              fontSize: '16px',
+              fontSize: '14px',
               flexShrink: 0,
               transition: 'all 0.2s',
               boxShadow: loading || !prompt.trim() 
@@ -234,21 +231,21 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             }}
             onMouseEnter={(e) => {
               if (!loading && prompt.trim()) {
-                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.transform = 'scale(1.05)';
                 e.target.style.boxShadow = '0 6px 20px rgba(255, 107, 53, 0.5)';
               }
             }}
             onMouseLeave={(e) => {
               if (!loading && prompt.trim()) {
-                e.target.style.transform = 'translateY(0)';
+                e.target.style.transform = 'scale(1)';
                 e.target.style.boxShadow = '0 4px 15px rgba(255, 107, 53, 0.4)';
               }
             }}
           >
             {loading ? (
               <div className="spinner" style={{
-                width: '18px',
-                height: '18px',
+                width: '16px',
+                height: '16px',
                 border: '2px solid rgba(255, 255, 255, 0.3)',
                 borderTopColor: 'white',
                 borderRadius: '50%',
@@ -256,8 +253,8 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               }} />
             ) : (
               <svg
-                width="18"
-                height="18"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

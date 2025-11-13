@@ -130,8 +130,8 @@ function App() {
   const sceneManagerRef = useRef(new SceneManager());
   const [selectedObjects, setSelectedObjects] = useState(new Set());
   const [showHelp, setShowHelp] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -404,10 +404,10 @@ function App() {
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             style={{
               position: 'absolute',
-              right: sidebarCollapsed ? '-12px' : '-10px',
+              right: sidebarCollapsed ? '-80px' : '-10px',
               top: '50%',
               transform: 'translateY(-50%)',
-              width: '24px',
+              width: sidebarCollapsed ? '80px' : '24px',
               height: '50px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
@@ -417,9 +417,13 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               color: 'var(--text-secondary)',
-              fontSize: '12px',
+              fontSize: sidebarCollapsed ? '11px' : '12px',
               zIndex: 100,
               boxShadow: '2px 0 8px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s ease',
+              padding: '0 8px',
+              textAlign: 'center',
+              lineHeight: '1.2',
             }}
             onMouseEnter={(e) => {
               e.target.style.background = 'var(--accent-orange)';
@@ -430,7 +434,7 @@ function App() {
               e.target.style.color = 'var(--text-secondary)';
             }}
           >
-            {sidebarCollapsed ? '▶' : '◀'}
+            {sidebarCollapsed ? 'Tools' : '◀'}
           </button>
         </div>
 
@@ -507,10 +511,10 @@ function App() {
             onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
             style={{
               position: 'absolute',
-              left: rightPanelCollapsed ? '-12px' : '-10px',
+              left: rightPanelCollapsed ? '-80px' : '-10px',
               top: '50%',
               transform: 'translateY(-50%)',
-              width: '24px',
+              width: rightPanelCollapsed ? '80px' : '24px',
               height: '50px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
@@ -520,9 +524,13 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               color: 'var(--text-secondary)',
-              fontSize: '12px',
+              fontSize: rightPanelCollapsed ? '11px' : '12px',
               zIndex: 100,
               boxShadow: '-2px 0 8px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s ease',
+              padding: '0 8px',
+              textAlign: 'center',
+              lineHeight: '1.2',
             }}
             onMouseEnter={(e) => {
               e.target.style.background = 'var(--accent-orange)';
@@ -533,7 +541,7 @@ function App() {
               e.target.style.color = 'var(--text-secondary)';
             }}
           >
-            {rightPanelCollapsed ? '◀' : '▶'}
+            {rightPanelCollapsed ? 'Properties' : '▶'}
           </button>
         </div>
       </div>
