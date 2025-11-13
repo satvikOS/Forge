@@ -86,7 +86,7 @@ export default function Viewer3D({ modelData }) {
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#1a1a2e' }}>
       <Canvas>
         <Suspense fallback={null}>
-          <PerspectiveCamera makeDefault position={[5, 5, 5]} />
+          <PerspectiveCamera makeDefault position={[50, 50, 50]} far={10000} />
           <OrbitControls enableDamping dampingFactor={0.05} />
           
           <ambientLight intensity={0.5} />
@@ -95,7 +95,7 @@ export default function Viewer3D({ modelData }) {
           
           <Model geometry={modelData?.geometry} />
           
-          <gridHelper args={[20, 20, '#444', '#222']} />
+          <gridHelper args={[1800, 180, '#888', '#666']} />
         </Suspense>
       </Canvas>
     </div>
