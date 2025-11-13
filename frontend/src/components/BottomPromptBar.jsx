@@ -14,10 +14,12 @@ export default function BottomPromptBar({ onSubmit, loading }) {
   };
 
   const handleKeyDown = (e) => {
+    // Allow normal key behavior (including backspace)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
     }
+    // Don't prevent default for other keys - let them work normally
   };
 
   const examplePrompts = [
@@ -32,7 +34,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
       {isExpanded && (
         <div style={{
           position: 'fixed',
-          bottom: '90px',
+          bottom: '128px', // Adjusted to be above the moved prompt bar
           left: '50%',
           transform: 'translateX(-50%)',
           background: 'rgba(26, 26, 26, 0.95)',
@@ -108,7 +110,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
       {/* Single integrated prompt bar with ArchPro inside - increased width */}
       <div style={{
         position: 'fixed',
-        bottom: '20px',
+        bottom: '58px', // Moved up by 38px (~1cm)
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 1000,
@@ -197,6 +199,9 @@ export default function BottomPromptBar({ onSubmit, loading }) {
               fontSize: '13px',
               outline: 'none',
               height: '30px',
+              whiteSpace: 'nowrap', // Prevent text wrapping - continue horizontally
+              overflow: 'hidden', // Hide overflow text
+              textOverflow: 'ellipsis', // Show ellipsis for overflow
             }}
           />
 
