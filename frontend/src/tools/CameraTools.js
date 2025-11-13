@@ -92,13 +92,13 @@
   <meta name="route-pattern" content="/:user_id/:repository/raw/*name(/*path)" data-turbo-transient>
   <meta name="route-controller" content="blob" data-turbo-transient>
   <meta name="route-action" content="raw" data-turbo-transient>
-  <meta name="fetch-nonce" content="v2:69c405ab-5ba0-1046-e130-b17c1e2c2893">
+  <meta name="fetch-nonce" content="v2:b53014cc-1e9e-c411-84cc-a82618c912d6">
 
     
   <meta name="current-catalog-service-hash" content="f3abb0cc802f3d7b95fc8762b94bdcb13bf39634c40c357301c4aa1d67a256fb">
 
 
-  <meta name="request-id" content="DBC0:38E5A6:D8A798:D685F3:691576A0" data-turbo-transient="true" /><meta name="html-safe-nonce" content="e8e778234c9a06d84f15b9839a1a4dda9562add2fc60ddeda73dd67657384e9c" data-turbo-transient="true" /><meta name="visitor-payload" content="eyJyZWZlcnJlciI6bnVsbCwicmVxdWVzdF9pZCI6IkRCQzA6MzhFNUE2OkQ4QTc5ODpENjg1RjM6NjkxNTc2QTAiLCJ2aXNpdG9yX2lkIjoiMzU5NTEzODEyNjg3NDg0NTc2IiwicmVnaW9uX2VkZ2UiOiJzZWEiLCJyZWdpb25fcmVuZGVyIjoiaWFkIn0=" data-turbo-transient="true" /><meta name="visitor-hmac" content="ebf498f3e58eaa8d1442c3ef9c93d7ac3595c6892a2c230431269ac9251623a0" data-turbo-transient="true" />
+  <meta name="request-id" content="DBC1:22BEF4:D9B67B:D7AE41:691576BA" data-turbo-transient="true" /><meta name="html-safe-nonce" content="47098d8fa24113611366e239de19cfbabfab9f289c1f5c14ee00a87c25213c62" data-turbo-transient="true" /><meta name="visitor-payload" content="eyJyZWZlcnJlciI6bnVsbCwicmVxdWVzdF9pZCI6IkRCQzE6MjJCRUY0OkQ5QjY3QjpEN0FFNDE6NjkxNTc2QkEiLCJ2aXNpdG9yX2lkIjoiMjQwNTAxNzM5NjQzNDAwNzczOCIsInJlZ2lvbl9lZGdlIjoic2VhIiwicmVnaW9uX3JlbmRlciI6ImlhZCJ9" data-turbo-transient="true" /><meta name="visitor-hmac" content="fe2f837389d6dc4a4499d54926399fec34d75600212768e40ec899a6d9ac7277" data-turbo-transient="true" />
 
 
 
@@ -106,7 +106,7 @@
   <meta name="github-keyboard-shortcuts" content="copilot" data-turbo-transient="true" />
   
 
-  <meta name="selected-link" value="/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx" data-turbo-transient>
+  <meta name="selected-link" value="/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js" data-turbo-transient>
   <link rel="assets" href="https://github.githubassets.com/">
 
     <meta name="google-site-verification" content="Apib7-x98H0j5cPqHWwSMm6dNU4GmODRoqxLiDzdx9I">
@@ -134,7 +134,7 @@
 
     <link rel="fluid-icon" href="https://github.com/fluidicon.png" title="GitHub">
     <meta property="fb:app_id" content="1401488693436528">
-    <meta name="apple-itunes-app" content="app-id=1477376905, app-argument=https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx" />
+    <meta name="apple-itunes-app" content="app-id=1477376905, app-argument=https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js" />
 
       <meta property="og:url" content="https://github.com">
   <meta property="og:site_name" content="GitHub">
@@ -191,7 +191,7 @@
 
 
 
-      <link rel="canonical" href="https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx" data-turbo-transient>
+      <link rel="canonical" href="https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js" data-turbo-transient>
 
 
     <meta name="turbo-body-classes" content="logged-out env-production page-responsive min-height-full d-flex flex-column">
@@ -285,19 +285,19 @@
 
       <div class="d-flex flex-1 flex-order-2 text-right d-lg-none gap-2 flex-justify-end">
           <a
-            href="/login?return_to=https%3A%2F%2Fgithub.com%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Fcomponents%2FBottomPromptBar.jsx"
+            href="/login?return_to=https%3A%2F%2Fgithub.com%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Ftools%2FCameraTools.js"
             class="HeaderMenu-link HeaderMenu-button d-inline-flex f5 no-underline border color-border-default rounded-2 px-2 py-1 color-fg-inherit js-prevent-focus-on-mobile-nav"
-            data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="ac02576e87ec64431c640cad0484980fcc44da4d1eeddb4c2e8e41495ec4aa01"
+            data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="ad17c538f7dd1b1fcc33ac3e9313a4ee6639de94b5ed1ed2ae3a61c2c16507b7"
             data-analytics-event="{&quot;category&quot;:&quot;Marketing nav&quot;,&quot;action&quot;:&quot;click to Sign in&quot;,&quot;label&quot;:&quot;ref_page:Marketing;ref_cta:Sign in;ref_loc:Header&quot;}"
           >
             Sign in
           </a>
               <div class="AppHeader-appearanceSettings">
     <react-partial-anchor>
-      <button data-target="react-partial-anchor.anchor" id="icon-button-a2e96545-1f3e-4a14-8538-a96c95e6a477" aria-labelledby="tooltip-7eff8e59-63e2-43d0-b3c8-4b1fc7fab8b0" type="button" disabled="disabled" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium AppHeader-button HeaderMenu-link border cursor-wait">  <svg aria-hidden="true" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-sliders Button-visual">
+      <button data-target="react-partial-anchor.anchor" id="icon-button-62e6888d-41f8-4191-b233-3bf4f28d1dd2" aria-labelledby="tooltip-5e5456f1-20c8-4790-a763-ecdc090da64e" type="button" disabled="disabled" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium AppHeader-button HeaderMenu-link border cursor-wait">  <svg aria-hidden="true" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-sliders Button-visual">
     <path d="M15 2.75a.75.75 0 0 1-.75.75h-4a.75.75 0 0 1 0-1.5h4a.75.75 0 0 1 .75.75Zm-8.5.75v1.25a.75.75 0 0 0 1.5 0v-4a.75.75 0 0 0-1.5 0V2H1.75a.75.75 0 0 0 0 1.5H6.5Zm1.25 5.25a.75.75 0 0 0 0-1.5h-6a.75.75 0 0 0 0 1.5h6ZM15 8a.75.75 0 0 1-.75.75H11.5V10a.75.75 0 1 1-1.5 0V6a.75.75 0 0 1 1.5 0v1.25h2.75A.75.75 0 0 1 15 8Zm-9 5.25v-2a.75.75 0 0 0-1.5 0v1.25H1.75a.75.75 0 0 0 0 1.5H4.5v1.25a.75.75 0 0 0 1.5 0v-2Zm9 0a.75.75 0 0 1-.75.75h-6a.75.75 0 0 1 0-1.5h6a.75.75 0 0 1 .75.75Z"></path>
 </svg>
-</button><tool-tip id="tooltip-7eff8e59-63e2-43d0-b3c8-4b1fc7fab8b0" for="icon-button-a2e96545-1f3e-4a14-8538-a96c95e6a477" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Appearance settings</tool-tip>
+</button><tool-tip id="tooltip-5e5456f1-20c8-4790-a763-ecdc090da64e" for="icon-button-62e6888d-41f8-4191-b233-3bf4f28d1dd2" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Appearance settings</tool-tip>
 
       <template data-target="react-partial-anchor.template">
         <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/primer-react.2ed7297523f7a189873b.module.css" />
@@ -307,7 +307,7 @@
   partial-name="appearance-settings"
   data-ssr="false"
   data-attempted-ssr="false"
-  data-react-profiling="true"
+  data-react-profiling="false"
 >
   
   <script type="application/json" data-target="react-partial.embeddedData">{"props":{}}</script>
@@ -1060,7 +1060,7 @@
                 
 
 
-<qbsearch-input class="search-input" data-scope="owner:satvikOS" data-custom-scopes-path="/search/custom_scopes" data-delete-custom-scopes-csrf="3_e6tAkToC0nxeypTOA5AlX5gqmm9TZEnLdWnh9Cjd9a9k9T7p9RojzFZjDI1NNpvnhuzoN_KEQK-Rqp0PVnLw" data-max-custom-scopes="10" data-header-redesign-enabled="false" data-initial-value="" data-blackbird-suggestions-path="/search/suggestions" data-jump-to-suggestions-path="/_graphql/GetSuggestedNavigationDestinations" data-current-repository="" data-current-org="" data-current-owner="" data-logged-in="false" data-copilot-chat-enabled="false" data-nl-search-enabled="false" data-retain-scroll-position="true">
+<qbsearch-input class="search-input" data-scope="owner:satvikOS" data-custom-scopes-path="/search/custom_scopes" data-delete-custom-scopes-csrf="tPirGWiRbYCWHFCjqXYtV83NF3vjV5M_SUpiVtHGBoKNnp24i3HecPxkdTxMnT7FQ9nPpH1gjMCWuvhN5f0uWw" data-max-custom-scopes="10" data-header-redesign-enabled="false" data-initial-value="" data-blackbird-suggestions-path="/search/suggestions" data-jump-to-suggestions-path="/_graphql/GetSuggestedNavigationDestinations" data-current-repository="" data-current-org="" data-current-owner="" data-logged-in="false" data-copilot-chat-enabled="false" data-nl-search-enabled="false" data-retain-scroll-position="true">
   <div
     class="search-input-container search-with-dialog position-relative d-flex flex-row flex-items-center mr-4 rounded"
     data-action="click:qbsearch-input#searchInputContainerClicked"
@@ -1124,7 +1124,7 @@
           ></div>
           <div class="QueryBuilder-InputWrapper">
             <div aria-hidden="true" class="QueryBuilder-Sizer" data-target="query-builder.sizer"></div>
-            <input id="query-builder-test" name="query-builder-test" value="" autocomplete="off" type="text" role="combobox" spellcheck="false" aria-expanded="false" aria-describedby="validation-22994e0b-14a6-4544-a4ce-e43125d1cb71" data-target="query-builder.input" data-action="
+            <input id="query-builder-test" name="query-builder-test" value="" autocomplete="off" type="text" role="combobox" spellcheck="false" aria-expanded="false" aria-describedby="validation-0f75313e-d25d-473e-a249-4e2ada3f0022" data-target="query-builder.input" data-action="
           input:query-builder#inputChange
           blur:query-builder#inputBlur
           keydown:query-builder#inputKeydown
@@ -1362,7 +1362,7 @@
                   tabindex="-1"
                 ></ul>
         </div>
-      <div class="FormControl-inlineValidation" id="validation-22994e0b-14a6-4544-a4ce-e43125d1cb71" hidden="hidden">
+      <div class="FormControl-inlineValidation" id="validation-0f75313e-d25d-473e-a249-4e2ada3f0022" hidden="hidden">
         <span class="FormControl-inlineValidation--visual">
           <svg aria-hidden="true" height="12" viewBox="0 0 12 12" version="1.1" width="12" data-view-component="true" class="octicon octicon-alert-fill">
     <path d="M4.855.708c.5-.896 1.79-.896 2.29 0l4.675 8.351a1.312 1.312 0 0 1-1.146 1.954H1.33A1.313 1.313 0 0 1 .183 9.058ZM7 7V3H5v4Zm-1 3a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"></path>
@@ -1403,7 +1403,7 @@
   
 </div>
       <scrollable-region data-labelled-by="feedback-dialog-title">
-        <div data-view-component="true" class="Overlay-body">        <!-- '"` --><!-- </textarea></xmp> --></option></form><form id="code-search-feedback-form" data-turbo="false" action="/search/feedback" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="-PKhZsPCUlqXyz8W9Z2MSKw3qOAfNJcEmIqqSHREj0tLQWYNROVGCBa36KX2RuzGMOQ3FAU_4kxFfp8O9FIUXA" />
+        <div data-view-component="true" class="Overlay-body">        <!-- '"` --><!-- </textarea></xmp> --></option></form><form id="code-search-feedback-form" data-turbo="false" action="/search/feedback" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="oBKirQ2fa_NvcUbYfb3M7xmrfmNXqB7b5mP_PzVSQQd43l-RYKXR_LFX-dHEQ4SAyu3OYsZFNpy5PqQmpXBTmg" />
           <p>We read every piece of feedback, and take your input very seriously.</p>
           <textarea name="feedback" class="form-control width-full mb-2" style="height: 120px" id="feedback"></textarea>
           <input name="include_email" id="include_email" aria-label="Include my email address so I can be contacted" class="form-control mr-2" type="checkbox">
@@ -1441,7 +1441,7 @@
         <div data-view-component="true" class="Overlay-body">        <div data-target="custom-scopes.customScopesModalDialogFlash"></div>
 
         <div hidden class="create-custom-scope-form" data-target="custom-scopes.createCustomScopeForm">
-        <!-- '"` --><!-- </textarea></xmp> --></option></form><form id="custom-scopes-dialog-form" data-turbo="false" action="/search/custom_scopes" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="XYSG2xjGa2ZQySV2y8CwaJq2r0Cx_pEgFvoxjGICTdoESGL-ERk0Yz9DizCy3vnYFj275sAIbggqYDmZRnAGPQ" />
+        <!-- '"` --><!-- </textarea></xmp> --></option></form><form id="custom-scopes-dialog-form" data-turbo="false" action="/search/custom_scopes" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="_pPj8-VBZNimQCWCmolrknqNLGcP9APnLVxwO5M38XXkIu5A39GfmowxgYaCZB2CIAM6yN8yxm5wx9yFb5fRNQ" />
           <div data-target="custom-scopes.customScopesModalDialogFlash"></div>
 
           <input type="hidden" id="custom_scope_id" name="custom_scope_id" data-target="custom-scopes.customScopesIdField">
@@ -1459,7 +1459,7 @@
                 placeholder="github-ruby"
                 required
                 maxlength="50">
-              <input type="hidden" value="yf1AtP58B6pEvSLNsO1yzxN0uvRyyF0C-Sp8PybjtP-7UkuzIhl0y7tUuj119JY_yS6UUi0bfKu7BnRQZVa1mw" data-csrf="true" />
+              <input type="hidden" value="1uPSvKRPrZOOR-KjbbV8aQ2u23xEqFbawiRDpSHwXymbaJZJq85KiJqhUlDdztJlSWQvO2nVfiGsG8YH4LPeaQ" data-csrf="true" />
             </auto-check>
           </div>
 
@@ -1501,10 +1501,10 @@
 
             <div class="position-relative HeaderMenu-link-wrap d-lg-inline-block">
               <a
-                href="/login?return_to=https%3A%2F%2Fgithub.com%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Fcomponents%2FBottomPromptBar.jsx"
+                href="/login?return_to=https%3A%2F%2Fgithub.com%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Ftools%2FCameraTools.js"
                 class="HeaderMenu-link HeaderMenu-link--sign-in HeaderMenu-button flex-shrink-0 no-underline d-none d-lg-inline-flex border border-lg-0 rounded px-2 py-1"
                 style="margin-left: 12px;"
-                data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="ac02576e87ec64431c640cad0484980fcc44da4d1eeddb4c2e8e41495ec4aa01"
+                data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="ad17c538f7dd1b1fcc33ac3e9313a4ee6639de94b5ed1ed2ae3a61c2c16507b7"
                 data-analytics-event="{&quot;category&quot;:&quot;Marketing nav&quot;,&quot;action&quot;:&quot;click to go to homepage&quot;,&quot;label&quot;:&quot;ref_page:Marketing;ref_cta:Sign in;ref_loc:Header&quot;}"
               >
                 Sign in
@@ -1514,7 +1514,7 @@
     <h4 data-view-component="true" class="color-fg-default mb-2">                    Sign in to GitHub
 </h4>
                         
-<!-- '"` --><!-- </textarea></xmp> --></option></form><form data-turbo="false" action="/session" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="7lYAnxeDZHkN9E6pAfPCrxTL6YWSDJd_w7HIU6FuOGD5E7whm698gzaHNFbCLD73WO44BLCAdL9dDBwnldYmXA" />  <input type="hidden" name="add_account" id="add_account" autocomplete="off" class="form-control" />
+<!-- '"` --><!-- </textarea></xmp> --></option></form><form data-turbo="false" action="/session" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="I8pl8tJZ_2N60Oa3X6VwhZcrrOn5U8UgVmlbsQIael4pvpQ6aIqoljn1unqnb47rprNrE-OQrBkNf9zr6Qcghw" />  <input type="hidden" name="add_account" id="add_account" autocomplete="off" class="form-control" />
 
     <label for="login_field">
       Username or email address
@@ -1532,17 +1532,17 @@
 <input type="hidden" class="js-support" name="javascript-support" value="unknown">
 <input type="hidden" class="js-webauthn-support" name="webauthn-support" value="unknown">
 <input type="hidden" class="js-webauthn-iuvpaa-support" name="webauthn-iuvpaa-support" value="unknown">
-<input type="hidden" name="return_to" id="return_to" value="https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx" autocomplete="off" class="form-control" />
+<input type="hidden" name="return_to" id="return_to" value="https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js" autocomplete="off" class="form-control" />
 <input type="hidden" name="allow_signup" id="allow_signup" autocomplete="off" class="form-control" />
 <input type="hidden" name="client_id" id="client_id" autocomplete="off" class="form-control" />
 <input type="hidden" name="integration" id="integration" autocomplete="off" class="form-control" />
-<input type="text" name="required_field_8356" hidden="hidden" class="form-control" /><input type="hidden" name="timestamp" value="1763014304394" autocomplete="off" class="form-control" /><input type="hidden" name="timestamp_secret" value="13bb69c1e2435de3999c424ccbe4475544e5ee9acf1641491d25c1ce971c18fd" autocomplete="off" class="form-control" />
+<input type="text" name="required_field_cdcd" hidden="hidden" class="form-control" /><input type="hidden" name="timestamp" value="1763014330193" autocomplete="off" class="form-control" /><input type="hidden" name="timestamp_secret" value="44cef0f904c4025cac496a5c6ee82a6c38bc58c09d3cef5a10b20880bc55b40f" autocomplete="off" class="form-control" />
 
     <input type="submit" name="commit" value="Sign in" class="btn btn-primary btn-block js-sign-in-button" data-disable-with="Signing in…" data-signin-label="Sign in" data-sso-label="Sign in with your identity provider" development="false" disable-emu-sso="false" />
   </div>
 </form>  <webauthn-status class="js-webauthn-login-emu-control">
         <div data-target="webauthn-status.partial" class="d-flex flex-justify-between flex-column mt-3 mb-0" hidden>
-          <a href="/login?return_to=https%3A%2F%2Fgithub.com%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Fcomponents%2FBottomPromptBar.jsx" data-analytics-event="{&quot;category&quot;:&quot;passkey_404_login&quot;,&quot;action&quot;:&quot;clicked&quot;,&quot;label&quot;:null}" data-view-component="true" class="Button--link Button--medium Button">  <span class="Button-content">
+          <a href="/login?return_to=https%3A%2F%2Fgithub.com%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Ftools%2FCameraTools.js" data-analytics-event="{&quot;category&quot;:&quot;passkey_404_login&quot;,&quot;action&quot;:&quot;clicked&quot;,&quot;label&quot;:null}" data-view-component="true" class="Button--link Button--medium Button">  <span class="Button-content">
     <span class="Button-label">or continue with other methods</span>
   </span>
 </a>
@@ -1552,20 +1552,20 @@
 
 </div></div>            </div>
 
-              <a href="/signup?ref_cta=Sign+up&amp;ref_loc=header+logged+out&amp;ref_page=%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Fcomponents%2FBottomPromptBar.jsx&amp;source=header"
+              <a href="/signup?ref_cta=Sign+up&amp;ref_loc=header+logged+out&amp;ref_page=%2FsatvikOS%2Farchdiscv1%2Fraw%2F69c3aa30a9d746acdc820fba00c9fd2ca408c4d5%2Ffrontend%2Fsrc%2Ftools%2FCameraTools.js&amp;source=header"
                 class="HeaderMenu-link HeaderMenu-link--sign-up HeaderMenu-button flex-shrink-0 d-flex d-lg-inline-flex no-underline border color-border-default rounded px-2 py-1"
-                data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="ac02576e87ec64431c640cad0484980fcc44da4d1eeddb4c2e8e41495ec4aa01"
-                data-analytics-event="{&quot;category&quot;:&quot;Sign up&quot;,&quot;action&quot;:&quot;click to sign up for account&quot;,&quot;label&quot;:&quot;ref_page:/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/components/BottomPromptBar.jsx;ref_cta:Sign up;ref_loc:header logged out&quot;}"
+                data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="ad17c538f7dd1b1fcc33ac3e9313a4ee6639de94b5ed1ed2ae3a61c2c16507b7"
+                data-analytics-event="{&quot;category&quot;:&quot;Sign up&quot;,&quot;action&quot;:&quot;click to sign up for account&quot;,&quot;label&quot;:&quot;ref_page:/satvikOS/archdiscv1/raw/69c3aa30a9d746acdc820fba00c9fd2ca408c4d5/frontend/src/tools/CameraTools.js;ref_cta:Sign up;ref_loc:header logged out&quot;}"
               >
                 Sign up
               </a>
 
                 <div class="AppHeader-appearanceSettings">
     <react-partial-anchor>
-      <button data-target="react-partial-anchor.anchor" id="icon-button-7e00221d-bdce-4545-be76-8021c9932e91" aria-labelledby="tooltip-fd8ae59b-765b-4a58-a39d-3fa87a41cfdd" type="button" disabled="disabled" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium AppHeader-button HeaderMenu-link border cursor-wait">  <svg aria-hidden="true" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-sliders Button-visual">
+      <button data-target="react-partial-anchor.anchor" id="icon-button-4ac9eefb-6ece-48ec-bc8a-260325f807f6" aria-labelledby="tooltip-1fe02838-3fad-47d6-8ce5-346bcc4d041f" type="button" disabled="disabled" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium AppHeader-button HeaderMenu-link border cursor-wait">  <svg aria-hidden="true" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-sliders Button-visual">
     <path d="M15 2.75a.75.75 0 0 1-.75.75h-4a.75.75 0 0 1 0-1.5h4a.75.75 0 0 1 .75.75Zm-8.5.75v1.25a.75.75 0 0 0 1.5 0v-4a.75.75 0 0 0-1.5 0V2H1.75a.75.75 0 0 0 0 1.5H6.5Zm1.25 5.25a.75.75 0 0 0 0-1.5h-6a.75.75 0 0 0 0 1.5h6ZM15 8a.75.75 0 0 1-.75.75H11.5V10a.75.75 0 1 1-1.5 0V6a.75.75 0 0 1 1.5 0v1.25h2.75A.75.75 0 0 1 15 8Zm-9 5.25v-2a.75.75 0 0 0-1.5 0v1.25H1.75a.75.75 0 0 0 0 1.5H4.5v1.25a.75.75 0 0 0 1.5 0v-2Zm9 0a.75.75 0 0 1-.75.75h-6a.75.75 0 0 1 0-1.5h6a.75.75 0 0 1 .75.75Z"></path>
 </svg>
-</button><tool-tip id="tooltip-fd8ae59b-765b-4a58-a39d-3fa87a41cfdd" for="icon-button-7e00221d-bdce-4545-be76-8021c9932e91" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Appearance settings</tool-tip>
+</button><tool-tip id="tooltip-1fe02838-3fad-47d6-8ce5-346bcc4d041f" for="icon-button-4ac9eefb-6ece-48ec-bc8a-260325f807f6" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Appearance settings</tool-tip>
 
       <template data-target="react-partial-anchor.template">
         <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/primer-react.2ed7297523f7a189873b.module.css" />
@@ -1603,10 +1603,10 @@
         <span class="js-stale-session-flash-signed-out" hidden>You signed out in another tab or window. <a class="Link--inTextBlock" href="">Reload</a> to refresh your session.</span>
         <span class="js-stale-session-flash-switched" hidden>You switched accounts on another tab or window. <a class="Link--inTextBlock" href="">Reload</a> to refresh your session.</span>
 
-    <button id="icon-button-f6f1e5c0-5aac-4f01-a359-c26126d1059f" aria-labelledby="tooltip-49a05ad8-6c6e-44e0-a80f-8754d4f27bf9" type="button" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium flash-close js-flash-close">  <svg aria-hidden="true" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-x Button-visual">
+    <button id="icon-button-4fd4e7f5-46d0-488b-8ef5-e01e82db4443" aria-labelledby="tooltip-79922bf5-fd89-43af-aab2-33b9fc56f29a" type="button" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium flash-close js-flash-close">  <svg aria-hidden="true" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-x Button-visual">
     <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
 </svg>
-</button><tool-tip id="tooltip-49a05ad8-6c6e-44e0-a80f-8754d4f27bf9" for="icon-button-f6f1e5c0-5aac-4f01-a359-c26126d1059f" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Dismiss alert</tool-tip>
+</button><tool-tip id="tooltip-79922bf5-fd89-43af-aab2-33b9fc56f29a" for="icon-button-4fd4e7f5-46d0-488b-8ef5-e01e82db4443" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Dismiss alert</tool-tip>
 
 
   

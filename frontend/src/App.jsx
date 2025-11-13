@@ -1,10 +1,122 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import BottomPromptBar from './components/BottomPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
+import AdvancedWorkbench from './components/AdvancedWorkbench';
 import PropertiesPanel from './components/PropertiesPanel';
-import Toolbar from './components/Toolbar';
+import AdvancedToolbar from './components/AdvancedToolbar';
+import SceneHierarchyPanel from './components/SceneHierarchyPanel';
+import HelpPanel from './components/HelpPanel';
+import SceneManager from './systems/SceneManager';
+import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import apiService from './services/api';
 import './styles/index.css';
+
+// MenuButton component for top menu bar
+function MenuButton({ label, items }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+        style={{
+          padding: '8px 12px',
+          background: isOpen ? 'var(--bg-tertiary)' : 'transparent',
+          border: 'none',
+          color: 'var(--text-primary)',
+          cursor: 'pointer',
+          fontSize: '13px',
+          borderRadius: '4px',
+        }}
+        onMouseEnter={(e) => {
+          if (!isOpen) e.target.style.background = 'var(--bg-hover)';
+        }}
+        onMouseLeave={(e) => {
+          if (!isOpen) e.target.style.background = 'transparent';
+        }}
+      >
+        {label}
+      </button>
+
+      {isOpen && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          marginTop: '2px',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '6px',
+          minWidth: '200px',
+          zIndex: 10000,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        }}>
+          {items.map((item, index) => {
+            if (item.label === 'divider') {
+              return (
+                <div
+                  key={index}
+                  style={{
+                    height: '1px',
+                    background: 'var(--border-color)',
+                    margin: '4px 0',
+                  }}
+                />
+              );
+            }
+
+            return (
+              <button
+                key={index}
+                onClick={() => {
+                  if (item.onClick) item.onClick();
+                  setIsOpen(false);
+                }}
+                disabled={item.disabled}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: item.selected ? 'var(--bg-tertiary)' : 'transparent',
+                  border: 'none',
+                  color: item.disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
+                  cursor: item.disabled ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  textAlign: 'left',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  opacity: item.disabled ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!item.disabled && !item.selected) {
+                    e.target.style.background = 'var(--bg-hover)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!item.disabled && !item.selected) {
+                    e.target.style.background = 'transparent';
+                  }
+                }}
+              >
+                <span>{item.label}</span>
+                {item.shortcut && (
+                  <span style={{
+                    fontSize: '10px',
+                    color: 'var(--text-secondary)',
+                    marginLeft: '20px',
+                  }}>
+                    {item.shortcut}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function App() {
   const [design, setDesign] = useState(null);
@@ -13,7 +125,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('solid');
-  const [isExploded, setIsExploded] = useState(false);
+  const [activeTool, setActiveTool] = useState('select');
+  const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
+  const sceneManagerRef = useRef(new SceneManager());
+  const [selectedObjects, setSelectedObjects] = useState(new Set());
+  const [showHelp, setShowHelp] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -41,6 +159,74 @@ function App() {
     }
   };
 
+  const handleSaveProject = () => {
+    if (sceneManagerRef.current) {
+      saveProject(sceneManagerRef.current);
+    }
+  };
+
+  const handleLoadProject = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.archdisc,.json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (sceneManagerRef.current && loadProject(event.target.result, sceneManagerRef.current)) {
+            setError(null);
+          } else {
+            setError('Failed to load project file.');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
+  const handleExport = (format) => {
+    if (!sceneManagerRef.current) return;
+    
+    try {
+      switch (format) {
+        case 'obj':
+          exportToOBJ(sceneManagerRef.current);
+          break;
+        case 'stl':
+          exportToSTL(sceneManagerRef.current);
+          break;
+        case 'gltf':
+          exportToGLTF(sceneManagerRef.current);
+          break;
+        case 'glb':
+          exportToGLTF(sceneManagerRef.current, true);
+          break;
+        default:
+          console.error('Unknown export format:', format);
+      }
+    } catch (err) {
+      setError(`Failed to export as ${format.toUpperCase()}`);
+      console.error(err);
+    }
+  };
+
+  const handleUndo = () => {
+    if (sceneManagerRef.current) {
+      sceneManagerRef.current.undo();
+    }
+  };
+
+  const handleRedo = () => {
+    if (sceneManagerRef.current) {
+      sceneManagerRef.current.redo();
+    }
+  };
+
+  const canUndo = sceneManagerRef.current ? sceneManagerRef.current.canUndo() : false;
+  const canRedo = sceneManagerRef.current ? sceneManagerRef.current.canRedo() : false;
+
   return (
     <div style={{
       height: '100vh',
@@ -48,50 +234,103 @@ function App() {
       flexDirection: 'column',
       background: 'var(--bg-primary)',
     }}>
-      {/* Header */}
+      {/* Industry Standard Top Menu Bar */}
       <header style={{
-        padding: '15px 20px',
+        height: '40px',
         background: 'var(--bg-secondary)',
-        borderBottom: '2px solid var(--border-color)',
+        borderBottom: '1px solid var(--border-color)',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        padding: '0 10px',
+        gap: '5px',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <h1 style={{
-            fontSize: '24px',
-            fontWeight: 'bold',
-            color: 'var(--text-primary)',
-            margin: 0,
-          }}>
-            ArchDisc
-          </h1>
-          <div style={{
-            fontSize: '12px',
-            color: 'var(--text-secondary)',
-            padding: '4px 10px',
-            background: 'var(--bg-tertiary)',
-            borderRadius: '12px',
-          }}>
-            AI-Powered Design Workbench
-          </div>
-        </div>
-        
-        {/* Status indicator */}
+        {/* Logo/Brand */}
         <div style={{
-          fontSize: '12px',
-          color: 'var(--text-secondary)',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
+          padding: '0 10px',
+          marginRight: '10px',
+        }}>
+          <span style={{
+            fontSize: '18px',
+            fontWeight: 'bold',
+            color: 'var(--accent-orange)',
+          }}>
+            ArchDisc
+          </span>
+        </div>
+
+        {/* Menu Items */}
+        <MenuButton label="File" items={[
+          { label: '💾 Save Project', onClick: handleSaveProject },
+          { label: '📁 Load Project', onClick: handleLoadProject },
+          { label: 'divider' },
+          { label: '📤 Export as OBJ', onClick: () => handleExport('obj') },
+          { label: '📤 Export as STL', onClick: () => handleExport('stl') },
+          { label: '📤 Export as GLTF', onClick: () => handleExport('gltf') },
+          { label: '📤 Export as GLB', onClick: () => handleExport('glb') },
+        ]} />
+
+        <MenuButton label="Edit" items={[
+          { label: '↶ Undo', onClick: handleUndo, disabled: !canUndo, shortcut: 'Ctrl+Z' },
+          { label: '↷ Redo', onClick: handleRedo, disabled: !canRedo, shortcut: 'Ctrl+Shift+Z' },
+          { label: 'divider' },
+          { label: '⊕ Duplicate', onClick: () => setActiveTool('duplicate'), shortcut: 'Shift+D' },
+          { label: '🗑️ Delete', onClick: () => setActiveTool('delete'), shortcut: 'Del' },
+        ]} />
+
+        <MenuButton label="Tools" items={[
+          { label: '🖱️ Select', onClick: () => setActiveTool('select'), shortcut: 'S' },
+          { label: '↔️ Move', onClick: () => setActiveTool('move'), shortcut: 'G' },
+          { label: '🔄 Rotate', onClick: () => setActiveTool('rotate'), shortcut: 'R' },
+          { label: '⇔ Scale', onClick: () => setActiveTool('scale'), shortcut: 'S' },
+          { label: 'divider' },
+          { label: '⬆️ Extrude', onClick: () => setActiveTool('extrude'), shortcut: 'E' },
+          { label: '↕️ Push/Pull', onClick: () => setActiveTool('push_pull'), shortcut: 'P' },
+          { label: 'divider' },
+          { label: '📏 Measure', onClick: () => setActiveTool('tape_measure'), shortcut: 'M' },
+        ]} />
+
+        <MenuButton label="View" items={[
+          { label: '⬇ Top View', onClick: () => setActiveTool('view_top') },
+          { label: '⬅ Front View', onClick: () => setActiveTool('view_front') },
+          { label: '⬆ Side View', onClick: () => setActiveTool('view_side') },
+          { label: '🔲 Perspective', onClick: () => setActiveTool('view_perspective') },
+          { label: 'divider' },
+          { label: '🎯 Focus Selection', onClick: () => setActiveTool('focus_selection'), shortcut: 'F' },
+          { label: '🖼️ Frame All', onClick: () => setActiveTool('frame_all'), shortcut: 'Home' },
+          { label: 'divider' },
+          { label: '◼ Solid', onClick: () => setViewMode('solid'), selected: viewMode === 'solid' },
+          { label: '▢ Wireframe', onClick: () => setViewMode('wireframe'), selected: viewMode === 'wireframe' },
+        ]} />
+
+        <MenuButton label="Help" items={[
+          { label: '❓ Keyboard Shortcuts', onClick: () => setShowHelp(true), shortcut: 'F1' },
+          { label: '📚 Documentation', onClick: () => window.open('/3D_EDITOR_GUIDE.md', '_blank') },
+        ]} />
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* AI Status Indicator */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '4px 10px',
+          background: 'var(--bg-tertiary)',
+          borderRadius: '4px',
+          fontSize: '11px',
+          color: 'var(--text-secondary)',
         }}>
           <div style={{
-            width: '8px',
-            height: '8px',
+            width: '6px',
+            height: '6px',
             borderRadius: '50%',
             background: loading ? 'var(--accent-orange)' : '#4caf50',
           }} />
-          {loading ? 'Generating...' : 'Ready'}
+          <span>{loading ? 'Generating...' : 'AI Ready'}</span>
         </div>
       </header>
 
@@ -126,24 +365,85 @@ function App() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '1fr 350px',
+        gridTemplateColumns: sidebarCollapsed 
+          ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 350px')
+          : (rightPanelCollapsed ? '220px 1fr 0px' : '220px 1fr 350px'),
         overflow: 'hidden',
+        transition: 'grid-template-columns 0.3s ease',
       }}>
-        {/* Left - 3D Viewer */}
+        {/* Left Sidebar - Tools (Retractable) */}
+        <div style={{
+          borderRight: sidebarCollapsed ? 'none' : '1px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'var(--bg-primary)',
+          overflow: 'visible',
+          position: 'relative',
+        }}>
+          {!sidebarCollapsed && (
+            <div style={{
+              height: '100%',
+              overflow: 'hidden',
+              width: '220px',
+            }}>
+              <AdvancedToolbar
+                activeTool={activeTool}
+                onToolSelect={setActiveTool}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
+              />
+            </div>
+          )}
+          
+          {/* Toggle button - Always visible */}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            style={{
+              position: 'absolute',
+              right: sidebarCollapsed ? '-80px' : '-10px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: sidebarCollapsed ? '80px' : '24px',
+              height: '50px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '0 6px 6px 0',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              fontSize: sidebarCollapsed ? '11px' : '12px',
+              zIndex: 100,
+              boxShadow: '2px 0 8px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s ease',
+              padding: '0 8px',
+              textAlign: 'center',
+              lineHeight: '1.2',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'var(--accent-orange)';
+              e.target.style.color = 'white';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'var(--bg-secondary)';
+              e.target.style.color = 'var(--text-secondary)';
+            }}
+          >
+            {sidebarCollapsed ? 'Tools' : '◀'}
+          </button>
+        </div>
+
+        {/* Center - 3D Viewer */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          borderRight: '1px solid var(--border-color)',
+          position: 'relative',
         }}>
-          {/* Toolbar */}
-          <Toolbar
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            isExploded={isExploded}
-            onExplodeToggle={() => setIsExploded(!isExploded)}
-          />
-          
-          {/* 3D Viewer */}
           <div style={{ flex: 1, position: 'relative' }}>
             {loading ? (
               <div style={{
@@ -169,27 +469,88 @@ function App() {
                 </div>
               </div>
             ) : (
-              <WorkbenchViewer 
-                modelData={design?.model}
+              <AdvancedWorkbench
+                activeTool={activeTool}
+                onToolChange={setActiveTool}
                 viewMode={viewMode}
-                isExploded={isExploded}
+                onSceneUpdate={(info) => {
+                  setSceneInfo(info);
+                  if (info.sceneManager) {
+                    sceneManagerRef.current = info.sceneManager;
+                  }
+                }}
               />
             )}
           </div>
         </div>
 
-        {/* Right - Properties Panel */}
-        <PropertiesPanel 
-          design={design}
-          analysis={analysis}
-          compliance={compliance}
-        />
+        {/* Right Panel - Properties (Retractable) */}
+        <div style={{
+          borderLeft: rightPanelCollapsed ? 'none' : '1px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative',
+          overflow: 'visible',
+        }}>
+          {!rightPanelCollapsed && (
+            <div style={{
+              width: '350px',
+              height: '100%',
+              overflow: 'hidden',
+            }}>
+              <PropertiesPanel 
+                design={design}
+                analysis={analysis}
+                compliance={compliance}
+              />
+            </div>
+          )}
+          
+          {/* Toggle button - Always visible */}
+          <button
+            onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+            style={{
+              position: 'absolute',
+              left: rightPanelCollapsed ? '-80px' : '-10px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: rightPanelCollapsed ? '80px' : '24px',
+              height: '50px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px 0 0 6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              fontSize: rightPanelCollapsed ? '11px' : '12px',
+              zIndex: 100,
+              boxShadow: '-2px 0 8px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s ease',
+              padding: '0 8px',
+              textAlign: 'center',
+              lineHeight: '1.2',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'var(--accent-orange)';
+              e.target.style.color = 'white';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'var(--bg-secondary)';
+              e.target.style.color = 'var(--text-secondary)';
+            }}
+          >
+            {rightPanelCollapsed ? 'Properties' : '▶'}
+          </button>
+        </div>
       </div>
 
-      {/* Bottom Prompt Bar */}
-      <div style={{ paddingBottom: '70px' }}>
-        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-      </div>
+      {/* Floating Glassmorphic Curved Bottom Prompt Bar */}
+      <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+
+      {/* Help Panel */}
+      {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
     </div>
   );
 }
