@@ -1,5 +1,4 @@
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import BottomPromptBar from './components/BottomPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
 import Sidebar from './components/Sidebar';
@@ -7,10 +6,6 @@ import Toolbar from './components/Toolbar';
 import MenuBar from './components/MenuBar';
 import StatusBar from './components/StatusBar';
 import ContextMenu from './components/ContextMenu';
-
-import { useState, useRef } from 'react';
-import BottomPromptBar from './components/BottomPromptBar';
-import WorkbenchViewer from './components/WorkbenchViewer';
 import AdvancedWorkbench from './components/AdvancedWorkbench';
 import PropertiesPanel from './components/PropertiesPanel';
 import AdvancedToolbar from './components/AdvancedToolbar';
@@ -18,7 +13,6 @@ import SceneHierarchyPanel from './components/SceneHierarchyPanel';
 import HelpPanel from './components/HelpPanel';
 import SceneManager from './systems/SceneManager';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
- origin/copilot/integrate-blender-sketchup-functions
 import apiService from './services/api';
 import './styles/index.css';
 
@@ -147,6 +141,13 @@ function App() {
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
   const [selectedObjects, setSelectedObjects] = useState([]);
   const [selectionCount, setSelectionCount] = useState({ objects: 0 });
+  
+  // Advanced workbench state
+  const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
+  const sceneManagerRef = useRef(new SceneManager());
+  const [showHelp, setShowHelp] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
 
   // Keyboard shortcuts handler
   useEffect(() => {
@@ -231,15 +232,6 @@ function App() {
     console.log('Context action:', actionId);
     // Handle context menu actions here
   };
-
-  const [activeTool, setActiveTool] = useState('select');
-  const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
-  const sceneManagerRef = useRef(new SceneManager());
-  const [selectedObjects, setSelectedObjects] = useState(new Set());
-  const [showHelp, setShowHelp] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
- origin/copilot/integrate-blender-sketchup-functions
 
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
@@ -343,14 +335,9 @@ function App() {
       background: 'var(--bg-primary)',
     }}>
 
-      {/* Header - Compact */}
-      <header style={{
-        padding: '6px 16px',
-
       {/* Industry Standard Top Menu Bar */}
       <header style={{
         height: '40px',
- origin/copilot/integrate-blender-sketchup-functions
         background: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-color)',
         display: 'flex',
@@ -386,22 +373,7 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-
-        {/* Logo/Brand */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '0 10px',
-          marginRight: '10px',
         }}>
-          <span style={{
-            fontSize: '18px',
-            fontWeight: 'bold',
-            color: 'var(--accent-orange)',
-          }}>
-            ArchDisc
-          </span>
         </div>
 
         {/* Menu Items */}
@@ -466,7 +438,6 @@ function App() {
           borderRadius: '4px',
           fontSize: '11px',
           color: 'var(--text-secondary)',
- origin/copilot/integrate-blender-sketchup-functions
         }}>
           <div style={{
             width: '6px',
@@ -518,7 +489,6 @@ function App() {
         gridTemplateColumns: sidebarCollapsed 
           ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 350px')
           : (rightPanelCollapsed ? '220px 1fr 0px' : '220px 1fr 350px'),
- origin/copilot/integrate-blender-sketchup-functions
         overflow: 'hidden',
         transition: 'grid-template-columns 0.3s ease',
       }}>
@@ -617,7 +587,6 @@ function App() {
           <div style={{ flex: 1, position: 'relative' }} data-viewport="true">
 
           <div style={{ flex: 1, position: 'relative' }}>
- origin/copilot/integrate-blender-sketchup-functions
             {loading ? (
               <div style={{
                 height: '100%',
@@ -756,7 +725,6 @@ function App() {
 
       {/* Help Panel */}
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
- origin/copilot/integrate-blender-sketchup-functions
     </div>
   );
 }
