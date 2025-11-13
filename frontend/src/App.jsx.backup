@@ -1,0 +1,465 @@
+import { useState, useRef } from 'react';
+import BottomPromptBar from './components/BottomPromptBar';
+import WorkbenchViewer from './components/WorkbenchViewer';
+import AdvancedWorkbench from './components/AdvancedWorkbench';
+import PropertiesPanel from './components/PropertiesPanel';
+import Toolbar from './components/Toolbar';
+import AdvancedToolbar from './components/AdvancedToolbar';
+import SceneHierarchyPanel from './components/SceneHierarchyPanel';
+import HelpPanel from './components/HelpPanel';
+import SceneManager from './systems/SceneManager';
+import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
+import apiService from './services/api';
+import './styles/index.css';
+
+function App() {
+  const [design, setDesign] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [compliance, setCompliance] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [viewMode, setViewMode] = useState('solid');
+  const [isExploded, setIsExploded] = useState(false);
+  const [activeTool, setActiveTool] = useState('select');
+  const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
+  const sceneManagerRef = useRef(null);
+  const [selectedObjects, setSelectedObjects] = useState(new Set());
+  const [showHelp, setShowHelp] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+
+  const handleGenerateDesign = async (prompt) => {
+    setLoading(true);
+    setError(null);
+    setAnalysis(null);
+    setCompliance(null);
+
+    try {
+      // Generate design
+      const designResult = await apiService.generateDesign(prompt);
+      setDesign(designResult.design);
+
+      // Perform analysis
+      const analysisResult = await apiService.analyzeDesign(designResult.design.specifications);
+      setAnalysis(analysisResult.analysis);
+
+      // Check compliance
+      const complianceResult = await apiService.checkCompliance(designResult.design.specifications);
+      setCompliance(complianceResult.compliance);
+    } catch (err) {
+      setError('Failed to generate design. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveProject = () => {
+    if (sceneManagerRef.current) {
+      saveProject(sceneManagerRef.current);
+    }
+  };
+
+  const handleLoadProject = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.archdisc,.json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (sceneManagerRef.current && loadProject(event.target.result, sceneManagerRef.current)) {
+            setError(null);
+          } else {
+            setError('Failed to load project file.');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
+  const handleExport = (format) => {
+    if (!sceneManagerRef.current) return;
+    
+    try {
+      switch (format) {
+        case 'obj':
+          exportToOBJ(sceneManagerRef.current);
+          break;
+        case 'stl':
+          exportToSTL(sceneManagerRef.current);
+          break;
+        case 'gltf':
+          exportToGLTF(sceneManagerRef.current);
+          break;
+        case 'glb':
+          exportToGLTF(sceneManagerRef.current, true);
+          break;
+        default:
+          console.error('Unknown export format:', format);
+      }
+    } catch (err) {
+      setError(`Failed to export as ${format.toUpperCase()}`);
+      console.error(err);
+    }
+  };
+
+  const handleUndo = () => {
+    if (sceneManagerRef.current) {
+      sceneManagerRef.current.undo();
+    }
+  };
+
+  const handleRedo = () => {
+    if (sceneManagerRef.current) {
+      sceneManagerRef.current.redo();
+    }
+  };
+
+  const canUndo = sceneManagerRef.current ? sceneManagerRef.current.canUndo() : false;
+  const canRedo = sceneManagerRef.current ? sceneManagerRef.current.canRedo() : false;
+
+  return (
+    <div style={{
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--bg-primary)',
+    }}>
+      {/* Industry Standard Top Menu Bar */}
+      <header style={{
+        height: '40px',
+        background: 'var(--bg-secondary)',
+        borderBottom: '1px solid var(--border-color)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 10px',
+        gap: '5px',
+      }}>
+        {/* Logo/Brand */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '0 10px',
+          marginRight: '10px',
+        }}>
+          <span style={{
+            fontSize: '18px',
+            fontWeight: 'bold',
+            color: 'var(--accent-orange)',
+          }}>
+            ArchDisc
+          </span>
+        </div>
+
+        {/* Menu Items */}
+        <MenuButton label="File" items={[
+          { label: '💾 Save Project', onClick: handleSaveProject },
+          { label: '📁 Load Project', onClick: handleLoadProject },
+          { label: 'divider' },
+          { label: '📤 Export as OBJ', onClick: () => handleExport('obj') },
+          { label: '📤 Export as STL', onClick: () => handleExport('stl') },
+          { label: '📤 Export as GLTF', onClick: () => handleExport('gltf') },
+          { label: '📤 Export as GLB', onClick: () => handleExport('glb') },
+        ]} />
+
+        <MenuButton label="Edit" items={[
+          { label: '↶ Undo', onClick: handleUndo, disabled: !canUndo, shortcut: 'Ctrl+Z' },
+          { label: '↷ Redo', onClick: handleRedo, disabled: !canRedo, shortcut: 'Ctrl+Shift+Z' },
+          { label: 'divider' },
+          { label: '⊕ Duplicate', onClick: () => setActiveTool('duplicate'), shortcut: 'Shift+D' },
+          { label: '🗑️ Delete', onClick: () => setActiveTool('delete'), shortcut: 'Del' },
+        ]} />
+
+        <MenuButton label="Tools" items={[
+          { label: '🖱️ Select', onClick: () => setActiveTool('select'), shortcut: 'S' },
+          { label: '↔️ Move', onClick: () => setActiveTool('move'), shortcut: 'G' },
+          { label: '🔄 Rotate', onClick: () => setActiveTool('rotate'), shortcut: 'R' },
+          { label: '⇔ Scale', onClick: () => setActiveTool('scale'), shortcut: 'S' },
+          { label: 'divider' },
+          { label: '⬆️ Extrude', onClick: () => setActiveTool('extrude'), shortcut: 'E' },
+          { label: '↕️ Push/Pull', onClick: () => setActiveTool('push_pull'), shortcut: 'P' },
+          { label: 'divider' },
+          { label: '📏 Measure', onClick: () => setActiveTool('tape_measure'), shortcut: 'M' },
+        ]} />
+
+        <MenuButton label="View" items={[
+          { label: '⬇ Top View', onClick: () => setActiveTool('view_top') },
+          { label: '⬅ Front View', onClick: () => setActiveTool('view_front') },
+          { label: '⬆ Side View', onClick: () => setActiveTool('view_side') },
+          { label: '🔲 Perspective', onClick: () => setActiveTool('view_perspective') },
+          { label: 'divider' },
+          { label: '🎯 Focus Selection', onClick: () => setActiveTool('focus_selection'), shortcut: 'F' },
+          { label: '🖼️ Frame All', onClick: () => setActiveTool('frame_all'), shortcut: 'Home' },
+          { label: 'divider' },
+          { label: '◼ Solid', onClick: () => setViewMode('solid'), selected: viewMode === 'solid' },
+          { label: '▢ Wireframe', onClick: () => setViewMode('wireframe'), selected: viewMode === 'wireframe' },
+        ]} />
+
+        <MenuButton label="Help" items={[
+          { label: '❓ Keyboard Shortcuts', onClick: () => setShowHelp(true), shortcut: 'F1' },
+          { label: '📚 Documentation', onClick: () => window.open('/3D_EDITOR_GUIDE.md', '_blank') },
+        ]} />
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* AI Status Indicator */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '4px 10px',
+          background: 'var(--bg-tertiary)',
+          borderRadius: '4px',
+          fontSize: '11px',
+          color: 'var(--text-secondary)',
+        }}>
+          <div style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: loading ? 'var(--accent-orange)' : '#4caf50',
+          }} />
+          <span>{loading ? 'Generating...' : 'AI Ready'}</span>
+        </div>
+      </header>
+                  📤 Export
+                </button>
+                <div style={{
+                  display: 'none',
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '4px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  padding: '4px',
+                  zIndex: 1000,
+                  minWidth: '120px',
+                }}>
+                  {['obj', 'stl', 'gltf', 'glb'].map(format => (
+                    <button
+                      key={format}
+                      onClick={() => {
+                        handleExport(format);
+                        document.activeElement.blur();
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 12px',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                    >
+                      {format.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          
+          {/* Help Button */}
+          <button
+            onClick={() => setShowHelp(true)}
+            style={{
+              padding: '6px 12px',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+            title="Help & Shortcuts (F1)"
+          >
+            ❓ Help
+          </button>
+          
+          {/* Status indicator */}
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginLeft: '8px',
+          }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: loading ? 'var(--accent-orange)' : '#4caf50',
+            }} />
+            {loading ? 'Generating...' : 'Ready'}
+          </div>
+        </div>
+      </header>
+
+      {/* Error Message */}
+      {error && (
+        <div style={{
+          padding: '12px 20px',
+          background: '#f44336',
+          color: 'white',
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <span>{error}</span>
+          <button
+            onClick={() => setError(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '18px',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div style={{
+        flex: 1,
+        display: 'grid',
+        gridTemplateColumns: mode === 'advanced' ? '250px 1fr 350px' : '1fr 350px',
+        overflow: 'hidden',
+      }}>
+        {/* Left Sidebar - Scene Hierarchy (Advanced Mode Only) */}
+        {mode === 'advanced' && sceneManagerRef.current && (
+          <div style={{
+            borderRight: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <SceneHierarchyPanel
+              sceneManager={sceneManagerRef.current}
+              selectedObjects={selectedObjects}
+              onObjectSelect={(id) => {
+                if (sceneManagerRef.current) {
+                  sceneManagerRef.current.selectObject(id, 'toggle');
+                  setSelectedObjects(new Set(sceneManagerRef.current.selectedObjects));
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* Center - 3D Viewer */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          borderRight: '1px solid var(--border-color)',
+        }}>
+          {/* Toolbar */}
+          {mode === 'advanced' ? (
+            <div style={{ height: '60px', borderBottom: '1px solid var(--border-color)' }}>
+              <AdvancedToolbar
+                activeTool={activeTool}
+                onToolSelect={setActiveTool}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
+              />
+            </div>
+          ) : (
+            <Toolbar
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              isExploded={isExploded}
+              onExplodeToggle={() => setIsExploded(!isExploded)}
+            />
+          )}
+          
+          {/* 3D Viewer */}
+          <div style={{ flex: 1, position: 'relative' }}>
+            {mode === 'simple' ? (
+              loading ? (
+                <div style={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                }}>
+                  <div className="spinner" style={{ 
+                    width: '48px', 
+                    height: '48px',
+                    borderWidth: '4px',
+                    marginBottom: '20px',
+                  }} />
+                  <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                    Generating your design...
+                  </div>
+                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    This may take a few moments
+                  </div>
+                </div>
+              ) : (
+                <WorkbenchViewer 
+                  modelData={design?.model}
+                  viewMode={viewMode}
+                  isExploded={isExploded}
+                />
+              )
+            ) : (
+              <AdvancedWorkbench
+                activeTool={activeTool}
+                onToolChange={setActiveTool}
+                viewMode={viewMode}
+                onSceneUpdate={(info) => {
+                  setSceneInfo(info);
+                  if (info.sceneManager) {
+                    sceneManagerRef.current = info.sceneManager;
+                  }
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Right - Properties Panel */}
+        <PropertiesPanel 
+          design={design}
+          analysis={analysis}
+          compliance={compliance}
+        />
+      </div>
+
+      {/* Bottom Prompt Bar - Only in Simple Mode */}
+      {mode === 'simple' && (
+        <div style={{ paddingBottom: '70px' }}>
+          <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+        </div>
+      )}
+
+      {/* Help Panel */}
+      {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
+    </div>
+  );
+}
+
+export default App;
