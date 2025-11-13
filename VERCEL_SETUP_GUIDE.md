@@ -9,7 +9,7 @@ This guide provides detailed instructions with screenshots for setting up ArchDi
 Before starting, ensure you have:
 - [ ] A GitHub account with access to the `satvikOS/archdiscv1` repository
 - [ ] A Vercel account (free tier is sufficient)
-- [ ] (Optional) OpenAI API key if you want AI features beyond demo mode
+- [ ] (Optional) Google Gemini API key if you want AI features beyond demo mode
 
 ---
 
@@ -101,13 +101,13 @@ Value: production
 Environment: Production
 ```
 
-**2. OPENAI_API_KEY**
+**2. GEMINI_API_KEY**
 ```
-Key: OPENAI_API_KEY
+Key: GEMINI_API_KEY
 Value: demo-mode
 Environment: Production
 ```
-> 💡 **Tip:** Use `demo-mode` to start without OpenAI API. Replace with your actual OpenAI API key (starts with `sk-`) later if you want real AI features.
+> 💡 **Tip:** Use `demo-mode` to start without Google Gemini API. Replace with your actual Google Gemini API key later if you want real AI features. Get your key from [Google AI Studio](https://makersuite.google.com/app/apikey).
 
 **3. PORT**
 ```
@@ -355,8 +355,8 @@ Add each required environment variable:
 vercel env add NODE_ENV production
 # When prompted, enter: production
 
-# Add OPENAI_API_KEY
-vercel env add OPENAI_API_KEY production
+# Add GEMINI_API_KEY
+vercel env add GEMINI_API_KEY production
 # When prompted, enter: demo-mode
 
 # Add PORT
@@ -569,17 +569,17 @@ Vercel automatically creates preview deployments for:
 
 ### Enable Real AI Features
 
-To use OpenAI instead of demo mode:
+To use Google Gemini instead of demo mode:
 
-1. Get API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+1. Get API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 2. Go to **Settings** → **Environment Variables**
-3. Edit `OPENAI_API_KEY`:
+3. Edit `GEMINI_API_KEY`:
    - Change from `demo-mode`
-   - To your actual key: `sk-...`
+   - To your actual Google Gemini API key
 4. **Redeploy** the project
 5. Test with a prompt - should get real AI-generated designs
 
-**Cost Note:** OpenAI API usage is billed separately. Monitor usage at [OpenAI Platform](https://platform.openai.com/usage).
+**Cost Note:** Google Gemini API usage may have associated costs. Monitor usage at [Google Cloud Console](https://console.cloud.google.com/).
 
 ---
 
@@ -678,7 +678,7 @@ vercel env pull
 | Variable | Example Value | Notes |
 |----------|--------------|-------|
 | `NODE_ENV` | `production` | Required |
-| `OPENAI_API_KEY` | `demo-mode` or `sk-...` | Required |
+| `GEMINI_API_KEY` | `demo-mode` or `your-key` | Required |
 | `PORT` | `5000` | Required |
 | `VITE_API_URL` | `https://your-app.vercel.app` | Update after first deploy |
 | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` | Optional but recommended |
@@ -739,12 +739,12 @@ After successful deployment:
    - Configure DNS as shown above
 
 3. **Enable Real AI** (Optional)
-   - Get OpenAI API key
-   - Update `OPENAI_API_KEY` environment variable
+   - Get Google Gemini API key
+   - Update `GEMINI_API_KEY` environment variable
 
 4. **Monitor Usage**
    - Check Vercel Analytics
-   - Monitor OpenAI API usage
+   - Monitor Google Gemini API usage
    - Review deployment logs
 
 5. **Continuous Development**

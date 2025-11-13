@@ -7,7 +7,7 @@ This guide provides step-by-step instructions for deploying the ArchDisc platfor
 - [Vercel Account](https://vercel.com/signup) (free tier works)
 - [Vercel CLI](https://vercel.com/docs/cli) installed (optional but recommended)
 - GitHub repository connected to Vercel
-- OpenAI API key (optional - works in demo mode without it)
+- Google Gemini API key (optional - works in demo mode without it)
 
 ## Deployment Options
 
@@ -47,11 +47,11 @@ Add the following environment variables in Vercel Dashboard → Settings → Env
 | Variable | Value | Description |
 |----------|-------|-------------|
 | `NODE_ENV` | `production` | Environment mode |
-| `OPENAI_API_KEY` | `your-api-key` or `demo-mode` | OpenAI API key for AI features |
+| `GEMINI_API_KEY` | `your-api-key` or `demo-mode` | Google Gemini API key for AI features |
 | `PORT` | `5000` | Backend server port |
 | `VITE_API_URL` | `https://your-app.vercel.app` | Frontend API endpoint |
 
-**Note:** Use `demo-mode` for `OPENAI_API_KEY` to run without OpenAI API (uses pre-configured responses)
+**Note:** Use `demo-mode` for `GEMINI_API_KEY` to run without Google Gemini API (uses pre-configured responses)
 
 #### Step 4: Deploy
 
@@ -84,7 +84,7 @@ Create a `.env.production` file in the project root:
 ```bash
 # Backend Environment Variables
 NODE_ENV=production
-OPENAI_API_KEY=demo-mode
+GEMINI_API_KEY=demo-mode
 PORT=5000
 
 # Frontend Environment Variables
@@ -110,7 +110,7 @@ vercel
 #### Step 5: Set Environment Variables via CLI
 
 ```bash
-vercel env add OPENAI_API_KEY production
+vercel env add GEMINI_API_KEY production
 vercel env add NODE_ENV production
 vercel env add VITE_API_URL production
 ```
@@ -228,15 +228,15 @@ vercel --prod
 3. Update DNS records as instructed by Vercel
 4. Update `VITE_API_URL` to use custom domain
 
-### 3. Enable OpenAI Integration (Optional)
+### 3. Enable Google Gemini Integration (Optional)
 
 To use real AI features instead of demo mode:
 
-1. Get an OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+1. Get a Google Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 2. Update environment variable:
    ```bash
-   vercel env add OPENAI_API_KEY production
-   # Enter: sk-your-actual-openai-api-key
+   vercel env add GEMINI_API_KEY production
+   # Enter: your-actual-gemini-api-key
    ```
 3. Redeploy: `vercel --prod`
 

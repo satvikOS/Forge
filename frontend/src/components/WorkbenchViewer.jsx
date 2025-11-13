@@ -172,11 +172,7 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
           
           {/* Grid - Industry standard 1m squares, 18x larger (360m total) */}
           <gridHelper 
- 
             args={[360, 360, '#333333', '#1a1a1a']} 
-
-            args={[1800, 180, '#888888', '#666666']} 
-
             position={[0, -0.01, 0]}
           />
 

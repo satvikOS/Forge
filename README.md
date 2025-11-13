@@ -36,7 +36,7 @@ ArchDisc now includes a **professional-grade 3D editor** with 70+ tools for manu
 
 ### Backend
 - **Node.js** with Express
-- **OpenAI API** for natural language processing
+- **Google Gemini API** for natural language processing
 - RESTful API architecture
 - Modular service-based design
 
@@ -94,7 +94,7 @@ cp .env.example .env
 
 Edit `.env` and set your configuration:
 - `PORT`: Backend server port (default: 5000)
-- `OPENAI_API_KEY`: Your OpenAI API key (set to 'demo-mode' for demo responses)
+- `GEMINI_API_KEY`: Your Google Gemini API key (set to 'demo-mode' for demo responses)
 
 ### Running the Application
 
@@ -212,7 +212,7 @@ Automated verification against:
 
 ## Demo Mode
 
-The platform can run in demo mode without an OpenAI API key. Set `OPENAI_API_KEY=demo-mode` in your `.env` file. Demo mode provides pre-configured responses for:
+The platform can run in demo mode without a Google Gemini API key. Set `GEMINI_API_KEY=demo-mode` in your `.env` file. Demo mode provides pre-configured responses for:
 - Cars
 - Buildings
 - Furniture
