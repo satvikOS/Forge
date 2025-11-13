@@ -1,51 +1,64 @@
-const OpenAI = require('openai');
+const geminiService = require('./geminiService');
+const geometryGenerator = require('./geometryGenerator');
+const materialSystem = require('./materialSystem');
 
 class AIService {
   constructor() {
-    this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || 'demo-mode',
-    });
-    this.isDemoMode = !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo-mode';
+    this.gemini = geminiService;
+    this.isDemoMode = !geminiService.isConfigured();
   }
 
   /**
    * Process natural language prompt to generate design specifications
    */
   async processPrompt(prompt) {
-    if (this.isDemoMode) {
-      return this.generateDemoResponse(prompt);
+    // Try Gemini first
+    if (!this.isDemoMode) {
+      try {
+        const aiAnalysis = await this.gemini.analyzePrompt(prompt);
+        if (aiAnalysis) {
+          return this.convertAIAnalysisToSpecs(aiAnalysis);
+        }
+      } catch (error) {
+        console.error('Error with Gemini analysis:', error);
+      }
+      
+      // Try design specs generation as fallback
+      try {
+        const designSpecs = await this.gemini.generateDesignSpecs(prompt);
+        if (designSpecs) {
+          return designSpecs;
+        }
+      } catch (error) {
+        console.error('Error generating design specs:', error);
+      }
     }
-
-    try {
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert AI design assistant for ArchDisc, a platform that helps users create 3D designs from natural language. 
-            Your task is to interpret user prompts and generate structured design specifications including:
-            - Object type (car, building, furniture, etc.)
-            - Key dimensions and measurements
-            - Materials and textures
-            - Design style and aesthetic
-            - Functional requirements
-            Respond in JSON format with these fields.`
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-      });
-
-      const content = response.choices[0].message.content;
-      return this.parseAIResponse(content);
-    } catch (error) {
-      console.error('Error calling OpenAI API:', error);
-      return this.generateDemoResponse(prompt);
-    }
+    
+    // Fall back to demo response
+    return this.generateDemoResponse(prompt);
+  }
+  
+  /**
+   * Convert AI analysis to design specifications
+   */
+  convertAIAnalysisToSpecs(analysis) {
+    const firstElement = analysis.elements?.[0] || {};
+    const scene = analysis.scene || {};
+    
+    return {
+      objectType: firstElement.type || scene.type || 'object',
+      objectCount: analysis.objectCount || 1,
+      name: firstElement.name || 'Generated Object',
+      description: `${scene.style || 'Modern'} ${firstElement.type || 'object'}`,
+      dimensions: firstElement.dimensions || { width: 1000, height: 1000, depth: 1000 },
+      materials: firstElement.materials || analysis.requirements?.materials || ['default'],
+      style: scene.style || 'modern',
+      features: analysis.requirements?.features || [],
+      elements: analysis.elements || [],
+      scene: scene,
+      complexity: scene.complexity || 'medium',
+      detailLevel: analysis.requirements?.detailLevel || 'medium',
+    };
   }
 
   /**
@@ -124,56 +137,69 @@ class AIService {
    * Generate 3D model data from specifications
    */
   async generateModelData(specifications) {
-    const { objectType, dimensions, materials } = specifications;
+    const { objectType, dimensions, materials, elements, scene, objectCount } = specifications;
 
-    // Generate basic geometric primitives based on object type
-    const geometry = this.generateGeometry(objectType, dimensions);
+    // Create specification object for geometry generator
+    const geometrySpec = {
+      objectCount: objectCount || 1,
+      elements: elements && elements.length > 0 ? elements : [
+        {
+          type: objectType || 'object',
+          name: specifications.name || 'Object',
+          dimensions: dimensions || { width: 1000, height: 1000, depth: 1000 },
+          materials: materials || ['default'],
+          details: specifications.features || [],
+        }
+      ],
+      scene: scene || {},
+    };
+
+    // Generate geometry
+    const geometry = geometryGenerator.generateFromSpec(geometrySpec);
+    
+    // Apply materials to geometry parts
+    if (geometry.type === 'composite' && geometry.parts) {
+      geometry.parts = geometry.parts.map(part => 
+        materialSystem.applyMaterial(part, part.material || materials?.[0] || 'default')
+      );
+    }
     
     return {
       geometry,
       materials: materials || ['default'],
       metadata: specifications,
+      stats: this.calculateStats(geometry),
     };
   }
-
+  
   /**
-   * Generate basic geometry for different object types
+   * Calculate model statistics
    */
-  generateGeometry(objectType, dimensions) {
-    switch (objectType) {
-      case 'car':
-        return {
-          type: 'composite',
-          parts: [
-            { type: 'box', dimensions: { x: dimensions.length * 0.8, y: dimensions.height * 0.5, z: dimensions.width }, position: { x: 0, y: 0, z: 0 } },
-            { type: 'box', dimensions: { x: dimensions.length * 0.4, y: dimensions.height * 0.3, z: dimensions.width * 0.9 }, position: { x: dimensions.length * 0.1, y: dimensions.height * 0.5, z: 0 } },
-            { type: 'sphere', radius: dimensions.height * 0.3, position: { x: dimensions.length * 0.3, y: -dimensions.height * 0.3, z: dimensions.width * 0.4 } },
-            { type: 'sphere', radius: dimensions.height * 0.3, position: { x: dimensions.length * 0.3, y: -dimensions.height * 0.3, z: -dimensions.width * 0.4 } },
-            { type: 'sphere', radius: dimensions.height * 0.3, position: { x: -dimensions.length * 0.3, y: -dimensions.height * 0.3, z: dimensions.width * 0.4 } },
-            { type: 'sphere', radius: dimensions.height * 0.3, position: { x: -dimensions.length * 0.3, y: -dimensions.height * 0.3, z: -dimensions.width * 0.4 } },
-          ],
-        };
-      case 'building':
-        return {
-          type: 'composite',
-          parts: [
-            { type: 'box', dimensions: { x: dimensions.length, y: dimensions.height, z: dimensions.width }, position: { x: 0, y: dimensions.height / 2, z: 0 } },
-          ],
-        };
-      case 'furniture':
-        return {
-          type: 'composite',
-          parts: [
-            { type: 'box', dimensions: { x: dimensions.width, y: dimensions.height * 0.1, z: dimensions.depth }, position: { x: 0, y: dimensions.height * 0.5, z: 0 } },
-            { type: 'cylinder', radius: dimensions.width * 0.05, height: dimensions.height * 0.4, position: { x: 0, y: 0, z: 0 } },
-          ],
-        };
-      default:
-        return {
-          type: 'box',
-          dimensions: { x: dimensions.width || 10, y: dimensions.height || 10, z: dimensions.depth || 10 },
-        };
+  calculateStats(geometry) {
+    let partCount = 0;
+    let totalVertices = 0;
+    
+    if (geometry.type === 'scene') {
+      partCount = (geometry.meshes?.length || 0);
+      if (geometry.instances) {
+        geometry.instances.forEach(inst => {
+          partCount += inst.count;
+        });
+      }
+    } else if (geometry.type === 'composite') {
+      partCount = geometry.parts?.length || 1;
+    } else {
+      partCount = 1;
     }
+    
+    // Rough estimate of vertices based on part count
+    totalVertices = partCount * 24; // Average vertices per part
+    
+    return {
+      partCount,
+      estimatedVertices: totalVertices,
+      estimatedFaces: totalVertices / 3,
+    };
   }
 }
 
