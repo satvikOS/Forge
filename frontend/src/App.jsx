@@ -3,7 +3,6 @@ import BottomPromptBar from './components/BottomPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
-import MenuBar from './components/MenuBar';
 import StatusBar from './components/StatusBar';
 import ContextMenu from './components/ContextMenu';
 import AdvancedWorkbench from './components/AdvancedWorkbench';
@@ -222,11 +221,6 @@ function App() {
     document.addEventListener('contextmenu', handleContextMenu);
     return () => document.removeEventListener('contextmenu', handleContextMenu);
   }, [handleContextMenu]);
-
-  const handleMenuAction = (actionId) => {
-    console.log('Menu action:', actionId);
-    // Handle menu actions here
-  };
 
   const handleContextAction = (actionId) => {
     console.log('Context action:', actionId);
@@ -448,9 +442,6 @@ function App() {
           <span>{loading ? 'Generating...' : 'AI Ready'}</span>
         </div>
       </header>
-
-      {/* Menu Bar */}
-      <MenuBar onMenuAction={handleMenuAction} />
 
       {/* Error Message */}
       {error && (
