@@ -60,13 +60,14 @@ export default function MenuBar({ onMenuAction }) {
           key={item.id}
           style={{ position: 'relative' }}
           onMouseEnter={() => handleItemHover(item.id, hasSubmenu)}
+          onMouseLeave={() => hasSubmenu && setOpenSubmenu(null)}
         >
           <button
             onClick={() => hasSubmenu ? null : handleItemClick(item.id)}
             style={{
               width: '100%',
               padding: '6px 12px',
-              background: 'transparent',
+              background: isSubmenuOpen ? 'var(--bg-hover)' : 'transparent',
               border: 'none',
               color: 'var(--text-primary)',
               fontSize: '12px',
@@ -78,10 +79,14 @@ export default function MenuBar({ onMenuAction }) {
               transition: 'background 0.1s',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hover)';
+              if (!isSubmenuOpen) {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
+              if (!isSubmenuOpen) {
+                e.currentTarget.style.background = 'transparent';
+              }
             }}
           >
             <span>{item.label}</span>
@@ -101,13 +106,15 @@ export default function MenuBar({ onMenuAction }) {
                 position: 'absolute',
                 left: '100%',
                 top: 0,
-                minWidth: '180px',
+                minWidth: '200px',
                 background: 'var(--bg-secondary)',
                 border: '1px solid var(--border-color)',
                 borderRadius: '4px',
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
-                zIndex: 1002,
+                zIndex: 10003,
                 marginLeft: '2px',
+                maxHeight: '400px',
+                overflowY: 'auto',
               }}
             >
               {renderMenuItems(item.submenu, true)}
@@ -168,7 +175,7 @@ export default function MenuBar({ onMenuAction }) {
                 border: '1px solid var(--border-color)',
                 borderRadius: '4px',
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
-                zIndex: 1001,
+                zIndex: 10001,
                 marginTop: '2px',
                 maxHeight: '500px',
                 overflowY: 'auto',
