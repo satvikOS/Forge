@@ -3,6 +3,7 @@ import BottomPromptBar from './components/BottomPromptBar';
 import WorkbenchViewer from './components/WorkbenchViewer';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
+import MenuBar from './components/MenuBar';
 import StatusBar from './components/StatusBar';
 import ContextMenu from './components/ContextMenu';
 import AdvancedWorkbench from './components/AdvancedWorkbench';
@@ -14,113 +15,6 @@ import SceneManager from './systems/SceneManager';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import apiService from './services/api';
 import './styles/index.css';
-
-// MenuButton component for top menu bar
-function MenuButton({ label, items }) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        onBlur={() => setTimeout(() => setIsOpen(false), 200)}
-        style={{
-          padding: '8px 12px',
-          background: isOpen ? 'var(--bg-tertiary)' : 'transparent',
-          border: 'none',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
-          fontSize: '13px',
-          borderRadius: '4px',
-        }}
-        onMouseEnter={(e) => {
-          if (!isOpen) e.target.style.background = 'var(--bg-hover)';
-        }}
-        onMouseLeave={(e) => {
-          if (!isOpen) e.target.style.background = 'transparent';
-        }}
-      >
-        {label}
-      </button>
-
-      {isOpen && (
-        <div style={{
-          position: 'absolute',
-          top: '100%',
-          left: 0,
-          marginTop: '2px',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '6px',
-          minWidth: '200px',
-          zIndex: 10000,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-        }}>
-          {items.map((item, index) => {
-            if (item.label === 'divider') {
-              return (
-                <div
-                  key={index}
-                  style={{
-                    height: '1px',
-                    background: 'var(--border-color)',
-                    margin: '4px 0',
-                  }}
-                />
-              );
-            }
-
-            return (
-              <button
-                key={index}
-                onClick={() => {
-                  if (item.onClick) item.onClick();
-                  setIsOpen(false);
-                }}
-                disabled={item.disabled}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  background: item.selected ? 'var(--bg-tertiary)' : 'transparent',
-                  border: 'none',
-                  color: item.disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
-                  cursor: item.disabled ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  textAlign: 'left',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  opacity: item.disabled ? 0.5 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!item.disabled && !item.selected) {
-                    e.target.style.background = 'var(--bg-hover)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!item.disabled && !item.selected) {
-                    e.target.style.background = 'transparent';
-                  }
-                }}
-              >
-                <span>{item.label}</span>
-                {item.shortcut && (
-                  <span style={{
-                    fontSize: '10px',
-                    color: 'var(--text-secondary)',
-                    marginLeft: '20px',
-                  }}>
-                    {item.shortcut}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function App() {
   const [design, setDesign] = useState(null);
@@ -221,6 +115,11 @@ function App() {
     document.addEventListener('contextmenu', handleContextMenu);
     return () => document.removeEventListener('contextmenu', handleContextMenu);
   }, [handleContextMenu]);
+
+  const handleMenuAction = (actionId) => {
+    console.log('Menu action:', actionId);
+    // Handle menu actions here
+  };
 
   const handleContextAction = (actionId) => {
     console.log('Context action:', actionId);
@@ -329,20 +228,19 @@ function App() {
       background: 'var(--bg-primary)',
     }}>
 
-      {/* Industry Standard Top Menu Bar */}
+      {/* Top Branding Bar */}
       <header style={{
-        height: '40px',
+        height: '36px',
         background: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-color)',
         display: 'flex',
         alignItems: 'center',
-        padding: '0 10px',
-        gap: '5px',
+        padding: '0 12px',
+        justifyContent: 'space-between',
       }}>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <h1 style={{
-            fontSize: '13px',
+            fontSize: '14px',
             fontWeight: 'bold',
             color: 'var(--text-primary)',
             margin: 0,
@@ -359,68 +257,6 @@ function App() {
             AI-Powered Design Workbench
           </div>
         </div>
-        
-        {/* Status indicator */}
-        <div style={{
-          fontSize: '10px',
-          color: 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-        }}>
-        </div>
-
-        {/* Menu Items */}
-        <MenuButton label="File" items={[
-          { label: '💾 Save Project', onClick: handleSaveProject },
-          { label: '📁 Load Project', onClick: handleLoadProject },
-          { label: 'divider' },
-          { label: '📤 Export as OBJ', onClick: () => handleExport('obj') },
-          { label: '📤 Export as STL', onClick: () => handleExport('stl') },
-          { label: '📤 Export as GLTF', onClick: () => handleExport('gltf') },
-          { label: '📤 Export as GLB', onClick: () => handleExport('glb') },
-        ]} />
-
-        <MenuButton label="Edit" items={[
-          { label: '↶ Undo', onClick: handleUndo, disabled: !canUndo, shortcut: 'Ctrl+Z' },
-          { label: '↷ Redo', onClick: handleRedo, disabled: !canRedo, shortcut: 'Ctrl+Shift+Z' },
-          { label: 'divider' },
-          { label: '⊕ Duplicate', onClick: () => setActiveTool('duplicate'), shortcut: 'Shift+D' },
-          { label: '🗑️ Delete', onClick: () => setActiveTool('delete'), shortcut: 'Del' },
-        ]} />
-
-        <MenuButton label="Tools" items={[
-          { label: '🖱️ Select', onClick: () => setActiveTool('select'), shortcut: 'S' },
-          { label: '↔️ Move', onClick: () => setActiveTool('move'), shortcut: 'G' },
-          { label: '🔄 Rotate', onClick: () => setActiveTool('rotate'), shortcut: 'R' },
-          { label: '⇔ Scale', onClick: () => setActiveTool('scale'), shortcut: 'S' },
-          { label: 'divider' },
-          { label: '⬆️ Extrude', onClick: () => setActiveTool('extrude'), shortcut: 'E' },
-          { label: '↕️ Push/Pull', onClick: () => setActiveTool('push_pull'), shortcut: 'P' },
-          { label: 'divider' },
-          { label: '📏 Measure', onClick: () => setActiveTool('tape_measure'), shortcut: 'M' },
-        ]} />
-
-        <MenuButton label="View" items={[
-          { label: '⬇ Top View', onClick: () => setActiveTool('view_top') },
-          { label: '⬅ Front View', onClick: () => setActiveTool('view_front') },
-          { label: '⬆ Side View', onClick: () => setActiveTool('view_side') },
-          { label: '🔲 Perspective', onClick: () => setActiveTool('view_perspective') },
-          { label: 'divider' },
-          { label: '🎯 Focus Selection', onClick: () => setActiveTool('focus_selection'), shortcut: 'F' },
-          { label: '🖼️ Frame All', onClick: () => setActiveTool('frame_all'), shortcut: 'Home' },
-          { label: 'divider' },
-          { label: '◼ Solid', onClick: () => setViewMode('solid'), selected: viewMode === 'solid' },
-          { label: '▢ Wireframe', onClick: () => setViewMode('wireframe'), selected: viewMode === 'wireframe' },
-        ]} />
-
-        <MenuButton label="Help" items={[
-          { label: '❓ Keyboard Shortcuts', onClick: () => setShowHelp(true), shortcut: 'F1' },
-          { label: '📚 Documentation', onClick: () => window.open('/3D_EDITOR_GUIDE.md', '_blank') },
-        ]} />
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
 
         {/* AI Status Indicator */}
         <div style={{
@@ -442,6 +278,9 @@ function App() {
           <span>{loading ? 'Generating...' : 'AI Ready'}</span>
         </div>
       </header>
+
+      {/* Menu Bar */}
+      <MenuBar onMenuAction={handleMenuAction} />
 
       {/* Error Message */}
       {error && (
