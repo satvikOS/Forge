@@ -105,63 +105,20 @@ export default function BottomPromptBar({ onSubmit, loading }) {
         </div>
       )}
 
-      {/* Single Layer Floating Glassmorphic Prompt Bar - 9cm (340px) */}
+      {/* Single integrated prompt bar with ArchPro inside - increased width */}
       <div style={{
         position: 'fixed',
         bottom: '20px',
         left: '50%',
         transform: 'translateX(-50%)',
-        display: 'flex',
-        gap: '10px',
-        alignItems: 'center',
         zIndex: 1000,
       }}>
-        {/* ArchPro button - outside the main bar */}
-        <button
-          type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          disabled={loading}
-          style={{
-            background: 'rgba(15, 15, 15, 0.75)',
-            backdropFilter: 'blur(30px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(30px) saturate(180%)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            borderRadius: '12px',
-            padding: '8px 14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'rgba(255, 255, 255, 0.9)',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontSize: '13px',
-            fontWeight: '600',
-            flexShrink: 0,
-            transition: 'all 0.2s',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
-            height: '42px',
-          }}
-          onMouseEnter={(e) => {
-            if (!loading) {
-              e.target.style.background = 'rgba(25, 25, 25, 0.85)';
-              e.target.style.borderColor = 'rgba(255, 107, 53, 0.4)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.background = 'rgba(15, 15, 15, 0.75)';
-            e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-          }}
-          title="ArchPro: Get 3 AI-powered design proposals"
-        >
-          ArchPro
-        </button>
-
-        {/* Main prompt bar - exactly 9cm (340px) */}
         <form 
           onSubmit={handleSubmit}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           style={{
-            width: '340px',
+            width: '480px', // Increased from 340px to accommodate ArchPro button inside
             background: isHovered 
               ? 'rgba(25, 25, 25, 0.85)' 
               : 'rgba(15, 15, 15, 0.75)',
@@ -185,6 +142,43 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             alignItems: 'center',
           }}
         >
+          {/* ArchPro button - now inside the bar */}
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            disabled={loading}
+            style={{
+              background: 'rgba(255, 107, 53, 0.15)',
+              border: '1px solid rgba(255, 107, 53, 0.3)',
+              borderRadius: '14px',
+              padding: '0 12px',
+              height: '30px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ff6b35',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '12px',
+              fontWeight: '600',
+              flexShrink: 0,
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                e.target.style.background = 'rgba(255, 107, 53, 0.25)';
+                e.target.style.borderColor = '#ff6b35';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'rgba(255, 107, 53, 0.15)';
+              e.target.style.borderColor = 'rgba(255, 107, 53, 0.3)';
+            }}
+            title="ArchPro: Get 3 AI-powered design proposals"
+          >
+            ArchPro
+          </button>
+
           {/* Input field */}
           <input
             type="text"
@@ -206,7 +200,7 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             }}
           />
 
-          {/* Submit button - Paper Plane Icon inside the bar */}
+          {/* Submit button - Paper Plane Icon */}
           <button
             type="submit"
             disabled={loading || !prompt.trim()}

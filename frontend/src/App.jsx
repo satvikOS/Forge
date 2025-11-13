@@ -487,8 +487,8 @@ function App() {
 
         display: 'grid',
         gridTemplateColumns: sidebarCollapsed 
-          ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 280px')
-          : (rightPanelCollapsed ? '180px 1fr 0px' : '180px 1fr 280px'),
+          ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 240px')
+          : (rightPanelCollapsed ? '160px 1fr 0px' : '160px 1fr 240px'),
         overflow: 'hidden',
         transition: 'grid-template-columns 0.3s ease',
       }}>
@@ -505,7 +505,7 @@ function App() {
             <div style={{
               height: '100%',
               overflow: 'hidden',
-              width: '180px',
+              width: '160px',
             }}>
               <AdvancedToolbar
                 activeTool={activeTool}
@@ -668,7 +668,7 @@ function App() {
         }}>
           {!rightPanelCollapsed && (
             <div style={{
-              width: '280px',
+              width: '240px',
               height: '100%',
               overflow: 'hidden',
             }}>
