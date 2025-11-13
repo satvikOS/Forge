@@ -60,7 +60,6 @@ export default function MenuBar({ onMenuAction }) {
           key={item.id}
           style={{ position: 'relative' }}
           onMouseEnter={() => handleItemHover(item.id, hasSubmenu)}
-          onMouseLeave={() => hasSubmenu && setOpenSubmenu(null)}
         >
           <button
             onClick={() => hasSubmenu ? null : handleItemClick(item.id)}
