@@ -583,10 +583,8 @@ function App() {
             onSnapToggle={() => setShowSnap(!showSnap)}
           />
           
-          {/* 3D Viewer */}
-          <div style={{ flex: 1, position: 'relative' }} data-viewport="true">
-
-          <div style={{ flex: 1, position: 'relative' }}>
+          {/* 3D Viewer - fills remaining space */}
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {loading ? (
               <div style={{
                 height: '100%',
@@ -625,13 +623,15 @@ function App() {
             )}
           </div>
 
-          {/* Status Bar */}
-          <StatusBar
-            mode={currentMode === 'object' ? 'Object Mode' : currentMode === 'edit' ? 'Edit Mode' : 'Sculpt Mode'}
-            activeTool={activeTool}
-            selectionCount={selectionCount}
-            stats={{ triangles: 0, fps: 60 }}
-          />
+          {/* Status Bar - overlays at bottom */}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10 }}>
+            <StatusBar
+              mode={currentMode === 'object' ? 'Object Mode' : currentMode === 'edit' ? 'Edit Mode' : 'Sculpt Mode'}
+              activeTool={activeTool}
+              selectionCount={selectionCount}
+              stats={{ triangles: 0, fps: 60 }}
+            />
+          </div>
         </div>
 
 
@@ -655,72 +655,7 @@ function App() {
         onAction={handleContextAction}
       />
 
-      {/* Bottom Prompt Bar - Floating */}
-      <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
-
-        {/* Right Panel - Properties (Retractable) */}
-        <div style={{
-          borderLeft: rightPanelCollapsed ? 'none' : '1px solid var(--border-color)',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          overflow: 'visible',
-        }}>
-          {!rightPanelCollapsed && (
-            <div style={{
-              width: '240px',
-              height: '100%',
-              overflow: 'hidden',
-            }}>
-              <PropertiesPanel 
-                design={design}
-                analysis={analysis}
-                compliance={compliance}
-              />
-            </div>
-          )}
-          
-          {/* Toggle button - Always visible */}
-          <button
-            onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
-            style={{
-              position: 'absolute',
-              left: rightPanelCollapsed ? '-80px' : '-10px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: rightPanelCollapsed ? '80px' : '24px',
-              height: '50px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px 0 0 6px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-secondary)',
-              fontSize: rightPanelCollapsed ? '11px' : '12px',
-              zIndex: 100,
-              boxShadow: '-2px 0 8px rgba(0,0,0,0.2)',
-              transition: 'all 0.3s ease',
-              padding: '0 8px',
-              textAlign: 'center',
-              lineHeight: '1.2',
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = 'var(--accent-orange)';
-              e.target.style.color = 'white';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'var(--bg-secondary)';
-              e.target.style.color = 'var(--text-secondary)';
-            }}
-          >
-            {rightPanelCollapsed ? 'Properties' : '▶'}
-          </button>
-        </div>
-      </div>
-
-      {/* Floating Glassmorphic Curved Bottom Prompt Bar */}
+      {/* Bottom Prompt Bar - Floating over canvas */}
       <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
 
       {/* Help Panel */}
