@@ -112,8 +112,6 @@ export default function MenuBar({ onMenuAction }) {
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
                 zIndex: 10003,
                 marginLeft: '2px',
-                maxHeight: '400px',
-                overflowY: 'auto',
               }}
             >
               {renderMenuItems(item.submenu, true)}
@@ -176,8 +174,6 @@ export default function MenuBar({ onMenuAction }) {
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
                 zIndex: 10001,
                 marginTop: '2px',
-                maxHeight: '500px',
-                overflowY: 'auto',
               }}
             >
               {renderMenuItems(menu.items)}
