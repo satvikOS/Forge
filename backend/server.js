@@ -23,11 +23,15 @@ const upload = multer({ storage: storage });
 const designRoutes = require('./routes/design');
 const analysisRoutes = require('./routes/analysis');
 const legalityRoutes = require('./routes/legality');
+const generateRoutes = require('./routes/generate');
+const downloadRoutes = require('./routes/download');
 
 // Use routes
 app.use('/api/design', designRoutes);
 app.use('/api/analysis', analysisRoutes);
 app.use('/api/legality', legalityRoutes);
+app.use('/api/generate', generateRoutes);
+app.use('/api/download', downloadRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
