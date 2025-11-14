@@ -25,12 +25,20 @@ ArchDisc now includes a **professional-grade 3D editor** with 70+ tools for manu
 ## Features
 
 - **Natural Language Design**: Describe what you want to create in plain English
+- **Enhanced 3D Generation**: Complete architectural design generation with:
+  - Wireframe & rig data for structural definition
+  - Detailed geometry with mesh topology and UV mapping
+  - LOD (Level of Detail) for multiple resolutions (720p, 1080p, 4K, 8K)
+  - PBR materials for realistic rendering
+  - Scene environment with lighting and atmosphere
 - **3D Visualization**: Real-time 3D model rendering with interactive controls
-- **AI-Powered Generation**: Leverages AI to interpret prompts and generate detailed specifications
+- **AI-Powered Generation**: Leverages Google Gemini AI to interpret prompts and generate detailed specifications
 - **Structural Analysis**: Automatic analysis of strength, stability, and safety
 - **Cost Estimation**: Instant manufacturing/construction cost estimates
 - **Compliance Checking**: Automated verification against building codes and safety standards
 - **Multi-Domain Support**: Design cars, buildings, furniture, and more
+
+For comprehensive information about the enhanced Gemini API integration, see the [Gemini Integration Guide](./GEMINI_INTEGRATION.md).
 
 ## Tech Stack
 
@@ -182,12 +190,19 @@ archdiscv1/
 ## Features in Detail
 
 ### AI-Powered Design Generation
-The platform uses advanced AI to understand natural language prompts and generate detailed design specifications including:
+The platform uses advanced AI to understand natural language prompts and generate comprehensive 3D architectural specifications including:
 - Object type classification
 - Dimensions and measurements
-- Material suggestions
+- Material suggestions with PBR properties
 - Design style and aesthetics
 - Functional requirements
+- **Wireframe & Rig Data**: Structural skeleton with control vertices, edges, pivot points, and transform hierarchy
+- **Detailed Geometry**: Mesh topology, UV mapping, and subdivision surface specifications
+- **LOD (Level of Detail)**: Optimized meshes for 720p, 1080p, 4K, and 8K resolutions
+- **Scene Environment**: Context-aware lighting (HDRI, key lights, ambient) and atmosphere settings
+- **PBR Materials**: Physically-based rendering properties for realistic visualization
+
+**See [Gemini Integration Guide](./GEMINI_INTEGRATION.md) for detailed documentation.**
 
 ### 3D Modeling
 Automatic generation of 3D geometry from specifications:
@@ -214,11 +229,20 @@ Automated verification against:
 
 This platform uses **Google Gemini 2.5 Pro Experimental**, the most advanced model for:
 - Understanding complex 3D design prompts
-- Generating detailed architectural specifications
+- Generating comprehensive architectural specifications with:
+  - Wireframe and rig data for pre-render structure
+  - Detailed geometry with mesh topology and UV mapping
+  - LOD (Level of Detail) for multiple resolutions (720p-8K)
+  - PBR materials for realistic rendering
+  - Scene environment with lighting and atmosphere
 - Providing accurate material and structural recommendations
 - Creating comprehensive design analysis
 
+The enhanced Gemini integration enables prompt-to-3D conversion with complete pre-render data (rigs, wireframes, environment) ready for visualization at any resolution from 720p to 8K.
+
 Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey).
+
+**For complete documentation, see [Gemini Integration Guide](./GEMINI_INTEGRATION.md).**
 
 ## Future Enhancements
 
