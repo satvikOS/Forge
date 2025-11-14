@@ -116,31 +116,63 @@ router.delete('/:jobId', async (req, res) => {
  * Process generation job async
  */
 async function processGenerationJob(jobId, prompt, options) {
+  console.log('\n========================================');
+  console.log('🚀 Starting Generation Job');
+  console.log('========================================');
+  console.log('📋 Job Details:', {
+    jobId,
+    prompt: prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : ''),
+    options: JSON.stringify(options, null, 2),
+  });
+  console.log('========================================\n');
+
   try {
     // Stage 1: Analyzing prompt
+    console.log('--- 📊 Stage 1: Analyzing Prompt ---');
     jobQueue.updateProgress(jobId, 'analyzing', 10);
     const specifications = await aiService.processPrompt(prompt);
+    console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
     jobQueue.updateProgress(jobId, 'analyzing', 50);
     
     // Add complexity analysis
     specifications.objectCount = specifications.objectCount || 1;
     specifications.complexity = specifications.complexity || 'medium';
+    console.log('📈 Complexity analysis added:', {
+      objectCount: specifications.objectCount,
+      complexity: specifications.complexity,
+    });
     
     jobQueue.completeStage(jobId, 'analyzing');
+    console.log('✅ Stage 1 complete\n');
 
     // Stage 2: Generating geometry
+    console.log('--- 🏗️  Stage 2: Generating Geometry ---');
     jobQueue.updateProgress(jobId, 'generating', 20);
     const modelData = await aiService.generateModelData(specifications);
+    console.log('✅ Model data generated:', JSON.stringify({
+      geometry: modelData.geometry?.type,
+      materials: modelData.materials,
+      stats: modelData.stats,
+    }, null, 2));
     jobQueue.updateProgress(jobId, 'generating', 80);
     jobQueue.completeStage(jobId, 'generating');
+    console.log('✅ Stage 2 complete\n');
 
     // Stage 3: Refining (apply LOD, optimize)
+    console.log('--- ✨ Stage 3: Refining Model ---');
     jobQueue.updateProgress(jobId, 'refining', 30);
     const refined = await refineModel(modelData, specifications);
+    console.log('✅ Model refined:', JSON.stringify({
+      lod: refined.lod,
+      optimized: refined.optimized,
+      instancedRendering: refined.instancedRendering,
+    }, null, 2));
     jobQueue.updateProgress(jobId, 'refining', 90);
     jobQueue.completeStage(jobId, 'refining');
+    console.log('✅ Stage 3 complete\n');
 
     // Stage 4: Preparing exports
+    console.log('--- 📦 Stage 4: Preparing Exports ---');
     jobQueue.updateProgress(jobId, 'exporting', 50);
     
     const result = {
@@ -158,8 +190,20 @@ async function processGenerationJob(jobId, prompt, options) {
     
     jobQueue.completeStage(jobId, 'exporting');
     jobQueue.completeJob(jobId, result);
+    console.log('✅ Stage 4 complete\n');
+
+    console.log('========================================');
+    console.log('✅ Generation Job Completed Successfully');
+    console.log('========================================\n');
   } catch (error) {
-    console.error('Error in generation job:', error);
+    console.error('\n========================================');
+    console.error('❌ Generation Job Failed');
+    console.error('========================================');
+    console.error('💥 Error details:', {
+      message: error.message,
+      stack: error.stack,
+    });
+    console.error('========================================\n');
     jobQueue.failJob(jobId, error);
     throw error;
   }

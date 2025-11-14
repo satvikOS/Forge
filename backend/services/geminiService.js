@@ -12,9 +12,9 @@ class GeminiService {
     if (!this.isDemoMode) {
       try {
         this.genAI = new GoogleGenerativeAI(this.apiKey);
-        // Use the best experimental model for 3D design generation
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro-exp' });
-        this.modelName = 'gemini-2.5-pro-exp';
+        // Use stable Gemini model for better reliability
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+        this.modelName = 'gemini-pro';
       } catch (error) {
         console.error('Failed to initialize Gemini API:', error);
         this.isDemoMode = true;
@@ -39,26 +39,49 @@ class GeminiService {
     const maxRetries = options.maxRetries || this.maxRetries;
     let lastError = null;
 
+    console.log('\n=== 🤖 Gemini API Request ===');
+    console.log('📋 Request details:', {
+      promptLength: prompt?.length,
+      maxRetries,
+      model: this.modelName,
+    });
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Gemini API...`);
         const result = await this.model.generateContent(prompt);
         const response = await result.response;
-        return response.text();
+        const text = response.text();
+        
+        console.log(`✅ Success on attempt ${attempt}!`);
+        console.log('📊 Response length:', text?.length);
+        console.log('=== End Gemini API Request ===\n');
+        
+        return text;
       } catch (error) {
         lastError = error;
-        console.error(`Gemini API error (attempt ${attempt}/${maxRetries}):`, error.message);
+        console.error(`❌ Gemini API error (attempt ${attempt}/${maxRetries}):`, {
+          message: error.message,
+          status: error.status,
+          statusText: error.statusText,
+          responseData: error.response?.data,
+        });
         
         // Don't retry on certain errors
         if (error.message?.includes('API key') || error.message?.includes('quota')) {
+          console.error('🚫 Non-retryable error detected, throwing immediately');
           throw error;
         }
         
         if (attempt < maxRetries) {
-          await this.delay(this.retryDelay * attempt);
+          const delayMs = this.retryDelay * attempt;
+          console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
+          await this.delay(delayMs);
         }
       }
     }
 
+    console.error('=== End Gemini API Request (FAILED) ===\n');
     throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message}`);
   }
 
@@ -176,7 +199,7 @@ User request: ${prompt}`;
     return {
       configured: this.isConfigured(),
       mode: this.isDemoMode ? 'demo' : 'active',
-      model: this.isDemoMode ? null : this.modelName || 'gemini-2.5-pro-exp',
+      model: this.isDemoMode ? null : this.modelName || 'gemini-pro',
     };
   }
 }

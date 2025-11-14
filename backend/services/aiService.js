@@ -11,25 +11,46 @@ class AIService {
    * Process natural language prompt to generate design specifications
    */
   async processPrompt(prompt) {
+    console.log('\n=== 🎨 AI Service Processing Prompt ===');
+    console.log('📝 Prompt:', prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : ''));
+    
+    // Try AI analysis first
     try {
+      console.log('🔍 Attempting Gemini analyzePrompt...');
       const aiAnalysis = await this.gemini.analyzePrompt(prompt);
       if (aiAnalysis) {
-        return this.convertAIAnalysisToSpecs(aiAnalysis);
+        console.log('✅ AI analysis successful:', JSON.stringify(aiAnalysis, null, 2));
+        const specs = this.convertAIAnalysisToSpecs(aiAnalysis);
+        console.log('=== End AI Service Processing ===\n');
+        return specs;
       }
+      console.log('⚠️  AI analysis returned null, trying fallback...');
     } catch (error) {
-      console.error('Error with Gemini analysis:', error);
+      console.error('❌ Error with Gemini analyzePrompt:', {
+        message: error.message,
+        stack: error.stack,
+      });
     }
     
     // Try design specs generation as fallback
     try {
+      console.log('🔄 Falling back to generateDesignSpecs...');
       const designSpecs = await this.gemini.generateDesignSpecs(prompt);
       if (designSpecs) {
+        console.log('✅ Design specs generation successful:', JSON.stringify(designSpecs, null, 2));
+        console.log('=== End AI Service Processing ===\n');
         return designSpecs;
       }
+      console.log('⚠️  Design specs generation returned null');
     } catch (error) {
-      console.error('Error generating design specs:', error);
-      throw new Error('Failed to generate design from AI. Please try again.');
+      console.error('❌ Error with generateDesignSpecs:', {
+        message: error.message,
+        stack: error.stack,
+      });
     }
+    
+    console.error('=== End AI Service Processing (FAILED) ===\n');
+    throw new Error('Failed to generate design from AI. Both analyzePrompt and generateDesignSpecs failed. Please check API configuration and try again.');
   }
   
   /**
