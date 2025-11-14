@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini API Test Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        pre { background: #f4f4f4; padding: 10px; }
+        .error { color: red; }
+        .log { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Test Gemini API Integration</h1>
+    <button id="testApiButton">Test API</button>
+    <h2>Log Output</h2>
+    <pre id="logOutput"></pre>
+    <script>
+        const logOutput = document.getElementById('logOutput');
+
+        function log(message, isError = false) {
+            const logMessage = isError ? `Error: ${message}` : `Log: ${message}`;
+            logOutput.innerHTML += logMessage + '\n';
+            console[isError ? 'error' : 'log'](logMessage);
+        }
+
+        document.getElementById('testApiButton').onclick = async function() {
+            log('Starting API test...');
+            try {
+                const response = await fetch('https://api.gemini.com/v1/test'); // Example API endpoint
+                if (!response.ok) throw new Error('Network response was not ok ' + response.statusText);
+                const data = await response.json();
+                log('API response received:', false);
+                log(JSON.stringify(data, null, 2), false);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+    </script>
+</body>
+</html>
