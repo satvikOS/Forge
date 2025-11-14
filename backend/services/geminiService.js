@@ -90,25 +90,18 @@ class GeminiService {
    */
   async analyzePrompt(prompt) {
     const systemPrompt = `You are an expert AI assistant for ArchDisc, a 3D architectural design platform.
-Analyze the user's design request and extract comprehensive 3D architectural information including wireframe, rig, geometry, environment, LOD, and PBR material specifications.
+Analyze the user's design request and extract structured information.
 
-Return a JSON object with the following structure:
+IMPORTANT: Return ONLY valid JSON, no markdown, no explanations, no code blocks.
+
+Return a JSON object with this structure:
 {
-  "objectCount": <number of objects to generate>,
-  "objectTypes": [<array of object types>],
+  "objectCount": <number>,
+  "objectTypes": [<types>],
   "scene": {
     "type": "<single_object|multiple_objects|environment|building|structure>",
     "complexity": "<low|medium|high|very_high>",
-    "style": "<modern|industrial|futuristic|classical|minimalist|etc>",
-    "environment": {
-      "context": "<urban|rural|studio|interior|exterior>",
-      "lighting": {
-        "hdri": "<dawn|midday|sunset|night|studio>",
-        "keyLights": [{"type": "<sun|spot|area>", "intensity": <0-1>, "color": "<hex>", "position": [x, y, z]}],
-        "ambient": {"intensity": <0-1>, "color": "<hex>"}
-      },
-      "atmosphere": "<clear|foggy|rainy|cloudy|night>"
-    }
+    "style": "<modern|industrial|futuristic|classical|minimalist|etc>"
   },
   "elements": [
     {
@@ -116,52 +109,20 @@ Return a JSON object with the following structure:
       "name": "<descriptive name>",
       "quantity": <number>,
       "dimensions": {"width": <number>, "height": <number>, "depth": <number>},
-      "materials": [<array of materials>],
-      "details": [<array of detail requirements>],
-      "wireframe": {
-        "controlVertices": [{"id": <number>, "position": [x, y, z], "type": "<corner|edge|center|control>"}],
-        "edges": [{"from": <vertex_id>, "to": <vertex_id>, "type": "<structural|decorative>"}],
-        "structuralSkeleton": [{"name": "<element_name>", "vertices": [<vertex_ids>], "purpose": "<support|shape|detail>"}]
-      },
-      "geometry": {
-        "meshTopology": {
-          "vertexCount": <estimated_count>,
-          "faceCount": <estimated_count>,
-          "complexity": "<low|medium|high|very_high>"
-        },
-        "uvMapping": {
-          "channels": <number>,
-          "projection": "<planar|cylindrical|spherical|box|unwrap>"
-        },
-        "subdivisionLevels": <0-4>
-      },
-      "lod": {
-        "720p": {"vertexReduction": 0.25, "simplify": true, "subdivisionLevel": 0},
-        "1080p": {"vertexReduction": 0.5, "simplify": false, "subdivisionLevel": 1},
-        "4K": {"vertexReduction": 0.75, "simplify": false, "subdivisionLevel": 2},
-        "8K": {"vertexReduction": 1.0, "simplify": false, "subdivisionLevel": 3}
-      },
-      "pbr": {
-        "baseColor": "<hex_or_texture>",
-        "metallic": <0-1>,
-        "roughness": <0-1>,
-        "normalMap": "<optional_texture_name>",
-        "aoMap": "<optional_texture_name>",
-        "emissive": "<hex_color>",
-        "emissiveIntensity": <0-10>
-      }
+      "materials": [<materials array>],
+      "details": [<details array>]
     }
   ],
   "requirements": {
     "detailLevel": "<low|medium|high|very_high>",
-    "materials": [<array of required materials>],
-    "features": [<array of special features>],
-    "targetResolution": "<720p|1080p|4K|8K>",
-    "renderingQuality": "<low|medium|high|ultra>"
+    "materials": [<materials>],
+    "features": [<features>]
   }
 }
 
-User prompt: ${prompt}`;
+User prompt: ${prompt}
+
+Return only the JSON object, nothing else.`;
 
     try {
       const response = await this.generateContent(systemPrompt);
@@ -274,7 +235,9 @@ User prompt: ${prompt}`;
    */
   async generateDesignSpecs(prompt) {
     const systemPrompt = `You are an expert 3D design assistant for ArchDisc.
-Generate comprehensive 3D architectural design specifications for the following request, including wireframe/rig data, detailed geometry, scene environment, LOD specifications, and PBR materials.
+Generate detailed design specifications for the following request.
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no explanations, no code blocks.
 
 Provide specifications in JSON format:
 {
@@ -290,100 +253,12 @@ Provide specifications in JSON format:
     "structural": "<structural details>",
     "aesthetic": "<aesthetic details>",
     "functional": "<functional details>"
-  },
-  "wireframe": {
-    "controlVertices": [{"id": <number>, "position": [x, y, z], "type": "<corner|edge|center|control>"}],
-    "edges": [{"from": <vertex_id>, "to": <vertex_id>, "type": "<structural|decorative>"}],
-    "structuralSkeleton": [{"name": "<element_name>", "vertices": [<vertex_ids>], "purpose": "<support|shape|detail>"}],
-    "pivotPoints": [{"name": "<name>", "position": [x, y, z], "parent": "<parent_name|null>"}],
-    "transformHierarchy": [{"name": "<name>", "parent": "<parent_name|null>", "children": [<child_names>]}]
-  },
-  "geometry": {
-    "meshTopology": {
-      "vertices": <estimated_vertex_count>,
-      "faces": <estimated_face_count>,
-      "normals": "<smooth|flat|auto>",
-      "complexity": "<low|medium|high|very_high>"
-    },
-    "uvMapping": {
-      "channels": <1-4>,
-      "projection": "<planar|cylindrical|spherical|box|unwrap>",
-      "tiling": [<u_tiles>, <v_tiles>]
-    },
-    "subdivisionSurface": {
-      "levels": <0-4>,
-      "algorithm": "<catmull-clark|loop|simple>"
-    }
-  },
-  "sceneEnvironment": {
-    "context": "<urban|rural|studio|interior|exterior>",
-    "lighting": {
-      "hdri": "<dawn|midday|sunset|night|studio>",
-      "keyLights": [
-        {
-          "type": "<sun|spot|area|point>",
-          "intensity": <0-10>,
-          "color": "<hex_color>",
-          "position": [x, y, z],
-          "target": [x, y, z],
-          "castShadow": <true|false>
-        }
-      ],
-      "ambient": {
-        "intensity": <0-1>,
-        "color": "<hex_color>"
-      }
-    },
-    "atmosphere": "<clear|foggy|rainy|cloudy|night>",
-    "renderingContext": "<architectural_visualization|product_render|game_asset|vr_ready>"
-  },
-  "lod": {
-    "720p": {
-      "vertexReduction": 0.25,
-      "simplifyGeometry": true,
-      "subdivisionLevel": 0,
-      "textureResolution": 1024
-    },
-    "1080p": {
-      "vertexReduction": 0.5,
-      "simplifyGeometry": false,
-      "subdivisionLevel": 1,
-      "textureResolution": 2048
-    },
-    "4K": {
-      "vertexReduction": 0.75,
-      "simplifyGeometry": false,
-      "subdivisionLevel": 2,
-      "textureResolution": 4096
-    },
-    "8K": {
-      "vertexReduction": 1.0,
-      "simplifyGeometry": false,
-      "subdivisionLevel": 3,
-      "textureResolution": 8192
-    }
-  },
-  "pbr": {
-    "baseColor": "<hex_color_or_texture>",
-    "metallic": <0-1>,
-    "roughness": <0-1>,
-    "normalMap": "<texture_name_or_null>",
-    "aoMap": "<texture_name_or_null>",
-    "displacementMap": "<texture_name_or_null>",
-    "emissive": "<hex_color>",
-    "emissiveIntensity": <0-10>,
-    "opacity": <0-1>,
-    "clearcoat": <0-1>,
-    "clearcoatRoughness": <0-1>
-  },
-  "shaderParameters": {
-    "renderMode": "<realistic|stylized|technical|artistic>",
-    "materialType": "<standard|architectural|glass|metal|wood|concrete>",
-    "detailLevel": "<low|medium|high|ultra>"
   }
 }
 
-User request: ${prompt}`;
+User request: ${prompt}
+
+Return only the JSON object, nothing else.`;
 
     try {
       const response = await this.generateContent(systemPrompt);

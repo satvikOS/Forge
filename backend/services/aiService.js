@@ -60,7 +60,7 @@ class AIService {
     const firstElement = analysis.elements?.[0] || {};
     const scene = analysis.scene || {};
     
-    // Extract enhanced 3D data
+    // Extract any enhanced 3D data if provided by AI (optional)
     const wireframe = firstElement.wireframe || analysis.wireframe || null;
     const geometry = firstElement.geometry || analysis.geometry || null;
     const lod = firstElement.lod || analysis.lod || null;
@@ -68,7 +68,7 @@ class AIService {
     const sceneEnvironment = analysis.sceneEnvironment || scene.environment || null;
     const shaderParameters = analysis.shaderParameters || null;
     
-    return {
+    const specs = {
       objectType: firstElement.type || scene.type || 'object',
       objectCount: analysis.objectCount || 1,
       name: firstElement.name || 'Generated Object',
@@ -82,7 +82,7 @@ class AIService {
       complexity: scene.complexity || 'medium',
       detailLevel: analysis.requirements?.detailLevel || 'medium',
       
-      // Enhanced 3D data
+      // Enhanced 3D data (optional, may be null)
       wireframe: wireframe,
       geometry: geometry,
       lod: lod,
@@ -95,6 +95,122 @@ class AIService {
       targetResolution: analysis.requirements?.targetResolution || '1080p',
       renderingQuality: analysis.requirements?.renderingQuality || 'high',
     };
+    
+    // Generate enhanced 3D data if not provided by AI
+    if (!specs.has3DData) {
+      console.log('⚡ Generating enhanced 3D data programmatically...');
+      this.addEnhanced3DData(specs);
+    }
+    
+    return specs;
+  }
+
+  /**
+   * Add enhanced 3D data programmatically when AI doesn't provide it
+   */
+  addEnhanced3DData(specs) {
+    const { objectType, dimensions, materials, style } = specs;
+    
+    // Generate default LOD specifications
+    specs.lod = {
+      '720p': { vertexReduction: 0.25, simplifyGeometry: true, subdivisionLevel: 0, textureResolution: 1024 },
+      '1080p': { vertexReduction: 0.5, simplifyGeometry: false, subdivisionLevel: 1, textureResolution: 2048 },
+      '4K': { vertexReduction: 0.75, simplifyGeometry: false, subdivisionLevel: 2, textureResolution: 4096 },
+      '8K': { vertexReduction: 1.0, simplifyGeometry: false, subdivisionLevel: 3, textureResolution: 8192 }
+    };
+    
+    // Generate default PBR materials based on primary material
+    const primaryMaterial = materials?.[0] || 'default';
+    specs.pbr = this.getDefaultPBRForMaterial(primaryMaterial);
+    
+    // Generate default scene environment based on object type
+    specs.sceneEnvironment = {
+      context: objectType === 'building' || objectType === 'structure' ? 'urban' : 'studio',
+      lighting: {
+        hdri: 'midday',
+        keyLights: [
+          {
+            type: 'sun',
+            intensity: 5,
+            color: '#ffffff',
+            position: [100, 200, 100],
+            castShadow: true
+          }
+        ],
+        ambient: { intensity: 0.5, color: '#87ceeb' }
+      },
+      atmosphere: 'clear',
+      renderingContext: objectType === 'building' ? 'architectural_visualization' : 'product_render'
+    };
+    
+    // Generate basic wireframe structure
+    const w = dimensions.width || 1000;
+    const h = dimensions.height || 1000;
+    const d = dimensions.depth || 1000;
+    
+    specs.wireframe = {
+      controlVertices: [
+        { id: 0, position: [-w/2, 0, -d/2], type: 'corner' },
+        { id: 1, position: [w/2, 0, -d/2], type: 'corner' },
+        { id: 2, position: [w/2, 0, d/2], type: 'corner' },
+        { id: 3, position: [-w/2, 0, d/2], type: 'corner' },
+        { id: 4, position: [-w/2, h, -d/2], type: 'corner' },
+        { id: 5, position: [w/2, h, -d/2], type: 'corner' },
+        { id: 6, position: [w/2, h, d/2], type: 'corner' },
+        { id: 7, position: [-w/2, h, d/2], type: 'corner' }
+      ],
+      edges: [
+        { from: 0, to: 1, type: 'structural' },
+        { from: 1, to: 2, type: 'structural' },
+        { from: 2, to: 3, type: 'structural' },
+        { from: 3, to: 0, type: 'structural' },
+        { from: 4, to: 5, type: 'structural' },
+        { from: 5, to: 6, type: 'structural' },
+        { from: 6, to: 7, type: 'structural' },
+        { from: 7, to: 4, type: 'structural' },
+        { from: 0, to: 4, type: 'structural' },
+        { from: 1, to: 5, type: 'structural' },
+        { from: 2, to: 6, type: 'structural' },
+        { from: 3, to: 7, type: 'structural' }
+      ],
+      structuralSkeleton: [
+        { name: 'main_frame', vertices: [0, 1, 2, 3, 4, 5, 6, 7], purpose: 'support' }
+      ]
+    };
+    
+    // Generate basic geometry specs
+    specs.geometry = {
+      meshTopology: {
+        vertexCount: 8,
+        faceCount: 6,
+        complexity: specs.complexity || 'medium'
+      },
+      uvMapping: {
+        channels: 1,
+        projection: 'box'
+      },
+      subdivisionLevels: specs.complexity === 'high' || specs.complexity === 'very_high' ? 2 : 1
+    };
+    
+    specs.has3DData = true;
+    console.log('✅ Enhanced 3D data generated programmatically');
+  }
+
+  /**
+   * Get default PBR properties for common materials
+   */
+  getDefaultPBRForMaterial(material) {
+    const pbrDefaults = {
+      glass: { baseColor: '#ffffff', metallic: 0.0, roughness: 0.1, opacity: 0.3, clearcoat: 1.0 },
+      metal: { baseColor: '#808080', metallic: 0.9, roughness: 0.3, opacity: 1.0, clearcoat: 0.0 },
+      steel: { baseColor: '#505050', metallic: 0.9, roughness: 0.4, opacity: 1.0, clearcoat: 0.0 },
+      concrete: { baseColor: '#a0a0a0', metallic: 0.0, roughness: 0.9, opacity: 1.0, clearcoat: 0.0 },
+      wood: { baseColor: '#8b5a3c', metallic: 0.0, roughness: 0.7, opacity: 1.0, clearcoat: 0.2 },
+      plastic: { baseColor: '#ffffff', metallic: 0.0, roughness: 0.5, opacity: 1.0, clearcoat: 0.3 },
+      default: { baseColor: '#808080', metallic: 0.5, roughness: 0.5, opacity: 1.0, clearcoat: 0.0 }
+    };
+    
+    return pbrDefaults[material.toLowerCase()] || pbrDefaults.default;
   }
 
   /**
