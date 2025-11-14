@@ -212,7 +212,7 @@ Automated verification against:
 
 ## AI Model
 
-This platform uses **Google Gemini 1.5 Pro**, the most advanced model for:
+This platform uses **Google Gemini 2.5 Pro Experimental**, the most advanced model for:
 - Understanding complex 3D design prompts
 - Generating detailed architectural specifications
 - Providing accurate material and structural recommendations

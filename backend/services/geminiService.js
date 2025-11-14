@@ -12,7 +12,9 @@ class GeminiService {
     if (!this.isDemoMode) {
       try {
         this.genAI = new GoogleGenerativeAI(this.apiKey);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
+        // Use the best experimental model for 3D design generation
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro-exp' });
+        this.modelName = 'gemini-2.5-pro-exp';
       } catch (error) {
         console.error('Failed to initialize Gemini API:', error);
         this.isDemoMode = true;
@@ -174,7 +176,7 @@ User request: ${prompt}`;
     return {
       configured: this.isConfigured(),
       mode: this.isDemoMode ? 'demo' : 'active',
-      model: this.isDemoMode ? null : 'gemini-1.5-pro-latest',
+      model: this.isDemoMode ? null : this.modelName || 'gemini-2.5-pro-exp',
     };
   }
 }
