@@ -9,17 +9,33 @@ class GeminiService {
     this.apiKey = process.env.GEMINI_API_KEY;
     this.isDemoMode = !this.apiKey;
     
+    console.log('\n=== 🔧 Gemini Service Initialization ===');
+    console.log('📋 Configuration:');
+    console.log('  - API Key present:', !!this.apiKey);
+    console.log('  - API Key (first 20 chars):', this.apiKey ? this.apiKey.substring(0, 20) + '...' : 'NOT SET');
+    console.log('  - Demo Mode:', this.isDemoMode);
+    
     if (!this.isDemoMode) {
       try {
+        console.log('  - Initializing GoogleGenerativeAI SDK...');
         this.genAI = new GoogleGenerativeAI(this.apiKey);
         // Use stable Gemini model for better reliability
         this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
         this.modelName = 'gemini-pro';
+        console.log('  - Model initialized:', this.modelName);
+        console.log('  - SDK Version:', require('@google/generative-ai/package.json').version);
+        console.log('✅ Gemini Service ready to make API requests');
       } catch (error) {
-        console.error('Failed to initialize Gemini API:', error);
+        console.error('❌ Failed to initialize Gemini API:', error);
+        console.error('  - Error details:', error.message);
         this.isDemoMode = true;
+        console.log('⚠️  Falling back to demo mode');
       }
+    } else {
+      console.log('⚠️  Running in DEMO MODE - no API key provided');
+      console.log('  - Set GEMINI_API_KEY environment variable to enable API');
     }
+    console.log('=== End Gemini Service Initialization ===\n');
     
     this.maxRetries = 3;
     this.retryDelay = 1000; // ms
@@ -30,6 +46,50 @@ class GeminiService {
    */
   isConfigured() {
     return !this.isDemoMode && this.genAI && this.model;
+  }
+
+  /**
+   * Test API connection with a simple request
+   */
+  async testConnection() {
+    console.log('\n=== 🧪 Testing Gemini API Connection ===');
+    
+    if (this.isDemoMode) {
+      console.log('❌ Cannot test - running in demo mode');
+      console.log('  - Set GEMINI_API_KEY to test connection');
+      return { success: false, error: 'Demo mode - no API key' };
+    }
+    
+    try {
+      console.log('📡 Sending test request to Gemini API...');
+      console.log('  - Model:', this.modelName);
+      console.log('  - API Key (first 20 chars):', this.apiKey.substring(0, 20) + '...');
+      
+      const testPrompt = 'Respond with just the word "connected" if you can read this.';
+      const result = await this.model.generateContent(testPrompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      console.log('✅ API Connection Successful!');
+      console.log('  - Response received:', text.substring(0, 100));
+      console.log('  - This confirms the API key is valid and working');
+      console.log('=== End Connection Test ===\n');
+      
+      return { success: true, response: text };
+    } catch (error) {
+      console.error('❌ API Connection Failed!');
+      console.error('  - Error:', error.message);
+      console.error('  - Status:', error.status);
+      console.error('  - Full error:', error);
+      console.log('\n🔍 Troubleshooting:');
+      console.log('  1. Check API key is valid in Google AI Studio');
+      console.log('  2. Verify API key has Gemini API enabled');
+      console.log('  3. Check quota limits in your Google Cloud project');
+      console.log('  4. Ensure network connectivity');
+      console.log('=== End Connection Test ===\n');
+      
+      return { success: false, error: error.message };
+    }
   }
 
   /**
@@ -44,18 +104,43 @@ class GeminiService {
       promptLength: prompt?.length,
       maxRetries,
       model: this.modelName,
+      configured: this.isConfigured(),
+      demoMode: this.isDemoMode,
     });
+    
+    // Check if API is properly configured
+    if (this.isDemoMode) {
+      console.error('❌ CRITICAL: Cannot make API request - running in DEMO MODE');
+      console.error('  - No GEMINI_API_KEY environment variable set');
+      console.error('  - This is why no requests appear in Google Studio!');
+      throw new Error('Gemini API not configured - no API key provided');
+    }
+    
+    if (!this.model) {
+      console.error('❌ CRITICAL: Gemini model not initialized');
+      throw new Error('Gemini model not initialized');
+    }
+    
+    console.log('✅ API configured - proceeding with request');
+    console.log('📡 Making API call to Google Gemini...');
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Gemini API...`);
+        console.log('  - Request timestamp:', new Date().toISOString());
+        console.log('  - API endpoint: generativelanguage.googleapis.com');
+        console.log('  - Model:', this.modelName);
+        
         const result = await this.model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
         
         console.log(`✅ Success on attempt ${attempt}!`);
-        console.log('📊 Response length:', text?.length);
-        console.log('=== End Gemini API Request ===\n');
+        console.log('📊 Response details:');
+        console.log('  - Response length:', text?.length);
+        console.log('  - Response timestamp:', new Date().toISOString());
+        console.log('  - First 100 chars:', text?.substring(0, 100));
+        console.log('=== End Gemini API Request (SUCCESS) ===\n');
         
         return text;
       } catch (error) {
@@ -64,12 +149,17 @@ class GeminiService {
           message: error.message,
           status: error.status,
           statusText: error.statusText,
-          responseData: error.response?.data,
+          code: error.code,
+          details: error.details,
         });
+        
+        // Log the full error for debugging
+        console.error('  - Full error object:', JSON.stringify(error, null, 2));
         
         // Don't retry on certain errors
         if (error.message?.includes('API key') || error.message?.includes('quota')) {
           console.error('🚫 Non-retryable error detected, throwing immediately');
+          console.error('  - This means the API key is invalid or quota exceeded');
           throw error;
         }
         
@@ -82,6 +172,8 @@ class GeminiService {
     }
 
     console.error('=== End Gemini API Request (FAILED) ===\n');
+    console.error('⚠️  All retry attempts exhausted');
+    console.error('  - Last error:', lastError?.message);
     throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message}`);
   }
 
@@ -90,18 +182,25 @@ class GeminiService {
    */
   async analyzePrompt(prompt) {
     const systemPrompt = `You are an expert AI assistant for ArchDisc, a 3D architectural design platform.
-Analyze the user's design request and extract structured information.
+Analyze the user's design request and extract comprehensive 3D architectural information including wireframe, rig, geometry, environment, LOD, and PBR material specifications.
 
-IMPORTANT: Return ONLY valid JSON, no markdown, no explanations, no code blocks.
-
-Return a JSON object with this structure:
+Return a JSON object with the following structure:
 {
-  "objectCount": <number>,
-  "objectTypes": [<types>],
+  "objectCount": <number of objects to generate>,
+  "objectTypes": [<array of object types>],
   "scene": {
     "type": "<single_object|multiple_objects|environment|building|structure>",
     "complexity": "<low|medium|high|very_high>",
-    "style": "<modern|industrial|futuristic|classical|minimalist|etc>"
+    "style": "<modern|industrial|futuristic|classical|minimalist|etc>",
+    "environment": {
+      "context": "<urban|rural|studio|interior|exterior>",
+      "lighting": {
+        "hdri": "<dawn|midday|sunset|night|studio>",
+        "keyLights": [{"type": "<sun|spot|area>", "intensity": <0-1>, "color": "<hex>", "position": [x, y, z]}],
+        "ambient": {"intensity": <0-1>, "color": "<hex>"}
+      },
+      "atmosphere": "<clear|foggy|rainy|cloudy|night>"
+    }
   },
   "elements": [
     {
@@ -109,20 +208,52 @@ Return a JSON object with this structure:
       "name": "<descriptive name>",
       "quantity": <number>,
       "dimensions": {"width": <number>, "height": <number>, "depth": <number>},
-      "materials": [<materials array>],
-      "details": [<details array>]
+      "materials": [<array of materials>],
+      "details": [<array of detail requirements>],
+      "wireframe": {
+        "controlVertices": [{"id": <number>, "position": [x, y, z], "type": "<corner|edge|center|control>"}],
+        "edges": [{"from": <vertex_id>, "to": <vertex_id>, "type": "<structural|decorative>"}],
+        "structuralSkeleton": [{"name": "<element_name>", "vertices": [<vertex_ids>], "purpose": "<support|shape|detail>"}]
+      },
+      "geometry": {
+        "meshTopology": {
+          "vertexCount": <estimated_count>,
+          "faceCount": <estimated_count>,
+          "complexity": "<low|medium|high|very_high>"
+        },
+        "uvMapping": {
+          "channels": <number>,
+          "projection": "<planar|cylindrical|spherical|box|unwrap>"
+        },
+        "subdivisionLevels": <0-4>
+      },
+      "lod": {
+        "720p": {"vertexReduction": 0.25, "simplify": true, "subdivisionLevel": 0},
+        "1080p": {"vertexReduction": 0.5, "simplify": false, "subdivisionLevel": 1},
+        "4K": {"vertexReduction": 0.75, "simplify": false, "subdivisionLevel": 2},
+        "8K": {"vertexReduction": 1.0, "simplify": false, "subdivisionLevel": 3}
+      },
+      "pbr": {
+        "baseColor": "<hex_or_texture>",
+        "metallic": <0-1>,
+        "roughness": <0-1>,
+        "normalMap": "<optional_texture_name>",
+        "aoMap": "<optional_texture_name>",
+        "emissive": "<hex_color>",
+        "emissiveIntensity": <0-10>
+      }
     }
   ],
   "requirements": {
     "detailLevel": "<low|medium|high|very_high>",
-    "materials": [<materials>],
-    "features": [<features>]
+    "materials": [<array of required materials>],
+    "features": [<array of special features>],
+    "targetResolution": "<720p|1080p|4K|8K>",
+    "renderingQuality": "<low|medium|high|ultra>"
   }
 }
 
-User prompt: ${prompt}
-
-Return only the JSON object, nothing else.`;
+User prompt: ${prompt}`;
 
     try {
       const response = await this.generateContent(systemPrompt);
@@ -235,9 +366,7 @@ Return only the JSON object, nothing else.`;
    */
   async generateDesignSpecs(prompt) {
     const systemPrompt = `You are an expert 3D design assistant for ArchDisc.
-Generate detailed design specifications for the following request.
-
-IMPORTANT: Return ONLY valid JSON, no markdown, no explanations, no code blocks.
+Generate comprehensive 3D architectural design specifications for the following request, including wireframe/rig data, detailed geometry, scene environment, LOD specifications, and PBR materials.
 
 Provide specifications in JSON format:
 {
@@ -253,12 +382,100 @@ Provide specifications in JSON format:
     "structural": "<structural details>",
     "aesthetic": "<aesthetic details>",
     "functional": "<functional details>"
+  },
+  "wireframe": {
+    "controlVertices": [{"id": <number>, "position": [x, y, z], "type": "<corner|edge|center|control>"}],
+    "edges": [{"from": <vertex_id>, "to": <vertex_id>, "type": "<structural|decorative>"}],
+    "structuralSkeleton": [{"name": "<element_name>", "vertices": [<vertex_ids>], "purpose": "<support|shape|detail>"}],
+    "pivotPoints": [{"name": "<name>", "position": [x, y, z], "parent": "<parent_name|null>"}],
+    "transformHierarchy": [{"name": "<name>", "parent": "<parent_name|null>", "children": [<child_names>]}]
+  },
+  "geometry": {
+    "meshTopology": {
+      "vertices": <estimated_vertex_count>,
+      "faces": <estimated_face_count>,
+      "normals": "<smooth|flat|auto>",
+      "complexity": "<low|medium|high|very_high>"
+    },
+    "uvMapping": {
+      "channels": <1-4>,
+      "projection": "<planar|cylindrical|spherical|box|unwrap>",
+      "tiling": [<u_tiles>, <v_tiles>]
+    },
+    "subdivisionSurface": {
+      "levels": <0-4>,
+      "algorithm": "<catmull-clark|loop|simple>"
+    }
+  },
+  "sceneEnvironment": {
+    "context": "<urban|rural|studio|interior|exterior>",
+    "lighting": {
+      "hdri": "<dawn|midday|sunset|night|studio>",
+      "keyLights": [
+        {
+          "type": "<sun|spot|area|point>",
+          "intensity": <0-10>,
+          "color": "<hex_color>",
+          "position": [x, y, z],
+          "target": [x, y, z],
+          "castShadow": <true|false>
+        }
+      ],
+      "ambient": {
+        "intensity": <0-1>,
+        "color": "<hex_color>"
+      }
+    },
+    "atmosphere": "<clear|foggy|rainy|cloudy|night>",
+    "renderingContext": "<architectural_visualization|product_render|game_asset|vr_ready>"
+  },
+  "lod": {
+    "720p": {
+      "vertexReduction": 0.25,
+      "simplifyGeometry": true,
+      "subdivisionLevel": 0,
+      "textureResolution": 1024
+    },
+    "1080p": {
+      "vertexReduction": 0.5,
+      "simplifyGeometry": false,
+      "subdivisionLevel": 1,
+      "textureResolution": 2048
+    },
+    "4K": {
+      "vertexReduction": 0.75,
+      "simplifyGeometry": false,
+      "subdivisionLevel": 2,
+      "textureResolution": 4096
+    },
+    "8K": {
+      "vertexReduction": 1.0,
+      "simplifyGeometry": false,
+      "subdivisionLevel": 3,
+      "textureResolution": 8192
+    }
+  },
+  "pbr": {
+    "baseColor": "<hex_color_or_texture>",
+    "metallic": <0-1>,
+    "roughness": <0-1>,
+    "normalMap": "<texture_name_or_null>",
+    "aoMap": "<texture_name_or_null>",
+    "displacementMap": "<texture_name_or_null>",
+    "emissive": "<hex_color>",
+    "emissiveIntensity": <0-10>,
+    "opacity": <0-1>,
+    "clearcoat": <0-1>,
+    "clearcoatRoughness": <0-1>
+  },
+  "shaderParameters": {
+    "renderMode": "<realistic|stylized|technical|artistic>",
+    "materialType": "<standard|architectural|glass|metal|wood|concrete>",
+    "detailLevel": "<low|medium|high|ultra>"
   }
 }
 
-User request: ${prompt}
-
-Return only the JSON object, nothing else.`;
+User request: ${prompt}`;
 
     try {
       const response = await this.generateContent(systemPrompt);
