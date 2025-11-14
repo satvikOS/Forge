@@ -7,12 +7,12 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.isDemoMode = !this.apiKey || this.apiKey === 'demo-mode';
+    this.isDemoMode = !this.apiKey;
     
     if (!this.isDemoMode) {
       try {
         this.genAI = new GoogleGenerativeAI(this.apiKey);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
       } catch (error) {
         console.error('Failed to initialize Gemini API:', error);
         this.isDemoMode = true;
@@ -34,11 +34,6 @@ class GeminiService {
    * Generate content with retry logic
    */
   async generateContent(prompt, options = {}) {
-    if (this.isDemoMode) {
-      console.log('Running in demo mode - using fallback responses');
-      return null;
-    }
-
     const maxRetries = options.maxRetries || this.maxRetries;
     let lastError = null;
 
@@ -179,7 +174,7 @@ User request: ${prompt}`;
     return {
       configured: this.isConfigured(),
       mode: this.isDemoMode ? 'demo' : 'active',
-      model: this.isDemoMode ? null : 'gemini-pro',
+      model: this.isDemoMode ? null : 'gemini-1.5-pro-latest',
     };
   }
 }

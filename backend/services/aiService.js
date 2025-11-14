@@ -5,37 +5,31 @@ const materialSystem = require('./materialSystem');
 class AIService {
   constructor() {
     this.gemini = geminiService;
-    this.isDemoMode = !geminiService.isConfigured();
   }
 
   /**
    * Process natural language prompt to generate design specifications
    */
   async processPrompt(prompt) {
-    // Try Gemini first
-    if (!this.isDemoMode) {
-      try {
-        const aiAnalysis = await this.gemini.analyzePrompt(prompt);
-        if (aiAnalysis) {
-          return this.convertAIAnalysisToSpecs(aiAnalysis);
-        }
-      } catch (error) {
-        console.error('Error with Gemini analysis:', error);
+    try {
+      const aiAnalysis = await this.gemini.analyzePrompt(prompt);
+      if (aiAnalysis) {
+        return this.convertAIAnalysisToSpecs(aiAnalysis);
       }
-      
-      // Try design specs generation as fallback
-      try {
-        const designSpecs = await this.gemini.generateDesignSpecs(prompt);
-        if (designSpecs) {
-          return designSpecs;
-        }
-      } catch (error) {
-        console.error('Error generating design specs:', error);
-      }
+    } catch (error) {
+      console.error('Error with Gemini analysis:', error);
     }
     
-    // Fall back to demo response
-    return this.generateDemoResponse(prompt);
+    // Try design specs generation as fallback
+    try {
+      const designSpecs = await this.gemini.generateDesignSpecs(prompt);
+      if (designSpecs) {
+        return designSpecs;
+      }
+    } catch (error) {
+      console.error('Error generating design specs:', error);
+      throw new Error('Failed to generate design from AI. Please try again.');
+    }
   }
   
   /**
@@ -82,6 +76,7 @@ class AIService {
 
   /**
    * Generate demo response for testing without API key
+   * Emergency fallback only - should rarely be used
    */
   generateDemoResponse(prompt) {
     const objectType = this.extractObjectType(prompt);

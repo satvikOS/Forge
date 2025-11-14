@@ -94,7 +94,7 @@ cp .env.example .env
 
 Edit `.env` and set your configuration:
 - `PORT`: Backend server port (default: 5000)
-- `GEMINI_API_KEY`: Your Google Gemini API key (set to 'demo-mode' for demo responses)
+- `GEMINI_API_KEY`: Your Google Gemini API key (required for AI features)
 
 ### Running the Application
 
@@ -210,12 +210,15 @@ Automated verification against:
 - Environmental compliance (sustainability, energy efficiency)
 - Manufacturing standards (quality control, certifications)
 
-## Demo Mode
+## AI Model
 
-The platform can run in demo mode without a Google Gemini API key. Set `GEMINI_API_KEY=demo-mode` in your `.env` file. Demo mode provides pre-configured responses for:
-- Cars
-- Buildings
-- Furniture
+This platform uses **Google Gemini 1.5 Pro**, the most advanced model for:
+- Understanding complex 3D design prompts
+- Generating detailed architectural specifications
+- Providing accurate material and structural recommendations
+- Creating comprehensive design analysis
+
+Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey).
 
 ## Future Enhancements
 

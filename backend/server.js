@@ -19,8 +19,8 @@ const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 if (missingEnvVars.length > 0 && process.env.NODE_ENV === 'production') {
   console.warn(`⚠️  Missing environment variables: ${missingEnvVars.join(', ')}`);
   console.warn('⚠️  Running in demo mode');
-} else if (process.env.GEMINI_API_KEY === 'demo-mode') {
-  console.log('ℹ️  Running in demo mode - set GEMINI_API_KEY for AI features');
+} else if (process.env.GEMINI_API_KEY) {
+  console.log('✅ Gemini 1.5 Pro initialized successfully for AI-powered 3D design generation');
 }
 
 // Security middleware - helmet for security headers
