@@ -60,6 +60,14 @@ class AIService {
     const firstElement = analysis.elements?.[0] || {};
     const scene = analysis.scene || {};
     
+    // Extract enhanced 3D data
+    const wireframe = firstElement.wireframe || analysis.wireframe || null;
+    const geometry = firstElement.geometry || analysis.geometry || null;
+    const lod = firstElement.lod || analysis.lod || null;
+    const pbr = firstElement.pbr || analysis.pbr || null;
+    const sceneEnvironment = analysis.sceneEnvironment || scene.environment || null;
+    const shaderParameters = analysis.shaderParameters || null;
+    
     return {
       objectType: firstElement.type || scene.type || 'object',
       objectCount: analysis.objectCount || 1,
@@ -73,6 +81,19 @@ class AIService {
       scene: scene,
       complexity: scene.complexity || 'medium',
       detailLevel: analysis.requirements?.detailLevel || 'medium',
+      
+      // Enhanced 3D data
+      wireframe: wireframe,
+      geometry: geometry,
+      lod: lod,
+      pbr: pbr,
+      sceneEnvironment: sceneEnvironment,
+      shaderParameters: shaderParameters,
+      
+      // Metadata for tracking
+      has3DData: !!(wireframe || geometry || lod || pbr),
+      targetResolution: analysis.requirements?.targetResolution || '1080p',
+      renderingQuality: analysis.requirements?.renderingQuality || 'high',
     };
   }
 
@@ -153,7 +174,29 @@ class AIService {
    * Generate 3D model data from specifications
    */
   async generateModelData(specifications) {
-    const { objectType, dimensions, materials, elements, scene, objectCount } = specifications;
+    const { objectType, dimensions, materials, elements, scene, objectCount, wireframe, geometry, lod, pbr, sceneEnvironment } = specifications;
+
+    console.log('🏗️  Generating model data with enhanced 3D specifications...');
+    
+    // Log enhanced data availability
+    if (wireframe) {
+      console.log('✅ Wireframe data available:', {
+        vertices: wireframe.controlVertices?.length || 0,
+        edges: wireframe.edges?.length || 0,
+        skeleton: wireframe.structuralSkeleton?.length || 0,
+      });
+    }
+    
+    if (lod) {
+      console.log('✅ LOD specifications available:', Object.keys(lod));
+    }
+    
+    if (sceneEnvironment) {
+      console.log('✅ Scene environment data available:', {
+        context: sceneEnvironment.context,
+        lighting: sceneEnvironment.lighting?.hdri,
+      });
+    }
 
     // Create specification object for geometry generator
     const geometrySpec = {
@@ -165,27 +208,130 @@ class AIService {
           dimensions: dimensions || { width: 1000, height: 1000, depth: 1000 },
           materials: materials || ['default'],
           details: specifications.features || [],
+          wireframe: wireframe,
+          geometry: geometry,
+          lod: lod,
+          pbr: pbr,
         }
       ],
       scene: scene || {},
+      sceneEnvironment: sceneEnvironment,
     };
 
-    // Generate geometry
-    const geometry = geometryGenerator.generateFromSpec(geometrySpec);
+    // Generate geometry with enhanced 3D data
+    const generatedGeometry = geometryGenerator.generateFromSpec(geometrySpec);
     
-    // Apply materials to geometry parts
-    if (geometry.type === 'composite' && geometry.parts) {
-      geometry.parts = geometry.parts.map(part => 
-        materialSystem.applyMaterial(part, part.material || materials?.[0] || 'default')
-      );
+    // Apply wireframe data if available
+    if (wireframe) {
+      this.applyWireframeData(generatedGeometry, wireframe);
+    }
+    
+    // Apply LOD specifications if available
+    if (lod) {
+      this.applyLODSpecs(generatedGeometry, lod);
+    }
+    
+    // Apply scene environment if available
+    if (sceneEnvironment) {
+      this.applySceneEnvironment(generatedGeometry, sceneEnvironment);
+    }
+    
+    // Apply PBR materials to geometry parts
+    if (generatedGeometry.type === 'composite' && generatedGeometry.parts) {
+      generatedGeometry.parts = generatedGeometry.parts.map((part, index) => {
+        const partMaterial = part.material || materials?.[0] || 'default';
+        const materializedPart = materialSystem.applyMaterial(part, partMaterial);
+        
+        // Apply PBR properties if available
+        if (pbr) {
+          materializedPart.pbr = pbr;
+        }
+        
+        return materializedPart;
+      });
     }
     
     return {
-      geometry,
+      geometry: generatedGeometry,
       materials: materials || ['default'],
       metadata: specifications,
-      stats: this.calculateStats(geometry),
+      stats: this.calculateStats(generatedGeometry),
+      wireframe: wireframe,
+      lod: lod,
+      sceneEnvironment: sceneEnvironment,
+      pbr: pbr,
     };
+  }
+  
+  /**
+   * Apply wireframe data to geometry
+   */
+  applyWireframeData(geometry, wireframe) {
+    console.log('🔗 Applying wireframe data to geometry...');
+    
+    if (!wireframe) return;
+    
+    geometry.wireframe = {
+      controlVertices: wireframe.controlVertices || [],
+      edges: wireframe.edges || [],
+      structuralSkeleton: wireframe.structuralSkeleton || [],
+      pivotPoints: wireframe.pivotPoints || [],
+      transformHierarchy: wireframe.transformHierarchy || [],
+    };
+    
+    console.log('✅ Wireframe data applied:', {
+      vertices: geometry.wireframe.controlVertices.length,
+      edges: geometry.wireframe.edges.length,
+    });
+  }
+  
+  /**
+   * Apply LOD specifications to geometry
+   */
+  applyLODSpecs(geometry, lod) {
+    console.log('📊 Applying LOD specifications...');
+    
+    if (!lod) return;
+    
+    geometry.lod = {
+      levels: {},
+    };
+    
+    // Process each LOD level
+    Object.entries(lod).forEach(([resolution, specs]) => {
+      geometry.lod.levels[resolution] = {
+        vertexReduction: specs.vertexReduction || 1.0,
+        simplifyGeometry: specs.simplifyGeometry !== undefined ? specs.simplifyGeometry : false,
+        subdivisionLevel: specs.subdivisionLevel || 0,
+        textureResolution: specs.textureResolution || 2048,
+      };
+    });
+    
+    console.log('✅ LOD specifications applied for resolutions:', Object.keys(geometry.lod.levels));
+  }
+  
+  /**
+   * Apply scene environment to geometry
+   */
+  applySceneEnvironment(geometry, environment) {
+    console.log('🌍 Applying scene environment...');
+    
+    if (!environment) return;
+    
+    geometry.environment = {
+      context: environment.context || 'studio',
+      lighting: environment.lighting || {
+        hdri: 'studio',
+        ambient: { intensity: 0.5, color: '#ffffff' },
+      },
+      atmosphere: environment.atmosphere || 'clear',
+      renderingContext: environment.renderingContext || 'architectural_visualization',
+    };
+    
+    console.log('✅ Scene environment applied:', {
+      context: geometry.environment.context,
+      hdri: geometry.environment.lighting.hdri,
+    });
   }
   
   /**

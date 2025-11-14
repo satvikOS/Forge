@@ -7,21 +7,36 @@ class GeometryGenerator {
    * Generate geometry based on specifications
    */
   generateFromSpec(spec) {
-    const { objectCount = 1, elements = [], scene = {} } = spec;
+    const { objectCount = 1, elements = [], scene = {}, sceneEnvironment = {} } = spec;
+    
+    console.log('🏗️  GeometryGenerator: Processing spec with', elements.length, 'elements');
+    
+    // Log enhanced data if available
+    elements.forEach((element, index) => {
+      if (element.wireframe) {
+        console.log(`📐 Element ${index}: Has wireframe data`);
+      }
+      if (element.lod) {
+        console.log(`📊 Element ${index}: Has LOD specifications`);
+      }
+      if (element.pbr) {
+        console.log(`🎨 Element ${index}: Has PBR material data`);
+      }
+    });
     
     // Determine if this is a complex scene or single object
     if (objectCount > 1 || elements.length > 1) {
-      return this.generateComplexScene(elements, scene);
+      return this.generateComplexScene(elements, scene, sceneEnvironment);
     } else {
       const element = elements[0] || { type: 'object', name: 'Object' };
-      return this.generateSingleObject(element);
+      return this.generateSingleObject(element, sceneEnvironment);
     }
   }
 
   /**
    * Generate complex scene with multiple objects
    */
-  generateComplexScene(elements, sceneConfig) {
+  generateComplexScene(elements, sceneConfig, sceneEnvironment = {}) {
     const meshes = [];
     const instances = [];
     
@@ -55,13 +70,14 @@ class GeometryGenerator {
       instances,
       bounds: this.calculateSceneBounds(meshes, instances),
       metadata: sceneConfig,
+      environment: sceneEnvironment,
     };
   }
 
   /**
    * Generate single object with high detail
    */
-  generateSingleObject(element) {
+  generateSingleObject(element, sceneEnvironment = {}) {
     const geometry = this.generateElement(element);
     
     return {
@@ -69,6 +85,7 @@ class GeometryGenerator {
       mesh: geometry,
       name: element.name || 'Object',
       metadata: element,
+      environment: sceneEnvironment,
     };
   }
 
@@ -602,6 +619,204 @@ class GeometryGenerator {
         y: (minY + maxY) / 2,
         z: (minZ + maxZ) / 2,
       },
+    };
+  }
+
+  /**
+   * Generate LOD (Level of Detail) mesh for different resolutions
+   * @param {Object} baseMesh - The base high-quality mesh
+   * @param {string} resolution - Target resolution: '720p', '1080p', '4K', '8K'
+   * @param {Object} lodSpec - LOD specifications from AI
+   * @returns {Object} Simplified mesh for the target resolution
+   */
+  generateLODMesh(baseMesh, resolution, lodSpec = {}) {
+    console.log(`📊 Generating LOD mesh for ${resolution}...`);
+    
+    const lodLevels = {
+      '720p': { vertexReduction: 0.25, subdivisionLevel: 0, simplify: true },
+      '1080p': { vertexReduction: 0.5, subdivisionLevel: 1, simplify: false },
+      '4K': { vertexReduction: 0.75, subdivisionLevel: 2, simplify: false },
+      '8K': { vertexReduction: 1.0, subdivisionLevel: 3, simplify: false },
+    };
+    
+    const defaultLOD = lodLevels[resolution] || lodLevels['1080p'];
+    const lodConfig = { ...defaultLOD, ...lodSpec };
+    
+    let mesh = { ...baseMesh };
+    
+    // Apply vertex reduction
+    if (lodConfig.vertexReduction < 1.0 && lodConfig.simplify) {
+      mesh = this.simplifyMesh(mesh, lodConfig.vertexReduction);
+    }
+    
+    // Apply subdivision if needed
+    if (lodConfig.subdivisionLevel > 0) {
+      mesh.subdivisions = lodConfig.subdivisionLevel;
+    }
+    
+    console.log(`✅ LOD mesh generated for ${resolution}:`, {
+      vertexReduction: lodConfig.vertexReduction,
+      subdivisionLevel: lodConfig.subdivisionLevel,
+    });
+    
+    return mesh;
+  }
+
+  /**
+   * Simplify mesh by reducing vertex count
+   * @param {Object} mesh - The mesh to simplify
+   * @param {number} reductionFactor - Factor for vertex reduction (0-1)
+   * @returns {Object} Simplified mesh
+   */
+  simplifyMesh(mesh, reductionFactor) {
+    console.log(`🔧 Simplifying mesh with reduction factor ${reductionFactor}...`);
+    
+    if (mesh.type === 'composite' && mesh.parts) {
+      return {
+        ...mesh,
+        parts: mesh.parts.map(part => this.simplifyMeshPart(part, reductionFactor)),
+      };
+    }
+    
+    return this.simplifyMeshPart(mesh, reductionFactor);
+  }
+
+  /**
+   * Simplify a single mesh part
+   */
+  simplifyMeshPart(part, reductionFactor) {
+    // For simple shapes, reduce subdivisions
+    if (part.subdivisions !== undefined) {
+      return {
+        ...part,
+        subdivisions: Math.max(0, Math.floor(part.subdivisions * reductionFactor)),
+      };
+    }
+    
+    // For complex shapes, mark for reduction
+    return {
+      ...part,
+      vertexReduction: reductionFactor,
+      simplified: true,
+    };
+  }
+
+  /**
+   * Convert wireframe data to mesh
+   * @param {Object} wireframe - Wireframe data from AI (vertices, edges, skeleton)
+   * @returns {Object} Generated mesh from wireframe
+   */
+  wireframeToMesh(wireframe) {
+    console.log('🔗 Converting wireframe to mesh...');
+    
+    if (!wireframe || !wireframe.controlVertices) {
+      console.warn('⚠️  No wireframe data available');
+      return null;
+    }
+    
+    const { controlVertices, edges, structuralSkeleton } = wireframe;
+    
+    // Create mesh from wireframe data
+    const mesh = {
+      type: 'wireframe_mesh',
+      vertices: controlVertices.map(v => ({
+        id: v.id,
+        position: v.position,
+        type: v.type,
+      })),
+      edges: edges.map(e => ({
+        from: e.from,
+        to: e.to,
+        type: e.type,
+      })),
+      skeleton: structuralSkeleton || [],
+      wireframeMode: true,
+    };
+    
+    console.log('✅ Wireframe converted to mesh:', {
+      vertices: mesh.vertices.length,
+      edges: mesh.edges.length,
+      skeleton: mesh.skeleton.length,
+    });
+    
+    return mesh;
+  }
+
+  /**
+   * Process rig data and apply to mesh
+   * @param {Object} mesh - The mesh to rig
+   * @param {Object} rigData - Rig data including pivot points and transform hierarchy
+   * @returns {Object} Rigged mesh
+   */
+  applyRigToMesh(mesh, rigData) {
+    console.log('🦴 Applying rig to mesh...');
+    
+    if (!rigData) {
+      console.warn('⚠️  No rig data available');
+      return mesh;
+    }
+    
+    const riggedMesh = {
+      ...mesh,
+      rig: {
+        pivotPoints: rigData.pivotPoints || [],
+        transformHierarchy: rigData.transformHierarchy || [],
+        bones: this.generateBonesFromRig(rigData),
+      },
+    };
+    
+    console.log('✅ Rig applied to mesh:', {
+      pivotPoints: riggedMesh.rig.pivotPoints.length,
+      bones: riggedMesh.rig.bones.length,
+    });
+    
+    return riggedMesh;
+  }
+
+  /**
+   * Generate bone structure from rig data
+   */
+  generateBonesFromRig(rigData) {
+    const bones = [];
+    
+    if (rigData.pivotPoints && rigData.transformHierarchy) {
+      rigData.pivotPoints.forEach(pivot => {
+        const hierarchy = rigData.transformHierarchy.find(h => h.name === pivot.name);
+        
+        bones.push({
+          name: pivot.name,
+          position: pivot.position,
+          parent: pivot.parent,
+          children: hierarchy?.children || [],
+        });
+      });
+    }
+    
+    return bones;
+  }
+
+  /**
+   * Generate multiple LOD levels for a mesh
+   * @param {Object} baseMesh - The base high-quality mesh
+   * @param {Object} lodSpecs - LOD specifications from AI for all resolutions
+   * @returns {Object} Mesh with all LOD levels
+   */
+  generateAllLODLevels(baseMesh, lodSpecs = {}) {
+    console.log('📊 Generating all LOD levels...');
+    
+    const resolutions = ['720p', '1080p', '4K', '8K'];
+    const lodMeshes = {};
+    
+    resolutions.forEach(resolution => {
+      const lodSpec = lodSpecs[resolution];
+      lodMeshes[resolution] = this.generateLODMesh(baseMesh, resolution, lodSpec);
+    });
+    
+    console.log('✅ All LOD levels generated:', Object.keys(lodMeshes));
+    
+    return {
+      ...baseMesh,
+      lodLevels: lodMeshes,
     };
   }
 }
