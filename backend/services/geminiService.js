@@ -12,9 +12,10 @@ class GeminiService {
     if (!this.isDemoMode) {
       try {
         this.genAI = new GoogleGenerativeAI(this.apiKey);
-        // Use stable Gemini model for better reliability
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
-        this.modelName = 'gemini-pro';
+        // Use model from environment variable or default to gemini-pro
+        this.modelName = process.env.GEMINI_MODEL || 'gemini-pro';
+        this.model = this.genAI.getGenerativeModel({ model: this.modelName });
+        console.log(`Gemini service initialized with model: ${this.modelName}`);
       } catch (error) {
         console.error('Failed to initialize Gemini API:', error);
         this.isDemoMode = true;
