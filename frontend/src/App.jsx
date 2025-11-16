@@ -468,8 +468,15 @@ function App() {
           
           {/* 3D Viewer - fills remaining space */}
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-            {loading ? (
+            {/* Loading overlay - shown on top of AdvancedWorkbench */}
+            {loading && (
               <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 1000,
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
@@ -560,20 +567,20 @@ function App() {
                   Cancel
                 </button>
               </div>
-            ) : (
-              <AdvancedWorkbench
-                activeTool={activeTool}
-                onToolChange={setActiveTool}
-                viewMode={viewMode}
-                modelData={modelData}
-                onSceneUpdate={(info) => {
-                  setSceneInfo(info);
-                  if (info.sceneManager) {
-                    sceneManagerRef.current = info.sceneManager;
-                  }
-                }}
-              />
             )}
+            {/* AdvancedWorkbench - always mounted to preserve SceneManager instance */}
+            <AdvancedWorkbench
+              activeTool={activeTool}
+              onToolChange={setActiveTool}
+              viewMode={viewMode}
+              modelData={modelData}
+              onSceneUpdate={(info) => {
+                setSceneInfo(info);
+                if (info.sceneManager) {
+                  sceneManagerRef.current = info.sceneManager;
+                }
+              }}
+            />
           </div>
 
           {/* Status Bar - overlays at bottom */}
