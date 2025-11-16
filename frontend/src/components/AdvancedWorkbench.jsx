@@ -107,7 +107,11 @@ function SceneObject({ sceneObject, isSelected, onSelect }) {
         sceneObject.scale.z
       );
     }
-  }, [sceneObject.position, sceneObject.rotation, sceneObject.scale]);
+  }, [
+    sceneObject.position.x, sceneObject.position.y, sceneObject.position.z,
+    sceneObject.rotation.x, sceneObject.rotation.y, sceneObject.rotation.z,
+    sceneObject.scale.x, sceneObject.scale.y, sceneObject.scale.z
+  ]);
 
   if (!sceneObject.visible) return null;
 
