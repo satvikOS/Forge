@@ -7,6 +7,10 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy - required when behind Vercel/reverse proxy
+// This allows Express to correctly identify client IPs from X-Forwarded-* headers
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 
