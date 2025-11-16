@@ -74,8 +74,18 @@ export function convertModelDataToSceneObjects(modelData, namePrefix = 'AI_Gener
   // Handle single object type
   else if (modelData.type === 'object' && modelData.mesh) {
     console.log('Converting single object model');
-    const obj = convertPartToSceneObject(modelData.mesh, namePrefix);
-    if (obj) objects.push(obj);
+    // Check if the mesh itself is a composite with parts
+    if (modelData.mesh.type === 'composite' && modelData.mesh.parts) {
+      console.log(`Mesh is composite with ${modelData.mesh.parts.length} parts`);
+      modelData.mesh.parts.forEach((part, index) => {
+        const obj = convertPartToSceneObject(part, `${namePrefix}_part_${index}`);
+        if (obj) objects.push(obj);
+      });
+    } else {
+      // Single mesh object
+      const obj = convertPartToSceneObject(modelData.mesh, namePrefix);
+      if (obj) objects.push(obj);
+    }
   }
   // Handle scene type (complex scenes with meshes and instances)
   else if (modelData.type === 'scene') {

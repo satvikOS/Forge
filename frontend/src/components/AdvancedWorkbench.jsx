@@ -370,8 +370,12 @@ export default function AdvancedWorkbench({
           }
         });
         
+        // Extract geometry from model data (backend returns { geometry: {...}, materials: [...], ... })
+        const geometryData = modelData.geometry || modelData;
+        console.log('Extracting geometry data:', geometryData);
+        
         // Convert backend model data to scene objects
-        const sceneObjects = convertModelDataToSceneObjects(modelData, 'AI_Model');
+        const sceneObjects = convertModelDataToSceneObjects(geometryData, 'AI_Model');
         console.log(`Adding ${sceneObjects.length} objects to scene`);
         
         // Add objects to scene manager
