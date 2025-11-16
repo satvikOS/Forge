@@ -98,10 +98,10 @@ class GeometryGenerator {
   }
 
   /**
-   * Generate building geometry
+   * Generate building geometry with enhanced architectural details
    */
   generateBuilding(element) {
-    const { dimensions = {}, details = [] } = element;
+    const { dimensions = {}, details = [], floors = 10 } = element;
     const width = dimensions.width || 20000;
     const height = dimensions.height || 30000;
     const depth = dimensions.depth || 15000;
@@ -117,31 +117,75 @@ class GeometryGenerator {
       detail: 'main_structure',
     });
     
-    // Add floors (horizontal panels)
-    const floors = Math.floor(height / 3000);
-    for (let i = 1; i < floors; i++) {
+    // Calculate number of floors if not provided
+    const floorCount = floors || Math.floor(height / 3000);
+    const floorHeight = height / floorCount;
+    
+    // Add floors (horizontal slabs)
+    for (let i = 1; i < floorCount; i++) {
       parts.push({
         type: 'box',
         dimensions: { x: width, y: 200, z: depth },
-        position: { x: 0, y: i * 3000, z: 0 },
+        position: { x: 0, y: i * floorHeight, z: 0 },
         material: 'concrete',
         detail: 'floor_slab',
       });
     }
     
-    // Add facade panels
-    parts.push(...this.generateFacadePanels(width, height, depth));
+    // Enhanced detail generation based on specified features
+    const hasWindows = details.includes('windows') || details.includes('glass_facade') || 
+                      details.includes('curtain_walls') || details.length === 0;
+    const hasBalconies = details.includes('balconies') || details.includes('terraces');
+    const hasEntrance = details.includes('entrances') || details.includes('lobby');
+    const hasRoofGarden = details.includes('roof_garden') || details.includes('rooftop_terrace');
+    const hasColumns = details.includes('columns') || details.includes('structural_elements');
+    const hasCurtainWalls = details.includes('curtain_walls') || details.includes('glass_facade');
+    const hasUndergroundParking = details.includes('underground_parking') || details.includes('basement_levels');
     
-    // Add details if specified
-    if (details.includes('windows') || details.length === 0) {
-      parts.push(...this.generateWindows(width, height, depth, floors));
+    // Add curtain wall facade or traditional windows
+    if (hasCurtainWalls) {
+      parts.push(...this.generateCurtainWallFacade(width, height, depth, floorCount));
+    } else if (hasWindows) {
+      parts.push(...this.generateWindowGrid(width, height, depth, floorCount));
     }
     
+    // Add window frames and mullions for detail
+    if (hasWindows || hasCurtainWalls) {
+      parts.push(...this.generateWindowFrames(width, height, depth, floorCount));
+    }
+    
+    // Add balconies
+    if (hasBalconies) {
+      parts.push(...this.generateBalconies(width, height, depth, floorCount));
+    }
+    
+    // Add entrance features
+    if (hasEntrance) {
+      parts.push(...this.generateEntranceFeatures(width, depth));
+    }
+    
+    // Add rooftop features
+    if (hasRoofGarden) {
+      parts.push(...this.generateRooftopFeatures(width, height, depth));
+    }
+    
+    // Add structural columns (visible in glass buildings)
+    if (hasColumns || hasCurtainWalls) {
+      parts.push(...this.generateStructuralColumns(width, height, depth));
+    }
+    
+    // Add underground parking indicator
+    if (hasUndergroundParking) {
+      parts.push(...this.generateUndergroundLevel(width, depth));
+    }
+    
+    // Add railings if specified
     if (details.includes('railings')) {
       parts.push(...this.generateRailings(width, height, depth));
     }
     
-    if (details.includes('pipes') || details.includes('details')) {
+    // Add pipes/mechanical if specified
+    if (details.includes('pipes') || details.includes('mechanical_room')) {
       parts.push(...this.generatePipes(width, height, depth));
     }
     
@@ -542,6 +586,281 @@ class GeometryGenerator {
     }
     
     return beams;
+  }
+
+  /**
+   * Generate curtain wall facade (continuous glass)
+   */
+  generateCurtainWallFacade(width, height, depth, floors) {
+    const panels = [];
+    const panelHeight = height / floors;
+    const panelWidth = 2000;
+    const panelsPerSide = Math.ceil(width / panelWidth);
+    
+    // Front and back glass walls
+    for (let side = 0; side < 2; side++) {
+      const zPos = side === 0 ? depth / 2 : -depth / 2;
+      
+      for (let floor = 0; floor < floors; floor++) {
+        for (let i = 0; i < panelsPerSide; i++) {
+          panels.push({
+            type: 'box',
+            dimensions: { x: panelWidth, y: panelHeight, z: 100 },
+            position: {
+              x: (i - panelsPerSide / 2 + 0.5) * panelWidth,
+              y: floor * panelHeight + panelHeight / 2,
+              z: zPos + (side === 0 ? 50 : -50),
+            },
+            material: 'glass',
+            detail: 'curtain_wall_panel',
+          });
+        }
+      }
+    }
+    
+    return panels;
+  }
+
+  /**
+   * Generate window grid with proper spacing
+   */
+  generateWindowGrid(width, height, depth, floors) {
+    const windows = [];
+    const windowWidth = 1500;
+    const windowHeight = 2000;
+    const windowSpacing = 2500;
+    const windowsPerFloor = Math.floor(width / windowSpacing);
+    const floorHeight = height / floors;
+    
+    // Front facade windows
+    for (let floor = 0; floor < floors; floor++) {
+      for (let i = 0; i < windowsPerFloor; i++) {
+        windows.push({
+          type: 'box',
+          dimensions: { x: windowWidth, y: windowHeight, z: 150 },
+          position: {
+            x: (i - windowsPerFloor / 2 + 0.5) * windowSpacing,
+            y: floor * floorHeight + floorHeight / 2,
+            z: depth / 2 + 75,
+          },
+          material: 'glass',
+          detail: 'window',
+        });
+      }
+    }
+    
+    return windows;
+  }
+
+  /**
+   * Generate window frames and mullions
+   */
+  generateWindowFrames(width, height, depth, floors) {
+    const frames = [];
+    const frameThickness = 50;
+    const frameDepth = 150;
+    const windowSpacing = 2500;
+    const windowsPerFloor = Math.floor(width / windowSpacing);
+    const floorHeight = height / floors;
+    
+    // Horizontal mullions between floors
+    for (let floor = 1; floor < floors; floor++) {
+      frames.push({
+        type: 'box',
+        dimensions: { x: width * 0.9, y: frameThickness * 2, z: frameDepth },
+        position: {
+          x: 0,
+          y: floor * floorHeight,
+          z: depth / 2 + frameDepth / 2,
+        },
+        material: 'metal',
+        detail: 'horizontal_mullion',
+      });
+    }
+    
+    return frames;
+  }
+
+  /**
+   * Generate balconies for residential/office buildings
+   */
+  generateBalconies(width, height, depth, floors) {
+    const balconies = [];
+    const balconyDepth = 1500;
+    const balconyWidth = width * 0.8;
+    const balconyHeight = 100;
+    const floorHeight = height / floors;
+    
+    // Add balconies to upper floors
+    const startFloor = Math.floor(floors * 0.3); // Start from 30% height
+    for (let floor = startFloor; floor < floors; floor += 2) { // Every other floor
+      balconies.push({
+        type: 'box',
+        dimensions: { x: balconyWidth, y: balconyHeight, z: balconyDepth },
+        position: {
+          x: 0,
+          y: floor * floorHeight,
+          z: depth / 2 + balconyDepth / 2,
+        },
+        material: 'concrete',
+        detail: 'balcony',
+      });
+      
+      // Balcony railing
+      balconies.push({
+        type: 'box',
+        dimensions: { x: balconyWidth, y: 1000, z: 50 },
+        position: {
+          x: 0,
+          y: floor * floorHeight + 500,
+          z: depth / 2 + balconyDepth,
+        },
+        material: 'metal',
+        detail: 'balcony_railing',
+      });
+    }
+    
+    return balconies;
+  }
+
+  /**
+   * Generate entrance features (lobby, canopy, etc.)
+   */
+  generateEntranceFeatures(width, depth) {
+    const features = [];
+    const entranceWidth = width * 0.3;
+    const entranceHeight = 6000; // Double height lobby
+    
+    // Entrance canopy
+    features.push({
+      type: 'box',
+      dimensions: { x: entranceWidth, y: 200, z: 3000 },
+      position: {
+        x: 0,
+        y: 4000,
+        z: depth / 2 + 1500,
+      },
+      material: 'metal',
+      detail: 'entrance_canopy',
+    });
+    
+    // Entrance pillars
+    for (let i = -1; i <= 1; i += 2) {
+      features.push({
+        type: 'cylinder',
+        radius: 300,
+        height: entranceHeight,
+        position: {
+          x: i * entranceWidth / 3,
+          y: entranceHeight / 2,
+          z: depth / 2 + 100,
+        },
+        material: 'concrete',
+        detail: 'entrance_pillar',
+      });
+    }
+    
+    return features;
+  }
+
+  /**
+   * Generate rooftop features (garden, terrace, mechanical)
+   */
+  generateRooftopFeatures(width, height, depth) {
+    const features = [];
+    
+    // Rooftop parapet
+    const parapetHeight = 1500;
+    features.push({
+      type: 'box',
+      dimensions: { x: width + 200, y: parapetHeight, z: 200 },
+      position: { x: 0, y: height + parapetHeight / 2, z: depth / 2 },
+      material: 'concrete',
+      detail: 'parapet',
+    });
+    features.push({
+      type: 'box',
+      dimensions: { x: width + 200, y: parapetHeight, z: 200 },
+      position: { x: 0, y: height + parapetHeight / 2, z: -depth / 2 },
+      material: 'concrete',
+      detail: 'parapet',
+    });
+    
+    // Mechanical penthouse
+    const mechWidth = width * 0.3;
+    const mechHeight = 3000;
+    features.push({
+      type: 'box',
+      dimensions: { x: mechWidth, y: mechHeight, z: depth * 0.3 },
+      position: {
+        x: 0,
+        y: height + mechHeight / 2,
+        z: 0,
+      },
+      material: 'metal',
+      detail: 'mechanical_penthouse',
+    });
+    
+    return features;
+  }
+
+  /**
+   * Generate structural columns (visible in modern buildings)
+   */
+  generateStructuralColumns(width, height, depth) {
+    const columns = [];
+    const columnRadius = 400;
+    const columnsPerSide = 4;
+    
+    for (let i = 0; i < columnsPerSide; i++) {
+      for (let j = 0; j < columnsPerSide; j++) {
+        const x = (i - columnsPerSide / 2 + 0.5) * (width / columnsPerSide);
+        const z = (j - columnsPerSide / 2 + 0.5) * (depth / columnsPerSide);
+        
+        columns.push({
+          type: 'cylinder',
+          radius: columnRadius,
+          height: height,
+          position: { x, y: height / 2, z },
+          material: 'concrete',
+          detail: 'structural_column',
+        });
+      }
+    }
+    
+    return columns;
+  }
+
+  /**
+   * Generate underground parking level indicator
+   */
+  generateUndergroundLevel(width, depth) {
+    const features = [];
+    const parkingHeight = 3000;
+    
+    // Underground slab
+    features.push({
+      type: 'box',
+      dimensions: { x: width * 1.2, y: 200, z: depth * 1.2 },
+      position: { x: 0, y: -parkingHeight, z: 0 },
+      material: 'concrete',
+      detail: 'underground_slab',
+    });
+    
+    // Parking ramp entrance
+    features.push({
+      type: 'box',
+      dimensions: { x: 5000, y: 300, z: 8000 },
+      position: {
+        x: width / 2 - 2500,
+        y: -parkingHeight / 2,
+        z: depth / 2 + 4000,
+      },
+      material: 'concrete',
+      detail: 'parking_ramp',
+    });
+    
+    return features;
   }
 
   /**

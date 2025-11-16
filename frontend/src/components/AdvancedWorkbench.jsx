@@ -174,6 +174,7 @@ export default function AdvancedWorkbench({
   onToolChange, 
   activeTool,
   viewMode = 'solid',
+  modelData = null,
   onSceneUpdate 
 }) {
   const canvasRef = useRef();
@@ -349,6 +350,52 @@ export default function AdvancedWorkbench({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toolManager, sceneManager, onToolChange]);
+
+  // Process incoming AI model data
+  useEffect(() => {
+    if (!modelData || !sceneManager) {
+      return;
+    }
+    
+    console.log('Received model data in AdvancedWorkbench:', modelData);
+    
+    // Import geometry converter
+    import('../utils/geometryConverter.js').then(({ convertModelDataToSceneObjects }) => {
+      try {
+        // Clear previous AI-generated objects
+        const existingObjects = Array.from(sceneManager.objects.values());
+        existingObjects.forEach(obj => {
+          if (obj.userData?.aiGenerated) {
+            sceneManager.deleteObject(obj.id);
+          }
+        });
+        
+        // Convert backend model data to scene objects
+        const sceneObjects = convertModelDataToSceneObjects(modelData, 'AI_Model');
+        console.log(`Adding ${sceneObjects.length} objects to scene`);
+        
+        // Add objects to scene manager
+        sceneObjects.forEach(obj => {
+          sceneManager.addObject(obj);
+        });
+        
+        setNeedsRender(true);
+        
+        // Notify parent component
+        if (onSceneUpdate) {
+          onSceneUpdate({
+            selectedCount: sceneManager.selectedObjects.size,
+            totalObjects: sceneManager.objects.size,
+            sceneManager,
+          });
+        }
+        
+        console.log('AI model added to scene successfully');
+      } catch (error) {
+        console.error('Error adding AI model to scene:', error);
+      }
+    });
+  }, [modelData, sceneManager, onSceneUpdate]);
 
   const isWireframe = viewMode === 'wireframe';
 

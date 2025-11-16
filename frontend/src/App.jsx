@@ -41,6 +41,11 @@ function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
+  
+  // Generation progress state
+  const [generationProgress, setGenerationProgress] = useState(null);
+  const [currentJobId, setCurrentJobId] = useState(null);
+  const [modelData, setModelData] = useState(null);
 
   // Keyboard shortcuts handler
   useEffect(() => {
@@ -131,24 +136,60 @@ function App() {
     setError(null);
     setAnalysis(null);
     setCompliance(null);
+    setGenerationProgress(null);
+    setModelData(null);
 
     try {
-      // Generate design
-      const designResult = await apiService.generateDesign(prompt);
-      setDesign(designResult.design);
-
-      // Perform analysis
-      const analysisResult = await apiService.analyzeDesign(designResult.design.specifications);
-      setAnalysis(analysisResult.analysis);
-
-      // Check compliance
-      const complianceResult = await apiService.checkCompliance(designResult.design.specifications);
-      setCompliance(complianceResult.compliance);
+      // Generate design with progress tracking
+      const result = await apiService.generateDesign(prompt, (progress) => {
+        setGenerationProgress(progress);
+        console.log('Generation progress:', progress);
+      });
+      
+      if (result.success && result.design) {
+        setDesign(result.design);
+        setModelData(result.modelData);
+        
+        // Optionally perform analysis and compliance checks
+        if (result.design.specifications) {
+          try {
+            const analysisResult = await apiService.analyzeDesign(result.design.specifications);
+            setAnalysis(analysisResult.analysis);
+          } catch (err) {
+            console.warn('Analysis failed:', err);
+          }
+          
+          try {
+            const complianceResult = await apiService.checkCompliance(result.design.specifications);
+            setCompliance(complianceResult.compliance);
+          } catch (err) {
+            console.warn('Compliance check failed:', err);
+          }
+        }
+      } else {
+        throw new Error('Generation completed but no design data received');
+      }
     } catch (err) {
       setError('Failed to generate design. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
+      setGenerationProgress(null);
+      setCurrentJobId(null);
+    }
+  };
+  
+  const handleCancelGeneration = async () => {
+    if (currentJobId) {
+      try {
+        await apiService.cancelJob(currentJobId);
+        setLoading(false);
+        setGenerationProgress(null);
+        setCurrentJobId(null);
+        setError('Generation cancelled');
+      } catch (err) {
+        console.error('Failed to cancel job:', err);
+      }
     }
   };
 
@@ -434,15 +475,85 @@ function App() {
                 <div style={{ fontSize: '18px', marginBottom: '10px' }}>
                   Generating your design...
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  This may take a few moments
-                </div>
+                {generationProgress && (
+                  <>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                      {getStageLabel(generationProgress.status)} - {generationProgress.progress}%
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{
+                      width: '300px',
+                      height: '6px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      marginBottom: '15px',
+                    }}>
+                      <div style={{
+                        width: `${generationProgress.progress}%`,
+                        height: '100%',
+                        background: 'var(--accent-orange)',
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
+                    {/* Stage breakdown */}
+                    {generationProgress.stages && (
+                      <div style={{ 
+                        fontSize: '11px', 
+                        color: 'var(--text-secondary)',
+                        display: 'flex',
+                        gap: '15px',
+                        marginBottom: '15px',
+                      }}>
+                        {Object.entries(generationProgress.stages).map(([stage, info]) => (
+                          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              background: info.status === 'completed' ? '#4caf50' : 
+                                         info.status === 'in_progress' ? 'var(--accent-orange)' : 
+                                         '#666',
+                            }} />
+                            <span>{stage}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+                <button
+                  onClick={handleCancelGeneration}
+                  style={{
+                    marginTop: '10px',
+                    padding: '8px 16px',
+                    background: 'transparent',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f44336';
+                    e.target.style.color = 'white';
+                    e.target.style.borderColor = '#f44336';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'transparent';
+                    e.target.style.color = 'var(--text-secondary)';
+                    e.target.style.borderColor = 'var(--border-color)';
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
             ) : (
               <AdvancedWorkbench
                 activeTool={activeTool}
                 onToolChange={setActiveTool}
                 viewMode={viewMode}
+                modelData={modelData}
                 onSceneUpdate={(info) => {
                   setSceneInfo(info);
                   if (info.sceneManager) {
@@ -492,6 +603,19 @@ function App() {
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
     </div>
   );
+}
+
+// Helper function to get user-friendly stage labels
+function getStageLabel(status) {
+  const labels = {
+    analyzing: 'Analyzing Prompt',
+    generating: 'Generating Geometry',
+    refining: 'Refining Model',
+    exporting: 'Preparing Exports',
+    queued: 'Queued',
+    processing: 'Processing',
+  };
+  return labels[status] || status;
 }
 
 export default App;

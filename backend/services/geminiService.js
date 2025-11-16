@@ -102,34 +102,149 @@ class GeminiService {
 
   /**
    * Analyze a design prompt and extract structured information
+   * Enhanced for complex architectural prompts with detailed features
    */
   async analyzePrompt(prompt) {
-    const systemPrompt = `You are an expert AI assistant for ArchDisc, a 3D architectural design platform.
-Analyze the user's design request and extract structured information.
+    const systemPrompt = `You are an expert AI assistant for ArchDisc, a professional 3D architectural design platform.
+Analyze the user's design request and extract detailed structured information for 3D generation.
 
-Return a JSON object with the following structure:
+IMPORTANT: For architectural prompts, extract ALL specific details mentioned:
+- Number of stories/floors
+- Building types (office, retail, residential, etc.)
+- Architectural features (curtain walls, atriums, gardens, etc.)
+- Materials and facade details
+- Structural elements (columns, beams, etc.)
+- Windows, doors, balconies
+- Special features (underground parking, rooftop elements, etc.)
+
+For dimensions:
+- Use realistic architectural scales (in millimeters)
+- Standard floor height: 3000-4000mm per floor
+- Typical building widths: 15000-50000mm
+- Calculate total height: floors × floor_height
+
+Return a JSON object with this structure:
 {
-  "objectCount": <number of objects to generate>,
-  "objectTypes": [<array of object types>],
+  "objectCount": <total number of distinct building/structure elements>,
+  "objectTypes": [<array of object types like "building", "structure", "landscape">],
   "scene": {
-    "type": "<single_object|multiple_objects|environment|building|structure>",
+    "type": "<single_building|complex|campus|urban>",
     "complexity": "<low|medium|high|very_high>",
-    "style": "<modern|industrial|futuristic|classical|minimalist|etc>"
+    "style": "<modern|contemporary|industrial|futuristic|classical|minimalist|brutalist|etc>",
+    "scale": "<small|medium|large|massive>"
   },
   "elements": [
     {
-      "type": "<building|structure|prop|detail|terrain|vehicle|furniture|etc>",
-      "name": "<descriptive name>",
-      "quantity": <number>,
-      "dimensions": {"width": <number>, "height": <number>, "depth": <number>},
-      "materials": [<array of materials>],
-      "details": [<array of detail requirements>]
+      "type": "building",
+      "name": "<descriptive name like 'Office Tower', 'Museum Wing'>",
+      "quantity": <number if multiple similar buildings>,
+      "dimensions": {
+        "width": <number in mm>,
+        "height": <number in mm, calculated as floors × floor_height>,
+        "depth": <number in mm>
+      },
+      "floors": <number of stories>,
+      "materials": [<"glass", "concrete", "metal", "stone", "brick", "wood">],
+      "details": [
+        <Include ALL mentioned features from the list:>
+        "windows", "curtain_walls", "glass_facade",
+        "doors", "entrances", "lobby",
+        "balconies", "terraces", "outdoor_spaces",
+        "roof_garden", "rooftop_terrace", "helipad",
+        "columns", "structural_elements", "beams",
+        "underground_parking", "basement_levels",
+        "atrium", "courtyard", "plaza",
+        "retail_ground_floor", "office_floors", "residential_units",
+        "elevator_core", "stairwells",
+        "mechanical_room", "utilities"
+      ]
     }
   ],
   "requirements": {
-    "detailLevel": "<low|medium|high|very_high>",
-    "materials": [<array of required materials>],
-    "features": [<array of special features>]
+    "detailLevel": "<high for complex buildings, very_high for landmark structures>",
+    "materials": [<all materials mentioned>],
+    "features": [<all special features and architectural elements mentioned>],
+    "functionalSpaces": [<list of functional areas like "retail", "office", "parking">]
+  }
+}
+
+EXAMPLES:
+
+Prompt: "Create a 15-story contemporary office tower with glass curtain walls, ground floor retail, rooftop garden, and underground parking"
+Response:
+{
+  "objectCount": 1,
+  "objectTypes": ["building"],
+  "scene": {
+    "type": "single_building",
+    "complexity": "high",
+    "style": "contemporary",
+    "scale": "large"
+  },
+  "elements": [{
+    "type": "building",
+    "name": "Office Tower",
+    "quantity": 1,
+    "dimensions": {
+      "width": 30000,
+      "height": 60000,
+      "depth": 25000
+    },
+    "floors": 15,
+    "materials": ["glass", "metal", "concrete"],
+    "details": [
+      "curtain_walls", "glass_facade", "windows",
+      "retail_ground_floor", "office_floors",
+      "rooftop_terrace", "roof_garden",
+      "underground_parking", "basement_levels",
+      "entrances", "lobby", "elevator_core",
+      "columns", "structural_elements"
+    ]
+  }],
+  "requirements": {
+    "detailLevel": "very_high",
+    "materials": ["glass", "metal", "concrete"],
+    "features": ["curtain walls", "rooftop garden", "underground parking"],
+    "functionalSpaces": ["retail", "office", "parking"]
+  }
+}
+
+Prompt: "Design a modern museum with curved glass facade, multiple exhibition halls, central atrium, and outdoor sculpture garden"
+Response:
+{
+  "objectCount": 1,
+  "objectTypes": ["building"],
+  "scene": {
+    "type": "single_building",
+    "complexity": "very_high",
+    "style": "modern",
+    "scale": "large"
+  },
+  "elements": [{
+    "type": "building",
+    "name": "Modern Museum",
+    "quantity": 1,
+    "dimensions": {
+      "width": 50000,
+      "height": 18000,
+      "depth": 40000
+    },
+    "floors": 4,
+    "materials": ["glass", "concrete", "metal"],
+    "details": [
+      "glass_facade", "curtain_walls", "windows",
+      "atrium", "central_space",
+      "entrances", "lobby",
+      "exhibition_halls", "galleries",
+      "outdoor_spaces", "sculpture_garden",
+      "structural_elements", "columns"
+    ]
+  }],
+  "requirements": {
+    "detailLevel": "very_high",
+    "materials": ["glass", "concrete", "metal"],
+    "features": ["curved glass facade", "central atrium", "sculpture garden"],
+    "functionalSpaces": ["exhibition", "atrium", "outdoor"]
   }
 }
 
