@@ -247,6 +247,7 @@ export default function AdvancedWorkbench({
   const [selectedObjects, setSelectedObjects] = useState(new Set());
   const [needsRender, setNeedsRender] = useState(false);
   const contextRef = useRef({});
+  const lastProcessedModelDataRef = useRef(null);
 
   // Update context when tools or scene changes
   useEffect(() => {
@@ -357,7 +358,16 @@ export default function AdvancedWorkbench({
       return;
     }
     
+    // Check if we've already processed this exact modelData to prevent infinite loop
+    if (lastProcessedModelDataRef.current === modelData) {
+      console.log('Model data already processed, skipping');
+      return;
+    }
+    
     console.log('Received model data in AdvancedWorkbench:', modelData);
+    
+    // Mark this modelData as processed
+    lastProcessedModelDataRef.current = modelData;
     
     // Import geometry converter and layout manager
     Promise.all([
