@@ -98,7 +98,7 @@ class GeometryGenerator {
   }
 
   /**
-   * Generate building geometry with enhanced architectural details
+   * Generate building geometry with enhanced architectural details and hierarchy (Issue #28)
    */
   generateBuilding(element) {
     const { dimensions = {}, details = [], floors = 10 } = element;
@@ -107,29 +107,72 @@ class GeometryGenerator {
     const depth = dimensions.depth || 15000;
     
     const parts = [];
+    let componentId = 0;
     
-    // Main structure
+    // Generate unique ID for component
+    const genId = (type) => `${type}_${componentId++}`;
+    
+    // Main structure (parent component)
+    const mainStructureId = genId('structure');
     parts.push({
+      id: mainStructureId,
+      name: 'Main Structure',
       type: 'box',
+      componentType: 'building_structure',
       dimensions: { x: width, y: height, z: depth },
       position: { x: 0, y: height / 2, z: 0 },
       material: 'concrete',
       detail: 'main_structure',
+      parent: null,
+      children: [],
+      metadata: {
+        editable: true,
+        locked: false,
+        aiGenerated: true,
+        level: 0,
+        properties: {
+          structural: true,
+          loadBearing: true,
+        }
+      }
     });
     
     // Calculate number of floors if not provided
     const floorCount = floors || Math.floor(height / 3000);
     const floorHeight = height / floorCount;
     
-    // Add floors (horizontal slabs)
+    // Add floors (horizontal slabs) with hierarchy
     for (let i = 1; i < floorCount; i++) {
+      const floorId = genId('floor');
       parts.push({
+        id: floorId,
+        name: `Floor ${i}`,
         type: 'box',
+        componentType: 'floor_slab',
         dimensions: { x: width, y: 200, z: depth },
         position: { x: 0, y: i * floorHeight, z: 0 },
         material: 'concrete',
         detail: 'floor_slab',
+        parent: mainStructureId,
+        children: [],
+        metadata: {
+          editable: true,
+          locked: false,
+          aiGenerated: true,
+          level: 1,
+          floorNumber: i,
+          properties: {
+            structural: true,
+            thickness: 200,
+          }
+        }
       });
+      
+      // Add floor to main structure's children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(floorId);
+      }
     }
     
     // Enhanced detail generation based on specified features
@@ -142,51 +185,131 @@ class GeometryGenerator {
     const hasCurtainWalls = details.includes('curtain_walls') || details.includes('glass_facade');
     const hasUndergroundParking = details.includes('underground_parking') || details.includes('basement_levels');
     
-    // Add curtain wall facade or traditional windows
+    // Add curtain wall facade or traditional windows with hierarchy
     if (hasCurtainWalls) {
-      parts.push(...this.generateCurtainWallFacade(width, height, depth, floorCount));
+      const curtainWallParts = this.generateCurtainWallFacade(width, height, depth, floorCount, mainStructureId, componentId);
+      componentId += curtainWallParts.length;
+      parts.push(...curtainWallParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...curtainWallParts.map(p => p.id));
+      }
     } else if (hasWindows) {
-      parts.push(...this.generateWindowGrid(width, height, depth, floorCount));
+      const windowParts = this.generateWindowGrid(width, height, depth, floorCount, mainStructureId, componentId);
+      componentId += windowParts.length;
+      parts.push(...windowParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...windowParts.map(p => p.id));
+      }
     }
     
     // Add window frames and mullions for detail
     if (hasWindows || hasCurtainWalls) {
-      parts.push(...this.generateWindowFrames(width, height, depth, floorCount));
+      const frameParts = this.generateWindowFrames(width, height, depth, floorCount, mainStructureId, componentId);
+      componentId += frameParts.length;
+      parts.push(...frameParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...frameParts.map(p => p.id));
+      }
     }
     
     // Add balconies
     if (hasBalconies) {
-      parts.push(...this.generateBalconies(width, height, depth, floorCount));
+      const balconyParts = this.generateBalconies(width, height, depth, floorCount, mainStructureId, componentId);
+      componentId += balconyParts.length;
+      parts.push(...balconyParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...balconyParts.map(p => p.id));
+      }
     }
     
     // Add entrance features
     if (hasEntrance) {
-      parts.push(...this.generateEntranceFeatures(width, depth));
+      const entranceParts = this.generateEntranceFeatures(width, depth, mainStructureId, componentId);
+      componentId += entranceParts.length;
+      parts.push(...entranceParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...entranceParts.map(p => p.id));
+      }
     }
     
     // Add rooftop features
     if (hasRoofGarden) {
-      parts.push(...this.generateRooftopFeatures(width, height, depth));
+      const rooftopParts = this.generateRooftopFeatures(width, height, depth, mainStructureId, componentId);
+      componentId += rooftopParts.length;
+      parts.push(...rooftopParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...rooftopParts.map(p => p.id));
+      }
     }
     
     // Add structural columns (visible in glass buildings)
     if (hasColumns || hasCurtainWalls) {
-      parts.push(...this.generateStructuralColumns(width, height, depth));
+      const columnParts = this.generateStructuralColumns(width, height, depth, mainStructureId, componentId);
+      componentId += columnParts.length;
+      parts.push(...columnParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...columnParts.map(p => p.id));
+      }
     }
     
     // Add underground parking indicator
     if (hasUndergroundParking) {
-      parts.push(...this.generateUndergroundLevel(width, depth));
+      const parkingParts = this.generateUndergroundLevel(width, depth, mainStructureId, componentId);
+      componentId += parkingParts.length;
+      parts.push(...parkingParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...parkingParts.map(p => p.id));
+      }
     }
     
     // Add railings if specified
     if (details.includes('railings')) {
-      parts.push(...this.generateRailings(width, height, depth));
+      const railingParts = this.generateRailings(width, height, depth, mainStructureId, componentId);
+      componentId += railingParts.length;
+      parts.push(...railingParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...railingParts.map(p => p.id));
+      }
     }
     
     // Add pipes/mechanical if specified
     if (details.includes('pipes') || details.includes('mechanical_room')) {
-      parts.push(...this.generatePipes(width, height, depth));
+      const pipeParts = this.generatePipes(width, height, depth, mainStructureId, componentId);
+      componentId += pipeParts.length;
+      parts.push(...pipeParts);
+      
+      // Add to main structure children
+      const mainStructure = parts.find(p => p.id === mainStructureId);
+      if (mainStructure) {
+        mainStructure.children.push(...pipeParts.map(p => p.id));
+      }
     }
     
     return {
@@ -194,6 +317,8 @@ class GeometryGenerator {
       parts,
       subdivisions: 1,
       beveling: 0.05,
+      hierarchical: true, // Mark as hierarchical structure
+      componentCount: componentId,
     };
   }
 
@@ -510,7 +635,7 @@ class GeometryGenerator {
   /**
    * Generate railings
    */
-  generateRailings(width, height, depth) {
+  generateRailings(width, height, depth, parentId = null, startId = 0) {
     const railings = [];
     const railHeight = 1000;
     const railRadius = 30;
@@ -538,7 +663,7 @@ class GeometryGenerator {
   /**
    * Generate pipes and cables
    */
-  generatePipes(width, height, depth) {
+  generatePipes(width, height, depth, parentId = null, startId = 0) {
     const pipes = [];
     const pipeRadius = 100;
     const pipeCount = 3;
@@ -591,20 +716,29 @@ class GeometryGenerator {
   /**
    * Generate curtain wall facade (continuous glass)
    */
-  generateCurtainWallFacade(width, height, depth, floors) {
+  generateCurtainWallFacade(width, height, depth, floors, parentId = null, startId = 0) {
     const panels = [];
     const panelHeight = height / floors;
     const panelWidth = 2000;
     const panelsPerSide = Math.ceil(width / panelWidth);
+    let componentId = startId;
+    
+    // Generate unique ID for component
+    const genId = (type) => `${type}_${componentId++}`;
     
     // Front and back glass walls
     for (let side = 0; side < 2; side++) {
       const zPos = side === 0 ? depth / 2 : -depth / 2;
+      const sideName = side === 0 ? 'Front' : 'Back';
       
       for (let floor = 0; floor < floors; floor++) {
         for (let i = 0; i < panelsPerSide; i++) {
+          const panelId = genId('curtain_panel');
           panels.push({
+            id: panelId,
+            name: `${sideName} Curtain Panel F${floor}P${i}`,
             type: 'box',
+            componentType: 'curtain_wall_panel',
             dimensions: { x: panelWidth, y: panelHeight, z: 100 },
             position: {
               x: (i - panelsPerSide / 2 + 0.5) * panelWidth,
@@ -613,6 +747,21 @@ class GeometryGenerator {
             },
             material: 'glass',
             detail: 'curtain_wall_panel',
+            parent: parentId,
+            children: [],
+            metadata: {
+              editable: true,
+              locked: false,
+              aiGenerated: true,
+              level: 2,
+              floorNumber: floor,
+              panelNumber: i,
+              side: sideName,
+              properties: {
+                transparency: 0.7,
+                reflective: true,
+              }
+            }
           });
         }
       }
@@ -622,21 +771,29 @@ class GeometryGenerator {
   }
 
   /**
-   * Generate window grid with proper spacing
+   * Generate window grid with proper spacing and hierarchy
    */
-  generateWindowGrid(width, height, depth, floors) {
+  generateWindowGrid(width, height, depth, floors, parentId = null, startId = 0) {
     const windows = [];
     const windowWidth = 1500;
     const windowHeight = 2000;
     const windowSpacing = 2500;
     const windowsPerFloor = Math.floor(width / windowSpacing);
     const floorHeight = height / floors;
+    let componentId = startId;
+    
+    // Generate unique ID for component
+    const genId = (type) => `${type}_${componentId++}`;
     
     // Front facade windows
     for (let floor = 0; floor < floors; floor++) {
       for (let i = 0; i < windowsPerFloor; i++) {
+        const windowId = genId('window');
         windows.push({
+          id: windowId,
+          name: `Window F${floor}W${i}`,
           type: 'box',
+          componentType: 'window',
           dimensions: { x: windowWidth, y: windowHeight, z: 150 },
           position: {
             x: (i - windowsPerFloor / 2 + 0.5) * windowSpacing,
@@ -645,6 +802,20 @@ class GeometryGenerator {
           },
           material: 'glass',
           detail: 'window',
+          parent: parentId,
+          children: [],
+          metadata: {
+            editable: true,
+            locked: false,
+            aiGenerated: true,
+            level: 2,
+            floorNumber: floor,
+            windowNumber: i,
+            properties: {
+              openable: true,
+              glazing: 'double',
+            }
+          }
         });
       }
     }
@@ -655,18 +826,25 @@ class GeometryGenerator {
   /**
    * Generate window frames and mullions
    */
-  generateWindowFrames(width, height, depth, floors) {
+  generateWindowFrames(width, height, depth, floors, parentId = null, startId = 0) {
     const frames = [];
     const frameThickness = 50;
     const frameDepth = 150;
     const windowSpacing = 2500;
     const windowsPerFloor = Math.floor(width / windowSpacing);
     const floorHeight = height / floors;
+    let componentId = startId;
+    
+    const genId = (type) => `${type}_${componentId++}`;
     
     // Horizontal mullions between floors
     for (let floor = 1; floor < floors; floor++) {
+      const frameId = genId('mullion');
       frames.push({
+        id: frameId,
+        name: `Horizontal Mullion F${floor}`,
         type: 'box',
+        componentType: 'window_frame',
         dimensions: { x: width * 0.9, y: frameThickness * 2, z: frameDepth },
         position: {
           x: 0,
@@ -675,6 +853,15 @@ class GeometryGenerator {
         },
         material: 'metal',
         detail: 'horizontal_mullion',
+        parent: parentId,
+        children: [],
+        metadata: {
+          editable: true,
+          locked: false,
+          aiGenerated: true,
+          level: 2,
+          floorNumber: floor,
+        }
       });
     }
     
@@ -682,9 +869,9 @@ class GeometryGenerator {
   }
 
   /**
-   * Generate balconies for residential/office buildings
+   * Generate balconies for residential/office buildings with hierarchy
    */
-  generateBalconies(width, height, depth, floors) {
+  generateBalconies(width, height, depth, floors, parentId = null, startId = 0) {
     const balconies = [];
     const balconyDepth = 1500;
     const balconyWidth = width * 0.8;
@@ -726,7 +913,7 @@ class GeometryGenerator {
   /**
    * Generate entrance features (lobby, canopy, etc.)
    */
-  generateEntranceFeatures(width, depth) {
+  generateEntranceFeatures(width, depth, parentId = null, startId = 0) {
     const features = [];
     const entranceWidth = width * 0.3;
     const entranceHeight = 6000; // Double height lobby
@@ -766,7 +953,7 @@ class GeometryGenerator {
   /**
    * Generate rooftop features (garden, terrace, mechanical)
    */
-  generateRooftopFeatures(width, height, depth) {
+  generateRooftopFeatures(width, height, depth, parentId = null, startId = 0) {
     const features = [];
     
     // Rooftop parapet
@@ -807,7 +994,7 @@ class GeometryGenerator {
   /**
    * Generate structural columns (visible in modern buildings)
    */
-  generateStructuralColumns(width, height, depth) {
+  generateStructuralColumns(width, height, depth, parentId = null, startId = 0) {
     const columns = [];
     const columnRadius = 400;
     const columnsPerSide = 4;
@@ -834,7 +1021,7 @@ class GeometryGenerator {
   /**
    * Generate underground parking level indicator
    */
-  generateUndergroundLevel(width, depth) {
+  generateUndergroundLevel(width, depth, parentId = null, startId = 0) {
     const features = [];
     const parkingHeight = 3000;
     

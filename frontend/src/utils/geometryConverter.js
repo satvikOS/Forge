@@ -125,6 +125,7 @@ export function convertModelDataToSceneObjects(modelData, namePrefix = 'AI_Gener
 
 /**
  * Convert a single backend part to a SceneManager object
+ * Enhanced to support hierarchical structure (Issue #28)
  */
 function convertPartToSceneObject(part, name) {
   if (!part || !part.type) {
@@ -132,8 +133,8 @@ function convertPartToSceneObject(part, name) {
     return null;
   }
   
-  // Generate unique ID
-  const id = `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // Use existing ID if available, otherwise generate unique ID
+  const id = part.id || `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   // Convert position (backend uses mm, convert to meters for Three.js)
   const position = normalizePosition(part.position || { x: 0, y: 0, z: 0 });
@@ -160,10 +161,16 @@ function convertPartToSceneObject(part, name) {
     material,
     name: part.name || name,
     visible: true,
+    // Preserve hierarchical structure and metadata
+    parent: part.parent || null,
+    children: part.children || [],
     userData: {
       detail: part.detail,
       aiGenerated: true,
+      componentType: part.componentType,
       originalData: part,
+      // Preserve metadata from backend
+      ...(part.metadata || {}),
     },
   };
 }
