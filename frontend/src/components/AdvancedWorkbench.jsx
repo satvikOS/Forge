@@ -364,7 +364,10 @@ export default function AdvancedWorkbench({
       return;
     }
     
+    console.log('=== PROCESSING NEW MODEL DATA ===');
     console.log('Received model data in AdvancedWorkbench:', modelData);
+    console.log('Existing designs before adding:', sceneManager.getAllDesigns().length);
+    console.log('Total objects before adding:', sceneManager.objects.size);
     
     // Mark this modelData as processed
     lastProcessedModelDataRef.current = modelData;
@@ -381,13 +384,15 @@ export default function AdvancedWorkbench({
         
         // Convert backend model data to scene objects
         const sceneObjects = convertModelDataToSceneObjects(geometryData, 'AI_Model');
-        console.log(`Adding ${sceneObjects.length} objects to scene`);
+        console.log(`Converted ${sceneObjects.length} objects from model data`);
         
         // Calculate bounds for the new design
         const newDesignBounds = calculateBounds(sceneObjects);
+        console.log('New design bounds:', newDesignBounds);
         
         // Get existing designs
         const existingDesigns = sceneManager.getAllDesigns();
+        console.log(`Found ${existingDesigns.length} existing designs`);
         
         // Calculate position for new design (with spacing between designs)
         const position = calculateNextPosition(existingDesigns, newDesignBounds, 5);
@@ -401,6 +406,11 @@ export default function AdvancedWorkbench({
           prompt: modelData.prompt || 'AI Generated Design',
           source: 'ai_generation',
         });
+        
+        console.log(`Design group ${designId} added successfully`);
+        console.log('Total designs now:', sceneManager.getAllDesigns().length);
+        console.log('Total objects now:', sceneManager.objects.size);
+        console.log('=== MODEL DATA PROCESSING COMPLETE ===');
         
         setNeedsRender(true);
         
