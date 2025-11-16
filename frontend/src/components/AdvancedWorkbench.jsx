@@ -146,22 +146,36 @@ function SceneObject({ sceneObject, isSelected, onSelect }) {
 // Scene Renderer Component
 function SceneRenderer({ sceneManager, selectedObjects, onSelect }) {
   const { scene, camera, gl, raycaster } = useThree();
-  const [objects, setObjects] = useState([]);
+  const [objectsMap, setObjectsMap] = useState(new Map());
+  const objectsMapRef = useRef(new Map());
 
   useEffect(() => {
-    // Update objects list when scene manager changes
-    const updateObjects = () => {
-      setObjects(sceneManager.getAllObjects());
-    };
+    // Get initial objects
+    const allObjects = sceneManager.getAllObjects();
+    const newMap = new Map(allObjects.map(obj => [obj.id, obj]));
+    objectsMapRef.current = newMap;
+    setObjectsMap(newMap);
     
-    updateObjects();
-    const interval = setInterval(updateObjects, 100); // Poll for changes
+    // Poll for new objects being added, but only update if count changes
+    const interval = setInterval(() => {
+      const currentObjects = sceneManager.getAllObjects();
+      const currentCount = currentObjects.length;
+      const previousCount = objectsMapRef.current.size;
+      
+      // Only update if object count changed (new designs added/removed)
+      if (currentCount !== previousCount) {
+        const newMap = new Map(currentObjects.map(obj => [obj.id, obj]));
+        objectsMapRef.current = newMap;
+        setObjectsMap(newMap);
+      }
+    }, 100);
+    
     return () => clearInterval(interval);
   }, [sceneManager]);
 
   return (
     <>
-      {objects.map((obj) => (
+      {Array.from(objectsMap.values()).map((obj) => (
         <SceneObject
           key={obj.id}
           sceneObject={obj}
