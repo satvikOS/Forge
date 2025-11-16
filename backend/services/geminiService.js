@@ -14,7 +14,19 @@ class GeminiService {
         this.genAI = new GoogleGenerativeAI(this.apiKey);
         // Use model from environment variable or default to gemini-pro
         this.modelName = process.env.GEMINI_MODEL || 'gemini-pro';
-        this.model = this.genAI.getGenerativeModel({ model: this.modelName });
+        
+        // Configure API version based on model
+        // Gemini 1.5 models require v1beta API, while 2.x models use stable v1
+        const modelConfig = { model: this.modelName };
+        const requestOptions = {};
+        
+        if (this.modelName.includes('1.5')) {
+          // Gemini 1.5 models (like gemini-1.5-pro, gemini-1.5-flash) need beta API
+          requestOptions.apiVersion = 'v1beta';
+          console.log(`Using v1beta API for model: ${this.modelName}`);
+        }
+        
+        this.model = this.genAI.getGenerativeModel(modelConfig, requestOptions);
         console.log(`Gemini service initialized with model: ${this.modelName}`);
       } catch (error) {
         console.error('Failed to initialize Gemini API:', error);
