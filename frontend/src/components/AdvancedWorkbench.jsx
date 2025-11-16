@@ -178,7 +178,14 @@ export default function AdvancedWorkbench({
   onSceneUpdate 
 }) {
   const canvasRef = useRef();
-  const [sceneManager] = useState(() => new SceneManager());
+  const sceneManagerRef = useRef(null);
+  if (!sceneManagerRef.current) {
+    sceneManagerRef.current = new SceneManager();
+    sceneManagerRef.current.instanceId = `sm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log('🆕 Created NEW SceneManager instance:', sceneManagerRef.current.instanceId);
+  }
+  const sceneManager = sceneManagerRef.current;
+  
   const [toolManager] = useState(() => {
     const tm = new ToolManager();
     
@@ -368,6 +375,7 @@ export default function AdvancedWorkbench({
     console.log('\n\n========================================');
     console.log('=== PROCESSING NEW MODEL DATA ===');
     console.log('========================================');
+    console.log('🆔 SceneManager instance ID:', sceneManager.instanceId);
     console.log('Received model data in AdvancedWorkbench:', modelData);
     console.log('📊 BEFORE ADDING NEW DESIGN:');
     console.log('  - Existing designs:', sceneManager.getAllDesigns().length);
