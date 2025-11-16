@@ -365,10 +365,23 @@ export default function AdvancedWorkbench({
       return;
     }
     
+    console.log('\n\n========================================');
     console.log('=== PROCESSING NEW MODEL DATA ===');
+    console.log('========================================');
     console.log('Received model data in AdvancedWorkbench:', modelData);
-    console.log('Existing designs before adding:', sceneManager.getAllDesigns().length);
-    console.log('Total objects before adding:', sceneManager.objects.size);
+    console.log('📊 BEFORE ADDING NEW DESIGN:');
+    console.log('  - Existing designs:', sceneManager.getAllDesigns().length);
+    console.log('  - Total objects in scene:', sceneManager.objects.size);
+    console.log('  - Design groups:', sceneManager.designGroups.size);
+    
+    // List all existing designs
+    const existingDesigns = sceneManager.getAllDesigns();
+    if (existingDesigns.length > 0) {
+      console.log('  - Existing design IDs:', existingDesigns.map(d => d.id));
+      existingDesigns.forEach((design, idx) => {
+        console.log(`    Design ${idx + 1}: ${design.id}, objects: ${design.objects.length}, position: (${design.position.x}, ${design.position.y}, ${design.position.z})`);
+      });
+    }
     
     // Mark this modelData as processed BEFORE async processing to prevent race conditions
     lastProcessedModelDataRef.current = modelData;
@@ -381,44 +394,58 @@ export default function AdvancedWorkbench({
       try {
         // Extract geometry from model data (backend returns { geometry: {...}, materials: [...], ... })
         const geometryData = modelData.geometry || modelData;
-        console.log('Extracting geometry data:', geometryData);
+        console.log('📦 Extracting geometry data...');
         
         // Convert backend model data to scene objects
         const sceneObjects = convertModelDataToSceneObjects(geometryData, 'AI_Model');
-        console.log(`Converted ${sceneObjects.length} objects from model data`);
+        console.log(`✅ Converted ${sceneObjects.length} objects from model data`);
         
         // Check if we got any objects
         if (!sceneObjects || sceneObjects.length === 0) {
-          console.error('No objects were converted from model data!');
+          console.error('❌ NO OBJECTS WERE CONVERTED!');
           console.error('Model data structure:', JSON.stringify(modelData, null, 2));
           return;
         }
         
         // Calculate bounds for the new design
         const newDesignBounds = calculateBounds(sceneObjects);
-        console.log('New design bounds:', newDesignBounds);
+        console.log('📏 New design bounds:', newDesignBounds);
         
-        // Get existing designs
-        const existingDesigns = sceneManager.getAllDesigns();
-        console.log(`Found ${existingDesigns.length} existing designs`);
+        // Get existing designs AGAIN (to be sure)
+        const existingDesignsNow = sceneManager.getAllDesigns();
+        console.log(`📍 Found ${existingDesignsNow.length} existing designs when calculating position`);
         
         // Calculate position for new design (with spacing between designs)
-        const position = calculateNextPosition(existingDesigns, newDesignBounds, 5);
-        console.log('Calculated position for new design:', position);
+        const position = calculateNextPosition(existingDesignsNow, newDesignBounds, 5);
+        console.log('🎯 Calculated position for new design:', position);
         
         // Generate unique design ID
         const designId = sceneManager.generateDesignId();
+        console.log('🆔 Generated design ID:', designId);
         
         // Add as a design group (this will add objects to scene with position offset)
+        console.log('➕ Adding design group to scene...');
         sceneManager.addDesignGroup(designId, sceneObjects, position, {
           prompt: modelData.prompt || 'AI Generated Design',
           source: 'ai_generation',
         });
         
-        console.log(`Design group ${designId} added successfully`);
-        console.log('Total designs now:', sceneManager.getAllDesigns().length);
-        console.log('Total objects now:', sceneManager.objects.size);
+        console.log('📊 AFTER ADDING NEW DESIGN:');
+        console.log(`  ✅ Design group ${designId} added successfully`);
+        console.log('  - Total designs now:', sceneManager.getAllDesigns().length);
+        console.log('  - Total objects now:', sceneManager.objects.size);
+        console.log('  - Design groups:', sceneManager.designGroups.size);
+        
+        // List all designs after adding
+        const allDesigns = sceneManager.getAllDesigns();
+        console.log('  - All design IDs:', allDesigns.map(d => d.id));
+        allDesigns.forEach((design, idx) => {
+          console.log(`    Design ${idx + 1}: ${design.id}, objects: ${design.objects.length}, position: (${design.position.x}, ${design.position.y}, ${design.position.z})`);
+        });
+        
+        console.log('========================================');
         console.log('=== MODEL DATA PROCESSING COMPLETE ===');
+        console.log('========================================\n\n');
         
         setNeedsRender(true);
         
@@ -430,14 +457,12 @@ export default function AdvancedWorkbench({
             sceneManager,
           });
         }
-        
-        console.log('AI model added to scene successfully as design group:', designId);
       } catch (error) {
-        console.error('!!! Error adding AI model to scene !!!', error);
+        console.error('!!! ❌ ERROR ADDING AI MODEL TO SCENE !!!', error);
         console.error('Error stack:', error.stack);
       }
     }).catch(error => {
-      console.error('!!! Error importing modules !!!', error);
+      console.error('!!! ❌ ERROR IMPORTING MODULES !!!', error);
       console.error('Error stack:', error.stack);
     });
   }, [modelData, sceneManager, onSceneUpdate]);
