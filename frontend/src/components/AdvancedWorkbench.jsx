@@ -359,17 +359,12 @@ export default function AdvancedWorkbench({
     
     console.log('Received model data in AdvancedWorkbench:', modelData);
     
-    // Import geometry converter
-    import('../utils/geometryConverter.js').then(({ convertModelDataToSceneObjects }) => {
+    // Import geometry converter and layout manager
+    Promise.all([
+      import('../utils/geometryConverter.js'),
+      import('../utils/layoutManager.js')
+    ]).then(([{ convertModelDataToSceneObjects }, { calculateNextPosition, calculateBounds }]) => {
       try {
-        // Clear previous AI-generated objects
-        const existingObjects = Array.from(sceneManager.objects.values());
-        existingObjects.forEach(obj => {
-          if (obj.userData?.aiGenerated) {
-            sceneManager.deleteObject(obj.id);
-          }
-        });
-        
         // Extract geometry from model data (backend returns { geometry: {...}, materials: [...], ... })
         const geometryData = modelData.geometry || modelData;
         console.log('Extracting geometry data:', geometryData);
@@ -378,9 +373,23 @@ export default function AdvancedWorkbench({
         const sceneObjects = convertModelDataToSceneObjects(geometryData, 'AI_Model');
         console.log(`Adding ${sceneObjects.length} objects to scene`);
         
-        // Add objects to scene manager
-        sceneObjects.forEach(obj => {
-          sceneManager.addObject(obj);
+        // Calculate bounds for the new design
+        const newDesignBounds = calculateBounds(sceneObjects);
+        
+        // Get existing designs
+        const existingDesigns = sceneManager.getAllDesigns();
+        
+        // Calculate position for new design (with spacing between designs)
+        const position = calculateNextPosition(existingDesigns, newDesignBounds, 5);
+        console.log('Calculated position for new design:', position);
+        
+        // Generate unique design ID
+        const designId = sceneManager.generateDesignId();
+        
+        // Add as a design group (this will add objects to scene with position offset)
+        sceneManager.addDesignGroup(designId, sceneObjects, position, {
+          prompt: modelData.prompt || 'AI Generated Design',
+          source: 'ai_generation',
         });
         
         setNeedsRender(true);
@@ -394,7 +403,7 @@ export default function AdvancedWorkbench({
           });
         }
         
-        console.log('AI model added to scene successfully');
+        console.log('AI model added to scene successfully as design group:', designId);
       } catch (error) {
         console.error('Error adding AI model to scene:', error);
       }

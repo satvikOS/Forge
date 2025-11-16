@@ -72,6 +72,10 @@ export class SceneManager {
     this.historyIndex = -1;
     this.maxHistory = 50;
     
+    // Design group tracking for multiple designs (Issue #27)
+    this.designGroups = new Map(); // designId -> { objects: [], bounds: {}, metadata: {} }
+    this.designIdCounter = 0;
+    
     // Create default layer
     this.createLayer('default', 'Default Layer');
   }
@@ -301,6 +305,152 @@ export class SceneManager {
     this.objectIdCounter = 0;
     this.historyStack = [];
     this.historyIndex = -1;
+  }
+
+  // Design Group Management (Issue #27)
+  /**
+   * Add a design group to the scene
+   * @param {string} designId - Unique identifier for the design
+   * @param {Array} objects - Array of scene objects belonging to this design
+   * @param {Object} position - Position offset {x, y, z}
+   * @param {Object} metadata - Design metadata (prompt, timestamp, etc.)
+   * @returns {Object} Design group info
+   */
+  addDesignGroup(designId, objects, position = { x: 0, y: 0, z: 0 }, metadata = {}) {
+    // Apply position offset to all objects
+    objects.forEach(obj => {
+      obj.position.x += position.x;
+      obj.position.y += position.y;
+      obj.position.z += position.z;
+      
+      // Mark object as part of this design group
+      obj.userData = obj.userData || {};
+      obj.userData.designId = designId;
+      
+      // Add to scene
+      this.addObject(obj);
+    });
+    
+    // Calculate bounds
+    const bounds = this.calculateDesignBounds(objects);
+    
+    // Store design group
+    const designGroup = {
+      id: designId,
+      objects: objects.map(obj => obj.id),
+      position,
+      bounds,
+      metadata: {
+        ...metadata,
+        timestamp: Date.now(),
+      },
+    };
+    
+    this.designGroups.set(designId, designGroup);
+    
+    console.log(`Added design group ${designId} with ${objects.length} objects`);
+    
+    return designGroup;
+  }
+
+  /**
+   * Get bounding box for a design group
+   * @param {Array} objects - Array of scene objects
+   * @returns {Object} Bounds {min, max, center, size}
+   */
+  calculateDesignBounds(objects) {
+    if (!objects || objects.length === 0) {
+      return {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 0, y: 0, z: 0 },
+        center: { x: 0, y: 0, z: 0 },
+        size: { x: 0, y: 0, z: 0 },
+      };
+    }
+
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+    objects.forEach(obj => {
+      if (!obj.position) return;
+      
+      const { x, y, z } = obj.position;
+      const geom = obj.geometry || {};
+      
+      // Estimate object bounds based on geometry
+      const halfWidth = (geom.width || 1) / 2;
+      const halfHeight = (geom.height || 1) / 2;
+      const halfDepth = (geom.depth || 1) / 2;
+      
+      minX = Math.min(minX, x - halfWidth);
+      minY = Math.min(minY, y - halfHeight);
+      minZ = Math.min(minZ, z - halfDepth);
+      
+      maxX = Math.max(maxX, x + halfWidth);
+      maxY = Math.max(maxY, y + halfHeight);
+      maxZ = Math.max(maxZ, z + halfDepth);
+    });
+
+    const min = { x: minX, y: minY, z: minZ };
+    const max = { x: maxX, y: maxY, z: maxZ };
+    const center = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      z: (minZ + maxZ) / 2,
+    };
+    const size = {
+      x: maxX - minX,
+      y: maxY - minY,
+      z: maxZ - minZ,
+    };
+
+    return { min, max, center, size };
+  }
+
+  /**
+   * Get all design groups
+   * @returns {Array} Array of design groups
+   */
+  getAllDesigns() {
+    return Array.from(this.designGroups.values());
+  }
+
+  /**
+   * Get a specific design group
+   * @param {string} designId - Design identifier
+   * @returns {Object|null} Design group or null if not found
+   */
+  getDesignGroup(designId) {
+    return this.designGroups.get(designId);
+  }
+
+  /**
+   * Remove a design group and all its objects
+   * @param {string} designId - Design identifier
+   * @returns {boolean} True if removed successfully
+   */
+  removeDesignGroup(designId) {
+    const design = this.designGroups.get(designId);
+    if (!design) return false;
+    
+    // Remove all objects in this design
+    design.objects.forEach(objId => {
+      this.removeObject(objId);
+    });
+    
+    // Remove design group
+    this.designGroups.delete(designId);
+    
+    console.log(`Removed design group ${designId}`);
+    return true;
+  }
+
+  /**
+   * Generate a unique design ID
+   * @returns {string} Unique design ID
+   */
+  generateDesignId() {
+    return `design_${this.designIdCounter++}_${Date.now()}`;
   }
 }
 

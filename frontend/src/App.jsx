@@ -46,6 +46,9 @@ function App() {
   const [generationProgress, setGenerationProgress] = useState(null);
   const [currentJobId, setCurrentJobId] = useState(null);
   const [modelData, setModelData] = useState(null);
+  
+  // Multiple designs tracking (Issue #27)
+  const [designs, setDesigns] = useState([]);
 
   // Keyboard shortcuts handler
   useEffect(() => {
@@ -134,10 +137,7 @@ function App() {
   const handleGenerateDesign = async (prompt) => {
     setLoading(true);
     setError(null);
-    setAnalysis(null);
-    setCompliance(null);
     setGenerationProgress(null);
-    setModelData(null);
 
     try {
       // Generate design with progress tracking
@@ -148,7 +148,22 @@ function App() {
       
       if (result.success && result.design) {
         setDesign(result.design);
-        setModelData(result.modelData);
+        
+        // Add prompt to model data so we can track it
+        const modelDataWithPrompt = {
+          ...result.modelData,
+          prompt: prompt,
+        };
+        setModelData(modelDataWithPrompt);
+        
+        // Add to designs array instead of replacing
+        setDesigns(prevDesigns => [...prevDesigns, {
+          id: `design_${Date.now()}`,
+          prompt: prompt,
+          design: result.design,
+          modelData: result.modelData,
+          timestamp: Date.now(),
+        }]);
         
         // Optionally perform analysis and compliance checks
         if (result.design.specifications) {
