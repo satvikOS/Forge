@@ -355,6 +355,7 @@ export default function AdvancedWorkbench({
   // Process incoming AI model data
   useEffect(() => {
     if (!modelData || !sceneManager) {
+      console.log('Skipping model data processing - missing modelData or sceneManager');
       return;
     }
     
@@ -369,7 +370,7 @@ export default function AdvancedWorkbench({
     console.log('Existing designs before adding:', sceneManager.getAllDesigns().length);
     console.log('Total objects before adding:', sceneManager.objects.size);
     
-    // Mark this modelData as processed
+    // Mark this modelData as processed BEFORE async processing to prevent race conditions
     lastProcessedModelDataRef.current = modelData;
     
     // Import geometry converter and layout manager
@@ -385,6 +386,13 @@ export default function AdvancedWorkbench({
         // Convert backend model data to scene objects
         const sceneObjects = convertModelDataToSceneObjects(geometryData, 'AI_Model');
         console.log(`Converted ${sceneObjects.length} objects from model data`);
+        
+        // Check if we got any objects
+        if (!sceneObjects || sceneObjects.length === 0) {
+          console.error('No objects were converted from model data!');
+          console.error('Model data structure:', JSON.stringify(modelData, null, 2));
+          return;
+        }
         
         // Calculate bounds for the new design
         const newDesignBounds = calculateBounds(sceneObjects);
@@ -425,8 +433,12 @@ export default function AdvancedWorkbench({
         
         console.log('AI model added to scene successfully as design group:', designId);
       } catch (error) {
-        console.error('Error adding AI model to scene:', error);
+        console.error('!!! Error adding AI model to scene !!!', error);
+        console.error('Error stack:', error.stack);
       }
+    }).catch(error => {
+      console.error('!!! Error importing modules !!!', error);
+      console.error('Error stack:', error.stack);
     });
   }, [modelData, sceneManager, onSceneUpdate]);
 
