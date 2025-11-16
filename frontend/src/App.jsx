@@ -353,9 +353,6 @@ function App() {
       {/* Main Content Area */}
       <div style={{
         flex: 1,
-
-        display: 'flex',
-
         display: 'grid',
         gridTemplateColumns: sidebarCollapsed 
           ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 240px')
