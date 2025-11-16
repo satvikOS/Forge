@@ -88,8 +88,8 @@ function SceneObject({ sceneObject, isSelected, onSelect }) {
     }
   }, [sceneObject.geometry]);
 
-  // Update position, rotation, scale
-  useFrame(() => {
+  // Update position, rotation, scale when object changes
+  useEffect(() => {
     if (meshRef.current) {
       meshRef.current.position.set(
         sceneObject.position.x,
@@ -107,7 +107,7 @@ function SceneObject({ sceneObject, isSelected, onSelect }) {
         sceneObject.scale.z
       );
     }
-  });
+  }, [sceneObject.position, sceneObject.rotation, sceneObject.scale]);
 
   if (!sceneObject.visible) return null;
 
