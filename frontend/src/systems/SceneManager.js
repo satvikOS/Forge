@@ -81,9 +81,11 @@ export class SceneManager {
   }
 
   // Object Management
-  addObject(object) {
+  addObject(object, skipStateRecording = false) {
     this.objects.set(object.id, object);
-    this.saveState();
+    if (!skipStateRecording) {
+      this.saveState();
+    }
     return object;
   }
 
@@ -327,8 +329,8 @@ export class SceneManager {
       obj.userData = obj.userData || {};
       obj.userData.designId = designId;
       
-      // Add to scene
-      this.addObject(obj);
+      // Add to scene without recording state for each object (performance optimization)
+      this.addObject(obj, true);
     });
     
     // Calculate bounds
@@ -349,6 +351,9 @@ export class SceneManager {
     this.designGroups.set(designId, designGroup);
     
     console.log(`Added design group ${designId} with ${objects.length} objects`);
+    
+    // Save state once after all objects are added
+    this.saveState();
     
     return designGroup;
   }
