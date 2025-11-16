@@ -60,7 +60,8 @@ class APIService {
           return {
             success: true,
             design: job.result?.design,
-            modelData: job.result?.design?.model,
+            modelData: job.result?.modelData || job.result?.design?.model, // Use modelData from result
+            designId: job.result?.designId, // Include designId for multi-design tracking
           };
         }
         

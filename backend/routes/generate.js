@@ -16,8 +16,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    // Create job
-    const jobId = jobQueue.createJob(prompt, options);
+    // Extract position and keepPrevious parameters (Issue #27)
+    const { position, relativePosition, keepPrevious = true } = options;
+
+    // Create job with options
+    const jobId = jobQueue.createJob(prompt, { 
+      ...options, 
+      position, 
+      relativePosition, 
+      keepPrevious 
+    });
 
     // Start processing async
     processGenerationJob(jobId, prompt, options).catch(error => {
@@ -61,6 +69,8 @@ router.get('/:jobId', async (req, res) => {
         updatedAt: job.updatedAt,
         result: job.status === 'completed' ? {
           design: job.result?.design,
+          modelData: job.result?.modelData, // Include modelData for frontend
+          designId: job.result?.designId, // Include designId for multi-design tracking
           availableFormats: ['obj', 'gltf', 'fbx'],
         } : null,
         error: job.error,
@@ -175,13 +185,19 @@ async function processGenerationJob(jobId, prompt, options) {
     console.log('--- 📦 Stage 4: Preparing Exports ---');
     jobQueue.updateProgress(jobId, 'exporting', 50);
     
+    // Generate unique design ID for frontend tracking (Issue #27)
+    const designId = `design_${jobId}_${Date.now()}`;
+    
     const result = {
       design: {
         specifications,
         model: refined,
         id: jobId,
+        designId, // Unique ID for multi-design tracking
         createdAt: new Date().toISOString(),
       },
+      modelData: refined, // Include modelData for frontend compatibility
+      designId, // Also at root level for easy access
       exports: {
         prepared: true,
         formats: ['obj', 'gltf', 'fbx'],
