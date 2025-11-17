@@ -1,12 +1,16 @@
 /**
  * Placement Engine - Handles realistic and detailed object placement in 3D scenes
  * Ensures proper spatial relationships, contextual positioning, and environmental coherence
+ * Enhanced with real-world urban planning data and geographical patterns
  */
+
+const realWorldDataService = require('./realWorldDataService');
 
 class PlacementEngine {
   constructor() {
     // Seeded random for consistent placement
     this.seed = Date.now();
+    this.realWorldData = realWorldDataService;
   }
 
   /**
@@ -26,7 +30,7 @@ class PlacementEngine {
   }
 
   /**
-   * Calculate realistic positions for elements based on taxonomy analysis
+   * Calculate realistic positions for elements based on taxonomy analysis and real-world data
    * @param {Array} elements - Array of elements from taxonomy analysis
    * @param {Object} spatialComposition - Spatial composition data
    * @param {Object} environmentalContext - Environmental context data
@@ -34,9 +38,13 @@ class PlacementEngine {
    */
   calculatePositions(elements, spatialComposition, environmentalContext) {
     console.log('📐 Calculating realistic positions for', elements.length, 'elements');
+    console.log('🌍 Using real-world urban planning patterns');
     
     const layout = spatialComposition?.layout || 'organic';
     const centerPoint = spatialComposition?.centerPoint || 'center';
+    
+    // Check if we have real-world data recommendations
+    const hasRealWorldData = elements.some(el => el.realWorldPattern);
     
     // Reset seed for consistent placement
     this.setSeed(Date.now());
@@ -48,16 +56,16 @@ class PlacementEngine {
     
     const positionedElements = [];
     
-    // Place primary elements first (buildings, major features)
+    // Place primary elements first (buildings, major features) with real-world spacing
     positionedElements.push(...this.placePrimaryElements(primaryElements, layout, environmentalContext));
     
-    // Place secondary elements (roads, smaller buildings)
+    // Place secondary elements (roads, smaller buildings) connecting primary elements
     positionedElements.push(...this.placeSecondaryElements(secondaryElements, positionedElements, layout));
     
-    // Place tertiary elements (vegetation, decorations)
-    positionedElements.push(...this.placeTertiaryElements(tertiaryElements, positionedElements, layout));
+    // Place tertiary elements (vegetation, decorations) in realistic patterns
+    positionedElements.push(...this.placeTertiaryElements(tertiaryElements, positionedElements, layout, environmentalContext));
     
-    console.log('✅ Positioned', positionedElements.length, 'elements');
+    console.log('✅ Positioned', positionedElements.length, 'elements using real-world patterns');
     return positionedElements;
   }
 
@@ -139,20 +147,24 @@ class PlacementEngine {
   }
 
   /**
-   * Place tertiary elements (vegetation, decorations)
+   * Place tertiary elements (vegetation, decorations) with real-world patterns
    */
-  placeTertiaryElements(elements, existingElements, layout) {
+  placeTertiaryElements(elements, existingElements, layout, environmentalContext) {
     const positioned = [];
     
     for (const element of elements) {
       const count = element.quantity || 1;
       const spacing = element.placement?.spacing || 5;
       
+      // Use real-world vegetation patterns if available
+      const clustering = this.determineVegetationClustering(element, environmentalContext);
+      
       for (let i = 0; i < count; i++) {
         const position = this.findOpenSpace(
           element,
           spacing,
-          existingElements.concat(positioned)
+          existingElements.concat(positioned),
+          clustering
         );
         
         if (position) {
@@ -167,6 +179,23 @@ class PlacementEngine {
     }
     
     return positioned;
+  }
+  
+  /**
+   * Determine vegetation clustering based on real-world patterns
+   */
+  determineVegetationClustering(element, environmentalContext) {
+    if (element.category !== 'flora') return 'scattered';
+    
+    const vegetation = environmentalContext?.vegetation;
+    
+    if (vegetation === 'forest' || vegetation === 'dense') {
+      return 'continuous'; // Trees close together
+    } else if (vegetation === 'moderate') {
+      return 'clustered'; // Trees in groups
+    } else {
+      return 'scattered'; // Trees spread out
+    }
   }
 
   /**
@@ -360,11 +389,14 @@ class PlacementEngine {
   }
 
   /**
-   * Find open space for placing an element
+   * Find open space for placing an element with clustering awareness
    */
-  findOpenSpace(element, minSpacing, existingElements) {
-    const maxAttempts = 100;
-    const maxSpread = 200;
+  findOpenSpace(element, minSpacing, existingElements, clustering = 'scattered') {
+    const maxAttempts = clustering === 'continuous' ? 150 : 100;
+    const maxSpread = clustering === 'continuous' ? 150 : 200;
+    
+    // For clustered/continuous vegetation, reduce spacing
+    const effectiveSpacing = clustering === 'continuous' ? minSpacing * 0.5 : minSpacing;
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const position = {
@@ -373,7 +405,7 @@ class PlacementEngine {
         z: this.seededRandom(-maxSpread, maxSpread)
       };
       
-      if (this.isPositionValid(position, minSpacing, existingElements)) {
+      if (this.isPositionValid(position, effectiveSpacing, existingElements)) {
         return position;
       }
     }

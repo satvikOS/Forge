@@ -2,16 +2,18 @@ const geminiService = require('./geminiService');
 const geometryGenerator = require('./geometryGenerator');
 const materialSystem = require('./materialSystem');
 const taxonomySystem = require('./taxonomySystem');
+const realWorldDataService = require('./realWorldDataService');
 
 class AIService {
   constructor() {
     this.gemini = geminiService;
     this.taxonomy = taxonomySystem;
+    this.realWorldData = realWorldDataService;
   }
 
   /**
    * Process natural language prompt to generate design specifications
-   * Now with taxonomy-aware analysis for comprehensive scene generation
+   * Now with taxonomy-aware analysis and real-world data integration for comprehensive scene generation
    */
   async processPrompt(prompt) {
     console.log('\n=== 🎨 AI Service Processing Prompt ===');
@@ -22,7 +24,23 @@ class AIService {
       console.log('🔍 Attempting taxonomy-aware analysis...');
       const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPrompt(prompt);
       if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
-        console.log('✅ Taxonomy analysis successful:', JSON.stringify(taxonomyAnalysis, null, 2));
+        console.log('✅ Taxonomy analysis successful');
+        
+        // Apply real-world patterns and data
+        console.log('🌍 Enhancing with real-world data...');
+        const realWorldRecommendations = this.realWorldData.analyzeForRealWorldPatterns(taxonomyAnalysis);
+        
+        // Apply real-world patterns to elements
+        if (taxonomyAnalysis.elements && realWorldRecommendations) {
+          taxonomyAnalysis.elements = this.realWorldData.applyRealWorldPatterns(
+            taxonomyAnalysis.elements,
+            realWorldRecommendations
+          );
+          
+          // Store real-world recommendations in taxonomy data
+          taxonomyAnalysis.realWorldData = realWorldRecommendations;
+        }
+        
         const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
         console.log('=== End AI Service Processing ===\n');
         return specs;
