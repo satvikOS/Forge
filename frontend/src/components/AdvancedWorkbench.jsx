@@ -27,6 +27,82 @@ import { TapeMeasureTool, ProtractorTool, DimensionTool, AreaCalculatorTool, Vol
 import { TopViewTool, FrontViewTool, SideViewTool, PerspectiveViewTool, FocusSelectionTool, FrameAllTool } from '../tools/CameraTools';
 import { initializeEnvironmentSystem } from '../systems/EnvironmentSystem';
 
+// Camera Auto-Framer - Automatically frames all objects when scene changes
+function CameraAutoFramer({ sceneManager, enabled = true }) {
+  const { camera, controls } = useThree();
+  const lastObjectCountRef = useRef(0);
+  
+  useFrame(() => {
+    if (!enabled || !sceneManager || !camera || !controls) return;
+    
+    const currentObjectCount = sceneManager.objects.size;
+    
+    // Only frame if object count changed (new objects added)
+    if (currentObjectCount !== lastObjectCountRef.current && currentObjectCount > 0) {
+      lastObjectCountRef.current = currentObjectCount;
+      
+      // Calculate bounding box of all objects
+      const allObjects = sceneManager.getAllObjects();
+      if (allObjects.length === 0) return;
+      
+      // Calculate bounds
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      
+      allObjects.forEach(obj => {
+        const pos = obj.position;
+        const scale = obj.scale;
+        
+        // Estimate object bounds (rough approximation)
+        const halfWidth = (scale.x || 1) * 5;
+        const halfHeight = (scale.y || 1) * 5;
+        const halfDepth = (scale.z || 1) * 5;
+        
+        minX = Math.min(minX, pos.x - halfWidth);
+        minY = Math.min(minY, pos.y - halfHeight);
+        minZ = Math.min(minZ, pos.z - halfDepth);
+        maxX = Math.max(maxX, pos.x + halfWidth);
+        maxY = Math.max(maxY, pos.y + halfHeight);
+        maxZ = Math.max(maxZ, pos.z + halfDepth);
+      });
+      
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const centerZ = (minZ + maxZ) / 2;
+      
+      const sizeX = maxX - minX;
+      const sizeY = maxY - minY;
+      const sizeZ = maxZ - minZ;
+      const maxDim = Math.max(sizeX, sizeY, sizeZ);
+      
+      // Calculate optimal camera distance
+      const fov = camera.fov || 50;
+      const distance = maxDim / (2 * Math.tan((fov * Math.PI) / 360)) * 1.5; // 1.5x for padding
+      
+      // Position camera at an angle to see the scene
+      const angle = Math.PI / 4; // 45 degrees
+      const cameraX = centerX + distance * Math.cos(angle);
+      const cameraY = centerY + distance * 0.5; // Elevated view
+      const cameraZ = centerZ + distance * Math.sin(angle);
+      
+      camera.position.set(cameraX, cameraY, cameraZ);
+      camera.lookAt(centerX, centerY, centerZ);
+      
+      if (controls && controls.target) {
+        controls.target.set(centerX, centerY, centerZ);
+        controls.update();
+      }
+      
+      console.log('📷 Auto-framed camera to view', currentObjectCount, 'objects');
+      console.log('  Scene bounds:', { sizeX, sizeY, sizeZ, maxDim });
+      console.log('  Camera position:', { x: cameraX, y: cameraY, z: cameraZ });
+      console.log('  Looking at:', { x: centerX, y: centerY, z: centerZ });
+    }
+  });
+  
+  return null;
+}
+
 // Scene Object Renderer - Renders objects from the scene manager
 function SceneObject({ sceneObject, isSelected, onSelect }) {
   const meshRef = useRef();
@@ -628,6 +704,9 @@ export default function AdvancedWorkbench({
             selectedObjects={selectedObjects}
             onSelect={handleObjectSelect}
           />
+          
+          {/* Auto-frame camera when objects are added */}
+          <CameraAutoFramer sceneManager={sceneManager} enabled={true} />
           
           {/* Industry-Grade Grid - 18x larger (1800×1800 units) */}
           <Grid
