@@ -413,7 +413,7 @@ export default function AdvancedWorkbench({
   const [selectedObjects, setSelectedObjects] = useState(new Set());
   const [needsRender, setNeedsRender] = useState(false);
   const contextRef = useRef({});
-  const lastProcessedModelDataRef = useRef(null);
+  const lastProcessedTimestampRef = useRef(null);
 
   // Update context when tools or scene changes
   useEffect(() => {
@@ -545,14 +545,15 @@ export default function AdvancedWorkbench({
     
     // Check if this is an environment composition scene (objects already added by SceneComposer)
     if (modelData.sceneType === 'environment_composition') {
-      // Check if we've already processed this exact modelData
-      if (lastProcessedModelDataRef.current === modelData) {
+      // Check if we've already processed this timestamp
+      const currentTimestamp = modelData.timestamp;
+      if (lastProcessedTimestampRef.current === currentTimestamp) {
         console.log('Environment composition already processed, skipping');
         return;
       }
       
-      // Mark as processed
-      lastProcessedModelDataRef.current = modelData;
+      // Mark as processed using timestamp
+      lastProcessedTimestampRef.current = currentTimestamp;
       
       console.log('✅ Environment composition scene - objects already in scene manager');
       console.log('📊 Current scene state:');
@@ -578,14 +579,15 @@ export default function AdvancedWorkbench({
       return;
     }
     
-    // For backend API-generated models, check if already processed
-    if (lastProcessedModelDataRef.current === modelData) {
+    // For backend API-generated models, check if already processed using timestamp or unique ID
+    const currentTimestamp = modelData.timestamp || JSON.stringify(modelData);
+    if (lastProcessedTimestampRef.current === currentTimestamp) {
       console.log('Model data already processed, skipping');
       return;
     }
     
     // Mark this modelData as processed BEFORE processing to prevent race conditions
-    lastProcessedModelDataRef.current = modelData;
+    lastProcessedTimestampRef.current = currentTimestamp;
     
     // For backend API-generated models, process through the old path
     console.log('📊 BEFORE ADDING NEW DESIGN:');
