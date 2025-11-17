@@ -11,6 +11,7 @@ import VegetationGenerator from '../generators/VegetationGenerator';
 import BuildingGenerator from '../generators/BuildingGenerator';
 import RoadGenerator from '../generators/RoadGenerator';
 import AtmosphericGenerator from '../generators/AtmosphericGenerator';
+import SceneComposer from '../systems/SceneComposer';
 
 import { registerAbioticAssets } from '../assets/environments/abiotic/index';
 import { registerBioticAssets } from '../assets/environments/biotic/index';
@@ -20,9 +21,10 @@ import { createEnvironmentTools } from '../tools/EnvironmentTools';
 
 /**
  * Initialize the complete environment system
+ * @param {Object} sceneManager - SceneManager instance for scene composition
  * @returns {Object} Initialized systems
  */
-export function initializeEnvironmentSystem() {
+export function initializeEnvironmentSystem(sceneManager = null) {
   // Create material system
   const materialSystem = new EnvironmentMaterials();
 
@@ -54,13 +56,21 @@ export function initializeEnvironmentSystem() {
   // Create environment tools from registered assets
   const environmentTools = createEnvironmentTools(assetManager);
 
+  // Create scene composer if sceneManager is provided
+  let sceneComposer = null;
+  if (sceneManager) {
+    sceneComposer = new SceneComposer(assetManager, generators, sceneManager);
+    console.log(`✅ Scene Composer initialized with ${Object.keys(sceneComposer.sceneTemplates).length} templates`);
+  }
+
   console.log(`✅ Environment system initialized: ${assetManager.getAllAssets().length} assets registered`);
 
   return {
     assetManager,
     materialSystem,
     generators,
-    environmentTools
+    environmentTools,
+    sceneComposer
   };
 }
 

@@ -4,13 +4,15 @@
 
 import { useState } from 'react';
 import AssetBrowser from './AssetBrowser';
+import SceneComposerPanel from './SceneComposerPanel';
 
-export default function EnvironmentPanel({ assetManager, onAddAsset }) {
-  const [activeTab, setActiveTab] = useState('assets');
+export default function EnvironmentPanel({ assetManager, sceneComposer, onAddAsset, onSceneGenerated }) {
+  const [activeTab, setActiveTab] = useState('composer');
 
   const tabs = [
+    { id: 'composer', label: 'Scene Composer', icon: '🎨' },
     { id: 'assets', label: 'Assets', icon: '📦' },
-    { id: 'presets', label: 'Presets', icon: '🎨' },
+    { id: 'presets', label: 'Presets', icon: '🎭' },
   ];
 
   const handleAssetSelect = (asset) => {
@@ -77,6 +79,12 @@ export default function EnvironmentPanel({ assetManager, onAddAsset }) {
 
       {/* Content */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
+        {activeTab === 'composer' && sceneComposer && (
+          <SceneComposerPanel
+            sceneComposer={sceneComposer}
+            onSceneGenerated={onSceneGenerated}
+          />
+        )}
         {activeTab === 'assets' && (
           <AssetBrowser
             assetManager={assetManager}

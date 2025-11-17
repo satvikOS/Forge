@@ -259,9 +259,9 @@ export default function AdvancedWorkbench({
   }
   const sceneManager = sceneManagerRef.current;
   
-  // Initialize environment system
+  // Initialize environment system with sceneManager for scene composition
   const [environmentSystem] = useState(() => {
-    return initializeEnvironmentSystem();
+    return initializeEnvironmentSystem(sceneManager);
   });
   
   const [toolManager] = useState(() => {
