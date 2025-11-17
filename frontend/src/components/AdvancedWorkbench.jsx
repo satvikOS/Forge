@@ -531,8 +531,11 @@ export default function AdvancedWorkbench({
   }, [toolManager, sceneManager, onToolChange]);
 
   // Process incoming AI model data
+  // Only re-run when timestamp changes (not on every modelData object change)
+  const modelDataTimestamp = modelData?.timestamp;
+  
   useEffect(() => {
-    if (!modelData || !sceneManager) {
+    if (!modelData || !sceneManager || !modelDataTimestamp) {
       console.log('Skipping model data processing - missing modelData or sceneManager');
       return;
     }
@@ -684,7 +687,7 @@ export default function AdvancedWorkbench({
       console.error('!!! ❌ ERROR IMPORTING MODULES !!!', error);
       console.error('Error stack:', error.stack);
     });
-  }, [modelData, sceneManager, environmentSystem, onSceneUpdate]);
+  }, [modelDataTimestamp, sceneManager, environmentSystem, onSceneUpdate]);
 
   const isWireframe = viewMode === 'wireframe';
 

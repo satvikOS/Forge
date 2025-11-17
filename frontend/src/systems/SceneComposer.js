@@ -347,14 +347,18 @@ export class SceneComposer {
             const asset = this.assetManager.getAsset(assetType);
             if (asset && asset.generator) {
               // Generate asset with variation and dimensions from taxonomy
+              // Scale dimensions appropriately for Three.js scene
+              // Taxonomy gives dimensions in meters, but scene needs larger units for visibility
+              const SCALE_FACTOR = 100; // 1 meter = 100 scene units for proper visibility
+              
               const options = {
                 seed: this.seed + i,
                 variation: this.seededRandom(0, 1),
                 ...element.placement,
-                // Pass dimensions directly to generator (in meters)
-                width: element.dimensions?.width,
-                depth: element.dimensions?.depth,
-                height: element.dimensions?.height
+                // Scale dimensions for proper Three.js visibility
+                width: element.dimensions?.width ? element.dimensions.width * SCALE_FACTOR : undefined,
+                depth: element.dimensions?.depth ? element.dimensions.depth * SCALE_FACTOR : undefined,
+                height: element.dimensions?.height ? element.dimensions.height * SCALE_FACTOR : undefined
               };
               
               const result = await asset.generate(options);
