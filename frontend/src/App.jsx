@@ -49,6 +49,9 @@ function App() {
   
   // Multiple designs tracking (Issue #27)
   const [designs, setDesigns] = useState([]);
+  
+  // Environment system reference for scene composition
+  const environmentSystemRef = useRef(null);
 
   // Keyboard shortcuts handler
   useEffect(() => {
@@ -134,7 +137,96 @@ function App() {
     // Handle context menu actions here
   };
 
+  /**
+   * Check if a prompt is for scene composition (environment generation)
+   */
+  const isSceneCompositionPrompt = (prompt) => {
+    const lowerPrompt = prompt.toLowerCase();
+    
+    // Scene action keywords
+    const actionKeywords = ['create', 'generate', 'build', 'make', 'design'];
+    const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
+    
+    // Environment keywords (from scene templates)
+    const environmentKeywords = [
+      'city', 'futuristic', 'urban', 'metropolis', 'cityscape',
+      'village', 'medieval', 'town', 'settlement',
+      'industrial', 'factory', 'warehouse', 'manufacturing',
+      'landscape', 'nature', 'forest', 'wilderness', 'natural',
+      'coastal', 'beach', 'ocean', 'seaside', 'harbor', 'shore',
+      'desert', 'arid', 'sand', 'dunes', 'outpost',
+      'park', 'garden', 'green space',
+      'space', 'station', 'orbital', 'spacecraft'
+    ];
+    const hasEnvironment = environmentKeywords.some(keyword => lowerPrompt.includes(keyword));
+    
+    // Qualifiers that suggest environment (not single object)
+    const environmentQualifiers = ['entire', 'whole', 'complete', 'full', 'scene', 'environment'];
+    const hasQualifier = environmentQualifiers.some(keyword => lowerPrompt.includes(keyword));
+    
+    // It's a scene composition prompt if it has action + environment, or action + qualifier
+    return hasAction && (hasEnvironment || hasQualifier);
+  };
+
+  /**
+   * Handle scene composition via Scene Composer
+   */
+  const handleSceneComposition = async (prompt) => {
+    console.log('🎨 Handling scene composition prompt:', prompt);
+    
+    if (!environmentSystemRef.current || !environmentSystemRef.current.sceneComposer) {
+      console.error('Scene Composer not initialized');
+      setError('Scene Composer system is not ready. Please wait and try again.');
+      return false;
+    }
+    
+    try {
+      setLoading(true);
+      setError(null);
+      setGenerationProgress({ status: 'processing', progress: 0.5, stages: ['Composing scene...'] });
+      
+      const sceneComposer = environmentSystemRef.current.sceneComposer;
+      const scene = await sceneComposer.generateSceneFromPrompt(prompt);
+      
+      console.log(`✅ Scene composed: ${scene.assets.length} assets created`);
+      
+      // The scene objects are already added to the scene manager by the composer
+      // Just trigger a refresh by updating model data
+      setModelData({
+        prompt: prompt,
+        sceneType: 'environment_composition',
+        template: scene.template,
+        theme: scene.theme,
+        assetCount: scene.assets.length,
+        timestamp: Date.now(),
+      });
+      
+      setDesigns(prevDesigns => [...prevDesigns, {
+        id: `scene_${Date.now()}`,
+        prompt: prompt,
+        sceneData: scene,
+        timestamp: Date.now(),
+      }]);
+      
+      return true;
+    } catch (err) {
+      console.error('Scene composition failed:', err);
+      setError('Failed to generate scene. Please try again.');
+      return false;
+    } finally {
+      setLoading(false);
+      setGenerationProgress(null);
+    }
+  };
+
   const handleGenerateDesign = async (prompt) => {
+    // Check if this is a scene composition prompt
+    if (isSceneCompositionPrompt(prompt)) {
+      const success = await handleSceneComposition(prompt);
+      if (success) return; // Scene composition handled, don't call API
+    }
+    
+    // Otherwise, use the regular API-based generation
     setLoading(true);
     setError(null);
     setGenerationProgress(null);
@@ -578,6 +670,9 @@ function App() {
                 setSceneInfo(info);
                 if (info.sceneManager) {
                   sceneManagerRef.current = info.sceneManager;
+                }
+                if (info.environmentSystem) {
+                  environmentSystemRef.current = info.environmentSystem;
                 }
               }}
             />

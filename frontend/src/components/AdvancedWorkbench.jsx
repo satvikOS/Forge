@@ -546,6 +546,7 @@ export default function AdvancedWorkbench({
             selectedCount: sceneManager.selectedObjects.size,
             totalObjects: sceneManager.objects.size,
             sceneManager,
+            environmentSystem,
           });
         }
       } catch (error) {
@@ -556,7 +557,7 @@ export default function AdvancedWorkbench({
       console.error('!!! ❌ ERROR IMPORTING MODULES !!!', error);
       console.error('Error stack:', error.stack);
     });
-  }, [modelData, sceneManager, onSceneUpdate]);
+  }, [modelData, sceneManager, environmentSystem, onSceneUpdate]);
 
   const isWireframe = viewMode === 'wireframe';
 
