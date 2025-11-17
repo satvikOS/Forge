@@ -183,10 +183,18 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      setGenerationProgress({ status: 'processing', progress: 0.5, stages: ['Composing scene...'] });
+      setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Initializing scene generation...'] });
       
       const sceneComposer = environmentSystemRef.current.sceneComposer;
-      const scene = await sceneComposer.generateSceneFromPrompt(prompt);
+      
+      // Generate scene with progress updates
+      const scene = await sceneComposer.generateSceneFromPrompt(prompt, (progressInfo) => {
+        setGenerationProgress({ 
+          status: 'processing', 
+          progress: progressInfo.progress || 0.5, 
+          stages: [progressInfo.stage || 'Generating...'] 
+        });
+      });
       
       console.log(`✅ Scene composed: ${scene.assets.length} assets created`);
       
@@ -198,6 +206,7 @@ function App() {
         template: scene.template,
         theme: scene.theme,
         assetCount: scene.assets.length,
+        seed: scene.seed,
         timestamp: Date.now(),
       });
       

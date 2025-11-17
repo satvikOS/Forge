@@ -14,6 +14,25 @@ export class SceneComposer {
     // Scene templates and composition rules
     this.sceneTemplates = this.initializeSceneTemplates();
     this.compositionRules = this.initializeCompositionRules();
+    
+    // Randomization seed for unique scenes
+    this.seed = Date.now();
+  }
+  
+  /**
+   * Set a new random seed for unique scene generation
+   */
+  setRandomSeed() {
+    this.seed = Date.now() + Math.random() * 1000000;
+  }
+  
+  /**
+   * Seeded random number generator for consistent but varied results
+   */
+  seededRandom(min = 0, max = 1) {
+    const x = Math.sin(this.seed++) * 10000;
+    const rand = x - Math.floor(x);
+    return min + rand * (max - min);
   }
 
   initializeSceneTemplates() {
@@ -23,34 +42,37 @@ export class SceneComposer {
         theme: 'futuristic',
         description: 'A futuristic cityscape with tall buildings and advanced infrastructure',
         assets: [
-          { type: 'building_skyscraper', count: { min: 8, max: 15 }, scale: { x: 1.2, y: 1.5, z: 1.2 } },
-          { type: 'building_apartment', count: { min: 5, max: 10 }, scale: { x: 1.0, y: 1.3, z: 1.0 } },
-          { type: 'road_highway', count: { min: 2, max: 4 } },
-          { type: 'road_street', count: { min: 5, max: 8 } },
-          { type: 'road_intersection', count: { min: 3, max: 6 } },
-          { type: 'sky', count: 1, options: { color: 0x4a5f8f } },
+          { type: 'building_skyscraper', count: { min: 12, max: 25 }, scale: { min: { x: 1.0, y: 1.2, z: 1.0 }, max: { x: 1.8, y: 2.5, z: 1.8 } }, randomize: true },
+          { type: 'building_apartment', count: { min: 8, max: 18 }, scale: { min: { x: 0.8, y: 1.0, z: 0.8 }, max: { x: 1.4, y: 1.8, z: 1.4 } }, randomize: true },
+          { type: 'building_shop', count: { min: 5, max: 12 }, scale: { min: { x: 0.6, y: 0.7, z: 0.6 }, max: { x: 1.0, y: 1.0, z: 1.0 } }, randomize: true },
+          { type: 'road_highway', count: { min: 2, max: 5 } },
+          { type: 'road_street', count: { min: 8, max: 15 } },
+          { type: 'road_intersection', count: { min: 4, max: 10 } },
+          { type: 'sky', count: 1, options: { color: 0x4a5f8f, randomize: true } },
           { type: 'cloud_layer', count: 1 },
-          { type: 'tree_palm', count: { min: 3, max: 8 }, scale: { x: 0.8, y: 0.8, z: 0.8 } }
+          { type: 'tree_palm', count: { min: 8, max: 20 }, scale: { min: { x: 0.6, y: 0.6, z: 0.6 }, max: { x: 1.2, y: 1.2, z: 1.2 } }, randomize: true }
         ],
         layout: 'grid',
-        spacing: { building: 25, road: 15 }
+        spacing: { building: 60, road: 40, grid: 8 },
+        scale: 'city'
       },
       'medieval_village': {
         keywords: ['medieval', 'village', 'old', 'historical', 'ancient'],
         theme: 'medieval',
         description: 'A medieval village with houses and natural surroundings',
         assets: [
-          { type: 'building_house', count: { min: 8, max: 15 } },
-          { type: 'building_hut', count: { min: 3, max: 6 } },
-          { type: 'building_church', count: 1, scale: { x: 1.5, y: 1.5, z: 1.5 } },
-          { type: 'road_path_dirt', count: { min: 4, max: 7 } },
-          { type: 'tree_oak', count: { min: 15, max: 30 } },
-          { type: 'shrub', count: { min: 10, max: 20 } },
-          { type: 'grass', count: 1, options: { width: 100, depth: 100 } },
-          { type: 'mountain', count: { min: 1, max: 3 }, distance: 150 }
+          { type: 'building_house', count: { min: 10, max: 20 }, randomize: true },
+          { type: 'building_hut', count: { min: 4, max: 10 }, randomize: true },
+          { type: 'building_church', count: 1, scale: { min: { x: 1.3, y: 1.3, z: 1.3 }, max: { x: 1.8, y: 1.8, z: 1.8 } } },
+          { type: 'road_path_dirt', count: { min: 5, max: 10 } },
+          { type: 'tree_oak', count: { min: 20, max: 40 }, randomize: true },
+          { type: 'shrub', count: { min: 15, max: 30 }, randomize: true },
+          { type: 'grass', count: 1, options: { width: 150, depth: 150 } },
+          { type: 'mountain', count: { min: 1, max: 3 }, distance: 200 }
         ],
         layout: 'organic',
-        spacing: { building: 15, road: 10 }
+        spacing: { building: 25, road: 15, spread: 80 },
+        scale: 'village'
       },
       'industrial_complex': {
         keywords: ['industrial', 'factory', 'warehouse', 'manufacturing'],
@@ -92,12 +114,12 @@ export class SceneComposer {
         theme: 'coastal',
         description: 'A coastal town with beach and ocean',
         assets: [
-          { type: 'building_house', count: { min: 10, max: 20 } },
-          { type: 'building_shop', count: { min: 3, max: 6 } },
-          { type: 'beach', count: 1, options: { width: 100, depth: 30 } },
-          { type: 'ocean', count: 1, options: { width: 200, depth: 200 } },
-          { type: 'tree_palm', count: { min: 15, max: 30 } },
-          { type: 'road_street', count: { min: 3, max: 6 } },
+          { type: 'building_house', count: { min: 12, max: 25 }, randomize: true },
+          { type: 'building_shop', count: { min: 4, max: 10 }, randomize: true },
+          { type: 'beach', count: 1, options: { width: 150, depth: 40 } },
+          { type: 'ocean', count: 1, options: { width: 300, depth: 300 } },
+          { type: 'tree_palm', count: { min: 20, max: 40 }, randomize: true },
+          { type: 'road_street', count: { min: 5, max: 10 } },
           { type: 'sky', count: 1, options: { color: 0x87ceeb } },
           { type: 'sun', count: 1 }
         ],
@@ -181,23 +203,50 @@ export class SceneComposer {
   /**
    * Parse natural language prompt and generate scene
    * @param {string} prompt - Natural language description
+   * @param {Function} progressCallback - Optional callback for progress updates
    * @returns {Promise<Object>} Generated scene information
    */
-  async generateSceneFromPrompt(prompt) {
+  async generateSceneFromPrompt(prompt, progressCallback = null) {
     console.log(`🎨 Generating scene from prompt: "${prompt}"`);
+    
+    // Set new random seed for unique generation
+    this.setRandomSeed();
+    
+    if (progressCallback) {
+      progressCallback({ stage: 'Analyzing prompt...', progress: 0.1 });
+    }
+    
+    // Add slight delay to show thinking
+    await this.delay(300);
     
     // Parse prompt to identify scene type
     const sceneTemplate = this.identifySceneTemplate(prompt);
     
     if (!sceneTemplate) {
+      if (progressCallback) {
+        progressCallback({ stage: 'Creating generic scene...', progress: 0.3 });
+      }
       return this.generateGenericScene(prompt);
     }
 
-    // Generate the scene
-    const scene = await this.composeScene(sceneTemplate, prompt);
+    if (progressCallback) {
+      progressCallback({ stage: `Composing ${sceneTemplate.theme} environment...`, progress: 0.2 });
+    }
+    
+    await this.delay(200);
+    
+    // Generate the scene with progress updates
+    const scene = await this.composeScene(sceneTemplate, prompt, progressCallback);
     
     console.log(`✅ Scene generated: ${scene.assets.length} assets created`);
     return scene;
+  }
+  
+  /**
+   * Delay helper for progressive generation
+   */
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -223,17 +272,34 @@ export class SceneComposer {
   /**
    * Compose a complete scene from template
    */
-  async composeScene(template, originalPrompt) {
+  async composeScene(template, originalPrompt, progressCallback = null) {
     const sceneAssets = [];
     const layoutRule = this.compositionRules[template.layout];
     
     console.log(`📐 Using ${template.layout} layout for ${template.theme} scene`);
+
+    // Calculate total assets for progress tracking
+    let totalAssets = 0;
+    let processedAssets = 0;
+    template.assets.forEach(spec => {
+      const count = typeof spec.count === 'number' 
+        ? spec.count 
+        : this.randomInt(spec.count.min, spec.count.max);
+      totalAssets += count;
+    });
 
     // Generate each asset type
     for (const assetSpec of template.assets) {
       const count = typeof assetSpec.count === 'number' 
         ? assetSpec.count 
         : this.randomInt(assetSpec.count.min, assetSpec.count.max);
+      
+      if (progressCallback) {
+        progressCallback({ 
+          stage: `Creating ${assetSpec.type.replace('_', ' ')}...`, 
+          progress: 0.3 + (processedAssets / totalAssets) * 0.6 
+        });
+      }
       
       for (let i = 0; i < count; i++) {
         try {
@@ -243,8 +309,14 @@ export class SceneComposer {
             continue;
           }
 
-          // Generate the asset
+          // Generate the asset with randomized options if specified
           const options = { ...assetSpec.options };
+          if (assetSpec.randomize) {
+            // Add variation seed for each asset
+            options.seed = this.seed + i;
+            options.variation = this.seededRandom(0, 1);
+          }
+          
           const result = await asset.generate(options);
           
           // Create scene object
@@ -258,7 +330,8 @@ export class SceneComposer {
               category: asset.category,
               subcategory: asset.subcategory,
               sceneComposed: true,
-              templateId: template.id
+              templateId: template.id,
+              seed: this.seed + i
             }
           );
 
@@ -267,9 +340,18 @@ export class SceneComposer {
           if (result.material) sceneObject.userData.material = result.material;
           if (result instanceof THREE.Group) sceneObject.userData.group = result;
 
-          // Apply scale if specified
+          // Apply scale with randomization if specified
           if (assetSpec.scale) {
-            sceneObject.scale = { ...assetSpec.scale };
+            if (assetSpec.scale.min && assetSpec.scale.max && assetSpec.randomize) {
+              // Random scale within range
+              sceneObject.scale = {
+                x: this.seededRandom(assetSpec.scale.min.x, assetSpec.scale.max.x),
+                y: this.seededRandom(assetSpec.scale.min.y, assetSpec.scale.max.y),
+                z: this.seededRandom(assetSpec.scale.min.z, assetSpec.scale.max.z)
+              };
+            } else if (assetSpec.scale.x !== undefined) {
+              sceneObject.scale = { ...assetSpec.scale };
+            }
           }
 
           // Store for positioning
@@ -279,15 +361,32 @@ export class SceneComposer {
             index: i
           });
           
+          processedAssets++;
+          
+          // Add small delay every few assets for progressive feel
+          if (i % 5 === 0 && i > 0) {
+            await this.delay(50);
+          }
+          
         } catch (error) {
           console.error(`Error generating asset ${assetSpec.type}:`, error);
         }
       }
     }
 
+    if (progressCallback) {
+      progressCallback({ stage: 'Arranging scene layout...', progress: 0.9 });
+    }
+    
+    await this.delay(200);
+
     // Apply layout positioning
     if (layoutRule) {
-      layoutRule.arrange(sceneAssets, template.spacing);
+      layoutRule.arrange(sceneAssets, template.spacing, template.scale);
+    }
+
+    if (progressCallback) {
+      progressCallback({ stage: 'Complete!', progress: 1.0 });
     }
 
     return {
@@ -295,59 +394,143 @@ export class SceneComposer {
       theme: template.theme,
       description: template.description,
       assets: sceneAssets,
-      prompt: originalPrompt
+      prompt: originalPrompt,
+      seed: this.seed
     };
   }
 
   /**
-   * Grid layout arrangement
+   * Grid layout arrangement - for cities and organized environments
    */
-  arrangeGrid(assets, spacing) {
-    const buildingSpacing = spacing.building || 25;
-    const roadSpacing = spacing.road || 15;
-    const gridSize = Math.ceil(Math.sqrt(assets.length));
+  arrangeGrid(assets, spacing, scale = 'normal') {
+    const buildingSpacing = spacing.building || 60;
+    const roadSpacing = spacing.road || 40;
+    const gridSizeOverride = spacing.grid || null;
     
-    let buildingIndex = 0;
-    let roadIndex = 0;
-
-    assets.forEach((item) => {
+    // Calculate grid size based on scale
+    let baseArea = 100;
+    if (scale === 'city') {
+      baseArea = 300; // Much larger area for city-scale
+    } else if (scale === 'town') {
+      baseArea = 180;
+    } else if (scale === 'village') {
+      baseArea = 120;
+    }
+    
+    // Separate buildings and roads
+    const buildings = assets.filter(item => item.spec.type.includes('building'));
+    const roads = assets.filter(item => item.spec.type.includes('road'));
+    const other = assets.filter(item => !item.spec.type.includes('building') && !item.spec.type.includes('road'));
+    
+    // Arrange buildings in a varied grid
+    const gridSize = gridSizeOverride || Math.ceil(Math.sqrt(buildings.length));
+    buildings.forEach((item, idx) => {
+      const row = Math.floor(idx / gridSize);
+      const col = idx % gridSize;
+      
+      // Add random offset for more organic city feel
+      const offsetX = this.seededRandom(-buildingSpacing * 0.15, buildingSpacing * 0.15);
+      const offsetZ = this.seededRandom(-buildingSpacing * 0.15, buildingSpacing * 0.15);
+      
+      item.object.position.x = (col - gridSize / 2) * buildingSpacing + offsetX;
+      item.object.position.z = (row - gridSize / 2) * buildingSpacing + offsetZ;
+      item.object.position.y = 0;
+      
+      // Random rotation for variety
+      item.object.rotation.y = this.seededRandom(0, Math.PI * 2);
+    });
+    
+    // Arrange roads between buildings
+    roads.forEach((item, idx) => {
+      const roadType = item.spec.type;
+      
+      if (roadType.includes('highway')) {
+        // Highways run across the scene
+        item.object.position.x = idx * roadSpacing - baseArea/4;
+        item.object.position.z = this.seededRandom(-baseArea/3, baseArea/3);
+        item.object.rotation.y = 0;
+      } else if (roadType.includes('street')) {
+        // Streets between buildings
+        const row = Math.floor(idx / 2);
+        item.object.position.x = (idx % 2 === 0) ? -baseArea/3 : baseArea/3;
+        item.object.position.z = (row - 2) * roadSpacing;
+        item.object.rotation.y = Math.PI / 2;
+      } else if (roadType.includes('intersection')) {
+        // Intersections at key points
+        const row = Math.floor(idx / 2);
+        const col = idx % 2;
+        item.object.position.x = (col - 0.5) * baseArea/2;
+        item.object.position.z = (row - 1) * baseArea/3;
+      } else {
+        // Default road positioning
+        item.object.position.x = idx * roadSpacing - baseArea/4;
+        item.object.position.z = 0;
+      }
+      
+      item.object.position.y = 0;
+    });
+    
+    // Scatter other elements (trees, etc.)
+    other.forEach((item) => {
       const assetType = item.spec.type;
       
-      if (assetType.includes('building')) {
-        const row = Math.floor(buildingIndex / gridSize);
-        const col = buildingIndex % gridSize;
-        item.object.position.x = (col - gridSize / 2) * buildingSpacing;
-        item.object.position.z = (row - gridSize / 2) * buildingSpacing;
-        item.object.position.y = 0;
-        buildingIndex++;
-      } else if (assetType.includes('road')) {
-        item.object.position.x = roadIndex * roadSpacing - 50;
-        item.object.position.y = 0;
+      if (assetType.includes('sky') || assetType.includes('cloud')) {
+        // Sky elements centered above
+        item.object.position.x = 0;
+        item.object.position.y = assetType.includes('sky') ? 0 : 50;
         item.object.position.z = 0;
-        roadIndex++;
       } else {
-        // Default positioning
-        item.object.position.x = (Math.random() - 0.5) * 100;
-        item.object.position.z = (Math.random() - 0.5) * 100;
+        // Random placement for trees, decorations
+        item.object.position.x = this.seededRandom(-baseArea/2, baseArea/2);
+        item.object.position.z = this.seededRandom(-baseArea/2, baseArea/2);
         item.object.position.y = 0;
       }
     });
   }
 
   /**
-   * Organic layout arrangement
+   * Organic layout arrangement - for natural and village scenes
    */
-  arrangeOrganic(assets, spacing) {
+  arrangeOrganic(assets, spacing, scale = 'normal') {
+    // Determine spread based on scale
+    const spread = spacing.spread || 80;
+    const actualSpread = scale === 'village' ? spread * 1.5 : spread;
+    
     assets.forEach((item) => {
       const assetType = item.spec.type;
-      const distance = item.spec.distance || 50;
+      const distance = item.spec.distance || actualSpread;
       
-      // Add natural randomness
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * distance;
+      // Add natural randomness with clustering
+      const angle = this.seededRandom(0, Math.PI * 2);
+      const radius = this.seededRandom(0, distance);
       
-      item.object.position.x = Math.cos(angle) * radius;
-      item.object.position.z = Math.sin(angle) * radius;
+      // Create clusters for certain asset types
+      if (assetType.includes('building')) {
+        // Buildings cluster near center
+        const clusterRadius = radius * 0.6;
+        item.object.position.x = Math.cos(angle) * clusterRadius;
+        item.object.position.z = Math.sin(angle) * clusterRadius;
+        item.object.rotation.y = this.seededRandom(0, Math.PI * 2);
+      } else if (assetType.includes('tree') || assetType.includes('shrub')) {
+        // Vegetation spreads wider
+        item.object.position.x = Math.cos(angle) * radius;
+        item.object.position.z = Math.sin(angle) * radius;
+        item.object.rotation.y = this.seededRandom(0, Math.PI * 2);
+      } else if (assetType.includes('mountain') || assetType.includes('hill')) {
+        // Terrain at edges
+        const terrainAngle = this.seededRandom(0, Math.PI * 2);
+        const terrainDistance = distance * 1.2;
+        item.object.position.x = Math.cos(terrainAngle) * terrainDistance;
+        item.object.position.z = Math.sin(terrainAngle) * terrainDistance;
+      } else {
+        // Default organic spread
+        item.object.position.x = Math.cos(angle) * radius;
+        item.object.position.z = Math.sin(angle) * radius;
+      }
+      
+      item.object.position.y = 0;
+    });
+  }
       item.object.position.y = 0;
       
       // Add slight rotation variation
