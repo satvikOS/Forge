@@ -547,8 +547,10 @@ export class SceneComposer {
    * Place a group of elements based on layout and priority
    */
   placeElementGroup(assets, layout, priority) {
-    const spacing = priority === 'primary' ? 50 : priority === 'secondary' ? 30 : 10;
-    const spread = priority === 'primary' ? 150 : 100;
+    // Scale spacing to match 100x dimension scaling (1 meter = 100 scene units)
+    const SCALE_FACTOR = 100;
+    const spacing = priority === 'primary' ? 50 * SCALE_FACTOR : priority === 'secondary' ? 30 * SCALE_FACTOR : 10 * SCALE_FACTOR;
+    const spread = priority === 'primary' ? 150 * SCALE_FACTOR : 100 * SCALE_FACTOR;
     
     assets.forEach((asset, idx) => {
       const position = this.calculateSmartPosition(idx, assets.length, layout, spacing, spread, assets);
