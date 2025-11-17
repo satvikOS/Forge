@@ -25,13 +25,68 @@ import {
 import { LineTool, RectangleTool, CircleTool, PolygonTool } from '../tools/DrawingTools';
 import { TapeMeasureTool, ProtractorTool, DimensionTool, AreaCalculatorTool, VolumeCalculatorTool } from '../tools/MeasurementTools';
 import { TopViewTool, FrontViewTool, SideViewTool, PerspectiveViewTool, FocusSelectionTool, FrameAllTool } from '../tools/CameraTools';
+import { initializeEnvironmentSystem } from '../systems/EnvironmentSystem';
 
 // Scene Object Renderer - Renders objects from the scene manager
 function SceneObject({ sceneObject, isSelected, onSelect }) {
   const meshRef = useRef();
+  const groupRef = useRef();
   const [hovered, setHovered] = useState(false);
 
-  // Create Three.js geometry based on scene object type
+  // Check if this is an environment asset
+  const isEnvironmentAsset = sceneObject.geometry.type === 'environment';
+
+  // For environment assets, render from userData
+  if (isEnvironmentAsset && sceneObject.userData) {
+    // Handle Three.js Group objects (complex assets like trees, buildings)
+    if (sceneObject.userData.group) {
+      return (
+        <primitive
+          ref={groupRef}
+          object={sceneObject.userData.group}
+          position={[sceneObject.position.x, sceneObject.position.y, sceneObject.position.z]}
+          rotation={[sceneObject.rotation.x, sceneObject.rotation.y, sceneObject.rotation.z]}
+          scale={[sceneObject.scale.x, sceneObject.scale.y, sceneObject.scale.z]}
+          visible={sceneObject.visible}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(sceneObject.id);
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setHovered(true);
+          }}
+          onPointerOut={() => setHovered(false)}
+        />
+      );
+    }
+
+    // Handle simple geometry + material
+    if (sceneObject.userData.geometry && sceneObject.userData.material) {
+      return (
+        <mesh
+          ref={meshRef}
+          geometry={sceneObject.userData.geometry}
+          material={sceneObject.userData.material}
+          position={[sceneObject.position.x, sceneObject.position.y, sceneObject.position.z]}
+          rotation={[sceneObject.rotation.x, sceneObject.rotation.y, sceneObject.rotation.z]}
+          scale={[sceneObject.scale.x, sceneObject.scale.y, sceneObject.scale.z]}
+          visible={sceneObject.visible}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(sceneObject.id);
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setHovered(true);
+          }}
+          onPointerOut={() => setHovered(false)}
+        />
+      );
+    }
+  }
+
+  // Create Three.js geometry based on scene object type (original primitives)
   const geometry = useMemo(() => {
     const geom = sceneObject.geometry;
     
@@ -204,6 +259,11 @@ export default function AdvancedWorkbench({
   }
   const sceneManager = sceneManagerRef.current;
   
+  // Initialize environment system
+  const [environmentSystem] = useState(() => {
+    return initializeEnvironmentSystem();
+  });
+  
   const [toolManager] = useState(() => {
     const tm = new ToolManager();
     
@@ -264,6 +324,11 @@ export default function AdvancedWorkbench({
     tm.registerTool(new PerspectiveViewTool());
     tm.registerTool(new FocusSelectionTool());
     tm.registerTool(new FrameAllTool());
+    
+    // Register environment tools
+    environmentSystem.environmentTools.forEach(tool => {
+      tm.registerTool(tool);
+    });
     
     tm.setDefaultTool('select');
     return tm;
