@@ -2,12 +2,19 @@
  * Geometry Generator - Procedural 3D geometry generation
  * Handles generation of architectural elements, props, details, and environments
  */
+const placementEngine = require('./placementEngine');
+
 class GeometryGenerator {
   /**
    * Generate geometry based on specifications
    */
   generateFromSpec(spec) {
-    const { objectCount = 1, elements = [], scene = {} } = spec;
+    const { objectCount = 1, elements = [], scene = {}, taxonomyData = null } = spec;
+    
+    // Use taxonomy-aware generation if available
+    if (taxonomyData && taxonomyData.spatialComposition) {
+      return this.generateTaxonomyScene(elements, taxonomyData);
+    }
     
     // Determine if this is a complex scene or single object
     if (objectCount > 1 || elements.length > 1) {
@@ -16,6 +23,187 @@ class GeometryGenerator {
       const element = elements[0] || { type: 'object', name: 'Object' };
       return this.generateSingleObject(element);
     }
+  }
+  
+  /**
+   * Generate scene using taxonomy data with realistic placement
+   */
+  generateTaxonomyScene(elements, taxonomyData) {
+    const { spatialComposition, environmentalContext, realism } = taxonomyData;
+    
+    console.log('🎨 Generating taxonomy-aware scene with realistic placement');
+    
+    // Calculate realistic positions using placement engine
+    const positionedElements = placementEngine.calculatePositions(
+      elements,
+      spatialComposition,
+      environmentalContext
+    );
+    
+    const meshes = [];
+    const instances = [];
+    
+    // Generate geometry for each positioned element
+    positionedElements.forEach((element, index) => {
+      try {
+        const geometry = this.generateTaxonomyElement(element, realism);
+        
+        meshes.push({
+          ...geometry,
+          position: element.position,
+          rotation: element.rotation,
+          name: `${element.name || 'Object'}_${element.instanceIndex}`,
+          taxonomyData: {
+            category: element.category,
+            subcategory: element.subcategory,
+            placement: element.placement
+          }
+        });
+      } catch (error) {
+        console.error(`Error generating element ${element.name}:`, error);
+      }
+    });
+    
+    return {
+      type: 'taxonomy_scene',
+      meshes,
+      instances,
+      bounds: this.calculateSceneBounds(meshes, instances),
+      metadata: {
+        taxonomyData,
+        elementCount: positionedElements.length
+      }
+    };
+  }
+  
+  /**
+   * Generate element based on taxonomy category
+   */
+  generateTaxonomyElement(element, realism) {
+    const { category, subcategory, dimensions, materials, features } = element;
+    const detailLevel = realism?.detailLevel || 'high';
+    
+    // Convert dimensions from meters to millimeters
+    const dims = {
+      width: (dimensions?.width || 10) * 1000,
+      height: (dimensions?.height || 10) * 1000,
+      depth: (dimensions?.depth || 10) * 1000
+    };
+    
+    // Map taxonomy categories to generation methods
+    switch (category) {
+      case 'residential':
+      case 'commercial':
+      case 'institutional':
+      case 'industrial':
+        return this.generateBuilding({
+          ...element,
+          type: 'building',
+          dimensions: dims,
+          details: features || [],
+          materials: materials || ['concrete']
+        });
+        
+      case 'infrastructure':
+        if (subcategory && subcategory.includes('road')) {
+          return this.generateRoad(element, dims);
+        } else if (subcategory === 'bridge') {
+          return this.generateStructure({ ...element, dimensions: dims });
+        }
+        return this.generateGenericObject({ ...element, dimensions: dims });
+        
+      case 'flora':
+        return this.generateVegetation(element, dims);
+        
+      case 'landforms':
+        return this.generateTerrain({ ...element, dimensions: dims });
+        
+      case 'water_bodies':
+        return this.generateWater(element, dims);
+        
+      case 'land_vehicles':
+      case 'water_vehicles':
+      case 'air_vehicles':
+        return this.generateVehicle({ ...element, dimensions: dims });
+        
+      default:
+        return this.generateGenericObject({ ...element, dimensions: dims });
+    }
+  }
+  
+  /**
+   * Generate road/path geometry
+   */
+  generateRoad(element, dimensions) {
+    const { width, depth } = dimensions;
+    const length = width; // Road length
+    const roadWidth = element.subcategory === 'highway' ? 20000 : 
+                     element.subcategory === 'street' ? 10000 : 6000;
+    
+    return {
+      type: 'box',
+      componentType: 'road',
+      dimensions: { x: length, y: 200, z: roadWidth },
+      position: { x: 0, y: -100, z: 0 },
+      material: 'asphalt',
+      detail: 'road_surface',
+      metadata: {
+        editable: true,
+        roadType: element.subcategory
+      }
+    };
+  }
+  
+  /**
+   * Generate vegetation (trees, shrubs)
+   */
+  generateVegetation(element, dimensions) {
+    const { height } = dimensions;
+    const trunkHeight = height * 0.6;
+    const crownSize = height * 0.5;
+    
+    return {
+      type: 'composite',
+      parts: [
+        {
+          type: 'cylinder',
+          dimensions: { radius: 300, height: trunkHeight },
+          position: { x: 0, y: trunkHeight / 2, z: 0 },
+          material: 'wood',
+          detail: 'trunk'
+        },
+        {
+          type: 'sphere',
+          dimensions: { radius: crownSize },
+          position: { x: 0, y: trunkHeight + crownSize / 2, z: 0 },
+          material: 'foliage',
+          detail: 'crown'
+        }
+      ],
+      metadata: {
+        vegetationType: element.subcategory
+      }
+    };
+  }
+  
+  /**
+   * Generate water body geometry
+   */
+  generateWater(element, dimensions) {
+    const { width, depth } = dimensions;
+    
+    return {
+      type: 'plane',
+      componentType: 'water',
+      dimensions: { x: width * 1000, z: depth * 1000 },
+      position: { x: 0, y: 0, z: 0 },
+      material: 'water',
+      detail: 'water_surface',
+      metadata: {
+        waterType: element.subcategory,
+        animated: true
+      }
+    };
   }
 
   /**

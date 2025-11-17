@@ -1,15 +1,18 @@
 /**
  * Scene Composer - Generates complete environments from natural language descriptions
  * Interprets prompts and creates coordinated multi-asset scenes
+ * Enhanced with AI-powered analysis for intelligent scene generation
  */
 
 import * as THREE from 'three';
+import apiService from '../services/api';
 
 export class SceneComposer {
   constructor(assetManager, generators, sceneManager) {
     this.assetManager = assetManager;
     this.generators = generators;
     this.sceneManager = sceneManager;
+    this.apiService = apiService;
     
     // Scene templates and composition rules
     this.sceneTemplates = this.initializeSceneTemplates();
@@ -17,6 +20,9 @@ export class SceneComposer {
     
     // Randomization seed for unique scenes
     this.seed = Date.now();
+    
+    // AI-powered mode flag
+    this.useAI = true; // Can be toggled for fallback to templates
   }
   
   /**
@@ -202,6 +208,7 @@ export class SceneComposer {
 
   /**
    * Parse natural language prompt and generate scene
+   * Now with AI-powered analysis for intelligent generation
    * @param {string} prompt - Natural language description
    * @param {Function} progressCallback - Optional callback for progress updates
    * @returns {Promise<Object>} Generated scene information
@@ -213,10 +220,27 @@ export class SceneComposer {
     this.setRandomSeed();
     
     if (progressCallback) {
-      progressCallback({ stage: 'Analyzing prompt...', progress: 0.1 });
+      progressCallback({ stage: 'Analyzing prompt with AI...', progress: 0.1 });
     }
     
-    // Add slight delay to show thinking
+    // Try AI-powered generation first
+    if (this.useAI) {
+      try {
+        const aiScene = await this.generateAIScene(prompt, progressCallback);
+        if (aiScene) {
+          console.log(`✅ AI scene generated: ${aiScene.assets?.length || 0} assets created`);
+          return aiScene;
+        }
+      } catch (error) {
+        console.warn('AI generation failed, falling back to templates:', error);
+      }
+    }
+    
+    // Fallback to template-based generation
+    if (progressCallback) {
+      progressCallback({ stage: 'Using template-based generation...', progress: 0.2 });
+    }
+    
     await this.delay(300);
     
     // Parse prompt to identify scene type
@@ -230,7 +254,7 @@ export class SceneComposer {
     }
 
     if (progressCallback) {
-      progressCallback({ stage: `Composing ${sceneTemplate.theme} environment...`, progress: 0.2 });
+      progressCallback({ stage: `Composing ${sceneTemplate.theme} environment...`, progress: 0.3 });
     }
     
     await this.delay(200);
@@ -240,6 +264,371 @@ export class SceneComposer {
     
     console.log(`✅ Scene generated: ${scene.assets.length} assets created`);
     return scene;
+  }
+  
+  /**
+   * Generate scene using AI analysis (NEW)
+   * This method sends the prompt to the backend for AI processing
+   */
+  async generateAIScene(prompt, progressCallback = null) {
+    console.log('🤖 Requesting AI scene analysis...');
+    
+    try {
+      // Note: We're using the existing generate endpoint which now has taxonomy support
+      // The backend will analyze the prompt and return enriched data
+      if (progressCallback) {
+        progressCallback({ stage: 'AI analyzing prompt...', progress: 0.15 });
+      }
+      
+      // Generate design using API (this goes through backend AI service)
+      const result = await this.apiService.generateDesign(prompt, (progress) => {
+        if (progressCallback && progress.status === 'analyzing') {
+          progressCallback({ stage: 'AI extracting scene elements...', progress: 0.2 });
+        } else if (progressCallback && progress.status === 'generating') {
+          progressCallback({ stage: 'Building 3D scene...', progress: 0.4 });
+        }
+      });
+      
+      if (!result.success || !result.design) {
+        console.warn('AI generation returned no design');
+        return null;
+      }
+      
+      if (progressCallback) {
+        progressCallback({ stage: 'Creating scene assets...', progress: 0.5 });
+      }
+      
+      // Extract taxonomy data if available
+      const taxonomyData = result.design.specifications?.taxonomyData;
+      
+      if (taxonomyData && taxonomyData.elements) {
+        // Use taxonomy-based generation
+        return await this.composeAIScene(taxonomyData, prompt, progressCallback);
+      } else {
+        // Use standard generation with AI-enhanced specs
+        return await this.composeFromSpecs(result.design.specifications, prompt, progressCallback);
+      }
+      
+    } catch (error) {
+      console.error('Error in AI scene generation:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Compose scene from AI taxonomy analysis
+   */
+  async composeAIScene(taxonomyData, originalPrompt, progressCallback = null) {
+    const { elements, spatialComposition, environmentalContext, realism } = taxonomyData;
+    
+    console.log(`🏗️ Composing AI scene with ${elements.length} element types`);
+    
+    const sceneAssets = [];
+    let progressIncrement = 0.4 / elements.length;
+    let currentProgress = 0.5;
+    
+    // Generate each element type from taxonomy
+    for (const element of elements) {
+      const quantity = element.quantity || 1;
+      
+      if (progressCallback) {
+        progressCallback({ 
+          stage: `Creating ${element.name || element.subcategory}...`, 
+          progress: currentProgress 
+        });
+      }
+      
+      // Map taxonomy category to asset type
+      const assetType = this.mapTaxonomyToAssetType(element);
+      
+      if (assetType) {
+        for (let i = 0; i < quantity; i++) {
+          try {
+            const asset = this.assetManager.getAsset(assetType);
+            if (asset && asset.generator) {
+              // Generate asset with variation
+              const options = {
+                seed: this.seed + i,
+                variation: this.seededRandom(0, 1),
+                ...element.placement
+              };
+              
+              const result = await asset.generate(options);
+              
+              // Create scene object
+              const sceneObject = this.sceneManager.createObject(
+                `${element.name} ${i + 1}`,
+                'ai_generated',
+                {
+                  type: 'ai_environment',
+                  taxonomyCategory: element.category,
+                  taxonomySubcategory: element.subcategory,
+                  aiGenerated: true,
+                  seed: this.seed + i
+                }
+              );
+              
+              // Store generated data
+              if (result.geometry) sceneObject.userData.geometry = result.geometry;
+              if (result.material) sceneObject.userData.material = result.material;
+              if (result instanceof THREE.Group) sceneObject.userData.group = result;
+              
+              // Apply dimensions from taxonomy
+              if (element.dimensions) {
+                sceneObject.scale = {
+                  x: (element.dimensions.width || 10) / 10,
+                  y: (element.dimensions.height || 10) / 10,
+                  z: (element.dimensions.depth || 10) / 10
+                };
+              }
+              
+              // Store for positioning
+              sceneAssets.push({
+                object: sceneObject,
+                element: element,
+                index: i
+              });
+              
+              await this.delay(30);
+            }
+          } catch (error) {
+            console.error(`Error generating ${element.name}:`, error);
+          }
+        }
+      }
+      
+      currentProgress += progressIncrement;
+    }
+    
+    if (progressCallback) {
+      progressCallback({ stage: 'Arranging scene layout...', progress: 0.9 });
+    }
+    
+    await this.delay(200);
+    
+    // Apply realistic positioning based on spatial composition
+    const layout = spatialComposition?.layout || 'organic';
+    this.applyAILayout(sceneAssets, spatialComposition, environmentalContext);
+    
+    if (progressCallback) {
+      progressCallback({ stage: 'Complete!', progress: 1.0 });
+    }
+    
+    return {
+      template: 'ai_generated',
+      theme: taxonomyData.style?.theme || 'custom',
+      description: `AI-generated ${taxonomyData.primaryCategory} scene`,
+      assets: sceneAssets,
+      prompt: originalPrompt,
+      seed: this.seed,
+      aiGenerated: true,
+      taxonomyData
+    };
+  }
+  
+  /**
+   * Map taxonomy category to existing asset type
+   */
+  mapTaxonomyToAssetType(element) {
+    const { category, subcategory } = element;
+    
+    // Map taxonomy categories to asset types
+    const mapping = {
+      residential: {
+        house: 'building_house',
+        apartment: 'building_apartment',
+        townhouse: 'building_house',
+        mansion: 'building_house'
+      },
+      commercial: {
+        office_building: 'building_apartment',
+        skyscraper: 'building_skyscraper',
+        retail_store: 'building_shop',
+        mall: 'building_shop',
+        hotel: 'building_apartment'
+      },
+      institutional: {
+        school: 'building_apartment',
+        hospital: 'building_apartment',
+        place_of_worship: 'building_church',
+        stadium: 'building_apartment'
+      },
+      industrial: {
+        factory: 'building_factory',
+        warehouse: 'building_warehouse'
+      },
+      flora: {
+        trees: 'tree_oak',
+        deciduous: 'tree_oak',
+        coniferous: 'tree_pine',
+        palm: 'tree_palm'
+      },
+      landforms: {
+        mountain: 'mountain',
+        hill: 'hill',
+        beach: 'beach',
+        plain: 'plain'
+      },
+      water_bodies: {
+        ocean: 'ocean',
+        sea: 'ocean',
+        river: 'river',
+        lake: 'lake',
+        pond: 'pond'
+      },
+      infrastructure: {
+        highway: 'road_highway',
+        street: 'road_street',
+        road: 'road_street',
+        bridge: 'road_street'
+      }
+    };
+    
+    // Look up asset type
+    if (mapping[category] && mapping[category][subcategory]) {
+      return mapping[category][subcategory];
+    }
+    
+    // Try subcategory directly
+    const directMapping = {
+      'tree_oak': 'tree_oak',
+      'tree_pine': 'tree_pine',
+      'tree_palm': 'tree_palm',
+      'grass': 'grass',
+      'shrub': 'shrub',
+      'building_house': 'building_house',
+      'building_apartment': 'building_apartment',
+      'building_skyscraper': 'building_skyscraper'
+    };
+    
+    return directMapping[subcategory] || null;
+  }
+  
+  /**
+   * Apply AI-based layout with realistic placement
+   */
+  applyAILayout(assets, spatialComposition, environmentalContext) {
+    const layout = spatialComposition?.layout || 'organic';
+    const zones = spatialComposition?.zones || [];
+    
+    // Separate by priority if available
+    const priorityGroups = {
+      primary: assets.filter(a => a.element.placement?.priority === 'primary'),
+      secondary: assets.filter(a => a.element.placement?.priority === 'secondary'),
+      tertiary: assets.filter(a => a.element.placement?.priority === 'tertiary')
+    };
+    
+    // Place primary elements first
+    if (priorityGroups.primary.length > 0) {
+      this.placeElementGroup(priorityGroups.primary, layout, 'primary');
+    }
+    
+    // Then secondary
+    if (priorityGroups.secondary.length > 0) {
+      this.placeElementGroup(priorityGroups.secondary, layout, 'secondary');
+    }
+    
+    // Finally tertiary
+    if (priorityGroups.tertiary.length > 0) {
+      this.placeElementGroup(priorityGroups.tertiary, layout, 'tertiary');
+    }
+    
+    // Place any uncategorized assets
+    const uncategorized = assets.filter(a => !a.element.placement?.priority);
+    if (uncategorized.length > 0) {
+      this.placeElementGroup(uncategorized, layout, 'default');
+    }
+  }
+  
+  /**
+   * Place a group of elements based on layout and priority
+   */
+  placeElementGroup(assets, layout, priority) {
+    const spacing = priority === 'primary' ? 50 : priority === 'secondary' ? 30 : 10;
+    const spread = priority === 'primary' ? 150 : 100;
+    
+    assets.forEach((asset, idx) => {
+      const position = this.calculateSmartPosition(idx, assets.length, layout, spacing, spread, assets);
+      asset.object.position = position;
+      
+      // Add rotation variation
+      asset.object.rotation = {
+        x: 0,
+        y: this.seededRandom(0, Math.PI * 2),
+        z: 0
+      };
+    });
+  }
+  
+  /**
+   * Calculate smart position that avoids collisions
+   */
+  calculateSmartPosition(index, total, layout, spacing, spread, existingAssets) {
+    const maxAttempts = 50;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let position;
+      
+      switch (layout) {
+        case 'grid':
+          const gridSize = Math.ceil(Math.sqrt(total));
+          const row = Math.floor(index / gridSize);
+          const col = index % gridSize;
+          position = {
+            x: (col - gridSize / 2) * spacing + this.seededRandom(-spacing * 0.1, spacing * 0.1),
+            y: 0,
+            z: (row - gridSize / 2) * spacing + this.seededRandom(-spacing * 0.1, spacing * 0.1)
+          };
+          break;
+          
+        case 'linear':
+          position = {
+            x: (index - total / 2) * spacing,
+            y: 0,
+            z: this.seededRandom(-spacing * 0.3, spacing * 0.3)
+          };
+          break;
+          
+        case 'organic':
+        default:
+          position = {
+            x: this.seededRandom(-spread, spread),
+            y: 0,
+            z: this.seededRandom(-spread, spread)
+          };
+          break;
+      }
+      
+      // Check if position is valid
+      const isValid = existingAssets
+        .slice(0, index)
+        .every(existing => {
+          if (!existing.object.position) return true;
+          const dx = position.x - existing.object.position.x;
+          const dz = position.z - existing.object.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          return dist >= spacing * 0.8;
+        });
+      
+      if (isValid) return position;
+    }
+    
+    // Fallback position if no valid position found
+    return {
+      x: this.seededRandom(-spread, spread),
+      y: 0,
+      z: this.seededRandom(-spread, spread)
+    };
+  }
+  
+  /**
+   * Compose scene from AI specifications (legacy support)
+   */
+  async composeFromSpecs(specifications, originalPrompt, progressCallback = null) {
+    // This is for backward compatibility with non-taxonomy AI responses
+    // Fall back to template-based generation
+    const sceneTemplate = this.identifySceneTemplate(originalPrompt) || this.sceneTemplates.futuristic_city;
+    return await this.composeScene(sceneTemplate, originalPrompt, progressCallback);
   }
   
   /**
