@@ -537,15 +537,6 @@ export default function AdvancedWorkbench({
       return;
     }
     
-    // Check if we've already processed this exact modelData to prevent infinite loop
-    if (lastProcessedModelDataRef.current === modelData) {
-      console.log('Model data already processed, skipping');
-      return;
-    }
-    
-    // Mark this modelData as processed BEFORE processing to prevent race conditions
-    lastProcessedModelDataRef.current = modelData;
-    
     console.log('\n\n========================================');
     console.log('=== PROCESSING NEW MODEL DATA ===');
     console.log('========================================');
@@ -554,6 +545,15 @@ export default function AdvancedWorkbench({
     
     // Check if this is an environment composition scene (objects already added by SceneComposer)
     if (modelData.sceneType === 'environment_composition') {
+      // Check if we've already processed this exact modelData
+      if (lastProcessedModelDataRef.current === modelData) {
+        console.log('Environment composition already processed, skipping');
+        return;
+      }
+      
+      // Mark as processed
+      lastProcessedModelDataRef.current = modelData;
+      
       console.log('✅ Environment composition scene - objects already in scene manager');
       console.log('📊 Current scene state:');
       console.log('  - Total objects in scene:', sceneManager.objects.size);
@@ -577,6 +577,15 @@ export default function AdvancedWorkbench({
       console.log('========================================\n\n');
       return;
     }
+    
+    // For backend API-generated models, check if already processed
+    if (lastProcessedModelDataRef.current === modelData) {
+      console.log('Model data already processed, skipping');
+      return;
+    }
+    
+    // Mark this modelData as processed BEFORE processing to prevent race conditions
+    lastProcessedModelDataRef.current = modelData;
     
     // For backend API-generated models, process through the old path
     console.log('📊 BEFORE ADDING NEW DESIGN:');
