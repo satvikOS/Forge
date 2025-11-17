@@ -346,11 +346,15 @@ export class SceneComposer {
           try {
             const asset = this.assetManager.getAsset(assetType);
             if (asset && asset.generator) {
-              // Generate asset with variation
+              // Generate asset with variation and dimensions from taxonomy
               const options = {
                 seed: this.seed + i,
                 variation: this.seededRandom(0, 1),
-                ...element.placement
+                ...element.placement,
+                // Pass dimensions directly to generator (in meters)
+                width: element.dimensions?.width,
+                depth: element.dimensions?.depth,
+                height: element.dimensions?.height
               };
               
               const result = await asset.generate(options);
@@ -373,14 +377,7 @@ export class SceneComposer {
               if (result.material) sceneObject.userData.material = result.material;
               if (result instanceof THREE.Group) sceneObject.userData.group = result;
               
-              // Apply dimensions from taxonomy
-              if (element.dimensions) {
-                sceneObject.scale = {
-                  x: (element.dimensions.width || 10) / 10,
-                  y: (element.dimensions.height || 10) / 10,
-                  z: (element.dimensions.depth || 10) / 10
-                };
-              }
+              // No additional scaling needed - dimensions are passed to generator directly
               
               // Store for positioning
               sceneAssets.push({
