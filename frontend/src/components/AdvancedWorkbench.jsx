@@ -362,6 +362,18 @@ export default function AdvancedWorkbench({
     }
   }, [activeTool, toolManager]);
 
+  // Notify parent of environment system initialization
+  useEffect(() => {
+    if (onSceneUpdate && environmentSystem && sceneManager) {
+      onSceneUpdate({
+        selectedCount: sceneManager.selectedObjects.size,
+        totalObjects: sceneManager.objects.size,
+        sceneManager,
+        environmentSystem,
+      });
+    }
+  }, [environmentSystem, sceneManager, onSceneUpdate]);
+
   // Update selected objects display
   useEffect(() => {
     const updateSelection = () => {
