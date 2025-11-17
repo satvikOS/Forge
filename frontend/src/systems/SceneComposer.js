@@ -531,12 +531,6 @@ export class SceneComposer {
       item.object.position.y = 0;
     });
   }
-      item.object.position.y = 0;
-      
-      // Add slight rotation variation
-      item.object.rotation.y = Math.random() * Math.PI * 2;
-    });
-  }
 
   /**
    * Linear layout arrangement (for coastal scenes)
