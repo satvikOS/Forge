@@ -543,11 +543,42 @@ export default function AdvancedWorkbench({
       return;
     }
     
+    // Mark this modelData as processed BEFORE processing to prevent race conditions
+    lastProcessedModelDataRef.current = modelData;
+    
     console.log('\n\n========================================');
     console.log('=== PROCESSING NEW MODEL DATA ===');
     console.log('========================================');
     console.log('🆔 SceneManager instance ID:', sceneManager.instanceId);
     console.log('Received model data in AdvancedWorkbench:', modelData);
+    
+    // Check if this is an environment composition scene (objects already added by SceneComposer)
+    if (modelData.sceneType === 'environment_composition') {
+      console.log('✅ Environment composition scene - objects already in scene manager');
+      console.log('📊 Current scene state:');
+      console.log('  - Total objects in scene:', sceneManager.objects.size);
+      console.log('  - Design groups:', sceneManager.designGroups.size);
+      
+      // Just trigger a render - objects are already added by SceneComposer
+      setNeedsRender(true);
+      
+      // Notify parent component
+      if (onSceneUpdate) {
+        onSceneUpdate({
+          selectedCount: sceneManager.selectedObjects.size,
+          totalObjects: sceneManager.objects.size,
+          sceneManager,
+          environmentSystem,
+        });
+      }
+      
+      console.log('========================================');
+      console.log('=== ENVIRONMENT COMPOSITION REFRESH COMPLETE ===');
+      console.log('========================================\n\n');
+      return;
+    }
+    
+    // For backend API-generated models, process through the old path
     console.log('📊 BEFORE ADDING NEW DESIGN:');
     console.log('  - Existing designs:', sceneManager.getAllDesigns().length);
     console.log('  - Total objects in scene:', sceneManager.objects.size);
@@ -561,9 +592,6 @@ export default function AdvancedWorkbench({
         console.log(`    Design ${idx + 1}: ${design.id}, objects: ${design.objects.length}, position: (${design.position.x}, ${design.position.y}, ${design.position.z})`);
       });
     }
-    
-    // Mark this modelData as processed BEFORE async processing to prevent race conditions
-    lastProcessedModelDataRef.current = modelData;
     
     // Import geometry converter and layout manager
     Promise.all([
