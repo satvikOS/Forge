@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const taxonomySystem = require('./taxonomySystem');
 
 /**
  * Gemini Service - Handles AI interactions with Google Gemini API
@@ -8,6 +9,7 @@ class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
     this.isDemoMode = !this.apiKey;
+    this.taxonomySystem = taxonomySystem;
     
     if (!this.isDemoMode) {
       try {
@@ -98,6 +100,353 @@ class GeminiService {
 
     console.error('=== End Gemini API Request (FAILED) ===\n');
     throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message}`);
+  }
+
+  /**
+   * Analyze a design prompt with full taxonomy support
+   * This is the primary method for intelligent scene analysis
+   */
+  async analyzeTaxonomyPrompt(prompt) {
+    // Build comprehensive system prompt with full taxonomy
+    const taxonomyJSON = this.taxonomySystem.getTaxonomyForAI();
+    
+    const systemPrompt = `You are an expert AI assistant for ArchDisc, a professional 3D architectural and environmental design platform.
+
+Your task is to analyze the user's prompt and extract structured information for realistic 3D scene generation.
+
+AVAILABLE TAXONOMY (Use this to classify and understand the prompt):
+${taxonomyJSON}
+
+CLASSIFICATION PRIORITIES:
+1. Identify the primary category: settlement, environment, building, infrastructure, vehicle, or mixed scene
+2. Determine the scale (from isolated dwelling to megalopolis, or object-specific scales)
+3. Extract all specific elements mentioned
+4. Identify architectural style/period if applicable
+5. Note environmental context (terrain, water, vegetation)
+6. Consider demographics if people/activity is mentioned
+
+REALISTIC PLACEMENT RULES (CRITICAL):
+- Buildings MUST be placed on flat ground or appropriate terrain
+- Roads MUST connect buildings and follow logical paths
+- Vehicles MUST be on roads, parking lots, or driveways
+- Water features MUST be at appropriate elevations (rivers flow downhill)
+- Trees and vegetation MUST be clustered naturally, not in perfect grids
+- Objects MUST have realistic spacing based on their function
+- Scale MUST be architecturally accurate (use taxonomy dimensions)
+- Buildings in cities are closer together; rural buildings are spread out
+
+OUTPUT FORMAT:
+Return a JSON object with this exact structure:
+{
+  "primaryCategory": "<settlement|landform|water_body|building|infrastructure|vehicle|vegetation|mixed>",
+  "secondaryCategories": [<additional categories if it's a mixed scene>],
+  "scale": {
+    "type": "<micro|tiny|small|medium|large|very_large|massive>",
+    "settlement": "<isolated_dwelling|hamlet|village|town|city|metropolis|megalopolis|conurbation|null>",
+    "dimension": "<approximate overall size in meters>"
+  },
+  "style": {
+    "architectural": "<modern|contemporary|futuristic|medieval|industrial|minimalist|classical|traditional|null>",
+    "period": "<ancient|medieval|renaissance|industrial|modern|contemporary|futuristic|null>",
+    "theme": "<urban|rural|coastal|desert|mountain|forest|space|null>"
+  },
+  "elements": [
+    {
+      "category": "<from taxonomy: settlements, landforms, water_bodies, residential, commercial, etc>",
+      "subcategory": "<specific type from taxonomy>",
+      "name": "<descriptive name>",
+      "quantity": <number of instances>,
+      "placement": {
+        "priority": "<primary|secondary|tertiary>",
+        "surface": "<ground|water|air|elevated|underground>",
+        "clustering": "<dense|moderate|sparse|scattered|linear>",
+        "spacing": <minimum distance between instances in meters>
+      },
+      "dimensions": {
+        "width": <in meters>,
+        "height": <in meters>,
+        "depth": <in meters>,
+        "calculated": "<how dimensions were determined>"
+      },
+      "materials": [<list of materials>],
+      "features": [<specific features mentioned>]
+    }
+  ],
+  "environmentalContext": {
+    "terrain": "<flat|hilly|mountainous|varied|null>",
+    "groundCover": "<grass|sand|concrete|asphalt|dirt|rock|null>",
+    "waterPresence": "<none|pond|lake|river|ocean|wetland>",
+    "vegetation": "<none|sparse|moderate|dense|forest>",
+    "climate": "<tropical|temperate|arid|arctic|null>",
+    "timeOfDay": "<dawn|day|dusk|night|unspecified>"
+  },
+  "spatialComposition": {
+    "layout": "<grid|organic|linear|clustered|radial|scattered>",
+    "centerPoint": "<what should be at the center>",
+    "zones": [
+      {
+        "name": "<zone name like 'residential area', 'downtown'>",
+        "elements": [<element indices that belong here>],
+        "position": "<center|north|south|east|west|perimeter>"
+      }
+    ]
+  },
+  "realism": {
+    "requiresRoads": <boolean>,
+    "requiresTerrain": <boolean>,
+    "requiresVegetation": <boolean>,
+    "requiresLighting": <boolean>,
+    "requiresWater": <boolean>,
+    "detailLevel": "<low|medium|high|very_high|photorealistic>"
+  },
+  "demographics": {
+    "applicable": <boolean>,
+    "diversity": "<if applicable, note inclusive representation requirements>"
+  }
+}
+
+EXAMPLES:
+
+Prompt: "medieval village with church"
+Response:
+{
+  "primaryCategory": "settlement",
+  "secondaryCategories": ["building", "vegetation"],
+  "scale": {
+    "type": "small",
+    "settlement": "village",
+    "dimension": "150"
+  },
+  "style": {
+    "architectural": "medieval",
+    "period": "medieval",
+    "theme": "rural"
+  },
+  "elements": [
+    {
+      "category": "residential",
+      "subcategory": "house",
+      "name": "Village House",
+      "quantity": 15,
+      "placement": {
+        "priority": "primary",
+        "surface": "ground",
+        "clustering": "moderate",
+        "spacing": 20
+      },
+      "dimensions": { "width": 10, "height": 6, "depth": 12, "calculated": "medieval cottage scale" },
+      "materials": ["wood", "stone", "thatch"],
+      "features": ["chimney", "small_windows", "timber_frame"]
+    },
+    {
+      "category": "institutional",
+      "subcategory": "place_of_worship",
+      "name": "Village Church",
+      "quantity": 1,
+      "placement": {
+        "priority": "primary",
+        "surface": "ground",
+        "clustering": "dense",
+        "spacing": 0
+      },
+      "dimensions": { "width": 15, "height": 12, "depth": 25, "calculated": "small church scale" },
+      "materials": ["stone", "wood"],
+      "features": ["tower", "bell", "stained_glass"]
+    },
+    {
+      "category": "flora",
+      "subcategory": "trees",
+      "name": "Oak Trees",
+      "quantity": 25,
+      "placement": {
+        "priority": "tertiary",
+        "surface": "ground",
+        "clustering": "scattered",
+        "spacing": 10
+      },
+      "dimensions": { "width": 12, "height": 15, "depth": 12, "calculated": "mature oak" },
+      "materials": ["wood", "foliage"],
+      "features": ["deciduous", "natural"]
+    }
+  ],
+  "environmentalContext": {
+    "terrain": "hilly",
+    "groundCover": "grass",
+    "waterPresence": "none",
+    "vegetation": "moderate",
+    "climate": "temperate",
+    "timeOfDay": "day"
+  },
+  "spatialComposition": {
+    "layout": "organic",
+    "centerPoint": "Village Church",
+    "zones": [
+      {
+        "name": "village_center",
+        "elements": [1],
+        "position": "center"
+      },
+      {
+        "name": "residential",
+        "elements": [0],
+        "position": "perimeter"
+      }
+    ]
+  },
+  "realism": {
+    "requiresRoads": true,
+    "requiresTerrain": true,
+    "requiresVegetation": true,
+    "requiresLighting": true,
+    "requiresWater": false,
+    "detailLevel": "high"
+  },
+  "demographics": {
+    "applicable": false,
+    "diversity": null
+  }
+}
+
+Prompt: "coastal resort town"
+Response:
+{
+  "primaryCategory": "settlement",
+  "secondaryCategories": ["building", "water_body", "vegetation"],
+  "scale": {
+    "type": "medium",
+    "settlement": "town",
+    "dimension": "500"
+  },
+  "style": {
+    "architectural": "contemporary",
+    "period": "modern",
+    "theme": "coastal"
+  },
+  "elements": [
+    {
+      "category": "commercial",
+      "subcategory": "hotel",
+      "name": "Beach Resort Hotel",
+      "quantity": 3,
+      "placement": {
+        "priority": "primary",
+        "surface": "ground",
+        "clustering": "moderate",
+        "spacing": 80
+      },
+      "dimensions": { "width": 40, "height": 30, "depth": 50, "calculated": "mid-size resort hotel" },
+      "materials": ["concrete", "glass", "white_stucco"],
+      "features": ["balconies", "pool", "beachfront"]
+    },
+    {
+      "category": "water_bodies",
+      "subcategory": "ocean",
+      "name": "Ocean",
+      "quantity": 1,
+      "placement": {
+        "priority": "primary",
+        "surface": "water",
+        "clustering": "dense",
+        "spacing": 0
+      },
+      "dimensions": { "width": 500, "height": 0, "depth": 500, "calculated": "scene boundary" },
+      "materials": ["water"],
+      "features": ["waves", "blue_water"]
+    },
+    {
+      "category": "landforms",
+      "subcategory": "beach",
+      "name": "Sandy Beach",
+      "quantity": 1,
+      "placement": {
+        "priority": "primary",
+        "surface": "ground",
+        "clustering": "dense",
+        "spacing": 0
+      },
+      "dimensions": { "width": 300, "height": 0, "depth": 30, "calculated": "beach strip" },
+      "materials": ["sand"],
+      "features": ["sandy", "coastal"]
+    },
+    {
+      "category": "flora",
+      "subcategory": "trees",
+      "name": "Palm Trees",
+      "quantity": 30,
+      "placement": {
+        "priority": "secondary",
+        "surface": "ground",
+        "clustering": "moderate",
+        "spacing": 8
+      },
+      "dimensions": { "width": 4, "height": 15, "depth": 4, "calculated": "tropical palm" },
+      "materials": ["wood", "palm_fronds"],
+      "features": ["tropical", "palm"]
+    }
+  ],
+  "environmentalContext": {
+    "terrain": "flat",
+    "groundCover": "sand",
+    "waterPresence": "ocean",
+    "vegetation": "moderate",
+    "climate": "tropical",
+    "timeOfDay": "day"
+  },
+  "spatialComposition": {
+    "layout": "linear",
+    "centerPoint": "Beach",
+    "zones": [
+      {
+        "name": "beachfront",
+        "elements": [2],
+        "position": "center"
+      },
+      {
+        "name": "resort_area",
+        "elements": [0],
+        "position": "north"
+      },
+      {
+        "name": "ocean",
+        "elements": [1],
+        "position": "south"
+      }
+    ]
+  },
+  "realism": {
+    "requiresRoads": true,
+    "requiresTerrain": true,
+    "requiresVegetation": true,
+    "requiresLighting": true,
+    "requiresWater": true,
+    "detailLevel": "very_high"
+  },
+  "demographics": {
+    "applicable": true,
+    "diversity": "diverse tourists and local workers"
+  }
+}
+
+User prompt: ${prompt}
+
+IMPORTANT: Ensure all dimensions are realistic and placement rules ensure proper spatial relationships. Every element must have clear placement instructions.`;
+
+    try {
+      console.log('🔍 Analyzing prompt with full taxonomy support...');
+      const response = await this.generateContent(systemPrompt);
+      if (response) {
+        const parsed = this.parseStructuredResponse(response);
+        if (parsed) {
+          console.log('✅ Taxonomy analysis successful');
+          return parsed;
+        }
+      }
+    } catch (error) {
+      console.error('Error analyzing prompt with taxonomy:', error);
+    }
+
+    console.log('⚠️  Falling back to basic analysis...');
+    return this.analyzePrompt(prompt); // Fallback to existing method
   }
 
   /**

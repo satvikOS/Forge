@@ -1,20 +1,41 @@
 const geminiService = require('./geminiService');
 const geometryGenerator = require('./geometryGenerator');
 const materialSystem = require('./materialSystem');
+const taxonomySystem = require('./taxonomySystem');
 
 class AIService {
   constructor() {
     this.gemini = geminiService;
+    this.taxonomy = taxonomySystem;
   }
 
   /**
    * Process natural language prompt to generate design specifications
+   * Now with taxonomy-aware analysis for comprehensive scene generation
    */
   async processPrompt(prompt) {
     console.log('\n=== 🎨 AI Service Processing Prompt ===');
     console.log('📝 Prompt:', prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : ''));
     
-    // Try AI analysis first
+    // Try taxonomy-aware AI analysis first (new comprehensive method)
+    try {
+      console.log('🔍 Attempting taxonomy-aware analysis...');
+      const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPrompt(prompt);
+      if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
+        console.log('✅ Taxonomy analysis successful:', JSON.stringify(taxonomyAnalysis, null, 2));
+        const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
+        console.log('=== End AI Service Processing ===\n');
+        return specs;
+      }
+      console.log('⚠️  Taxonomy analysis returned null or incomplete, trying fallback...');
+    } catch (error) {
+      console.error('❌ Error with taxonomy analysis:', {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+    
+    // Try AI analysis (existing method)
     try {
       console.log('🔍 Attempting Gemini analyzePrompt...');
       const aiAnalysis = await this.gemini.analyzePrompt(prompt);
@@ -50,7 +71,58 @@ class AIService {
     }
     
     console.error('=== End AI Service Processing (FAILED) ===\n');
-    throw new Error('Failed to generate design from AI. Both analyzePrompt and generateDesignSpecs failed. Please check API configuration and try again.');
+    throw new Error('Failed to generate design from AI. All analysis methods failed. Please check API configuration and try again.');
+  }
+  
+  /**
+   * Convert taxonomy-aware AI analysis to design specifications
+   * Handles comprehensive scene data with realistic placement
+   */
+  convertTaxonomyAnalysisToSpecs(analysis) {
+    const { primaryCategory, scale, style, elements, spatialComposition, realism, environmentalContext } = analysis;
+    
+    // Extract primary element for basic compatibility
+    const primaryElement = elements?.[0] || {};
+    
+    return {
+      // Original format compatibility
+      objectType: primaryElement.category || primaryCategory || 'object',
+      objectCount: elements?.reduce((sum, el) => sum + (el.quantity || 1), 0) || 1,
+      name: primaryElement.name || 'Generated Scene',
+      description: `${style?.architectural || 'Modern'} ${primaryCategory || 'scene'}`,
+      dimensions: primaryElement.dimensions ? {
+        width: (primaryElement.dimensions.width || 10) * 1000, // Convert to mm
+        height: (primaryElement.dimensions.height || 10) * 1000,
+        depth: (primaryElement.dimensions.depth || 10) * 1000
+      } : { width: 10000, height: 10000, depth: 10000 },
+      materials: primaryElement.materials || ['default'],
+      style: style?.architectural || style?.theme || 'modern',
+      features: primaryElement.features || [],
+      
+      // Enhanced taxonomy data
+      taxonomyData: {
+        primaryCategory,
+        secondaryCategories: analysis.secondaryCategories || [],
+        scale: scale || {},
+        style: style || {},
+        environmentalContext: environmentalContext || {},
+        spatialComposition: spatialComposition || {},
+        realism: realism || { detailLevel: 'medium' }
+      },
+      
+      // All elements for multi-object generation
+      elements: elements || [],
+      
+      // Scene metadata
+      scene: {
+        type: spatialComposition?.layout || 'organic',
+        complexity: scale?.type || 'medium',
+        style: style?.architectural || 'modern',
+        scale: scale?.type || 'medium'
+      },
+      complexity: scale?.type || 'medium',
+      detailLevel: realism?.detailLevel || 'high',
+    };
   }
   
   /**
