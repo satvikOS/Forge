@@ -200,6 +200,7 @@ function App() {
       
       // The scene objects are already added to the scene manager by the composer
       // Just trigger a refresh by updating model data
+      // Use scene.seed as timestamp since it's unique per generation and won't change on re-renders
       setModelData({
         prompt: prompt,
         sceneType: 'environment_composition',
@@ -207,7 +208,7 @@ function App() {
         theme: scene.theme,
         assetCount: scene.assets.length,
         seed: scene.seed,
-        timestamp: Date.now(),
+        timestamp: scene.seed, // Use seed as stable timestamp
       });
       
       setDesigns(prevDesigns => [...prevDesigns, {
