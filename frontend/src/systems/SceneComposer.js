@@ -359,20 +359,22 @@ export class SceneComposer {
               
               const result = await asset.generate(options);
               
-              // Create scene object
+              // Create scene object with proper geometry type
               const sceneObject = this.sceneManager.createObject(
                 `${element.name} ${i + 1}`,
-                'ai_generated',
+                'environment_asset',
                 {
-                  type: 'ai_environment',
-                  taxonomyCategory: element.category,
-                  taxonomySubcategory: element.subcategory,
+                  type: 'environment', // This must match the check in SceneObject renderer
+                  assetId: assetType,
+                  assetName: asset.name,
+                  category: element.category,
+                  subcategory: element.subcategory,
                   aiGenerated: true,
                   seed: this.seed + i
                 }
               );
               
-              // Store generated data
+              // Store generated Three.js data
               if (result.geometry) sceneObject.userData.geometry = result.geometry;
               if (result.material) sceneObject.userData.material = result.material;
               if (result instanceof THREE.Group) sceneObject.userData.group = result;
