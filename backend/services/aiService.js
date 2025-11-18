@@ -16,8 +16,15 @@ class AIService {
    * Now with taxonomy-aware analysis and real-world data integration for comprehensive scene generation
    */
   async processPrompt(prompt) {
-    console.log('\n=== 🎨 AI Service Processing Prompt ===');
-    console.log('📝 Prompt:', prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : ''));
+    console.log('\n========================================');
+    console.log('🤖 AI SERVICE: PROCESSING PROMPT');
+    console.log('========================================');
+    console.log('📝 Prompt:', prompt);
+    console.log('🔧 APIs Available:');
+    console.log('   ✓ Gemini:', !!process.env.GEMINI_API_KEY);
+    console.log('   ✓ Mapbox:', !!process.env.MAPBOX_ACCESS_TOKEN);
+    console.log('   ✓ Sketchfab:', !!process.env.SKETCHFAB_API_TOKEN);
+    console.log('========================================\n');
     
     // Try taxonomy-aware AI analysis first (new comprehensive method)
     try {

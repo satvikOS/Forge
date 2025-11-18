@@ -143,6 +143,12 @@ async function processGenerationJob(jobId, prompt, options) {
     jobQueue.updateProgress(jobId, 'analyzing', 10);
     const specifications = await aiService.processPrompt(prompt);
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
+    
+    // VERIFY AI was used (not fallback)
+    if (!specifications || (!specifications.taxonomyData && !specifications.elements)) {
+      console.warn('⚠️  WARNING: Specifications lack AI taxonomy data - may be using fallback');
+    }
+    
     jobQueue.updateProgress(jobId, 'analyzing', 50);
     
     // Add complexity analysis
