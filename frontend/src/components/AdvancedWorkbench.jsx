@@ -10,25 +10,31 @@ import initializeEnvironmentSystem from '../systems/EnvironmentSystem';
  */
 function SceneObject({ sceneObject, isWireframe }) {
   const meshRef = useRef();
+  const prevPositionRef = useRef({ x: 0, y: 0, z: 0 });
+  const prevRotationRef = useRef({ x: 0, y: 0, z: 0 });
+  const prevScaleRef = useRef({ x: 1, y: 1, z: 1 });
 
   useEffect(() => {
     if (meshRef.current && sceneObject) {
-      // Update transform from sceneObject
-      meshRef.current.position.set(
-        sceneObject.position.x || 0,
-        sceneObject.position.y || 0,
-        sceneObject.position.z || 0
-      );
-      meshRef.current.rotation.set(
-        sceneObject.rotation.x || 0,
-        sceneObject.rotation.y || 0,
-        sceneObject.rotation.z || 0
-      );
-      meshRef.current.scale.set(
-        sceneObject.scale.x || 1,
-        sceneObject.scale.y || 1,
-        sceneObject.scale.z || 1
-      );
+      const pos = sceneObject.position;
+      const rot = sceneObject.rotation;
+      const scale = sceneObject.scale;
+      
+      // Only update if values actually changed
+      if (pos.x !== prevPositionRef.current.x || pos.y !== prevPositionRef.current.y || pos.z !== prevPositionRef.current.z) {
+        meshRef.current.position.set(pos.x || 0, pos.y || 0, pos.z || 0);
+        prevPositionRef.current = { ...pos };
+      }
+      
+      if (rot.x !== prevRotationRef.current.x || rot.y !== prevRotationRef.current.y || rot.z !== prevRotationRef.current.z) {
+        meshRef.current.rotation.set(rot.x || 0, rot.y || 0, rot.z || 0);
+        prevRotationRef.current = { ...rot };
+      }
+      
+      if (scale.x !== prevScaleRef.current.x || scale.y !== prevScaleRef.current.y || scale.z !== prevScaleRef.current.z) {
+        meshRef.current.scale.set(scale.x || 1, scale.y || 1, scale.z || 1);
+        prevScaleRef.current = { ...scale };
+      }
     }
   }, [sceneObject]);
 
@@ -103,23 +109,22 @@ function SceneObject({ sceneObject, isWireframe }) {
  */
 function SceneRenderer({ sceneManager, isWireframe, modelData }) {
   const [sceneObjects, setSceneObjects] = useState([]);
-  const [updateCounter, setUpdateCounter] = useState(0);
+  const prevObjectCountRef = useRef(0);
 
-  // Re-render when modelData changes (scene is updated)
-  useEffect(() => {
-    if (modelData) {
-      setUpdateCounter(prev => prev + 1);
-    }
-  }, [modelData]);
-
-  // Update scene objects from SceneManager
+  // Update scene objects from SceneManager only when object count changes
   useEffect(() => {
     if (sceneManager) {
       const objects = sceneManager.getAllObjects();
-      console.log(`🎭 Rendering ${objects.length} scene objects`);
-      setSceneObjects(objects);
+      const currentCount = objects.length;
+      
+      // Only update if object count changed or it's the initial render
+      if (currentCount !== prevObjectCountRef.current) {
+        console.log(`🎭 Rendering ${currentCount} scene objects`);
+        setSceneObjects(objects);
+        prevObjectCountRef.current = currentCount;
+      }
     }
-  }, [sceneManager, updateCounter]);
+  }, [sceneManager, modelData]);
 
   return (
     <>
@@ -181,7 +186,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}>
-      <Canvas shadows>
+      <Canvas shadows frameloop="demand">
         <Suspense fallback={null}>
           <PerspectiveCamera makeDefault position={[50, 50, 50]} far={10000} />
           <OrbitControls 

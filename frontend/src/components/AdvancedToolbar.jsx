@@ -1,5 +1,6 @@
 /**
- * Advanced Toolbar - Comprehensive 3D design tools organized by category
+ * Advanced Toolbar - Specialized 3D design tools
+ * Focus on tools NOT in top toolbar to avoid duplication
  */
 
 import { useState } from 'react';
@@ -99,36 +100,7 @@ export default function AdvancedToolbar({
   canUndo,
   canRedo,
 }) {
-  // Selection Tools
-  const selectionTools = [
-    { id: 'select', name: 'Select', icon: '🖱️', shortcut: 'S' },
-    { id: 'select_box', name: 'Box Select', icon: '⬚', shortcut: 'B' },
-    { id: 'select_circle', name: 'Circle Select', icon: '⭕', shortcut: 'C' },
-    { id: 'select_all', name: 'Select All', icon: '⬚', shortcut: 'A' },
-    { id: 'invert_selection', name: 'Invert', icon: '↔', shortcut: 'I' },
-  ];
-
-  // Transform Tools
-  const transformTools = [
-    { id: 'move', name: 'Move', icon: '↔️', shortcut: 'G' },
-    { id: 'rotate', name: 'Rotate', icon: '🔄', shortcut: 'R' },
-    { id: 'scale', name: 'Scale', icon: '⇔', shortcut: 'S' },
-  ];
-
-  // Mesh Primitives
-  const meshTools = [
-    { id: 'add_cube', name: 'Cube', icon: '⬛' },
-    { id: 'add_sphere', name: 'Sphere', icon: '⚫' },
-    { id: 'add_cylinder', name: 'Cylinder', icon: '⬭' },
-    { id: 'add_cone', name: 'Cone', icon: '🔺' },
-    { id: 'add_plane', name: 'Plane', icon: '▭' },
-    { id: 'add_torus', name: 'Torus', icon: '⭕' },
-    { id: 'add_icosphere', name: 'Ico Sphere', icon: '⬢' },
-    { id: 'add_circle', name: 'Circle', icon: '○' },
-    { id: 'add_grid', name: 'Grid', icon: '⊞' },
-  ];
-
-  // Modeling Tools
+  // Specialized modeling tools not in top toolbar
   const modelingTools = [
     { id: 'extrude', name: 'Extrude', icon: '⬆️', shortcut: 'E' },
     { id: 'push_pull', name: 'Push/Pull', icon: '↕️', shortcut: 'P' },
@@ -136,7 +108,6 @@ export default function AdvancedToolbar({
     { id: 'subdivide', name: 'Subdivide', icon: '⊞' },
     { id: 'duplicate', name: 'Duplicate', icon: '⊕', shortcut: 'Shift+D' },
     { id: 'mirror', name: 'Mirror', icon: '↔️', shortcut: 'Ctrl+M' },
-    { id: 'delete', name: 'Delete', icon: '🗑️', shortcut: 'Del' },
   ];
 
   // Drawing Tools
@@ -164,7 +135,6 @@ export default function AdvancedToolbar({
     { id: 'view_perspective', name: 'Perspective', icon: '🔲' },
     { id: 'focus_selection', name: 'Focus', icon: '🎯', shortcut: 'F' },
     { id: 'frame_all', name: 'Frame All', icon: '🖼️', shortcut: 'Home' },
-    { id: 'add_camera', name: 'Add Camera', icon: '📷' },
   ];
 
   // Light Tools
@@ -175,11 +145,6 @@ export default function AdvancedToolbar({
     { id: 'add_area_light', name: 'Area', icon: '▭' },
   ];
 
-  const viewModes = [
-    { id: 'solid', label: 'Solid', icon: '◼' },
-    { id: 'wireframe', label: 'Wireframe', icon: '▢' },
-  ];
-
   return (
     <div style={{
       height: '100%',
@@ -187,27 +152,53 @@ export default function AdvancedToolbar({
       padding: '8px',
       background: 'var(--bg-primary)',
     }}>
-      <ToolGroup
-        title="Selection"
-        tools={selectionTools}
-        activeTool={activeTool}
-        onToolSelect={onToolSelect}
-      />
-      
-      <ToolGroup
-        title="Transform"
-        tools={transformTools}
-        activeTool={activeTool}
-        onToolSelect={onToolSelect}
-      />
-      
-      <ToolGroup
-        title="Mesh Primitives"
-        tools={meshTools}
-        activeTool={activeTool}
-        onToolSelect={onToolSelect}
-      />
-      
+      {/* Undo/Redo - Quick access */}
+      <div style={{
+        display: 'flex',
+        gap: '4px',
+        marginBottom: '8px',
+        padding: '4px',
+        background: 'var(--bg-secondary)',
+        borderRadius: '4px',
+      }}>
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+          style={{
+            flex: 1,
+            padding: '6px',
+            background: canUndo ? 'var(--bg-tertiary)' : 'transparent',
+            border: '1px solid var(--border-color)',
+            borderRadius: '4px',
+            color: canUndo ? 'var(--text-primary)' : 'var(--text-secondary)',
+            cursor: canUndo ? 'pointer' : 'not-allowed',
+            fontSize: '16px',
+            opacity: canUndo ? 1 : 0.4,
+          }}
+        >
+          ↶
+        </button>
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Shift+Z)"
+          style={{
+            flex: 1,
+            padding: '6px',
+            background: canRedo ? 'var(--bg-tertiary)' : 'transparent',
+            border: '1px solid var(--border-color)',
+            borderRadius: '4px',
+            color: canRedo ? 'var(--text-primary)' : 'var(--text-secondary)',
+            cursor: canRedo ? 'pointer' : 'not-allowed',
+            fontSize: '16px',
+            opacity: canRedo ? 1 : 0.4,
+          }}
+        >
+          ↷
+        </button>
+      </div>
+
       <ToolGroup
         title="Modeling"
         tools={modelingTools}
