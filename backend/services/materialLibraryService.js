@@ -80,7 +80,7 @@ class MaterialLibraryService {
   }
 
   /**
-   * Load materials from AmbientCG API
+   * Load materials from AmbientCG API with timeout
    */
   async loadFromAPI() {
     const url = `${this.apiBaseUrl}/full_json?include=downloadData,tagData&type=Material`;
@@ -110,12 +110,20 @@ class MaterialLibraryService {
       });
     }
 
-    const response = await fetchFunc(url, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'ArchDisc/1.0'
-      }
-    });
+    // Add timeout to fetch
+    const fetchWithTimeout = Promise.race([
+      fetchFunc(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ArchDisc/1.0'
+        }
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('API fetch timeout after 5 seconds')), 5000)
+      )
+    ]);
+
+    const response = await fetchWithTimeout;
 
     if (!response.ok) {
       throw new Error(`API returned ${response.status}: ${response.statusText}`);
@@ -357,6 +365,13 @@ class MaterialLibraryService {
    */
   saveIndex(indexPath) {
     try {
+      // Ensure the directory exists
+      const dir = path.dirname(indexPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`📁 Created data directory: ${dir}`);
+      }
+      
       const indexData = {
         version: '2.0', // Updated version for API support
         timestamp: new Date().toISOString(),
