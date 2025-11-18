@@ -306,6 +306,9 @@ function SceneObject({ sceneObject, isSelected, onSelect }) {
 
   if (!sceneObject.visible) return null;
 
+  // Check if object has PBR material with texture maps
+  const hasPBRMaps = sceneObject.material?.maps && sceneObject.material.isPBR;
+
   return (
     <mesh
       ref={meshRef}
@@ -321,16 +324,113 @@ function SceneObject({ sceneObject, isSelected, onSelect }) {
       onPointerOut={() => setHovered(false)}
       userData={{ sceneObjectId: sceneObject.id }}
     >
-      <meshStandardMaterial
-        color={sceneObject.material.color}
-        metalness={sceneObject.material.metalness || 0.3}
-        roughness={sceneObject.material.roughness || 0.7}
-        emissive={isSelected || hovered ? '#ff6b35' : '#000000'}
-        emissiveIntensity={isSelected ? 0.3 : (hovered ? 0.2 : 0)}
-        transparent={isSelected || hovered}
-        opacity={isSelected ? 0.95 : (hovered ? 0.95 : 1)}
-      />
+      {hasPBRMaps ? (
+        <PBRMaterial
+          material={sceneObject.material}
+          isSelected={isSelected}
+          isHovered={hovered}
+        />
+      ) : (
+        <meshStandardMaterial
+          color={sceneObject.material.color}
+          metalness={sceneObject.material.metalness || 0.3}
+          roughness={sceneObject.material.roughness || 0.7}
+          emissive={isSelected || hovered ? '#ff6b35' : '#000000'}
+          emissiveIntensity={isSelected ? 0.3 : (hovered ? 0.2 : 0)}
+          transparent={isSelected || hovered}
+          opacity={isSelected ? 0.95 : (hovered ? 0.95 : 1)}
+        />
+      )}
     </mesh>
+  );
+}
+
+// PBR Material Component - Loads and applies PBR textures
+function PBRMaterial({ material, isSelected, isHovered }) {
+  const textureLoader = useMemo(() => new THREE.TextureLoader(), []);
+  const [textures, setTextures] = useState(null);
+
+  useEffect(() => {
+    if (!material.maps) return;
+
+    const loadTextures = async () => {
+      try {
+        const loadedTextures = {};
+
+        // Load textures concurrently
+        const promises = [];
+        const textureKeys = [];
+
+        if (material.maps.albedo) {
+          textureKeys.push('albedo');
+          promises.push(textureLoader.loadAsync(material.maps.albedo));
+        }
+        if (material.maps.normal) {
+          textureKeys.push('normal');
+          promises.push(textureLoader.loadAsync(material.maps.normal));
+        }
+        if (material.maps.roughness) {
+          textureKeys.push('roughness');
+          promises.push(textureLoader.loadAsync(material.maps.roughness));
+        }
+        if (material.maps.metalness) {
+          textureKeys.push('metalness');
+          promises.push(textureLoader.loadAsync(material.maps.metalness));
+        }
+        if (material.maps.ao) {
+          textureKeys.push('ao');
+          promises.push(textureLoader.loadAsync(material.maps.ao));
+        }
+
+        const results = await Promise.all(promises);
+        
+        results.forEach((texture, index) => {
+          const key = textureKeys[index];
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.anisotropy = 16;
+          if (key === 'albedo') {
+            texture.encoding = THREE.sRGBEncoding;
+          }
+          loadedTextures[key] = texture;
+        });
+
+        setTextures(loadedTextures);
+      } catch (error) {
+        console.warn('Failed to load PBR textures, using fallback:', error);
+        setTextures({});
+      }
+    };
+
+    loadTextures();
+
+    return () => {
+      // Cleanup textures on unmount
+      if (textures) {
+        Object.values(textures).forEach(texture => texture.dispose());
+      }
+    };
+  }, [material.maps, textureLoader]);
+
+  const materialProps = material.properties || {};
+
+  return (
+    <meshStandardMaterial
+      map={textures?.albedo || null}
+      normalMap={textures?.normal || null}
+      normalScale={new THREE.Vector2(materialProps.normalScale || 1.0, materialProps.normalScale || 1.0)}
+      roughnessMap={textures?.roughness || null}
+      roughness={materialProps.roughness || 0.7}
+      metalnessMap={textures?.metalness || null}
+      metalness={materialProps.metalness || 0.3}
+      aoMap={textures?.ao || null}
+      aoMapIntensity={1.0}
+      color={textures?.albedo ? '#ffffff' : (material.color || '#888888')}
+      emissive={isSelected || isHovered ? '#ff6b35' : '#000000'}
+      emissiveIntensity={isSelected ? 0.3 : (isHovered ? 0.2 : 0)}
+      transparent={isSelected || isHovered}
+      opacity={isSelected ? 0.95 : (isHovered ? 0.95 : 1)}
+    />
   );
 }
 
@@ -784,7 +884,17 @@ export default function AdvancedWorkbench({
         </div>
       </div>
 
-      <Canvas shadows ref={canvasRef}>
+      <Canvas 
+        shadows 
+        ref={canvasRef}
+        gl={{
+          antialias: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.0,
+          outputEncoding: THREE.sRGBEncoding,
+          physicallyCorrectLights: true,
+        }}
+      >
         <Suspense fallback={null}>
           <PerspectiveCamera makeDefault position={[15, 15, 15]} fov={50} far={5000} />
           <OrbitControls 
