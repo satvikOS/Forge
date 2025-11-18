@@ -479,7 +479,7 @@ After setup, verify all APIs are working:
 curl http://localhost:5000/api/orchestrate/capabilities
 
 # 2. Run test suite
-node backend/test-orchestrator.js
+node backend/orchestrator-test.js
 
 # 3. Generate a test scene
 curl -X POST http://localhost:5000/api/orchestrate/preview \

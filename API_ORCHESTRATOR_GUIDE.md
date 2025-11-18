@@ -536,7 +536,7 @@ shortTerm: { ttl: 60 * 60 * 1000 },          // Weather
 Run the comprehensive test suite:
 
 ```bash
-node backend/test-orchestrator.js
+node backend/orchestrator-test.js
 ```
 
 This tests:
