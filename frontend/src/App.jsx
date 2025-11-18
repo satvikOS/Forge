@@ -143,25 +143,36 @@ function App() {
   const isSceneCompositionPrompt = (prompt) => {
     const lowerPrompt = prompt.toLowerCase();
     
-    // Scene action keywords
-    const actionKeywords = ['create', 'generate', 'build', 'make', 'design'];
+    // Scene action keywords - expanded to include "recreate"
+    const actionKeywords = ['create', 'generate', 'build', 'make', 'design', 'recreate', 'rebuild', 'construct'];
     const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
     
-    // Environment keywords (from scene templates)
+    // Environment keywords (from scene templates) - EXPANDED with locations
     const environmentKeywords = [
-      'city', 'futuristic', 'urban', 'metropolis', 'cityscape',
-      'village', 'medieval', 'town', 'settlement',
-      'industrial', 'factory', 'warehouse', 'manufacturing',
-      'landscape', 'nature', 'forest', 'wilderness', 'natural',
-      'coastal', 'beach', 'ocean', 'seaside', 'harbor', 'shore',
-      'desert', 'arid', 'sand', 'dunes', 'outpost',
-      'park', 'garden', 'green space',
-      'space', 'station', 'orbital', 'spacecraft'
+      // Cities and urban
+      'city', 'futuristic', 'urban', 'metropolis', 'cityscape', 'downtown', 'skyline',
+      'manhattan', 'chicago', 'tokyo', 'london', 'paris', 'dubai', 'singapore', 'district', 'neighborhood',
+      // Villages and settlements
+      'village', 'medieval', 'town', 'settlement', 'hamlet', 'colony',
+      // Industrial
+      'industrial', 'factory', 'warehouse', 'manufacturing', 'complex',
+      // Nature
+      'landscape', 'nature', 'forest', 'wilderness', 'natural', 'terrain', 'environment',
+      // Coastal
+      'coastal', 'beach', 'ocean', 'seaside', 'harbor', 'shore', 'waterfront', 'bay', 'port',
+      // Desert
+      'desert', 'arid', 'sand', 'dunes', 'outpost', 'oasis',
+      // Parks
+      'park', 'garden', 'green space', 'plaza', 'square',
+      // Space
+      'space', 'station', 'orbital', 'spacecraft',
+      // Architecture/structures
+      'street', 'avenue', 'boulevard', 'buildings', 'skyscrapers', 'towers', 'blocks'
     ];
     const hasEnvironment = environmentKeywords.some(keyword => lowerPrompt.includes(keyword));
     
     // Qualifiers that suggest environment (not single object)
-    const environmentQualifiers = ['entire', 'whole', 'complete', 'full', 'scene', 'environment'];
+    const environmentQualifiers = ['entire', 'whole', 'complete', 'full', 'scene', 'environment', 'area', 'district'];
     const hasQualifier = environmentQualifiers.some(keyword => lowerPrompt.includes(keyword));
     
     // It's a scene composition prompt if it has action + environment, or action + qualifier

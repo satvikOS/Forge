@@ -153,6 +153,7 @@ class AIService {
   
   /**
    * Convert AI analysis to design specifications
+   * Now includes taxonomyData for consistent handling
    */
   convertAIAnalysisToSpecs(analysis) {
     const firstElement = analysis.elements?.[0] || {};
@@ -171,6 +172,17 @@ class AIService {
       scene: scene,
       complexity: scene.complexity || 'medium',
       detailLevel: analysis.requirements?.detailLevel || 'medium',
+      
+      // Include taxonomy data even for non-taxonomy responses
+      // This ensures consistent handling in the frontend
+      taxonomyData: {
+        primaryCategory: firstElement.type || scene.type || 'object',
+        scale: { type: scene.complexity || 'medium' },
+        style: { architectural: scene.style || 'modern' },
+        elements: analysis.elements || [],
+        spatialComposition: { layout: scene.layout || 'organic' },
+        realism: { detailLevel: analysis.requirements?.detailLevel || 'medium' }
+      }
     };
   }
 
