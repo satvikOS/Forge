@@ -101,15 +101,21 @@ npm install
 
 ### Configuration
 
+**Important**: The `.env` file is not tracked by git for security. You must create it from the template:
+
 1. Configure backend environment variables:
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-Edit `.env` and set your configuration:
+2. Edit `backend/.env` and set your configuration:
 - `PORT`: Backend server port (default: 5000)
 - `GEMINI_API_KEY`: Your Google Gemini API key (required for AI features)
+- `SKETCHFAB_API_TOKEN`: Your Sketchfab API token (optional, for 3D model integration)
+- `SKETCHFAB_ENABLED`: Set to `true` to enable Sketchfab features (default: false)
+
+**Note**: If you previously had a `.env` file with your Gemini API key, you'll need to create it again from `.env.example`. The `.env` file is intentionally not committed to prevent exposing your API keys.
 
 ### Running the Application
 

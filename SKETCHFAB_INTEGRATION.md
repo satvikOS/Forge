@@ -36,6 +36,17 @@ ArchDisc now includes comprehensive Sketchfab integration, allowing users to bro
 
 ## Setup Instructions
 
+### Important: Environment File Setup
+
+**The `.env` file is not included in the repository for security reasons.** You must create it yourself:
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Then edit `backend/.env` to add your API keys (both Gemini and Sketchfab). The `.env` file is in `.gitignore` to prevent accidentally committing your secrets to git.
+
 ### Prerequisites
 
 1. **Sketchfab Account** (optional for basic features)
@@ -77,7 +88,15 @@ ArchDisc now includes comprehensive Sketchfab integration, allowing users to bro
 
 ### Backend Configuration
 
-1. **Environment Variables** (`backend/.env`):
+1. **Create the `.env` file** (if it doesn't exist):
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
+   
+   **Important**: The `.env` file is not tracked by git (it's in `.gitignore` for security). You must create it from `.env.example` and add your API keys.
+
+2. **Environment Variables** (`backend/.env`):
    ```env
    # Sketchfab API Configuration
    SKETCHFAB_API_TOKEN=your_sketchfab_api_token_here
