@@ -22,10 +22,25 @@ ArchDisc now includes a **professional-grade 3D editor** with 70+ tools for manu
 
 **See the [3D Editor Guide](./3D_EDITOR_GUIDE.md) for complete documentation.**
 
+## ✨ New: Sketchfab Integration
+
+Browse, preview, and embed 3D architectural models from **Sketchfab** directly in ArchDisc!
+
+### Sketchfab Features
+
+- 🔍 **Model Browser**: Search and browse thousands of architectural models
+- 🎨 **Interactive Viewer**: View 3D models with full controls (rotate, zoom, VR mode)
+- 📎 **Discovery Integration**: Attach multiple models to your discoveries
+- 🏗️ **Categories & Filters**: Filter by architecture, cultural heritage, and more
+- 👤 **OAuth Support**: Connect your Sketchfab account (optional)
+
+**See the [Sketchfab Integration Guide](./SKETCHFAB_INTEGRATION.md) for setup and usage.**
+
 ## Features
 
 - **Natural Language Design**: Describe what you want to create in plain English
 - **3D Visualization**: Real-time 3D model rendering with interactive controls
+- **Sketchfab Integration**: Browse and embed 3D architectural models
 - **AI-Powered Generation**: Leverages AI to interpret prompts and generate detailed specifications
 - **Structural Analysis**: Automatic analysis of strength, stability, and safety
 - **Cost Estimation**: Instant manufacturing/construction cost estimates
