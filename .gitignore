@@ -9,6 +9,10 @@
 node_modules/
 package-lock.json
 
+# Test scripts
+test-*.js
+package.json
+
 # Environment variables
 .env
 .env.local
