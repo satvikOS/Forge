@@ -8,6 +8,7 @@ import { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import ToolManager from '../systems/ToolSystem';
 import SceneManager from '../systems/SceneManager';
+import EnvironmentLightingSystem from '../systems/EnvironmentLightingSystem';
 
 // Import all tools
 import { SelectTool, SelectBoxTool, SelectCircleTool, SelectAllTool, InvertSelectionTool } from '../tools/SelectionTools';
@@ -98,6 +99,65 @@ function CameraAutoFramer({ sceneManager, enabled = true }) {
       console.log('  Camera position:', { x: cameraX, y: cameraY, z: cameraZ });
       console.log('  Looking at:', { x: centerX, y: centerY, z: centerZ });
     }
+  });
+  
+  return null;
+}
+
+// Environment Lighting Component - Handles HDRI and dynamic lighting
+function EnvironmentLighting({ environmentConfig }) {
+  const { scene, gl } = useThree();
+  const lightingSystemRef = useRef(null);
+
+  // Initialize lighting system
+  useEffect(() => {
+    if (!lightingSystemRef.current) {
+      lightingSystemRef.current = new EnvironmentLightingSystem(scene, gl);
+      console.log('✅ Environment Lighting System initialized in scene');
+    }
+
+    return () => {
+      if (lightingSystemRef.current) {
+        lightingSystemRef.current.dispose();
+        lightingSystemRef.current = null;
+      }
+    };
+  }, [scene, gl]);
+
+  // Apply environment configuration when it changes
+  useEffect(() => {
+    if (!lightingSystemRef.current || !environmentConfig) return;
+
+    console.log('🌅 Applying environment configuration:', environmentConfig);
+
+    const { hdri, lighting, timeOfDay, weather } = environmentConfig;
+
+    // Setup HDRI if available
+    if (hdri && hdri.url) {
+      lightingSystemRef.current.setupEnvironment(
+        hdri.url,
+        hdri.intensity || 1.0,
+        hdri.blur || 0.0
+      ).catch(error => {
+        console.warn('Failed to setup HDRI, using fallback lighting');
+      });
+    } else {
+      lightingSystemRef.current.setupFallbackEnvironment();
+    }
+
+    // Update time of day lighting
+    if (timeOfDay) {
+      lightingSystemRef.current.updateTimeOfDay(timeOfDay);
+    }
+
+    // Apply weather effects
+    if (weather) {
+      lightingSystemRef.current.setWeatherEffects(weather);
+    }
+  }, [environmentConfig]);
+
+  return null;
+}
   });
   
   return null;
@@ -414,6 +474,7 @@ export default function AdvancedWorkbench({
   const [needsRender, setNeedsRender] = useState(false);
   const contextRef = useRef({});
   const lastProcessedTimestampRef = useRef(null);
+  const [environmentConfig, setEnvironmentConfig] = useState(null);
 
   // Update context when tools or scene changes
   useEffect(() => {
@@ -538,6 +599,12 @@ export default function AdvancedWorkbench({
     if (!modelData || !sceneManager || !modelDataTimestamp) {
       console.log('Skipping model data processing - missing modelData or sceneManager');
       return;
+    }
+    
+    // Extract environment config if provided by backend
+    if (modelData.environmentConfig) {
+      console.log('🌍 Setting environment configuration from modelData');
+      setEnvironmentConfig(modelData.environmentConfig);
     }
     
     console.log('\n\n========================================');
@@ -729,16 +796,22 @@ export default function AdvancedWorkbench({
           />
           
           {/* Lighting */}
-          <ambientLight intensity={0.5} />
-          <directionalLight 
-            position={[10, 10, 5]} 
-            intensity={1}
-            castShadow
-            shadow-mapSize-width={2048}
-            shadow-mapSize-height={2048}
-          />
-          <directionalLight position={[-10, -10, -5]} intensity={0.3} />
-          <pointLight position={[0, 5, 0]} intensity={0.5} color="#ff6b35" />
+          {environmentConfig ? (
+            <EnvironmentLighting environmentConfig={environmentConfig} />
+          ) : (
+            <>
+              <ambientLight intensity={0.5} />
+              <directionalLight 
+                position={[10, 10, 5]} 
+                intensity={1}
+                castShadow
+                shadow-mapSize-width={2048}
+                shadow-mapSize-height={2048}
+              />
+              <directionalLight position={[-10, -10, -5]} intensity={0.3} />
+              <pointLight position={[0, 5, 0]} intensity={0.5} color="#ff6b35" />
+            </>
+          )}
           
           {/* Scene Objects */}
           <SceneRenderer
