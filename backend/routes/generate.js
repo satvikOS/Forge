@@ -55,7 +55,11 @@ router.get('/:jobId', async (req, res) => {
     const { jobId } = req.params;
     const job = jobQueue.getJob(jobId);
 
+    // Log for debugging serverless issues
+    console.log(`📊 Job status check: ${jobId} - ${job ? `Found (${job.status})` : 'NOT FOUND'}`);
+    
     if (!job) {
+      console.log('❌ Job not found in queue. Total jobs in memory:', jobQueue.getStats().total);
       return res.status(404).json({ error: 'Job not found' });
     }
 
