@@ -149,7 +149,7 @@ function convertPartToSceneObject(part, name) {
   const geometry = convertGeometry(part);
   
   // Convert material
-  const material = convertMaterial(part.material || 'default');
+  const material = convertMaterial(part.material || 'default', part.pbrMaterial);
   
   return {
     id,
@@ -169,6 +169,9 @@ function convertPartToSceneObject(part, name) {
       aiGenerated: true,
       componentType: part.componentType,
       originalData: part,
+      // Preserve PBR material spec
+      pbrMaterial: part.pbrMaterial,
+      materialSpec: part.materialSpec,
       // Preserve metadata from backend
       ...(part.metadata || {}),
     },
@@ -245,8 +248,23 @@ function convertGeometry(part) {
 
 /**
  * Convert backend material name to SceneManager material
+ * Enhanced to handle PBR material specifications
  */
-function convertMaterial(materialName) {
+function convertMaterial(materialName, pbrMaterial = null) {
+  // If PBR material specification is provided, use it
+  if (pbrMaterial && pbrMaterial.maps) {
+    return {
+      color: MATERIAL_COLORS[pbrMaterial.type] || MATERIAL_COLORS.default,
+      metalness: pbrMaterial.properties?.metalness ?? 0.3,
+      roughness: pbrMaterial.properties?.roughness ?? 0.7,
+      // Include PBR texture maps
+      maps: pbrMaterial.maps,
+      properties: pbrMaterial.properties,
+      isPBR: true,
+    };
+  }
+  
+  // Fallback to basic material
   const name = materialName?.toLowerCase() || 'default';
   const color = MATERIAL_COLORS[name] || MATERIAL_COLORS.default;
   const properties = MATERIAL_PROPERTIES[name] || MATERIAL_PROPERTIES.default;
@@ -255,6 +273,7 @@ function convertMaterial(materialName) {
     color,
     metalness: properties.metalness,
     roughness: properties.roughness,
+    isPBR: false,
   };
 }
 
