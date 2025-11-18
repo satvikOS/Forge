@@ -427,6 +427,17 @@ Response:
   }
 }
 
+For each building surface and element, specify:
+- Material type: (concrete, glass, wood, metal, stone, brick, asphalt, etc.)
+- Finish: (polished, rough, weathered, new)
+- Context: (exterior, interior, ground-level, elevated)
+
+Determine scene environment for realistic lighting and materials:
+- Location: (urban, suburban, rural, nature, indoor, coastal, industrial)
+- Time of day: (sunrise, morning, noon, afternoon, sunset, dusk, night)
+- Weather: (clear, cloudy, overcast, rainy, foggy, snowy)
+- Season: (spring, summer, fall, winter)
+
 User prompt: ${prompt}
 
 IMPORTANT: Ensure all dimensions are realistic and placement rules ensure proper spatial relationships. Every element must have clear placement instructions.`;

@@ -3,6 +3,7 @@ const router = express.Router();
 const aiService = require('../services/aiService');
 const exportService = require('../services/exportService');
 const jobQueue = require('../services/jobQueue');
+const materialMappingService = require('../services/materialMappingService');
 
 /**
  * POST /api/generate
@@ -164,6 +165,23 @@ async function processGenerationJob(jobId, prompt, options) {
       materials: modelData.materials,
       stats: modelData.stats,
     }, null, 2));
+    jobQueue.updateProgress(jobId, 'generating', 60);
+    
+    // Stage 2.5: Applying realistic materials and environment
+    console.log('--- 🎨 Stage 2.5: Applying Realistic Materials ---');
+    const { modelData: enhancedModel, environmentConfig } = await materialMappingService.assignRealisticMaterials(
+      modelData,
+      specifications
+    );
+    console.log('✅ PBR materials and environment applied:', JSON.stringify({
+      hasPBRMaterials: true,
+      environmentConfig: {
+        location: environmentConfig.location,
+        timeOfDay: environmentConfig.timeOfDay,
+        weather: environmentConfig.weather,
+        hdri: environmentConfig.hdri?.name,
+      },
+    }, null, 2));
     jobQueue.updateProgress(jobId, 'generating', 80);
     jobQueue.completeStage(jobId, 'generating');
     console.log('✅ Stage 2 complete\n');
@@ -171,7 +189,7 @@ async function processGenerationJob(jobId, prompt, options) {
     // Stage 3: Refining (apply LOD, optimize)
     console.log('--- ✨ Stage 3: Refining Model ---');
     jobQueue.updateProgress(jobId, 'refining', 30);
-    const refined = await refineModel(modelData, specifications);
+    const refined = await refineModel(enhancedModel, specifications);
     console.log('✅ Model refined:', JSON.stringify({
       lod: refined.lod,
       optimized: refined.optimized,
@@ -197,6 +215,7 @@ async function processGenerationJob(jobId, prompt, options) {
         createdAt: new Date().toISOString(),
       },
       modelData: refined, // Include modelData for frontend compatibility
+      environmentConfig, // Include environment configuration
       designId, // Also at root level for easy access
       exports: {
         prepared: true,
