@@ -13,7 +13,7 @@ class AIService {
 
   /**
    * Process natural language prompt to generate design specifications
-   * Now with taxonomy-aware analysis and real-world data integration for comprehensive scene generation
+   * Direct AI-only approach - NO FALLBACKS
    */
   async processPrompt(prompt) {
     console.log('\n=== 🎨 AI Service Processing Prompt ===');
@@ -26,78 +26,45 @@ class AIService {
     }
     
     console.log('✅ Gemini API configured - proceeding with AI generation');
+    console.log('🔍 Starting taxonomy-aware AI analysis...');
     
-    // Try taxonomy-aware AI analysis first (new comprehensive method)
+    // Use only taxonomy-aware analysis - fastest and most comprehensive
     try {
-      console.log('🔍 Attempting taxonomy-aware analysis...');
       const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPrompt(prompt);
-      if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
-        console.log('✅ Taxonomy analysis successful');
-        
-        // Apply real-world patterns and data
-        console.log('🌍 Enhancing with real-world data...');
-        const realWorldRecommendations = this.realWorldData.analyzeForRealWorldPatterns(taxonomyAnalysis);
-        
-        // Apply real-world patterns to elements
-        if (taxonomyAnalysis.elements && realWorldRecommendations) {
-          taxonomyAnalysis.elements = this.realWorldData.applyRealWorldPatterns(
-            taxonomyAnalysis.elements,
-            realWorldRecommendations
-          );
-          
-          // Store real-world recommendations in taxonomy data
-          taxonomyAnalysis.realWorldData = realWorldRecommendations;
-        }
-        
-        const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
-        console.log('=== End AI Service Processing ===\n');
-        return specs;
+      
+      if (!taxonomyAnalysis || !taxonomyAnalysis.primaryCategory) {
+        throw new Error('Taxonomy analysis returned incomplete data');
       }
-      console.log('⚠️  Taxonomy analysis returned null or incomplete, trying fallback...');
+      
+      console.log('✅ Taxonomy analysis successful');
+      
+      // Apply real-world patterns and data
+      console.log('🌍 Enhancing with real-world data...');
+      const realWorldRecommendations = this.realWorldData.analyzeForRealWorldPatterns(taxonomyAnalysis);
+      
+      // Apply real-world patterns to elements
+      if (taxonomyAnalysis.elements && realWorldRecommendations) {
+        taxonomyAnalysis.elements = this.realWorldData.applyRealWorldPatterns(
+          taxonomyAnalysis.elements,
+          realWorldRecommendations
+        );
+        
+        // Store real-world recommendations in taxonomy data
+        taxonomyAnalysis.realWorldData = realWorldRecommendations;
+      }
+      
+      const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
+      console.log('=== End AI Service Processing ===\n');
+      return specs;
+      
     } catch (error) {
-      console.error('❌ Error with taxonomy analysis:', {
+      console.error('❌ Taxonomy AI analysis failed:', {
         message: error.message,
         stack: error.stack,
       });
+      console.error('=== End AI Service Processing (FAILED) ===\n');
+      throw new Error(`AI generation failed: ${error.message}. Please try again or check your API configuration.`);
     }
-    
-    // Try AI analysis (existing method)
-    try {
-      console.log('🔍 Attempting Gemini analyzePrompt...');
-      const aiAnalysis = await this.gemini.analyzePrompt(prompt);
-      if (aiAnalysis) {
-        console.log('✅ AI analysis successful:', JSON.stringify(aiAnalysis, null, 2));
-        const specs = this.convertAIAnalysisToSpecs(aiAnalysis);
-        console.log('=== End AI Service Processing ===\n');
-        return specs;
-      }
-      console.log('⚠️  AI analysis returned null, trying fallback...');
-    } catch (error) {
-      console.error('❌ Error with Gemini analyzePrompt:', {
-        message: error.message,
-        stack: error.stack,
-      });
-    }
-    
-    // Try design specs generation as fallback
-    try {
-      console.log('🔄 Falling back to generateDesignSpecs...');
-      const designSpecs = await this.gemini.generateDesignSpecs(prompt);
-      if (designSpecs) {
-        console.log('✅ Design specs generation successful:', JSON.stringify(designSpecs, null, 2));
-        console.log('=== End AI Service Processing ===\n');
-        return designSpecs;
-      }
-      console.log('⚠️  Design specs generation returned null');
-    } catch (error) {
-      console.error('❌ Error with generateDesignSpecs:', {
-        message: error.message,
-        stack: error.stack,
-      });
-    }
-    
-    console.error('=== End AI Service Processing (FAILED) ===\n');
-    throw new Error('Failed to generate design from AI. All analysis methods failed. Please check API configuration and try again.');
   }
   
   /**
@@ -184,79 +151,6 @@ class AIService {
         realism: { detailLevel: analysis.requirements?.detailLevel || 'medium' }
       }
     };
-  }
-
-  /**
-   * Parse AI response into structured format
-   */
-  parseAIResponse(content) {
-    try {
-      // Try to parse as JSON
-      return JSON.parse(content);
-    } catch (e) {
-      // If not JSON, extract information from text
-      return {
-        objectType: this.extractObjectType(content),
-        description: content,
-        dimensions: { width: 10, height: 10, depth: 10 },
-        materials: ['default'],
-        style: 'modern',
-      };
-    }
-  }
-
-  /**
-   * Generate demo response for testing without API key
-   * Emergency fallback only - should rarely be used
-   */
-  generateDemoResponse(prompt) {
-    const objectType = this.extractObjectType(prompt);
-    
-    const responses = {
-      car: {
-        objectType: 'car',
-        description: 'Modern electric sedan with aerodynamic design',
-        dimensions: { length: 4500, width: 1850, height: 1450 },
-        materials: ['aluminum', 'carbon fiber', 'glass'],
-        style: 'futuristic',
-        features: ['electric powertrain', 'autonomous driving', 'panoramic roof'],
-      },
-      building: {
-        objectType: 'building',
-        description: 'Contemporary office building with glass facade',
-        dimensions: { length: 30000, width: 20000, height: 50000 },
-        materials: ['concrete', 'steel', 'glass', 'wood'],
-        style: 'contemporary',
-        features: ['green roof', 'solar panels', 'open floor plan'],
-      },
-      furniture: {
-        objectType: 'furniture',
-        description: 'Ergonomic office chair with modern aesthetics',
-        dimensions: { width: 650, height: 1200, depth: 650 },
-        materials: ['mesh', 'aluminum', 'foam'],
-        style: 'minimalist',
-        features: ['adjustable height', 'lumbar support', 'swivel base'],
-      },
-    };
-
-    return responses[objectType] || responses.furniture;
-  }
-
-  /**
-   * Extract object type from prompt
-   */
-  extractObjectType(prompt) {
-    const lower = prompt.toLowerCase();
-    if (lower.includes('car') || lower.includes('vehicle') || lower.includes('automobile')) {
-      return 'car';
-    }
-    if (lower.includes('building') || lower.includes('house') || lower.includes('structure')) {
-      return 'building';
-    }
-    if (lower.includes('chair') || lower.includes('desk') || lower.includes('furniture')) {
-      return 'furniture';
-    }
-    return 'object';
   }
 
   /**

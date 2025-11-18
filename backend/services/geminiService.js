@@ -3,39 +3,43 @@ const taxonomySystem = require('./taxonomySystem');
 
 /**
  * Gemini Service - Handles AI interactions with Google Gemini API
- * Provides robust error handling, retry logic, and fallback mechanisms
+ * Direct API usage only - NO demo mode
  */
 class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.isDemoMode = !this.apiKey;
     this.taxonomySystem = taxonomySystem;
     
-    if (!this.isDemoMode) {
-      try {
-        this.genAI = new GoogleGenerativeAI(this.apiKey);
-        // Use model from environment variable or default to gemini-2.5-pro (best for 3D design)
-        this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
-        
-        // Configure API version based on model
-        // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)
-        const modelConfig = { model: this.modelName };
-        const requestOptions = {};
-        
-        if (this.modelName.includes('1.5')) {
-          // Gemini 1.5 models (like gemini-1.5-pro, gemini-1.5-flash) need beta API
-          requestOptions.apiVersion = 'v1beta';
-          console.log(`Using v1beta API for model: ${this.modelName}`);
-        } else {
-          console.log(`Using stable v1 API for model: ${this.modelName}`);
-        }
-        
-        this.model = this.genAI.getGenerativeModel(modelConfig, requestOptions);
-        console.log(`Gemini service initialized with model: ${this.modelName}`);
-      } catch (error) {
-        console.error('Failed to initialize Gemini API:', error);
-        this.isDemoMode = true;
+    if (!this.apiKey) {
+      console.error('❌ GEMINI_API_KEY not set - service will not function');
+      this.isConfigured = false;
+      return;
+    }
+    
+    try {
+      this.genAI = new GoogleGenerativeAI(this.apiKey);
+      // Use model from environment variable or default to gemini-2.5-pro (best for 3D design)
+      this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+      
+      // Configure API version based on model
+      // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)
+      const modelConfig = { model: this.modelName };
+      const requestOptions = {};
+      
+      if (this.modelName.includes('1.5')) {
+        // Gemini 1.5 models (like gemini-1.5-pro, gemini-1.5-flash) need beta API
+        requestOptions.apiVersion = 'v1beta';
+        console.log(`Using v1beta API for model: ${this.modelName}`);
+      } else {
+        console.log(`Using stable v1 API for model: ${this.modelName}`);
       }
+      
+      this.model = this.genAI.getGenerativeModel(modelConfig, requestOptions);
+      console.log(`✅ Gemini service initialized with model: ${this.modelName}`);
+      this.configured = true;
+    } catch (error) {
+      console.error('❌ Failed to initialize Gemini API:', error);
+      this.configured = false;
     }
     
     this.maxRetries = 3;
@@ -43,10 +47,10 @@ class GeminiService {
   }
 
   /**
-   * Validate API key
+   * Validate API key and service is ready
    */
   isConfigured() {
-    return !this.isDemoMode && this.genAI && this.model;
+    return this.configured && this.genAI && this.model;
   }
 
   /**
@@ -688,8 +692,8 @@ User request: ${prompt}`;
   getStatus() {
     return {
       configured: this.isConfigured(),
-      mode: this.isDemoMode ? 'demo' : 'active',
-      model: this.isDemoMode ? null : this.modelName || 'gemini-pro',
+      mode: this.isConfigured() ? 'active' : 'not_configured',
+      model: this.isConfigured() ? this.modelName || 'gemini-pro' : null,
     };
   }
 }
