@@ -1,6 +1,6 @@
 /**
  * Material Library Service
- * Parses AmbientCG CSV, builds searchable material database, and provides smart material matching
+ * Fetches materials from AmbientCG API or parses CSV, builds searchable database
  */
 
 const fs = require('fs');
@@ -14,32 +14,51 @@ class MaterialLibraryService {
     this.typeIndex = new Map(); // Fast lookup by type
     this.cache = new Map(); // Cache frequently used materials
     this.isLoaded = false;
+    this.apiBaseUrl = 'https://ambientcg.com/api/v2';
+    this.lastApiSync = null;
   }
 
   /**
-   * Load and parse AmbientCG CSV database
+   * Load material database - tries API first, then cached index, then CSV
    */
   async loadDatabase() {
-    const csvPath = path.join(__dirname, '../data/ambientcg-materials.csv');
     const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
+    const csvPath = path.join(__dirname, '../data/ambientcg-materials.csv');
 
-    // Check if index exists and is newer than CSV
+    // Try loading from API first
+    try {
+      console.log('🌐 Fetching materials from AmbientCG API...');
+      await this.loadFromAPI();
+      
+      if (this.isLoaded && this.materials.length > 0) {
+        // Save to index for offline use
+        this.saveIndex(indexPath);
+        console.log(`✅ Loaded ${this.materials.length} materials from API`);
+        return;
+      }
+    } catch (error) {
+      console.warn('⚠️  Failed to fetch from API:', error.message);
+      console.log('   Falling back to cached data...');
+    }
+
+    // Fallback to cached index
     if (fs.existsSync(indexPath)) {
       try {
         const indexData = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
         if (indexData.version && indexData.materials) {
           this.materials = indexData.materials;
+          this.lastApiSync = indexData.lastApiSync;
           this.buildIndices();
           this.isLoaded = true;
-          console.log(`✅ Loaded ${this.materials.length} materials from index`);
+          console.log(`✅ Loaded ${this.materials.length} materials from cached index`);
           return;
         }
       } catch (error) {
-        console.warn('Failed to load index, will rebuild:', error.message);
+        console.warn('Failed to load index:', error.message);
       }
     }
 
-    // Parse CSV if no valid index exists
+    // Fallback to CSV if provided
     if (fs.existsSync(csvPath)) {
       try {
         console.log('📊 Parsing AmbientCG CSV...');
@@ -54,9 +73,147 @@ class MaterialLibraryService {
         this.isLoaded = false;
       }
     } else {
-      console.warn('⚠️  AmbientCG CSV not found at:', csvPath);
+      console.warn('⚠️  No material data sources available');
       console.warn('   Material library will use fallback materials only');
       this.isLoaded = false;
+    }
+  }
+
+  /**
+   * Load materials from AmbientCG API
+   */
+  async loadFromAPI() {
+    const url = `${this.apiBaseUrl}/full_json?include=downloadData,tagData&type=Material`;
+    
+    // Use native fetch (Node 18+) or require https module as fallback
+    let fetchFunc;
+    if (typeof fetch !== 'undefined') {
+      fetchFunc = fetch;
+    } else if (typeof global.fetch !== 'undefined') {
+      fetchFunc = global.fetch;
+    } else {
+      // Fallback to https module for older Node versions
+      const https = require('https');
+      fetchFunc = (url) => new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            resolve({
+              ok: res.statusCode === 200,
+              status: res.statusCode,
+              statusText: res.statusMessage,
+              json: async () => JSON.parse(data)
+            });
+          });
+        }).on('error', reject);
+      });
+    }
+
+    const response = await fetchFunc(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'ArchDisc/1.0'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    if (!data.foundAssets || data.foundAssets.length === 0) {
+      throw new Error('No materials found in API response');
+    }
+
+    // Parse API response into our material format
+    this.materials = data.foundAssets.map(asset => this.parseAPIAsset(asset));
+    this.buildIndices();
+    this.isLoaded = true;
+    this.lastApiSync = new Date().toISOString();
+  }
+
+  /**
+   * Parse AmbientCG API asset into our material format
+   */
+  parseAPIAsset(asset) {
+    const materialId = asset.assetId;
+    const tags = asset.tags || [];
+    const categories = asset.categories || [];
+    
+    // Determine material type from categories and tags
+    let materialType = 'default';
+    for (const category of categories) {
+      const normalized = this.normalizeMaterialType(category);
+      if (normalized !== 'default') {
+        materialType = normalized;
+        break;
+      }
+    }
+    
+    // Get available resolutions from downloadFolders
+    const resolutions = [];
+    if (asset.downloadFolders && asset.downloadFolders.default) {
+      Object.keys(asset.downloadFolders.default).forEach(key => {
+        if (key.includes('K')) {
+          resolutions.push(key.split('-')[0]); // Extract "2K" from "2K-JPG"
+        }
+      });
+    }
+    
+    const defaultResolution = resolutions.includes('2K') ? '2K' : (resolutions[0] || '2K');
+    
+    return {
+      id: materialId,
+      name: asset.displayName || materialId,
+      type: materialType,
+      tags: tags,
+      categories: categories,
+      resolution: defaultResolution,
+      availableResolutions: resolutions,
+      downloadUrl: asset.downloadLink || '',
+      previewUrl: asset.previewImage ? `https://ambientcg.com${asset.previewImage}` : '',
+      dataType: asset.dataType,
+      maps: this.generateTextureUrlsFromAPI(materialId, defaultResolution),
+      apiData: {
+        downloadFolders: asset.downloadFolders,
+        creationMethod: asset.creationMethod,
+        physicalSize: asset.physicalSize
+      }
+    };
+  }
+
+  /**
+   * Generate texture URLs from API data
+   */
+  generateTextureUrlsFromAPI(materialId, resolution) {
+    const baseUrl = 'https://ambientcg.com/get?file=';
+    
+    return {
+      albedo: `${baseUrl}${materialId}_${resolution}-JPG/${materialId}_${resolution}_Color.jpg`,
+      normal: `${baseUrl}${materialId}_${resolution}-JPG/${materialId}_${resolution}_NormalGL.jpg`,
+      roughness: `${baseUrl}${materialId}_${resolution}-JPG/${materialId}_${resolution}_Roughness.jpg`,
+      metalness: `${baseUrl}${materialId}_${resolution}-JPG/${materialId}_${resolution}_Metalness.jpg`,
+      ao: `${baseUrl}${materialId}_${resolution}-JPG/${materialId}_${resolution}_AmbientOcclusion.jpg`,
+      displacement: `${baseUrl}${materialId}_${resolution}-JPG/${materialId}_${resolution}_Displacement.jpg`,
+    };
+  }
+
+  /**
+   * Refresh materials from API (can be called periodically or on-demand)
+   */
+  async refreshFromAPI() {
+    console.log('🔄 Refreshing materials from API...');
+    try {
+      await this.loadFromAPI();
+      const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
+      this.saveIndex(indexPath);
+      console.log(`✅ Refreshed ${this.materials.length} materials from API`);
+      return { success: true, count: this.materials.length };
+    } catch (error) {
+      console.error('Failed to refresh from API:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -201,8 +358,9 @@ class MaterialLibraryService {
   saveIndex(indexPath) {
     try {
       const indexData = {
-        version: '1.0',
+        version: '2.0', // Updated version for API support
         timestamp: new Date().toISOString(),
+        lastApiSync: this.lastApiSync,
         materials: this.materials,
       };
       fs.writeFileSync(indexPath, JSON.stringify(indexData, null, 2));
@@ -391,6 +549,8 @@ class MaterialLibraryService {
       totalMaterials: this.materials.length,
       materialTypes: this.typeIndex.size,
       cacheSize: this.cache.size,
+      lastApiSync: this.lastApiSync,
+      source: this.lastApiSync ? 'api' : (this.materials.length > 0 ? 'file' : 'fallback'),
     };
   }
 }

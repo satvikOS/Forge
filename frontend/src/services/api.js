@@ -145,6 +145,72 @@ class APIService {
       throw error;
     }
   }
+
+  /**
+   * Materials API - Get material library statistics
+   */
+  async getMaterialStats() {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/materials/stats`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching material stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Materials API - Search materials
+   */
+  async searchMaterials(query = '', filters = {}) {
+    try {
+      const params = new URLSearchParams({ query, ...filters });
+      const response = await axios.get(`${API_BASE_URL}/materials/search?${params}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error searching materials:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Materials API - Get material types
+   */
+  async getMaterialTypes() {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/materials/types`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching material types:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Materials API - Get specific material by ID
+   */
+  async getMaterialById(id) {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/materials/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching material:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Materials API - Refresh materials from AmbientCG API
+   */
+  async refreshMaterials() {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/materials/refresh`);
+      return response.data;
+    } catch (error) {
+      console.error('Error refreshing materials:', error);
+      throw error;
+    }
+  }
 }
 
 export default new APIService();

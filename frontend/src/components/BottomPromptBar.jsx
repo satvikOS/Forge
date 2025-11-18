@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import MaterialsBrowser from './MaterialsBrowser';
 
 export default function BottomPromptBar({ onSubmit, loading }) {
   const [prompt, setPrompt] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [showMaterialsBrowser, setShowMaterialsBrowser] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -184,6 +186,43 @@ export default function BottomPromptBar({ onSubmit, loading }) {
             ArchPro
           </button>
 
+          {/* Materials Browser button */}
+          <button
+            type="button"
+            onClick={() => setShowMaterialsBrowser(true)}
+            disabled={loading}
+            style={{
+              background: 'rgba(107, 185, 240, 0.15)',
+              border: '1px solid rgba(107, 185, 240, 0.3)',
+              borderRadius: '14px',
+              padding: '0 12px',
+              height: '30px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#6bb9f0',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '12px',
+              fontWeight: '600',
+              flexShrink: 0,
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                e.target.style.background = 'rgba(107, 185, 240, 0.25)';
+                e.target.style.borderColor = '#6bb9f0';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'rgba(107, 185, 240, 0.15)';
+              e.target.style.borderColor = 'rgba(107, 185, 240, 0.3)';
+            }}
+            title="Browse AmbientCG Materials"
+          >
+            🎨 Materials
+          </button>
+
           {/* Input field */}
           <input
             type="text"
@@ -273,6 +312,16 @@ export default function BottomPromptBar({ onSubmit, loading }) {
           </button>
         </form>
       </div>
+
+      {/* Materials Browser Modal */}
+      <MaterialsBrowser
+        isOpen={showMaterialsBrowser}
+        onClose={() => setShowMaterialsBrowser(false)}
+        onSelectMaterial={(material) => {
+          setPrompt(`Create a design using ${material.name} material`);
+          setShowMaterialsBrowser(false);
+        }}
+      />
     </>
   );
 }
