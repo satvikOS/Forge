@@ -173,6 +173,7 @@ function App() {
    */
   const handleSceneComposition = async (prompt) => {
     console.log('🎨 Handling scene composition prompt:', prompt);
+    console.log('🎯 Scene Composer will call AI backend (NO templates)');
     
     if (!environmentSystemRef.current || !environmentSystemRef.current.sceneComposer) {
       console.error('Scene Composer not initialized');
@@ -187,6 +188,8 @@ function App() {
       
       const sceneComposer = environmentSystemRef.current.sceneComposer;
       
+      console.log('📡 Calling Scene Composer AI generation...');
+      
       // Generate scene with progress updates
       const scene = await sceneComposer.generateSceneFromPrompt(prompt, (progressInfo) => {
         setGenerationProgress({ 
@@ -197,6 +200,7 @@ function App() {
       });
       
       console.log(`✅ Scene composed: ${scene.assets.length} assets created`);
+      console.log('✅ Scene generation used AI:', scene.aiGenerated || scene.template === 'ai_generated');
       
       // The scene objects are already added to the scene manager by the composer
       // Just trigger a refresh by updating model data
@@ -209,6 +213,7 @@ function App() {
         assetCount: scene.assets.length,
         seed: scene.seed,
         timestamp: scene.seed, // Use seed as stable timestamp
+        aiGenerated: scene.aiGenerated || scene.template === 'ai_generated',
       });
       
       setDesigns(prevDesigns => [...prevDesigns, {
@@ -220,8 +225,8 @@ function App() {
       
       return true;
     } catch (err) {
-      console.error('Scene composition failed:', err);
-      setError('Failed to generate scene. Please try again.');
+      console.error('❌ Scene composition failed:', err);
+      setError(`Failed to generate scene: ${err.message}. Please check API configuration.`);
       return false;
     } finally {
       setLoading(false);
@@ -230,10 +235,21 @@ function App() {
   };
 
   const handleGenerateDesign = async (prompt) => {
+    console.log('🎯 Prompt routing decision:');
+    console.log('  Prompt:', prompt);
+    console.log('  Orchestrator enabled:', import.meta.env.VITE_ENABLE_ORCHESTRATOR);
+    
     // Check if this is a scene composition prompt
-    if (isSceneCompositionPrompt(prompt)) {
+    const isScenePrompt = isSceneCompositionPrompt(prompt);
+    console.log('  Is scene composition:', isScenePrompt);
+    
+    if (isScenePrompt) {
+      console.log('  Endpoint: SceneComposer → /api/generate (AI-powered)');
+      console.log('  Using templates: false (AI-only mode)');
       const success = await handleSceneComposition(prompt);
       if (success) return; // Scene composition handled, don't call API
+    } else {
+      console.log('  Endpoint: Direct → /api/generate (single object)');
     }
     
     // Otherwise, use the regular API-based generation

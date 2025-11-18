@@ -215,6 +215,9 @@ export class SceneComposer {
    */
   async generateSceneFromPrompt(prompt, progressCallback = null) {
     console.log(`🎨 Generating scene from prompt: "${prompt}"`);
+    console.log('🎯 SCENE GENERATION ROUTING:');
+    console.log('  AI Mode Enabled:', this.useAI);
+    console.log('  Using Templates:', false);  // Should always be false!
     
     // Set new random seed for unique generation
     this.setRandomSeed();
@@ -223,47 +226,29 @@ export class SceneComposer {
       progressCallback({ stage: 'Analyzing prompt with AI...', progress: 0.1 });
     }
     
-    // Try AI-powered generation first
-    if (this.useAI) {
-      try {
-        const aiScene = await this.generateAIScene(prompt, progressCallback);
-        if (aiScene) {
-          console.log(`✅ AI scene generated: ${aiScene.assets?.length || 0} assets created`);
-          return aiScene;
-        }
-      } catch (error) {
-        console.warn('AI generation failed, falling back to templates:', error);
+    // FORCE AI-powered generation - NO TEMPLATE FALLBACK
+    if (!this.useAI) {
+      throw new Error('❌ AI mode is disabled. Scene generation requires AI analysis.');
+    }
+    
+    console.log('🤖 Calling AI scene generation (NO template fallback)...');
+    
+    try {
+      const aiScene = await this.generateAIScene(prompt, progressCallback);
+      if (aiScene) {
+        console.log(`✅ AI scene generated successfully: ${aiScene.assets?.length || 0} assets created`);
+        console.log('✅ NO templates were used - all content is AI-generated and unique');
+        return aiScene;
       }
+      
+      // If AI returns null/undefined, throw error instead of falling back
+      throw new Error('AI generation returned no scene data');
+      
+    } catch (error) {
+      console.error('❌ AI generation failed:', error.message);
+      console.error('❌ NOT falling back to templates - throwing error');
+      throw new Error(`Scene generation failed: ${error.message}. Please check API configuration.`);
     }
-    
-    // Fallback to template-based generation
-    if (progressCallback) {
-      progressCallback({ stage: 'Using template-based generation...', progress: 0.2 });
-    }
-    
-    await this.delay(300);
-    
-    // Parse prompt to identify scene type
-    const sceneTemplate = this.identifySceneTemplate(prompt);
-    
-    if (!sceneTemplate) {
-      if (progressCallback) {
-        progressCallback({ stage: 'Creating generic scene...', progress: 0.3 });
-      }
-      return this.generateGenericScene(prompt);
-    }
-
-    if (progressCallback) {
-      progressCallback({ stage: `Composing ${sceneTemplate.theme} environment...`, progress: 0.3 });
-    }
-    
-    await this.delay(200);
-    
-    // Generate the scene with progress updates
-    const scene = await this.composeScene(sceneTemplate, prompt, progressCallback);
-    
-    console.log(`✅ Scene generated: ${scene.assets.length} assets created`);
-    return scene;
   }
   
   /**
@@ -272,6 +257,7 @@ export class SceneComposer {
    */
   async generateAIScene(prompt, progressCallback = null) {
     console.log('🤖 Requesting AI scene analysis...');
+    console.log('🎯 API Endpoint: /api/generate (with AI processing)');
     
     try {
       // Note: We're using the existing generate endpoint which now has taxonomy support
@@ -280,8 +266,11 @@ export class SceneComposer {
         progressCallback({ stage: 'AI analyzing prompt...', progress: 0.15 });
       }
       
+      console.log('📡 Calling backend API service...');
+      
       // Generate design using API (this goes through backend AI service)
       const result = await this.apiService.generateDesign(prompt, (progress) => {
+        console.log('📊 Generation progress:', progress);
         if (progressCallback && progress.status === 'analyzing') {
           progressCallback({ stage: 'AI extracting scene elements...', progress: 0.2 });
         } else if (progressCallback && progress.status === 'generating') {
@@ -289,8 +278,14 @@ export class SceneComposer {
         }
       });
       
+      console.log('📦 API Response received:', {
+        success: result.success,
+        hasDesign: !!result.design,
+        hasTaxonomyData: !!result.design?.specifications?.taxonomyData
+      });
+      
       if (!result.success || !result.design) {
-        console.warn('AI generation returned no design');
+        console.warn('❌ AI generation returned no design');
         return null;
       }
       
@@ -302,15 +297,17 @@ export class SceneComposer {
       const taxonomyData = result.design.specifications?.taxonomyData;
       
       if (taxonomyData && taxonomyData.elements) {
+        console.log('✅ Using taxonomy-based generation with', taxonomyData.elements.length, 'elements');
         // Use taxonomy-based generation
         return await this.composeAIScene(taxonomyData, prompt, progressCallback);
       } else {
+        console.log('✅ Using standard AI-enhanced generation');
         // Use standard generation with AI-enhanced specs
         return await this.composeFromSpecs(result.design.specifications, prompt, progressCallback);
       }
       
     } catch (error) {
-      console.error('Error in AI scene generation:', error);
+      console.error('❌ Error in AI scene generation:', error);
       return null;
     }
   }

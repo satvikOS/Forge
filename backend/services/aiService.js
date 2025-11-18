@@ -19,6 +19,14 @@ class AIService {
     console.log('\n=== 🎨 AI Service Processing Prompt ===');
     console.log('📝 Prompt:', prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : ''));
     
+    // CRITICAL: Validate API is configured - NO FALLBACK TO DEMO MODE
+    if (!this.gemini.isConfigured()) {
+      console.error('❌ GEMINI_API_KEY not configured');
+      throw new Error('❌ GEMINI_API_KEY not configured. Cannot generate without API. Please set GEMINI_API_KEY environment variable.');
+    }
+    
+    console.log('✅ Gemini API configured - proceeding with AI generation');
+    
     // Try taxonomy-aware AI analysis first (new comprehensive method)
     try {
       console.log('🔍 Attempting taxonomy-aware analysis...');
