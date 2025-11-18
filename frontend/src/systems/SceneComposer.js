@@ -673,6 +673,8 @@ export class SceneComposer {
       progressCallback({ stage: 'Creating scene elements...', progress: currentProgress });
     }
     
+    console.log(`🔨 Processing ${elements.length} elements...`);
+    
     for (const element of elements) {
       const quantity = element.quantity || 1;
       
@@ -686,56 +688,85 @@ export class SceneComposer {
       // Map element to asset type
       const assetType = this.mapTaxonomyToAssetType(element);
       
-      if (assetType) {
-        for (let i = 0; i < quantity; i++) {
-          try {
-            const asset = this.assetManager.getAsset(assetType);
-            if (asset && asset.generator) {
-              const SCALE_FACTOR = 100;
-              
-              const options = {
-                seed: this.seed + i,
-                variation: this.seededRandom(0, 1),
-                width: element.dimensions?.width ? element.dimensions.width * SCALE_FACTOR : undefined,
-                depth: element.dimensions?.depth ? element.dimensions.depth * SCALE_FACTOR : undefined,
-                height: element.dimensions?.height ? element.dimensions.height * SCALE_FACTOR : undefined
-              };
-              
-              const result = await asset.generate(options);
-              
-              const sceneObject = this.sceneManager.createObject(
-                `${element.name || element.subcategory} ${i + 1}`,
-                'environment_asset',
-                {
-                  type: 'environment',
-                  assetId: assetType,
-                  assetName: asset.name,
-                  category: element.category,
-                  subcategory: element.subcategory,
-                  aiGenerated: true,
-                  seed: this.seed + i
-                }
-              );
-              
-              if (result.geometry) sceneObject.userData.geometry = result.geometry;
-              if (result.material) sceneObject.userData.material = result.material;
-              if (result instanceof THREE.Group) sceneObject.userData.group = result;
-              
-              sceneAssets.push({
-                object: sceneObject,
-                element: element,
-                index: i
-              });
-              
-              await this.delay(30);
+      if (!assetType) {
+        console.warn(`⚠️ No asset mapping found for category: ${element.category}, subcategory: ${element.subcategory}`);
+        console.log(`   Using fallback asset for: ${element.name}`);
+        // Use a generic building as fallback
+        const fallbackType = element.category === 'flora' ? 'tree_oak' : 'building_house';
+        this.generateFallbackAsset(element, fallbackType, sceneAssets, quantity);
+        currentProgress += progressIncrement;
+        continue;
+      }
+      
+      const asset = this.assetManager.getAsset(assetType);
+      
+      if (!asset || !asset.generator) {
+        console.warn(`⚠️ Asset not found or has no generator: ${assetType}`);
+        console.log(`   Using fallback for: ${element.name}`);
+        this.generateFallbackAsset(element, assetType, sceneAssets, quantity);
+        currentProgress += progressIncrement;
+        continue;
+      }
+      
+      // Generate assets
+      for (let i = 0; i < quantity; i++) {
+        try {
+          const SCALE_FACTOR = 100;
+          
+          const options = {
+            seed: this.seed + i,
+            variation: this.seededRandom(0, 1),
+            width: element.dimensions?.width ? element.dimensions.width * SCALE_FACTOR : undefined,
+            depth: element.dimensions?.depth ? element.dimensions.depth * SCALE_FACTOR : undefined,
+            height: element.dimensions?.height ? element.dimensions.height * SCALE_FACTOR : undefined
+          };
+          
+          const result = await asset.generate(options);
+          
+          const sceneObject = this.sceneManager.createObject(
+            `${element.name || element.subcategory} ${i + 1}`,
+            'environment_asset',
+            {
+              type: 'environment',
+              assetId: assetType,
+              assetName: asset.name,
+              category: element.category,
+              subcategory: element.subcategory,
+              aiGenerated: true,
+              seed: this.seed + i
             }
-          } catch (error) {
-            console.error(`Error generating ${element.name}:`, error);
-          }
+          );
+          
+          if (result.geometry) sceneObject.userData.geometry = result.geometry;
+          if (result.material) sceneObject.userData.material = result.material;
+          if (result instanceof THREE.Group) sceneObject.userData.group = result;
+          
+          sceneAssets.push({
+            object: sceneObject,
+            element: element,
+            index: i
+          });
+          
+          await this.delay(30);
+        } catch (error) {
+          console.error(`❌ Error generating ${element.name}:`, error);
         }
       }
       
       currentProgress += progressIncrement;
+    }
+    
+    console.log(`✅ Generated ${sceneAssets.length} scene assets`);
+    
+    if (sceneAssets.length === 0) {
+      console.error('❌ No assets were generated! Creating fallback scene...');
+      // Create at least one fallback asset so scene isn't empty
+      this.generateFallbackAsset(
+        { category: 'commercial', subcategory: 'office_building', name: 'Building', quantity: 3 },
+        'building_house',
+        sceneAssets,
+        3
+      );
     }
     
     if (progressCallback) {
@@ -751,6 +782,8 @@ export class SceneComposer {
       progressCallback({ stage: 'Complete!', progress: 1.0 });
     }
     
+    console.log(`🎬 Scene composition complete with ${sceneAssets.length} assets`);
+    
     return {
       template: 'ai_generated',
       theme: specifications.style || 'custom',
@@ -760,6 +793,47 @@ export class SceneComposer {
       seed: this.seed,
       aiGenerated: true
     };
+  }
+  
+  /**
+   * Generate fallback assets when mapping fails
+   */
+  generateFallbackAsset(element, assetType, sceneAssets, quantity) {
+    try {
+      const asset = this.assetManager.getAsset(assetType);
+      
+      if (!asset || !asset.generator) {
+        console.error(`❌ Fallback asset ${assetType} also unavailable`);
+        return;
+      }
+      
+      for (let i = 0; i < quantity; i++) {
+        const sceneObject = this.sceneManager.createObject(
+          `${element.name || element.subcategory} ${i + 1}`,
+          'environment_asset',
+          {
+            type: 'environment',
+            assetId: assetType,
+            assetName: asset.name,
+            category: element.category,
+            subcategory: element.subcategory,
+            aiGenerated: true,
+            fallback: true,
+            seed: this.seed + i
+          }
+        );
+        
+        sceneAssets.push({
+          object: sceneObject,
+          element: element,
+          index: i
+        });
+      }
+      
+      console.log(`  ✅ Created ${quantity} fallback assets`);
+    } catch (error) {
+      console.error(`❌ Failed to create fallback asset:`, error);
+    }
   }
   
   /**
