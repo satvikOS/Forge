@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import MaterialsBrowser from './MaterialsBrowser';
 
 export default function Sidebar({ 
   design, 
@@ -11,6 +12,7 @@ export default function Sidebar({
 }) {
   const [activeTab, setActiveTab] = useState('properties');
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showMaterialsBrowser, setShowMaterialsBrowser] = useState(false);
 
   const tabs = [
     { id: 'properties', label: 'Properties', icon: '⚙' },
@@ -161,13 +163,23 @@ export default function Sidebar({
           />
         )}
         {activeTab === 'modifiers' && <ModifiersTab />}
-        {activeTab === 'materials' && <MaterialsTab />}
+        {activeTab === 'materials' && <MaterialsTab onOpenBrowser={() => setShowMaterialsBrowser(true)} />}
         {activeTab === 'physics' && <PhysicsTab />}
         {activeTab === 'scene' && (
           <SceneTab design={design} analysis={analysis} compliance={compliance} />
         )}
         {activeTab === 'outliner' && <OutlinerTab />}
       </div>
+
+      {/* Materials Browser Modal */}
+      <MaterialsBrowser
+        isOpen={showMaterialsBrowser}
+        onClose={() => setShowMaterialsBrowser(false)}
+        onSelectMaterial={(material) => {
+          console.log('Selected material:', material);
+          setShowMaterialsBrowser(false);
+        }}
+      />
     </div>
   );
 }
@@ -239,7 +251,7 @@ function ModifiersTab() {
   );
 }
 
-function MaterialsTab() {
+function MaterialsTab({ onOpenBrowser }) {
   return (
     <div>
       <PropertyGroup title="Material Slots">
@@ -252,19 +264,45 @@ function MaterialsTab() {
           fontSize: '12px',
         }}>
           <div style={{ marginBottom: '8px' }}>No materials assigned</div>
-          <button
-            style={{
-              padding: '6px 12px',
-              background: 'var(--accent-orange)',
-              border: 'none',
-              borderRadius: '4px',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '12px',
-            }}
-          >
-            New Material
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <button
+              style={{
+                padding: '6px 12px',
+                background: 'var(--accent-orange)',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              New Material
+            </button>
+            <button
+              onClick={onOpenBrowser}
+              style={{
+                padding: '6px 12px',
+                background: 'rgba(107, 185, 240, 0.2)',
+                border: '1px solid rgba(107, 185, 240, 0.3)',
+                borderRadius: '4px',
+                color: '#6bb9f0',
+                cursor: 'pointer',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'rgba(107, 185, 240, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'rgba(107, 185, 240, 0.2)';
+              }}
+            >
+              🎨 Browse Materials
+            </button>
+          </div>
         </div>
       </PropertyGroup>
     </div>

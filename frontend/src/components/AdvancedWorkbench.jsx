@@ -76,20 +76,14 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           <directionalLight position={[-10, -10, -5]} intensity={0.3} />
           <pointLight position={[0, 5, 0]} intensity={0.5} color="#ff6b35" />
           
-          {/* Default placeholder mesh */}
-          <mesh>
-            <boxGeometry args={[1, 1, 1]} />
-            <meshStandardMaterial color="#4a90e2" wireframe={isWireframe} />
-          </mesh>
-          
           {/* Grid */}
           <gridHelper 
             args={[360, 360, '#333333', '#1a1a1a']} 
             position={[0, -0.01, 0]}
           />
 
-          {/* Axes Helper */}
-          <axesHelper args={[50]} />
+          {/* Axes Helper - shortened from 50 to 10 */}
+          <axesHelper args={[10]} />
 
           {/* Gizmo */}
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
