@@ -22,7 +22,8 @@ class MaterialLibraryService {
    * Load material database - tries API first, then cached index, then CSV
    */
   async loadDatabase() {
-    const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
+    // Use /tmp for writable storage in serverless environments
+    const indexPath = path.join('/tmp', 'ambientcg-index.json');
     const csvPath = path.join(__dirname, '../data/ambientcg-materials.csv');
 
     // Try loading from API first
@@ -215,7 +216,8 @@ class MaterialLibraryService {
     console.log('🔄 Refreshing materials from API...');
     try {
       await this.loadFromAPI();
-      const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
+      // Use /tmp for writable storage in serverless environments
+      const indexPath = path.join('/tmp', 'ambientcg-index.json');
       this.saveIndex(indexPath);
       console.log(`✅ Refreshed ${this.materials.length} materials from API`);
       return { success: true, count: this.materials.length };
@@ -365,11 +367,17 @@ class MaterialLibraryService {
    */
   saveIndex(indexPath) {
     try {
-      // Ensure the directory exists
+      // /tmp directory should exist in serverless environments, but check anyway
       const dir = path.dirname(indexPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(`📁 Created data directory: ${dir}`);
+      if (dir !== '/tmp' && !fs.existsSync(dir)) {
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+          console.log(`📁 Created data directory: ${dir}`);
+        } catch (mkdirError) {
+          console.warn(`⚠️  Could not create directory ${dir}:`, mkdirError.message);
+          console.warn('   Skipping index save (not critical for operation)');
+          return;
+        }
       }
       
       const indexData = {
