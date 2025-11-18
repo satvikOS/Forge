@@ -81,6 +81,7 @@ const legalityRoutes = require('./routes/legality');
 const generateRoutes = require('./routes/generate');
 const downloadRoutes = require('./routes/download');
 const materialsRoutes = require('./routes/materials');
+const sketchfabRoutes = require('./routes/sketchfab');
 
 // API routes
 app.use('/api/design', designRoutes);
@@ -89,6 +90,7 @@ app.use('/api/legality', legalityRoutes);
 app.use('/api/generate', generateRoutes);
 app.use('/api/download', downloadRoutes);
 app.use('/api/materials', materialsRoutes);
+app.use('/api/sketchfab', sketchfabRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
