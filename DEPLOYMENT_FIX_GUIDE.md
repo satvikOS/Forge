@@ -1,5 +1,7 @@
 # Critical Deployment Configuration - ArchDisc AI Pipeline
 
+> **Last Updated:** 2025-11-19 - All serverless filesystem fixes applied (commit 7371ea6)
+
 ## ⚠️ DEFCON 1: Backend API Not Working - Here's Why & How to Fix
 
 ### Problem Diagnosis
