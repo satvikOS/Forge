@@ -289,10 +289,15 @@ class GeometryGenerator {
    * Generate building geometry with enhanced architectural details and hierarchy (Issue #28)
    */
   generateBuilding(element) {
-    const { dimensions = {}, details = [], floors = 10 } = element;
+    const { dimensions = {}, details = [], floors = 10, name = '' } = element;
     const width = dimensions.width || 20000;
     const height = dimensions.height || 30000;
     const depth = dimensions.depth || 15000;
+    
+    // Check if this is a special landmark that needs custom geometry
+    if (details && details.buildingType === 'landmark') {
+      return this.generateLandmarkStructure(element, name, dimensions, details);
+    }
     
     const parts = [];
     let componentId = 0;
@@ -789,6 +794,509 @@ class GeometryGenerator {
     }
     
     return panels;
+  }
+
+  /**
+   * Generate landmark-specific structures (towers, bridges, monuments)
+   */
+  generateLandmarkStructure(element, name, dimensions, details) {
+    console.log('🏛️  Generating landmark-specific geometry for:', name);
+    
+    const width = dimensions.width || 20000;
+    const height = dimensions.height || 30000;
+    const depth = dimensions.depth || 15000;
+    const parts = [];
+    let componentId = 0;
+    
+    const genId = (type) => `landmark_${type}_${componentId++}`;
+    const nameLower = (name || '').toLowerCase();
+    
+    // Detect landmark type from name
+    let landmarkType = 'tower'; // default
+    if (nameLower.includes('tower') || nameLower.includes('eiffel') || nameLower.includes('space needle') || nameLower.includes('cn tower')) {
+      landmarkType = 'tower';
+    } else if (nameLower.includes('bridge') || nameLower.includes('golden gate') || nameLower.includes('brooklyn')) {
+      landmarkType = 'bridge';
+    } else if (nameLower.includes('arch') || nameLower.includes('gateway')) {
+      landmarkType = 'arch';
+    } else if (nameLower.includes('dome') || nameLower.includes('capitol') || nameLower.includes('pantheon')) {
+      landmarkType = 'dome';
+    } else if (nameLower.includes('pyramid')) {
+      landmarkType = 'pyramid';
+    } else if (nameLower.includes('statue') || nameLower.includes('monument')) {
+      landmarkType = 'statue';
+    }
+    
+    console.log('   Detected landmark type:', landmarkType);
+    console.log('   Dimensions: W=' + width + 'mm, H=' + height + 'mm, D=' + depth + 'mm');
+    
+    // Generate geometry based on landmark type
+    switch (landmarkType) {
+      case 'tower':
+        return this.generateTowerLandmark(width, height, depth, name, details);
+      case 'bridge':
+        return this.generateBridgeLandmark(width, height, depth, name, details);
+      case 'arch':
+        return this.generateArchLandmark(width, height, depth, name, details);
+      case 'dome':
+        return this.generateDomeLandmark(width, height, depth, name, details);
+      case 'pyramid':
+        return this.generatePyramidLandmark(width, height, depth, name, details);
+      case 'statue':
+        return this.generateStatueLandmark(width, height, depth, name, details);
+      default:
+        return this.generateGenericLandmark(width, height, depth, name, details);
+    }
+  }
+  
+  /**
+   * Generate tower landmark (Eiffel Tower, CN Tower, Space Needle, etc.)
+   */
+  generateTowerLandmark(width, height, depth, name, details) {
+    const parts = [];
+    let componentId = 0;
+    const genId = (type) => `tower_${type}_${componentId++}`;
+    
+    // Create tapering tower structure - wider at base, narrower at top
+    const sections = 8; // Number of vertical sections
+    const baseWidth = width;
+    const baseDepth = depth;
+    const topWidth = width * 0.15; // Top is 15% of base width
+    const topDepth = depth * 0.15;
+    
+    const mainStructureId = genId('main');
+    
+    // Generate tapered sections
+    for (let i = 0; i < sections; i++) {
+      const sectionHeight = height / sections;
+      const progress = i / sections;
+      const nextProgress = (i + 1) / sections;
+      
+      // Linear interpolation for tapering
+      const sectionBottomWidth = baseWidth * (1 - progress * 0.85);
+      const sectionBottomDepth = baseDepth * (1 - progress * 0.85);
+      const sectionTopWidth = baseWidth * (1 - nextProgress * 0.85);
+      const sectionTopDepth = baseDepth * (1 - nextProgress * 0.85);
+      
+      const avgWidth = (sectionBottomWidth + sectionTopWidth) / 2;
+      const avgDepth = (sectionBottomDepth + sectionTopDepth) / 2;
+      
+      // Main tapered section
+      parts.push({
+        id: genId('section'),
+        name: `Tower Section ${i + 1}`,
+        type: 'box',
+        componentType: 'tower_section',
+        dimensions: { x: avgWidth, y: sectionHeight, z: avgDepth },
+        position: { x: 0, y: i * sectionHeight + sectionHeight / 2, z: 0 },
+        material: details.materials?.[0] || 'steel',
+        detail: 'tower_structure',
+        parent: i === 0 ? null : mainStructureId,
+        children: [],
+        metadata: {
+          editable: true,
+          locked: false,
+          aiGenerated: true,
+          landmarkType: 'tower',
+          section: i + 1,
+          taper: {
+            bottomWidth: sectionBottomWidth,
+            topWidth: sectionTopWidth,
+            bottomDepth: sectionBottomDepth,
+            topDepth: sectionTopDepth
+          }
+        }
+      });
+      
+      // Add cross-bracing lattice structure every 2 sections
+      if (i % 2 === 0 && i < sections - 1) {
+        const bracingCount = 12;
+        for (let b = 0; b < bracingCount; b++) {
+          const angle = (b / bracingCount) * Math.PI * 2;
+          const bracingRadius = avgWidth * 0.45;
+          
+          parts.push({
+            id: genId('bracing'),
+            name: `Cross Bracing ${i}-${b}`,
+            type: 'cylinder',
+            componentType: 'structural_bracing',
+            radius: 150,
+            height: sectionHeight * 1.2,
+            dimensions: { x: 300, y: sectionHeight * 1.2, z: 300 },
+            position: {
+              x: Math.cos(angle) * bracingRadius,
+              y: i * sectionHeight + sectionHeight / 2,
+              z: Math.sin(angle) * bracingRadius
+            },
+            rotation: { x: Math.PI / 6, y: angle, z: 0 },
+            material: 'steel',
+            detail: 'lattice_bracing',
+            parent: mainStructureId,
+            children: [],
+            metadata: {
+              editable: false,
+              structural: true,
+              landmarkDetail: true
+            }
+          });
+        }
+      }
+    }
+    
+    // Add observation platform at 70% height
+    const platformHeight = height * 0.7;
+    const platformWidth = baseWidth * 0.4;
+    const platformDepth = baseDepth * 0.4;
+    
+    parts.push({
+      id: genId('platform'),
+      name: 'Observation Platform',
+      type: 'box',
+      componentType: 'observation_deck',
+      dimensions: { x: platformWidth, y: 500, z: platformDepth },
+      position: { x: 0, y: platformHeight, z: 0 },
+      material: 'concrete',
+      detail: 'platform',
+      parent: mainStructureId,
+      children: [],
+      metadata: {
+        editable: true,
+        accessible: true,
+        landmarkFeature: 'observation_deck'
+      }
+    });
+    
+    // Add spire/antenna at top
+    const spireHeight = height * 0.15;
+    const spireRadius = topWidth * 0.2;
+    
+    parts.push({
+      id: genId('spire'),
+      name: 'Tower Spire',
+      type: 'cylinder',
+      componentType: 'spire',
+      radius: spireRadius,
+      height: spireHeight,
+      dimensions: { x: spireRadius * 2, y: spireHeight, z: spireRadius * 2 },
+      position: { x: 0, y: height + spireHeight / 2, z: 0 },
+      material: 'metal',
+      detail: 'spire',
+      parent: mainStructureId,
+      children: [],
+      metadata: {
+        editable: true,
+        iconic: true,
+        landmarkFeature: 'spire'
+      }
+    });
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Tower Landmark',
+      metadata: {
+        landmarkType: 'tower',
+        heightMeters: height / 1000,
+        realWorldReplica: true,
+        aiGenerated: true
+      }
+    };
+  }
+  
+  /**
+   * Generate bridge landmark (Golden Gate, Brooklyn Bridge, etc.)
+   */
+  generateBridgeLandmark(width, height, depth, name, details) {
+    const parts = [];
+    let componentId = 0;
+    const genId = (type) => `bridge_${type}_${componentId++}`;
+    
+    const mainSpan = depth; // Bridge length
+    const deckWidth = width * 0.3;
+    const deckHeight = 2000;
+    const towerHeight = height;
+    const cableCount = 20;
+    
+    // Bridge deck
+    parts.push({
+      id: genId('deck'),
+      name: 'Bridge Deck',
+      type: 'box',
+      componentType: 'bridge_deck',
+      dimensions: { x: deckWidth, y: deckHeight, z: mainSpan },
+      position: { x: 0, y: height * 0.3, z: 0 },
+      material: 'steel',
+      detail: 'deck',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'bridge', structural: true }
+    });
+    
+    // Two main towers
+    [-mainSpan * 0.3, mainSpan * 0.3].forEach((zPos, idx) => {
+      parts.push({
+        id: genId('tower'),
+        name: `Bridge Tower ${idx + 1}`,
+        type: 'box',
+        componentType: 'suspension_tower',
+        dimensions: { x: width * 0.15, y: towerHeight, z: depth * 0.15 },
+        position: { x: 0, y: towerHeight / 2, z: zPos },
+        material: 'steel',
+        detail: 'tower',
+        parent: null,
+        children: [],
+        metadata: { landmarkType: 'bridge', iconic: true }
+      });
+    });
+    
+    // Suspension cables
+    for (let i = 0; i < cableCount; i++) {
+      const progress = i / (cableCount - 1);
+      const zPos = (progress - 0.5) * mainSpan;
+      const cableY = height * 0.3 + Math.abs(progress - 0.5) * height * 0.4;
+      
+      parts.push({
+        id: genId('cable'),
+        name: `Suspension Cable ${i + 1}`,
+        type: 'cylinder',
+        componentType: 'suspension_cable',
+        radius: 100,
+        height: cableY - height * 0.3,
+        dimensions: { x: 200, y: cableY - height * 0.3, z: 200 },
+        position: { x: 0, y: (cableY + height * 0.3) / 2, z: zPos },
+        material: 'steel',
+        detail: 'cable',
+        parent: null,
+        children: [],
+        metadata: { structural: true, flexible: true }
+      });
+    }
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Bridge Landmark',
+      metadata: { landmarkType: 'bridge', realWorldReplica: true }
+    };
+  }
+  
+  /**
+   * Generate arch landmark
+   */
+  generateArchLandmark(width, height, depth, name, details) {
+    const parts = [];
+    let componentId = 0;
+    const genId = (type) => `arch_${type}_${componentId++}`;
+    
+    const archThickness = width * 0.2;
+    const legWidth = width * 0.3;
+    
+    // Left leg
+    parts.push({
+      id: genId('leg'),
+      name: 'Arch Leg Left',
+      type: 'box',
+      componentType: 'arch_leg',
+      dimensions: { x: legWidth, y: height * 0.7, z: depth },
+      position: { x: -width * 0.35, y: height * 0.35, z: 0 },
+      material: details.materials?.[0] || 'steel',
+      detail: 'leg',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'arch', structural: true }
+    });
+    
+    // Right leg
+    parts.push({
+      id: genId('leg'),
+      name: 'Arch Leg Right',
+      type: 'box',
+      componentType: 'arch_leg',
+      dimensions: { x: legWidth, y: height * 0.7, z: depth },
+      position: { x: width * 0.35, y: height * 0.35, z: 0 },
+      material: details.materials?.[0] || 'steel',
+      detail: 'leg',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'arch', structural: true }
+    });
+    
+    // Top arch
+    parts.push({
+      id: genId('span'),
+      name: 'Arch Span',
+      type: 'box',
+      componentType: 'arch_span',
+      dimensions: { x: width, y: archThickness, z: depth },
+      position: { x: 0, y: height * 0.85, z: 0 },
+      material: details.materials?.[0] || 'steel',
+      detail: 'span',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'arch', iconic: true }
+    });
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Arch Landmark',
+      metadata: { landmarkType: 'arch', realWorldReplica: true }
+    };
+  }
+  
+  /**
+   * Generate dome landmark
+   */
+  generateDomeLandmark(width, height, depth, name, details) {
+    const parts = [];
+    let componentId = 0;
+    const genId = (type) => `dome_${type}_${componentId++}`;
+    
+    // Base building
+    parts.push({
+      id: genId('base'),
+      name: 'Dome Base',
+      type: 'box',
+      componentType: 'building_base',
+      dimensions: { x: width, y: height * 0.4, z: depth },
+      position: { x: 0, y: height * 0.2, z: 0 },
+      material: 'stone',
+      detail: 'base',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'dome' }
+    });
+    
+    // Dome structure
+    parts.push({
+      id: genId('dome'),
+      name: 'Main Dome',
+      type: 'sphere',
+      componentType: 'dome',
+      radius: width * 0.45,
+      dimensions: { x: width * 0.9, y: height * 0.6, z: depth * 0.9 },
+      position: { x: 0, y: height * 0.7, z: 0 },
+      material: 'metal',
+      detail: 'dome',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'dome', iconic: true }
+    });
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Dome Landmark',
+      metadata: { landmarkType: 'dome', realWorldReplica: true }
+    };
+  }
+  
+  /**
+   * Generate pyramid landmark
+   */
+  generatePyramidLandmark(width, height, depth, name, details) {
+    const parts = [];
+    let componentId = 0;
+    const genId = (type) => `pyramid_${type}_${componentId++}`;
+    
+    // Main pyramid
+    parts.push({
+      id: genId('pyramid'),
+      name: 'Pyramid Structure',
+      type: 'pyramid',
+      componentType: 'pyramid',
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: 'stone',
+      detail: 'pyramid',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'pyramid', ancient: true }
+    });
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Pyramid Landmark',
+      metadata: { landmarkType: 'pyramid', realWorldReplica: true }
+    };
+  }
+  
+  /**
+   * Generate statue/monument landmark
+   */
+  generateStatueLandmark(width, height, depth, name, details) {
+    const parts = [];
+    let componentId = 0;
+    const genId = (type) => `statue_${type}_${componentId++}`;
+    
+    // Pedestal
+    const pedestalHeight = height * 0.3;
+    parts.push({
+      id: genId('pedestal'),
+      name: 'Statue Pedestal',
+      type: 'box',
+      componentType: 'pedestal',
+      dimensions: { x: width * 0.8, y: pedestalHeight, z: depth * 0.8 },
+      position: { x: 0, y: pedestalHeight / 2, z: 0 },
+      material: 'stone',
+      detail: 'pedestal',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'statue' }
+    });
+    
+    // Statue figure (simplified as tall tapered form)
+    const figureHeight = height * 0.7;
+    parts.push({
+      id: genId('figure'),
+      name: 'Statue Figure',
+      type: 'box',
+      componentType: 'statue_figure',
+      dimensions: { x: width * 0.4, y: figureHeight, z: depth * 0.4 },
+      position: { x: 0, y: pedestalHeight + figureHeight / 2, z: 0 },
+      material: details.materials?.[0] || 'copper',
+      detail: 'figure',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'statue', iconic: true }
+    });
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Statue Landmark',
+      metadata: { landmarkType: 'statue', realWorldReplica: true }
+    };
+  }
+  
+  /**
+   * Generate generic landmark (fallback)
+   */
+  generateGenericLandmark(width, height, depth, name, details) {
+    const parts = [];
+    
+    // Create a distinctive tall structure
+    parts.push({
+      id: 'landmark_main',
+      name: name || 'Landmark',
+      type: 'box',
+      componentType: 'landmark_structure',
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'concrete',
+      detail: 'landmark',
+      parent: null,
+      children: [],
+      metadata: { landmarkType: 'generic', realWorldReplica: true }
+    });
+    
+    return {
+      type: 'composite',
+      parts,
+      name: name || 'Landmark',
+      metadata: { landmarkType: 'generic', realWorldReplica: true }
+    };
   }
 
   /**
