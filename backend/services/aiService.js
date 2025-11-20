@@ -252,18 +252,64 @@ class AIService {
   async generateModelData(specifications) {
     const { objectType, dimensions, materials, elements, scene, objectCount, realWorldData, realBuildings, realDimensions } = specifications;
 
-    // If we have real-world buildings from OSM, use them
+    // PRIORITY 1: If we have real dimensions from Wikidata (specific landmark), create a single accurate building
+    if (realDimensions && realDimensions.height) {
+      console.log('📏 Using real dimensions for landmark generation');
+      console.log('   Height:', realDimensions.height, 'm');
+      console.log('   Width:', realDimensions.width || realDimensions.baseWidth || 'auto', 'm');
+      
+      const buildingElement = {
+        type: 'building',
+        name: specifications.name || 'Landmark',
+        dimensions: {
+          width: (realDimensions.width || realDimensions.baseWidth || realDimensions.height * 0.4) * 1000,
+          height: realDimensions.height * 1000,
+          depth: (realDimensions.depth || realDimensions.length || realDimensions.width || realDimensions.baseWidth || realDimensions.height * 0.4) * 1000,
+        },
+        materials: materials || ['steel', 'glass'],
+        details: {
+          buildingType: 'landmark',
+          architecturalStyle: specifications.style || 'iconic',
+          realWorldData: true,
+          levels: Math.floor(realDimensions.height / 3), // Estimate levels from height
+        },
+      };
+
+      const geometrySpec = {
+        objectCount: 1,
+        elements: [buildingElement],
+        scene: {
+          type: 'landmark_replica',
+          isRealWorld: true,
+          ...scene,
+        },
+        taxonomyData: specifications.taxonomyData,
+        realWorldData: true,
+      };
+
+      const geometry = geometryGenerator.generateFromSpec(geometrySpec);
+      
+      return {
+        geometry,
+        materials: materials || ['steel', 'glass'],
+        metadata: { ...specifications, usedRealWorldData: true, landmarkMode: true },
+        stats: this.calculateStats(geometry),
+      };
+    }
+
+    // PRIORITY 2: If we have real-world buildings from OSM (city scene), use them
     if (realBuildings && realBuildings.length > 0) {
       console.log('🏛️  Using real-world building data from OSM');
+      console.log('   Building count:', realBuildings.length);
       
       // Convert OSM buildings to elements
       const buildingElements = realBuildings.map((building, index) => {
         // Use real dimensions if available
-        const buildingHeight = building.height || realDimensions?.height || building.levels * 3 || 15;
+        const buildingHeight = building.height || building.levels * 3 || 15;
         const buildingDimensions = {
-          width: building.geometry?.bbox?.width * 1000 || realDimensions?.width * 1000 || 20000,
+          width: building.geometry?.bbox?.width * 1000 || 20000,
           height: buildingHeight * 1000, // Convert to mm
-          depth: building.geometry?.bbox?.depth * 1000 || realDimensions?.depth * 1000 || 20000,
+          depth: building.geometry?.bbox?.depth * 1000 || 20000,
         };
 
         return {
@@ -290,6 +336,7 @@ class AIService {
           isRealWorld: true,
           ...scene,
         },
+        taxonomyData: specifications.taxonomyData,
         realWorldData: true,
       };
 
@@ -298,53 +345,12 @@ class AIService {
       return {
         geometry,
         materials: materials || ['concrete', 'glass', 'steel'],
-        metadata: { ...specifications, usedRealWorldData: true },
+        metadata: { ...specifications, usedRealWorldData: true, citySceneMode: true },
         stats: this.calculateStats(geometry),
       };
     }
 
-    // If we have real dimensions but no building data, create a single accurate building
-    if (realDimensions && !realBuildings) {
-      console.log('📏 Using real dimensions for landmark generation');
-      
-      const buildingElement = {
-        type: 'building',
-        name: specifications.name || 'Landmark',
-        dimensions: {
-          width: (realDimensions.width || realDimensions.baseWidth || 50) * 1000,
-          height: (realDimensions.height || 50) * 1000,
-          depth: (realDimensions.depth || realDimensions.length || 50) * 1000,
-        },
-        materials: materials || ['steel', 'glass'],
-        details: {
-          buildingType: 'landmark',
-          architecturalStyle: specifications.style || 'iconic',
-          realWorldData: true,
-        },
-      };
-
-      const geometrySpec = {
-        objectCount: 1,
-        elements: [buildingElement],
-        scene: {
-          type: 'landmark_replica',
-          isRealWorld: true,
-          ...scene,
-        },
-        realWorldData: true,
-      };
-
-      const geometry = geometryGenerator.generateFromSpec(geometrySpec);
-      
-      return {
-        geometry,
-        materials: materials || ['steel', 'glass'],
-        metadata: { ...specifications, usedRealWorldData: true },
-        stats: this.calculateStats(geometry),
-      };
-    }
-
-    // Standard generation (no real-world data)
+    // PRIORITY 3: Standard generation (no real-world data)
     console.log('🎨 Using standard procedural generation');
     
     // Create specification object for geometry generator

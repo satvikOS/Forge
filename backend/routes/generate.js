@@ -207,19 +207,27 @@ async function processGenerationJob(jobId, prompt, options) {
       specifications.realWorldData = orchestrationData;
       specifications.isRealWorldReplica = true;
       
-      // If we have building data from OSM, use it
-      if (orchestrationData.phases?.geographicData?.osm_buildings?.length > 0) {
-        const buildings = orchestrationData.phases.geographicData.osm_buildings;
-        console.log(`📦 Found ${buildings.length} real-world buildings from OSM`);
-        specifications.realBuildings = buildings;
-        specifications.objectCount = buildings.length;
-      }
-      
-      // If we have knowledge from Wikipedia/Wikidata, use dimensions
+      // Check if we have landmark dimensions from Wikipedia/Wikidata (specific landmark)
+      let hasLandmarkDimensions = false;
       if (orchestrationData.phases?.knowledgeGathering?.wikidata?.dimensions) {
         const dims = orchestrationData.phases.knowledgeGathering.wikidata.dimensions;
-        console.log('📏 Using real dimensions from Wikidata:', dims);
-        specifications.realDimensions = dims;
+        if (dims.height) {
+          console.log('📏 Using real dimensions from Wikidata:', dims);
+          specifications.realDimensions = dims;
+          hasLandmarkDimensions = true;
+        }
+      }
+      
+      // Only use OSM buildings if we DON'T have landmark dimensions
+      // This prevents landmarks from being rendered as scattered OSM buildings
+      if (!hasLandmarkDimensions && orchestrationData.phases?.geographicData?.osm_buildings?.length > 0) {
+        const buildings = orchestrationData.phases.geographicData.osm_buildings;
+        console.log(`📦 Found ${buildings.length} real-world buildings from OSM (city scene mode)`);
+        specifications.realBuildings = buildings;
+        specifications.objectCount = buildings.length;
+      } else if (hasLandmarkDimensions) {
+        console.log('🏛️  Landmark mode: Using Wikidata dimensions, ignoring OSM buildings');
+        specifications.objectCount = 1;
       }
     }
     
