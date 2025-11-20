@@ -188,7 +188,37 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
         const geom = modelData.geometry;
         
         // Handle different geometry types
-        if (geom.type === 'composite' && geom.parts) {
+        if (geom.type === 'unified_landmark' && geom.unifiedMesh) {
+          // Unified landmark - single object with internal subcomponents (DO NOT instance subcomponents)
+          console.log(`🏛️ Adding unified landmark as single object (${geom.subcomponents?.length || 0} internal parts)`);
+          const sceneObject = {
+            id: `model_${Date.now()}_landmark`,
+            name: modelData.name || 'Landmark Structure',
+            type: 'generated',
+            position: geom.position || { x: 0, y: 0, z: 0 },
+            rotation: geom.rotation || { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            visible: true,
+            userData: {
+              geometry: {
+                type: 'landmark',  // Custom type for landmarks
+                landmarkType: geom.landmarkType || 'tower',
+                dimensions: geom.dimensions || { x: 10, y: 50, z: 10 },
+                // Store subcomponents as metadata, don't render separately
+                subcomponents: geom.subcomponents,
+                partCount: geom.metadata?.partCount || 0
+              },
+              material: modelData.material || geom.material || { color: '#8b7355' }, // Bronze/steel color
+              prompt: modelData.prompt,
+              isLandmark: true
+            }
+          };
+          sceneManagerRef.current.addObject(sceneObject);
+          console.log(`✅ Added unified landmark as 1 object (not ${geom.subcomponents?.length || 0} separate instances)`);
+          
+          // Force scene re-render after adding object
+          setSceneRefreshTrigger(prev => prev + 1);
+        } else if (geom.type === 'composite' && geom.parts) {
           // Composite geometry with multiple parts - add each part as separate object
           console.log(`📦 Adding composite geometry with ${geom.parts.length} parts`);
           geom.parts.forEach((part, index) => {
