@@ -230,13 +230,15 @@ function App() {
   };
 
   const handleGenerateDesign = async (prompt) => {
-    // Check if this is a scene composition prompt
-    if (isSceneCompositionPrompt(prompt)) {
-      const success = await handleSceneComposition(prompt);
-      if (success) return; // Scene composition handled, don't call API
-    }
+    // DISABLED: Local template generation - ALL prompts should use AI pipeline
+    // This ensures prompts like "recreate downtown manhattan" go through the complete
+    // AI pipeline (Gemini → Taxonomy → Real-world data → Geometry) instead of using hardcoded templates
+    // if (isSceneCompositionPrompt(prompt)) {
+    //   const success = await handleSceneComposition(prompt);
+    //   if (success) return; // Scene composition handled, don't call API
+    // }
     
-    // Otherwise, use the regular API-based generation
+    // FORCE ALL PROMPTS through AI pipeline for ultra-realistic generation
     setLoading(true);
     setError(null);
     setGenerationProgress(null);

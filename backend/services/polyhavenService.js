@@ -17,22 +17,32 @@ class PolyhavenService {
 
   /**
    * Initialize service and load Swagger spec if available
+   * Gracefully handles missing files in serverless environments
    */
   async initialize() {
-    const swaggerPath = path.join(__dirname, '../data/polyhaven-swagger.json');
+    // Try /tmp first (writable in serverless), then data directory
+    const swaggerLocations = [
+      '/tmp/polyhaven-swagger.json',
+      path.join(__dirname, '../data/polyhaven-swagger.json')
+    ];
     
-    if (fs.existsSync(swaggerPath)) {
-      try {
-        this.swaggerSpec = JSON.parse(fs.readFileSync(swaggerPath, 'utf8'));
-        this.isConfigured = true;
-        console.log('✅ Polyhaven service initialized with Swagger spec');
-      } catch (error) {
-        console.warn('Failed to load Polyhaven Swagger spec:', error.message);
-        this.isConfigured = false;
+    let loaded = false;
+    for (const swaggerPath of swaggerLocations) {
+      if (fs.existsSync(swaggerPath)) {
+        try {
+          this.swaggerSpec = JSON.parse(fs.readFileSync(swaggerPath, 'utf8'));
+          this.isConfigured = true;
+          console.log(`✅ Polyhaven service initialized with Swagger spec from ${swaggerPath}`);
+          loaded = true;
+          break;
+        } catch (error) {
+          console.warn(`Failed to load Polyhaven Swagger spec from ${swaggerPath}:`, error.message);
+        }
       }
-    } else {
-      console.warn('⚠️  Polyhaven Swagger spec not found at:', swaggerPath);
-      console.warn('   Will use fallback HDRI configuration');
+    }
+    
+    if (!loaded) {
+      console.log('ℹ️  Polyhaven Swagger spec not found - using fallback HDRI configuration');
       this.isConfigured = false;
     }
   }

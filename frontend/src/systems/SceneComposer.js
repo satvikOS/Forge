@@ -21,8 +21,8 @@ export class SceneComposer {
     // Randomization seed for unique scenes
     this.seed = Date.now();
     
-    // AI-powered mode flag
-    this.useAI = true; // Can be toggled for fallback to templates
+    // AI-powered mode flag - MUST be true to ensure all prompts use AI pipeline
+    this.useAI = true; // Never use templates - always use AI for ultra-realistic generation
   }
   
   /**
@@ -214,7 +214,7 @@ export class SceneComposer {
    * @returns {Promise<Object>} Generated scene information
    */
   async generateSceneFromPrompt(prompt, progressCallback = null) {
-    console.log(`🎨 Generating scene from prompt: "${prompt}"`);
+    console.log(`🎨 AI Generating scene from prompt: "${prompt}"`);
     
     // Set new random seed for unique generation
     this.setRandomSeed();
@@ -223,47 +223,20 @@ export class SceneComposer {
       progressCallback({ stage: 'Analyzing prompt with AI...', progress: 0.1 });
     }
     
-    // Try AI-powered generation first
-    if (this.useAI) {
-      try {
-        const aiScene = await this.generateAIScene(prompt, progressCallback);
-        if (aiScene) {
-          console.log(`✅ AI scene generated: ${aiScene.assets?.length || 0} assets created`);
-          return aiScene;
-        }
-      } catch (error) {
-        console.warn('AI generation failed, falling back to templates:', error);
+    // ALWAYS use AI-powered generation - NEVER fall back to templates
+    try {
+      const aiScene = await this.generateAIScene(prompt, progressCallback);
+      if (aiScene) {
+        console.log(`✅ AI scene generated: ${aiScene.assets?.length || 0} assets created`);
+        return aiScene;
+      } else {
+        throw new Error('AI generation returned no scene data');
       }
+    } catch (error) {
+      console.error('❌ AI generation failed:', error);
+      // DO NOT fall back to templates - fail with clear error
+      throw new Error(`AI generation failed: ${error.message}. Check API keys and backend logs.`);
     }
-    
-    // Fallback to template-based generation
-    if (progressCallback) {
-      progressCallback({ stage: 'Using template-based generation...', progress: 0.2 });
-    }
-    
-    await this.delay(300);
-    
-    // Parse prompt to identify scene type
-    const sceneTemplate = this.identifySceneTemplate(prompt);
-    
-    if (!sceneTemplate) {
-      if (progressCallback) {
-        progressCallback({ stage: 'Creating generic scene...', progress: 0.3 });
-      }
-      return this.generateGenericScene(prompt);
-    }
-
-    if (progressCallback) {
-      progressCallback({ stage: `Composing ${sceneTemplate.theme} environment...`, progress: 0.3 });
-    }
-    
-    await this.delay(200);
-    
-    // Generate the scene with progress updates
-    const scene = await this.composeScene(sceneTemplate, prompt, progressCallback);
-    
-    console.log(`✅ Scene generated: ${scene.assets.length} assets created`);
-    return scene;
   }
   
   /**

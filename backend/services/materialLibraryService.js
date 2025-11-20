@@ -22,6 +22,8 @@ class MaterialLibraryService {
    * Load material database - tries API first, then cached index, then CSV
    */
   async loadDatabase() {
+    // Use /tmp for cache in serverless environments (Vercel)
+    const tmpIndexPath = '/tmp/ambientcg-index.json';
     const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
     const csvPath = path.join(__dirname, '../data/ambientcg-materials.csv');
 
@@ -31,8 +33,8 @@ class MaterialLibraryService {
       await this.loadFromAPI();
       
       if (this.isLoaded && this.materials.length > 0) {
-        // Save to index for offline use
-        this.saveIndex(indexPath);
+        // Try to save to /tmp for caching (non-blocking, ignore errors)
+        this.saveIndex(tmpIndexPath);
         console.log(`✅ Loaded ${this.materials.length} materials from API`);
         return;
       }
@@ -41,20 +43,23 @@ class MaterialLibraryService {
       console.log('   Falling back to cached data...');
     }
 
-    // Fallback to cached index
-    if (fs.existsSync(indexPath)) {
-      try {
-        const indexData = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
-        if (indexData.version && indexData.materials) {
-          this.materials = indexData.materials;
-          this.lastApiSync = indexData.lastApiSync;
-          this.buildIndices();
-          this.isLoaded = true;
-          console.log(`✅ Loaded ${this.materials.length} materials from cached index`);
-          return;
+    // Fallback to cached index (try /tmp first, then data directory)
+    const cacheLocations = [tmpIndexPath, indexPath];
+    for (const cachePath of cacheLocations) {
+      if (fs.existsSync(cachePath)) {
+        try {
+          const indexData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          if (indexData.version && indexData.materials) {
+            this.materials = indexData.materials;
+            this.lastApiSync = indexData.lastApiSync;
+            this.buildIndices();
+            this.isLoaded = true;
+            console.log(`✅ Loaded ${this.materials.length} materials from cached index`);
+            return;
+          }
+        } catch (error) {
+          console.warn(`Failed to load index from ${cachePath}:`, error.message);
         }
-      } catch (error) {
-        console.warn('Failed to load index:', error.message);
       }
     }
 
@@ -354,9 +359,21 @@ class MaterialLibraryService {
 
   /**
    * Save index to JSON for faster loading
+   * Non-blocking operation - failures are logged but don't prevent execution
    */
   saveIndex(indexPath) {
     try {
+      // Ensure directory exists (create /tmp if needed)
+      const dir = path.dirname(indexPath);
+      if (!fs.existsSync(dir)) {
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+        } catch (mkdirError) {
+          // Silently fail - serverless environments may not allow mkdir
+          return;
+        }
+      }
+
       const indexData = {
         version: '2.0', // Updated version for API support
         timestamp: new Date().toISOString(),
@@ -364,9 +381,11 @@ class MaterialLibraryService {
         materials: this.materials,
       };
       fs.writeFileSync(indexPath, JSON.stringify(indexData, null, 2));
-      console.log('💾 Saved material index');
+      console.log(`💾 Saved material index to ${indexPath}`);
     } catch (error) {
-      console.error('Failed to save index:', error);
+      // Non-critical error - just log and continue
+      // In serverless environments, writes may fail but reads still work
+      console.warn('Note: Could not save index (normal in serverless):', error.message);
     }
   }
 
