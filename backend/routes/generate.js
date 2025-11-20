@@ -17,6 +17,15 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
+    // Validate prompt length
+    if (prompt.length < 2) {
+      return res.status(400).json({ error: 'Prompt too short. Please provide a more detailed description.' });
+    }
+
+    if (prompt.length > 2000) {
+      return res.status(400).json({ error: 'Prompt too long. Please keep it under 2000 characters.' });
+    }
+
     // Extract position and keepPrevious parameters (Issue #27)
     const { position, relativePosition, keepPrevious = true } = options;
 
@@ -42,7 +51,11 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating generation job:', error);
-    res.status(500).json({ error: 'Failed to create generation job', message: error.message });
+    res.status(500).json({ 
+      error: 'Failed to create generation job', 
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -141,6 +154,12 @@ async function processGenerationJob(jobId, prompt, options) {
     // Stage 1: Analyzing prompt
     console.log('--- 📊 Stage 1: Analyzing Prompt ---');
     jobQueue.updateProgress(jobId, 'analyzing', 10);
+    
+    // Validate AI service is available
+    if (!aiService) {
+      throw new Error('AI service not initialized');
+    }
+    
     const specifications = await aiService.processPrompt(prompt);
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
     
