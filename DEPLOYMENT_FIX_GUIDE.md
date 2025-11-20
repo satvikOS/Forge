@@ -12,24 +12,50 @@ The 404 errors and "Processing modelData" loop indicate the backend API isn't de
 ## 🚨 CRITICAL CHANGES MADE TO vercel.json
 
 ### What Changed:
+The configuration has been updated to use modern Vercel configuration syntax to resolve the "builds and functions cannot be used together" error.
+
+**Old (Problematic) Configuration:**
 ```json
 {
-  "builds": [
+  "version": 2,
+  "builds": [...],      // ❌ Legacy syntax
+  "functions": {...}    // ❌ Conflicts with builds
+}
+```
+
+**New (Working) Configuration:**
+```json
+{
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "npm install --prefix backend && npm install --prefix frontend",
+  "rewrites": [
     {
-      "src": "backend/server.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 60  // ⭐ ADDED - AI generation needs time
-      }
+      "source": "/api/:path*",
+      "destination": "/api"
     }
   ],
   "functions": {
-    "backend/server.js": {
-      "maxDuration": 60  // ⭐ ADDED - Prevents timeout during Gemini API calls
+    "api/index.js": {
+      "maxDuration": 60  // ⭐ AI generation needs 60s timeout
     }
   }
 }
 ```
+
+**Key Changes:**
+1. ✅ Removed legacy `builds` property
+2. ✅ Removed legacy `routes` property
+3. ✅ Using modern `buildCommand`, `outputDirectory`, `installCommand`
+4. ✅ Using modern `rewrites` for routing
+5. ✅ Backend deployed as serverless function in `/api/index.js`
+6. ✅ Maintained 60-second timeout for AI generation
+
+### New Directory Structure:
+A new `/api` directory has been created with:
+- **`/api/index.js`**: Serverless function wrapper that imports and configures all backend routes
+- This allows Vercel to deploy the backend as a serverless function without the legacy `builds` configuration
+- The original `/backend` directory remains for local development
 
 ### Why This Matters:
 - **Default Vercel timeout**: 10 seconds (hobby plan) / 60 seconds (pro)

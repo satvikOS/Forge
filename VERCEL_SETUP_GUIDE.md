@@ -450,13 +450,13 @@ GET /api/health → 404 Not Found
 
 **Solution:**
 1. Check `vercel.json` exists in repository root
-2. Verify routes configuration:
+2. Verify rewrites configuration:
    ```json
-   "routes": [
-     { "src": "/api/(.*)", "dest": "backend/server.js" }
+   "rewrites": [
+     { "source": "/api/:path*", "destination": "/api" }
    ]
    ```
-3. Ensure `backend/server.js` exports the Express app:
+3. Ensure `api/index.js` exports the Express app:
    ```javascript
    module.exports = app;
    ```

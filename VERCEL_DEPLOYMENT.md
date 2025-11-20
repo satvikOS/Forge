@@ -127,9 +127,13 @@ vercel --prod
 
 ```
 archdiscv1/
-├── vercel.json              # Vercel configuration (monorepo setup)
+├── vercel.json              # Vercel configuration (modern setup)
+├── api/
+│   └── index.js             # Serverless function wrapper for backend
 ├── backend/
-│   ├── server.js            # Express server (deployed as serverless function)
+│   ├── server.js            # Express server (used for local dev)
+│   ├── routes/              # API route handlers
+│   ├── services/            # Business logic services
 │   ├── package.json
 │   └── ...
 ├── frontend/
@@ -139,6 +143,8 @@ archdiscv1/
 └── VERCEL_DEPLOYMENT.md     # This file
 ```
 
+**Note:** The `/api` directory contains serverless functions for Vercel deployment, while `/backend` contains the full Express application used for local development.
+
 ---
 
 ## Configuration Files
@@ -146,39 +152,31 @@ archdiscv1/
 ### `vercel.json`
 
 Located in the project root. Configures:
-- Monorepo build setup
-- API routes routing
+- Modern monorepo build setup
+- API routes rewrites
 - Static file serving
-- Environment variables
+- Serverless function configuration
 
 ```json
 {
-  "version": 2,
-  "builds": [
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "npm install --prefix backend && npm install --prefix frontend",
+  "rewrites": [
     {
-      "src": "backend/server.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
+      "source": "/api/:path*",
+      "destination": "/api"
     }
   ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "backend/server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "frontend/$1"
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
     }
-  ]
+  }
 }
 ```
+
+**Note:** This uses modern Vercel configuration without the legacy `builds` property. The backend is deployed as a serverless function in `/api/index.js` with a 60-second timeout for AI generation.
 
 ### `frontend/package.json`
 
