@@ -250,6 +250,109 @@ class APIService {
       throw error;
     }
   }
+
+  /**
+   * AI 3D Generation - Generate with quality selection
+   */
+  async generateDesignWithQuality(prompt, quality = 'preview') {
+    try {
+      const endpoint = quality === 'preview' ? '/generate/preview' : '/generate';
+      const response = await axios.post(`${API_BASE_URL}${endpoint}`, {
+        prompt,
+        options: { mode: quality === 'preview' ? 'ultra_cheap' : quality }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error generating design with quality:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * AI 3D Generation - Upgrade existing generation quality
+   */
+  async upgradeGenerationQuality(jobId, targetQuality) {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/generate/${jobId}/upgrade`, {
+        quality: targetQuality
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error upgrading generation quality:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * AI 3D Generation - Batch generation
+   */
+  async batchGenerate(prompts, quality = 'preview') {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/generate/batch`, {
+        prompts,
+        mode: quality === 'preview' ? 'ultra_cheap' : quality
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error in batch generation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Credits API - Get credit status
+   */
+  async getCreditStatus() {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/credits/status`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching credit status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Credits API - Get usage statistics
+   */
+  async getUsageStats() {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/credits/usage`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching usage stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Credits API - Get cost forecast
+   */
+  async getCostForecast() {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/credits/forecast`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching cost forecast:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * AI 3D Generation - Get cost estimate before generation
+   */
+  async estimateGenerationCost(prompt, quality) {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/generate/estimate`, {
+        prompt,
+        mode: quality === 'preview' ? 'ultra_cheap' : quality
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error estimating generation cost:', error);
+      throw error;
+    }
+  }
 }
 
 export default new APIService();

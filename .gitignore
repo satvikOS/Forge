@@ -9,6 +9,9 @@
 node_modules/
 package-lock.json
 
+# Cache directory (but keep creditUsage.json)
+backend/db/cache/
+
 # Test scripts
 test-*.js
 

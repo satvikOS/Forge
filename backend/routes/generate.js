@@ -4,6 +4,8 @@ const aiService = require('../services/aiService');
 const exportService = require('../services/exportService');
 const jobQueue = require('../services/jobQueue');
 const materialMappingService = require('../services/materialMappingService');
+const ai3DOrchestrator = require('../services/ai3DOrchestrator');
+const creditManager = require('../services/creditManager');
 
 /**
  * POST /api/generate
@@ -290,5 +292,172 @@ async function refineModel(modelData, specifications) {
     instancedRendering: objectCount > 10,
   };
 }
+
+/**
+ * POST /api/generate/preview
+ * Preview generation (ultra-cheap, FREE tier)
+ */
+router.post('/preview', async (req, res) => {
+  try {
+    const { prompt, options = {} } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    // Check if AI 3D orchestrator is enabled
+    if (!ai3DOrchestrator.isEnabled()) {
+      return res.status(503).json({ 
+        error: 'AI 3D generation is not enabled',
+        message: 'Please configure TRIPO_API_KEY, MESHY_API_KEY, or GOOGLE_CLOUD_PROJECT_ID'
+      });
+    }
+
+    console.log('🎨 Starting preview generation:', prompt.substring(0, 50));
+
+    // Generate with ultra_cheap mode
+    const result = await ai3DOrchestrator.generate(prompt, {
+      ...options,
+      mode: 'ultra_cheap',
+    });
+
+    res.json({
+      success: result.success,
+      result,
+      message: result.success ? 'Preview generation completed' : 'Preview generation failed',
+    });
+  } catch (error) {
+    console.error('Error in preview generation:', error);
+    res.status(500).json({
+      error: 'Failed to generate preview',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/generate/:jobId/upgrade
+ * Upgrade existing generation to higher quality
+ */
+router.post('/:jobId/upgrade', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { quality = 'high' } = req.body;
+
+    if (!ai3DOrchestrator.isEnabled()) {
+      return res.status(503).json({ 
+        error: 'AI 3D generation is not enabled'
+      });
+    }
+
+    // Get original job
+    const job = jobQueue.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // TODO: Implement upgrade logic
+    res.status(501).json({
+      error: 'Quality upgrade not yet implemented',
+      message: 'This feature will be available in a future update',
+    });
+  } catch (error) {
+    console.error('Error upgrading generation:', error);
+    res.status(500).json({
+      error: 'Failed to upgrade generation',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/generate/batch
+ * Batch generation (maximize free tier)
+ */
+router.post('/batch', async (req, res) => {
+  try {
+    const { prompts, mode = 'ultra_cheap' } = req.body;
+
+    if (!prompts || !Array.isArray(prompts) || prompts.length === 0) {
+      return res.status(400).json({ 
+        error: 'Prompts array is required',
+        message: 'Please provide an array of prompts to generate'
+      });
+    }
+
+    if (prompts.length > 10) {
+      return res.status(400).json({ 
+        error: 'Too many prompts',
+        message: 'Maximum 10 prompts per batch'
+      });
+    }
+
+    if (!ai3DOrchestrator.isEnabled()) {
+      return res.status(503).json({ 
+        error: 'AI 3D generation is not enabled'
+      });
+    }
+
+    console.log(`🎨 Starting batch generation: ${prompts.length} prompts`);
+
+    // Process all prompts in parallel
+    const results = await Promise.allSettled(
+      prompts.map(prompt => ai3DOrchestrator.generate(prompt, { mode }))
+    );
+
+    const successful = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    const failed = results.filter(r => r.status === 'rejected').map(r => r.reason);
+
+    res.json({
+      success: true,
+      results: {
+        total: prompts.length,
+        successful: successful.length,
+        failed: failed.length,
+        generations: successful,
+        errors: failed.map(e => e.message),
+      },
+    });
+  } catch (error) {
+    console.error('Error in batch generation:', error);
+    res.status(500).json({
+      error: 'Failed to process batch generation',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/generate/estimate/:mode
+ * Estimate cost for a generation
+ */
+router.post('/estimate', async (req, res) => {
+  try {
+    const { prompt, mode = 'ultra_cheap' } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    if (!ai3DOrchestrator.isEnabled()) {
+      return res.status(503).json({ 
+        error: 'AI 3D generation is not enabled'
+      });
+    }
+
+    const estimate = await ai3DOrchestrator.estimateCost(prompt, mode);
+
+    res.json({
+      success: true,
+      estimate,
+    });
+  } catch (error) {
+    console.error('Error estimating cost:', error);
+    res.status(500).json({
+      error: 'Failed to estimate cost',
+      message: error.message,
+    });
+  }
+});
 
 module.exports = router;

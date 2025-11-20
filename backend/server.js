@@ -83,6 +83,7 @@ const downloadRoutes = require('./routes/download');
 const materialsRoutes = require('./routes/materials');
 const sketchfabRoutes = require('./routes/sketchfab');
 const orchestratorRoutes = require('./routes/orchestrator');
+const creditsRoutes = require('./routes/credits');
 
 // API routes
 app.use('/api/design', designRoutes);
@@ -93,6 +94,7 @@ app.use('/api/download', downloadRoutes);
 app.use('/api/materials', materialsRoutes);
 app.use('/api/sketchfab', sketchfabRoutes);
 app.use('/api/orchestrate', orchestratorRoutes);
+app.use('/api/credits', creditsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
