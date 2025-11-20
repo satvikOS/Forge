@@ -216,9 +216,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             sceneManagerRef.current.addObject(sceneObject);
           });
           console.log(`✅ Added ${geom.parts.length} parts to scene`);
-        } else if (geom.type === 'scene' && geom.meshes) {
-          // Scene with multiple meshes
-          console.log(`📦 Adding scene geometry with ${geom.meshes.length} meshes`);
+        } else if ((geom.type === 'scene' || geom.type === 'taxonomy_scene') && geom.meshes) {
+          // Scene with multiple meshes (handles both 'scene' and 'taxonomy_scene' types)
+          console.log(`📦 Adding ${geom.type} geometry with ${geom.meshes.length} meshes`);
           geom.meshes.forEach((mesh, index) => {
             const sceneObject = {
               id: `model_${Date.now()}_mesh_${index}`,
