@@ -26,6 +26,17 @@ class APIService {
       return result;
     } catch (error) {
       console.error('Error generating design:', error);
+      
+      // Enhanced error messages
+      if (error.response?.status === 500) {
+        const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Server error';
+        throw new Error(`Generation failed: ${errorMsg}. Please check API configuration and try again.`);
+      } else if (error.response?.status === 403) {
+        throw new Error('CORS error: Origin not allowed. Please check ALLOWED_ORIGINS configuration.');
+      } else if (error.message?.includes('Network Error')) {
+        throw new Error('Network error: Cannot connect to API server. Please check your connection.');
+      }
+      
       throw error;
     }
   }
@@ -35,6 +46,8 @@ class APIService {
    */
   async pollJobStatus(jobId, onProgress = null, maxAttempts = 120, pollInterval = 1000) {
     let attempts = 0;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 3;
     
     while (attempts < maxAttempts) {
       try {
@@ -44,6 +57,9 @@ class APIService {
         if (!job) {
           throw new Error('Job not found');
         }
+        
+        // Reset error counter on successful request
+        consecutiveErrors = 0;
         
         // Notify progress callback if provided
         if (onProgress) {
@@ -76,11 +92,22 @@ class APIService {
         attempts++;
         
       } catch (error) {
+        consecutiveErrors++;
+        
         if (error.response?.status === 404) {
           throw new Error('Job not found');
         }
-        console.error('Error polling job status:', error);
-        throw error;
+        
+        // If we've had multiple consecutive errors, give up
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.error('Too many consecutive polling errors:', error);
+          throw new Error(`Polling failed: ${error.message}`);
+        }
+        
+        // Otherwise, wait and retry
+        console.warn(`Polling error (${consecutiveErrors}/${maxConsecutiveErrors}), retrying...`);
+        await this.delay(pollInterval * 2); // Wait longer on error
+        attempts++;
       }
     }
     

@@ -14,8 +14,8 @@ class GeminiService {
     if (!this.isDemoMode) {
       try {
         this.genAI = new GoogleGenerativeAI(this.apiKey);
-        // Use model from environment variable or default to gemini-2.5-pro (best for 3D design)
-        this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+        // Use model from environment variable or default to gemini-2.0-flash-exp (best balance)
+        this.modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
         
         // Configure API version based on model
         // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)
@@ -36,6 +36,8 @@ class GeminiService {
         console.error('Failed to initialize Gemini API:', error);
         this.isDemoMode = true;
       }
+    } else {
+      console.warn('⚠️  WARNING: GEMINI_API_KEY not set - AI features will not work properly');
     }
     
     this.maxRetries = 3;
@@ -53,6 +55,11 @@ class GeminiService {
    * Generate content with retry logic
    */
   async generateContent(prompt, options = {}) {
+    // Validate API is configured
+    if (!this.isConfigured()) {
+      throw new Error('Gemini API is not configured. Please set GEMINI_API_KEY environment variable.');
+    }
+
     const maxRetries = options.maxRetries || this.maxRetries;
     let lastError = null;
 
@@ -85,13 +92,13 @@ class GeminiService {
         });
         
         // Don't retry on certain errors
-        if (error.message?.includes('API key') || error.message?.includes('quota')) {
+        if (error.message?.includes('API key') || error.message?.includes('quota') || error.message?.includes('Invalid argument')) {
           console.error('🚫 Non-retryable error detected, throwing immediately');
           throw error;
         }
         
         if (attempt < maxRetries) {
-          const delayMs = this.retryDelay * attempt;
+          const delayMs = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
           console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
           await this.delay(delayMs);
         }
@@ -99,7 +106,7 @@ class GeminiService {
     }
 
     console.error('=== End Gemini API Request (FAILED) ===\n');
-    throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message}`);
+    throw new Error(`Gemini API failed after ${maxRetries} attempts: ${lastError?.message}`);
   }
 
   /**

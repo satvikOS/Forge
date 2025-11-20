@@ -2,7 +2,13 @@
 // This creates an Express app instance with all routes configured for Vercel deployment
 
 // Load environment configuration
-require('dotenv').config({ path: '../backend/.env' });
+// Try multiple paths for .env file to support different deployment scenarios
+try {
+  require('dotenv').config({ path: '../backend/.env' });
+} catch (e) {
+  // If dotenv fails, continue - environment variables may be set by platform
+  console.log('dotenv not loaded, using platform environment variables');
+}
 
 const express = require('express');
 const cors = require('cors');
