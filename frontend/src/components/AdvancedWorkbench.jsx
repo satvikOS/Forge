@@ -107,11 +107,11 @@ function SceneObject({ sceneObject, isWireframe }) {
 /**
  * Component to render all objects from SceneManager
  */
-function SceneRenderer({ sceneManager, isWireframe, modelData }) {
+function SceneRenderer({ sceneManager, isWireframe, modelData, refreshTrigger }) {
   const [sceneObjects, setSceneObjects] = useState([]);
   const prevObjectCountRef = useRef(0);
 
-  // Update scene objects from SceneManager only when object count changes
+  // Update scene objects from SceneManager only when object count changes or refreshTrigger changes
   useEffect(() => {
     if (sceneManager) {
       const objects = sceneManager.getAllObjects();
@@ -124,7 +124,7 @@ function SceneRenderer({ sceneManager, isWireframe, modelData }) {
         prevObjectCountRef.current = currentCount;
       }
     }
-  }, [sceneManager, modelData]);
+  }, [sceneManager, modelData, refreshTrigger]);
 
   return (
     <>
@@ -143,6 +143,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   const sceneManagerRef = useRef(null);
   const environmentSystemRef = useRef(null);
   const [initialized, setInitialized] = useState(false);
+  const [sceneRefreshTrigger, setSceneRefreshTrigger] = useState(0); // Trigger re-render of scene
   const processedModelIdsRef = useRef(new Set()); // Track processed model IDs to prevent infinite loops
 
   // Initialize SceneManager and EnvironmentSystem once
@@ -216,6 +217,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             sceneManagerRef.current.addObject(sceneObject);
           });
           console.log(`✅ Added ${geom.parts.length} parts to scene`);
+          
+          // Force scene re-render after adding all objects
+          setSceneRefreshTrigger(prev => prev + 1);
         } else if ((geom.type === 'scene' || geom.type === 'taxonomy_scene') && (geom.meshes || geom.instances)) {
           // Scene with multiple meshes (handles both 'scene' and 'taxonomy_scene' types)
           
@@ -260,6 +264,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             });
             
             console.log(`✅ Added ${totalObjectsAdded} instanced objects to scene`);
+            
+            // Force scene re-render after adding all objects
+            setSceneRefreshTrigger(prev => prev + 1);
           }
           // Check for meshes array (traditional - separate mesh definitions)
           else if (geom.meshes && geom.meshes.length > 0) {
@@ -288,6 +295,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
               sceneManagerRef.current.addObject(sceneObject);
             });
             console.log(`✅ Added ${geom.meshes.length} meshes to scene`);
+            
+            // Force scene re-render after adding all objects
+            setSceneRefreshTrigger(prev => prev + 1);
           }
           // Both empty - create placeholder
           else {
@@ -315,6 +325,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             };
             sceneManagerRef.current.addObject(sceneObject);
             console.log('✅ Added placeholder object (backend returned empty arrays)');
+            
+            // Force scene re-render
+            setSceneRefreshTrigger(prev => prev + 1);
           }
         } else {
           // Simple geometry - add as single object
@@ -341,6 +354,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           
           sceneManagerRef.current.addObject(sceneObject);
           console.log('✅ Added generated model to scene');
+          
+          // Force scene re-render
+          setSceneRefreshTrigger(prev => prev + 1);
         }
       } else if (modelData.sceneType === 'environment_composition') {
         // Environment composition already added objects via SceneComposer
@@ -394,6 +410,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
               sceneManager={sceneManagerRef.current}
               isWireframe={isWireframe}
               modelData={modelData}
+              refreshTrigger={sceneRefreshTrigger}
             />
           )}
           
