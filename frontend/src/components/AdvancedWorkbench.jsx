@@ -143,6 +143,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   const sceneManagerRef = useRef(null);
   const environmentSystemRef = useRef(null);
   const [initialized, setInitialized] = useState(false);
+  const processedModelIdsRef = useRef(new Set()); // Track processed model IDs to prevent infinite loops
 
   // Initialize SceneManager and EnvironmentSystem once
   useEffect(() => {
@@ -169,7 +170,16 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   useEffect(() => {
     if (!modelData || !sceneManagerRef.current || !initialized) return;
 
+    // Generate a unique ID for this modelData if it doesn't have one
+    const modelId = modelData.id || modelData.designId || JSON.stringify(modelData).substring(0, 100);
+    
+    // Skip if we've already processed this exact modelData
+    if (processedModelIdsRef.current.has(modelId)) {
+      return;
+    }
+    
     console.log('📦 AdvancedWorkbench: Processing modelData', modelData);
+    processedModelIdsRef.current.add(modelId);
 
     // Update scene info after model is processed
     if (onSceneUpdate) {
@@ -180,7 +190,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
         totalObjects: sceneManagerRef.current.objects.size,
       });
     }
-  }, [modelData, initialized, onSceneUpdate]);
+  }, [modelData, initialized]); // Remove onSceneUpdate from dependencies to prevent recreation loops
 
   const isWireframe = viewMode === 'wireframe';
 
