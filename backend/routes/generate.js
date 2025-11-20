@@ -251,6 +251,13 @@ async function processGenerationJob(jobId, prompt, options) {
         
         specifications.objectCount = 1;
         
+        // CRITICAL: Clear OSM buildings array to prevent PRIORITY 2 from triggering
+        // OSM buildings are for city scenes, not individual landmarks
+        if (specifications.realBuildings) {
+          console.log('⚠️  Clearing OSM buildings array for landmark mode (landmark takes priority)');
+          delete specifications.realBuildings;
+        }
+        
         // Also clear any real-world pattern recommendations that add urban sprawl
         if (specifications.taxonomyData?.realWorldData) {
           console.log('⚠️  Clearing urban pattern recommendations for landmark mode');
