@@ -184,24 +184,91 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
     // Process and add modelData to scene
     try {
       if (modelData.geometry) {
-        // Process geometry data and add to scene
-        const sceneObject = {
-          id: `model_${Date.now()}`,
-          name: modelData.name || 'Generated Model',
-          type: 'generated',
-          position: modelData.position || { x: 0, y: 0, z: 0 },
-          rotation: modelData.rotation || { x: 0, y: 0, z: 0 },
-          scale: modelData.scale || { x: 1, y: 1, z: 1 },
-          visible: true,
-          userData: {
-            geometry: modelData.geometry,
-            material: modelData.material || { color: '#4a90e2' },
-            prompt: modelData.prompt
-          }
-        };
+        const geom = modelData.geometry;
         
-        sceneManagerRef.current.addObject(sceneObject);
-        console.log('✅ Added generated model to scene');
+        // Handle different geometry types
+        if (geom.type === 'composite' && geom.parts) {
+          // Composite geometry with multiple parts - add each part as separate object
+          console.log(`📦 Adding composite geometry with ${geom.parts.length} parts`);
+          geom.parts.forEach((part, index) => {
+            const sceneObject = {
+              id: `model_${Date.now()}_part_${index}`,
+              name: `${modelData.name || 'Generated Model'} - Part ${index + 1}`,
+              type: 'generated',
+              position: part.position || { x: 0, y: 0, z: 0 },
+              rotation: part.rotation || { x: 0, y: 0, z: 0 },
+              scale: { x: 1, y: 1, z: 1 },
+              visible: true,
+              userData: {
+                geometry: {
+                  type: part.type || 'box',
+                  width: part.dimensions?.x || 10,
+                  height: part.dimensions?.y || 10,
+                  depth: part.dimensions?.z || 10,
+                  radius: part.radius,
+                  radiusTop: part.radiusTop,
+                  radiusBottom: part.radiusBottom
+                },
+                material: part.material || modelData.material || { color: '#4a90e2' },
+                prompt: modelData.prompt
+              }
+            };
+            sceneManagerRef.current.addObject(sceneObject);
+          });
+          console.log(`✅ Added ${geom.parts.length} parts to scene`);
+        } else if (geom.type === 'scene' && geom.meshes) {
+          // Scene with multiple meshes
+          console.log(`📦 Adding scene geometry with ${geom.meshes.length} meshes`);
+          geom.meshes.forEach((mesh, index) => {
+            const sceneObject = {
+              id: `model_${Date.now()}_mesh_${index}`,
+              name: mesh.name || `${modelData.name || 'Generated Model'} - Mesh ${index + 1}`,
+              type: 'generated',
+              position: mesh.position || { x: 0, y: 0, z: 0 },
+              rotation: mesh.rotation || { x: 0, y: 0, z: 0 },
+              scale: { x: 1, y: 1, z: 1 },
+              visible: true,
+              userData: {
+                geometry: {
+                  type: mesh.type || 'box',
+                  width: mesh.dimensions?.x || 10,
+                  height: mesh.dimensions?.y || 10,
+                  depth: mesh.dimensions?.z || 10,
+                  radius: mesh.radius
+                },
+                material: mesh.material || modelData.material || { color: '#4a90e2' },
+                prompt: modelData.prompt
+              }
+            };
+            sceneManagerRef.current.addObject(sceneObject);
+          });
+          console.log(`✅ Added ${geom.meshes.length} meshes to scene`);
+        } else {
+          // Simple geometry - add as single object
+          const sceneObject = {
+            id: `model_${Date.now()}`,
+            name: modelData.name || 'Generated Model',
+            type: 'generated',
+            position: modelData.position || { x: 0, y: 0, z: 0 },
+            rotation: modelData.rotation || { x: 0, y: 0, z: 0 },
+            scale: modelData.scale || { x: 1, y: 1, z: 1 },
+            visible: true,
+            userData: {
+              geometry: {
+                type: geom.type || 'box',
+                width: geom.dimensions?.x || geom.width || 10,
+                height: geom.dimensions?.y || geom.height || 10,
+                depth: geom.dimensions?.z || geom.depth || 10,
+                radius: geom.radius
+              },
+              material: modelData.material || { color: '#4a90e2' },
+              prompt: modelData.prompt
+            }
+          };
+          
+          sceneManagerRef.current.addObject(sceneObject);
+          console.log('✅ Added generated model to scene');
+        }
       } else if (modelData.sceneType === 'environment_composition') {
         // Environment composition already added objects via SceneComposer
         console.log('✅ Environment composition scene already populated');
