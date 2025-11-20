@@ -48,6 +48,7 @@ class APIService {
     let attempts = 0;
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 3;
+    let lastProgress = null; // Track last progress to avoid redundant callbacks
     
     while (attempts < maxAttempts) {
       try {
@@ -61,13 +62,24 @@ class APIService {
         // Reset error counter on successful request
         consecutiveErrors = 0;
         
-        // Notify progress callback if provided
+        // Notify progress callback if provided AND progress has changed
         if (onProgress) {
-          onProgress({
+          const currentProgress = {
             status: job.status,
             progress: job.progress,
             stages: job.stages,
-          });
+          };
+          
+          // Only call callback if progress actually changed
+          const progressChanged = !lastProgress || 
+            lastProgress.status !== currentProgress.status ||
+            lastProgress.progress !== currentProgress.progress ||
+            JSON.stringify(lastProgress.stages) !== JSON.stringify(currentProgress.stages);
+          
+          if (progressChanged) {
+            onProgress(currentProgress);
+            lastProgress = currentProgress;
+          }
         }
         
         // Check if job is completed
