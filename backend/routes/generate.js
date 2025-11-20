@@ -227,7 +227,35 @@ async function processGenerationJob(jobId, prompt, options) {
         specifications.objectCount = buildings.length;
       } else if (hasLandmarkDimensions) {
         console.log('🏛️  Landmark mode: Using Wikidata dimensions, ignoring OSM buildings');
+        
+        // CRITICAL: Clear any urban pattern elements that were added by realWorldData.applyRealWorldPatterns
+        // These cause landmarks to be rendered as scattered buildings/tiles
+        if (specifications.elements && specifications.elements.length > 1) {
+          console.log(`⚠️  Clearing ${specifications.elements.length} urban pattern elements for landmark mode`);
+          // Keep only the first element or create a single landmark element
+          specifications.elements = [{
+            type: 'building',
+            name: orchestrationData.phases?.intentUnderstanding?.landmark || 'Landmark',
+            category: 'Architecture',
+            subcategory: 'Landmark',
+            dimensions: {
+              width: (dims.width || dims.baseWidth || dims.height * 0.4) * 1000,
+              height: dims.height * 1000,
+              depth: (dims.depth || dims.length || dims.width || dims.baseWidth || dims.height * 0.4) * 1000,
+            },
+            materials: ['steel', 'glass', 'concrete'],
+            placement: 'ground',
+            isLandmark: true,
+          }];
+        }
+        
         specifications.objectCount = 1;
+        
+        // Also clear any real-world pattern recommendations that add urban sprawl
+        if (specifications.taxonomyData?.realWorldData) {
+          console.log('⚠️  Clearing urban pattern recommendations for landmark mode');
+          delete specifications.taxonomyData.realWorldData;
+        }
       }
     }
     
