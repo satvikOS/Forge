@@ -990,15 +990,23 @@ class GeometryGenerator {
       }
     });
     
+    // Return as a single unified mesh, not as separate parts
+    // This prevents the frontend from treating each part as a separate instance
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,  // Store parts as subcomponents, not as separate meshes
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'steel',
       name: name || 'Tower Landmark',
       metadata: {
         landmarkType: 'tower',
         heightMeters: height / 1000,
         realWorldReplica: true,
-        aiGenerated: true
+        aiGenerated: true,
+        unifiedMesh: true,  // Flag to indicate this should render as one object
+        partCount: parts.length
       }
     };
   }
@@ -1072,11 +1080,21 @@ class GeometryGenerator {
       });
     }
     
+    // Return as a single unified mesh
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'steel',
       name: name || 'Bridge Landmark',
-      metadata: { landmarkType: 'bridge', realWorldReplica: true }
+      metadata: {
+        landmarkType: 'bridge',
+        realWorldReplica: true,
+        unifiedMesh: true,
+        partCount: parts.length
+      }
     };
   }
   
@@ -1136,11 +1154,21 @@ class GeometryGenerator {
       metadata: { landmarkType: 'arch', iconic: true }
     });
     
+    // Return as a single unified mesh
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'steel',
       name: name || 'Arch Landmark',
-      metadata: { landmarkType: 'arch', realWorldReplica: true }
+      metadata: {
+        landmarkType: 'arch',
+        realWorldReplica: true,
+        unifiedMesh: true,
+        partCount: parts.length
+      }
     };
   }
   
@@ -1183,11 +1211,21 @@ class GeometryGenerator {
       metadata: { landmarkType: 'dome', iconic: true }
     });
     
+    // Return as a single unified mesh
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'concrete',
       name: name || 'Dome Landmark',
-      metadata: { landmarkType: 'dome', realWorldReplica: true }
+      metadata: {
+        landmarkType: 'dome',
+        realWorldReplica: true,
+        unifiedMesh: true,
+        partCount: parts.length
+      }
     };
   }
   
@@ -1214,11 +1252,21 @@ class GeometryGenerator {
       metadata: { landmarkType: 'pyramid', ancient: true }
     });
     
+    // Return as a single unified mesh
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'stone',
       name: name || 'Pyramid Landmark',
-      metadata: { landmarkType: 'pyramid', realWorldReplica: true }
+      metadata: {
+        landmarkType: 'pyramid',
+        realWorldReplica: true,
+        unifiedMesh: true,
+        partCount: parts.length
+      }
     };
   }
   
@@ -1262,11 +1310,21 @@ class GeometryGenerator {
       metadata: { landmarkType: 'statue', iconic: true }
     });
     
+    // Return as a single unified mesh
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'bronze',
       name: name || 'Statue Landmark',
-      metadata: { landmarkType: 'statue', realWorldReplica: true }
+      metadata: {
+        landmarkType: 'statue',
+        realWorldReplica: true,
+        unifiedMesh: true,
+        partCount: parts.length
+      }
     };
   }
   
@@ -1291,11 +1349,21 @@ class GeometryGenerator {
       metadata: { landmarkType: 'generic', realWorldReplica: true }
     });
     
+    // Return as a single unified mesh
     return {
-      type: 'composite',
-      parts,
+      type: 'unified_landmark',
+      componentType: 'landmark_structure',
+      subcomponents: parts,
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: details.materials?.[0] || 'concrete',
       name: name || 'Landmark',
-      metadata: { landmarkType: 'generic', realWorldReplica: true }
+      metadata: {
+        landmarkType: 'generic',
+        realWorldReplica: true,
+        unifiedMesh: true,
+        partCount: parts.length
+      }
     };
   }
 
