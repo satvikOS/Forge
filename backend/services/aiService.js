@@ -252,6 +252,95 @@ class AIService {
   async generateModelData(specifications) {
     const { objectType, dimensions, materials, elements, scene, objectCount, realWorldData, realBuildings, realDimensions } = specifications;
 
+    // PRIORITY 0: Check if AI 3D generation is enabled for highly realistic models
+    const enableAI3D = process.env.ENABLE_AI_3D_GENERATION === 'true';
+    const hasTripoKey = !!process.env.TRIPO_API_KEY;
+    const hasMeshyKey = !!process.env.MESHY_API_KEY;
+    const hasVertexKey = !!process.env.GOOGLE_CLOUD_PROJECT_ID;
+    
+    if (enableAI3D && (hasTripoKey || hasMeshyKey || hasVertexKey)) {
+      console.log('🤖 AI 3D Generation enabled - attempting to use AI APIs for photorealistic model');
+      console.log('   Available APIs:', {
+        tripo: hasTripoKey,
+        meshy: hasMeshyKey,
+        vertexImagen: hasVertexKey
+      });
+      
+      try {
+        const ai3DOrchestrator = require('./ai3DOrchestrator');
+        
+        // Create prompt from specifications
+        const generationPrompt = specifications.description || 
+                                specifications.name || 
+                                (realDimensions ? `${realDimensions.name || 'landmark'} with height ${realDimensions.height}m` : null) ||
+                                'architectural structure';
+        
+        // Create options object
+        const generationOptions = {
+          mode: process.env.DEFAULT_GENERATION_MODE || 'ultra_cheap',
+          specifications: specifications,
+          realWorldData: realWorldData,
+          realDimensions: realDimensions,
+          realBuildings: realBuildings
+        };
+        
+        console.log('📤 Sending request to AI 3D orchestrator...');
+        console.log('   Prompt:', generationPrompt);
+        console.log('   Mode:', generationOptions.mode);
+        
+        const ai3DResult = await ai3DOrchestrator.generate(generationPrompt, generationOptions);
+        
+        if (ai3DResult && ai3DResult.success && ai3DResult.model) {
+          console.log('✅ AI 3D generation successful!');
+          console.log('   Source:', ai3DResult.source);
+          console.log('   Provider:', ai3DResult.provider || ai3DResult.model.provider);
+          console.log('   Quality:', ai3DResult.model.quality || 'standard');
+          console.log('   Duration:', ai3DResult.duration, 'ms');
+          if (ai3DResult.cost !== undefined) {
+            console.log('   Cost:', '$' + ai3DResult.cost.toFixed(4));
+          }
+          
+          return {
+            geometry: {
+              type: 'ai_generated',
+              modelUrl: ai3DResult.model.modelUrl || ai3DResult.model.url,
+              format: ai3DResult.model.format || 'glb',
+              provider: ai3DResult.provider || ai3DResult.model.provider,
+              quality: ai3DResult.model.quality || 'standard',
+              source: ai3DResult.source
+            },
+            materials: materials || ['pbr_auto'],
+            metadata: { 
+              ...specifications, 
+              aiGenerated: true,
+              photorealistic: true,
+              provider: ai3DResult.provider || ai3DResult.model.provider,
+              source: ai3DResult.source,
+              cost: ai3DResult.cost,
+              duration: ai3DResult.duration
+            },
+            stats: { 
+              vertices: 'high-detail',
+              faces: 'high-detail',
+              photorealistic: true
+            },
+          };
+        } else {
+          console.warn('⚠️  AI 3D generation returned no model, falling back to procedural');
+        }
+      } catch (error) {
+        console.warn('⚠️  AI 3D generation failed, falling back to procedural:', error.message);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('   Error details:', error);
+        }
+      }
+    } else if (enableAI3D) {
+      console.log('ℹ️  AI 3D Generation enabled but no API keys configured');
+      console.log('   Add TRIPO_API_KEY, MESHY_API_KEY, or GOOGLE_CLOUD_PROJECT_ID to .env for photorealistic models');
+    }
+    
+    console.log('🎨 Using procedural geometry generation');
+
     // PRIORITY 1: If we have real dimensions from Wikidata (specific landmark), create a single accurate building
     if (realDimensions && realDimensions.height) {
       console.log('📏 Using real dimensions for landmark generation');
