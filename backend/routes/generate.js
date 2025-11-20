@@ -6,6 +6,7 @@ const jobQueue = require('../services/jobQueue');
 const materialMappingService = require('../services/materialMappingService');
 const ai3DOrchestrator = require('../services/ai3DOrchestrator');
 const creditManager = require('../services/creditManager');
+const apiOrchestrator = require('../services/apiOrchestrator');
 
 /**
  * POST /api/generate
@@ -153,6 +154,35 @@ async function processGenerationJob(jobId, prompt, options) {
   console.log('========================================\n');
 
   try {
+    // Stage 0.5: Check for real-world data orchestration
+    console.log('--- 🌍 Stage 0.5: Real-World Data Detection ---');
+    let orchestrationData = null;
+    
+    if (apiOrchestrator.isEnabled()) {
+      try {
+        // Use orchestrator to check if this needs real-world data
+        console.log('🔍 Checking if prompt requires real-world data...');
+        orchestrationData = await apiOrchestrator.orchestrate(prompt, options);
+        
+        if (orchestrationData && orchestrationData.phases?.intentUnderstanding?.needsRealData) {
+          console.log('✅ Real-world data orchestration successful');
+          console.log('   📍 Location:', orchestrationData.phases.intentUnderstanding.location);
+          console.log('   🏛️  Landmark:', orchestrationData.phases.intentUnderstanding.landmark);
+          console.log('   🎯 Confidence:', (orchestrationData.confidence * 100).toFixed(1) + '%');
+          console.log('   📊 Data Sources:', orchestrationData.phases.dataFusion?.validations?.length || 0);
+        } else {
+          console.log('ℹ️  No real-world data needed for this prompt');
+          orchestrationData = null;
+        }
+      } catch (error) {
+        console.warn('⚠️  Real-world data orchestration failed, continuing with standard generation:', error.message);
+        orchestrationData = null;
+      }
+    } else {
+      console.log('ℹ️  API Orchestrator disabled, skipping real-world data detection');
+    }
+    console.log('✅ Stage 0.5 complete\n');
+    
     // Stage 1: Analyzing prompt
     console.log('--- 📊 Stage 1: Analyzing Prompt ---');
     jobQueue.updateProgress(jobId, 'analyzing', 10);
@@ -162,8 +192,36 @@ async function processGenerationJob(jobId, prompt, options) {
       throw new Error('AI service not initialized');
     }
     
-    const specifications = await aiService.processPrompt(prompt);
+    // If we have orchestration data, enhance the prompt with real-world context
+    let enhancedPrompt = prompt;
+    if (orchestrationData) {
+      enhancedPrompt = enhancePromptWithOrchestrationData(prompt, orchestrationData);
+      console.log('🎨 Enhanced prompt with real-world data:', enhancedPrompt.substring(0, 150) + '...');
+    }
+    
+    const specifications = await aiService.processPrompt(enhancedPrompt);
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
+    
+    // Inject real-world data into specifications if available
+    if (orchestrationData) {
+      specifications.realWorldData = orchestrationData;
+      specifications.isRealWorldReplica = true;
+      
+      // If we have building data from OSM, use it
+      if (orchestrationData.phases?.geographicData?.osm_buildings?.length > 0) {
+        const buildings = orchestrationData.phases.geographicData.osm_buildings;
+        console.log(`📦 Found ${buildings.length} real-world buildings from OSM`);
+        specifications.realBuildings = buildings;
+        specifications.objectCount = buildings.length;
+      }
+      
+      // If we have knowledge from Wikipedia/Wikidata, use dimensions
+      if (orchestrationData.phases?.knowledgeGathering?.wikidata?.dimensions) {
+        const dims = orchestrationData.phases.knowledgeGathering.wikidata.dimensions;
+        console.log('📏 Using real dimensions from Wikidata:', dims);
+        specifications.realDimensions = dims;
+      }
+    }
     
     // VERIFY AI was used (not fallback)
     if (!specifications || (!specifications.taxonomyData && !specifications.elements)) {
@@ -291,6 +349,75 @@ async function refineModel(modelData, specifications) {
     optimized: true,
     instancedRendering: objectCount > 10,
   };
+}
+
+/**
+ * Enhance prompt with real-world orchestration data
+ */
+function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
+  if (!orchestrationData || !orchestrationData.phases) {
+    return prompt;
+  }
+
+  const enhancements = [];
+  const intent = orchestrationData.phases.intentUnderstanding || {};
+
+  // Add landmark/location information
+  if (intent.landmark) {
+    enhancements.push(`Landmark: ${intent.landmark}`);
+  }
+  if (intent.location) {
+    enhancements.push(`Location: ${intent.location}`);
+  }
+
+  // Add architectural style
+  if (intent.style) {
+    enhancements.push(`Architectural style: ${intent.style}`);
+  }
+
+  // Add real dimensions from Wikidata
+  if (orchestrationData.phases.knowledgeGathering?.wikidata?.dimensions) {
+    const dims = orchestrationData.phases.knowledgeGathering.wikidata.dimensions;
+    if (dims.height) {
+      enhancements.push(`Height: ${dims.height}m`);
+    }
+    if (dims.width) {
+      enhancements.push(`Width: ${dims.width}m`);
+    }
+    if (dims.length) {
+      enhancements.push(`Length: ${dims.length}m`);
+    }
+  }
+
+  // Add scale information
+  if (intent.scale) {
+    enhancements.push(`Scale: ${intent.scale}`);
+  }
+
+  // Add building count from OSM
+  if (orchestrationData.phases.geographicData?.osm_buildings?.length > 0) {
+    const buildingCount = orchestrationData.phases.geographicData.osm_buildings.length;
+    enhancements.push(`${buildingCount} real buildings from OpenStreetMap`);
+  }
+
+  // Add materials if specified
+  if (intent.materials && intent.materials.length > 0) {
+    enhancements.push(`Materials: ${intent.materials.join(', ')}`);
+  }
+
+  // Add environmental context
+  if (orchestrationData.phases.environmentalContext?.weather) {
+    const weather = orchestrationData.phases.environmentalContext.weather;
+    if (weather.conditions) {
+      enhancements.push(`Weather: ${weather.conditions}`);
+    }
+  }
+
+  if (enhancements.length > 0) {
+    return `${prompt}. Real-world context: ${enhancements.join(', ')}.`;
+  }
+
+  return prompt;
 }
 
 /**
