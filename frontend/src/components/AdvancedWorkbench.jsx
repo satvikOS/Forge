@@ -216,38 +216,54 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             sceneManagerRef.current.addObject(sceneObject);
           });
           console.log(`✅ Added ${geom.parts.length} parts to scene`);
-        } else if ((geom.type === 'scene' || geom.type === 'taxonomy_scene') && geom.meshes) {
+        } else if ((geom.type === 'scene' || geom.type === 'taxonomy_scene') && (geom.meshes || geom.instances)) {
           // Scene with multiple meshes (handles both 'scene' and 'taxonomy_scene' types)
-          console.log(`📦 Adding ${geom.type} geometry with ${geom.meshes.length} meshes`);
           
-          if (geom.meshes.length === 0) {
-            // Empty meshes array - create a default placeholder object
-            console.warn('⚠️ Empty meshes array detected - creating default placeholder object');
-            console.log('ModelData for debugging:', JSON.stringify(modelData, null, 2));
+          // Check for instances array (instanced rendering - one mesh, multiple positions)
+          if (geom.instances && geom.instances.length > 0) {
+            console.log(`📦 Adding ${geom.type} geometry with ${geom.instances.length} instance groups`);
+            let totalObjectsAdded = 0;
             
-            const sceneObject = {
-              id: `model_${Date.now()}_placeholder`,
-              name: modelData.name || 'Generated Model (Placeholder)',
-              type: 'generated',
-              position: { x: 0, y: 5, z: 0 },
-              rotation: { x: 0, y: 0, z: 0 },
-              scale: { x: 1, y: 1, z: 1 },
-              visible: true,
-              userData: {
-                geometry: {
-                  type: 'box',
-                  width: 20,
-                  height: 20,
-                  depth: 20
-                },
-                material: { color: '#ff6b35' }, // Orange to indicate placeholder
-                prompt: modelData.prompt
-              }
-            };
-            sceneManagerRef.current.addObject(sceneObject);
-            console.log('✅ Added placeholder object (backend returned empty meshes array)');
-          } else {
-            // Normal processing with non-empty meshes
+            geom.instances.forEach((instance, instanceIndex) => {
+              const meshDef = instance.mesh;
+              const positions = instance.positions || [{ x: 0, y: 0, z: 0 }];
+              
+              // Create a scene object for each position
+              positions.forEach((pos, posIndex) => {
+                const sceneObject = {
+                  id: `model_${Date.now()}_inst_${instanceIndex}_${posIndex}`,
+                  name: `${modelData.name || 'Generated Model'} - Instance ${instanceIndex + 1}.${posIndex + 1}`,
+                  type: 'generated',
+                  position: {
+                    x: (pos.x || 0) / 1000, // Convert from mm to meters
+                    y: (pos.y || 0) / 1000,
+                    z: (pos.z || 0) / 1000
+                  },
+                  rotation: meshDef.rotation || { x: 0, y: 0, z: 0 },
+                  scale: { x: 1, y: 1, z: 1 },
+                  visible: true,
+                  userData: {
+                    geometry: {
+                      type: meshDef.type || 'box',
+                      width: (meshDef.dimensions?.x || 10) / 1000,  // Convert mm to meters
+                      height: (meshDef.dimensions?.y || 10) / 1000,
+                      depth: (meshDef.dimensions?.z || 10) / 1000,
+                      radius: meshDef.radius ? meshDef.radius / 1000 : undefined
+                    },
+                    material: meshDef.material || modelData.material || { color: '#4a90e2' },
+                    prompt: modelData.prompt
+                  }
+                };
+                sceneManagerRef.current.addObject(sceneObject);
+                totalObjectsAdded++;
+              });
+            });
+            
+            console.log(`✅ Added ${totalObjectsAdded} instanced objects to scene`);
+          }
+          // Check for meshes array (traditional - separate mesh definitions)
+          else if (geom.meshes && geom.meshes.length > 0) {
+            console.log(`📦 Adding ${geom.type} geometry with ${geom.meshes.length} meshes`);
             geom.meshes.forEach((mesh, index) => {
               const sceneObject = {
                 id: `model_${Date.now()}_mesh_${index}`,
@@ -272,6 +288,33 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
               sceneManagerRef.current.addObject(sceneObject);
             });
             console.log(`✅ Added ${geom.meshes.length} meshes to scene`);
+          }
+          // Both empty - create placeholder
+          else {
+            console.warn('⚠️ Empty meshes and instances arrays - creating default placeholder object');
+            console.log('ModelData for debugging:', JSON.stringify(modelData, null, 2));
+            
+            const sceneObject = {
+              id: `model_${Date.now()}_placeholder`,
+              name: modelData.name || 'Generated Model (Placeholder)',
+              type: 'generated',
+              position: { x: 0, y: 5, z: 0 },
+              rotation: { x: 0, y: 0, z: 0 },
+              scale: { x: 1, y: 1, z: 1 },
+              visible: true,
+              userData: {
+                geometry: {
+                  type: 'box',
+                  width: 20,
+                  height: 20,
+                  depth: 20
+                },
+                material: { color: '#ff6b35' }, // Orange to indicate placeholder
+                prompt: modelData.prompt
+              }
+            };
+            sceneManagerRef.current.addObject(sceneObject);
+            console.log('✅ Added placeholder object (backend returned empty arrays)');
           }
         } else {
           // Simple geometry - add as single object
