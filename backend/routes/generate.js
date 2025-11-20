@@ -55,7 +55,11 @@ router.get('/:jobId', async (req, res) => {
     const { jobId } = req.params;
     const job = jobQueue.getJob(jobId);
 
+    // Log for debugging serverless issues
+    console.log(`📊 Job status check: ${jobId} - ${job ? `Found (${job.status})` : 'NOT FOUND'}`);
+    
     if (!job) {
+      console.log('❌ Job not found in queue. Total jobs in memory:', jobQueue.getStats().total);
       return res.status(404).json({ error: 'Job not found' });
     }
 
@@ -167,21 +171,45 @@ async function processGenerationJob(jobId, prompt, options) {
     }, null, 2));
     jobQueue.updateProgress(jobId, 'generating', 60);
     
-    // Stage 2.5: Applying realistic materials and environment
-    console.log('--- 🎨 Stage 2.5: Applying Realistic Materials ---');
-    const { modelData: enhancedModel, environmentConfig } = await materialMappingService.assignRealisticMaterials(
-      modelData,
-      specifications
-    );
-    console.log('✅ PBR materials and environment applied:', JSON.stringify({
-      hasPBRMaterials: true,
-      environmentConfig: {
-        location: environmentConfig.location,
-        timeOfDay: environmentConfig.timeOfDay,
-        weather: environmentConfig.weather,
-        hdri: environmentConfig.hdri?.name,
-      },
-    }, null, 2));
+    // Stage 2.5: Applying realistic materials and environment (OPTIONAL - can be skipped for speed)
+    // Set SKIP_MATERIALS=true to skip this step for faster generation
+    const skipMaterials = process.env.SKIP_MATERIALS === 'true';
+    
+    let enhancedModel = modelData;
+    let environmentConfig = {
+      location: 'unknown',
+      timeOfDay: 'noon',
+      weather: 'clear',
+      hdri: null
+    };
+    
+    if (!skipMaterials) {
+      console.log('--- 🎨 Stage 2.5: Applying Realistic Materials ---');
+      try {
+        const result = await materialMappingService.assignRealisticMaterials(
+          modelData,
+          specifications
+        );
+        enhancedModel = result.modelData;
+        environmentConfig = result.environmentConfig;
+        
+        console.log('✅ PBR materials and environment applied:', JSON.stringify({
+          hasPBRMaterials: true,
+          environmentConfig: {
+            location: environmentConfig.location,
+            timeOfDay: environmentConfig.timeOfDay,
+            weather: environmentConfig.weather,
+            hdri: environmentConfig.hdri?.name,
+          },
+        }, null, 2));
+      } catch (error) {
+        console.warn('⚠️  Material mapping failed, continuing without:', error.message);
+        // Continue with basic model
+      }
+    } else {
+      console.log('--- ⏩ Stage 2.5: Skipping Material Mapping (SKIP_MATERIALS=true) ---');
+    }
+    
     jobQueue.updateProgress(jobId, 'generating', 80);
     jobQueue.completeStage(jobId, 'generating');
     console.log('✅ Stage 2 complete\n');

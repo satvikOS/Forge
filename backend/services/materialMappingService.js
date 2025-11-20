@@ -13,7 +13,7 @@ class MaterialMappingService {
   }
 
   /**
-   * Initialize all dependent services
+   * Initialize all dependent services with timeout
    */
   async initialize() {
     if (this.initialized) return;
@@ -21,14 +21,26 @@ class MaterialMappingService {
     try {
       console.log('🎨 Initializing Material Mapping Service...');
       
-      await materialLibraryService.loadDatabase();
-      await polyhavenService.initialize();
+      // Add timeout to prevent hanging
+      const initPromise = Promise.race([
+        (async () => {
+          await materialLibraryService.loadDatabase();
+          await polyhavenService.initialize();
+        })(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Initialization timeout after 10 seconds')), 10000)
+        )
+      ]);
+      
+      await initPromise;
       
       this.initialized = true;
       console.log('✅ Material Mapping Service initialized');
     } catch (error) {
-      console.error('Failed to initialize Material Mapping Service:', error);
+      console.error('⚠️  Failed to initialize Material Mapping Service:', error.message);
+      console.log('   Continuing without material mapping...');
       this.initialized = false;
+      // Don't throw - allow generation to continue without materials
     }
   }
 
@@ -37,6 +49,20 @@ class MaterialMappingService {
    */
   async assignRealisticMaterials(modelData, specifications) {
     await this.initialize();
+    
+    // If initialization failed, return model as-is
+    if (!this.initialized) {
+      console.log('⚠️  Skipping material mapping (service not initialized)');
+      return {
+        modelData,
+        environmentConfig: {
+          location: 'unknown',
+          timeOfDay: 'noon',
+          weather: 'clear',
+          hdri: null
+        }
+      };
+    }
 
     console.log('🎨 Assigning realistic PBR materials to model...');
 

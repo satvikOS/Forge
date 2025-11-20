@@ -163,7 +163,8 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
 
       console.log('✅ AdvancedWorkbench: SceneManager and EnvironmentSystem initialized');
     }
-  }, [onSceneUpdate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Handle modelData updates (AI-generated models)
   useEffect(() => {
@@ -180,7 +181,8 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
         totalObjects: sceneManagerRef.current.objects.size,
       });
     }
-  }, [modelData, initialized, onSceneUpdate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelData, initialized]);
 
   const isWireframe = viewMode === 'wireframe';
 
