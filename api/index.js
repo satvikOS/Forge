@@ -57,15 +57,14 @@ app.use(cors({
 }));
 
 // Import and mount routes from backend
-const backendPath = path.join(__dirname, '../backend');
-const designRoutes = require(path.join(backendPath, 'routes/design'));
-const analysisRoutes = require(path.join(backendPath, 'routes/analysis'));
-const legalityRoutes = require(path.join(backendPath, 'routes/legality'));
-const generateRoutes = require(path.join(backendPath, 'routes/generate'));
-const downloadRoutes = require(path.join(backendPath, 'routes/download'));
-const materialsRoutes = require(path.join(backendPath, 'routes/materials'));
-const sketchfabRoutes = require(path.join(backendPath, 'routes/sketchfab'));
-const orchestratorRoutes = require(path.join(backendPath, 'routes/orchestrator'));
+const designRoutes = require('../backend/routes/design');
+const analysisRoutes = require('../backend/routes/analysis');
+const legalityRoutes = require('../backend/routes/legality');
+const generateRoutes = require('../backend/routes/generate');
+const downloadRoutes = require('../backend/routes/download');
+const materialsRoutes = require('../backend/routes/materials');
+const sketchfabRoutes = require('../backend/routes/sketchfab');
+const orchestratorRoutes = require('../backend/routes/orchestrator');
 
 // Mount routes (note: routes already have /api prefix from vercel.json rewrite)
 app.use('/api/design', designRoutes);
