@@ -181,6 +181,37 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
     console.log('📦 AdvancedWorkbench: Processing modelData', modelData);
     processedModelIdsRef.current.add(modelId);
 
+    // Process and add modelData to scene
+    try {
+      if (modelData.geometry) {
+        // Process geometry data and add to scene
+        const sceneObject = {
+          id: `model_${Date.now()}`,
+          name: modelData.name || 'Generated Model',
+          type: 'generated',
+          position: modelData.position || { x: 0, y: 0, z: 0 },
+          rotation: modelData.rotation || { x: 0, y: 0, z: 0 },
+          scale: modelData.scale || { x: 1, y: 1, z: 1 },
+          visible: true,
+          userData: {
+            geometry: modelData.geometry,
+            material: modelData.material || { color: '#4a90e2' },
+            prompt: modelData.prompt
+          }
+        };
+        
+        sceneManagerRef.current.addObject(sceneObject);
+        console.log('✅ Added generated model to scene');
+      } else if (modelData.sceneType === 'environment_composition') {
+        // Environment composition already added objects via SceneComposer
+        console.log('✅ Environment composition scene already populated');
+      } else {
+        console.warn('⚠️ ModelData has no geometry or recognized type:', modelData);
+      }
+    } catch (error) {
+      console.error('❌ Error processing modelData:', error);
+    }
+
     // Update scene info after model is processed
     if (onSceneUpdate) {
       onSceneUpdate({
