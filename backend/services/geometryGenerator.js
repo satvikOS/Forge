@@ -7,11 +7,12 @@ const placementEngine = require('./placementEngine');
 class GeometryGenerator {
   constructor() {
     // SCALING SYSTEM: Convert real-world meters to workbench units
-    // Default: 1 workbench unit = 10 real-world meters
-    // This makes a 300m building = 30 units (fits nicely in canvas)
-    this.SCALE_FACTOR = 0.1; // 1/10th scale
-    this.MAX_WORKBENCH_HEIGHT = 50; // Maximum height in workbench units
-    this.MAX_WORKBENCH_WIDTH = 50; // Maximum width in workbench units
+    // CRITICAL FIX: Changed from 1:10 to 1:100 ratio for proper canvas fitting
+    // 1 workbench unit = 100 real-world meters
+    // This makes 300m building = 3 units, Eiffel Tower (324m) = 3.24 units
+    this.SCALE_FACTOR = 0.01; // 1/100th scale (was 0.1, too large!)
+    this.MAX_WORKBENCH_HEIGHT = 20; // Maximum height in workbench units (reduced from 50)
+    this.MAX_WORKBENCH_WIDTH = 20; // Maximum width in workbench units (reduced from 50)
   }
 
   /**
@@ -34,8 +35,9 @@ class GeometryGenerator {
       console.log(`⚠️  Applied additional scaling (${(additionalScale * 100).toFixed(1)}%) to fit workbench`);
     }
     
-    console.log(`📏 Scaled dimensions: ${scaled.width.toFixed(1)} × ${scaled.height.toFixed(1)} × ${scaled.depth.toFixed(1)} units`);
+    console.log(`📏 Scaled dimensions: ${scaled.width.toFixed(2)} × ${scaled.height.toFixed(2)} × ${scaled.depth.toFixed(2)} workbench units`);
     console.log(`   (Real-world: ${realWorldDimensions.width}m × ${realWorldDimensions.height}m × ${realWorldDimensions.depth}m)`);
+    console.log(`   Scale ratio: 1:100 (1 unit = 100 meters)`);
     
     return scaled;
   }
@@ -183,9 +185,11 @@ class GeometryGenerator {
     // Apply workbench scaling for real-world landmarks
     let scaledDimensions = { ...originalMeters };
     if (hasRealWorldData && this.isKnownLandmark(element.name)) {
+      console.log(`\n🏛️  LANDMARK DETECTED: ${element.name}`);
       console.log(`📐 Original real-world dimensions: ${originalMeters.width}m × ${originalMeters.height}m × ${originalMeters.depth}m`);
       scaledDimensions = this.scaleToWorkbench(originalMeters);
-      console.log(`✅ Scaled to workbench: ${scaledDimensions.width.toFixed(1)} × ${scaledDimensions.height.toFixed(1)} × ${scaledDimensions.depth.toFixed(1)} units`);
+      console.log(`✅ Scaled to workbench: ${scaledDimensions.width.toFixed(2)} × ${scaledDimensions.height.toFixed(2)} × ${scaledDimensions.depth.toFixed(2)} units`);
+      console.log(`   Final geometry will be: ${(scaledDimensions.width * 1000).toFixed(0)}mm × ${(scaledDimensions.height * 1000).toFixed(0)}mm × ${(scaledDimensions.depth * 1000).toFixed(0)}mm\n`);
     }
     
     // Convert dimensions to millimeters for geometry generation
@@ -1440,7 +1444,10 @@ class GeometryGenerator {
     const { name } = element;
     const { width, height, depth } = dimensions;
     
-    console.log(`🏛️  Generating landmark: ${name} (${(width/1000).toFixed(1)} × ${(height/1000).toFixed(1)} × ${(depth/1000).toFixed(1)} workbench units)`);
+    console.log(`\n🗼 GENERATING LANDMARK GEOMETRY: ${name}`);
+    console.log(`   Dimensions in mm: ${width.toFixed(0)} × ${height.toFixed(0)} × ${depth.toFixed(0)}`);
+    console.log(`   Dimensions in meters: ${(width/1000).toFixed(2)} × ${(height/1000).toFixed(2)} × ${(depth/1000).toFixed(2)}`);
+    console.log(`   This should appear as ${(height/1000).toFixed(2)}m tall structure on canvas\n`);
     
     // Create simplified landmark structure based on shape
     const lowerName = name.toLowerCase();

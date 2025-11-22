@@ -493,18 +493,27 @@ CRITICAL INSTRUCTIONS FOR REAL-WORLD LANDMARK GENERATION:
 **YOU MUST RETRIEVE AND PROVIDE COMPLETE STRUCTURAL DETAILS FOR LANDMARKS**
 
 When a famous landmark is mentioned (Eiffel Tower, Empire State Building, Burj Khalifa, etc.):
-1. **USE EXACT DIMENSIONS**: Height, width, base dimensions from Wikipedia/Wikidata
-2. **STRUCTURAL DETAILS**: Describe the building's construction method (brick-by-brick, smallest unit)
-   - For Eiffel Tower: Iron lattice framework with 4 curved legs, 3 platforms, cross-bracing pattern
-   - For skyscrapers: Floor-by-floor structure, setbacks, facade material, window patterns
+1. **USE EXACT LANDMARK NAME**: Element "name" field MUST be the exact full landmark name
+   - ✅ CORRECT: "Eiffel Tower", "Burj Khalifa", "Taj Mahal"
+   - ❌ WRONG: "Tower", "Building", "Monument", "Structure"
+2. **USE EXACT DIMENSIONS**: Height, width, base dimensions from Wikipedia/Wikidata (IN METERS!)
+   - Eiffel Tower: width=125, height=324, depth=125
+   - Empire State Building: width=129, height=443, depth=61
+   - Burj Khalifa: width=250, height=828, depth=250
+3. **STRUCTURAL DETAILS**: Describe the building's construction method (brick-by-brick, smallest unit)
+   - For Eiffel Tower: Iron lattice framework with 4 curved legs, 3 platforms at 57m/115m/276m, cross-bracing pattern
+   - For skyscrapers: Floor-by-floor structure, setbacks at specific floors, facade material, window patterns
    - For historical: Construction materials (stone, brick, wood), architectural style details
-3. **MATERIAL SPECIFICATIONS**: Exact materials used in real construction (iron, steel, limestone, marble, glass, etc.)
-4. **ARCHITECTURAL FEATURES**: All key structural elements that make it recognizable
-   - Towers, spires, domes, arches, columns, lattice work
-   - Platform levels and their heights
-   - Decorative elements and patterns
-5. **BUILD FROM BOTTOM-UP**: Describe construction sequence starting from foundation
-6. **ELEMENT NAME**: Must be EXACT landmark name (e.g., "Eiffel Tower")
+4. **MATERIAL SPECIFICATIONS**: Exact materials used in real construction
+   - Eiffel Tower: wrought_iron, steel
+   - Empire State Building: limestone, granite, aluminum, glass
+   - Taj Mahal: white_marble, red_sandstone
+5. **ARCHITECTURAL FEATURES**: ALL key structural elements that make it INSTANTLY recognizable
+   - Eiffel Tower: four_curved_legs, lattice_framework, three_observation_platforms, tapered_structure, antenna_spire
+   - Burj Khalifa: Y_shaped_floor_plan, setback_at_each_tier, spire, aluminum_and_glass_facade
+   - Sydney Opera House: shell_like_roof_structures, podium_base, harbor_location
+6. **BUILD FROM BOTTOM-UP**: Describe construction sequence starting from foundation
+7. **SET detailLevel to "photorealistic"**: This ensures maximum quality generation
 
 EXAMPLE for "Eiffel Tower":
 {
