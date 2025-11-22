@@ -113,13 +113,20 @@ class AIService {
         // Fallback to regular Wikipedia if Python failed
         if (!landmarkData && this.wikipedia.isEnabled()) {
           console.log('📚 Fetching from Wikipedia REST API...');
-          const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
-          if (wikiArticle) {
-            landmarkData = {
-              title: wikiArticle.title,
-              summary: wikiArticle.extract,
-              dimensions: this.extractDimensionsFromText(wikiArticle.extract)
-            };
+          try {
+            const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
+            if (wikiArticle) {
+              console.log('✅ Wikipedia REST API: Data received');
+              landmarkData = {
+                title: wikiArticle.title,
+                summary: wikiArticle.extract,
+                dimensions: this.extractDimensionsFromText(wikiArticle.extract)
+              };
+            } else {
+              console.log('⚠️  Wikipedia REST API: No article found');
+            }
+          } catch (wikiError) {
+            console.error('❌ Wikipedia REST API call failed:', wikiError.message);
           }
         }
         
@@ -127,7 +134,16 @@ class AIService {
         let wikidataInfo = null;
         if (this.wikidata.isEnabled()) {
           console.log('📊 Fetching structured data from Wikidata...');
-          wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
+          try {
+            wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
+            if (wikidataInfo) {
+              console.log('✅ Wikidata: Data received');
+            } else {
+              console.log('⚠️  Wikidata: No data found');
+            }
+          } catch (wikidataError) {
+            console.error('❌ Wikidata API call failed:', wikidataError.message);
+          }
         }
         
         // Merge Wikipedia and Wikidata
