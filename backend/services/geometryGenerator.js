@@ -105,6 +105,13 @@ class GeometryGenerator {
       console.log(`🏛️  Landmark dimensions: ${dims.width/1000}m × ${dims.height/1000}m × ${dims.depth/1000}m`);
     }
     
+    // CRITICAL FIX: Check if this is a famous landmark with real-world data
+    // Generate simplified unified geometry for landmarks instead of hundreds of parts
+    if (hasRealWorldData && this.isKnownLandmark(element.name)) {
+      console.log(`🗼 Generating simplified landmark geometry for ${element.name}`);
+      return this.generateLandmarkGeometry(element, dims, materials);
+    }
+    
     // Map taxonomy categories to generation methods
     switch (category) {
       case 'residential':
@@ -1305,6 +1312,401 @@ class GeometryGenerator {
       maxZ = Math.max(maxZ, pos.z + dim.z / 2);
     });
     
+    return {
+      min: { x: minX, y: minY, z: minZ },
+      max: { x: maxX, y: maxY, z: maxZ },
+      center: {
+        x: (minX + maxX) / 2,
+        y: (minY + maxY) / 2,
+        z: (minZ + maxZ) / 2,
+      },
+    };
+  }
+
+  /**
+   * Check if this is a known famous landmark
+   */
+  isKnownLandmark(name) {
+    if (!name) return false;
+    
+    const lowerName = name.toLowerCase();
+    const landmarks = [
+      'eiffel tower', 'empire state', 'burj khalifa', 'taj mahal',
+      'colosseum', 'big ben', 'sydney opera', 'statue of liberty',
+      'golden gate', 'tower bridge', 'notre dame', 'sagrada familia',
+      'willis tower', 'chrysler building', 'one world trade',
+      'leaning tower', 'parthenon', 'sphinx', 'pyramid'
+    ];
+    
+    return landmarks.some(landmark => lowerName.includes(landmark));
+  }
+
+  /**
+   * Generate simplified unified geometry for famous landmarks
+   * Creates a single cohesive structure instead of hundreds of parts
+   */
+  generateLandmarkGeometry(element, dimensions, materials) {
+    const { name } = element;
+    const { width, height, depth } = dimensions;
+    
+    console.log(`🏛️  Generating landmark: ${name} (${width/1000}m × ${height/1000}m × ${depth/1000}m)`);
+    
+    // Create simplified landmark structure based on shape
+    const lowerName = name.toLowerCase();
+    
+    // Eiffel Tower - iconic lattice structure
+    if (lowerName.includes('eiffel')) {
+      return this.generateEiffelTowerGeometry(width, height, depth, materials);
+    }
+    
+    // Skyscrapers - simplified tower with taper
+    if (lowerName.includes('empire state') || lowerName.includes('chrysler') || 
+        lowerName.includes('burj') || lowerName.includes('willis')) {
+      return this.generateSkyscraperGeometry(width, height, depth, materials, name);
+    }
+    
+    // Pyramids - pyramid shape
+    if (lowerName.includes('pyramid')) {
+      return this.generatePyramidGeometry(width, height, depth, materials);
+    }
+    
+    // Taj Mahal - dome structure
+    if (lowerName.includes('taj mahal')) {
+      return this.generateDomeStructureGeometry(width, height, depth, materials);
+    }
+    
+    // Default: simplified tower structure (much simpler than generateBuilding)
+    return this.generateSimpleTowerGeometry(width, height, depth, materials, name);
+  }
+
+  /**
+   * Generate Eiffel Tower simplified geometry
+   */
+  generateEiffelTowerGeometry(width, height, depth, materials) {
+    const parts = [];
+    
+    // Base platform (large square base)
+    parts.push({
+      id: 'eiffel_base',
+      name: 'Base Platform',
+      type: 'box',
+      componentType: 'landmark_base',
+      dimensions: { x: width, y: height * 0.05, z: depth },
+      position: { x: 0, y: height * 0.025, z: 0 },
+      material: materials?.[0] || 'iron',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'base'
+      }
+    });
+    
+    // Main tower body (tapered pyramid shape - 4 parts for taper)
+    const sections = 4;
+    for (let i = 0; i < sections; i++) {
+      const sectionHeight = height * 0.7 / sections;
+      const taper = 1 - (i / sections) * 0.7; // Taper from 100% to 30% width
+      const sectionWidth = width * taper;
+      const sectionDepth = depth * taper;
+      const yPos = height * 0.05 + (i * sectionHeight) + (sectionHeight / 2);
+      
+      parts.push({
+        id: `eiffel_section_${i}`,
+        name: `Tower Section ${i + 1}`,
+        type: 'box',
+        componentType: 'landmark_structure',
+        dimensions: { x: sectionWidth, y: sectionHeight, z: sectionDepth },
+        position: { x: 0, y: yPos, z: 0 },
+        material: materials?.[0] || 'iron',
+        metadata: {
+          editable: false,
+          locked: true,
+          aiGenerated: true,
+          isLandmark: true,
+          landmarkPart: 'tower',
+          section: i + 1
+        }
+      });
+    }
+    
+    // Top spire (narrow pointed top)
+    const spireHeight = height * 0.25;
+    const spireYPos = height * 0.75 + (spireHeight / 2);
+    
+    parts.push({
+      id: 'eiffel_spire',
+      name: 'Spire',
+      type: 'cone',
+      componentType: 'landmark_spire',
+      dimensions: { x: width * 0.15, y: spireHeight, z: depth * 0.15 },
+      position: { x: 0, y: spireYPos, z: 0 },
+      material: materials?.[0] || 'iron',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'spire'
+      }
+    });
+    
+    console.log(`✅ Generated Eiffel Tower with ${parts.length} unified parts (instead of 200+)`);
+    
+    return {
+      type: 'composite',
+      parts,
+      bounds: this.calculateBounds(parts),
+      metadata: {
+        isLandmark: true,
+        landmarkName: 'Eiffel Tower',
+        simplified: true,
+        partCount: parts.length
+      }
+    };
+  }
+
+  /**
+   * Generate skyscraper simplified geometry
+   */
+  generateSkyscraperGeometry(width, height, depth, materials, name) {
+    const parts = [];
+    
+    // Main tower (single unified box)
+    parts.push({
+      id: 'skyscraper_main',
+      name: `${name} - Main Tower`,
+      type: 'box',
+      componentType: 'landmark_structure',
+      dimensions: { x: width, y: height * 0.85, z: depth },
+      position: { x: 0, y: height * 0.425, z: 0 },
+      material: materials?.[0] || 'glass',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'main_tower'
+      }
+    });
+    
+    // Spire/antenna (if tall building)
+    if (height > 200000) { // Buildings over 200m typically have spires
+      const spireHeight = height * 0.15;
+      parts.push({
+        id: 'skyscraper_spire',
+        name: 'Spire',
+        type: 'cone',
+        componentType: 'landmark_spire',
+        dimensions: { x: width * 0.2, y: spireHeight, z: depth * 0.2 },
+        position: { x: 0, y: height * 0.85 + (spireHeight / 2), z: 0 },
+        material: materials?.[0] || 'steel',
+        metadata: {
+          editable: false,
+          locked: true,
+          aiGenerated: true,
+          isLandmark: true,
+          landmarkPart: 'spire'
+        }
+      });
+    }
+    
+    console.log(`✅ Generated ${name} with ${parts.length} unified parts (instead of 200+)`);
+    
+    return {
+      type: 'composite',
+      parts,
+      bounds: this.calculateBounds(parts),
+      metadata: {
+        isLandmark: true,
+        landmarkName: name,
+        simplified: true,
+        partCount: parts.length
+      }
+    };
+  }
+
+  /**
+   * Generate pyramid simplified geometry
+   */
+  generatePyramidGeometry(width, height, depth, materials) {
+    const parts = [];
+    
+    // Single pyramid shape
+    parts.push({
+      id: 'pyramid_main',
+      name: 'Pyramid',
+      type: 'pyramid',
+      componentType: 'landmark_structure',
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: materials?.[0] || 'stone',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'pyramid'
+      }
+    });
+    
+    console.log(`✅ Generated Pyramid with 1 unified part`);
+    
+    return {
+      type: 'composite',
+      parts,
+      bounds: this.calculateBounds(parts),
+      metadata: {
+        isLandmark: true,
+        landmarkName: 'Pyramid',
+        simplified: true,
+        partCount: 1
+      }
+    };
+  }
+
+  /**
+   * Generate dome structure simplified geometry (Taj Mahal, etc.)
+   */
+  generateDomeStructureGeometry(width, height, depth, materials) {
+    const parts = [];
+    
+    // Base structure
+    const baseHeight = height * 0.5;
+    parts.push({
+      id: 'dome_base',
+      name: 'Base Structure',
+      type: 'box',
+      componentType: 'landmark_base',
+      dimensions: { x: width, y: baseHeight, z: depth },
+      position: { x: 0, y: baseHeight / 2, z: 0 },
+      material: materials?.[0] || 'marble',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'base'
+      }
+    });
+    
+    // Dome (sphere on top)
+    const domeHeight = height * 0.4;
+    const domeRadius = Math.min(width, depth) * 0.4;
+    parts.push({
+      id: 'dome_main',
+      name: 'Dome',
+      type: 'sphere',
+      componentType: 'landmark_dome',
+      dimensions: { x: domeRadius * 2, y: domeHeight, z: domeRadius * 2 },
+      position: { x: 0, y: baseHeight + (domeHeight / 2), z: 0 },
+      material: materials?.[0] || 'marble',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'dome'
+      }
+    });
+    
+    // Spire on top
+    const spireHeight = height * 0.1;
+    parts.push({
+      id: 'dome_spire',
+      name: 'Spire',
+      type: 'cone',
+      componentType: 'landmark_spire',
+      dimensions: { x: width * 0.1, y: spireHeight, z: depth * 0.1 },
+      position: { x: 0, y: baseHeight + domeHeight + (spireHeight / 2), z: 0 },
+      material: materials?.[0] || 'gold',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'spire'
+      }
+    });
+    
+    console.log(`✅ Generated Dome Structure with ${parts.length} unified parts`);
+    
+    return {
+      type: 'composite',
+      parts,
+      bounds: this.calculateBounds(parts),
+      metadata: {
+        isLandmark: true,
+        landmarkName: 'Dome Structure',
+        simplified: true,
+        partCount: parts.length
+      }
+    };
+  }
+
+  /**
+   * Generate simple tower geometry (default for unknown landmarks)
+   */
+  generateSimpleTowerGeometry(width, height, depth, materials, name) {
+    const parts = [];
+    
+    // Single unified tower structure
+    parts.push({
+      id: 'tower_main',
+      name: `${name} - Tower`,
+      type: 'box',
+      componentType: 'landmark_structure',
+      dimensions: { x: width, y: height, z: depth },
+      position: { x: 0, y: height / 2, z: 0 },
+      material: materials?.[0] || 'concrete',
+      metadata: {
+        editable: false,
+        locked: true,
+        aiGenerated: true,
+        isLandmark: true,
+        landmarkPart: 'main_structure'
+      }
+    });
+    
+    console.log(`✅ Generated ${name} with simplified tower geometry (1 part instead of 200+)`);
+    
+    return {
+      type: 'composite',
+      parts,
+      bounds: this.calculateBounds(parts),
+      metadata: {
+        isLandmark: true,
+        landmarkName: name,
+        simplified: true,
+        partCount: 1
+      }
+    };
+  }
+
+  /**
+   * Calculate bounds for parts array
+   */
+  calculateBounds(parts) {
+    if (!parts || parts.length === 0) {
+      return { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 }, center: { x: 0, y: 0, z: 0 } };
+    }
+
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+    parts.forEach(part => {
+      const pos = part.position || { x: 0, y: 0, z: 0 };
+      const dim = part.dimensions || { x: 0, y: 0, z: 0 };
+
+      minX = Math.min(minX, pos.x - dim.x / 2);
+      maxX = Math.max(maxX, pos.x + dim.x / 2);
+      minY = Math.min(minY, pos.y - dim.y / 2);
+      maxY = Math.max(maxY, pos.y + dim.y / 2);
+      minZ = Math.min(minZ, pos.z - dim.z / 2);
+      maxZ = Math.max(maxZ, pos.z + dim.z / 2);
+    });
+
     return {
       min: { x: minX, y: minY, z: minZ },
       max: { x: maxX, y: maxY, z: maxZ },
