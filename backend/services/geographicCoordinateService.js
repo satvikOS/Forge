@@ -31,23 +31,36 @@ class GeographicCoordinateService {
   detectCoordinates(prompt) {
     const lowerPrompt = prompt.toLowerCase();
     
-    // Pattern 1: Decimal degrees (e.g., "40.7128, -74.0060" or "40.7128°N, 74.0060°W")
-    const decimalPattern = /(-?\d+\.?\d*)[°]?\s*[NS]?,?\s*(-?\d+\.?\d*)[°]?\s*[EW]?/i;
-    const decimalMatch = prompt.match(decimalPattern);
-    if (decimalMatch) {
-      let lat = parseFloat(decimalMatch[1]);
-      let lon = parseFloat(decimalMatch[2]);
+    // Pattern 1: Decimal degrees with explicit N/S/E/W (e.g., "40.7128°N, 74.0060°W")
+    const explicitDirectionPattern = /(\d+\.?\d*)[°]?\s*([NS])\s*,?\s*(\d+\.?\d*)[°]?\s*([EW])/i;
+    const explicitMatch = prompt.match(explicitDirectionPattern);
+    if (explicitMatch) {
+      let lat = parseFloat(explicitMatch[1]);
+      let lon = parseFloat(explicitMatch[3]);
       
-      // Handle N/S and E/W indicators
-      if (prompt.match(/S/i)) lat = -Math.abs(lat);
-      if (prompt.match(/W/i)) lon = -Math.abs(lon);
+      // Handle S/W indicators
+      if (explicitMatch[2].toUpperCase() === 'S') lat = -lat;
+      if (explicitMatch[4].toUpperCase() === 'W') lon = -lon;
       
       if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
         return { latitude: lat, longitude: lon, source: 'explicit' };
       }
     }
     
-    // Pattern 2: Named locations (will return null, caller should use geocoding)
+    // Pattern 2: Decimal degrees without direction (e.g., "40.7128, -74.0060")
+    // Already has sign, so don't modify
+    const decimalPattern = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/;
+    const decimalMatch = prompt.match(decimalPattern);
+    if (decimalMatch) {
+      const lat = parseFloat(decimalMatch[1]);
+      const lon = parseFloat(decimalMatch[2]);
+      
+      if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+        return { latitude: lat, longitude: lon, source: 'explicit' };
+      }
+    }
+    
+    // Pattern 3: Named locations (will return null, caller should use geocoding)
     const locationKeywords = [
       'at ', 'in ', 'near ', 'around ',
       'location:', 'coordinates:', 'coord:', 'lat:', 'lon:',

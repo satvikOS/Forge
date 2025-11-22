@@ -600,13 +600,21 @@ export class SceneComposer {
   }
   
   /**
-   * Compose scene from AI specifications (legacy support)
+   * Compose scene from AI specifications
+   * NO LONGER USES TEMPLATES - All generation must come from AI pipeline
    */
   async composeFromSpecs(specifications, originalPrompt, progressCallback = null) {
-    // This is for backward compatibility with non-taxonomy AI responses
-    // Fall back to template-based generation
-    const sceneTemplate = this.identifySceneTemplate(originalPrompt) || this.sceneTemplates.futuristic_city;
-    return await this.composeScene(sceneTemplate, originalPrompt, progressCallback);
+    // ERROR: This should never be called as all prompts should go through AI pipeline
+    // If we reach here, it means the AI pipeline failed to return proper specifications
+    console.error('❌ composeFromSpecs called - AI pipeline did not return taxonomy data');
+    throw new Error(
+      'AI pipeline failed to generate specifications. No template fallback available.\n' +
+      'Please ensure:\n' +
+      '1. GEMINI_API_KEY is configured correctly\n' +
+      '2. Backend services are running\n' +
+      '3. Prompt is clear and specific\n\n' +
+      'Check backend logs for detailed error information.'
+    );
   }
   
   /**

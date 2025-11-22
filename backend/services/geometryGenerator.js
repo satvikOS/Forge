@@ -78,17 +78,32 @@ class GeometryGenerator {
   
   /**
    * Generate element based on taxonomy category
+   * Enhanced to use real-world data when available (from Wikipedia/Wikidata/Geographic services)
    */
   generateTaxonomyElement(element, realism) {
-    const { category, subcategory, dimensions, materials, features } = element;
+    const { category, subcategory, dimensions, materials, features, metadata } = element;
     const detailLevel = realism?.detailLevel || 'high';
     
+    // Check if element has real-world data from external sources
+    const hasRealWorldData = metadata?.realWorld === true;
+    const dataSource = metadata?.source;
+    
+    if (hasRealWorldData) {
+      console.log(`📏 Using REAL-WORLD dimensions from ${dataSource} for ${element.name}`);
+    }
+    
     // Convert dimensions from meters to millimeters
+    // If real-world data is present, use exact dimensions
     const dims = {
       width: (dimensions?.width || 10) * 1000,
       height: (dimensions?.height || 10) * 1000,
       depth: (dimensions?.depth || 10) * 1000
     };
+    
+    // Log real-world dimensions for landmarks
+    if (hasRealWorldData && dims.height > 50000) { // Buildings taller than 50m
+      console.log(`🏛️  Landmark dimensions: ${dims.width/1000}m × ${dims.height/1000}m × ${dims.depth/1000}m`);
+    }
     
     // Map taxonomy categories to generation methods
     switch (category) {
@@ -101,7 +116,9 @@ class GeometryGenerator {
           type: 'building',
           dimensions: dims,
           details: features || [],
-          materials: materials || ['concrete']
+          materials: materials || ['concrete'],
+          realWorldData: hasRealWorldData,
+          dataSource: dataSource
         });
         
       case 'infrastructure':

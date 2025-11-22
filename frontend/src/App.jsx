@@ -286,7 +286,15 @@ function App() {
           }
         }
       } else {
-        throw new Error('Generation completed but no design data received');
+        throw new Error(
+          'AI pipeline failed to generate design. Please check:\n' +
+          '1. GEMINI_API_KEY is configured in backend\n' +
+          '2. Backend services are running (npm start in backend/)\n' +
+          '3. API has not hit rate limits\n' +
+          '4. Prompt is clear and specific\n\n' +
+          'Check backend logs for detailed failure information.\n' +
+          'NO TEMPLATE FALLBACKS AVAILABLE - all generation requires AI.'
+        );
       }
     } catch (err) {
       setError('Failed to generate design. Please try again.');
