@@ -489,24 +489,55 @@ IMPORTANT: Ensure all dimensions are realistic and placement rules ensure proper
       realDataContext = `\n\nREAL-WORLD DATA PROVIDED (USE THIS FOR ACCURATE GENERATION):
 ${JSON.stringify(realWorldData, null, 2)}
 
-CRITICAL INSTRUCTIONS FOR REAL-WORLD DATA:
-- If Wikipedia/Wikidata dimensions are provided, USE THEM EXACTLY (don't estimate)
-- If building materials are specified, USE THEM in the materials array
-- If architectural style is mentioned, USE IT in the style field
-- If floor count is given, USE IT for calculating height and structure
-- **IMPORTANT**: Set the element "name" field to the EXACT landmark name (e.g., "Eiffel Tower", "Burj Khalifa")
-- If geographic/map data is provided with buildings/roads/trees, INCORPORATE ALL into elements
-- For coordinates: Use the provided buildings, roads, and environmental features AS-IS
-- Maintain realistic proportions relative to the provided real-world data
-- If landmark name is given, ensure generated structure matches the real landmark
+CRITICAL INSTRUCTIONS FOR REAL-WORLD LANDMARK GENERATION:
+**YOU MUST RETRIEVE AND PROVIDE COMPLETE STRUCTURAL DETAILS FOR LANDMARKS**
 
-EXAMPLE: If real-world data says "Eiffel Tower, height: 324m, base: 125m x 125m, material: iron"
-Then your element MUST be:
+When a famous landmark is mentioned (Eiffel Tower, Empire State Building, Burj Khalifa, etc.):
+1. **USE EXACT DIMENSIONS**: Height, width, base dimensions from Wikipedia/Wikidata
+2. **STRUCTURAL DETAILS**: Describe the building's construction method (brick-by-brick, smallest unit)
+   - For Eiffel Tower: Iron lattice framework with 4 curved legs, 3 platforms, cross-bracing pattern
+   - For skyscrapers: Floor-by-floor structure, setbacks, facade material, window patterns
+   - For historical: Construction materials (stone, brick, wood), architectural style details
+3. **MATERIAL SPECIFICATIONS**: Exact materials used in real construction (iron, steel, limestone, marble, glass, etc.)
+4. **ARCHITECTURAL FEATURES**: All key structural elements that make it recognizable
+   - Towers, spires, domes, arches, columns, lattice work
+   - Platform levels and their heights
+   - Decorative elements and patterns
+5. **BUILD FROM BOTTOM-UP**: Describe construction sequence starting from foundation
+6. **ELEMENT NAME**: Must be EXACT landmark name (e.g., "Eiffel Tower")
+
+EXAMPLE for "Eiffel Tower":
 {
-  "name": "Eiffel Tower",  // EXACT landmark name
+  "name": "Eiffel Tower",
   "dimensions": {"width": 125, "height": 324, "depth": 125},
-  "materials": ["iron", "steel"]
+  "materials": ["wrought_iron", "steel"],
+  "features": [
+    "four_curved_legs",
+    "lattice_framework",
+    "three_observation_platforms",
+    "platform_1_at_57m",
+    "platform_2_at_115m", 
+    "platform_3_at_276m",
+    "iron_cross_bracing",
+    "tapered_structure",
+    "antenna_spire_300_to_324m",
+    "riveted_construction",
+    "18000_metal_parts",
+    "2.5_million_rivets"
+  ],
+  "structuralDetails": {
+    "constructionMethod": "prefabricated_iron_sections_assembled_on_site",
+    "foundationType": "concrete_foundation_piers",
+    "legStructure": "curved_tapered_legs_with_elevators",
+    "crossBracing": "horizontal_and_diagonal_iron_beams",
+    "platforms": "three_observation_decks_with_restaurants",
+    "topSpire": "antenna_mast_for_broadcasting"
+  }
 }
+
+If Wikipedia/Wikidata dimensions are provided, USE THEM EXACTLY (don't estimate)
+If geographic/map data provided, INCORPORATE ALL buildings, roads, environmental features
+Maintain realistic proportions relative to provided real-world data
 `;
     }
     
@@ -556,7 +587,7 @@ Return ONLY a valid JSON object (no markdown, no code blocks) with this exact st
     {
       "category": "<from taxonomy>",
       "subcategory": "<specific type>",
-      "name": "<descriptive name>",
+      "name": "<descriptive name - MUST be exact landmark name if famous landmark>",
       "quantity": <number of instances>,
       "placement": {
         "priority": "primary|secondary|tertiary",
@@ -570,8 +601,16 @@ Return ONLY a valid JSON object (no markdown, no code blocks) with this exact st
         "depth": <meters>,
         "calculated": "<explanation of dimension source>"
       },
-      "materials": [<material names>],
-      "features": [<architectural/structural features>]
+      "materials": [<exact material names from real construction>],
+      "features": [<ALL architectural/structural features that make it recognizable>],
+      "structuralDetails": {
+        "constructionMethod": "<how it was built: brick-by-brick, prefabricated, etc.>",
+        "foundationType": "<foundation details>",
+        "primaryStructure": "<main structural elements>",
+        "supportElements": "<beams, columns, bracing, etc.>",
+        "platforms": "<observation decks, floors, etc.>",
+        "decorativeElements": "<unique identifying features>"
+      }
     }
   ],
   "environmentalContext": {

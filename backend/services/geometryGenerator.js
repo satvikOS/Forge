@@ -5,6 +5,41 @@
 const placementEngine = require('./placementEngine');
 
 class GeometryGenerator {
+  constructor() {
+    // SCALING SYSTEM: Convert real-world meters to workbench units
+    // Default: 1 workbench unit = 10 real-world meters
+    // This makes a 300m building = 30 units (fits nicely in canvas)
+    this.SCALE_FACTOR = 0.1; // 1/10th scale
+    this.MAX_WORKBENCH_HEIGHT = 50; // Maximum height in workbench units
+    this.MAX_WORKBENCH_WIDTH = 50; // Maximum width in workbench units
+  }
+
+  /**
+   * Scale real-world dimensions to fit workbench canvas
+   */
+  scaleToWorkbench(realWorldDimensions) {
+    const scaled = {
+      width: realWorldDimensions.width * this.SCALE_FACTOR,
+      height: realWorldDimensions.height * this.SCALE_FACTOR,
+      depth: realWorldDimensions.depth * this.SCALE_FACTOR
+    };
+    
+    // If still too large, apply additional scaling
+    const maxDimension = Math.max(scaled.width, scaled.height, scaled.depth);
+    if (maxDimension > this.MAX_WORKBENCH_HEIGHT) {
+      const additionalScale = this.MAX_WORKBENCH_HEIGHT / maxDimension;
+      scaled.width *= additionalScale;
+      scaled.height *= additionalScale;
+      scaled.depth *= additionalScale;
+      console.log(`⚠️  Applied additional scaling (${(additionalScale * 100).toFixed(1)}%) to fit workbench`);
+    }
+    
+    console.log(`📏 Scaled dimensions: ${scaled.width.toFixed(1)} × ${scaled.height.toFixed(1)} × ${scaled.depth.toFixed(1)} units`);
+    console.log(`   (Real-world: ${realWorldDimensions.width}m × ${realWorldDimensions.height}m × ${realWorldDimensions.depth}m)`);
+    
+    return scaled;
+  }
+
   /**
    * Generate geometry based on specifications
    */
@@ -138,23 +173,33 @@ class GeometryGenerator {
       console.log(`📏 Using REAL-WORLD dimensions from ${dataSource} for ${element.name}`);
     }
     
-    // Convert dimensions from meters to millimeters
-    // If real-world data is present, use exact dimensions
-    const dims = {
-      width: (dimensions?.width || 10) * 1000,
-      height: (dimensions?.height || 10) * 1000,
-      depth: (dimensions?.depth || 10) * 1000
+    // Get original dimensions in meters
+    const originalMeters = {
+      width: dimensions?.width || 10,
+      height: dimensions?.height || 10,
+      depth: dimensions?.depth || 10
     };
     
-    // Log real-world dimensions for landmarks
-    if (hasRealWorldData && dims.height > 50000) { // Buildings taller than 50m
-      console.log(`🏛️  Landmark dimensions: ${dims.width/1000}m × ${dims.height/1000}m × ${dims.depth/1000}m`);
+    // Apply workbench scaling for real-world landmarks
+    let scaledDimensions = { ...originalMeters };
+    if (hasRealWorldData && this.isKnownLandmark(element.name)) {
+      console.log(`📐 Original real-world dimensions: ${originalMeters.width}m × ${originalMeters.height}m × ${originalMeters.depth}m`);
+      scaledDimensions = this.scaleToWorkbench(originalMeters);
+      console.log(`✅ Scaled to workbench: ${scaledDimensions.width.toFixed(1)} × ${scaledDimensions.height.toFixed(1)} × ${scaledDimensions.depth.toFixed(1)} units`);
     }
+    
+    // Convert dimensions to millimeters for geometry generation
+    // Use scaled dimensions if available, otherwise original
+    const dims = {
+      width: scaledDimensions.width * 1000,
+      height: scaledDimensions.height * 1000,
+      depth: scaledDimensions.depth * 1000
+    };
     
     // CRITICAL FIX: Check if this is a famous landmark with real-world data
     // Generate simplified unified geometry for landmarks instead of hundreds of parts
     if (hasRealWorldData && this.isKnownLandmark(element.name)) {
-      console.log(`🗼 Generating simplified landmark geometry for ${element.name}`);
+      console.log(`🗼 Generating highly detailed landmark geometry for ${element.name}`);
       return this.generateLandmarkGeometry(element, dims, materials);
     }
     
@@ -1395,7 +1440,7 @@ class GeometryGenerator {
     const { name } = element;
     const { width, height, depth } = dimensions;
     
-    console.log(`🏛️  Generating landmark: ${name} (${width/1000}m × ${height/1000}m × ${depth/1000}m)`);
+    console.log(`🏛️  Generating landmark: ${name} (${(width/1000).toFixed(1)} × ${(height/1000).toFixed(1)} × ${(depth/1000).toFixed(1)} workbench units)`);
     
     // Create simplified landmark structure based on shape
     const lowerName = name.toLowerCase();
