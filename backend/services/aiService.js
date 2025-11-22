@@ -337,15 +337,33 @@ class AIService {
    * Handles comprehensive scene data with realistic placement
    */
   convertTaxonomyAnalysisToSpecs(analysis) {
-    const { primaryCategory, scale, style, elements, spatialComposition, realism, environmentalContext } = analysis;
+    const { primaryCategory, scale, style, elements, spatialComposition, realism, environmentalContext, realWorldDataSource } = analysis;
     
     // Extract primary element for basic compatibility
     const primaryElement = elements?.[0] || {};
     
+    // If this analysis came from real-world data (landmarks), mark elements with metadata
+    const processedElements = elements?.map(element => {
+      const processedElement = { ...element };
+      
+      // Add realWorld metadata if this came from Wikipedia/Wikidata
+      if (realWorldDataSource && (realWorldDataSource === 'wikipedia-wikidata' || realWorldDataSource === 'geographic-coordinate')) {
+        if (!processedElement.metadata) {
+          processedElement.metadata = {};
+        }
+        processedElement.metadata.realWorld = true;
+        processedElement.metadata.source = realWorldDataSource;
+        
+        console.log(`✅ Marked element "${element.name}" as real-world landmark from ${realWorldDataSource}`);
+      }
+      
+      return processedElement;
+    }) || [];
+    
     return {
       // Original format compatibility
       objectType: primaryElement.category || primaryCategory || 'object',
-      objectCount: elements?.reduce((sum, el) => sum + (el.quantity || 1), 0) || 1,
+      objectCount: processedElements.reduce((sum, el) => sum + (el.quantity || 1), 0) || 1,
       name: primaryElement.name || 'Generated Scene',
       description: `${style?.architectural || 'Modern'} ${primaryCategory || 'scene'}`,
       dimensions: primaryElement.dimensions ? {
@@ -365,11 +383,12 @@ class AIService {
         style: style || {},
         environmentalContext: environmentalContext || {},
         spatialComposition: spatialComposition || {},
-        realism: realism || { detailLevel: 'medium' }
+        realism: realism || { detailLevel: 'medium' },
+        realWorldDataSource: realWorldDataSource // Preserve the source
       },
       
-      // All elements for multi-object generation
-      elements: elements || [],
+      // All elements for multi-object generation (with metadata)
+      elements: processedElements,
       
       // Scene metadata
       scene: {

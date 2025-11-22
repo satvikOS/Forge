@@ -494,14 +494,19 @@ CRITICAL INSTRUCTIONS FOR REAL-WORLD DATA:
 - If building materials are specified, USE THEM in the materials array
 - If architectural style is mentioned, USE IT in the style field
 - If floor count is given, USE IT for calculating height and structure
+- **IMPORTANT**: Set the element "name" field to the EXACT landmark name (e.g., "Eiffel Tower", "Burj Khalifa")
 - If geographic/map data is provided with buildings/roads/trees, INCORPORATE ALL into elements
 - For coordinates: Use the provided buildings, roads, and environmental features AS-IS
 - Maintain realistic proportions relative to the provided real-world data
 - If landmark name is given, ensure generated structure matches the real landmark
 
 EXAMPLE: If real-world data says "Eiffel Tower, height: 324m, base: 125m x 125m, material: iron"
-Then your dimensions MUST be: {"width": 125, "height": 324, "depth": 125}
-And materials MUST include: ["iron", "steel"]
+Then your element MUST be:
+{
+  "name": "Eiffel Tower",  // EXACT landmark name
+  "dimensions": {"width": 125, "height": 324, "depth": 125},
+  "materials": ["iron", "steel"]
+}
 `;
     }
     
