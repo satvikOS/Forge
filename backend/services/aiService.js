@@ -3,17 +3,28 @@ const geometryGenerator = require('./geometryGenerator');
 const materialSystem = require('./materialSystem');
 const taxonomySystem = require('./taxonomySystem');
 const realWorldDataService = require('./realWorldDataService');
+const apiOrchestrator = require('./apiOrchestrator');
+const wikidataService = require('./wikidataService');
+const wikipediaService = require('./wikipediaService');
+const pythonWikipediaService = require('./pythonWikipediaService');
+const geographicCoordinateService = require('./geographicCoordinateService');
 
 class AIService {
   constructor() {
     this.gemini = geminiService;
     this.taxonomy = taxonomySystem;
     this.realWorldData = realWorldDataService;
+    this.orchestrator = apiOrchestrator;
+    this.wikidata = wikidataService;
+    this.wikipedia = wikipediaService;
+    this.pythonWikipedia = pythonWikipediaService;
+    this.geographic = geographicCoordinateService;
   }
 
   /**
    * Process natural language prompt to generate design specifications
-   * Now with taxonomy-aware analysis and real-world data integration for comprehensive scene generation
+   * Now with COMPLETE integration: Wikipedia/Wikidata for landmarks, Geographic services for coordinates,
+   * API Orchestrator for complex scenes, and Gemini for AI analysis
    */
   async processPrompt(prompt) {
     console.log('\n========================================');
@@ -24,9 +35,169 @@ class AIService {
     console.log('   ✓ Gemini:', !!process.env.GEMINI_API_KEY);
     console.log('   ✓ Mapbox:', !!process.env.MAPBOX_ACCESS_TOKEN);
     console.log('   ✓ Sketchfab:', !!process.env.SKETCHFAB_API_TOKEN);
+    console.log('   ✓ Wikipedia/Wikidata:', this.wikipedia.isEnabled() || this.pythonWikipedia.isEnabled());
+    console.log('   ✓ Geographic Services:', this.geographic.isEnabled());
+    console.log('   ✓ API Orchestrator:', this.orchestrator.isEnabled());
     console.log('========================================\n');
     
-    // Try taxonomy-aware AI analysis first (new comprehensive method)
+    // NEW: Step 1 - Check for geographic coordinates in prompt
+    const coordinateData = this.geographic.detectCoordinates(prompt);
+    if (coordinateData && coordinateData.latitude !== undefined) {
+      console.log('🗺️  GEOGRAPHIC COORDINATES DETECTED!');
+      console.log(`   📍 Location: ${coordinateData.latitude}°, ${coordinateData.longitude}°`);
+      
+      try {
+        // Analyze the coordinate using all map services
+        const geographicAnalysis = await this.geographic.analyzeCoordinate(
+          coordinateData.latitude,
+          coordinateData.longitude,
+          { radiusMeters: 500, includeStreetView: true }
+        );
+        
+        if (geographicAnalysis && geographicAnalysis.analysis) {
+          console.log('✅ Geographic analysis complete!');
+          console.log(`   🏗️  Environment: ${geographicAnalysis.analysis.environmentType}`);
+          console.log(`   📊 Characteristics: ${geographicAnalysis.analysis.characteristics.join(', ')}`);
+          
+          // Convert geographic data to scene elements
+          const geographicElements = this.geographic.convertToSceneElements(geographicAnalysis);
+          
+          // Pass to Gemini WITH real-world geographic data
+          console.log('🤖 Passing geographic data to Gemini for enhanced analysis...');
+          const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
+            prompt,
+            {
+              source: 'geographic-coordinate',
+              coordinates: coordinateData,
+              elements: geographicElements,
+              analysis: geographicAnalysis.analysis,
+              buildings: geographicAnalysis.buildings || [],
+              roads: geographicAnalysis.roads || [],
+              trees: geographicAnalysis.trees || [],
+              elevation: geographicAnalysis.elevation,
+              weather: geographicAnalysis.weather
+            }
+          );
+          
+          if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
+            // Merge geographic elements with AI-generated elements
+            if (!taxonomyAnalysis.elements) taxonomyAnalysis.elements = [];
+            taxonomyAnalysis.elements = [...geographicElements, ...taxonomyAnalysis.elements];
+            taxonomyAnalysis.geographicData = geographicAnalysis;
+            
+            const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
+            console.log('✅ Geographic coordinate scene generation complete!\n');
+            return specs;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Geographic analysis failed:', error.message);
+        // Continue with other methods
+      }
+    }
+    
+    // NEW: Step 2 - Check for famous landmarks
+    const landmarkName = this.detectLandmark(prompt);
+    if (landmarkName) {
+      console.log('🏛️  FAMOUS LANDMARK DETECTED:', landmarkName);
+      
+      try {
+        // Try Python Wikipedia first (better data extraction)
+        let landmarkData = null;
+        if (this.pythonWikipedia.isEnabled()) {
+          console.log('📚 Fetching real-world data from Python Wikipedia...');
+          landmarkData = await this.pythonWikipedia.getLandmarkData(landmarkName);
+        }
+        
+        // Fallback to regular Wikipedia if Python failed
+        if (!landmarkData && this.wikipedia.isEnabled()) {
+          console.log('📚 Fetching from Wikipedia REST API...');
+          const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
+          if (wikiArticle) {
+            landmarkData = {
+              title: wikiArticle.title,
+              summary: wikiArticle.extract,
+              dimensions: this.extractDimensionsFromText(wikiArticle.extract)
+            };
+          }
+        }
+        
+        // Get structured data from Wikidata
+        let wikidataInfo = null;
+        if (this.wikidata.isEnabled()) {
+          console.log('📊 Fetching structured data from Wikidata...');
+          wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
+        }
+        
+        // Merge Wikipedia and Wikidata
+        const realWorldData = {
+          source: 'wikipedia-wikidata',
+          landmark: landmarkName,
+          wikipedia: landmarkData,
+          wikidata: wikidataInfo,
+          dimensions: {
+            ...landmarkData?.dimensions,
+            ...wikidataInfo?.dimensions
+          }
+        };
+        
+        if (realWorldData.dimensions && Object.keys(realWorldData.dimensions).length > 0) {
+          console.log('✅ Real-world landmark data retrieved!');
+          console.log(`   📏 Height: ${realWorldData.dimensions.height}m`);
+          console.log(`   📐 Width: ${realWorldData.dimensions.width}m`);
+          console.log(`   🏢 Floors: ${realWorldData.dimensions.floors}`);
+          console.log(`   🎨 Style: ${realWorldData.dimensions.style}`);
+          
+          // Pass to Gemini WITH real-world data
+          const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
+            prompt,
+            realWorldData
+          );
+          
+          if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
+            taxonomyAnalysis.realWorldData = realWorldData;
+            const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
+            console.log('✅ Landmark generation with real data complete!\n');
+            return specs;
+          }
+        } else {
+          console.log('⚠️  No dimensional data found for landmark');
+        }
+      } catch (error) {
+        console.error('❌ Landmark data retrieval failed:', error.message);
+        // Continue with other methods
+      }
+    }
+    
+    // NEW: Step 3 - Check if API Orchestrator should be used (complex scenes)
+    if (this.orchestrator.isEnabled() && this.shouldUseOrchestrator(prompt)) {
+      console.log('🎭 COMPLEX SCENE DETECTED - Using API Orchestrator...');
+      
+      try {
+        const orchestratedData = await this.orchestrator.orchestrate(prompt);
+        if (orchestratedData && orchestratedData.success) {
+          console.log('✅ API Orchestrator completed successfully!');
+          
+          // Convert orchestrated data to taxonomy format
+          const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
+            prompt,
+            orchestratedData
+          );
+          
+          if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
+            taxonomyAnalysis.orchestratedData = orchestratedData;
+            const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
+            console.log('✅ Orchestrated scene generation complete!\n');
+            return specs;
+          }
+        }
+      } catch (error) {
+        console.error('❌ API Orchestrator failed:', error.message);
+        // Continue with standard methods
+      }
+    }
+    
+    // Step 4: Standard taxonomy-aware AI analysis (existing code)
     try {
       console.log('🔍 Attempting taxonomy-aware analysis...');
       const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPrompt(prompt);
@@ -97,6 +268,112 @@ class AIService {
     
     console.error('=== End AI Service Processing (FAILED) ===\n');
     throw new Error('Failed to generate design from AI. All analysis methods failed. Please check API configuration and try again.');
+  }
+  
+  /**
+   * Detect if prompt mentions a famous landmark
+   */
+  detectLandmark(prompt) {
+    const landmarkKeywords = [
+      { name: 'Eiffel Tower', keywords: ['eiffel tower', 'tour eiffel'] },
+      { name: 'Empire State Building', keywords: ['empire state building', 'empire state'] },
+      { name: 'Burj Khalifa', keywords: ['burj khalifa', 'burj'] },
+      { name: 'Taj Mahal', keywords: ['taj mahal'] },
+      { name: 'Colosseum', keywords: ['colosseum', 'coliseum'] },
+      { name: 'Big Ben', keywords: ['big ben', 'elizabeth tower'] },
+      { name: 'Sydney Opera House', keywords: ['sydney opera house', 'opera house sydney'] },
+      { name: 'Statue of Liberty', keywords: ['statue of liberty'] },
+      { name: 'Golden Gate Bridge', keywords: ['golden gate bridge', 'golden gate'] },
+      { name: 'Tower Bridge', keywords: ['tower bridge london'] },
+      { name: 'Notre-Dame de Paris', keywords: ['notre dame', 'notre-dame'] },
+      { name: 'Sagrada Familia', keywords: ['sagrada familia', 'sagrada família'] },
+      { name: 'Willis Tower', keywords: ['willis tower', 'sears tower'] },
+      { name: 'One World Trade Center', keywords: ['one world trade', 'freedom tower'] },
+      { name: 'Chrysler Building', keywords: ['chrysler building'] },
+      { name: 'Leaning Tower of Pisa', keywords: ['leaning tower of pisa', 'tower of pisa', 'pisa tower'] },
+      { name: 'St. Peter\'s Basilica', keywords: ['st peter', 'saint peter', 'st. peter\'s basilica'] },
+      { name: 'Westminster Abbey', keywords: ['westminster abbey'] },
+      { name: 'Buckingham Palace', keywords: ['buckingham palace'] },
+      { name: 'White House', keywords: ['white house'] },
+      { name: 'Petronas Towers', keywords: ['petronas towers', 'petronas twin towers'] },
+      { name: 'CN Tower', keywords: ['cn tower'] },
+      { name: 'Space Needle', keywords: ['space needle'] },
+      { name: 'Gateway Arch', keywords: ['gateway arch', 'st louis arch'] },
+      { name: 'Brandenburg Gate', keywords: ['brandenburg gate'] },
+      { name: 'Arc de Triomphe', keywords: ['arc de triomphe'] },
+      { name: 'Reichstag', keywords: ['reichstag building', 'reichstag'] },
+      { name: 'Forbidden City', keywords: ['forbidden city'] },
+      { name: 'Great Pyramid of Giza', keywords: ['great pyramid', 'pyramid of giza', 'pyramid giza'] },
+      { name: 'Sphinx', keywords: ['great sphinx', 'sphinx of giza'] },
+      { name: 'Parthenon', keywords: ['parthenon'] },
+      { name: 'Acropolis', keywords: ['acropolis athens'] },
+      { name: 'Hagia Sophia', keywords: ['hagia sophia', 'aya sofya'] },
+      { name: 'Blue Mosque', keywords: ['blue mosque', 'sultan ahmed mosque'] },
+      { name: 'Angkor Wat', keywords: ['angkor wat'] },
+      { name: 'Machu Picchu', keywords: ['machu picchu'] },
+      { name: 'Neuschwanstein Castle', keywords: ['neuschwanstein', 'neuschwanstein castle'] },
+      { name: 'Edinburgh Castle', keywords: ['edinburgh castle'] },
+      { name: 'Alhambra', keywords: ['alhambra palace', 'alhambra'] },
+      { name: 'Mont-Saint-Michel', keywords: ['mont saint michel', 'mont-saint-michel'] },
+      { name: 'Dome of the Rock', keywords: ['dome of the rock'] },
+      { name: 'Taipei 101', keywords: ['taipei 101'] },
+      { name: 'Shanghai Tower', keywords: ['shanghai tower'] },
+      { name: 'Lotte World Tower', keywords: ['lotte world tower'] }
+    ];
+    
+    const lowerPrompt = prompt.toLowerCase();
+    for (const landmark of landmarkKeywords) {
+      if (landmark.keywords.some(keyword => lowerPrompt.includes(keyword))) {
+        return landmark.name;
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Determine if API Orchestrator should be used for complex scenes
+   */
+  shouldUseOrchestrator(prompt) {
+    const complexSceneKeywords = [
+      'downtown', 'cityscape', 'city block', 'urban area', 'neighborhood',
+      'street scene', 'plaza', 'square', 'district', 'complex',
+      'multiple buildings', 'several buildings', 'many buildings',
+      'entire', 'whole', 'complete', 'full scene', 'environment'
+    ];
+    
+    const lowerPrompt = prompt.toLowerCase();
+    return complexSceneKeywords.some(keyword => lowerPrompt.includes(keyword));
+  }
+  
+  /**
+   * Extract dimensions from Wikipedia text
+   */
+  extractDimensionsFromText(text) {
+    if (!text) return {};
+    
+    const dimensions = {};
+    const lowerText = text.toLowerCase();
+    
+    // Extract height
+    const heightMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:m|meters|metres)(?:\s+tall|\s+high|\s+in height)/);
+    if (heightMatch) {
+      dimensions.height = parseFloat(heightMatch[1]);
+    }
+    
+    // Extract width
+    const widthMatch = lowerText.match(/width.*?(\d+(?:\.\d+)?)\s*(?:m|meters|metres)/);
+    if (widthMatch) {
+      dimensions.width = parseFloat(widthMatch[1]);
+    }
+    
+    // Extract floors
+    const floorsMatch = lowerText.match(/(\d+)\s*(?:floors|stories|storeys)/);
+    if (floorsMatch) {
+      dimensions.floors = parseInt(floorsMatch[1]);
+    }
+    
+    return dimensions;
   }
   
   /**
