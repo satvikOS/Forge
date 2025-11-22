@@ -48,7 +48,7 @@ class GeographicCoordinateService {
     }
     
     // Pattern 2: Decimal degrees without direction (e.g., "40.7128, -74.0060")
-    // Already has sign, so don't modify
+    // Coordinates already include positive/negative signs indicating direction
     const decimalPattern = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/;
     const decimalMatch = prompt.match(decimalPattern);
     if (decimalMatch) {

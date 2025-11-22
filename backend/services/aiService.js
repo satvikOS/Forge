@@ -8,6 +8,7 @@ const wikidataService = require('./wikidataService');
 const wikipediaService = require('./wikipediaService');
 const pythonWikipediaService = require('./pythonWikipediaService');
 const geographicCoordinateService = require('./geographicCoordinateService');
+const landmarksConfig = require('../config/landmarks');
 
 class AIService {
   constructor() {
@@ -272,57 +273,12 @@ class AIService {
   
   /**
    * Detect if prompt mentions a famous landmark
+   * Uses external configuration file for maintainability
    */
   detectLandmark(prompt) {
-    const landmarkKeywords = [
-      { name: 'Eiffel Tower', keywords: ['eiffel tower', 'tour eiffel'] },
-      { name: 'Empire State Building', keywords: ['empire state building', 'empire state'] },
-      { name: 'Burj Khalifa', keywords: ['burj khalifa', 'burj'] },
-      { name: 'Taj Mahal', keywords: ['taj mahal'] },
-      { name: 'Colosseum', keywords: ['colosseum', 'coliseum'] },
-      { name: 'Big Ben', keywords: ['big ben', 'elizabeth tower'] },
-      { name: 'Sydney Opera House', keywords: ['sydney opera house', 'opera house sydney'] },
-      { name: 'Statue of Liberty', keywords: ['statue of liberty'] },
-      { name: 'Golden Gate Bridge', keywords: ['golden gate bridge', 'golden gate'] },
-      { name: 'Tower Bridge', keywords: ['tower bridge london'] },
-      { name: 'Notre-Dame de Paris', keywords: ['notre dame', 'notre-dame'] },
-      { name: 'Sagrada Familia', keywords: ['sagrada familia', 'sagrada família'] },
-      { name: 'Willis Tower', keywords: ['willis tower', 'sears tower'] },
-      { name: 'One World Trade Center', keywords: ['one world trade', 'freedom tower'] },
-      { name: 'Chrysler Building', keywords: ['chrysler building'] },
-      { name: 'Leaning Tower of Pisa', keywords: ['leaning tower of pisa', 'tower of pisa', 'pisa tower'] },
-      { name: 'St. Peter\'s Basilica', keywords: ['st peter', 'saint peter', 'st. peter\'s basilica'] },
-      { name: 'Westminster Abbey', keywords: ['westminster abbey'] },
-      { name: 'Buckingham Palace', keywords: ['buckingham palace'] },
-      { name: 'White House', keywords: ['white house'] },
-      { name: 'Petronas Towers', keywords: ['petronas towers', 'petronas twin towers'] },
-      { name: 'CN Tower', keywords: ['cn tower'] },
-      { name: 'Space Needle', keywords: ['space needle'] },
-      { name: 'Gateway Arch', keywords: ['gateway arch', 'st louis arch'] },
-      { name: 'Brandenburg Gate', keywords: ['brandenburg gate'] },
-      { name: 'Arc de Triomphe', keywords: ['arc de triomphe'] },
-      { name: 'Reichstag', keywords: ['reichstag building', 'reichstag'] },
-      { name: 'Forbidden City', keywords: ['forbidden city'] },
-      { name: 'Great Pyramid of Giza', keywords: ['great pyramid', 'pyramid of giza', 'pyramid giza'] },
-      { name: 'Sphinx', keywords: ['great sphinx', 'sphinx of giza'] },
-      { name: 'Parthenon', keywords: ['parthenon'] },
-      { name: 'Acropolis', keywords: ['acropolis athens'] },
-      { name: 'Hagia Sophia', keywords: ['hagia sophia', 'aya sofya'] },
-      { name: 'Blue Mosque', keywords: ['blue mosque', 'sultan ahmed mosque'] },
-      { name: 'Angkor Wat', keywords: ['angkor wat'] },
-      { name: 'Machu Picchu', keywords: ['machu picchu'] },
-      { name: 'Neuschwanstein Castle', keywords: ['neuschwanstein', 'neuschwanstein castle'] },
-      { name: 'Edinburgh Castle', keywords: ['edinburgh castle'] },
-      { name: 'Alhambra', keywords: ['alhambra palace', 'alhambra'] },
-      { name: 'Mont-Saint-Michel', keywords: ['mont saint michel', 'mont-saint-michel'] },
-      { name: 'Dome of the Rock', keywords: ['dome of the rock'] },
-      { name: 'Taipei 101', keywords: ['taipei 101'] },
-      { name: 'Shanghai Tower', keywords: ['shanghai tower'] },
-      { name: 'Lotte World Tower', keywords: ['lotte world tower'] }
-    ];
-    
     const lowerPrompt = prompt.toLowerCase();
-    for (const landmark of landmarkKeywords) {
+    
+    for (const landmark of landmarksConfig.landmarks) {
       if (landmark.keywords.some(keyword => lowerPrompt.includes(keyword))) {
         return landmark.name;
       }

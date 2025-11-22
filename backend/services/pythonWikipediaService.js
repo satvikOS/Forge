@@ -27,6 +27,9 @@ class PythonWikipediaService {
     }
 
     return new Promise((resolve, reject) => {
+      // Sanitize query to prevent command injection
+      const sanitizedQuery = query.replace(/["\\\n\r]/g, '');
+      
       const pythonCode = `
 import wikipedia
 import json
@@ -36,8 +39,9 @@ try:
     # Set language to English
     wikipedia.set_lang("en")
     
-    # Search for the page
-    page = wikipedia.page("${query.replace(/"/g, '\\"')}", auto_suggest=True)
+    # Search for the page - using sanitized query
+    query_str = """${sanitizedQuery}"""
+    page = wikipedia.page(query_str, auto_suggest=True)
     
     result = {
         "title": page.title,
