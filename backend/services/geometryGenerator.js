@@ -6,40 +6,10 @@ const placementEngine = require('./placementEngine');
 
 class GeometryGenerator {
   constructor() {
-    // SCALING SYSTEM: Convert real-world meters to workbench units
-    // CRITICAL FIX: Changed from 1:10 to 1:100 ratio for proper canvas fitting
-    // 1 workbench unit = 100 real-world meters
-    // This makes 300m building = 3 units, Eiffel Tower (324m) = 3.24 units
-    this.SCALE_FACTOR = 0.01; // 1/100th scale (was 0.1, too large!)
-    this.MAX_WORKBENCH_HEIGHT = 20; // Maximum height in workbench units (reduced from 50)
-    this.MAX_WORKBENCH_WIDTH = 20; // Maximum width in workbench units (reduced from 50)
-  }
-
-  /**
-   * Scale real-world dimensions to fit workbench canvas
-   */
-  scaleToWorkbench(realWorldDimensions) {
-    const scaled = {
-      width: realWorldDimensions.width * this.SCALE_FACTOR,
-      height: realWorldDimensions.height * this.SCALE_FACTOR,
-      depth: realWorldDimensions.depth * this.SCALE_FACTOR
-    };
-    
-    // If still too large, apply additional scaling
-    const maxDimension = Math.max(scaled.width, scaled.height, scaled.depth);
-    if (maxDimension > this.MAX_WORKBENCH_HEIGHT) {
-      const additionalScale = this.MAX_WORKBENCH_HEIGHT / maxDimension;
-      scaled.width *= additionalScale;
-      scaled.height *= additionalScale;
-      scaled.depth *= additionalScale;
-      console.log(`⚠️  Applied additional scaling (${(additionalScale * 100).toFixed(1)}%) to fit workbench`);
-    }
-    
-    console.log(`📏 Scaled dimensions: ${scaled.width.toFixed(2)} × ${scaled.height.toFixed(2)} × ${scaled.depth.toFixed(2)} workbench units`);
-    console.log(`   (Real-world: ${realWorldDimensions.width}m × ${realWorldDimensions.height}m × ${realWorldDimensions.depth}m)`);
-    console.log(`   Scale ratio: 1:100 (1 unit = 100 meters)`);
-    
-    return scaled;
+    // STANDARD 3D CONVENTION: 1 meter = 1 unit
+    // No scaling factors! Real-world dimensions map directly to 3D space
+    // Camera/viewport handles zoom, not geometry scaling
+    // Eiffel Tower: 324 meters = 324 units
   }
 
   /**
@@ -175,33 +145,27 @@ class GeometryGenerator {
       console.log(`📏 Using REAL-WORLD dimensions from ${dataSource} for ${element.name}`);
     }
     
-    // Get original dimensions in meters
-    const originalMeters = {
+    // STANDARD 3D CONVENTION: 1 meter = 1 unit
+    // Get dimensions in meters (from Wikipedia/Wikidata or AI estimation)
+    const dimsInMeters = {
       width: dimensions?.width || 10,
       height: dimensions?.height || 10,
       depth: dimensions?.depth || 10
     };
     
-    // Apply workbench scaling for real-world landmarks
-    let scaledDimensions = { ...originalMeters };
+    // Log what we're generating
     if (hasRealWorldData && this.isKnownLandmark(element.name)) {
       console.log(`\n🏛️  LANDMARK DETECTED: ${element.name}`);
-      console.log(`📐 Original real-world dimensions: ${originalMeters.width}m × ${originalMeters.height}m × ${originalMeters.depth}m`);
-      scaledDimensions = this.scaleToWorkbench(originalMeters);
-      console.log(`✅ Scaled to workbench: ${scaledDimensions.width.toFixed(2)} × ${scaledDimensions.height.toFixed(2)} × ${scaledDimensions.depth.toFixed(2)} units`);
-      console.log(`   Final geometry will be: ${(scaledDimensions.width * 1000).toFixed(0)}mm × ${(scaledDimensions.height * 1000).toFixed(0)}mm × ${(scaledDimensions.depth * 1000).toFixed(0)}mm\n`);
+      console.log(`📐 Real-world dimensions: ${dimsInMeters.width}m × ${dimsInMeters.height}m × ${dimsInMeters.depth}m`);
+      console.log(`📏 3D space: ${dimsInMeters.width} × ${dimsInMeters.height} × ${dimsInMeters.depth} units (1 meter = 1 unit)`);
+      console.log(`   No scaling applied - camera will zoom to fit\n`);
     }
     
-    // Convert dimensions to millimeters for geometry generation
-    // Use scaled dimensions if available, otherwise original
-    const dims = {
-      width: scaledDimensions.width * 1000,
-      height: scaledDimensions.height * 1000,
-      depth: scaledDimensions.depth * 1000
-    };
+    // Use meters directly as units (standard 3D convention)
+    const dims = { ...dimsInMeters };
     
-    // CRITICAL FIX: Check if this is a famous landmark with real-world data
-    // Generate simplified unified geometry for landmarks instead of hundreds of parts
+    // CRITICAL: Check if this is a famous landmark with real-world data
+    // Generate specialized unified geometry for landmarks
     if (hasRealWorldData && this.isKnownLandmark(element.name)) {
       console.log(`🗼 Generating highly detailed landmark geometry for ${element.name}`);
       return this.generateLandmarkGeometry(element, dims, materials);
@@ -1439,17 +1403,17 @@ class GeometryGenerator {
   /**
    * Generate simplified unified geometry for famous landmarks
    * Creates a single cohesive structure instead of hundreds of parts
+   * Dimensions are in meters (standard 3D: 1 meter = 1 unit)
    */
   generateLandmarkGeometry(element, dimensions, materials) {
     const { name } = element;
     const { width, height, depth } = dimensions;
     
     console.log(`\n🗼 GENERATING LANDMARK GEOMETRY: ${name}`);
-    console.log(`   Dimensions in mm: ${width.toFixed(0)} × ${height.toFixed(0)} × ${depth.toFixed(0)}`);
-    console.log(`   Dimensions in meters: ${(width/1000).toFixed(2)} × ${(height/1000).toFixed(2)} × ${(depth/1000).toFixed(2)}`);
-    console.log(`   This should appear as ${(height/1000).toFixed(2)}m tall structure on canvas\n`);
+    console.log(`   Dimensions: ${width.toFixed(1)}m × ${height.toFixed(1)}m × ${depth.toFixed(1)}m`);
+    console.log(`   3D space: ${width.toFixed(1)} × ${height.toFixed(1)} × ${depth.toFixed(1)} units (1:1 ratio)\n`);
     
-    // Create simplified landmark structure based on shape
+    // Create specialized landmark structure based on shape
     const lowerName = name.toLowerCase();
     
     // Eiffel Tower - iconic lattice structure
