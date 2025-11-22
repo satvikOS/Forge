@@ -32,8 +32,54 @@ class GeometryGenerator {
     const { spatialComposition, environmentalContext, realism } = taxonomyData;
     
     console.log('🎨 Generating taxonomy-aware scene with realistic placement');
+    console.log(`📊 Elements to generate: ${elements.length}`);
     
-    // Calculate realistic positions using placement engine
+    // SPECIAL CASE: Single landmark - no complex placement needed
+    if (elements.length === 1 && elements[0].metadata?.realWorld) {
+      console.log('🏛️  Single landmark detected - generating at center position');
+      const element = elements[0];
+      
+      // Position at center
+      element.position = { x: 0, y: 0, z: 0 };
+      element.rotation = { x: 0, y: 0, z: 0 };
+      element.instanceIndex = 0;
+      
+      try {
+        const geometry = this.generateTaxonomyElement(element, realism);
+        
+        // For landmarks, the geometry is already complete (composite type)
+        if (geometry.type === 'composite') {
+          console.log(`✅ Generated single landmark: ${element.name} with ${geometry.parts.length} parts`);
+          return {
+            type: 'taxonomy_scene',
+            meshes: geometry.parts.map((part, idx) => ({
+              ...part,
+              position: part.position || { x: 0, y: 0, z: 0 },
+              rotation: part.rotation || { x: 0, y: 0, z: 0 },
+              name: part.name || `${element.name}_part_${idx}`,
+              taxonomyData: {
+                category: element.category,
+                subcategory: element.subcategory,
+                isLandmark: true,
+                landmarkName: element.name
+              }
+            })),
+            instances: [],
+            bounds: geometry.bounds,
+            metadata: {
+              taxonomyData,
+              elementCount: 1,
+              isLandmark: true,
+              landmarkName: element.name
+            }
+          };
+        }
+      } catch (error) {
+        console.error(`Error generating landmark ${element.name}:`, error);
+      }
+    }
+    
+    // Calculate realistic positions using placement engine for multiple elements
     const positionedElements = placementEngine.calculatePositions(
       elements,
       spatialComposition,

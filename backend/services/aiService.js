@@ -502,7 +502,7 @@ class AIService {
    * Generate 3D model data from specifications
    */
   async generateModelData(specifications) {
-    const { objectType, dimensions, materials, elements, scene, objectCount } = specifications;
+    const { objectType, dimensions, materials, elements, scene, objectCount, taxonomyData } = specifications;
 
     // Create specification object for geometry generator
     const geometrySpec = {
@@ -517,6 +517,7 @@ class AIService {
         }
       ],
       scene: scene || {},
+      taxonomyData: taxonomyData || null, // CRITICAL: Pass taxonomyData to geometry generator
     };
 
     // Generate geometry
