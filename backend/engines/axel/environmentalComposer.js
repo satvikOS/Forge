@@ -241,12 +241,20 @@ class EnvironmentalComposer {
   }
 
   /**
+   * Normalize location string for comparison
+   */
+  normalizeLocationString(location) {
+    if (!location) return '';
+    return location.toString().toLowerCase();
+  }
+
+  /**
    * Get urban pollution factor
    */
   getUrbanFactor(location) {
     if (!location) return 0.1;
     
-    const locationStr = location.toString().toLowerCase();
+    const locationStr = this.normalizeLocationString(location);
     
     // Major urban centers
     if (locationStr.includes('city') || locationStr.includes('urban') || 
@@ -285,7 +293,7 @@ class EnvironmentalComposer {
   determineClimateZone(location) {
     if (!location) return 'temperate';
     
-    const locationStr = location.toString().toLowerCase();
+    const locationStr = this.normalizeLocationString(location);
     
     // Simplified climate detection
     if (locationStr.includes('tropic') || locationStr.includes('equator')) return 'tropical';

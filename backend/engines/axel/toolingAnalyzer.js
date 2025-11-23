@@ -55,7 +55,11 @@ class ToolingAnalyzer {
       '3d-printed': '3d-printed'
     };
     
-    // Normalize era string
+    // Normalize era string and handle null/undefined
+    if (!era || typeof era !== 'string') {
+      return methods['modern'];
+    }
+    
     const normalizedEra = era.toLowerCase().replace(/\s+/g, '_');
     
     return methods[normalizedEra] || methods['modern'];
@@ -210,6 +214,11 @@ class ToolingAnalyzer {
       'modern': ['cnc-machined', 'machine-made'],
       'contemporary': ['cnc-machined', 'advanced-manufacturing', '3d-printed']
     };
+    
+    // Handle null/undefined era
+    if (!era || typeof era !== 'string') {
+      return ['cnc-machined'];
+    }
     
     const normalizedEra = era.toLowerCase().replace(/\s+/g, '_');
     return eraMethodMap[normalizedEra] || ['cnc-machined'];

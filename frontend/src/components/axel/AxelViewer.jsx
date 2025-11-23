@@ -98,9 +98,9 @@ function GeometryLayer({ data }) {
       {data.pointCloud && (
         <div className="data-section">
           <h5>Point Cloud</h5>
-          <p className="data-value">{data.pointCloud.count?.toLocaleString()} points</p>
-          <p className="data-detail">Density: {data.pointCloud.density?.toLocaleString()} pts/m²</p>
-          <p className="data-detail">Format: {data.pointCloud.format}</p>
+          <p className="data-value">{data.pointCloud.count?.toLocaleString() || 'N/A'} points</p>
+          <p className="data-detail">Density: {data.pointCloud.density?.toLocaleString() || 'N/A'} pts/m²</p>
+          <p className="data-detail">Format: {data.pointCloud.format || 'N/A'}</p>
         </div>
       )}
 
@@ -133,6 +133,9 @@ GeometryLayer.propTypes = {
 function MaterialsLayer({ data }) {
   if (!data) return <div className="layer-empty">No materials data available</div>;
 
+  // Keys to exclude from composition display
+  const EXCLUDED_COMPOSITION_KEYS = ['unit', 'type', 'era', 'grade'];
+
   return (
     <div className="layer-panel materials-layer">
       <h4>Chemical Analysis</h4>
@@ -143,7 +146,7 @@ function MaterialsLayer({ data }) {
           <p className="data-value">{data.elements.type || 'Unknown Material'}</p>
           <div className="composition-list">
             {Object.entries(data.elements).map(([key, value]) => {
-              if (key === 'unit' || key === 'type' || key === 'era' || key === 'grade') return null;
+              if (EXCLUDED_COMPOSITION_KEYS.includes(key)) return null;
               return (
                 <div key={key} className="composition-item">
                   <span className="element-name">{key}</span>
@@ -320,11 +323,11 @@ function EnvironmentLayer({ data }) {
       {data.lighting && (
         <div className="data-section">
           <h5>Lighting</h5>
-          <p className="data-detail">Intensity: {data.lighting.intensity?.toLocaleString()} lux</p>
-          <p className="data-detail">Color Temp: {data.lighting.colorTemperature}K</p>
-          <p className="data-detail">Shadows: {data.lighting.shadows}</p>
+          <p className="data-detail">Intensity: {data.lighting.intensity?.toLocaleString() || 'N/A'} lux</p>
+          <p className="data-detail">Color Temp: {data.lighting.colorTemperature || 'N/A'}K</p>
+          <p className="data-detail">Shadows: {data.lighting.shadows || 'N/A'}</p>
           <p className="data-detail">
-            Sun Position: Az {data.lighting.sunPosition?.azimuth}°, El {data.lighting.sunPosition?.elevation}°
+            Sun Position: Az {data.lighting.sunPosition?.azimuth || 0}°, El {data.lighting.sunPosition?.elevation || 0}°
           </p>
         </div>
       )}

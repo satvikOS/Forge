@@ -214,7 +214,11 @@ class AxelVoxelEngine {
     // Sample voxel population (in production, this would be much more detailed)
     const sampleCount = 100;
     for (let i = 0; i < sampleCount; i++) {
-      const key = `${Math.floor(Math.random() * voxels.dimensions.x)},${Math.floor(Math.random() * voxels.dimensions.y)},${Math.floor(Math.random() * voxels.dimensions.z)}`;
+      const x = Math.floor(Math.random() * voxels.dimensions.x);
+      const y = Math.floor(Math.random() * voxels.dimensions.y);
+      const z = Math.floor(Math.random() * voxels.dimensions.z);
+      const key = `${x},${y},${z}`;
+      
       voxels.data.set(key, {
         material: analysis.materials?.elements?.type || 'steel',
         density: 1.0,
