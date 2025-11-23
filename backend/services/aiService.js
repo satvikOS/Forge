@@ -113,13 +113,20 @@ class AIService {
         // Fallback to regular Wikipedia if Python failed
         if (!landmarkData && this.wikipedia.isEnabled()) {
           console.log('📚 Fetching from Wikipedia REST API...');
-          const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
-          if (wikiArticle) {
-            landmarkData = {
-              title: wikiArticle.title,
-              summary: wikiArticle.extract,
-              dimensions: this.extractDimensionsFromText(wikiArticle.extract)
-            };
+          try {
+            const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
+            if (wikiArticle) {
+              console.log('✅ Wikipedia REST API: Data received');
+              landmarkData = {
+                title: wikiArticle.title,
+                summary: wikiArticle.extract,
+                dimensions: this.extractDimensionsFromText(wikiArticle.extract)
+              };
+            } else {
+              console.log('⚠️  Wikipedia REST API: No article found');
+            }
+          } catch (wikiError) {
+            console.error('❌ Wikipedia REST API call failed:', wikiError.message);
           }
         }
         
@@ -127,7 +134,16 @@ class AIService {
         let wikidataInfo = null;
         if (this.wikidata.isEnabled()) {
           console.log('📊 Fetching structured data from Wikidata...');
-          wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
+          try {
+            wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
+            if (wikidataInfo) {
+              console.log('✅ Wikidata: Data received');
+            } else {
+              console.log('⚠️  Wikidata: No data found');
+            }
+          } catch (wikidataError) {
+            console.error('❌ Wikidata API call failed:', wikidataError.message);
+          }
         }
         
         // Merge Wikipedia and Wikidata
@@ -502,202 +518,8 @@ class AIService {
    * Generate 3D model data from specifications
    */
   async generateModelData(specifications) {
-<<<<<<< HEAD
-    const { objectType, dimensions, materials, elements, scene, objectCount, realWorldData, realBuildings, realDimensions } = specifications;
-=======
     const { objectType, dimensions, materials, elements, scene, objectCount, taxonomyData } = specifications;
->>>>>>> origin/copilot/complete-ai-pipeline-integration
 
-    // PRIORITY 0: Check if AI 3D generation is enabled for highly realistic models
-    const enableAI3D = process.env.ENABLE_AI_3D_GENERATION === 'true';
-    const hasTripoKey = !!process.env.TRIPO_API_KEY;
-    const hasMeshyKey = !!process.env.MESHY_API_KEY;
-    const hasVertexKey = !!process.env.GOOGLE_CLOUD_PROJECT_ID;
-    
-    if (enableAI3D && (hasTripoKey || hasMeshyKey || hasVertexKey)) {
-      console.log('🤖 AI 3D Generation enabled - attempting to use AI APIs for photorealistic model');
-      console.log('   Available APIs:', {
-        tripo: hasTripoKey,
-        meshy: hasMeshyKey,
-        vertexImagen: hasVertexKey
-      });
-      
-      try {
-        const ai3DOrchestrator = require('./ai3DOrchestrator');
-        
-        // Create prompt from specifications
-        const generationPrompt = specifications.description || 
-                                specifications.name || 
-                                (realDimensions ? `${realDimensions.name || 'landmark'} with height ${realDimensions.height}m` : null) ||
-                                'architectural structure';
-        
-        // Create options object
-        const generationOptions = {
-          mode: process.env.DEFAULT_GENERATION_MODE || 'ultra_cheap',
-          specifications: specifications,
-          realWorldData: realWorldData,
-          realDimensions: realDimensions,
-          realBuildings: realBuildings
-        };
-        
-        console.log('📤 Sending request to AI 3D orchestrator...');
-        console.log('   Prompt:', generationPrompt);
-        console.log('   Mode:', generationOptions.mode);
-        
-        const ai3DResult = await ai3DOrchestrator.generate(generationPrompt, generationOptions);
-        
-        if (ai3DResult && ai3DResult.success && ai3DResult.model) {
-          console.log('✅ AI 3D generation successful!');
-          console.log('   Source:', ai3DResult.source);
-          console.log('   Provider:', ai3DResult.provider || ai3DResult.model.provider);
-          console.log('   Quality:', ai3DResult.model.quality || 'standard');
-          console.log('   Duration:', ai3DResult.duration, 'ms');
-          if (ai3DResult.cost !== undefined) {
-            console.log('   Cost:', '$' + ai3DResult.cost.toFixed(4));
-          }
-          
-          return {
-            geometry: {
-              type: 'ai_generated',
-              modelUrl: ai3DResult.model.modelUrl || ai3DResult.model.url,
-              format: ai3DResult.model.format || 'glb',
-              provider: ai3DResult.provider || ai3DResult.model.provider,
-              quality: ai3DResult.model.quality || 'standard',
-              source: ai3DResult.source
-            },
-            materials: materials || ['pbr_auto'],
-            metadata: { 
-              ...specifications, 
-              aiGenerated: true,
-              photorealistic: true,
-              provider: ai3DResult.provider || ai3DResult.model.provider,
-              source: ai3DResult.source,
-              cost: ai3DResult.cost,
-              duration: ai3DResult.duration
-            },
-            stats: { 
-              vertices: 'high-detail',
-              faces: 'high-detail',
-              photorealistic: true
-            },
-          };
-        } else {
-          console.warn('⚠️  AI 3D generation returned no model, falling back to procedural');
-        }
-      } catch (error) {
-        console.warn('⚠️  AI 3D generation failed, falling back to procedural:', error.message);
-        if (process.env.NODE_ENV === 'development') {
-          console.error('   Error details:', error);
-        }
-      }
-    } else if (enableAI3D) {
-      console.log('ℹ️  AI 3D Generation enabled but no API keys configured');
-      console.log('   Add TRIPO_API_KEY, MESHY_API_KEY, or GOOGLE_CLOUD_PROJECT_ID to .env for photorealistic models');
-    }
-    
-    console.log('🎨 Using procedural geometry generation');
-
-    // PRIORITY 1: If we have real dimensions from Wikidata (specific landmark), create a single accurate building
-    if (realDimensions && realDimensions.height) {
-      console.log('📏 Using real dimensions for landmark generation');
-      console.log('   Height:', realDimensions.height, 'm');
-      console.log('   Width:', realDimensions.width || realDimensions.baseWidth || 'auto', 'm');
-      
-      const buildingElement = {
-        type: 'building',
-        name: specifications.name || 'Landmark',
-        dimensions: {
-          width: (realDimensions.width || realDimensions.baseWidth || realDimensions.height * 0.4) * 1000,
-          height: realDimensions.height * 1000,
-          depth: (realDimensions.depth || realDimensions.length || realDimensions.width || realDimensions.baseWidth || realDimensions.height * 0.4) * 1000,
-        },
-        materials: materials || ['steel', 'glass'],
-        details: {
-          buildingType: 'landmark',
-          architecturalStyle: specifications.style || 'iconic',
-          realWorldData: true,
-          levels: Math.floor(realDimensions.height / 3), // Estimate levels from height
-        },
-      };
-
-      const geometrySpec = {
-        objectCount: 1,
-        elements: [buildingElement],
-        scene: {
-          type: 'landmark_replica',
-          isRealWorld: true,
-          ...scene,
-        },
-        taxonomyData: specifications.taxonomyData,
-        realWorldData: true,
-      };
-
-      const geometry = geometryGenerator.generateFromSpec(geometrySpec);
-      
-      return {
-        geometry,
-        materials: materials || ['steel', 'glass'],
-        metadata: { ...specifications, usedRealWorldData: true, landmarkMode: true },
-        stats: this.calculateStats(geometry),
-      };
-    }
-
-    // PRIORITY 2: If we have real-world buildings from OSM (city scene), use them
-    if (realBuildings && realBuildings.length > 0) {
-      console.log('🏛️  Using real-world building data from OSM');
-      console.log('   Building count:', realBuildings.length);
-      
-      // Convert OSM buildings to elements
-      const buildingElements = realBuildings.map((building, index) => {
-        // Use real dimensions if available
-        const buildingHeight = building.height || building.levels * 3 || 15;
-        const buildingDimensions = {
-          width: building.geometry?.bbox?.width * 1000 || 20000,
-          height: buildingHeight * 1000, // Convert to mm
-          depth: building.geometry?.bbox?.depth * 1000 || 20000,
-        };
-
-        return {
-          type: 'building',
-          name: building.name || `Building_${index + 1}`,
-          dimensions: buildingDimensions,
-          materials: [building.material || 'concrete'],
-          details: {
-            buildingType: building.buildingType || 'commercial',
-            architecturalStyle: building.architectural_style || 'modern',
-            levels: building.levels || Math.floor(buildingHeight / 3),
-            realWorldData: true,
-            osmId: building.id,
-          },
-          position: building.center || { x: index * 25000, y: 0, z: 0 },
-        };
-      });
-
-      const geometrySpec = {
-        objectCount: buildingElements.length,
-        elements: buildingElements,
-        scene: {
-          type: 'real_world_replica',
-          isRealWorld: true,
-          ...scene,
-        },
-        taxonomyData: specifications.taxonomyData,
-        realWorldData: true,
-      };
-
-      const geometry = geometryGenerator.generateFromSpec(geometrySpec);
-      
-      return {
-        geometry,
-        materials: materials || ['concrete', 'glass', 'steel'],
-        metadata: { ...specifications, usedRealWorldData: true, citySceneMode: true },
-        stats: this.calculateStats(geometry),
-      };
-    }
-
-    // PRIORITY 3: Standard generation (no real-world data)
-    console.log('🎨 Using standard procedural generation');
-    
     // Create specification object for geometry generator
     const geometrySpec = {
       objectCount: objectCount || 1,

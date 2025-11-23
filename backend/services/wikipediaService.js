@@ -195,23 +195,46 @@ class WikipediaService {
    * Search for architectural landmarks
    */
   async searchLandmark(landmarkName) {
-    const searchResults = await this.search(landmarkName + ' architecture building', 3);
+    console.log(`🔍 Wikipedia REST: Searching for "${landmarkName}"...`);
     
-    if (!searchResults || searchResults.length === 0) {
+    try {
+      // Wrap in a race with timeout to handle Vercel/serverless environment issues
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Wikipedia API timeout')), 3000)
+      );
+      
+      const fetchPromise = (async () => {
+        const searchResults = await this.search(landmarkName + ' architecture building', 3);
+        
+        if (!searchResults || searchResults.length === 0) {
+          console.log('❌ Wikipedia REST: No search results');
+          return null;
+        }
+
+        console.log(`✅ Wikipedia REST: Found ${searchResults.length} results`);
+
+        // Get detailed info for the top result
+        const article = await this.getArticle(searchResults[0].title);
+        const infobox = await this.getInfobox(searchResults[0].title);
+
+        const result = {
+          ...article,
+          infobox,
+          dimensions: this.extractDimensions(infobox, article.extract),
+          style: this.extractStyle(infobox, article.extract),
+          history: this.extractHistory(article.extract),
+        };
+        
+        console.log('✅ Wikipedia REST: Data retrieved successfully');
+        return result;
+      })();
+      
+      return await Promise.race([fetchPromise, timeoutPromise]);
+      
+    } catch (error) {
+      console.error('❌ Wikipedia REST API failed:', error.message);
       return null;
     }
-
-    // Get detailed info for the top result
-    const article = await this.getArticle(searchResults[0].title);
-    const infobox = await this.getInfobox(searchResults[0].title);
-
-    return {
-      ...article,
-      infobox,
-      dimensions: this.extractDimensions(infobox, article.extract),
-      style: this.extractStyle(infobox, article.extract),
-      history: this.extractHistory(article.extract),
-    };
   }
 
   /**
