@@ -55,7 +55,6 @@ class MultiVariantGenerator {
       hasCoordinates: !!(context.coordinates),
     });
 
-    const variants = [];
     const styles = [
       {
         name: 'photorealistic',
@@ -74,7 +73,8 @@ class MultiVariantGenerator {
       },
     ];
 
-    for (const style of styles) {
+    // Generate all variants in parallel for faster results
+    const variantPromises = styles.map(async (style) => {
       console.log(`\n--- Generating ${style.title} variant ---`);
       try {
         const variantPrompt = this.buildVariantPrompt(prompt, style, context);
@@ -86,14 +86,16 @@ class MultiVariantGenerator {
         
         console.log(`✅ ${style.title} variant generated (${text.length} characters)`);
         
-        const parsed = this.parseVariantResponse(text, style);
-        variants.push(parsed);
+        return this.parseVariantResponse(text, style);
       } catch (error) {
         console.error(`❌ Failed to generate ${style.title} variant:`, error.message);
-        // Add fallback variant
-        variants.push(this.createFallbackVariant(prompt, style, context));
+        // Return fallback variant
+        return this.createFallbackVariant(prompt, style, context);
       }
-    }
+    });
+
+    // Wait for all variants to complete
+    const variants = await Promise.all(variantPromises);
 
     console.log('\n========================================');
     console.log('✅ Multi-Variant Generation Complete');

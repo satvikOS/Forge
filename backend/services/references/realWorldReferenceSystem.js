@@ -10,7 +10,7 @@ class RealWorldReferenceSystem {
     this.enabled = process.env.ENABLE_REFERENCE_SYSTEM !== 'false';
     this.cacheEnabled = process.env.CACHE_REFERENCE_DATA !== 'false';
     this.cache = new Map();
-    this.timeout = parseInt(process.env.API_TIMEOUT_MS) || 10000;
+    this.timeout = parseInt(process.env.API_TIMEOUT_MS, 10) || 10000;
     
     this.wikipediaBaseUrl = 'https://en.wikipedia.org/w/api.php';
     this.wikidataBaseUrl = 'https://www.wikidata.org/w/api.php';
