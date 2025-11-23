@@ -314,6 +314,73 @@ class OverpassService {
     }
     return counts;
   }
+
+  /**
+   * Get roads in an area (alias for getRoadNetwork for consistency)
+   */
+  async getRoads(latitude, longitude, radiusMeters = 500) {
+    return this.getRoadNetwork(latitude, longitude, radiusMeters);
+  }
+
+  /**
+   * Get natural features (parks, forests, water bodies, etc.)
+   */
+  async getNaturalFeatures(latitude, longitude, radiusMeters = 500) {
+    const bbox = this.calculateBBox(latitude, longitude, radiusMeters);
+    
+    // Query for natural features
+    const query = this.buildQuery(
+      ['way', 'relation'], 
+      bbox, 
+      {}
+    );
+    
+    // Build custom query for natural features
+    const [south, west, north, east] = bbox;
+    const naturalQuery = `[out:json][timeout:25];
+(
+  way["natural"](${south},${west},${north},${east});
+  way["landuse"~"forest|grass|meadow"](${south},${west},${north},${east});
+  way["leisure"="park"](${south},${west},${north},${east});
+  relation["natural"](${south},${west},${north},${east});
+);
+out body;
+>;
+out skel qt;`;
+
+    const result = await this.executeQuery(naturalQuery);
+    if (!result || !result.elements) {
+      return [];
+    }
+
+    return result.elements.map(element => this.parseNaturalFeature(element)).filter(f => f);
+  }
+
+  /**
+   * Parse natural feature from OSM element
+   */
+  parseNaturalFeature(element) {
+    if (!element || !element.tags) return null;
+
+    const tags = element.tags;
+    return {
+      id: element.id,
+      type: tags.natural || tags.landuse || tags.leisure || 'unknown',
+      name: tags.name || 'Unnamed Natural Feature',
+      subtype: tags.natural || tags.landuse,
+      area: this.calculateArea(element),
+      tags: tags
+    };
+  }
+
+  /**
+   * Calculate approximate area of a feature (simplified)
+   */
+  calculateArea(element) {
+    // Simplified area calculation - would need proper polygon area calculation
+    // For now, return null as placeholder
+    return null;
+  }
 }
 
 // Export singleton instance

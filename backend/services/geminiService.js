@@ -475,6 +475,212 @@ IMPORTANT: Ensure all dimensions are realistic and placement rules ensure proper
   }
 
   /**
+   * Analyze a taxonomy prompt WITH real-world data from Wikipedia/Wikidata/Geographic services
+   * This method enhances AI analysis by incorporating actual building dimensions, materials, and environmental data
+   */
+  async analyzeTaxonomyPromptWithRealData(prompt, realWorldData) {
+    console.log('🤖 Gemini: Analyzing prompt WITH real-world data integration...');
+    
+    // Build comprehensive system prompt with taxonomy AND real-world data
+    const taxonomyJSON = this.taxonomySystem.getTaxonomyForAI();
+    
+    let realDataContext = '';
+    if (realWorldData) {
+      realDataContext = `\n\nREAL-WORLD DATA PROVIDED (USE THIS FOR ACCURATE GENERATION):
+${JSON.stringify(realWorldData, null, 2)}
+
+CRITICAL INSTRUCTIONS FOR REAL-WORLD LANDMARK GENERATION:
+**YOU MUST RETRIEVE AND PROVIDE COMPLETE STRUCTURAL DETAILS FOR LANDMARKS**
+
+When a famous landmark is mentioned (Eiffel Tower, Empire State Building, Burj Khalifa, etc.):
+1. **USE EXACT LANDMARK NAME**: Element "name" field MUST be the exact full landmark name
+   - ✅ CORRECT: "Eiffel Tower", "Burj Khalifa", "Taj Mahal"
+   - ❌ WRONG: "Tower", "Building", "Monument", "Structure"
+2. **USE EXACT DIMENSIONS**: Height, width, base dimensions from Wikipedia/Wikidata (IN METERS!)
+   - Eiffel Tower: width=125, height=324, depth=125
+   - Empire State Building: width=129, height=443, depth=61
+   - Burj Khalifa: width=250, height=828, depth=250
+3. **STRUCTURAL DETAILS**: Describe the building's construction method (brick-by-brick, smallest unit)
+   - For Eiffel Tower: Iron lattice framework with 4 curved legs, 3 platforms at 57m/115m/276m, cross-bracing pattern
+   - For skyscrapers: Floor-by-floor structure, setbacks at specific floors, facade material, window patterns
+   - For historical: Construction materials (stone, brick, wood), architectural style details
+4. **MATERIAL SPECIFICATIONS**: Exact materials used in real construction
+   - Eiffel Tower: wrought_iron, steel
+   - Empire State Building: limestone, granite, aluminum, glass
+   - Taj Mahal: white_marble, red_sandstone
+5. **ARCHITECTURAL FEATURES**: ALL key structural elements that make it INSTANTLY recognizable
+   - Eiffel Tower: four_curved_legs, lattice_framework, three_observation_platforms, tapered_structure, antenna_spire
+   - Burj Khalifa: Y_shaped_floor_plan, setback_at_each_tier, spire, aluminum_and_glass_facade
+   - Sydney Opera House: shell_like_roof_structures, podium_base, harbor_location
+6. **BUILD FROM BOTTOM-UP**: Describe construction sequence starting from foundation
+7. **SET detailLevel to "photorealistic"**: This ensures maximum quality generation
+
+EXAMPLE for "Eiffel Tower":
+{
+  "name": "Eiffel Tower",
+  "dimensions": {"width": 125, "height": 324, "depth": 125},
+  "materials": ["wrought_iron", "steel"],
+  "features": [
+    "four_curved_legs",
+    "lattice_framework",
+    "three_observation_platforms",
+    "platform_1_at_57m",
+    "platform_2_at_115m", 
+    "platform_3_at_276m",
+    "iron_cross_bracing",
+    "tapered_structure",
+    "antenna_spire_300_to_324m",
+    "riveted_construction",
+    "18000_metal_parts",
+    "2.5_million_rivets"
+  ],
+  "structuralDetails": {
+    "constructionMethod": "prefabricated_iron_sections_assembled_on_site",
+    "foundationType": "concrete_foundation_piers",
+    "legStructure": "curved_tapered_legs_with_elevators",
+    "crossBracing": "horizontal_and_diagonal_iron_beams",
+    "platforms": "three_observation_decks_with_restaurants",
+    "topSpire": "antenna_mast_for_broadcasting"
+  }
+}
+
+If Wikipedia/Wikidata dimensions are provided, USE THEM EXACTLY (don't estimate)
+If geographic/map data provided, INCORPORATE ALL buildings, roads, environmental features
+Maintain realistic proportions relative to provided real-world data
+`;
+    }
+    
+    const systemPrompt = `You are an EXPERT 3D architect and urban designer for ArchDisc, a professional 3D architectural and environmental design platform.
+
+Your task is to analyze the user's prompt and extract structured information for ULTRA-REALISTIC, INDUSTRIAL-GRADE 3D scene generation.
+
+${realDataContext}
+
+AVAILABLE TAXONOMY (Use this to classify and understand the prompt):
+${taxonomyJSON}
+
+CLASSIFICATION PRIORITIES:
+1. Identify the primary category: settlement, environment, building, infrastructure, vehicle, or mixed scene
+2. Determine the scale (from isolated dwelling to megalopolis, or object-specific scales)
+3. Extract all specific elements mentioned
+4. Identify architectural style/period if applicable
+5. Note environmental context (terrain, water, vegetation)
+6. Consider demographics if people/activity is mentioned
+
+REALISTIC PLACEMENT RULES (CRITICAL):
+- Buildings MUST be placed on flat ground or appropriate terrain
+- Roads MUST connect buildings and follow logical paths
+- Vehicles MUST be on roads, parking lots, or driveways
+- Water features MUST be at appropriate elevations (rivers flow downhill)
+- Trees and vegetation MUST be clustered naturally, not in perfect grids
+- Objects MUST have realistic spacing based on their function
+- Scale MUST be architecturally accurate (use taxonomy dimensions OR real-world data)
+- Buildings in cities are closer together; rural buildings are spread out
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
+{
+  "primaryCategory": "<settlement|landform|water_body|building|infrastructure|vehicle|vegetation|mixed>",
+  "secondaryCategories": [<additional categories if it's a mixed scene>],
+  "scale": {
+    "type": "<micro|tiny|small|medium|large|very_large|massive>",
+    "settlement": "<isolated_dwelling|hamlet|village|town|city|metropolis|megalopolis|conurbation|null>",
+    "dimension": "<approximate overall size in meters>"
+  },
+  "style": {
+    "architectural": "<modern|contemporary|futuristic|medieval|industrial|minimalist|classical|traditional|null>",
+    "period": "<ancient|medieval|renaissance|industrial|modern|contemporary|futuristic|null>",
+    "theme": "<urban|rural|coastal|desert|mountain|forest|space|null>"
+  },
+  "elements": [
+    {
+      "category": "<from taxonomy>",
+      "subcategory": "<specific type>",
+      "name": "<descriptive name - MUST be exact landmark name if famous landmark>",
+      "quantity": <number of instances>,
+      "placement": {
+        "priority": "primary|secondary|tertiary",
+        "surface": "ground|water|air|underground",
+        "clustering": "none|scattered|moderate|dense",
+        "spacing": <meters between instances>
+      },
+      "dimensions": {
+        "width": <meters>,
+        "height": <meters>,
+        "depth": <meters>,
+        "calculated": "<explanation of dimension source>"
+      },
+      "materials": [<exact material names from real construction>],
+      "features": [<ALL architectural/structural features that make it recognizable>],
+      "structuralDetails": {
+        "constructionMethod": "<how it was built: brick-by-brick, prefabricated, etc.>",
+        "foundationType": "<foundation details>",
+        "primaryStructure": "<main structural elements>",
+        "supportElements": "<beams, columns, bracing, etc.>",
+        "platforms": "<observation decks, floors, etc.>",
+        "decorativeElements": "<unique identifying features>"
+      }
+    }
+  ],
+  "environmentalContext": {
+    "terrain": "<flat|hilly|mountainous|coastal|valley>",
+    "groundCover": "<grass|sand|dirt|concrete|asphalt|water>",
+    "timeOfDay": "<dawn|day|dusk|night>",
+    "weather": "<clear|cloudy|rainy|snowy|foggy>",
+    "season": "<spring|summer|fall|winter>"
+  },
+  "spatialComposition": {
+    "layout": "<grid|organic|linear|radial|cluster|scattered>",
+    "density": "<sparse|low|medium|high|very_high>",
+    "zones": [
+      {
+        "name": "<zone name>",
+        "elements": [<element indices>],
+        "position": "<center|north|south|east|west|perimeter>"
+      }
+    ]
+  },
+  "realism": {
+    "requiresRoads": <boolean>,
+    "requiresTerrain": <boolean>,
+    "requiresVegetation": <boolean>,
+    "requiresLighting": <boolean>,
+    "requiresWater": <boolean>,
+    "detailLevel": "<low|medium|high|very_high|photorealistic>"
+  }
+}
+
+Remember: If real-world data is provided, YOUR PRIMARY DUTY is to incorporate it accurately!`;
+
+    try {
+      const result = await this.generateContent(systemPrompt, prompt);
+      if (!result) return null;
+
+      let parsed = this.parseJSON(result);
+      
+      if (parsed && parsed.primaryCategory) {
+        console.log(`✅ Gemini taxonomy analysis with real-world data complete: ${parsed.primaryCategory}`);
+        
+        // Log if real-world data was incorporated
+        if (realWorldData) {
+          console.log('✅ Real-world data successfully incorporated into analysis');
+          parsed.realWorldDataSource = realWorldData.source || 'unknown';
+        }
+        
+        return parsed;
+      }
+
+      console.warn('⚠️  Parsed result missing primaryCategory');
+      return null;
+    } catch (error) {
+      console.error('Error analyzing prompt with real-world data:', error);
+      // Fallback to standard taxonomy analysis
+      console.log('⚠️  Falling back to standard taxonomy analysis...');
+      return this.analyzeTaxonomyPrompt(prompt);
+    }
+  }
+
+  /**
    * Analyze a design prompt and extract structured information
    * Enhanced for complex architectural prompts with detailed features
    */

@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "python3 install_wikipedia.py || echo '⚠️  Python wikipedia installation skipped'",
+    "install-wikipedia": "python3 install_wikipedia.py"
   },
   "keywords": [],
   "author": "",
