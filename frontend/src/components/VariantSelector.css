@@ -1,0 +1,254 @@
+/* ==========================================
+   Variant Selector Component Styles
+   Dark glassmorphism design with professional animations
+   ========================================== */
+
+.variant-selector {
+  width: 100%;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: rgba(20, 20, 30, 0.8);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.variant-selector-header {
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.variant-selector-header h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.variant-selector-header p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Variant Grid Layout */
+.variant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+
+/* Variant Card */
+.variant-card {
+  position: relative;
+  background: rgba(30, 30, 40, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.variant-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(100, 150, 255, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  background: rgba(35, 35, 50, 0.95);
+}
+
+.variant-card.selected {
+  border-color: rgba(100, 150, 255, 0.8);
+  background: rgba(40, 40, 55, 1);
+  box-shadow: 0 0 20px rgba(100, 150, 255, 0.3);
+}
+
+.variant-card:focus {
+  outline: none;
+  border-color: rgba(100, 150, 255, 0.8);
+}
+
+/* Style Badge */
+.variant-badge {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Selected Indicator */
+.variant-selected-indicator {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #4CAF50, #45a049);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(76, 175, 80, 0.5);
+  animation: checkmarkPulse 0.4s ease-out;
+}
+
+.checkmark {
+  font-size: 1.2rem;
+  color: white;
+  font-weight: bold;
+}
+
+@keyframes checkmarkPulse {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Variant Content */
+.variant-content {
+  margin-top: 2.5rem;
+}
+
+.variant-name {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.variant-description {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+}
+
+/* Metadata Section */
+.variant-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.metadata-item {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.metadata-icon {
+  font-size: 1.2rem;
+  text-align: center;
+}
+
+.metadata-label {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+}
+
+.metadata-value {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  text-align: right;
+  padding: 0.25rem 0.5rem;
+  background: rgba(100, 150, 255, 0.1);
+  border-radius: 4px;
+}
+
+/* Details Section */
+.variant-details {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.detail-section {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+}
+
+.detail-section strong {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .variant-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .variant-selector {
+    padding: 0.75rem;
+  }
+
+  .variant-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .variant-card {
+    padding: 1rem;
+  }
+
+  .variant-badge {
+    font-size: 0.7rem;
+    padding: 0.3rem 0.6rem;
+  }
+
+  .variant-name {
+    font-size: 1.1rem;
+  }
+
+  .metadata-item {
+    grid-template-columns: 28px 1fr auto;
+    gap: 0.4rem;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .variant-selector {
+    background: white;
+    border: 1px solid #ccc;
+  }
+
+  .variant-card {
+    background: white;
+    border: 1px solid #ddd;
+    page-break-inside: avoid;
+  }
+
+  .variant-badge,
+  .variant-selected-indicator {
+    background: #333 !important;
+  }
+}

@@ -353,6 +353,42 @@ class APIService {
       throw error;
     }
   }
+
+  /**
+   * Generate multiple ultra-realistic design variants (Phase 1)
+   * Returns 3 design variants with different emphases
+   */
+  async generateVariants(prompt, options = {}) {
+    try {
+      console.log('🎨 Starting multi-variant generation:', prompt);
+      
+      const response = await axios.post(`${API_BASE_URL}/generate/variants`, {
+        prompt,
+        options,
+      });
+      
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to generate variants');
+      }
+      
+      console.log(`✅ Multi-variant generation complete: ${response.data.variants?.length || 0} variants`);
+      return response.data;
+    } catch (error) {
+      console.error('Error generating variants:', error);
+      
+      // Enhanced error messages
+      if (error.response?.status === 503) {
+        throw new Error('Multi-variant generation is not enabled. Please configure GEMINI_API_KEY in backend.');
+      } else if (error.response?.status === 500) {
+        const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Server error';
+        throw new Error(`Variant generation failed: ${errorMsg}`);
+      } else if (error.message?.includes('Network Error')) {
+        throw new Error('Network error: Cannot connect to API server.');
+      }
+      
+      throw error;
+    }
+  }
 }
 
 export default new APIService();

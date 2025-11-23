@@ -7,6 +7,8 @@ const materialMappingService = require('../services/materialMappingService');
 const ai3DOrchestrator = require('../services/ai3DOrchestrator');
 const creditManager = require('../services/creditManager');
 const apiOrchestrator = require('../services/apiOrchestrator');
+const multiVariantGenerator = require('../services/generation/multiVariantGenerator');
+const realWorldReferenceSystem = require('../services/references/realWorldReferenceSystem');
 
 /**
  * POST /api/generate
@@ -626,6 +628,109 @@ router.post('/estimate', async (req, res) => {
     res.status(500).json({
       error: 'Failed to estimate cost',
       message: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/generate/variants
+ * Multi-variant generation endpoint - generates 3 ultra-realistic design options
+ */
+router.post('/variants', async (req, res) => {
+  try {
+    const { prompt, options = {} } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    if (prompt.length < 2) {
+      return res.status(400).json({ error: 'Prompt too short. Please provide a more detailed description.' });
+    }
+
+    if (prompt.length > 2000) {
+      return res.status(400).json({ error: 'Prompt too long. Please keep it under 2000 characters.' });
+    }
+
+    // Check if multi-variant generator is enabled
+    if (!multiVariantGenerator.isEnabled()) {
+      return res.status(503).json({
+        error: 'Multi-variant generation is not enabled',
+        message: 'Please configure GEMINI_API_KEY in backend environment',
+      });
+    }
+
+    console.log('\n========================================');
+    console.log('🎨 Multi-Variant Generation Request');
+    console.log('========================================');
+    console.log('📋 Prompt:', prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''));
+    console.log('========================================\n');
+
+    // Extract coordinates if present
+    const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
+    
+    // Fetch real-world reference data
+    let realWorldData = null;
+    if (realWorldReferenceSystem.isEnabled()) {
+      try {
+        console.log('🔍 Fetching real-world reference data...');
+        realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
+        
+        if (realWorldData) {
+          console.log('✅ Real-world data fetched successfully');
+          console.log('   Wikipedia:', realWorldData.wikipedia ? '✓' : '✗');
+          console.log('   Wikidata:', realWorldData.wikidata ? '✓' : '✗');
+          
+          if (realWorldData.wikidata?.dimensions) {
+            console.log('   Dimensions:', realWorldData.wikidata.dimensions);
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️  Failed to fetch real-world data, continuing without it:', error.message);
+      }
+    }
+
+    // Build context for variant generation
+    const context = {
+      realWorldData,
+      coordinates,
+      ...options,
+    };
+
+    // Generate 3 variants
+    const variants = await multiVariantGenerator.generateVariants(prompt, context);
+
+    console.log('\n========================================');
+    console.log('✅ Multi-Variant Generation Complete');
+    console.log('========================================');
+    console.log(`📊 Generated ${variants.length} variants`);
+    variants.forEach((v, i) => {
+      console.log(`   ${i + 1}. ${v.title}: ${v.name}`);
+    });
+    console.log('========================================\n');
+
+    res.json({
+      success: true,
+      prompt,
+      variants,
+      realWorldData: realWorldData ? {
+        hasWikipedia: !!realWorldData.wikipedia,
+        hasWikidata: !!realWorldData.wikidata,
+        dimensions: realWorldData.wikidata?.dimensions,
+        materials: realWorldData.wikidata?.materials,
+      } : null,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        variantCount: variants.length,
+        hasRealWorldData: !!realWorldData,
+      },
+    });
+  } catch (error) {
+    console.error('Error in multi-variant generation:', error);
+    res.status(500).json({
+      error: 'Failed to generate variants',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 });

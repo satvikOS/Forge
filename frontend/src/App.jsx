@@ -11,6 +11,7 @@ import PropertiesPanel from './components/PropertiesPanel';
 import AdvancedToolbar from './components/AdvancedToolbar';
 import SceneHierarchyPanel from './components/SceneHierarchyPanel';
 import HelpPanel from './components/HelpPanel';
+import VariantSelector from './components/VariantSelector';
 import SceneManager from './systems/SceneManager';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import apiService from './services/api';
@@ -49,6 +50,10 @@ function App() {
   
   // Multiple designs tracking (Issue #27)
   const [designs, setDesigns] = useState([]);
+  
+  // Multi-variant generation state (Phase 1)
+  const [variants, setVariants] = useState([]);
+  const [selectedVariant, setSelectedVariant] = useState(0);
   
   // Environment system reference for scene composition
   const environmentSystemRef = useRef(null);
@@ -242,8 +247,73 @@ function App() {
     setLoading(true);
     setError(null);
     setGenerationProgress(null);
+    setVariants([]); // Clear previous variants
 
     try {
+      // Try multi-variant generation first (Phase 1)
+      console.log('🎨 Attempting multi-variant generation...');
+      setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Generating ultra-realistic variants...'] });
+      
+      const variantResult = await apiService.generateVariants(prompt);
+      
+      if (variantResult.success && variantResult.variants && variantResult.variants.length > 0) {
+        console.log(`✅ Multi-variant generation succeeded: ${variantResult.variants.length} variants`);
+        
+        // Set variants
+        setVariants(variantResult.variants);
+        setSelectedVariant(0); // Select first variant by default
+        
+        // Convert first variant to modelData format
+        const firstVariant = variantResult.variants[0];
+        const modelDataFromVariant = convertVariantToModelData(firstVariant, prompt);
+        setModelData(modelDataFromVariant);
+        
+        // Create a design object from the variant
+        const variantDesign = {
+          specifications: {
+            name: firstVariant.name,
+            description: firstVariant.description,
+            dimensions: firstVariant.dimensions,
+            materials: firstVariant.materials,
+            elements: firstVariant.elements,
+            complexity: firstVariant.metadata?.complexity || 'medium',
+          },
+          model: modelDataFromVariant,
+          id: `variant_${Date.now()}`,
+          createdAt: new Date().toISOString(),
+        };
+        setDesign(variantDesign);
+        
+        // Add to designs array
+        setDesigns(prevDesigns => [...prevDesigns, {
+          id: `design_${Date.now()}`,
+          prompt: prompt,
+          design: variantDesign,
+          modelData: modelDataFromVariant,
+          variants: variantResult.variants,
+          timestamp: Date.now(),
+        }]);
+        
+        setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['Variants generated successfully!'] });
+        
+        // Log real-world data if available
+        if (variantResult.realWorldData) {
+          console.log('📚 Real-world reference data:', variantResult.realWorldData);
+        }
+        
+        return; // Success - don't fall back to standard generation
+      } else {
+        console.warn('⚠️  Multi-variant generation returned no results, falling back to standard generation');
+      }
+    } catch (variantError) {
+      console.warn('⚠️  Multi-variant generation failed, falling back to standard generation:', variantError.message);
+      // Fall through to standard generation
+    }
+
+    // Fallback to standard generation if variants failed
+    try {
+      setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Generating design...'] });
+      
       // Generate design with progress tracking
       const result = await apiService.generateDesign(prompt, (progress) => {
         setGenerationProgress(progress);
@@ -318,6 +388,63 @@ function App() {
         console.error('Failed to cancel job:', err);
       }
     }
+  };
+
+  /**
+   * Convert variant to modelData format for 3D viewer
+   */
+  const convertVariantToModelData = (variant, prompt) => {
+    return {
+      prompt: prompt,
+      variantStyle: variant.style,
+      variantTitle: variant.title,
+      geometry: {
+        type: 'custom',
+        dimensions: variant.dimensions,
+      },
+      materials: variant.materials || [],
+      elements: variant.elements || [],
+      metadata: {
+        ...variant.metadata,
+        name: variant.name,
+        description: variant.description,
+      },
+      timestamp: Date.now(),
+    };
+  };
+
+  /**
+   * Handle variant selection
+   */
+  const handleVariantSelect = (variantIndex) => {
+    if (!variants || variantIndex >= variants.length) return;
+    
+    console.log(`🎨 Switching to variant ${variantIndex + 1}: ${variants[variantIndex].title}`);
+    setSelectedVariant(variantIndex);
+    
+    // Update modelData to reflect selected variant
+    const selectedVariantData = variants[variantIndex];
+    const modelDataFromVariant = convertVariantToModelData(
+      selectedVariantData, 
+      modelData?.prompt || 'Unknown prompt'
+    );
+    setModelData(modelDataFromVariant);
+    
+    // Update design object
+    const variantDesign = {
+      specifications: {
+        name: selectedVariantData.name,
+        description: selectedVariantData.description,
+        dimensions: selectedVariantData.dimensions,
+        materials: selectedVariantData.materials,
+        elements: selectedVariantData.elements,
+        complexity: selectedVariantData.metadata?.complexity || 'medium',
+      },
+      model: modelDataFromVariant,
+      id: `variant_${Date.now()}_${variantIndex}`,
+      createdAt: new Date().toISOString(),
+    };
+    setDesign(variantDesign);
   };
 
   const handleSaveProject = () => {
@@ -732,6 +859,15 @@ function App() {
 
       {/* Bottom Prompt Bar - Floating over canvas */}
       <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+
+      {/* Variant Selector - Display design variants (Phase 1) */}
+      {variants && variants.length > 0 && (
+        <VariantSelector
+          variants={variants}
+          selectedVariant={selectedVariant}
+          onVariantSelect={handleVariantSelect}
+        />
+      )}
 
       {/* Help Panel */}
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
