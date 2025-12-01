@@ -7,21 +7,49 @@ const materialMappingService = require('../services/materialMappingService');
 const ai3DOrchestrator = require('../services/ai3DOrchestrator');
 const creditManager = require('../services/creditManager');
 const apiOrchestrator = require('../services/apiOrchestrator');
-const AxelVoxelEngine = require('../engines/axel/voxelEngine');
 
-// Initialize Axel Voxel Engine
-const axelEngine = new AxelVoxelEngine({
-  enabled: process.env.AXEL_ENABLED !== 'false',
-  resolution: process.env.AXEL_RESOLUTION || 'adaptive',
-  maxVoxels: parseInt(process.env.AXEL_MAX_VOXELS || '100000000'),
-  lodLevels: process.env.AXEL_LOD_LEVELS?.split(',').map(parseFloat) || [1000, 100, 10, 1, 0.1, 0.01],
-  targetTime: parseInt(process.env.AXEL_TARGET_TIME || '10000'),
-  enableMetrology: process.env.AXEL_ENABLE_METROLOGY !== 'false',
-  enableChemical: process.env.AXEL_ENABLE_CHEMICAL !== 'false',
-  enableFlaws: process.env.AXEL_ENABLE_FLAWS !== 'false',
-  enableTooling: process.env.AXEL_ENABLE_TOOLING !== 'false',
-  enableEnvironment: process.env.AXEL_ENABLE_ENVIRONMENT !== 'false'
-});
+// Lazy-load Axel Voxel Engine to prevent deployment issues
+let AxelVoxelEngine;
+let axelEngine = null;
+
+/**
+ * Initialize Axel engine on first use (lazy loading)
+ */
+function getAxelEngine() {
+  if (axelEngine !== null) {
+    return axelEngine;
+  }
+  
+  try {
+    if (!AxelVoxelEngine) {
+      AxelVoxelEngine = require('../engines/axel/voxelEngine');
+    }
+    
+    axelEngine = new AxelVoxelEngine({
+      enabled: process.env.AXEL_ENABLED !== 'false',
+      resolution: process.env.AXEL_RESOLUTION || 'adaptive',
+      maxVoxels: parseInt(process.env.AXEL_MAX_VOXELS || '100000000'),
+      lodLevels: process.env.AXEL_LOD_LEVELS?.split(',').map(parseFloat) || [1000, 100, 10, 1, 0.1, 0.01],
+      targetTime: parseInt(process.env.AXEL_TARGET_TIME || '10000'),
+      enableMetrology: process.env.AXEL_ENABLE_METROLOGY !== 'false',
+      enableChemical: process.env.AXEL_ENABLE_CHEMICAL !== 'false',
+      enableFlaws: process.env.AXEL_ENABLE_FLAWS !== 'false',
+      enableTooling: process.env.AXEL_ENABLE_TOOLING !== 'false',
+      enableEnvironment: process.env.AXEL_ENABLE_ENVIRONMENT !== 'false'
+    });
+    
+    console.log('✅ Axel Voxel Engine initialized successfully');
+    return axelEngine;
+  } catch (error) {
+    console.error('❌ Failed to initialize Axel Voxel Engine:', error.message);
+    // Return a mock engine that's disabled
+    axelEngine = {
+      isEnabled: () => false,
+      analyzeAndReplicate: async () => null
+    };
+    return axelEngine;
+  }
+}
 
 /**
  * POST /api/generate
@@ -345,6 +373,7 @@ async function processGenerationJob(jobId, prompt, options) {
     // Stage 3.5: Axel Voxel Engine Analysis (Phase 2)
     console.log('--- 🔬 Stage 3.5: Axel Voxel Analysis ---');
     let axelAnalysis = null;
+    const axelEngine = getAxelEngine(); // Lazy load Axel engine
     if (axelEngine.isEnabled()) {
       try {
         jobQueue.updateProgress(jobId, 'analyzing-voxels', 10);
