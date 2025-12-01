@@ -4,9 +4,9 @@ import './VariantSelector.css';
 /**
  * VariantSelector Component
  * Displays 3 ultra-realistic design variants in a professional grid layout
- * Allows users to select between different design options
+ * Allows users to select between different design options and create the design
  */
-function VariantSelector({ variants, selectedVariant, onVariantSelect }) {
+function VariantSelector({ variants, selectedVariant, onVariantSelect, onCreateDesign, isCreating }) {
   if (!variants || variants.length === 0) {
     return null;
   }
@@ -19,6 +19,12 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect }) {
         return '#2196F3';
       case 'artistic-quality':
         return '#FF9800';
+      case 'ethereal-fantasy':
+        return '#9C27B0';
+      case 'biomechanical-complex':
+        return '#FF5722';
+      case 'cosmic-surreal':
+        return '#00BCD4';
       default:
         return '#757575';
     }
@@ -35,11 +41,13 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect }) {
     return materials.slice(0, 3).join(', ') + (materials.length > 3 ? '...' : '');
   };
 
+  const selectedVariantData = variants[selectedVariant];
+
   return (
     <div className="variant-selector">
       <div className="variant-selector-header">
         <h3>🎨 Design Variants</h3>
-        <p>Select your preferred design option</p>
+        <p>Select your preferred design option, then click Create Design</p>
       </div>
       
       <div className="variant-grid">
@@ -108,12 +116,43 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect }) {
                         <strong>Features:</strong> {variant.details.structuralFeatures.slice(0, 2).join(', ')}
                       </div>
                     )}
+                    {variant.details.fantasyFeatures && variant.details.fantasyFeatures.length > 0 && (
+                      <div className="detail-section">
+                        <strong>Fantasy Features:</strong> {variant.details.fantasyFeatures.slice(0, 2).join(', ')}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* Create Design Action Button */}
+      <div className="variant-selector-actions">
+        <button
+          className="create-design-button"
+          onClick={onCreateDesign}
+          disabled={isCreating}
+        >
+          {isCreating ? (
+            <>
+              <span className="spinner">⏳</span>
+              Creating 3D Model...
+            </>
+          ) : (
+            <>
+              <span className="icon">🎯</span>
+              Create Design: {selectedVariantData?.title}
+            </>
+          )}
+        </button>
+        {selectedVariantData?.fantasyMode && (
+          <p className="fantasy-notice">
+            ✨ Fantasy mode: This design will use imaginative elements and may include impossible geometry
+          </p>
+        )}
       </div>
     </div>
   );
@@ -135,10 +174,17 @@ VariantSelector.propTypes = {
       elements: PropTypes.array,
       details: PropTypes.object,
       metadata: PropTypes.object,
+      fantasyMode: PropTypes.bool,
     })
   ).isRequired,
   selectedVariant: PropTypes.number.isRequired,
   onVariantSelect: PropTypes.func.isRequired,
+  onCreateDesign: PropTypes.func.isRequired,
+  isCreating: PropTypes.bool,
+};
+
+VariantSelector.defaultProps = {
+  isCreating: false,
 };
 
 export default VariantSelector;

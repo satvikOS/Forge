@@ -193,6 +193,76 @@
   line-height: 1.5;
 }
 
+/* Action Button Section */
+.variant-selector-actions {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: rgba(20, 20, 30, 0.9);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: center;
+}
+
+.create-design-button {
+  width: 100%;
+  max-width: 400px;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.create-design-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+}
+
+.create-design-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.create-design-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #555 0%, #666 100%);
+}
+
+.create-design-button .icon {
+  font-size: 1.3rem;
+}
+
+.create-design-button .spinner {
+  font-size: 1.3rem;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fantasy-notice {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-style: italic;
+}
+
 .detail-section strong {
   color: rgba(255, 255, 255, 0.9);
   font-weight: 600;

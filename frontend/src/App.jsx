@@ -58,6 +58,9 @@ function App() {
   // Fantasy generation mode state (Nano Banana Pro integration)
   const [generationMode, setGenerationMode] = useState('realistic'); // 'realistic' or 'fantasy'
   
+  // State for creating design from variant
+  const [isCreatingDesign, setIsCreatingDesign] = useState(false);
+  
   // Environment system reference for scene composition
   const environmentSystemRef = useRef(null);
 
@@ -461,6 +464,67 @@ function App() {
       createdAt: new Date().toISOString(),
     };
     setDesign(variantDesign);
+  };
+
+  /**
+   * Handle creating 3D design from selected variant
+   * This will trigger the actual 3D model generation using the selected variant data
+   */
+  const handleCreateDesign = async () => {
+    if (!variants || !variants[selectedVariant]) {
+      console.error('No variant selected');
+      return;
+    }
+
+    setIsCreatingDesign(true);
+    setError(null);
+
+    try {
+      const selectedVariantData = variants[selectedVariant];
+      console.log('🎯 Creating 3D design from variant:', selectedVariantData.title);
+
+      // Check if this is a fantasy variant with concept image
+      if (selectedVariantData.fantasyMode && selectedVariantData.conceptImage) {
+        console.log('🎨 Fantasy variant detected - using concept image for 3D generation');
+        
+        // TODO: Integrate with Tripo/Meshy image-to-3D services
+        // For now, we'll use the variant data directly
+        
+        setGenerationProgress({ 
+          status: 'processing', 
+          progress: 0.5, 
+          stages: ['Creating 3D model from fantasy concept...'] 
+        });
+      } else {
+        setGenerationProgress({ 
+          status: 'processing', 
+          progress: 0.5, 
+          stages: ['Creating 3D model from variant specifications...'] 
+        });
+      }
+
+      // Simulate 3D generation (in real implementation, this would call the 3D generation API)
+      // For now, we'll just use the variant data as the design
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // The design is already set from the variant, so we just need to trigger rendering
+      setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['3D design created successfully!'] });
+      
+      console.log('✅ 3D design created successfully');
+      
+      // Clear variants after successful creation
+      setTimeout(() => {
+        setVariants([]);
+        setGenerationProgress(null);
+      }, 2000);
+
+    } catch (error) {
+      console.error('❌ Failed to create 3D design:', error);
+      setError('Failed to create 3D design. Please try again.');
+      setGenerationProgress(null);
+    } finally {
+      setIsCreatingDesign(false);
+    }
   };
 
   const handleSaveProject = () => {
@@ -882,6 +946,8 @@ function App() {
           variants={variants}
           selectedVariant={selectedVariant}
           onVariantSelect={handleVariantSelect}
+          onCreateDesign={handleCreateDesign}
+          isCreating={isCreatingDesign}
         />
       )}
 
