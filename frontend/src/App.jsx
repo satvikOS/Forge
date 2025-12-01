@@ -937,8 +937,10 @@ function App() {
         onAction={handleContextAction}
       />
 
-      {/* Bottom Prompt Bar - Floating over canvas */}
-      <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+      {/* Bottom Prompt Bar - Floating over canvas - Hidden when variants are showing */}
+      {(!variants || variants.length === 0) && (
+        <BottomPromptBar onSubmit={handleGenerateDesign} loading={loading} />
+      )}
 
       {/* Variant Selector - Display design variants (Phase 1) */}
       {variants && variants.length > 0 && (

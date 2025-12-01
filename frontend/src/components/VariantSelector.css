@@ -4,64 +4,61 @@
    ========================================== */
 
 .variant-selector {
-  width: 100%;
-  padding: 1rem;
-  margin: 1rem 0;
-  background: rgba(20, 20, 30, 0.8);
-  border-radius: 12px;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 700px;
+  padding: 0;
+  margin: 0;
+  z-index: 1000;
 }
 
 .variant-selector-header {
-  margin-bottom: 1.5rem;
-  text-align: center;
-}
-
-.variant-selector-header h3 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #ffffff;
-}
-
-.variant-selector-header p {
-  margin: 0;
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.6);
+  display: none;
 }
 
 /* Variant Grid Layout */
 .variant-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1rem;
+  display: flex;
+  gap: 0.75rem;
   width: 100%;
+  justify-content: center;
 }
 
-/* Variant Card */
+/* Variant Card - Compact glassmorphic design */
 .variant-card {
   position: relative;
-  background: rgba(30, 30, 40, 0.9);
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 1.5rem;
+  background: rgba(15, 15, 15, 0.75);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 1rem;
   cursor: pointer;
   transition: all 0.3s ease;
   overflow: hidden;
+  flex: 1;
+  max-width: 200px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .variant-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(100, 150, 255, 0.5);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  background: rgba(35, 35, 50, 0.95);
+  transform: translateY(-2px);
+  border-color: rgba(255, 107, 53, 0.4);
+  box-shadow: 0 12px 40px rgba(255, 107, 53, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  background: rgba(25, 25, 25, 0.85);
+  backdrop-filter: blur(35px) saturate(200%);
+  -webkit-backdrop-filter: blur(35px) saturate(200%);
 }
 
 .variant-card.selected {
-  border-color: rgba(100, 150, 255, 0.8);
-  background: rgba(40, 40, 55, 1);
-  box-shadow: 0 0 20px rgba(100, 150, 255, 0.3);
+  border-color: rgba(255, 107, 53, 0.6);
+  background: rgba(25, 25, 25, 0.9);
+  box-shadow: 0 12px 40px rgba(255, 107, 53, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(35px) saturate(200%);
+  -webkit-backdrop-filter: blur(35px) saturate(200%);
 }
 
 .variant-card:focus {
@@ -72,36 +69,36 @@
 /* Style Badge */
 .variant-badge {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.75rem;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.65rem;
   font-weight: 600;
   color: white;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* Selected Indicator */
 .variant-selected-indicator {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, #4CAF50, #45a049);
+  top: 0.5rem;
+  left: 0.5rem;
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(135deg, #ff6b35, #ff8555);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 12px rgba(76, 175, 80, 0.5);
+  box-shadow: 0 2px 12px rgba(255, 107, 53, 0.5);
   animation: checkmarkPulse 0.4s ease-out;
 }
 
 .checkmark {
-  font-size: 1.2rem;
+  font-size: 0.8rem;
   color: white;
   font-weight: bold;
 }
@@ -120,130 +117,116 @@
   }
 }
 
-/* Variant Content */
+/* Variant Content - Compact */
 .variant-content {
-  margin-top: 2.5rem;
+  margin-top: 1.75rem;
 }
 
 .variant-name {
-  margin: 0 0 0.75rem 0;
-  font-size: 1.25rem;
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #ffffff;
-  line-height: 1.3;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .variant-description {
-  margin: 0 0 1rem 0;
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.7);
-  line-height: 1.5;
+  display: none;
 }
 
-/* Metadata Section */
+/* Metadata Section - Compact */
 .variant-metadata {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin: 1rem 0;
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 0.4rem;
+  margin: 0.5rem 0 0 0;
 }
 
 .metadata-item {
-  display: grid;
-  grid-template-columns: 32px 1fr auto;
-  gap: 0.5rem;
+  display: flex;
   align-items: center;
+  gap: 0.3rem;
 }
 
 .metadata-icon {
-  font-size: 1.2rem;
-  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.7;
 }
 
 .metadata-label {
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.5);
-  font-weight: 500;
+  display: none;
 }
 
 .metadata-value {
-  font-size: 0.85rem;
+  font-size: 0.7rem;
   color: rgba(255, 255, 255, 0.9);
-  font-weight: 600;
-  text-align: right;
-  padding: 0.25rem 0.5rem;
-  background: rgba(100, 150, 255, 0.1);
-  border-radius: 4px;
+  font-weight: 500;
+  padding: 0.15rem 0.4rem;
+  background: rgba(255, 107, 53, 0.15);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 107, 53, 0.3);
 }
 
-/* Details Section */
+/* Details Section - Hidden */
 .variant-details {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: none;
 }
 
-.detail-section {
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.7);
-  line-height: 1.5;
-}
-
-/* Action Button Section */
+/* Action Button Section - Compact glassmorphic style */
 .variant-selector-actions {
-  margin-top: 2rem;
-  padding: 1.5rem;
-  background: rgba(20, 20, 30, 0.9);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  text-align: center;
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .create-design-button {
-  width: 100%;
-  max-width: 400px;
-  padding: 1rem 2rem;
-  font-size: 1.1rem;
+  padding: 0 16px;
+  height: 36px;
+  font-size: 0.8rem;
   font-weight: 600;
   color: white;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #ff6b35 0%, #ff8555 100%);
   border: none;
-  border-radius: 8px;
+  border-radius: 18px;
   cursor: pointer;
   transition: all 0.3s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  gap: 0.4rem;
+  box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  white-space: nowrap;
 }
 
 .create-design-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.5);
 }
 
 .create-design-button:active:not(:disabled) {
-  transform: translateY(0);
+  transform: scale(1);
 }
 
 .create-design-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
-  background: linear-gradient(135deg, #555 0%, #666 100%);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .create-design-button .icon {
-  font-size: 1.3rem;
+  font-size: 1rem;
 }
 
 .create-design-button .spinner {
-  font-size: 1.3rem;
+  font-size: 1rem;
   animation: spin 1s linear infinite;
 }
 
@@ -257,10 +240,7 @@
 }
 
 .fantasy-notice {
-  margin-top: 1rem;
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.7);
-  font-style: italic;
+  display: none;
 }
 
 .detail-section strong {
@@ -269,38 +249,37 @@
 }
 
 /* Responsive Design */
-@media (max-width: 1024px) {
-  .variant-grid {
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  }
-}
-
 @media (max-width: 768px) {
   .variant-selector {
-    padding: 0.75rem;
+    width: 95%;
   }
 
   .variant-grid {
-    grid-template-columns: 1fr;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   .variant-card {
-    padding: 1rem;
+    padding: 0.75rem;
+    max-width: 180px;
   }
 
   .variant-badge {
-    font-size: 0.7rem;
-    padding: 0.3rem 0.6rem;
+    font-size: 0.6rem;
+    padding: 0.2rem 0.4rem;
   }
 
   .variant-name {
-    font-size: 1.1rem;
+    font-size: 0.75rem;
   }
 
-  .metadata-item {
-    grid-template-columns: 28px 1fr auto;
-    gap: 0.4rem;
+  .metadata-value {
+    font-size: 0.65rem;
+  }
+
+  .create-design-button {
+    font-size: 0.75rem;
+    height: 32px;
+    padding: 0 12px;
   }
 }
 

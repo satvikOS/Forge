@@ -45,11 +45,6 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect, onCreateD
 
   return (
     <div className="variant-selector">
-      <div className="variant-selector-header">
-        <h3>🎨 Design Variants</h3>
-        <p>Select your preferred design option, then click Create Design</p>
-      </div>
-      
       <div className="variant-grid">
         {variants.map((variant, index) => {
           const isSelected = selectedVariant === index;
@@ -80,49 +75,22 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect, onCreateD
                 </div>
               )}
               
-              {/* Variant Content */}
+              {/* Variant Content - Simplified */}
               <div className="variant-content">
                 <h4 className="variant-name">{variant.name}</h4>
-                <p className="variant-description">{variant.description}</p>
                 
-                {/* Metadata */}
+                {/* Metadata - Only essential info */}
                 <div className="variant-metadata">
                   <div className="metadata-item">
                     <span className="metadata-icon">📏</span>
-                    <span className="metadata-label">Dimensions</span>
                     <span className="metadata-value">{formatDimensions(variant.dimensions)}</span>
                   </div>
                   
                   <div className="metadata-item">
                     <span className="metadata-icon">🏗️</span>
-                    <span className="metadata-label">Materials</span>
                     <span className="metadata-value">{formatMaterials(variant.materials)}</span>
                   </div>
-                  
-                  {variant.metadata?.complexity && (
-                    <div className="metadata-item">
-                      <span className="metadata-icon">⚙️</span>
-                      <span className="metadata-label">Complexity</span>
-                      <span className="metadata-value">{variant.metadata.complexity}</span>
-                    </div>
-                  )}
                 </div>
-                
-                {/* Details Preview */}
-                {variant.details && (
-                  <div className="variant-details">
-                    {variant.details.structuralFeatures && variant.details.structuralFeatures.length > 0 && (
-                      <div className="detail-section">
-                        <strong>Features:</strong> {variant.details.structuralFeatures.slice(0, 2).join(', ')}
-                      </div>
-                    )}
-                    {variant.details.fantasyFeatures && variant.details.fantasyFeatures.length > 0 && (
-                      <div className="detail-section">
-                        <strong>Fantasy Features:</strong> {variant.details.fantasyFeatures.slice(0, 2).join(', ')}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           );
@@ -139,20 +107,15 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect, onCreateD
           {isCreating ? (
             <>
               <span className="spinner">⏳</span>
-              Creating 3D Model...
+              Creating...
             </>
           ) : (
             <>
               <span className="icon">🎯</span>
-              Create Design: {selectedVariantData?.title}
+              Create: {selectedVariantData?.title}
             </>
           )}
         </button>
-        {selectedVariantData?.fantasyMode && (
-          <p className="fantasy-notice">
-            ✨ Fantasy mode: This design will use imaginative elements and may include impossible geometry
-          </p>
-        )}
       </div>
     </div>
   );
