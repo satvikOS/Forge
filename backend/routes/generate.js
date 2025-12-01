@@ -735,4 +735,108 @@ router.post('/variants', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/generate/fantasy-variants
+ * Fantasy/Unrealistic multi-variant generation with image generation support
+ * Uses Gemini Image Generation (Nano Banana Pro) for concept images
+ */
+router.post('/fantasy-variants', async (req, res) => {
+  try {
+    const { prompt, options = {} } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    if (prompt.length < 2) {
+      return res.status(400).json({ error: 'Prompt too short. Please provide a more detailed description.' });
+    }
+
+    if (prompt.length > 2000) {
+      return res.status(400).json({ error: 'Prompt too long. Please keep it under 2000 characters.' });
+    }
+
+    // Check if multi-variant generator is enabled
+    if (!multiVariantGenerator.isEnabled()) {
+      return res.status(503).json({
+        error: 'Fantasy variant generation is not enabled',
+        message: 'Please configure GEMINI_API_KEY in backend environment',
+      });
+    }
+
+    console.log('\n========================================');
+    console.log('🎨 Fantasy/Unrealistic Variant Generation Request');
+    console.log('🎭 Using Nano Banana Pro (Gemini Image Generation)');
+    console.log('========================================');
+    console.log('📋 Prompt:', prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''));
+    console.log('========================================\n');
+
+    // Extract coordinates if present (for hybrid fantasy-realism)
+    const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
+    
+    // Optionally fetch real-world reference data for hybrid designs
+    let realWorldData = null;
+    if (options.useRealWorldBase && realWorldReferenceSystem.isEnabled()) {
+      try {
+        console.log('🔍 Fetching real-world reference for hybrid fantasy design...');
+        realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
+        
+        if (realWorldData) {
+          console.log('✅ Real-world base data fetched for fantasy transformation');
+        }
+      } catch (error) {
+        console.warn('⚠️  Failed to fetch real-world data for hybrid design:', error.message);
+      }
+    }
+
+    // Build context for fantasy variant generation
+    const context = {
+      realWorldData: options.useRealWorldBase ? realWorldData : null,
+      coordinates,
+      fantasyMode: true,
+      ...options,
+    };
+
+    // Generate fantasy variants with image support
+    const variants = await multiVariantGenerator.generateFantasyVariants(prompt, context);
+
+    console.log('\n========================================');
+    console.log('✅ Fantasy Variant Generation Complete');
+    console.log('========================================');
+    console.log(`📊 Generated ${variants.length} fantasy variants`);
+    variants.forEach((v, i) => {
+      console.log(`   ${i + 1}. ${v.title}: ${v.name}`);
+      if (v.conceptImage && v.conceptImage.success) {
+        console.log(`      🎨 With concept image description`);
+      }
+    });
+    console.log('========================================\n');
+
+    res.json({
+      success: true,
+      prompt,
+      variants,
+      fantasyMode: true,
+      realWorldData: realWorldData ? {
+        usedAsBase: true,
+        hasWikipedia: !!realWorldData.wikipedia,
+        hasWikidata: !!realWorldData.wikidata,
+      } : null,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        variantCount: variants.length,
+        hasConceptImages: variants.filter(v => v.conceptImage && v.conceptImage.success).length,
+        generationType: 'fantasy-unrealistic',
+      },
+    });
+  } catch (error) {
+    console.error('Error in fantasy variant generation:', error);
+    res.status(500).json({
+      error: 'Failed to generate fantasy variants',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
 module.exports = router;

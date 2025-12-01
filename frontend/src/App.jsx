@@ -55,6 +55,9 @@ function App() {
   const [variants, setVariants] = useState([]);
   const [selectedVariant, setSelectedVariant] = useState(0);
   
+  // Fantasy generation mode state (Nano Banana Pro integration)
+  const [generationMode, setGenerationMode] = useState('realistic'); // 'realistic' or 'fantasy'
+  
   // Environment system reference for scene composition
   const environmentSystemRef = useRef(null);
 
@@ -250,14 +253,21 @@ function App() {
     setVariants([]); // Clear previous variants
 
     try {
-      // Try multi-variant generation first (Phase 1)
-      console.log('🎨 Attempting multi-variant generation...');
-      setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Generating ultra-realistic variants...'] });
+      // Determine which generation mode to use
+      const isFantasyMode = generationMode === 'fantasy';
+      const generationAPI = isFantasyMode ? 'generateFantasyVariants' : 'generateVariants';
       
-      const variantResult = await apiService.generateVariants(prompt);
+      console.log(`🎨 Attempting ${isFantasyMode ? 'fantasy' : 'realistic'} multi-variant generation...`);
+      setGenerationProgress({ 
+        status: 'processing', 
+        progress: 0.1, 
+        stages: [isFantasyMode ? 'Generating fantasy variants with Nano Banana Pro...' : 'Generating ultra-realistic variants...'] 
+      });
+      
+      const variantResult = await apiService[generationAPI](prompt);
       
       if (variantResult.success && variantResult.variants && variantResult.variants.length > 0) {
-        console.log(`✅ Multi-variant generation succeeded: ${variantResult.variants.length} variants`);
+        console.log(`✅ ${isFantasyMode ? 'Fantasy' : 'Realistic'} multi-variant generation succeeded: ${variantResult.variants.length} variants`);
         
         // Set variants
         setVariants(variantResult.variants);
@@ -265,7 +275,7 @@ function App() {
         
         // Convert first variant to modelData format
         const firstVariant = variantResult.variants[0];
-        const modelDataFromVariant = convertVariantToModelData(firstVariant, prompt);
+        const modelDataFromVariant = convertVariantToModelData(firstVariant, prompt, isFantasyMode);
         setModelData(modelDataFromVariant);
         
         // Create a design object from the variant
@@ -393,11 +403,14 @@ function App() {
   /**
    * Convert variant to modelData format for 3D viewer
    */
-  const convertVariantToModelData = (variant, prompt) => {
+  const convertVariantToModelData = (variant, prompt, isFantasyMode = false) => {
     return {
       prompt: prompt,
       variantStyle: variant.style,
       variantTitle: variant.title,
+      fantasyMode: isFantasyMode || variant.fantasyMode || false,
+      conceptImage: variant.conceptImage || null,
+      imageDescription: variant.imageDescription || null,
       geometry: {
         type: 'custom',
         dimensions: variant.dimensions,
@@ -408,6 +421,7 @@ function App() {
         ...variant.metadata,
         name: variant.name,
         description: variant.description,
+        generationMode: isFantasyMode ? 'fantasy' : 'realistic',
       },
       timestamp: Date.now(),
     };
@@ -424,9 +438,11 @@ function App() {
     
     // Update modelData to reflect selected variant
     const selectedVariantData = variants[variantIndex];
+    const isFantasyMode = selectedVariantData.fantasyMode || generationMode === 'fantasy';
     const modelDataFromVariant = convertVariantToModelData(
       selectedVariantData, 
-      modelData?.prompt || 'Unknown prompt'
+      modelData?.prompt || 'Unknown prompt',
+      isFantasyMode
     );
     setModelData(modelDataFromVariant);
     
