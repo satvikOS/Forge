@@ -1,6 +1,13 @@
 # ArchDisc Environment Setup Guide
 
-Complete guide for configuring environment variables across all phases of ArchDisc development.
+**Complete Pipeline Configuration** - From basic variants to micron-level perfection
+
+This guide covers **all phases** of ArchDisc, including:
+- Phase 1: Multi-variant generation (Core AI)
+- Phase 2: Axel 3D Voxel Engine (Micron-level analysis)
+- Phase 3: Full 3D model generation
+- Phase 4: Real-world data enrichment (Wikipedia, OpenStreetMap, OpenMeteo, Mapbox, Mapillary)
+- Phase 5: Vertex AI integration (Photorealistic perfection)
 
 ---
 
@@ -9,8 +16,10 @@ Complete guide for configuring environment variables across all phases of ArchDi
 1. [Quick Start](#quick-start)
 2. [Phase-by-Phase Setup](#phase-by-phase-setup)
 3. [API Key Acquisition](#api-key-acquisition)
-4. [Vercel Deployment](#vercel-deployment)
-5. [Troubleshooting](#troubleshooting)
+4. [Complete Pipeline Configuration](#complete-pipeline-configuration)
+5. [Vercel Deployment](#vercel-deployment)
+6. [Cost Breakdown](#cost-breakdown)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -53,6 +62,41 @@ AXEL_ENABLED=true
 ```
 
 **Result:** Full pipeline with micron-level analysis and unprecedented realism.
+
+### Complete Pipeline (All Phases - Micron-Level Perfection)
+
+```env
+# Phase 1: Core AI
+GEMINI_API_KEY=your_actual_key_here
+
+# Phase 3: 3D Generation
+TRIPO_API_KEY=your_actual_key_here
+
+# Phase 2: Axel Engine
+AXEL_ENABLED=true
+
+# Phase 4: Real-World Data (ALL FREE - No keys needed!)
+ENABLE_ORCHESTRATOR=true
+ENABLE_WIKIPEDIA=true
+ENABLE_WIKIDATA=true
+ENABLE_WIKIMEDIA=true
+ENABLE_OVERPASS=true
+ENABLE_OPEN_ELEVATION=true
+ENABLE_OPEN_METEO=true
+
+# Phase 4: Enhanced Geographic Data (Optional)
+MAPBOX_ACCESS_TOKEN=your_mapbox_token_here
+MAPBOX_ENABLED=true
+MAPILLARY_CLIENT_ID=your_mapillary_client_id_here
+MAPILLARY_ENABLED=true
+
+# Phase 5: Google Vertex AI (Optional - Ultimate Quality)
+GOOGLE_CLOUD_PROJECT_ID=your_gcp_project_id
+GOOGLE_APPLICATION_CREDENTIALS=./config/vertex-ai-key.json
+ENABLE_VERTEX_AI=true
+```
+
+**Result:** Complete ArchDisc pipeline with real-world data enrichment, photorealistic rendering, and micron-level precision.
 
 ---
 
@@ -219,31 +263,287 @@ System automatically selects best service based on prompt complexity and budget.
 
 ---
 
-### 4. Optional Enhancements
+### 4. Phase 4: Real-World Data Enrichment (FREE - No Keys Needed!)
+
+All of these services are **completely free** with no API keys required:
+
+#### Wikipedia API
+**What it provides:** Historical context, construction dates, materials, dimensions
+**Cost:** FREE - Unlimited (rate limit: 200 req/sec)
+**Setup:** Already enabled by default
+```env
+ENABLE_WIKIPEDIA=true
+```
+
+#### Wikidata API
+**What it provides:** Precise measurements, GPS coordinates, architectural styles
+**Cost:** FREE - Unlimited (rate limit: 500 req/sec)
+**Setup:** Already enabled by default
+```env
+ENABLE_WIKIDATA=true
+```
+
+#### Wikimedia Commons
+**What it provides:** High-resolution photos for photogrammetry and texture analysis
+**Cost:** FREE - Unlimited image access
+**Setup:** Already enabled by default
+```env
+ENABLE_WIKIMEDIA=true
+```
+
+#### OpenStreetMap (Overpass API)
+**What it provides:** Building footprints, heights, materials, street layouts, POI data
+**Cost:** FREE - Unlimited (rate limit: 2 req/sec - be respectful)
+**Setup:** Already enabled by default
+```env
+ENABLE_OVERPASS=true
+```
+
+#### Open-Elevation API
+**What it provides:** DEM data for terrain modeling, slope analysis
+**Cost:** FREE - Unlimited requests
+**Setup:** Already enabled by default
+```env
+ENABLE_OPEN_ELEVATION=true
+```
+
+#### Open-Meteo API
+**What it provides:** Historical weather, solar position, atmospheric conditions
+**Cost:** FREE - 10,000 requests/day (no key needed)
+**Setup:** Already enabled by default
+```env
+ENABLE_OPEN_METEO=true
+```
+
+---
+
+### 5. Phase 4 Enhanced: Mapbox & Mapillary (Optional but Recommended)
+
+#### Mapbox (High-Resolution Geographic Data)
+**URL:** https://account.mapbox.com/access-tokens/
+
+**What it provides:**
+- High-resolution satellite imagery
+- 3D terrain with elevation data
+- Building footprints and heights
+- Vector tiles for street networks
+
+**Cost:**
+- FREE tier: 50,000 tile requests/month
+- Paid: $5 per 1,000 requests after free tier
+
+**Steps:**
+1. Sign up at https://account.mapbox.com
+2. Go to **Tokens** in your dashboard
+3. Click "Create a token"
+4. Copy the access token
+5. Add to `.env`:
+```env
+MAPBOX_ACCESS_TOKEN=pk.eyJ1...your_token_here
+MAPBOX_ENABLED=true
+```
+
+---
+
+#### Mapillary (Street-Level Imagery)
+**URL:** https://www.mapillary.com/dashboard/developers
+
+**What it provides:**
+- Street-level photos of building facades
+- Architectural detail analysis
+- Real-world reference images for textures
+
+**Cost:** FREE - Unlimited API access
+
+**Steps:**
+1. Sign up at https://www.mapillary.com
+2. Go to **Dashboard** → **Developers**
+3. Create new application
+4. Copy Client ID
+5. Add to `.env`:
+```env
+MAPILLARY_CLIENT_ID=your_client_id_here
+MAPILLARY_ENABLED=true
+```
+
+---
+
+### 6. Phase 5: Google Cloud Vertex AI (Ultimate Quality - Optional)
+
+**URL:** https://console.cloud.google.com/
+
+**What it provides:**
+- Imagen 3: Photorealistic concept images
+- Custom Vision Models: Material texture analysis
+- AutoML: Training on architectural styles
+
+**Cost:**
+- FREE: $300 credit for 90 days (new accounts)
+- After free tier: $0.002 per Imagen generation
+
+**Setup Steps:**
+
+1. **Create GCP Project:**
+   - Go to https://console.cloud.google.com/projectcreate
+   - Create new project (e.g., "archdisc-vertex-ai")
+   - Note your Project ID
+
+2. **Enable Vertex AI API:**
+   - Go to https://console.cloud.google.com/apis/library/aiplatform.googleapis.com
+   - Click "Enable"
+   - Wait for API to activate
+
+3. **Create Service Account:**
+   - Go to https://console.cloud.google.com/iam-admin/serviceaccounts
+   - Click "Create Service Account"
+   - Name: "archdisc-vertex-ai"
+   - Grant role: "Vertex AI User"
+   - Click "Done"
+
+4. **Download JSON Key:**
+   - Click on the service account
+   - Go to "Keys" tab
+   - Click "Add Key" → "Create new key"
+   - Choose JSON format
+   - Save as `vertex-ai-key.json`
+
+5. **Place Key File:**
+   ```bash
+   mkdir -p backend/config
+   mv ~/Downloads/vertex-ai-key.json backend/config/
+   ```
+
+6. **Add to `.env`:**
+   ```env
+   GOOGLE_CLOUD_PROJECT_ID=your-project-id
+   VERTEX_AI_LOCATION=us-central1
+   VERTEX_IMAGEN_MODEL=imagegeneration@006
+   GOOGLE_APPLICATION_CREDENTIALS=./config/vertex-ai-key.json
+   ENABLE_VERTEX_AI=true
+   ```
+
+7. **Enable Billing:**
+   - Go to https://console.cloud.google.com/billing
+   - Link billing account (required even for free tier)
+   - You get $300 free credit for 90 days
+
+---
+
+### 7. Optional Enhancements
 
 #### Sketchfab (3D Model References)
 **URL:** https://sketchfab.com/settings/password
+
+**What it provides:** Reference 3D models for architectural elements and styles
+
+**Cost:**
+- FREE: Browse and download CC-licensed models
+- Paid: $15/month for premium access
 
 ```env
 SKETCHFAB_API_TOKEN=your_token_here
 SKETCHFAB_ENABLED=true
 ```
 
-#### Mapbox (Geographic Data)
-**URL:** https://account.mapbox.com/access-tokens/
+---
 
+## 💰 Complete Pipeline Configuration
+
+### Configuration A: Minimum (FREE)
+**Cost: $0/month**
 ```env
+GEMINI_API_KEY=your_key_here
+```
+**What you get:** Design variants and specifications
+
+---
+
+### Configuration B: Full 3D (Mostly FREE)
+**Cost: $0-5/month depending on usage**
+```env
+GEMINI_API_KEY=your_key_here
+TRIPO_API_KEY=your_key_here
+AXEL_ENABLED=true
+# All Phase 4 FREE APIs enabled by default
+```
+**What you get:** Complete 3D generation with free data enrichment
+
+---
+
+### Configuration C: Enhanced Geographic Data
+**Cost: $0-10/month**
+```env
+# Configuration B + 
 MAPBOX_ACCESS_TOKEN=your_token_here
 MAPBOX_ENABLED=true
-```
-
-#### Mapillary (Street-Level Imagery)
-**URL:** https://www.mapillary.com/dashboard/developers
-
-```env
 MAPILLARY_CLIENT_ID=your_client_id_here
 MAPILLARY_ENABLED=true
 ```
+**What you get:** High-res satellite imagery and street-level facade analysis
+
+---
+
+### Configuration D: Ultimate Perfection (Complete Pipeline)
+**Cost: $0-20/month (or free with $300 GCP credit)**
+```env
+# Configuration C +
+GOOGLE_CLOUD_PROJECT_ID=your_project_id
+GOOGLE_APPLICATION_CREDENTIALS=./config/vertex-ai-key.json
+ENABLE_VERTEX_AI=true
+```
+**What you get:** Micron-level perfection with photorealistic AI rendering
+
+---
+
+## 💵 Cost Breakdown
+
+### FREE Services (Unlimited)
+- ✅ Gemini API: 60 req/min, 1,500 req/day
+- ✅ Wikipedia: Unlimited
+- ✅ Wikidata: Unlimited
+- ✅ Wikimedia Commons: Unlimited
+- ✅ OpenStreetMap: Unlimited (2 req/sec)
+- ✅ Open-Elevation: Unlimited
+- ✅ Open-Meteo: 10,000 req/day
+- ✅ Mapillary: Unlimited
+- ✅ Axel Engine: No external costs
+
+### Paid Services (Free Tiers Available)
+
+**Tripo AI:**
+- FREE: 300 credits/month (~15-30 models)
+- Paid: $0.05-$0.20 per model after free tier
+
+**Meshy AI:**
+- FREE: 200 credits/month (~7-10 models)
+- Paid: $0.10-$0.30 per model after free tier
+
+**Mapbox:**
+- FREE: 50,000 tile requests/month
+- Paid: $5 per 1,000 requests
+
+**Sketchfab:**
+- FREE: Browse CC models
+- Paid: $15/month premium
+
+**Google Vertex AI:**
+- FREE: $300 credit for 90 days (new accounts)
+- Paid: $0.002 per Imagen generation
+
+### Monthly Cost Estimates
+
+**Light Usage (5-10 models/month):**
+- Cost: **$0** (free tiers sufficient)
+
+**Moderate Usage (20-30 models/month):**
+- Cost: **$0-5** (mostly within free tiers)
+
+**Heavy Usage (50+ models/month) + All Services:**
+- Cost: **$10-20** (after free tiers exhausted)
+
+**With Vertex AI ($300 credit for 90 days):**
+- Cost: **$0 for first 3 months**
+- After: **$5-10/month** for continued use
 
 ---
 
