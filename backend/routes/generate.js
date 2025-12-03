@@ -185,23 +185,77 @@ async function processGenerationJob(jobId, prompt, options) {
     }
     console.log('✅ Stage 0.5 complete\n');
     
-    // Stage 1: Analyzing prompt
-    console.log('--- 📊 Stage 1: Analyzing Prompt ---');
-    jobQueue.updateProgress(jobId, 'analyzing', 10);
-    
-    // Validate AI service is available
-    if (!aiService) {
-      throw new Error('AI service not initialized');
+    // Stage 0.8: Multi-Variant Generation (if available)
+    console.log('--- 🎨 Stage 0.8: Multi-Variant Generation ---');
+    let specifications = null;
+    let variants = null;
+
+    if (multiVariantGenerator.isEnabled()) {
+      try {
+        // Extract coordinates if present
+        const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
+        
+        // Fetch real-world reference data
+        let realWorldData = null;
+        if (realWorldReferenceSystem.isEnabled()) {
+          console.log('🔍 Fetching real-world reference data for variants...');
+          realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
+        }
+        
+        // Build context for variant generation
+        const context = {
+          realWorldData,
+          coordinates,
+          orchestrationData, // Include orchestration data from Stage 0.5
+          ...options,
+        };
+        
+        // Generate 3 variants
+        console.log('🎨 Generating 3 ultra-realistic variants...');
+        variants = await multiVariantGenerator.generateVariants(prompt, context);
+        console.log(`✅ Generated ${variants.length} variants`);
+        
+        // Use first variant (photorealistic) as primary specification
+        // Convert variant to specification format
+        specifications = convertVariantToSpecifications(variants[0], prompt, { ...context, allVariants: variants });
+        
+      } catch (error) {
+        console.warn('⚠️ Multi-variant generation failed, falling back to standard pipeline:', error.message);
+        variants = null;
+        specifications = null;
+      }
     }
-    
-    // If we have orchestration data, enhance the prompt with real-world context
-    let enhancedPrompt = prompt;
-    if (orchestrationData) {
-      enhancedPrompt = enhancePromptWithOrchestrationData(prompt, orchestrationData);
-      console.log('🎨 Enhanced prompt with real-world data:', enhancedPrompt.substring(0, 150) + '...');
+
+    // Fallback to old pipeline if multi-variant generation not available or failed
+    if (!specifications) {
+      console.log('ℹ️ Using standard AI service pipeline');
+      console.log('✅ Stage 0.8 complete (skipped)\n');
+      
+      // Stage 1: Analyzing prompt
+      console.log('--- 📊 Stage 1: Analyzing Prompt ---');
+      jobQueue.updateProgress(jobId, 'analyzing', 10);
+      
+      // Validate AI service is available
+      if (!aiService) {
+        throw new Error('AI service not initialized');
+      }
+      
+      // If we have orchestration data, enhance the prompt with real-world context
+      let enhancedPrompt = prompt;
+      if (orchestrationData) {
+        enhancedPrompt = enhancePromptWithOrchestrationData(prompt, orchestrationData);
+        console.log('🎨 Enhanced prompt with real-world data:', enhancedPrompt.substring(0, 150) + '...');
+      }
+      
+      specifications = await aiService.processPrompt(enhancedPrompt);
+    } else {
+      console.log('✅ Stage 0.8 complete (multi-variant generation used)\n');
+      
+      // Stage 1: Analyzing prompt (already done in Stage 0.8)
+      console.log('--- 📊 Stage 1: Analyzing Prompt ---');
+      console.log('ℹ️ Specifications already generated from multi-variant generation');
+      jobQueue.updateProgress(jobId, 'analyzing', 10);
     }
-    
-    const specifications = await aiService.processPrompt(enhancedPrompt);
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
     
     // Inject real-world data into specifications if available
@@ -343,6 +397,7 @@ async function processGenerationJob(jobId, prompt, options) {
         id: jobId,
         designId, // Unique ID for multi-design tracking
         createdAt: new Date().toISOString(),
+        variants: variants || null, // Include all variants for frontend
       },
       modelData: refined, // Include modelData for frontend compatibility
       environmentConfig, // Include environment configuration
@@ -463,6 +518,54 @@ function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
   }
 
   return prompt;
+}
+
+/**
+ * Convert variant to specifications format expected by geometry generator
+ */
+function convertVariantToSpecifications(variant, prompt, context) {
+  if (!variant) return null;
+  
+  return {
+    objectType: 'building',
+    objectCount: 1,
+    name: variant.name || 'Generated Design',
+    description: variant.description || prompt,
+    dimensions: variant.dimensions ? {
+      width: variant.dimensions.width * 1000, // Convert meters to mm
+      height: variant.dimensions.height * 1000,
+      depth: variant.dimensions.depth * 1000,
+    } : { width: 10000, height: 10000, depth: 10000 },
+    materials: variant.materials || ['concrete', 'steel', 'glass'],
+    style: variant.style || 'modern',
+    features: variant.details?.structuralFeatures || [],
+    
+    // Enhanced taxonomy data from variant
+    taxonomyData: {
+      primaryCategory: 'Architecture',
+      scale: { type: variant.metadata?.complexity || 'medium' },
+      style: { architectural: variant.style },
+      realism: { detailLevel: variant.metadata?.realism || 'high' },
+      realWorldDataSource: context.realWorldData ? 'multi-variant-with-real-data' : 'multi-variant-generated',
+    },
+    
+    // Elements from variant
+    elements: variant.elements || [{
+      type: 'building',
+      name: variant.name,
+      category: 'Architecture',
+      dimensions: variant.dimensions,
+      materials: variant.materials,
+      features: variant.details?.structuralFeatures || [],
+    }],
+    
+    // Store all variants for future frontend selection
+    allVariants: context.allVariants || null,
+    selectedVariant: variant,
+    
+    complexity: variant.metadata?.complexity || 'medium',
+    detailLevel: variant.metadata?.realism || 'high',
+  };
 }
 
 /**
