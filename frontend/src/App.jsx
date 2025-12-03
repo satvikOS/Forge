@@ -457,6 +457,7 @@ function App() {
       });
 
       // Call the new API to create design from variant
+      // Pass empty options for now - positioning will default to (0,0,0) with keepPrevious=true
       const result = await apiService.createDesignFromVariant(
         selectedVariantData, 
         prompt,

@@ -433,7 +433,7 @@ class APIService {
    * Create a 3D design from a selected variant
    * Takes the variant object selected by the user and generates the full 3D model
    */
-  async createDesignFromVariant(variant, prompt, onProgress = null) {
+  async createDesignFromVariant(variant, prompt, onProgress = null, options = {}) {
     try {
       console.log('🎯 Creating design from selected variant:', variant.title);
       
@@ -441,6 +441,7 @@ class APIService {
       const startResponse = await axios.post(`${API_BASE_URL}/generate/create-design`, {
         variant,
         prompt,
+        options,
       });
       
       if (!startResponse.data.success || !startResponse.data.jobId) {

@@ -1139,10 +1139,21 @@ async function processDesignFromVariant(jobId, prompt, variant, options) {
     // Generate unique design ID for frontend tracking
     const designId = `design_${jobId}_${Date.now()}`;
     
+    // Extract position and keepPrevious from options (Issue #27)
+    const { position, relativePosition, keepPrevious = true } = options;
+    
+    // Add positioning information to the refined model
+    const positionedModel = {
+      ...refined,
+      position: position || { x: 0, y: 0, z: 0 },
+      relativePosition: relativePosition || null,
+      keepPrevious: keepPrevious,
+    };
+    
     const result = {
       design: {
         specifications,
-        model: refined,
+        model: positionedModel,
         id: jobId,
         designId,
         createdAt: new Date().toISOString(),
@@ -1152,7 +1163,7 @@ async function processDesignFromVariant(jobId, prompt, variant, options) {
           name: variant.name,
         },
       },
-      modelData: refined,
+      modelData: positionedModel,
       environmentConfig,
       designId,
       exports: {
