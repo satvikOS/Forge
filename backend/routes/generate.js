@@ -13,6 +13,49 @@ const realWorldReferenceSystem = require('../services/references/realWorldRefere
 // Constants
 const DEFAULT_DIMENSION_MM = 10000; // Default dimension in millimeters (10 meters)
 
+// Lazy-load Axel Voxel Engine to prevent deployment issues
+let AxelVoxelEngine;
+let axelEngine = null;
+
+/**
+ * Initialize Axel engine on first use (lazy loading)
+ */
+function getAxelEngine() {
+  if (axelEngine !== null) {
+    return axelEngine;
+  }
+  
+  try {
+    if (!AxelVoxelEngine) {
+      AxelVoxelEngine = require('../engines/axel/voxelEngine');
+    }
+    
+    axelEngine = new AxelVoxelEngine({
+      enabled: process.env.AXEL_ENABLED !== 'false',
+      resolution: process.env.AXEL_RESOLUTION || 'adaptive',
+      maxVoxels: parseInt(process.env.AXEL_MAX_VOXELS || '100000000'),
+      lodLevels: process.env.AXEL_LOD_LEVELS?.split(',').map(parseFloat) || [1000, 100, 10, 1, 0.1, 0.01],
+      targetTime: parseInt(process.env.AXEL_TARGET_TIME || '10000'),
+      enableMetrology: process.env.AXEL_ENABLE_METROLOGY !== 'false',
+      enableChemical: process.env.AXEL_ENABLE_CHEMICAL !== 'false',
+      enableFlaws: process.env.AXEL_ENABLE_FLAWS !== 'false',
+      enableTooling: process.env.AXEL_ENABLE_TOOLING !== 'false',
+      enableEnvironment: process.env.AXEL_ENABLE_ENVIRONMENT !== 'false'
+    });
+    
+    console.log('✅ Axel Voxel Engine initialized successfully');
+    return axelEngine;
+  } catch (error) {
+    console.error('❌ Failed to initialize Axel Voxel Engine:', error.message);
+    // Return a mock engine that's disabled
+    axelEngine = {
+      isEnabled: () => false,
+      analyzeAndReplicate: async () => null
+    };
+    return axelEngine;
+  }
+}
+
 /**
  * POST /api/generate
  * Main generation endpoint - creates a job and processes async
@@ -389,6 +432,54 @@ async function processGenerationJob(jobId, prompt, options) {
     jobQueue.completeStage(jobId, 'refining');
     console.log('✅ Stage 3 complete\n');
 
+    // Stage 3.5: Axel Voxel Engine Analysis (Phase 2)
+    console.log('--- 🔬 Stage 3.5: Axel Voxel Analysis ---');
+    let axelAnalysis = null;
+    const axelEngine = getAxelEngine(); // Lazy load Axel engine
+    if (axelEngine.isEnabled()) {
+      try {
+        jobQueue.updateProgress(jobId, 'analyzing-voxels', 10);
+        
+        // Prepare data for Axel analysis
+        const axelInputData = {
+          ...specifications,
+          geometry: refined.geometry,
+          realWorldData: orchestrationData,
+          age: specifications.realDimensions?.age || 0,
+          era: specifications.style || 'modern',
+          location: specifications.taxonomyData?.environmentalContext?.location || null,
+          weather: specifications.taxonomyData?.environmentalContext?.weather || 'clear',
+          timeOfDay: specifications.taxonomyData?.environmentalContext?.timeOfDay || 'noon'
+        };
+        
+        // Extract real-world references if available
+        const realWorldReferences = orchestrationData ? {
+          era: axelInputData.era,
+          material: specifications.materials?.[0] || 'steel',
+          yearBuilt: specifications.realDimensions?.yearBuilt
+        } : null;
+        
+        console.log('🔬 Axel: Processing with', axelEngine.countActiveLayers(), 'analysis layers...');
+        axelAnalysis = await axelEngine.analyzeAndReplicate(axelInputData, realWorldReferences);
+        
+        if (axelAnalysis) {
+          console.log('✅ Axel analysis complete:', {
+            processingTime: axelAnalysis.metadata?.processingTime + 'ms',
+            layers: Object.keys(axelAnalysis.metadata).filter(k => k !== 'processingTime').length,
+            voxelCount: axelAnalysis.voxelGrid?.totalVoxels || 0
+          });
+        }
+        
+        jobQueue.updateProgress(jobId, 'analyzing-voxels', 100);
+      } catch (error) {
+        console.warn('⚠️  Axel analysis failed, continuing without:', error.message);
+        axelAnalysis = null;
+      }
+    } else {
+      console.log('ℹ️  Axel engine disabled, skipping voxel analysis');
+    }
+    console.log('✅ Stage 3.5 complete\n');
+
     // Stage 4: Preparing exports
     console.log('--- 📦 Stage 4: Preparing Exports ---');
     jobQueue.updateProgress(jobId, 'exporting', 50);
@@ -403,10 +494,15 @@ async function processGenerationJob(jobId, prompt, options) {
         id: jobId,
         designId, // Unique ID for multi-design tracking
         createdAt: new Date().toISOString(),
+
         variants: variants || null, // Include all variants for frontend
+
+        axelAnalysis, // Include Axel voxel analysis
+ origin/copilot/implement-axel-voxel-engine
       },
       modelData: refined, // Include modelData for frontend compatibility
       environmentConfig, // Include environment configuration
+      axelAnalysis, // Also at root level for easy access
       designId, // Also at root level for easy access
       exports: {
         prepared: true,

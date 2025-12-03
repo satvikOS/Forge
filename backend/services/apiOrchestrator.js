@@ -274,7 +274,7 @@ Return ONLY valid JSON, no additional text.`;
     const results = {};
 
     // Wikipedia search for landmark/building
-    if (intent.landmark) {
+    if (intent.landmark && wikipediaService.isEnabled()) {
       tasks.push(
         this.executeWithFallback(
           () => wikipediaService.searchLandmark(intent.landmark),
@@ -285,7 +285,7 @@ Return ONLY valid JSON, no additional text.`;
     }
 
     // Wikidata search for structured data
-    if (intent.landmark) {
+    if (intent.landmark && wikidataService.isEnabled()) {
       tasks.push(
         this.executeWithFallback(
           () => wikidataService.getBuildingData(intent.landmark),
@@ -296,7 +296,7 @@ Return ONLY valid JSON, no additional text.`;
     }
 
     // Wikimedia Commons images
-    if (intent.landmark || intent.style) {
+    if ((intent.landmark || intent.style) && wikimediaService.isEnabled()) {
       const query = intent.landmark || intent.style;
       tasks.push(
         this.executeWithFallback(

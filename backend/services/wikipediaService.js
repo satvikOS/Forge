@@ -195,6 +195,11 @@ class WikipediaService {
    * Search for architectural landmarks
    */
   async searchLandmark(landmarkName) {
+    if (!this.isEnabled()) {
+      console.log('Wikipedia is not enabled, skipping landmark search');
+      return null;
+    }
+    
     console.log(`🔍 Wikipedia REST: Searching for "${landmarkName}"...`);
     
     try {
