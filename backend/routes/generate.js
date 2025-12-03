@@ -1091,48 +1091,79 @@ async function processDesignFromVariant(jobId, prompt, variant, options) {
 
     // Stage 2: Generating geometry
     console.log('--- 🏗️  Stage 2: Generating Geometry ---');
+    jobQueue.updateProgress(jobId, 'generating', 20);
+    const modelData = await aiService.generateModelData(specifications);
+    console.log('✅ Model data generated:', JSON.stringify({
+      geometry: modelData.geometry?.type,
+      materials: modelData.materials,
+      stats: modelData.stats,
+    }, null, 2));
     jobQueue.updateProgress(jobId, 'generating', 60);
     
-    // Generate model data
-    const modelData = await materialMappingService.generateModel(specifications, (progress) => {
-      // Map sub-stages to overall progress (60-90%)
-      const overallProgress = 60 + (progress * 30);
-      jobQueue.updateProgress(jobId, 'generating', overallProgress);
-    });
-    
-    if (!modelData) {
-      throw new Error('Failed to generate model data');
-    }
-    
-    console.log('✅ Model generated with', modelData.elements?.length || 0, 'elements');
-    
+    // Stage 2.5: Applying realistic materials and environment
+    console.log('--- 🎨 Stage 2.5: Applying Realistic Materials ---');
+    const { modelData: enhancedModel, environmentConfig } = await materialMappingService.assignRealisticMaterials(
+      modelData,
+      specifications
+    );
+    console.log('✅ PBR materials and environment applied:', JSON.stringify({
+      hasPBRMaterials: true,
+      environmentConfig: {
+        location: environmentConfig.location,
+        timeOfDay: environmentConfig.timeOfDay,
+        weather: environmentConfig.weather,
+        hdri: environmentConfig.hdri?.name,
+      },
+    }, null, 2));
+    jobQueue.updateProgress(jobId, 'generating', 80);
     jobQueue.completeStage(jobId, 'generating');
     console.log('✅ Stage 2 complete\n');
+
+    // Stage 3: Refining (apply LOD, optimize)
+    console.log('--- ✨ Stage 3: Refining Model ---');
+    jobQueue.updateProgress(jobId, 'refining', 30);
+    const refined = await refineModel(enhancedModel, specifications);
+    console.log('✅ Model refined:', JSON.stringify({
+      lod: refined.lod,
+      optimized: refined.optimized,
+      instancedRendering: refined.instancedRendering,
+    }, null, 2));
+    jobQueue.updateProgress(jobId, 'refining', 90);
+    jobQueue.completeStage(jobId, 'refining');
+    console.log('✅ Stage 3 complete\n');
+
+    // Stage 4: Preparing exports
+    console.log('--- 📦 Stage 4: Preparing Exports ---');
+    jobQueue.updateProgress(jobId, 'exporting', 50);
     
-    // Stage 3: Finalizing
-    console.log('--- ✨ Stage 3: Finalizing ---');
-    jobQueue.updateProgress(jobId, 'finalizing', 95);
+    // Generate unique design ID for frontend tracking
+    const designId = `design_${jobId}_${Date.now()}`;
     
-    const design = {
-      specifications,
-      model: modelData,
-      id: `design_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      selectedVariant: {
-        title: variant.title,
-        style: variant.style,
-        name: variant.name,
+    const result = {
+      design: {
+        specifications,
+        model: refined,
+        id: jobId,
+        designId,
+        createdAt: new Date().toISOString(),
+        selectedVariant: {
+          title: variant.title,
+          style: variant.style,
+          name: variant.name,
+        },
+      },
+      modelData: refined,
+      environmentConfig,
+      designId,
+      exports: {
+        prepared: true,
+        formats: ['obj', 'gltf', 'fbx'],
       },
     };
     
-    // Complete job with result
-    jobQueue.completeJob(jobId, {
-      design,
-      modelData,
-      designId: design.id,
-    });
-    
-    console.log('✅ Stage 3 complete');
+    jobQueue.completeStage(jobId, 'exporting');
+    jobQueue.completeJob(jobId, result);
+    console.log('✅ Stage 4 complete\n');
     console.log('========================================');
     console.log('✅ Design Generation Complete from Variant');
     console.log('========================================\n');
