@@ -503,39 +503,35 @@ function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
 function convertVariantToSpecifications(variant, prompt, context) {
   if (!variant) return null;
   
-  // Helper function to safely convert meters to millimeters
-  const metersToMm = (value) => {
-    const num = parseFloat(value);
-    return isNaN(num) ? DEFAULT_DIMENSION_MM : num * 1000;
-  };
-  
-  // Convert dimensions from meters to millimeters
-  const convertedDimensions = variant.dimensions ? {
-    width: metersToMm(variant.dimensions.width),
-    height: metersToMm(variant.dimensions.height),
-    depth: metersToMm(variant.dimensions.depth),
+  // Keep dimensions in METERS for geometry generator
+  // The geometry generator uses the standard 3D convention: 1 meter = 1 unit
+  const dimensions = variant.dimensions ? {
+    width: parseFloat(variant.dimensions.width) || 10,
+    height: parseFloat(variant.dimensions.height) || 10,
+    depth: parseFloat(variant.dimensions.depth) || 10,
   } : { 
-    width: DEFAULT_DIMENSION_MM, 
-    height: DEFAULT_DIMENSION_MM, 
-    depth: DEFAULT_DIMENSION_MM 
+    width: 10,
+    height: 10, 
+    depth: 10 
   };
   
-  // Convert all elements dimensions to millimeters
+  // Convert all elements dimensions - keep in METERS
   const convertedElements = (variant.elements && variant.elements.length > 0) 
     ? variant.elements.map(element => ({
         ...element,
         dimensions: element.dimensions ? {
-          width: metersToMm(element.dimensions.width),
-          height: metersToMm(element.dimensions.height),
-          depth: metersToMm(element.dimensions.depth),
-        } : convertedDimensions,
+          width: parseFloat(element.dimensions.width) || 10,
+          height: parseFloat(element.dimensions.height) || 10,
+          depth: parseFloat(element.dimensions.depth) || 10,
+        } : dimensions,
         position: element.position || { x: 0, y: 0, z: 0 },
+        category: element.category || 'Architecture',
       }))
     : [{
         type: 'building',
         name: variant.name,
         category: 'Architecture',
-        dimensions: convertedDimensions,
+        dimensions: dimensions,
         materials: variant.materials || ['concrete', 'steel', 'glass'],
         features: variant.details?.structuralFeatures || [],
         position: { x: 0, y: 0, z: 0 },
@@ -573,7 +569,7 @@ function convertVariantToSpecifications(variant, prompt, context) {
     objectCount: convertedElements.length || 1,
     name: variant.name || 'Generated Design',
     description: variant.description || prompt,
-    dimensions: convertedDimensions,
+    dimensions: dimensions,
     materials: variant.materials || ['concrete', 'steel', 'glass'],
     style: variant.style || 'modern',
     features: variant.details?.structuralFeatures || [],
@@ -581,7 +577,7 @@ function convertVariantToSpecifications(variant, prompt, context) {
     // Enhanced taxonomy data from variant
     taxonomyData: taxonomyData,
     
-    // Preserve detailed elements from variant (with dimensions in millimeters)
+    // Preserve detailed elements from variant (dimensions in METERS)
     elements: convertedElements,
     
     // Preserve all variant details for reference
