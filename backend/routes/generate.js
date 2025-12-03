@@ -520,9 +520,57 @@ function convertVariantToSpecifications(variant, prompt, context) {
     depth: DEFAULT_DIMENSION_MM 
   };
   
+  // Convert all elements dimensions to millimeters
+  const convertedElements = (variant.elements && variant.elements.length > 0) 
+    ? variant.elements.map(element => ({
+        ...element,
+        dimensions: element.dimensions ? {
+          width: metersToMm(element.dimensions.width),
+          height: metersToMm(element.dimensions.height),
+          depth: metersToMm(element.dimensions.depth),
+        } : convertedDimensions,
+        position: element.position || { x: 0, y: 0, z: 0 },
+      }))
+    : [{
+        type: 'building',
+        name: variant.name,
+        category: 'Architecture',
+        dimensions: convertedDimensions,
+        materials: variant.materials || ['concrete', 'steel', 'glass'],
+        features: variant.details?.structuralFeatures || [],
+        position: { x: 0, y: 0, z: 0 },
+      }];
+  
+  // Build comprehensive taxonomy data that preserves variant details
+  const taxonomyData = {
+    primaryCategory: 'Architecture',
+    scale: { 
+      type: variant.metadata?.complexity || 'medium',
+      objectCount: convertedElements.length || 1,
+    },
+    style: { 
+      architectural: variant.style,
+      visualStyle: variant.style,
+    },
+    realism: { 
+      detailLevel: variant.metadata?.realism || 'high',
+      historicalAccuracy: variant.metadata?.historicalAccuracy || 'medium',
+    },
+    spatialComposition: {
+      layout: 'custom',
+      elements: convertedElements.length,
+      complexity: variant.metadata?.complexity || 'medium',
+    },
+    environmentalContext: {
+      setting: context.realWorldData ? 'real-world-replica' : 'generated',
+      atmosphere: 'realistic',
+    },
+    realWorldDataSource: context.realWorldData ? 'multi-variant-with-real-data' : 'multi-variant-generated',
+  };
+  
   return {
     objectType: 'building',
-    objectCount: 1,
+    objectCount: convertedElements.length || 1,
     name: variant.name || 'Generated Design',
     description: variant.description || prompt,
     dimensions: convertedDimensions,
@@ -531,23 +579,17 @@ function convertVariantToSpecifications(variant, prompt, context) {
     features: variant.details?.structuralFeatures || [],
     
     // Enhanced taxonomy data from variant
-    taxonomyData: {
-      primaryCategory: 'Architecture',
-      scale: { type: variant.metadata?.complexity || 'medium' },
-      style: { architectural: variant.style },
-      realism: { detailLevel: variant.metadata?.realism || 'high' },
-      realWorldDataSource: context.realWorldData ? 'multi-variant-with-real-data' : 'multi-variant-generated',
-    },
+    taxonomyData: taxonomyData,
     
-    // Elements from variant (with dimensions in millimeters for consistency)
-    elements: (variant.elements && variant.elements.length > 0) ? variant.elements : [{
-      type: 'building',
-      name: variant.name,
-      category: 'Architecture',
-      dimensions: convertedDimensions, // Use converted dimensions
-      materials: variant.materials,
-      features: variant.details?.structuralFeatures || [],
-    }],
+    // Preserve detailed elements from variant (with dimensions in millimeters)
+    elements: convertedElements,
+    
+    // Preserve all variant details for reference
+    variantDetails: {
+      structuralFeatures: variant.details?.structuralFeatures || [],
+      visualCharacteristics: variant.details?.visualCharacteristics || [],
+      technicalSpecs: variant.details?.technicalSpecs || [],
+    },
     
     // Store all variants for future frontend selection
     allVariants: context.allVariants || null,
