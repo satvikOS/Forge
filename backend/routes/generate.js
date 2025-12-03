@@ -188,54 +188,18 @@ async function processGenerationJob(jobId, prompt, options) {
     }
     console.log('✅ Stage 0.5 complete\n');
     
-    // Stage 0.8: Multi-Variant Generation (if available)
+    // Stage 0.8: Multi-Variant Generation - DISABLED in standard generation
+    // Users should call /api/generate/variants first, select a variant, then /api/generate/create-design
     console.log('--- 🎨 Stage 0.8: Multi-Variant Generation ---');
+    console.log('ℹ️ Multi-variant generation skipped in standard generation flow');
+    console.log('ℹ️ Use POST /api/generate/variants to generate variants for user selection');
+    console.log('✅ Stage 0.8 complete (skipped)\n');
+    
     let specifications = null;
-    let variants = null;
 
-    if (multiVariantGenerator.isEnabled()) {
-      try {
-        // Extract coordinates if present
-        const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
-        
-        // Fetch real-world reference data
-        let realWorldData = null;
-        if (realWorldReferenceSystem.isEnabled()) {
-          console.log('🔍 Fetching real-world reference data for variants...');
-          realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
-        }
-        
-        // Build context for variant generation
-        const context = {
-          realWorldData,
-          coordinates,
-          orchestrationData, // Include orchestration data from Stage 0.5
-          ...options,
-        };
-        
-        // Generate 3 variants
-        console.log('🎨 Generating 3 ultra-realistic variants...');
-        variants = await multiVariantGenerator.generateVariants(prompt, context);
-        console.log(`✅ Generated ${variants.length} variants`);
-        
-        // Select photorealistic variant as primary specification (explicitly by style)
-        const photorealisticVariant = variants.find(v => v.style === 'photorealistic') || variants[0];
-        console.log(`🎯 Using ${photorealisticVariant.title || 'primary'} variant as primary specification`);
-        
-        // Convert variant to specification format
-        specifications = convertVariantToSpecifications(photorealisticVariant, prompt, { ...context, allVariants: variants });
-        
-      } catch (error) {
-        console.warn('⚠️ Multi-variant generation failed, falling back to standard pipeline:', error.message);
-        variants = null;
-        specifications = null;
-      }
-    }
-
-    // Fallback to old pipeline if multi-variant generation not available or failed
-    if (!specifications) {
+    // Use standard pipeline for /api/generate endpoint
+    if (true) {
       console.log('ℹ️ Using standard AI service pipeline');
-      console.log('✅ Stage 0.8 complete (skipped)\n');
       
       // Stage 1: Analyzing prompt
       console.log('--- 📊 Stage 1: Analyzing Prompt ---');
@@ -254,13 +218,6 @@ async function processGenerationJob(jobId, prompt, options) {
       }
       
       specifications = await aiService.processPrompt(enhancedPrompt);
-    } else {
-      console.log('✅ Stage 0.8 complete (multi-variant generation used)\n');
-      
-      // Stage 1: Analyzing prompt (already done in Stage 0.8)
-      console.log('--- 📊 Stage 1: Analyzing Prompt ---');
-      console.log('ℹ️ Specifications already generated from multi-variant generation');
-      jobQueue.updateProgress(jobId, 'analyzing', 10);
     }
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
     
@@ -975,5 +932,217 @@ router.post('/fantasy-variants', async (req, res) => {
     });
   }
 });
+
+/**
+ * POST /api/generate/create-design
+ * Create a 3D design from a selected variant
+ * This endpoint takes a variant object selected by the user and generates the full 3D model
+ */
+router.post('/create-design', async (req, res) => {
+  try {
+    const { variant, prompt, options = {} } = req.body;
+
+    if (!variant) {
+      return res.status(400).json({ error: 'Variant is required' });
+    }
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    console.log('\n========================================');
+    console.log('🎯 Create Design from Selected Variant');
+    console.log('========================================');
+    console.log('📋 Prompt:', prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''));
+    console.log('🎨 Selected Variant:', variant.title || variant.style);
+    console.log('========================================\n');
+
+    // Create a job for the design generation
+    const jobId = jobQueue.createJob(prompt, { 
+      ...options, 
+      selectedVariant: variant,
+      isFromVariantSelection: true 
+    });
+
+    // Start processing async with the selected variant
+    processDesignFromVariant(jobId, prompt, variant, options).catch(error => {
+      console.error(`Error processing design from variant job ${jobId}:`, error);
+      jobQueue.failJob(jobId, error);
+    });
+
+    res.json({
+      success: true,
+      jobId,
+      status: 'queued',
+      message: 'Design creation job started',
+      selectedVariant: {
+        title: variant.title,
+        style: variant.style,
+        name: variant.name,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating design from variant:', error);
+    res.status(500).json({
+      error: 'Failed to create design from variant',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
+/**
+ * Process design generation from a selected variant
+ * Similar to processGenerationJob but starts with a pre-selected variant
+ */
+async function processDesignFromVariant(jobId, prompt, variant, options) {
+  console.log('\n========================================');
+  console.log('🚀 Starting Design Generation from Variant');
+  console.log('========================================');
+  console.log('📋 Job Details:', {
+    jobId,
+    prompt: prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : ''),
+    variant: variant.title || variant.style,
+  });
+  console.log('========================================\n');
+
+  try {
+    // Stage 0.5: Check for real-world data orchestration (optional, may already be in variant)
+    console.log('--- 🌍 Stage 0.5: Real-World Data Detection ---');
+    let orchestrationData = null;
+    
+    if (apiOrchestrator.isEnabled()) {
+      try {
+        console.log('🔍 Checking if prompt requires real-world data...');
+        orchestrationData = await apiOrchestrator.orchestrate(prompt, options);
+        
+        if (orchestrationData && orchestrationData.phases?.intentUnderstanding?.needsRealData) {
+          console.log('✅ Real-world data orchestration successful');
+        } else {
+          console.log('ℹ️  No real-world data needed for this prompt');
+          orchestrationData = null;
+        }
+      } catch (error) {
+        console.warn('⚠️  Real-world data orchestration failed, continuing with variant data:', error.message);
+        orchestrationData = null;
+      }
+    } else {
+      console.log('ℹ️  API Orchestrator disabled, skipping real-world data detection');
+    }
+    console.log('✅ Stage 0.5 complete\n');
+    
+    // Stage 1: Convert variant to specifications
+    console.log('--- 🎨 Stage 1: Converting Variant to Specifications ---');
+    jobQueue.updateProgress(jobId, 'analyzing', 10);
+    
+    // Build context
+    const context = {
+      orchestrationData,
+      realWorldData: variant.realWorldData || null,
+      coordinates: variant.coordinates || null,
+      ...options,
+    };
+    
+    // Convert selected variant to specifications
+    const specifications = convertVariantToSpecifications(variant, prompt, context);
+    console.log('✅ Specifications generated from variant:', JSON.stringify(specifications, null, 2));
+    
+    // Inject real-world data into specifications if available
+    if (orchestrationData) {
+      specifications.realWorldData = orchestrationData;
+      specifications.isRealWorldReplica = true;
+      
+      // Check if we have landmark dimensions
+      let hasLandmarkDimensions = false;
+      if (orchestrationData.phases?.knowledgeGathering?.wikidata?.dimensions) {
+        const dims = orchestrationData.phases.knowledgeGathering.wikidata.dimensions;
+        if (dims.height) {
+          console.log('📏 Using real dimensions from Wikidata:', dims);
+          specifications.realDimensions = dims;
+          hasLandmarkDimensions = true;
+        }
+      }
+      
+      // Handle OSM buildings vs landmark mode
+      if (!hasLandmarkDimensions && orchestrationData.phases?.geographicData?.osm_buildings?.length > 0) {
+        const buildings = orchestrationData.phases.geographicData.osm_buildings;
+        console.log(`📦 Found ${buildings.length} real-world buildings from OSM (city scene mode)`);
+        specifications.realBuildings = buildings;
+        specifications.objectCount = buildings.length;
+      } else if (hasLandmarkDimensions) {
+        console.log('🏛️  Landmark mode: Using Wikidata dimensions');
+        specifications.objectCount = 1;
+        
+        // Clear OSM buildings for landmark mode
+        if (specifications.realBuildings) {
+          console.log('⚠️  Clearing OSM buildings array for landmark mode');
+          delete specifications.realBuildings;
+        }
+      }
+    }
+    
+    jobQueue.updateProgress(jobId, 'analyzing', 50);
+    
+    // Add complexity analysis
+    specifications.objectCount = specifications.objectCount || 1;
+    specifications.complexity = specifications.complexity || 'medium';
+    
+    jobQueue.completeStage(jobId, 'analyzing');
+    console.log('✅ Stage 1 complete\n');
+
+    // Stage 2: Generating geometry
+    console.log('--- 🏗️  Stage 2: Generating Geometry ---');
+    jobQueue.updateProgress(jobId, 'generating', 60);
+    
+    // Generate model data
+    const modelData = await materialMappingService.generateModel(specifications, (progress) => {
+      // Map sub-stages to overall progress (60-90%)
+      const overallProgress = 60 + (progress * 30);
+      jobQueue.updateProgress(jobId, 'generating', overallProgress);
+    });
+    
+    if (!modelData) {
+      throw new Error('Failed to generate model data');
+    }
+    
+    console.log('✅ Model generated with', modelData.elements?.length || 0, 'elements');
+    
+    jobQueue.completeStage(jobId, 'generating');
+    console.log('✅ Stage 2 complete\n');
+    
+    // Stage 3: Finalizing
+    console.log('--- ✨ Stage 3: Finalizing ---');
+    jobQueue.updateProgress(jobId, 'finalizing', 95);
+    
+    const design = {
+      specifications,
+      model: modelData,
+      id: `design_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      selectedVariant: {
+        title: variant.title,
+        style: variant.style,
+        name: variant.name,
+      },
+    };
+    
+    // Complete job with result
+    jobQueue.completeJob(jobId, {
+      design,
+      modelData,
+      designId: design.id,
+    });
+    
+    console.log('✅ Stage 3 complete');
+    console.log('========================================');
+    console.log('✅ Design Generation Complete from Variant');
+    console.log('========================================\n');
+    
+  } catch (error) {
+    console.error('Error in design generation from variant:', error);
+    jobQueue.failJob(jobId, error);
+    throw error;
+  }
+}
 
 module.exports = router;

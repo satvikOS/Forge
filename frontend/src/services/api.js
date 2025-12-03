@@ -428,6 +428,46 @@ class APIService {
       throw error;
     }
   }
+
+  /**
+   * Create a 3D design from a selected variant
+   * Takes the variant object selected by the user and generates the full 3D model
+   */
+  async createDesignFromVariant(variant, prompt, onProgress = null) {
+    try {
+      console.log('🎯 Creating design from selected variant:', variant.title);
+      
+      // Step 1: Start the design creation job
+      const startResponse = await axios.post(`${API_BASE_URL}/generate/create-design`, {
+        variant,
+        prompt,
+      });
+      
+      if (!startResponse.data.success || !startResponse.data.jobId) {
+        throw new Error('Failed to start design creation job');
+      }
+      
+      const jobId = startResponse.data.jobId;
+      console.log('Design creation job started, jobId:', jobId);
+      
+      // Step 2: Poll for job completion
+      const result = await this.pollJobStatus(jobId, onProgress);
+      
+      return result;
+    } catch (error) {
+      console.error('Error creating design from variant:', error);
+      
+      // Enhanced error messages
+      if (error.response?.status === 500) {
+        const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Server error';
+        throw new Error(`Design creation failed: ${errorMsg}. Please check API configuration and try again.`);
+      } else if (error.message?.includes('Network Error')) {
+        throw new Error('Network error: Cannot connect to API server. Please check your connection.');
+      }
+      
+      throw error;
+    }
+  }
 }
 
 export default new APIService();

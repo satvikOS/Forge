@@ -254,13 +254,14 @@ function App() {
     setError(null);
     setGenerationProgress(null);
     setVariants([]); // Clear previous variants
+    setIsCreatingDesign(false); // Reset creating state
 
     try {
       // Determine which generation mode to use
       const isFantasyMode = generationMode === 'fantasy';
       const generationAPI = isFantasyMode ? 'generateFantasyVariants' : 'generateVariants';
       
-      console.log(`🎨 Attempting ${isFantasyMode ? 'fantasy' : 'realistic'} multi-variant generation...`);
+      console.log(`🎨 Generating ${isFantasyMode ? 'fantasy' : 'realistic'} variants...`);
       setGenerationProgress({ 
         status: 'processing', 
         progress: 0.1, 
@@ -270,51 +271,37 @@ function App() {
       const variantResult = await apiService[generationAPI](prompt);
       
       if (variantResult.success && variantResult.variants && variantResult.variants.length > 0) {
-        console.log(`✅ ${isFantasyMode ? 'Fantasy' : 'Realistic'} multi-variant generation succeeded: ${variantResult.variants.length} variants`);
+        console.log(`✅ ${isFantasyMode ? 'Fantasy' : 'Realistic'} variant generation succeeded: ${variantResult.variants.length} variants`);
         
-        // Set variants
+        // Set variants and show selector - DO NOT auto-generate 3D
         setVariants(variantResult.variants);
         setSelectedVariant(0); // Select first variant by default
         
-        // Convert first variant to modelData format
-        const firstVariant = variantResult.variants[0];
-        const modelDataFromVariant = convertVariantToModelData(firstVariant, prompt, isFantasyMode);
-        setModelData(modelDataFromVariant);
-        
-        // Create a design object from the variant
-        const variantDesign = {
-          specifications: {
-            name: firstVariant.name,
-            description: firstVariant.description,
-            dimensions: firstVariant.dimensions,
-            materials: firstVariant.materials,
-            elements: firstVariant.elements,
-            complexity: firstVariant.metadata?.complexity || 'medium',
-          },
-          model: modelDataFromVariant,
-          id: `variant_${Date.now()}`,
-          createdAt: new Date().toISOString(),
-        };
-        setDesign(variantDesign);
-        
-        // Add to designs array
-        setDesigns(prevDesigns => [...prevDesigns, {
-          id: `design_${Date.now()}`,
+        // Store prompt for later use in create-design
+        setModelData({ 
           prompt: prompt,
-          design: variantDesign,
-          modelData: modelDataFromVariant,
-          variants: variantResult.variants,
+          variantsGenerated: true,
+          fantasyMode: isFantasyMode,
           timestamp: Date.now(),
-        }]);
+        });
         
-        setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['Variants generated successfully!'] });
+        setGenerationProgress({ 
+          status: 'completed', 
+          progress: 1.0, 
+          stages: ['Variants generated! Select one and click "Create Design"'] 
+        });
         
         // Log real-world data if available
         if (variantResult.realWorldData) {
           console.log('📚 Real-world reference data:', variantResult.realWorldData);
         }
         
-        return; // Success - don't fall back to standard generation
+        // Clear progress after a short delay to show the message
+        setTimeout(() => {
+          setGenerationProgress(null);
+        }, 2000);
+        
+        return; // Success - variants displayed, waiting for user selection
       } else {
         console.warn('⚠️  Multi-variant generation returned no results, falling back to standard generation');
       }
@@ -432,38 +419,16 @@ function App() {
 
   /**
    * Handle variant selection
+   * Only updates UI state - does NOT trigger 3D generation
    */
   const handleVariantSelect = (variantIndex) => {
     if (!variants || variantIndex >= variants.length) return;
     
-    console.log(`🎨 Switching to variant ${variantIndex + 1}: ${variants[variantIndex].title}`);
+    console.log(`🎨 Selected variant ${variantIndex + 1}: ${variants[variantIndex].title}`);
     setSelectedVariant(variantIndex);
     
-    // Update modelData to reflect selected variant
-    const selectedVariantData = variants[variantIndex];
-    const isFantasyMode = selectedVariantData.fantasyMode || generationMode === 'fantasy';
-    const modelDataFromVariant = convertVariantToModelData(
-      selectedVariantData, 
-      modelData?.prompt || 'Unknown prompt',
-      isFantasyMode
-    );
-    setModelData(modelDataFromVariant);
-    
-    // Update design object
-    const variantDesign = {
-      specifications: {
-        name: selectedVariantData.name,
-        description: selectedVariantData.description,
-        dimensions: selectedVariantData.dimensions,
-        materials: selectedVariantData.materials,
-        elements: selectedVariantData.elements,
-        complexity: selectedVariantData.metadata?.complexity || 'medium',
-      },
-      model: modelDataFromVariant,
-      id: `variant_${Date.now()}_${variantIndex}`,
-      createdAt: new Date().toISOString(),
-    };
-    setDesign(variantDesign);
+    // Just update the selected variant index
+    // The actual 3D generation will happen when user clicks "Create Design" button
   };
 
   /**
@@ -477,53 +442,76 @@ function App() {
     }
 
     setIsCreatingDesign(true);
+    setLoading(true);
     setError(null);
 
     try {
       const selectedVariantData = variants[selectedVariant];
+      const prompt = modelData?.prompt || 'Design generation';
+      
       console.log('🎯 Creating 3D design from variant:', selectedVariantData.title);
 
-      // Check if this is a fantasy variant with concept image
-      if (selectedVariantData.fantasyMode && selectedVariantData.conceptImage) {
-        console.log('🎨 Fantasy variant detected - using concept image for 3D generation');
+      setGenerationProgress({ 
+        status: 'processing', 
+        progress: 0.1, 
+        stages: ['Creating 3D model from selected variant...'] 
+      });
+
+      // Call the new API to create design from variant
+      const result = await apiService.createDesignFromVariant(
+        selectedVariantData, 
+        prompt,
+        (progress) => {
+          setGenerationProgress(progress);
+          console.log('Design creation progress:', progress);
+        }
+      );
+
+      if (result.success && result.design) {
+        console.log('✅ 3D design created successfully');
         
-        // TODO: Integrate with Tripo/Meshy image-to-3D services
-        // For now, we'll use the variant data directly
+        setDesign(result.design);
+        
+        // Update model data with the result
+        const modelDataWithPrompt = {
+          ...result.modelData,
+          prompt: prompt,
+          selectedVariant: selectedVariantData,
+        };
+        setModelData(modelDataWithPrompt);
+        
+        // Add to designs array
+        setDesigns(prevDesigns => [...prevDesigns, {
+          id: `design_${Date.now()}`,
+          prompt: prompt,
+          design: result.design,
+          modelData: result.modelData,
+          selectedVariant: selectedVariantData,
+          timestamp: Date.now(),
+        }]);
         
         setGenerationProgress({ 
-          status: 'processing', 
-          progress: 0.5, 
-          stages: ['Creating 3D model from fantasy concept...'] 
+          status: 'completed', 
+          progress: 1.0, 
+          stages: ['3D design created successfully!'] 
         });
+        
+        // Clear variants after successful creation
+        setTimeout(() => {
+          setVariants([]);
+          setGenerationProgress(null);
+        }, 2000);
       } else {
-        setGenerationProgress({ 
-          status: 'processing', 
-          progress: 0.5, 
-          stages: ['Creating 3D model from variant specifications...'] 
-        });
+        throw new Error('Design creation failed');
       }
-
-      // Simulate 3D generation (in real implementation, this would call the 3D generation API)
-      // For now, we'll just use the variant data as the design
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // The design is already set from the variant, so we just need to trigger rendering
-      setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['3D design created successfully!'] });
-      
-      console.log('✅ 3D design created successfully');
-      
-      // Clear variants after successful creation
-      setTimeout(() => {
-        setVariants([]);
-        setGenerationProgress(null);
-      }, 2000);
 
     } catch (error) {
       console.error('❌ Failed to create 3D design:', error);
-      setError('Failed to create 3D design. Please try again.');
+      setError(error.message || 'Failed to create 3D design. Please try again.');
       setGenerationProgress(null);
     } finally {
       setIsCreatingDesign(false);
+      setLoading(false);
     }
   };
 
