@@ -10,6 +10,9 @@ const apiOrchestrator = require('../services/apiOrchestrator');
 const multiVariantGenerator = require('../services/generation/multiVariantGenerator');
 const realWorldReferenceSystem = require('../services/references/realWorldReferenceSystem');
 
+// Constants
+const DEFAULT_DIMENSION_MM = 10000; // Default dimension in millimeters (10 meters)
+
 /**
  * POST /api/generate
  * Main generation endpoint - creates a job and processes async
@@ -215,9 +218,12 @@ async function processGenerationJob(jobId, prompt, options) {
         variants = await multiVariantGenerator.generateVariants(prompt, context);
         console.log(`✅ Generated ${variants.length} variants`);
         
-        // Use first variant (photorealistic) as primary specification
+        // Select photorealistic variant as primary specification (explicitly by style)
+        const photorealisticVariant = variants.find(v => v.style === 'photorealistic') || variants[0];
+        console.log(`🎯 Using ${photorealisticVariant.title || 'primary'} variant as primary specification`);
+        
         // Convert variant to specification format
-        specifications = convertVariantToSpecifications(variants[0], prompt, { ...context, allVariants: variants });
+        specifications = convertVariantToSpecifications(photorealisticVariant, prompt, { ...context, allVariants: variants });
         
       } catch (error) {
         console.warn('⚠️ Multi-variant generation failed, falling back to standard pipeline:', error.message);
@@ -522,20 +528,48 @@ function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
 
 /**
  * Convert variant to specifications format expected by geometry generator
+ * 
+ * @param {Object} variant - The variant object from multi-variant generator
+ * @param {string} variant.name - Name of the design
+ * @param {string} variant.description - Description of the design
+ * @param {Object} variant.dimensions - Dimensions in meters
+ * @param {number} variant.dimensions.width - Width in meters
+ * @param {number} variant.dimensions.height - Height in meters
+ * @param {number} variant.dimensions.depth - Depth in meters
+ * @param {string[]} variant.materials - Array of material names
+ * @param {string} variant.style - Style name (e.g., 'photorealistic')
+ * @param {Object} variant.details - Detail information
+ * @param {Object} variant.metadata - Metadata about the variant
+ * @param {string} prompt - Original user prompt
+ * @param {Object} context - Context object containing real-world data and other metadata
+ * @returns {Object} Specifications object in the format expected by geometry generator
  */
 function convertVariantToSpecifications(variant, prompt, context) {
   if (!variant) return null;
+  
+  // Helper function to safely convert meters to millimeters
+  const metersToMm = (value) => {
+    const num = parseFloat(value);
+    return isNaN(num) ? DEFAULT_DIMENSION_MM : num * 1000;
+  };
+  
+  // Convert dimensions from meters to millimeters
+  const convertedDimensions = variant.dimensions ? {
+    width: metersToMm(variant.dimensions.width),
+    height: metersToMm(variant.dimensions.height),
+    depth: metersToMm(variant.dimensions.depth),
+  } : { 
+    width: DEFAULT_DIMENSION_MM, 
+    height: DEFAULT_DIMENSION_MM, 
+    depth: DEFAULT_DIMENSION_MM 
+  };
   
   return {
     objectType: 'building',
     objectCount: 1,
     name: variant.name || 'Generated Design',
     description: variant.description || prompt,
-    dimensions: variant.dimensions ? {
-      width: variant.dimensions.width * 1000, // Convert meters to mm
-      height: variant.dimensions.height * 1000,
-      depth: variant.dimensions.depth * 1000,
-    } : { width: 10000, height: 10000, depth: 10000 },
+    dimensions: convertedDimensions,
     materials: variant.materials || ['concrete', 'steel', 'glass'],
     style: variant.style || 'modern',
     features: variant.details?.structuralFeatures || [],
@@ -549,12 +583,12 @@ function convertVariantToSpecifications(variant, prompt, context) {
       realWorldDataSource: context.realWorldData ? 'multi-variant-with-real-data' : 'multi-variant-generated',
     },
     
-    // Elements from variant
-    elements: variant.elements || [{
+    // Elements from variant (with dimensions in millimeters for consistency)
+    elements: (variant.elements && variant.elements.length > 0) ? variant.elements : [{
       type: 'building',
       name: variant.name,
       category: 'Architecture',
-      dimensions: variant.dimensions,
+      dimensions: convertedDimensions, // Use converted dimensions
       materials: variant.materials,
       features: variant.details?.structuralFeatures || [],
     }],
