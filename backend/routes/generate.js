@@ -197,9 +197,8 @@ async function processGenerationJob(jobId, prompt, options) {
     
     let specifications = null;
 
-    // Use standard pipeline for /api/generate endpoint
-    if (true) {
-      console.log('ℹ️ Using standard AI service pipeline');
+    // Use standard pipeline for /api/generate endpoint (variants disabled)
+    console.log('ℹ️ Using standard AI service pipeline');
       
       // Stage 1: Analyzing prompt
       console.log('--- 📊 Stage 1: Analyzing Prompt ---');
@@ -218,7 +217,7 @@ async function processGenerationJob(jobId, prompt, options) {
       }
       
       specifications = await aiService.processPrompt(enhancedPrompt);
-    }
+    
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
     
     // Inject real-world data into specifications if available

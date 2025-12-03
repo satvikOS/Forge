@@ -254,7 +254,6 @@ function App() {
     setError(null);
     setGenerationProgress(null);
     setVariants([]); // Clear previous variants
-    setIsCreatingDesign(false); // Reset creating state
 
     try {
       // Determine which generation mode to use
