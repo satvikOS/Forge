@@ -173,6 +173,7 @@ class GeometryGenerator {
     
     // Map taxonomy categories to generation methods
     switch (category) {
+      case 'Architecture':
       case 'residential':
       case 'commercial':
       case 'institutional':
