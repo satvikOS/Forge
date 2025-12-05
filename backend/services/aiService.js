@@ -520,6 +520,12 @@ class AIService {
   async generateModelData(specifications) {
     const { objectType, dimensions, materials, elements, scene, objectCount, taxonomyData } = specifications;
 
+    console.log('🏗️  AIService.generateModelData called');
+    console.log(`   📊 objectCount: ${objectCount}`);
+    console.log(`   📦 elements count: ${elements?.length || 0}`);
+    console.log(`   🎨 taxonomyData available: ${!!taxonomyData}`);
+    console.log(`   🗺️  spatialComposition: ${!!taxonomyData?.spatialComposition}`);
+
     // Create specification object for geometry generator
     const geometrySpec = {
       objectCount: objectCount || 1,
@@ -536,8 +542,10 @@ class AIService {
       taxonomyData: taxonomyData || null, // CRITICAL: Pass taxonomyData to geometry generator
     };
 
+    console.log('📤 Calling geometryGenerator.generateFromSpec...');
     // Generate geometry
     const geometry = geometryGenerator.generateFromSpec(geometrySpec);
+    console.log(`✅ Geometry generated: type=${geometry.type}, meshes=${geometry.meshes?.length || 0}, parts=${geometry.parts?.length || 0}`);
     
     // Apply materials to geometry parts
     if (geometry.type === 'composite' && geometry.parts) {

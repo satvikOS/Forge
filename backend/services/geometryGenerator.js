@@ -18,15 +18,25 @@ class GeometryGenerator {
   generateFromSpec(spec) {
     const { objectCount = 1, elements = [], scene = {}, taxonomyData = null } = spec;
     
+    console.log('🔧 geometryGenerator.generateFromSpec called');
+    console.log(`   📊 objectCount: ${objectCount}`);
+    console.log(`   📦 elements: ${elements.length}`);
+    console.log(`   🎨 taxonomyData: ${!!taxonomyData}`);
+    console.log(`   🗺️  spatialComposition: ${!!taxonomyData?.spatialComposition}`);
+    
     // Use taxonomy-aware generation if available
     if (taxonomyData && taxonomyData.spatialComposition) {
+      console.log('✅ Using taxonomy-aware generation (generateTaxonomyScene)');
       return this.generateTaxonomyScene(elements, taxonomyData);
     }
     
+    console.log('⚠️  Falling back to non-taxonomy generation');
     // Determine if this is a complex scene or single object
     if (objectCount > 1 || elements.length > 1) {
+      console.log('→ Using generateComplexScene');
       return this.generateComplexScene(elements, scene);
     } else {
+      console.log('→ Using generateSingleObject');
       const element = elements[0] || { type: 'object', name: 'Object' };
       return this.generateSingleObject(element);
     }
