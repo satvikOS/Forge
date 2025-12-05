@@ -101,17 +101,36 @@ class GeometryGenerator {
       try {
         const geometry = this.generateTaxonomyElement(element, realism);
         
-        meshes.push({
-          ...geometry,
-          position: element.position,
-          rotation: element.rotation,
-          name: `${element.name || 'Object'}_${element.instanceIndex}`,
-          taxonomyData: {
-            category: element.category,
-            subcategory: element.subcategory,
-            placement: element.placement
-          }
-        });
+        // Handle composite geometry (buildings, structures with multiple parts)
+        if (geometry.type === 'composite' && geometry.parts) {
+          // Extract individual parts into meshes array
+          geometry.parts.forEach((part, partIdx) => {
+            meshes.push({
+              ...part,
+              position: part.position || element.position || { x: 0, y: 0, z: 0 },
+              rotation: part.rotation || element.rotation || { x: 0, y: 0, z: 0 },
+              name: part.name || `${element.name || 'Object'}_part_${partIdx}`,
+              taxonomyData: {
+                category: element.category,
+                subcategory: element.subcategory,
+                placement: element.placement
+              }
+            });
+          });
+        } else {
+          // Handle simple geometry (single mesh)
+          meshes.push({
+            ...geometry,
+            position: element.position,
+            rotation: element.rotation,
+            name: `${element.name || 'Object'}_${element.instanceIndex}`,
+            taxonomyData: {
+              category: element.category,
+              subcategory: element.subcategory,
+              placement: element.placement
+            }
+          });
+        }
       } catch (error) {
         console.error(`Error generating element ${element.name}:`, error);
       }
