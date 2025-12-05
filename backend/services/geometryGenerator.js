@@ -40,6 +40,7 @@ class GeometryGenerator {
     
     console.log('🎨 Generating taxonomy-aware scene with realistic placement');
     console.log(`📊 Elements to generate: ${elements.length}`);
+    console.log(`📦 Elements data:`, JSON.stringify(elements, null, 2));
     
     // SPECIAL CASE: Single landmark - no complex placement needed
     if (elements.length === 1 && elements[0].metadata?.realWorld) {
@@ -93,16 +94,22 @@ class GeometryGenerator {
       environmentalContext
     );
     
+    console.log(`📍 Positioned elements count: ${positionedElements.length}`);
+    console.log(`📍 Positioned elements:`, JSON.stringify(positionedElements.slice(0, 2), null, 2));
+    
     const meshes = [];
     const instances = [];
     
     // Generate geometry for each positioned element
     positionedElements.forEach((element, index) => {
       try {
+        console.log(`🔨 Generating element ${index + 1}/${positionedElements.length}: ${element.name} (category: ${element.category})`);
         const geometry = this.generateTaxonomyElement(element, realism);
+        console.log(`✅ Generated geometry type: ${geometry.type}, parts: ${geometry.parts?.length || 'N/A'}`);
         
         // Handle composite geometry (buildings, structures with multiple parts)
         if (geometry.type === 'composite' && geometry.parts) {
+          console.log(`📦 Extracting ${geometry.parts.length} parts from composite geometry`);
           // Extract individual parts into meshes array
           geometry.parts.forEach((part, partIdx) => {
             meshes.push({
@@ -119,6 +126,7 @@ class GeometryGenerator {
           });
         } else {
           // Handle simple geometry (single mesh)
+          console.log(`📦 Adding simple geometry to meshes`);
           meshes.push({
             ...geometry,
             position: element.position,
@@ -132,9 +140,12 @@ class GeometryGenerator {
           });
         }
       } catch (error) {
-        console.error(`Error generating element ${element.name}:`, error);
+        console.error(`❌ Error generating element ${element.name}:`, error);
+        console.error(`❌ Error stack:`, error.stack);
       }
     });
+    
+    console.log(`🎯 Final meshes count: ${meshes.length}`);
     
     return {
       type: 'taxonomy_scene',
