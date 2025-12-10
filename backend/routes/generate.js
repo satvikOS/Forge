@@ -643,16 +643,23 @@ function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
 function convertVariantToSpecifications(variant, prompt, context) {
   if (!variant) return null;
 
-  // Variant dimensions are ALREADY in millimeters (from multiVariantGenerator)
-  // DO NOT convert again or models will be 1000x too large!
+  // CRITICAL: Variant dimensions from multiVariantGenerator are in MILLIMETERS
+  // But geometry generator expects METERS (1 unit = 1 meter standard 3D convention)
+  // Convert from mm to meters by DIVIDING by 1000
+  const mmToMeters = (value) => {
+    const num = parseFloat(value);
+    return isNaN(num) ? DEFAULT_DIMENSION_MM / 1000 : num / 1000;
+  };
+
+  // Convert dimensions from millimeters to meters
   const convertedDimensions = variant.dimensions ? {
-    width: variant.dimensions.width || DEFAULT_DIMENSION_MM,
-    height: variant.dimensions.height || DEFAULT_DIMENSION_MM,
-    depth: variant.dimensions.depth || DEFAULT_DIMENSION_MM,
+    width: mmToMeters(variant.dimensions.width),
+    height: mmToMeters(variant.dimensions.height),
+    depth: mmToMeters(variant.dimensions.depth),
   } : {
-    width: DEFAULT_DIMENSION_MM,
-    height: DEFAULT_DIMENSION_MM,
-    depth: DEFAULT_DIMENSION_MM
+    width: DEFAULT_DIMENSION_MM / 1000,
+    height: DEFAULT_DIMENSION_MM / 1000,
+    depth: DEFAULT_DIMENSION_MM / 1000
   };
 
   return {
