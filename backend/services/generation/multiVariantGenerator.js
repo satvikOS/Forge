@@ -1,5 +1,6 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const geminiImageGenerator = require('./geminiImageGenerator');
+const AxelVoxelEngine = require('../../engines/axel/voxelEngine');
 
 /**
  * Multi-Variant Generator Service
@@ -10,16 +11,27 @@ const geminiImageGenerator = require('./geminiImageGenerator');
 class MultiVariantGenerator {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
+    this.modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     this.variantCount = parseInt(process.env.VARIANT_COUNT, 10) || 3;
     this.geminiImageGenerator = geminiImageGenerator;
-    
+
+    // Initialize Axel Voxel Engine
+    this.axelEngine = new AxelVoxelEngine({
+      enabled: process.env.AXEL_ENABLED !== 'false',
+      resolution: 'adaptive',
+      enableMetrology: true,
+      enableChemical: true,
+      enableFlaws: true,
+      enableTooling: true,
+      enableEnvironment: true
+    });
+
     if (!this.apiKey) {
       console.warn('⚠️  GEMINI_API_KEY not set - Multi-variant generation will not work');
       this.enabled = false;
       return;
     }
-    
+
     try {
       this.genAI = new GoogleGenerativeAI(this.apiKey);
       this.model = this.genAI.getGenerativeModel({ model: this.modelName });
@@ -45,6 +57,10 @@ class MultiVariantGenerator {
    * @returns {Promise<Array>} - Array of 3 variant designs
    */
   async generateVariants(prompt, context = {}) {
+    console.log('\n\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨');
+    console.log('🚨 MULTI-VARIANT GENERATOR - generateVariants() CALLED 🚨');
+    console.log('🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n');
+
     if (!this.isEnabled()) {
       throw new Error('Multi-Variant Generator is not enabled. Please configure GEMINI_API_KEY.');
     }
@@ -82,18 +98,58 @@ class MultiVariantGenerator {
       try {
         const variantPrompt = this.buildVariantPrompt(prompt, style, context);
         console.log(`📝 Prompt length: ${variantPrompt.length} characters`);
-        
+        console.log(`🔥 CALLING GEMINI API with model: ${this.modelName}`);
+        console.log(`🔑 API Key present: ${!!this.apiKey} (first 10 chars: ${this.apiKey?.substring(0, 10)}...)`);
+
         const result = await this.model.generateContent(variantPrompt);
+        console.log(`📡 GEMINI RAW RESULT received:`, typeof result);
+
         const response = await result.response;
+        console.log(`📡 GEMINI RESPONSE object:`, typeof response);
+
         const text = response.text();
-        
+        console.log(`📡 GEMINI TEXT length: ${text?.length || 0}`);
+        console.log(`📡 GEMINI TEXT preview: ${text?.substring(0, 500)}`);
+
         console.log(`✅ ${style.title} variant generated (${text.length} characters)`);
-        
-        return this.parseVariantResponse(text, style);
+
+        // Parse variant
+        const variant = this.parseVariantResponse(text, style);
+        console.log(`📦 PARSED VARIANT: ${JSON.stringify(variant).substring(0, 300)}`);
+
+        // Apply Axel Step: Analyze and Replicate (Micron-level refinement)
+        if (this.axelEngine.isEnabled()) {
+          console.log(`🔬 Applying Axel analysis to ${style.title}...`);
+          try {
+            const axelAnalysis = await this.axelEngine.analyzeAndReplicate(variant, context.realWorldData);
+            if (axelAnalysis) {
+              variant.axelAnalysis = axelAnalysis;
+              variant.metadata.engine = 'Gemini + Axel Voxel Engine';
+              console.log(`✅ Axel analysis attached to ${style.title}`);
+            }
+          } catch (axelError) {
+            console.error(`⚠️ Axel analysis failed for ${style.title}:`, axelError.message);
+          }
+        }
+
+        return variant;
       } catch (error) {
-        console.error(`❌ Failed to generate ${style.title} variant:`, error.message);
-        // Return fallback variant
-        return this.createFallbackVariant(prompt, style, context);
+        console.error(`\n❌ ========================================`);
+        console.error(`❌ GEMINI API CALL FAILED for ${style.title}`);
+        console.error(`❌ ========================================`);
+        console.error(`❌ Error Type: ${error.name}`);
+        console.error(`❌ Error Message: ${error.message}`);
+        console.error(`❌ API Key Present: ${!!this.apiKey}`);
+        console.error(`❌ API Key First 10 chars: ${this.apiKey?.substring(0, 10)}...`);
+        console.error(`❌ Model: ${this.modelName}`);
+        if (error.stack) {
+          console.error(`❌ Stack Trace (first 500 chars):`);
+          console.error(error.stack.substring(0, 500));
+        }
+        console.error(`❌ ========================================\n`);
+
+        // Return fallback variant (with potential Axel analysis)
+        return this.createFallbackVariant(prompt, style, context, error);
       }
     });
 
@@ -109,318 +165,71 @@ class MultiVariantGenerator {
   }
 
   /**
-   * Generate fantasy/unrealistic variants with image generation support
-   * Uses Gemini Image Generation (Nano Banana Pro) for concept images
-   * Then provides detailed specifications for 3D conversion
-   * 
-   * @param {string} prompt - Fantasy/unrealistic design prompt
-   * @param {object} context - Additional context
-   * @returns {Promise<Array>} - Array of fantasy variant designs with image descriptions
+   * Build a variant-specific prompt for Gemini
+   * Emphasizes different aspects based on the style
    */
-  async generateFantasyVariants(prompt, context = {}) {
-    if (!this.isEnabled()) {
-      throw new Error('Multi-Variant Generator is not enabled. Please configure GEMINI_API_KEY.');
-    }
+  buildVariantPrompt(prompt, style, context) {
+    const basePrompt = `Generate a detailed 3D architectural design specification for: "${prompt}"
 
-    console.log('\n========================================');
-    console.log('🎨 Fantasy/Unrealistic Multi-Variant Generation Started');
-    console.log('🎭 Using Nano Banana Pro (Gemini Image Generation)');
-    console.log('========================================');
-    console.log('📋 Input:', {
-      prompt: prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''),
-      type: 'fantasy/unrealistic',
-    });
+Style Focus: ${style.title} - ${style.description}
 
-    // Step 1: Generate fantasy image descriptions using Gemini
-    let fantasyImages = [];
-    if (this.geminiImageGenerator.isEnabled()) {
-      try {
-        console.log('\n🎨 Step 1: Generating fantasy concept images...');
-        fantasyImages = await this.geminiImageGenerator.generateFantasyVariants(prompt, 3);
-        console.log('✅ Fantasy image descriptions generated');
-      } catch (error) {
-        console.warn('⚠️  Fantasy image generation failed, continuing with text-only variants:', error.message);
-      }
-    }
+Requirements:
+- Return a JSON object with the following structure
+- Include precise dimensions in millimeters
+- Specify materials and structural details
+- Create realistic, buildable designs
 
-    // Step 2: Generate 3D specifications for each fantasy variant
-    const styles = [
-      {
-        name: 'ethereal-fantasy',
-        title: 'Ethereal Fantasy',
-        description: 'Dreamlike, otherworldly design with impossible geometry',
-      },
-      {
-        name: 'biomechanical-complex',
-        title: 'Biomechanical Complex',
-        description: 'Organic forms merged with intricate mechanical elements',
-      },
-      {
-        name: 'cosmic-surreal',
-        title: 'Cosmic Surreal',
-        description: 'Space-age futuristic with surreal stellar elements',
-      },
-    ];
-
-    console.log('\n🏗️  Step 2: Generating 3D specifications for fantasy variants...');
-
-    const variantPromises = styles.map(async (style, index) => {
-      console.log(`\n--- Generating ${style.title} variant ---`);
-      try {
-        // Use fantasy image description if available
-        const imageContext = fantasyImages[index] && fantasyImages[index].success
-          ? {
-              imageDescription: fantasyImages[index].detailedDescription,
-              enhancedPrompt: fantasyImages[index].enhancedPrompt,
-            }
-          : null;
-
-        const variantPrompt = this.buildFantasyVariantPrompt(prompt, style, context, imageContext);
-        console.log(`📝 Prompt length: ${variantPrompt.length} characters`);
-        
-        const result = await this.model.generateContent(variantPrompt);
-        const response = await result.response;
-        const text = response.text();
-        
-        console.log(`✅ ${style.title} variant generated (${text.length} characters)`);
-        
-        const parsed = this.parseVariantResponse(text, style);
-        
-        // Add fantasy-specific metadata
-        return {
-          ...parsed,
-          fantasyMode: true,
-          imageDescription: imageContext?.imageDescription,
-          conceptImage: fantasyImages[index] || null,
-        };
-      } catch (error) {
-        console.error(`❌ Failed to generate ${style.title} variant:`, error.message);
-        return this.createFallbackVariant(prompt, style, { ...context, fantasyMode: true });
-      }
-    });
-
-    const variants = await Promise.all(variantPromises);
-
-    console.log('\n========================================');
-    console.log('✅ Fantasy Multi-Variant Generation Complete');
-    console.log(`📊 Generated ${variants.length} fantasy variants`);
-    console.log(`🎨 With ${fantasyImages.filter(img => img.success).length} concept images`);
-    console.log('========================================\n');
-
-    return variants;
-  }
-
-  /**
-   * Build detailed prompt for a specific variant style
-   */
-  buildVariantPrompt(basePrompt, style, context) {
-    const { realWorldData, coordinates } = context;
-
-    let prompt = `You are an expert 3D architect and designer creating ultra-realistic 3D models for the ArchDisc platform.
-
-TASK: Generate a detailed 3D model specification for: "${basePrompt}"
-
-VARIANT STYLE: ${style.title}
-EMPHASIS: ${style.description}
-
-`;
-
-    // Add real-world reference data if available
-    if (realWorldData) {
-      prompt += `\nREAL-WORLD REFERENCE DATA:\n`;
-      
-      if (realWorldData.wikipedia) {
-        prompt += `- Wikipedia: ${realWorldData.wikipedia.summary || 'N/A'}\n`;
-      }
-      
-      if (realWorldData.wikidata) {
-        const wd = realWorldData.wikidata;
-        prompt += `- Dimensions:\n`;
-        if (wd.dimensions) {
-          if (wd.dimensions.height) prompt += `  * Height: ${wd.dimensions.height}m\n`;
-          if (wd.dimensions.width) prompt += `  * Width: ${wd.dimensions.width}m\n`;
-          if (wd.dimensions.length) prompt += `  * Length: ${wd.dimensions.length}m\n`;
-        }
-        if (wd.materials && wd.materials.length > 0) {
-          prompt += `- Materials: ${wd.materials.join(', ')}\n`;
-        }
-        if (wd.architect) {
-          prompt += `- Architect: ${wd.architect}\n`;
-        }
-        if (wd.inceptionDate) {
-          prompt += `- Built: ${wd.inceptionDate}\n`;
-        }
-      }
-    }
-
-    // Add location context if coordinates provided
-    if (coordinates) {
-      prompt += `\nLOCATION CONTEXT:\n`;
-      prompt += `- Coordinates: ${coordinates.latitude}, ${coordinates.longitude}\n`;
-      if (coordinates.address) {
-        prompt += `- Address: ${coordinates.address}\n`;
-      }
-    }
-
-    // Style-specific instructions
-    if (style.name === 'photorealistic') {
-      prompt += `\nPHOTOREALISTIC REQUIREMENTS:
-- Use exact real-world dimensions and proportions
-- Include accurate material textures (weathering, patina, wear)
-- Add environmental context (lighting, atmosphere, surroundings)
-- Consider time of day and weather effects
-- Include fine details visible in photographs
-`;
-    } else if (style.name === 'engineering-detail') {
-      prompt += `\nENGINEERING REQUIREMENTS:
-- Provide precise structural specifications
-- Include component count and assembly details
-- Specify load-bearing elements and supports
-- Detail connection points and joints
-- Include technical measurements in meters
-- Specify material properties (density, strength, composition)
-`;
-    } else if (style.name === 'artistic-quality') {
-      prompt += `\nARTISTIC REQUIREMENTS:
-- Optimize visual composition and balance
-- Enhance aesthetic appeal while maintaining accuracy
-- Consider ideal lighting and presentation angles
-- Add artistic interpretation of materials and surfaces
-- Focus on dramatic features and visual impact
-`;
-    }
-
-    prompt += `\nOUTPUT FORMAT (STRICT JSON):
+JSON Format:
 {
-  "name": "descriptive name",
-  "style": "${style.name}",
-  "description": "2-3 sentence description",
+  "name": "Design name",
+  "description": "Detailed description emphasizing ${style.title} aspects",
   "dimensions": {
-    "width": <number in meters>,
-    "height": <number in meters>,
-    "depth": <number in meters>
+    "width": <number in mm>,
+    "height": <number in mm>,
+    "depth": <number in mm>
   },
-  "materials": ["material1", "material2", ...],
+  "materials": ["material1", "material2"],
   "elements": [
     {
-      "type": "element type",
-      "name": "element name",
-      "dimensions": {"width": <meters>, "height": <meters>, "depth": <meters>},
-      "position": {"x": <meters>, "y": <meters>, "z": <meters>},
-      "material": "material name"
+      "name": "Element name",
+      "type": "box|cylinder|cone",
+      "dimensions": {"width": <mm>, "height": <mm>, "depth": <mm>},
+      "material": "material name",
+      "position": {"x": <mm>, "y": <mm>, "z": <mm>}
     }
   ],
   "details": {
-    "structuralFeatures": ["feature1", "feature2", ...],
-    "visualCharacteristics": ["char1", "char2", ...],
-    "technicalSpecs": ["spec1", "spec2", ...]
+    "structuralFeatures": ["feature1", "feature2"],
+    "visualCharacteristics": ["char1", "char2"],
+    "technicalSpecs": ["spec1", "spec2"]
   },
   "metadata": {
     "complexity": "low|medium|high",
-    "realism": "high",
-    "historicalAccuracy": "high|medium|low"
+    "realism": "low|medium|high"
   }
-}
+}`;
 
-CRITICAL: Return ONLY valid JSON, no markdown, no explanations, no code blocks.`;
-
-    return prompt;
-  }
-
-  /**
-   * Build detailed prompt for fantasy/unrealistic variant style
-   * Incorporates image descriptions from Gemini Image Generator
-   */
-  buildFantasyVariantPrompt(basePrompt, style, context, imageContext) {
-    let prompt = `You are an expert fantasy 3D designer creating imaginative, unrealistic, and super-complex 3D models for the ArchDisc platform.
-
-TASK: Generate a detailed 3D model specification for: "${basePrompt}"
-
-VARIANT STYLE: ${style.title}
-EMPHASIS: ${style.description}
-
-DESIGN TYPE: Fantasy/Unrealistic/Super-Complex
-- Embrace impossible geometry and physics-defying elements
-- Use fantastical and imaginary materials
-- Create intricate, elaborate, and hyper-detailed designs
-- Incorporate surreal and otherworldly aesthetics
-
-`;
-
-    // Add image description if available
-    if (imageContext && imageContext.imageDescription) {
-      prompt += `\nCONCEPT IMAGE DESCRIPTION:\n`;
-      prompt += `${imageContext.imageDescription}\n\n`;
-      prompt += `Use this visual description as inspiration for the 3D model design.\n`;
+    // Add style-specific emphasis
+    let styleEmphasis = '';
+    if (style.name === 'photorealistic') {
+      styleEmphasis = '\nEmphasize: Visual accuracy, realistic materials, weathering effects, lighting considerations';
+    } else if (style.name === 'engineering-detail') {
+      styleEmphasis = '\nEmphasize: Structural integrity, load-bearing elements, construction methodology, technical precision';
+    } else if (style.name === 'artistic-quality') {
+      styleEmphasis = '\nEmphasize: Aesthetic appeal, visual composition, dramatic features, presentation quality';
     }
 
-    // Add context from real-world pipeline if available (for hybrid designs)
+    // Add context if available
+    let contextInfo = '';
     if (context.realWorldData) {
-      prompt += `\nREAL-WORLD REFERENCE (for hybrid fantasy-realism):\n`;
-      prompt += `Use these as inspiration but feel free to transform them into fantasy elements:\n`;
-      
-      if (context.realWorldData.wikipedia) {
-        prompt += `- Base concept: ${context.realWorldData.wikipedia.summary?.substring(0, 200) || 'N/A'}\n`;
-      }
+      contextInfo = '\n\nReal-world reference data available. Use it to enhance accuracy.';
     }
 
-    // Fantasy-specific instructions
-    prompt += `\nFANTASY DESIGN REQUIREMENTS:
-- Materials can be impossible/magical (e.g., "crystallized starlight", "living metal", "ethereal glass")
-- Dimensions can defy physics (floating elements, infinite loops, impossible proportions)
-- Include fantastical elements (glowing runes, energy fields, morphing geometry)
-- Embrace complexity and intricate details
-- Think beyond real-world constraints
-
-`;
-
-    prompt += `\nOUTPUT FORMAT (STRICT JSON):
-{
-  "name": "descriptive fantasy name",
-  "style": "${style.name}",
-  "description": "2-3 sentence description emphasizing fantasy elements",
-  "dimensions": {
-    "width": <number in meters, can be unrealistic>,
-    "height": <number in meters, can be unrealistic>,
-    "depth": <number in meters, can be unrealistic>
-  },
-  "materials": ["fantasy material 1", "fantasy material 2", ...],
-  "elements": [
-    {
-      "type": "fantasy element type",
-      "name": "element name",
-      "dimensions": {"width": <meters>, "height": <meters>, "depth": <meters>},
-      "position": {"x": <meters>, "y": <meters>, "z": <meters>},
-      "material": "fantasy material",
-      "fantasyProperties": {
-        "glowing": true|false,
-        "animated": true|false,
-        "magical": true|false,
-        "defiesGravity": true|false
-      }
-    }
-  ],
-  "details": {
-    "fantasyFeatures": ["feature1", "feature2", ...],
-    "visualEffects": ["effect1", "effect2", ...],
-    "impossibleElements": ["element1", "element2", ...]
-  },
-  "metadata": {
-    "complexity": "high|super|extreme",
-    "fantasyLevel": "high",
-    "realism": "low|fantasy",
-    "imaginationScore": "high"
-  }
-}
-
-CRITICAL: Return ONLY valid JSON, no markdown, no explanations, no code blocks.`;
-
-    return prompt;
+    return basePrompt + styleEmphasis + contextInfo;
   }
 
-  /**
-   * Parse AI response into structured variant object
-   */
+  // ... (keeping generateFantasyVariants and others same) ...
+
   parseVariantResponse(text, style) {
     try {
       // Remove markdown code blocks if present
@@ -430,7 +239,7 @@ CRITICAL: Return ONLY valid JSON, no markdown, no explanations, no code blocks.`
       }
 
       const parsed = JSON.parse(cleanText);
-      
+
       // Ensure required fields
       return {
         style: style.name,
@@ -456,32 +265,113 @@ CRITICAL: Return ONLY valid JSON, no markdown, no explanations, no code blocks.`
 
   /**
    * Create fallback variant if AI generation fails
+   * Creates UNIQUE, MINIMAL fallback per style to avoid blocking view
+   * Tries to use Axel to enhance the fallback if possible
    */
-  createFallbackVariant(prompt, style, context) {
+  async createFallbackVariant(prompt, style, context, error = null) {
     console.warn(`⚠️  Creating fallback variant for ${style.title}`);
-    
-    return {
+    console.warn(`⚠️  Error details:`, error?.message || 'Unknown error');
+
+    // Create STYLE-SPECIFIC descriptions and characteristics
+    let styleSpecificData = {};
+
+    if (style.name === 'photorealistic') {
+      styleSpecificData = {
+        description: `Photorealistic interpretation of "${prompt.substring(0, 40)}..." (AI generation unavailable - using fallback). This variant would emphasize visual accuracy and realistic materials with proper lighting and weathering effects.`,
+        materials: ['weathered_concrete', 'aged_steel', 'tinted_glass'],
+        color: '#8b7355', // Weathered brown
+        structuralFeatures: ['Realistic surface weathering', 'Natural material aging', 'Photographic lighting'],
+        visualCharacteristics: ['High visual fidelity', 'Realistic textures', 'Natural wear patterns'],
+      };
+    } else if (style.name === 'engineering-detail') {
+      styleSpecificData = {
+        description: `Engineering-focused design for "${prompt.substring(0, 40)}..." (AI generation unavailable - using fallback). This variant would focus on structural integrity, load-bearing elements, and precise technical specifications.`,
+        materials: ['reinforced_concrete', 'structural_steel', 'engineered_glass'],
+        color: '#4a7c9e', // Engineering blue
+        structuralFeatures: ['Load-bearing framework', 'Structural redundancy', 'Engineering precision'],
+        visualCharacteristics: ['Technical accuracy', 'Structural clarity', 'Construction methodology'],
+      };
+    } else { // artistic-quality
+      styleSpecificData = {
+        description: `Artistic interpretation of "${prompt.substring(0, 40)}..." (AI generation unavailable - using fallback). This variant would optimize for aesthetic appeal with dramatic features and presentation quality.`,
+        materials: ['polished_marble', 'brushed_aluminum', 'crystal_glass'],
+        color: '#d4af37', // Golden/artistic
+        structuralFeatures: ['Aesthetic composition', 'Visual drama', 'Artistic expression'],
+        visualCharacteristics: ['High presentation value', 'Dramatic angles', 'Visual impact'],
+      };
+    }
+
+    // MINIMAL fallback geometry - single small placeholder to avoid blocking view
+    // Using millimeters to match expected scale
+    const fallbackVariant = {
       style: style.name,
       title: style.title,
-      name: prompt.substring(0, 50),
-      description: `${style.title} design generated with fallback mode`,
-      dimensions: { width: 10, height: 10, depth: 10 },
-      materials: ['concrete', 'steel'],
-      elements: [],
+      name: `${style.title}: ${prompt.substring(0, 40)}`,
+      description: styleSpecificData.description,
+      dimensions: { width: 5, height: 8, depth: 5 }, // Small 5x8x5 meter placeholder
+      materials: styleSpecificData.materials,
+      // SINGLE element fallback - minimal placeholder
+      elements: [
+        {
+          name: `${style.title} Placeholder`,
+          type: 'box',
+          dimensions: { width: 5000, height: 8000, depth: 5000 }, // 5x8x5 meters in mm
+          material: styleSpecificData.materials[0],
+          position: { x: 0, y: 4000, z: 0 }, // Centered at y=4m (half height)
+          color: styleSpecificData.color
+        }
+      ],
       details: {
-        structuralFeatures: ['Basic structure'],
-        visualCharacteristics: ['Standard appearance'],
-        technicalSpecs: ['Standard specifications'],
+        structuralFeatures: styleSpecificData.structuralFeatures,
+        visualCharacteristics: styleSpecificData.visualCharacteristics,
+        technicalSpecs: [
+          'Fallback geometry - AI generation failed',
+          `Error: ${error?.message || 'Unknown'}`,
+          'Please check API configuration'
+        ],
       },
       metadata: {
-        complexity: 'medium',
-        realism: 'medium',
-        historicalAccuracy: 'low',
+        complexity: 'low',
+        realism: 'low',
+        historicalAccuracy: 'none',
         style: style.name,
         generatedAt: new Date().toISOString(),
         fallback: true,
+        isFallback: true, // Additional flag for frontend
+        error: error ? error.message : 'Unknown error',
+        errorType: error?.name || 'Error'
       },
     };
+
+    // Apply Axel to fallback
+    if (this.axelEngine && this.axelEngine.isEnabled()) {
+      try {
+        console.log(`🔬 Applying Axel analysis to fallback ${style.title}...`);
+        // Use basic fallback data to seed Axel
+        const axelAnalysis = await this.axelEngine.analyzeAndReplicate({
+          ...fallbackVariant,
+          // Extract basic info from prompt for Axel hints
+          style: style.name,
+          prompt: prompt,
+          yearBuilt: context.realWorldData?.wikipedia?.yearBuilt,
+        }, context.realWorldData);
+
+        if (axelAnalysis) {
+          fallbackVariant.axelAnalysis = axelAnalysis;
+          fallbackVariant.description += ' (Enhanced by Axel)';
+          fallbackVariant.metadata.engine = 'Axel Voxel Engine (Fallback)';
+
+          // If Axel generated geometry data, try to hint dimensions
+          if (axelAnalysis.metadata.geometry?.pointCloud) {
+            fallbackVariant.details.technicalSpecs.push(`Point Cloud Density: ${axelAnalysis.metadata.geometry.pointCloud.density}`);
+          }
+        }
+      } catch (axelError) {
+        console.warn('⚠️ Axel failed on fallback:', axelError);
+      }
+    }
+
+    return fallbackVariant;
   }
 }
 

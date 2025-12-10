@@ -40,13 +40,13 @@ class AIService {
     console.log('   ✓ Geographic Services:', this.geographic.isEnabled());
     console.log('   ✓ API Orchestrator:', this.orchestrator.isEnabled());
     console.log('========================================\n');
-
+    
     // NEW: Step 1 - Check for geographic coordinates in prompt
     const coordinateData = this.geographic.detectCoordinates(prompt);
     if (coordinateData && coordinateData.latitude !== undefined) {
       console.log('🗺️  GEOGRAPHIC COORDINATES DETECTED!');
       console.log(`   📍 Location: ${coordinateData.latitude}°, ${coordinateData.longitude}°`);
-
+      
       try {
         // Analyze the coordinate using all map services
         const geographicAnalysis = await this.geographic.analyzeCoordinate(
@@ -54,15 +54,15 @@ class AIService {
           coordinateData.longitude,
           { radiusMeters: 500, includeStreetView: true }
         );
-
+        
         if (geographicAnalysis && geographicAnalysis.analysis) {
           console.log('✅ Geographic analysis complete!');
           console.log(`   🏗️  Environment: ${geographicAnalysis.analysis.environmentType}`);
           console.log(`   📊 Characteristics: ${geographicAnalysis.analysis.characteristics.join(', ')}`);
-
+          
           // Convert geographic data to scene elements
           const geographicElements = this.geographic.convertToSceneElements(geographicAnalysis);
-
+          
           // Pass to Gemini WITH real-world geographic data
           console.log('🤖 Passing geographic data to Gemini for enhanced analysis...');
           const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
@@ -79,13 +79,13 @@ class AIService {
               weather: geographicAnalysis.weather
             }
           );
-
+          
           if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
             // Merge geographic elements with AI-generated elements
             if (!taxonomyAnalysis.elements) taxonomyAnalysis.elements = [];
             taxonomyAnalysis.elements = [...geographicElements, ...taxonomyAnalysis.elements];
             taxonomyAnalysis.geographicData = geographicAnalysis;
-
+            
             const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
             console.log('✅ Geographic coordinate scene generation complete!\n');
             return specs;
@@ -96,12 +96,12 @@ class AIService {
         // Continue with other methods
       }
     }
-
+    
     // NEW: Step 2 - Check for famous landmarks
     const landmarkName = this.detectLandmark(prompt);
     if (landmarkName) {
       console.log('🏛️  FAMOUS LANDMARK DETECTED:', landmarkName);
-
+      
       try {
         // Try Python Wikipedia first (better data extraction)
         let landmarkData = null;
@@ -109,10 +109,19 @@ class AIService {
           console.log('📚 Fetching real-world data from Python Wikipedia...');
           landmarkData = await this.pythonWikipedia.getLandmarkData(landmarkName);
         }
-
+        
         // Fallback to regular Wikipedia if Python failed
         if (!landmarkData && this.wikipedia.isEnabled()) {
           console.log('📚 Fetching from Wikipedia REST API...');
+<<<<<<< HEAD
+          const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
+          if (wikiArticle) {
+            landmarkData = {
+              title: wikiArticle.title,
+              summary: wikiArticle.extract,
+              dimensions: this.extractDimensionsFromText(wikiArticle.extract)
+            };
+=======
           try {
             const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
             if (wikiArticle) {
@@ -127,13 +136,17 @@ class AIService {
             }
           } catch (wikiError) {
             console.error('❌ Wikipedia REST API call failed:', wikiError.message);
+>>>>>>> origin/copilot/AIV2
           }
         }
-
+        
         // Get structured data from Wikidata
         let wikidataInfo = null;
         if (this.wikidata.isEnabled()) {
           console.log('📊 Fetching structured data from Wikidata...');
+<<<<<<< HEAD
+          wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
+=======
           try {
             wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
             if (wikidataInfo) {
@@ -144,8 +157,9 @@ class AIService {
           } catch (wikidataError) {
             console.error('❌ Wikidata API call failed:', wikidataError.message);
           }
+>>>>>>> origin/copilot/AIV2
         }
-
+        
         // Merge Wikipedia and Wikidata
         const realWorldData = {
           source: 'wikipedia-wikidata',
@@ -157,20 +171,20 @@ class AIService {
             ...wikidataInfo?.dimensions
           }
         };
-
+        
         if (realWorldData.dimensions && Object.keys(realWorldData.dimensions).length > 0) {
           console.log('✅ Real-world landmark data retrieved!');
           console.log(`   📏 Height: ${realWorldData.dimensions.height}m`);
           console.log(`   📐 Width: ${realWorldData.dimensions.width}m`);
           console.log(`   🏢 Floors: ${realWorldData.dimensions.floors}`);
           console.log(`   🎨 Style: ${realWorldData.dimensions.style}`);
-
+          
           // Pass to Gemini WITH real-world data
           const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
             prompt,
             realWorldData
           );
-
+          
           if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
             taxonomyAnalysis.realWorldData = realWorldData;
             const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
@@ -185,22 +199,22 @@ class AIService {
         // Continue with other methods
       }
     }
-
+    
     // NEW: Step 3 - Check if API Orchestrator should be used (complex scenes)
     if (this.orchestrator.isEnabled() && this.shouldUseOrchestrator(prompt)) {
       console.log('🎭 COMPLEX SCENE DETECTED - Using API Orchestrator...');
-
+      
       try {
         const orchestratedData = await this.orchestrator.orchestrate(prompt);
         if (orchestratedData && orchestratedData.success) {
           console.log('✅ API Orchestrator completed successfully!');
-
+          
           // Convert orchestrated data to taxonomy format
           const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
             prompt,
             orchestratedData
           );
-
+          
           if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
             taxonomyAnalysis.orchestratedData = orchestratedData;
             const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
@@ -213,29 +227,29 @@ class AIService {
         // Continue with standard methods
       }
     }
-
+    
     // Step 4: Standard taxonomy-aware AI analysis (existing code)
     try {
       console.log('🔍 Attempting taxonomy-aware analysis...');
       const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPrompt(prompt);
       if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
         console.log('✅ Taxonomy analysis successful');
-
+        
         // Apply real-world patterns and data
         console.log('🌍 Enhancing with real-world data...');
         const realWorldRecommendations = this.realWorldData.analyzeForRealWorldPatterns(taxonomyAnalysis);
-
+        
         // Apply real-world patterns to elements
         if (taxonomyAnalysis.elements && realWorldRecommendations) {
           taxonomyAnalysis.elements = this.realWorldData.applyRealWorldPatterns(
             taxonomyAnalysis.elements,
             realWorldRecommendations
           );
-
+          
           // Store real-world recommendations in taxonomy data
           taxonomyAnalysis.realWorldData = realWorldRecommendations;
         }
-
+        
         const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
         console.log('=== End AI Service Processing ===\n');
         return specs;
@@ -247,7 +261,7 @@ class AIService {
         stack: error.stack,
       });
     }
-
+    
     // Try AI analysis (existing method)
     try {
       console.log('🔍 Attempting Gemini analyzePrompt...');
@@ -265,7 +279,7 @@ class AIService {
         stack: error.stack,
       });
     }
-
+    
     // Try design specs generation as fallback
     try {
       console.log('🔄 Falling back to generateDesignSpecs...');
@@ -282,27 +296,27 @@ class AIService {
         stack: error.stack,
       });
     }
-
+    
     console.error('=== End AI Service Processing (FAILED) ===\n');
     throw new Error('Failed to generate design from AI. All analysis methods failed. Please check API configuration and try again.');
   }
-
+  
   /**
    * Detect if prompt mentions a famous landmark
    * Uses external configuration file for maintainability
    */
   detectLandmark(prompt) {
     const lowerPrompt = prompt.toLowerCase();
-
+    
     for (const landmark of landmarksConfig.landmarks) {
       if (landmark.keywords.some(keyword => lowerPrompt.includes(keyword))) {
         return landmark.name;
       }
     }
-
+    
     return null;
   }
-
+  
   /**
    * Determine if API Orchestrator should be used for complex scenes
    */
@@ -313,55 +327,55 @@ class AIService {
       'multiple buildings', 'several buildings', 'many buildings',
       'entire', 'whole', 'complete', 'full scene', 'environment'
     ];
-
+    
     const lowerPrompt = prompt.toLowerCase();
     return complexSceneKeywords.some(keyword => lowerPrompt.includes(keyword));
   }
-
+  
   /**
    * Extract dimensions from Wikipedia text
    */
   extractDimensionsFromText(text) {
     if (!text) return {};
-
+    
     const dimensions = {};
     const lowerText = text.toLowerCase();
-
+    
     // Extract height
     const heightMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:m|meters|metres)(?:\s+tall|\s+high|\s+in height)/);
     if (heightMatch) {
       dimensions.height = parseFloat(heightMatch[1]);
     }
-
+    
     // Extract width
     const widthMatch = lowerText.match(/width.*?(\d+(?:\.\d+)?)\s*(?:m|meters|metres)/);
     if (widthMatch) {
       dimensions.width = parseFloat(widthMatch[1]);
     }
-
+    
     // Extract floors
     const floorsMatch = lowerText.match(/(\d+)\s*(?:floors|stories|storeys)/);
     if (floorsMatch) {
       dimensions.floors = parseInt(floorsMatch[1]);
     }
-
+    
     return dimensions;
   }
-
+  
   /**
    * Convert taxonomy-aware AI analysis to design specifications
    * Handles comprehensive scene data with realistic placement
    */
   convertTaxonomyAnalysisToSpecs(analysis) {
     const { primaryCategory, scale, style, elements, spatialComposition, realism, environmentalContext, realWorldDataSource } = analysis;
-
+    
     // Extract primary element for basic compatibility
     const primaryElement = elements?.[0] || {};
-
+    
     // If this analysis came from real-world data (landmarks), mark elements with metadata
     const processedElements = elements?.map(element => {
       const processedElement = { ...element };
-
+      
       // Add realWorld metadata if this came from Wikipedia/Wikidata
       if (realWorldDataSource && (realWorldDataSource === 'wikipedia-wikidata' || realWorldDataSource === 'geographic-coordinate')) {
         if (!processedElement.metadata) {
@@ -369,13 +383,13 @@ class AIService {
         }
         processedElement.metadata.realWorld = true;
         processedElement.metadata.source = realWorldDataSource;
-
+        
         console.log(`✅ Marked element "${element.name}" as real-world landmark from ${realWorldDataSource}`);
       }
-
+      
       return processedElement;
     }) || [];
-
+    
     return {
       // Original format compatibility
       objectType: primaryElement.category || primaryCategory || 'object',
@@ -390,7 +404,7 @@ class AIService {
       materials: primaryElement.materials || ['default'],
       style: style?.architectural || style?.theme || 'modern',
       features: primaryElement.features || [],
-
+      
       // Enhanced taxonomy data
       taxonomyData: {
         primaryCategory,
@@ -402,10 +416,10 @@ class AIService {
         realism: realism || { detailLevel: 'medium' },
         realWorldDataSource: realWorldDataSource // Preserve the source
       },
-
+      
       // All elements for multi-object generation (with metadata)
       elements: processedElements,
-
+      
       // Scene metadata
       scene: {
         type: spatialComposition?.layout || 'organic',
@@ -417,14 +431,14 @@ class AIService {
       detailLevel: realism?.detailLevel || 'high',
     };
   }
-
+  
   /**
    * Convert AI analysis to design specifications
    */
   convertAIAnalysisToSpecs(analysis) {
     const firstElement = analysis.elements?.[0] || {};
     const scene = analysis.scene || {};
-
+    
     return {
       objectType: firstElement.type || scene.type || 'object',
       objectCount: analysis.objectCount || 1,
@@ -451,41 +465,11 @@ class AIService {
     } catch (e) {
       // If not JSON, extract information from text
       return {
-        objectType: 'building',
-        description: content + ' (Generated with enhanced fallback)',
-        dimensions: { width: 15000, height: 40000, depth: 15000 },
-        materials: ['concrete', 'glass', 'steel'],
+        objectType: this.extractObjectType(content),
+        description: content,
+        dimensions: { width: 10, height: 10, depth: 10 },
+        materials: ['default'],
         style: 'modern',
-        elements: [
-          {
-            name: 'Base Foundation',
-            type: 'box',
-            dimensions: { width: 15000, height: 10000, depth: 15000 },
-            material: 'concrete',
-            position: { x: 0, y: 5000, z: 0 }
-          },
-          {
-            name: 'Main Tower',
-            type: 'box',
-            dimensions: { width: 10000, height: 40000, depth: 10000 },
-            material: 'glass',
-            position: { x: 0, y: 30000, z: 0 }
-          },
-          {
-            name: 'Upper Tier',
-            type: 'cylinder',
-            dimensions: { width: 8000, height: 15000, depth: 8000 },
-            material: 'steel',
-            position: { x: 0, y: 57500, z: 0 }
-          },
-          {
-            name: 'Spire',
-            type: 'cone',
-            dimensions: { width: 1000, height: 10000, depth: 1000 },
-            material: 'gold',
-            position: { x: 0, y: 70000, z: 0 }
-          }
-        ]
       };
     }
   }
@@ -496,7 +480,7 @@ class AIService {
    */
   generateDemoResponse(prompt) {
     const objectType = this.extractObjectType(prompt);
-
+    
     const responses = {
       car: {
         objectType: 'car',
@@ -548,8 +532,206 @@ class AIService {
    * Generate 3D model data from specifications
    */
   async generateModelData(specifications) {
+<<<<<<< HEAD
+<<<<<<< HEAD
+    const { objectType, dimensions, materials, elements, scene, objectCount, realWorldData, realBuildings, realDimensions } = specifications;
+=======
     const { objectType, dimensions, materials, elements, scene, objectCount, taxonomyData } = specifications;
+>>>>>>> origin/copilot/complete-ai-pipeline-integration
+=======
+    const { objectType, dimensions, materials, elements, scene, objectCount, taxonomyData } = specifications;
+>>>>>>> origin/copilot/AIV2
 
+    // PRIORITY 0: Check if AI 3D generation is enabled for highly realistic models
+    const enableAI3D = process.env.ENABLE_AI_3D_GENERATION === 'true';
+    const hasTripoKey = !!process.env.TRIPO_API_KEY;
+    const hasMeshyKey = !!process.env.MESHY_API_KEY;
+    const hasVertexKey = !!process.env.GOOGLE_CLOUD_PROJECT_ID;
+    
+    if (enableAI3D && (hasTripoKey || hasMeshyKey || hasVertexKey)) {
+      console.log('🤖 AI 3D Generation enabled - attempting to use AI APIs for photorealistic model');
+      console.log('   Available APIs:', {
+        tripo: hasTripoKey,
+        meshy: hasMeshyKey,
+        vertexImagen: hasVertexKey
+      });
+      
+      try {
+        const ai3DOrchestrator = require('./ai3DOrchestrator');
+        
+        // Create prompt from specifications
+        const generationPrompt = specifications.description || 
+                                specifications.name || 
+                                (realDimensions ? `${realDimensions.name || 'landmark'} with height ${realDimensions.height}m` : null) ||
+                                'architectural structure';
+        
+        // Create options object
+        const generationOptions = {
+          mode: process.env.DEFAULT_GENERATION_MODE || 'ultra_cheap',
+          specifications: specifications,
+          realWorldData: realWorldData,
+          realDimensions: realDimensions,
+          realBuildings: realBuildings
+        };
+        
+        console.log('📤 Sending request to AI 3D orchestrator...');
+        console.log('   Prompt:', generationPrompt);
+        console.log('   Mode:', generationOptions.mode);
+        
+        const ai3DResult = await ai3DOrchestrator.generate(generationPrompt, generationOptions);
+        
+        if (ai3DResult && ai3DResult.success && ai3DResult.model) {
+          console.log('✅ AI 3D generation successful!');
+          console.log('   Source:', ai3DResult.source);
+          console.log('   Provider:', ai3DResult.provider || ai3DResult.model.provider);
+          console.log('   Quality:', ai3DResult.model.quality || 'standard');
+          console.log('   Duration:', ai3DResult.duration, 'ms');
+          if (ai3DResult.cost !== undefined) {
+            console.log('   Cost:', '$' + ai3DResult.cost.toFixed(4));
+          }
+          
+          return {
+            geometry: {
+              type: 'ai_generated',
+              modelUrl: ai3DResult.model.modelUrl || ai3DResult.model.url,
+              format: ai3DResult.model.format || 'glb',
+              provider: ai3DResult.provider || ai3DResult.model.provider,
+              quality: ai3DResult.model.quality || 'standard',
+              source: ai3DResult.source
+            },
+            materials: materials || ['pbr_auto'],
+            metadata: { 
+              ...specifications, 
+              aiGenerated: true,
+              photorealistic: true,
+              provider: ai3DResult.provider || ai3DResult.model.provider,
+              source: ai3DResult.source,
+              cost: ai3DResult.cost,
+              duration: ai3DResult.duration
+            },
+            stats: { 
+              vertices: 'high-detail',
+              faces: 'high-detail',
+              photorealistic: true
+            },
+          };
+        } else {
+          console.warn('⚠️  AI 3D generation returned no model, falling back to procedural');
+        }
+      } catch (error) {
+        console.warn('⚠️  AI 3D generation failed, falling back to procedural:', error.message);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('   Error details:', error);
+        }
+      }
+    } else if (enableAI3D) {
+      console.log('ℹ️  AI 3D Generation enabled but no API keys configured');
+      console.log('   Add TRIPO_API_KEY, MESHY_API_KEY, or GOOGLE_CLOUD_PROJECT_ID to .env for photorealistic models');
+    }
+    
+    console.log('🎨 Using procedural geometry generation');
+
+    // PRIORITY 1: If we have real dimensions from Wikidata (specific landmark), create a single accurate building
+    if (realDimensions && realDimensions.height) {
+      console.log('📏 Using real dimensions for landmark generation');
+      console.log('   Height:', realDimensions.height, 'm');
+      console.log('   Width:', realDimensions.width || realDimensions.baseWidth || 'auto', 'm');
+      
+      const buildingElement = {
+        type: 'building',
+        name: specifications.name || 'Landmark',
+        dimensions: {
+          width: (realDimensions.width || realDimensions.baseWidth || realDimensions.height * 0.4) * 1000,
+          height: realDimensions.height * 1000,
+          depth: (realDimensions.depth || realDimensions.length || realDimensions.width || realDimensions.baseWidth || realDimensions.height * 0.4) * 1000,
+        },
+        materials: materials || ['steel', 'glass'],
+        details: {
+          buildingType: 'landmark',
+          architecturalStyle: specifications.style || 'iconic',
+          realWorldData: true,
+          levels: Math.floor(realDimensions.height / 3), // Estimate levels from height
+        },
+      };
+
+      const geometrySpec = {
+        objectCount: 1,
+        elements: [buildingElement],
+        scene: {
+          type: 'landmark_replica',
+          isRealWorld: true,
+          ...scene,
+        },
+        taxonomyData: specifications.taxonomyData,
+        realWorldData: true,
+      };
+
+      const geometry = geometryGenerator.generateFromSpec(geometrySpec);
+      
+      return {
+        geometry,
+        materials: materials || ['steel', 'glass'],
+        metadata: { ...specifications, usedRealWorldData: true, landmarkMode: true },
+        stats: this.calculateStats(geometry),
+      };
+    }
+
+    // PRIORITY 2: If we have real-world buildings from OSM (city scene), use them
+    if (realBuildings && realBuildings.length > 0) {
+      console.log('🏛️  Using real-world building data from OSM');
+      console.log('   Building count:', realBuildings.length);
+      
+      // Convert OSM buildings to elements
+      const buildingElements = realBuildings.map((building, index) => {
+        // Use real dimensions if available
+        const buildingHeight = building.height || building.levels * 3 || 15;
+        const buildingDimensions = {
+          width: building.geometry?.bbox?.width * 1000 || 20000,
+          height: buildingHeight * 1000, // Convert to mm
+          depth: building.geometry?.bbox?.depth * 1000 || 20000,
+        };
+
+        return {
+          type: 'building',
+          name: building.name || `Building_${index + 1}`,
+          dimensions: buildingDimensions,
+          materials: [building.material || 'concrete'],
+          details: {
+            buildingType: building.buildingType || 'commercial',
+            architecturalStyle: building.architectural_style || 'modern',
+            levels: building.levels || Math.floor(buildingHeight / 3),
+            realWorldData: true,
+            osmId: building.id,
+          },
+          position: building.center || { x: index * 25000, y: 0, z: 0 },
+        };
+      });
+
+      const geometrySpec = {
+        objectCount: buildingElements.length,
+        elements: buildingElements,
+        scene: {
+          type: 'real_world_replica',
+          isRealWorld: true,
+          ...scene,
+        },
+        taxonomyData: specifications.taxonomyData,
+        realWorldData: true,
+      };
+
+      const geometry = geometryGenerator.generateFromSpec(geometrySpec);
+      
+      return {
+        geometry,
+        materials: materials || ['concrete', 'glass', 'steel'],
+        metadata: { ...specifications, usedRealWorldData: true, citySceneMode: true },
+        stats: this.calculateStats(geometry),
+      };
+    }
+
+    // PRIORITY 3: Standard generation (no real-world data)
+    console.log('🎨 Using standard procedural generation');
+    
     // Create specification object for geometry generator
     const geometrySpec = {
       objectCount: objectCount || 1,
@@ -568,14 +750,14 @@ class AIService {
 
     // Generate geometry
     const geometry = geometryGenerator.generateFromSpec(geometrySpec);
-
+    
     // Apply materials to geometry parts
     if (geometry.type === 'composite' && geometry.parts) {
-      geometry.parts = geometry.parts.map(part =>
+      geometry.parts = geometry.parts.map(part => 
         materialSystem.applyMaterial(part, part.material || materials?.[0] || 'default')
       );
     }
-
+    
     return {
       geometry,
       materials: materials || ['default'],
@@ -583,14 +765,14 @@ class AIService {
       stats: this.calculateStats(geometry),
     };
   }
-
+  
   /**
    * Calculate model statistics
    */
   calculateStats(geometry) {
     let partCount = 0;
     let totalVertices = 0;
-
+    
     if (geometry.type === 'scene') {
       partCount = (geometry.meshes?.length || 0);
       if (geometry.instances) {
@@ -603,10 +785,10 @@ class AIService {
     } else {
       partCount = 1;
     }
-
+    
     // Rough estimate of vertices based on part count
     totalVertices = partCount * 24; // Average vertices per part
-
+    
     return {
       partCount,
       estimatedVertices: totalVertices,

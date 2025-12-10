@@ -35,11 +35,9 @@ if (process.env.ALLOWED_ORIGINS) {
   });
 }
 
-// Allow localhost during development
-if (process.env.NODE_ENV === 'development') {
-  allowedOriginsSet.add('http://localhost:3000');
-  allowedOriginsSet.add('http://localhost:5173');
-}
+// Always allow localhost for reliability
+allowedOriginsSet.add('http://localhost:3000');
+allowedOriginsSet.add('http://localhost:5173');
 
 // Convert Set to Array for easier use
 const allowedOrigins = Array.from(allowedOriginsSet);
@@ -98,8 +96,8 @@ app.use('/api/credits', creditsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -108,10 +106,10 @@ app.get('/api/health', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err.message);
-  
+
   // CORS errors
   if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'CORS policy violation',
       message: 'Origin not allowed'
     });

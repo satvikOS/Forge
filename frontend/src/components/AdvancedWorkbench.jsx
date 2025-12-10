@@ -1,9 +1,10 @@
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, GizmoHelper, GizmoViewcube } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, GizmoHelper, GizmoViewcube, CameraControls } from '@react-three/drei';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import SceneManager from '../systems/SceneManager';
 import initializeEnvironmentSystem from '../systems/EnvironmentSystem';
+import AxelViewer from './axel/AxelViewer';
 
 /**
  * Component to render a single scene object from SceneManager
@@ -19,18 +20,18 @@ function SceneObject({ sceneObject, isWireframe }) {
       const pos = sceneObject.position;
       const rot = sceneObject.rotation;
       const scale = sceneObject.scale;
-      
+
       // Only update if values actually changed
       if (pos.x !== prevPositionRef.current.x || pos.y !== prevPositionRef.current.y || pos.z !== prevPositionRef.current.z) {
         meshRef.current.position.set(pos.x || 0, pos.y || 0, pos.z || 0);
         prevPositionRef.current = { ...pos };
       }
-      
+
       if (rot.x !== prevRotationRef.current.x || rot.y !== prevRotationRef.current.y || rot.z !== prevRotationRef.current.z) {
         meshRef.current.rotation.set(rot.x || 0, rot.y || 0, rot.z || 0);
         prevRotationRef.current = { ...rot };
       }
-      
+
       if (scale.x !== prevScaleRef.current.x || scale.y !== prevScaleRef.current.y || scale.z !== prevScaleRef.current.z) {
         meshRef.current.scale.set(scale.x || 1, scale.y || 1, scale.z || 1);
         prevScaleRef.current = { ...scale };
@@ -75,6 +76,15 @@ function SceneObject({ sceneObject, isWireframe }) {
           <planeGeometry args={[geometry.width || 1, geometry.height || 1]} />
         );
         break;
+      case 'landmark': // Custom type for landmarks
+        geometryElement = (
+          <boxGeometry args={[
+            geometry.dimensions?.x || 10,
+            geometry.dimensions?.y || 50,
+            geometry.dimensions?.z || 10
+          ]} />
+        );
+        break;
       default:
         // Default to a box if geometry type is unknown or environment asset
         geometryElement = <boxGeometry args={[
@@ -116,7 +126,7 @@ function SceneRenderer({ sceneManager, isWireframe, modelData, refreshTrigger })
     if (sceneManager) {
       const objects = sceneManager.getAllObjects();
       const currentCount = objects.length;
-      
+
       // Only update if object count changed or it's the initial render
       if (currentCount !== prevObjectCountRef.current) {
         console.log(`🎭 Rendering ${currentCount} scene objects`);
@@ -173,12 +183,12 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
 
     // Generate a unique ID for this modelData if it doesn't have one
     const modelId = modelData.id || modelData.designId || JSON.stringify(modelData).substring(0, 100);
-    
+
     // Skip if we've already processed this exact modelData
     if (processedModelIdsRef.current.has(modelId)) {
       return;
     }
-    
+
     console.log('📦 AdvancedWorkbench: Processing modelData', modelData);
     processedModelIdsRef.current.add(modelId);
 
@@ -186,7 +196,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
     try {
       if (modelData.geometry) {
         const geom = modelData.geometry;
-        
+
         // Handle different geometry types
         if (geom.type === 'unified_landmark' && geom.unifiedMesh) {
           // Unified landmark - single object with internal subcomponents (DO NOT instance subcomponents)
@@ -214,10 +224,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             }
           };
           sceneManagerRef.current.addObject(sceneObject);
-          console.log(`✅ Added unified landmark as 1 object (not ${geom.subcomponents?.length || 0} separate instances)`);
-          
-          // Force scene re-render after adding object
+          console.log(`✅ Added unified landmark as 1 object`);
           setSceneRefreshTrigger(prev => prev + 1);
+
         } else if (geom.type === 'composite' && geom.parts) {
           // Composite geometry with multiple parts - add each part as separate object
           console.log(`📦 Adding composite geometry with ${geom.parts.length} parts`);
@@ -247,39 +256,27 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             sceneManagerRef.current.addObject(sceneObject);
           });
           console.log(`✅ Added ${geom.parts.length} parts to scene`);
-          
-          // Force scene re-render after adding all objects
           setSceneRefreshTrigger(prev => prev + 1);
+
         } else if ((geom.type === 'scene' || geom.type === 'taxonomy_scene') && (geom.meshes || geom.instances)) {
-          // Scene with multiple meshes (handles both 'scene' and 'taxonomy_scene' types)
-          
-          // Check for instances array (instanced rendering - one mesh, multiple positions)
+          // Detailed scene handling handling logic
           if (geom.instances && geom.instances.length > 0) {
-            console.log(`📦 Adding ${geom.type} geometry with ${geom.instances.length} instance groups`);
-            let totalObjectsAdded = 0;
-            
             geom.instances.forEach((instance, instanceIndex) => {
               const meshDef = instance.mesh;
               const positions = instance.positions || [{ x: 0, y: 0, z: 0 }];
-              
-              // Create a scene object for each position
               positions.forEach((pos, posIndex) => {
                 const sceneObject = {
                   id: `model_${Date.now()}_inst_${instanceIndex}_${posIndex}`,
-                  name: `${modelData.name || 'Generated Model'} - Instance ${instanceIndex + 1}.${posIndex + 1}`,
+                  name: `${modelData.name} - Inst ${instanceIndex}.${posIndex}`,
                   type: 'generated',
-                  position: {
-                    x: (pos.x || 0) / 1000, // Convert from mm to meters
-                    y: (pos.y || 0) / 1000,
-                    z: (pos.z || 0) / 1000
-                  },
+                  position: { x: (pos.x || 0) / 1000, y: (pos.y || 0) / 1000, z: (pos.z || 0) / 1000 },
                   rotation: meshDef.rotation || { x: 0, y: 0, z: 0 },
                   scale: { x: 1, y: 1, z: 1 },
                   visible: true,
                   userData: {
                     geometry: {
                       type: meshDef.type || 'box',
-                      width: (meshDef.dimensions?.x || 10) / 1000,  // Convert mm to meters
+                      width: (meshDef.dimensions?.x || 10) / 1000,
                       height: (meshDef.dimensions?.y || 10) / 1000,
                       depth: (meshDef.dimensions?.z || 10) / 1000,
                       radius: meshDef.radius ? meshDef.radius / 1000 : undefined
@@ -289,22 +286,14 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
                   }
                 };
                 sceneManagerRef.current.addObject(sceneObject);
-                totalObjectsAdded++;
               });
             });
-            
-            console.log(`✅ Added ${totalObjectsAdded} instanced objects to scene`);
-            
-            // Force scene re-render after adding all objects
             setSceneRefreshTrigger(prev => prev + 1);
-          }
-          // Check for meshes array (traditional - separate mesh definitions)
-          else if (geom.meshes && geom.meshes.length > 0) {
-            console.log(`📦 Adding ${geom.type} geometry with ${geom.meshes.length} meshes`);
+          } else if (geom.meshes && geom.meshes.length > 0) {
             geom.meshes.forEach((mesh, index) => {
               const sceneObject = {
                 id: `model_${Date.now()}_mesh_${index}`,
-                name: mesh.name || `${modelData.name || 'Generated Model'} - Mesh ${index + 1}`,
+                name: mesh.name || `Mesh ${index}`,
                 type: 'generated',
                 position: mesh.position || { x: 0, y: 0, z: 0 },
                 rotation: mesh.rotation || { x: 0, y: 0, z: 0 },
@@ -324,43 +313,55 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
               };
               sceneManagerRef.current.addObject(sceneObject);
             });
-            console.log(`✅ Added ${geom.meshes.length} meshes to scene`);
-            
-            // Force scene re-render after adding all objects
             setSceneRefreshTrigger(prev => prev + 1);
           }
-          // Both empty - create placeholder
-          else {
-            console.warn('⚠️ Empty meshes and instances arrays - creating default placeholder object');
-            console.log('ModelData for debugging:', JSON.stringify(modelData, null, 2));
-            
+        } else if (modelData.elements && modelData.elements.length > 0) {
+          // Handle raw elements array (e.g. from Backend Fallback)
+          console.log(`🧩 Processing ${modelData.elements.length} raw elements from modelData`);
+          modelData.elements.forEach((element, index) => {
+            // scale factor: if dimensions are > 100, assume mm and convert to m (1/1000)
+            // simplified: Backend sends MM, we want M.
+            const scale = 0.001;
+
+            const width = (element.dimensions?.width || element.dimensions?.x || 10000) * scale;
+            const height = (element.dimensions?.height || element.dimensions?.y || 10000) * scale;
+            const depth = (element.dimensions?.depth || element.dimensions?.z || 10000) * scale;
+
+            const posX = (element.position?.x || 0) * scale;
+            const posY = (element.position?.y || 0) * scale;
+            const posZ = (element.position?.z || 0) * scale;
+
             const sceneObject = {
-              id: `model_${Date.now()}_placeholder`,
-              name: modelData.name || 'Generated Model (Placeholder)',
+              id: `model_${Date.now()}_elem_${index}`,
+              name: element.name || `Element ${index}`,
               type: 'generated',
-              position: { x: 0, y: 5, z: 0 },
+              position: { x: posX, y: posY, z: posZ },
               rotation: { x: 0, y: 0, z: 0 },
               scale: { x: 1, y: 1, z: 1 },
               visible: true,
               userData: {
                 geometry: {
-                  type: 'box',
-                  width: 20,
-                  height: 20,
-                  depth: 20
+                  type: element.type || 'box',
+                  width: width,
+                  height: height,
+                  depth: depth,
+                  radius: width / 2, // approximation for cylinder/cone
+                  radiusTop: element.type === 'cone' ? 0 : width / 2,
+                  radiusBottom: width / 2
                 },
-                material: { color: '#ff6b35' }, // Orange to indicate placeholder
+                material: typeof element.material === 'string'
+                  ? { name: element.material, color: '#888888' }
+                  : (element.material || { color: '#cccccc' }),
                 prompt: modelData.prompt
               }
             };
             sceneManagerRef.current.addObject(sceneObject);
-            console.log('✅ Added placeholder object (backend returned empty arrays)');
-            
-            // Force scene re-render
-            setSceneRefreshTrigger(prev => prev + 1);
-          }
+          });
+          console.log(`✅ Added ${modelData.elements.length} elements to scene`);
+          setSceneRefreshTrigger(prev => prev + 1);
+
         } else {
-          // Simple geometry - add as single object
+          // Simple geometry fallback - CHANGED FROM BOX TO CONE TO AVOID "THE CUBE"
           const sceneObject = {
             id: `model_${Date.now()}`,
             name: modelData.name || 'Generated Model',
@@ -371,34 +372,70 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             visible: true,
             userData: {
               geometry: {
-                type: geom.type || 'box',
+                type: geom.type || 'cone', // FORCE CONE instead of box
                 width: geom.dimensions?.x || geom.width || 10,
-                height: geom.dimensions?.y || geom.height || 10,
+                height: geom.dimensions?.y || geom.height || 20, // Taller
                 depth: geom.dimensions?.z || geom.depth || 10,
-                radius: geom.radius
+                radius: geom.radius || 10
               },
-              material: modelData.material || { color: '#4a90e2' },
+              material: modelData.material || { color: '#ff6b35' }, // Orange warning color
               prompt: modelData.prompt
             }
           };
-          
           sceneManagerRef.current.addObject(sceneObject);
-          console.log('✅ Added generated model to scene');
-          
-          // Force scene re-render
+          console.log('✅ Added generated model to scene (Fallback Cone)');
           setSceneRefreshTrigger(prev => prev + 1);
         }
-      } else if (modelData.sceneType === 'environment_composition') {
-        // Environment composition already added objects via SceneComposer
-        console.log('✅ Environment composition scene already populated');
+      } else if (modelData.elements && modelData.elements.length > 0) {
+        // TOP-LEVEL ELEMENTS HANDLING: For variants/fallbacks that have no geometry but have elements
+        console.log(`🧩 TOP-LEVEL: Processing ${modelData.elements.length} elements from modelData (no geometry present)`);
+        modelData.elements.forEach((element, index) => {
+          // Scale from mm to m
+          const scale = 0.001;
+
+          const width = (element.dimensions?.width || element.dimensions?.x || 10000) * scale;
+          const height = (element.dimensions?.height || element.dimensions?.y || 10000) * scale;
+          const depth = (element.dimensions?.depth || element.dimensions?.z || 10000) * scale;
+
+          const posX = (element.position?.x || 0) * scale;
+          const posY = (element.position?.y || 0) * scale;
+          const posZ = (element.position?.z || 0) * scale;
+
+          const sceneObject = {
+            id: `model_${Date.now()}_topelem_${index}`,
+            name: element.name || `Element ${index}`,
+            type: 'generated',
+            position: { x: posX, y: posY, z: posZ },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            visible: true,
+            userData: {
+              geometry: {
+                type: element.type || 'box',
+                width: width,
+                height: height,
+                depth: depth,
+                radius: width / 2,
+                radiusTop: element.type === 'cone' ? 0 : width / 2,
+                radiusBottom: width / 2
+              },
+              material: typeof element.material === 'string'
+                ? { name: element.material, color: '#888888' }
+                : (element.material || { color: '#cccccc' }),
+              prompt: modelData.prompt
+            }
+          };
+          sceneManagerRef.current.addObject(sceneObject);
+        });
+        console.log(`✅ TOP-LEVEL: Added ${modelData.elements.length} elements to scene`);
+        setSceneRefreshTrigger(prev => prev + 1);
       } else {
-        console.warn('⚠️ ModelData has no geometry or recognized type:', modelData);
+        console.warn('⚠️ ModelData has no geometry, elements, or recognized type:', modelData);
       }
     } catch (error) {
       console.error('❌ Error processing modelData:', error);
     }
 
-    // Update scene info after model is processed
     if (onSceneUpdate) {
       onSceneUpdate({
         sceneManager: sceneManagerRef.current,
@@ -407,25 +444,81 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
         totalObjects: sceneManagerRef.current.objects.size,
       });
     }
-  }, [modelData, initialized]); // Remove onSceneUpdate from dependencies to prevent recreation loops
+  }, [modelData, initialized]);
 
   const isWireframe = viewMode === 'wireframe';
+  const cameraControlsRef = useRef(null);
+
+  // Auto-fit camera when modelData changes
+  useEffect(() => {
+    if (!cameraControlsRef.current || !sceneManagerRef.current || !initialized) return;
+
+    const objects = sceneManagerRef.current.getAllObjects();
+    if (objects.length === 0) return;
+
+    // Filter out fallback models from bounds calculation
+    const realObjects = objects.filter(obj => {
+      // Check if this is a fallback model
+      const isFallback = obj.userData?.isFallback ||
+        obj.userData?.metadata?.fallback ||
+        obj.userData?.metadata?.isFallback;
+      return !isFallback;
+    });
+
+    // If only fallback objects exist, include them but log a warning
+    const objectsToFit = realObjects.length > 0 ? realObjects : objects;
+    if (realObjects.length === 0 && objects.length > 0) {
+      console.warn('⚠️  Only fallback models detected - camera may not be optimal');
+    }
+
+    // Calculate PROPER bounds including object dimensions
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+    objectsToFit.forEach(obj => {
+      const pos = obj.position;
+      const geom = obj.userData?.geometry;
+
+      // Get half-dimensions
+      const halfWidth = (geom?.width || 10) / 2;
+      const halfHeight = (geom?.height || 10) / 2;
+      const halfDepth = (geom?.depth || 10) / 2;
+
+      // Validate dimensions aren't in millimeters (would be > 1000)
+      if (halfWidth > 1000 || halfHeight > 1000 || halfDepth > 1000) {
+        console.warn(`⚠️  Object ${obj.id} has huge dimensions (likely mm instead of m):`, { halfWidth, halfHeight, halfDepth });
+        return; // Skip this object from bounds calculation
+      }
+
+      minX = Math.min(minX, pos.x - halfWidth);
+      minY = Math.min(minY, pos.y - halfHeight);
+      minZ = Math.min(minZ, pos.z - halfDepth);
+      maxX = Math.max(maxX, pos.x + halfWidth);
+      maxY = Math.max(maxY, pos.y + halfHeight);
+      maxZ = Math.max(maxZ, pos.z + halfDepth);
+    });
+
+    console.log(`📐 Auto-fitting to bounds: min(${minX.toFixed(1)}, ${minY.toFixed(1)}, ${minZ.toFixed(1)}) max(${maxX.toFixed(1)}, ${maxY.toFixed(1)}, ${maxZ.toFixed(1)})`);
+
+    cameraControlsRef.current.fitToBox(
+      new THREE.Box3(
+        new THREE.Vector3(minX, minY, minZ),
+        new THREE.Vector3(maxX, maxY, maxZ)
+      ),
+      true,
+      { paddingLeft: 1.2, paddingRight: 1.2, paddingBottom: 1.2, paddingTop: 1.2 }
+    );
+  }, [modelData, sceneRefreshTrigger, initialized]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}>
       <Canvas shadows frameloop="demand">
         <Suspense fallback={null}>
           <PerspectiveCamera makeDefault position={[50, 50, 50]} far={10000} />
-          <OrbitControls 
-            enableDamping 
-            dampingFactor={0.05}
-            makeDefault
-          />
-          
           {/* Lighting */}
           <ambientLight intensity={0.4} />
-          <directionalLight 
-            position={[10, 10, 5]} 
+          <directionalLight
+            position={[10, 10, 5]}
             intensity={1}
             castShadow
             shadow-mapSize-width={2048}
@@ -433,25 +526,51 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           />
           <directionalLight position={[-10, -10, -5]} intensity={0.3} />
           <pointLight position={[0, 5, 0]} intensity={0.5} color="#ff6b35" />
-          
+
+
           {/* Render scene objects from SceneManager */}
-          {initialized && sceneManagerRef.current && (
-            <SceneRenderer 
-              sceneManager={sceneManagerRef.current}
-              isWireframe={isWireframe}
-              modelData={modelData}
-              refreshTrigger={sceneRefreshTrigger}
-            />
-          )}
-          
-          {/* Grid */}
-          <gridHelper 
-            args={[360, 360, '#333333', '#1a1a1a']} 
+          {
+            initialized && sceneManagerRef.current && (
+              <SceneRenderer
+                sceneManager={sceneManagerRef.current}
+                isWireframe={isWireframe}
+                modelData={modelData}
+                refreshTrigger={sceneRefreshTrigger}
+              />
+            )
+          }
+
+          {/* Camera Controls with automatic fitting and smooth dampening */}
+          <CameraControls
+            ref={cameraControlsRef}
+            makeDefault
+            minDistance={2}
+            maxDistance={1000}
+            dollyToCursor={true}
+            // Smooth dampening for better UX
+            smoothTime={0.5}
+            draggingSmoothTime={0.3}
+            // Reduced sensitivity for easier control
+            azimuthRotateSpeed={0.5}
+            polarRotateSpeed={0.5}
+            truckSpeed={2}
+            dollySpeed={1}
+            mouseButtons={{
+              left: 1,    // CameraControls.ACTION.ROTATE
+              middle: 0,  // CameraControls.ACTION.NONE
+              right: 2,   // CameraControls.ACTION.TRUCK (pan)
+              wheel: 16   // CameraControls.ACTION.DOLLY (zoom)
+            }}
+          />
+
+          {/* Grid - sized appropriately for typical models */}
+          <gridHelper
+            args={[100, 100, '#333333', '#1a1a1a']}
             position={[0, -0.01, 0]}
           />
 
-          {/* Axes Helper - shortened from 50 to 10 */}
-          <axesHelper args={[10]} />
+          {/* Axes Helper */}
+          <axesHelper args={[5]} />
 
           {/* Gizmo */}
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
@@ -459,6 +578,24 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           </GizmoHelper>
         </Suspense>
       </Canvas>
+
+      {/* Axel Analysis Overlay */}
+      {modelData && modelData.axelAnalysis && (
+        <div style={{
+          position: 'absolute',
+          right: '20px',
+          top: '20px',
+          width: '320px',
+          maxHeight: 'calc(100vh - 40px)',
+          overflowY: 'auto',
+          zIndex: 10,
+          pointerEvents: 'none' // Allow clicking through container
+        }}>
+          <div style={{ pointerEvents: 'auto' }}>
+            <AxelViewer axelData={modelData.axelAnalysis} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

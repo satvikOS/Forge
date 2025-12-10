@@ -49,7 +49,7 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect, onCreateD
         {variants.map((variant, index) => {
           const isSelected = selectedVariant === index;
           const badgeColor = getStyleBadgeColor(variant.style);
-          
+
           return (
             <div
               key={index}
@@ -67,25 +67,59 @@ function VariantSelector({ variants, selectedVariant, onVariantSelect, onCreateD
               <div className="variant-badge" style={{ backgroundColor: badgeColor }}>
                 {variant.title}
               </div>
-              
+
+              {/* Fallback Warning Badge */}
+              {variant.metadata?.isFallback && (
+                <div className="variant-fallback-badge" style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  padding: '4px 8px',
+                  background: '#f44336',
+                  color: 'white',
+                  fontSize: '10px',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  zIndex: 10
+                }}>
+                  ⚠️ FALLBACK
+                </div>
+              )}
+
               {/* Selection Indicator */}
               {isSelected && (
                 <div className="variant-selected-indicator">
                   <span className="checkmark">✓</span>
                 </div>
               )}
-              
-              {/* Variant Content - Simplified */}
+
+              {/* Variant Content - Shows unique description per style */}
               <div className="variant-content">
                 <h4 className="variant-name">{variant.name}</h4>
-                
+
+                {/* Show description - now unique per variant */}
+                <p className="variant-description" style={{
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  marginTop: '8px',
+                  marginBottom: '8px',
+                  lineHeight: '1.4',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical'
+                }}>
+                  {variant.description}
+                </p>
+
                 {/* Metadata - Only essential info */}
                 <div className="variant-metadata">
                   <div className="metadata-item">
                     <span className="metadata-icon">📏</span>
                     <span className="metadata-value">{formatDimensions(variant.dimensions)}</span>
                   </div>
-                  
+
                   <div className="metadata-item">
                     <span className="metadata-icon">🏗️</span>
                     <span className="metadata-value">{formatMaterials(variant.materials)}</span>

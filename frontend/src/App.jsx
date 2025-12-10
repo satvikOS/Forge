@@ -12,6 +12,7 @@ import AdvancedToolbar from './components/AdvancedToolbar';
 import SceneHierarchyPanel from './components/SceneHierarchyPanel';
 import HelpPanel from './components/HelpPanel';
 import VariantSelector from './components/VariantSelector';
+// import GeospatialViewer from './components/geospatial/GeospatialViewer'; // Kept for future internal use
 import SceneManager from './systems/SceneManager';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import apiService from './services/api';
@@ -24,9 +25,11 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('solid');
+  const [showWorkbench, setShowWorkbench] = useState(false);
+  // const [appMode, setAppMode] = useState('studio'); // Reverted to single mode
 
   const [isExploded, setIsExploded] = useState(false);
-  
+
   // 3D modeling state
   const [currentMode, setCurrentMode] = useState('object');
   const [activeTool, setActiveTool] = useState('select');
@@ -35,32 +38,32 @@ function App() {
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
   const [selectedObjects, setSelectedObjects] = useState([]);
   const [selectionCount, setSelectionCount] = useState({ objects: 0 });
-  
+
   // Advanced workbench state
   const [sceneInfo, setSceneInfo] = useState({ selectedCount: 0, totalObjects: 0 });
   const sceneManagerRef = useRef(new SceneManager());
   const [showHelp, setShowHelp] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
-  
+
   // Generation progress state
   const [generationProgress, setGenerationProgress] = useState(null);
   const [currentJobId, setCurrentJobId] = useState(null);
   const [modelData, setModelData] = useState(null);
-  
+
   // Multiple designs tracking (Issue #27)
   const [designs, setDesigns] = useState([]);
-  
+
   // Multi-variant generation state (Phase 1)
   const [variants, setVariants] = useState([]);
   const [selectedVariant, setSelectedVariant] = useState(0);
-  
+
   // Fantasy generation mode state (Nano Banana Pro integration)
   const [generationMode, setGenerationMode] = useState('realistic'); // 'realistic' or 'fantasy'
-  
+
   // State for creating design from variant
   const [isCreatingDesign, setIsCreatingDesign] = useState(false);
-  
+
   // Environment system reference for scene composition
   const environmentSystemRef = useRef(null);
 
@@ -153,11 +156,11 @@ function App() {
    */
   const isSceneCompositionPrompt = (prompt) => {
     const lowerPrompt = prompt.toLowerCase();
-    
+
     // Scene action keywords
     const actionKeywords = ['create', 'generate', 'build', 'make', 'design'];
     const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
-    
+
     // Environment keywords (from scene templates)
     const environmentKeywords = [
       'city', 'futuristic', 'urban', 'metropolis', 'cityscape',
@@ -170,11 +173,11 @@ function App() {
       'space', 'station', 'orbital', 'spacecraft'
     ];
     const hasEnvironment = environmentKeywords.some(keyword => lowerPrompt.includes(keyword));
-    
+
     // Qualifiers that suggest environment (not single object)
     const environmentQualifiers = ['entire', 'whole', 'complete', 'full', 'scene', 'environment'];
     const hasQualifier = environmentQualifiers.some(keyword => lowerPrompt.includes(keyword));
-    
+
     // It's a scene composition prompt if it has action + environment, or action + qualifier
     return hasAction && (hasEnvironment || hasQualifier);
   };
@@ -184,31 +187,31 @@ function App() {
    */
   const handleSceneComposition = async (prompt) => {
     console.log('🎨 Handling scene composition prompt:', prompt);
-    
+
     if (!environmentSystemRef.current || !environmentSystemRef.current.sceneComposer) {
       console.error('Scene Composer not initialized');
       setError('Scene Composer system is not ready. Please wait and try again.');
       return false;
     }
-    
+
     try {
       setLoading(true);
       setError(null);
       setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Initializing scene generation...'] });
-      
+
       const sceneComposer = environmentSystemRef.current.sceneComposer;
-      
+
       // Generate scene with progress updates
       const scene = await sceneComposer.generateSceneFromPrompt(prompt, (progressInfo) => {
-        setGenerationProgress({ 
-          status: 'processing', 
-          progress: progressInfo.progress || 0.5, 
-          stages: [progressInfo.stage || 'Generating...'] 
+        setGenerationProgress({
+          status: 'processing',
+          progress: progressInfo.progress || 0.5,
+          stages: [progressInfo.stage || 'Generating...']
         });
       });
-      
+
       console.log(`✅ Scene composed: ${scene.assets.length} assets created`);
-      
+
       // The scene objects are already added to the scene manager by the composer
       // Just trigger a refresh by updating model data
       // Use scene.seed as timestamp since it's unique per generation and won't change on re-renders
@@ -221,14 +224,14 @@ function App() {
         seed: scene.seed,
         timestamp: scene.seed, // Use seed as stable timestamp
       });
-      
+
       setDesigns(prevDesigns => [...prevDesigns, {
         id: `scene_${Date.now()}`,
         prompt: prompt,
         sceneData: scene,
         timestamp: Date.now(),
       }]);
-      
+
       return true;
     } catch (err) {
       console.error('Scene composition failed:', err);
@@ -248,7 +251,7 @@ function App() {
     //   const success = await handleSceneComposition(prompt);
     //   if (success) return; // Scene composition handled, don't call API
     // }
-    
+
     // FORCE ALL PROMPTS through AI pipeline for ultra-realistic generation
     setLoading(true);
     setError(null);
@@ -259,28 +262,28 @@ function App() {
       // Determine which generation mode to use
       const isFantasyMode = generationMode === 'fantasy';
       const generationAPI = isFantasyMode ? 'generateFantasyVariants' : 'generateVariants';
-      
+
       console.log(`🎨 Attempting ${isFantasyMode ? 'fantasy' : 'realistic'} multi-variant generation...`);
-      setGenerationProgress({ 
-        status: 'processing', 
-        progress: 0.1, 
-        stages: [isFantasyMode ? 'Generating fantasy variants with Nano Banana Pro...' : 'Generating ultra-realistic variants...'] 
+      setGenerationProgress({
+        status: 'processing',
+        progress: 0.1,
+        stages: [isFantasyMode ? 'Generating fantasy variants with Nano Banana Pro...' : 'Generating ultra-realistic variants...']
       });
-      
+
       const variantResult = await apiService[generationAPI](prompt);
-      
+
       if (variantResult.success && variantResult.variants && variantResult.variants.length > 0) {
         console.log(`✅ ${isFantasyMode ? 'Fantasy' : 'Realistic'} multi-variant generation succeeded: ${variantResult.variants.length} variants`);
-        
+
         // Set variants
         setVariants(variantResult.variants);
         setSelectedVariant(0); // Select first variant by default
-        
+
         // Convert first variant to modelData format
         const firstVariant = variantResult.variants[0];
         const modelDataFromVariant = convertVariantToModelData(firstVariant, prompt, isFantasyMode);
         setModelData(modelDataFromVariant);
-        
+
         // Create a design object from the variant
         const variantDesign = {
           specifications: {
@@ -296,7 +299,7 @@ function App() {
           createdAt: new Date().toISOString(),
         };
         setDesign(variantDesign);
-        
+
         // Add to designs array
         setDesigns(prevDesigns => [...prevDesigns, {
           id: `design_${Date.now()}`,
@@ -306,14 +309,14 @@ function App() {
           variants: variantResult.variants,
           timestamp: Date.now(),
         }]);
-        
+
         setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['Variants generated successfully!'] });
-        
+
         // Log real-world data if available
         if (variantResult.realWorldData) {
           console.log('📚 Real-world reference data:', variantResult.realWorldData);
         }
-        
+
         return; // Success - don't fall back to standard generation
       } else {
         console.warn('⚠️  Multi-variant generation returned no results, falling back to standard generation');
@@ -326,23 +329,23 @@ function App() {
     // Fallback to standard generation if variants failed
     try {
       setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Generating design...'] });
-      
+
       // Generate design with progress tracking
       const result = await apiService.generateDesign(prompt, (progress) => {
         setGenerationProgress(progress);
         console.log('Generation progress:', progress);
       });
-      
+
       if (result.success && result.design) {
         setDesign(result.design);
-        
+
         // Add prompt to model data so we can track it
         const modelDataWithPrompt = {
           ...result.modelData,
           prompt: prompt,
         };
         setModelData(modelDataWithPrompt);
-        
+
         // Add to designs array instead of replacing
         setDesigns(prevDesigns => [...prevDesigns, {
           id: `design_${Date.now()}`,
@@ -351,7 +354,7 @@ function App() {
           modelData: result.modelData,
           timestamp: Date.now(),
         }]);
-        
+
         // Optionally perform analysis and compliance checks
         if (result.design.specifications) {
           try {
@@ -360,7 +363,7 @@ function App() {
           } catch (err) {
             console.warn('Analysis failed:', err);
           }
-          
+
           try {
             const complianceResult = await apiService.checkCompliance(result.design.specifications);
             setCompliance(complianceResult.compliance);
@@ -388,7 +391,7 @@ function App() {
       setCurrentJobId(null);
     }
   };
-  
+
   const handleCancelGeneration = async () => {
     if (currentJobId) {
       try {
@@ -435,20 +438,20 @@ function App() {
    */
   const handleVariantSelect = (variantIndex) => {
     if (!variants || variantIndex >= variants.length) return;
-    
+
     console.log(`🎨 Switching to variant ${variantIndex + 1}: ${variants[variantIndex].title}`);
     setSelectedVariant(variantIndex);
-    
+
     // Update modelData to reflect selected variant
     const selectedVariantData = variants[variantIndex];
     const isFantasyMode = selectedVariantData.fantasyMode || generationMode === 'fantasy';
     const modelDataFromVariant = convertVariantToModelData(
-      selectedVariantData, 
+      selectedVariantData,
       modelData?.prompt || 'Unknown prompt',
       isFantasyMode
     );
     setModelData(modelDataFromVariant);
-    
+
     // Update design object
     const variantDesign = {
       specifications: {
@@ -477,53 +480,68 @@ function App() {
     }
 
     setIsCreatingDesign(true);
+    setLoading(true); // Show the main loading overlay
     setError(null);
 
     try {
       const selectedVariantData = variants[selectedVariant];
       console.log('🎯 Creating 3D design from variant:', selectedVariantData.title);
 
-      // Check if this is a fantasy variant with concept image
-      if (selectedVariantData.fantasyMode && selectedVariantData.conceptImage) {
-        console.log('🎨 Fantasy variant detected - using concept image for 3D generation');
-        
-        // TODO: Integrate with Tripo/Meshy image-to-3D services
-        // For now, we'll use the variant data directly
-        
-        setGenerationProgress({ 
-          status: 'processing', 
-          progress: 0.5, 
-          stages: ['Creating 3D model from fantasy concept...'] 
-        });
-      } else {
-        setGenerationProgress({ 
-          status: 'processing', 
-          progress: 0.5, 
-          stages: ['Creating 3D model from variant specifications...'] 
-        });
+      setGenerationProgress({
+        status: 'processing',
+        progress: 0.1,
+        stages: ['Initializing generation pipeline...']
+      });
+
+      // Construct detailed prompt from variant
+      let detailedPrompt = `${selectedVariantData.title}: ${selectedVariantData.description}. Style: ${selectedVariantData.style}.`;
+      if (selectedVariantData.details?.structuralFeatures) {
+        detailedPrompt += ` Details: ${selectedVariantData.details.structuralFeatures.join(', ')}.`;
       }
 
-      // Simulate 3D generation (in real implementation, this would call the 3D generation API)
-      // For now, we'll just use the variant data as the design
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('🚀 Triggering backend generation with prompt:', detailedPrompt);
 
-      // The design is already set from the variant, so we just need to trigger rendering
-      setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['3D design created successfully!'] });
-      
-      console.log('✅ 3D design created successfully');
-      
-      // Clear variants after successful creation
-      setTimeout(() => {
+      // Call the real backend generation pipeline
+      const result = await apiService.generateDesign(detailedPrompt, (progress) => {
+        // Map backend progress to frontend state
+        setGenerationProgress({
+          status: 'processing',
+          progress: (progress.progress || 0) / 100,
+          stages: [progress.stages?.current || 'Generating...']
+        });
+      });
+
+      if (result && result.success && result.modelData) {
+        console.log('✅ Backend generation successful, received modelData:', result.modelData);
+
+        setGenerationProgress({ status: 'completed', progress: 1.0, stages: ['3D design created successfully!'] });
+
+        // Pass the generated model data to the workbench
+        const realModelData = {
+          ...result.modelData,
+          name: selectedVariantData.title,
+          prompt: detailedPrompt,
+          position: { x: 0, y: 0, z: 0 }
+        };
+
+        setModelData(realModelData);
+        setShowWorkbench(true);
+
+        console.log('✅ 3D design created and loaded into workbench');
+
+        // Close variants panel immediately to show the result
         setVariants([]);
-        setGenerationProgress(null);
-      }, 2000);
+      } else {
+        throw new Error('Generation completed but returned no model data');
+      }
 
     } catch (error) {
       console.error('❌ Failed to create 3D design:', error);
       setError('Failed to create 3D design. Please try again.');
-      setGenerationProgress(null);
     } finally {
       setIsCreatingDesign(false);
+      setLoading(false); // Hide loading overlay
+      setGenerationProgress(null); // Clear progress
     }
   };
 
@@ -556,7 +574,7 @@ function App() {
 
   const handleExport = (format) => {
     if (!sceneManagerRef.current) return;
-    
+
     try {
       switch (format) {
         case 'obj':
@@ -688,7 +706,7 @@ function App() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: sidebarCollapsed 
+        gridTemplateColumns: sidebarCollapsed
           ? (rightPanelCollapsed ? '0px 1fr 0px' : '0px 1fr 240px')
           : (rightPanelCollapsed ? '160px 1fr 0px' : '160px 1fr 240px'),
         overflow: 'hidden',
@@ -721,7 +739,7 @@ function App() {
               />
             </div>
           )}
-          
+
           {/* Toggle button - Always visible */}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -784,7 +802,7 @@ function App() {
             showSnap={showSnap}
             onSnapToggle={() => setShowSnap(!showSnap)}
           />
-          
+
           {/* 3D Viewer - fills remaining space */}
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {/* Loading overlay - shown on top of AdvancedWorkbench */}
@@ -804,8 +822,8 @@ function App() {
                 background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
               }}>
-                <div className="spinner" style={{ 
-                  width: '48px', 
+                <div className="spinner" style={{
+                  width: '48px',
                   height: '48px',
                   borderWidth: '4px',
                   marginBottom: '20px',
@@ -836,8 +854,8 @@ function App() {
                     </div>
                     {/* Stage breakdown */}
                     {generationProgress.stages && (
-                      <div style={{ 
-                        fontSize: '11px', 
+                      <div style={{
+                        fontSize: '11px',
                         color: 'var(--text-secondary)',
                         display: 'flex',
                         gap: '15px',
@@ -849,9 +867,9 @@ function App() {
                               width: '8px',
                               height: '8px',
                               borderRadius: '50%',
-                              background: info.status === 'completed' ? '#4caf50' : 
-                                         info.status === 'in_progress' ? 'var(--accent-orange)' : 
-                                         '#666',
+                              background: info.status === 'completed' ? '#4caf50' :
+                                info.status === 'in_progress' ? 'var(--accent-orange)' :
+                                  '#666',
                             }} />
                             <span>{stage}</span>
                           </div>
@@ -916,9 +934,8 @@ function App() {
           </div>
         </div>
 
-
         {/* Right - Sidebar (Enhanced Properties Panel) */}
-        <Sidebar 
+        <Sidebar
           design={design}
           analysis={analysis}
           compliance={compliance}

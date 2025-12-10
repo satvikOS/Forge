@@ -10,12 +10,12 @@ class GeminiImageGenerator {
     this.apiKey = process.env.GEMINI_API_KEY;
     this.imageModel = process.env.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-001';
     this.enabled = !!this.apiKey;
-    
+
     if (!this.enabled) {
       console.warn('⚠️  GEMINI_API_KEY not set - Image generation will not work');
       return;
     }
-    
+
     try {
       this.genAI = new GoogleGenerativeAI(this.apiKey);
       // Initialize image generation model
@@ -62,9 +62,9 @@ class GeminiImageGenerator {
       // Note: As of now, Gemini API primarily supports text generation
       // For actual image generation, we'll use Gemini to create a detailed
       // image description that can be used with image generation services
-      
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-      
+
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+
       const imageDescriptionPrompt = `You are an expert concept artist specializing in fantasy, unrealistic, and super-complex designs.
 Generate an extremely detailed visual description for this prompt that can be used to create a stunning concept image:
 
@@ -136,11 +136,11 @@ Return ONLY the detailed visual description, no other text.`;
 
     const variantPromises = variantStyles.slice(0, count).map(async (style, index) => {
       console.log(`\n--- Generating variant ${index + 1}: ${style.name} ---`);
-      
+
       try {
         const stylePrompt = `${prompt} (Style: ${style.description})`;
         const result = await this.generateFantasyImage(stylePrompt, { style: style.name });
-        
+
         return {
           ...result,
           variantIndex: index,
@@ -158,7 +158,7 @@ Return ONLY the detailed visual description, no other text.`;
     });
 
     const variants = await Promise.all(variantPromises);
-    
+
     console.log('\n✅ All fantasy variants generated');
     return variants;
   }
@@ -169,7 +169,7 @@ Return ONLY the detailed visual description, no other text.`;
   buildFantasyPrompt(basePrompt, options = {}) {
     const style = options.style || 'fantasy';
     const complexity = options.complexity || 'high';
-    
+
     let enhancedPrompt = basePrompt;
 
     // Add fantasy/unrealistic qualifiers
@@ -200,10 +200,10 @@ Return ONLY the detailed visual description, no other text.`;
     };
 
     const selectedQualifiers = styleQualifiers[style] || styleQualifiers.fantasy;
-    
+
     // Combine all qualifiers
     const allQualifiers = [...fantasyQualifiers, ...selectedQualifiers];
-    
+
     // Build final prompt
     enhancedPrompt = `${basePrompt}, ${allQualifiers.join(', ')}, 8k resolution, professional concept art`;
 

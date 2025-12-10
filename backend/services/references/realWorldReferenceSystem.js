@@ -11,11 +11,11 @@ class RealWorldReferenceSystem {
     this.cacheEnabled = process.env.CACHE_REFERENCE_DATA !== 'false';
     this.cache = new Map();
     this.timeout = parseInt(process.env.API_TIMEOUT_MS, 10) || 10000;
-    
+
     this.wikipediaBaseUrl = 'https://en.wikipedia.org/w/api.php';
     this.wikidataBaseUrl = 'https://www.wikidata.org/w/api.php';
     this.wikidataSparqlUrl = 'https://query.wikidata.org/sparql';
-    
+
     console.log('✅ Real-World Reference System initialized', {
       enabled: this.enabled,
       cacheEnabled: this.cacheEnabled,
@@ -51,7 +51,7 @@ class RealWorldReferenceSystem {
 
     try {
       const startTime = Date.now();
-      
+
       // Fetch data from multiple sources in parallel
       const [wikipediaData, wikidataData] = await Promise.all([
         this.fetchWikipediaData(subject).catch(err => {
@@ -64,13 +64,16 @@ class RealWorldReferenceSystem {
         }),
       ]);
 
-      const referenceData = {
+      let referenceData = {
         subject,
         wikipedia: wikipediaData,
         wikidata: wikidataData,
         fetchedAt: new Date().toISOString(),
         fetchTime: Date.now() - startTime,
       };
+
+      // Enrich with geospatial context (Shadow Integration)
+      referenceData = await this.enrichWithGeospatialData(referenceData);
 
       // Cache the result
       if (this.cacheEnabled) {
@@ -90,7 +93,7 @@ class RealWorldReferenceSystem {
    */
   async fetchWikipediaData(subject) {
     console.log('📚 Fetching Wikipedia data...');
-    
+
     try {
       // First, search for the article
       const searchResponse = await axios.get(this.wikipediaBaseUrl, {
@@ -102,6 +105,7 @@ class RealWorldReferenceSystem {
           format: 'json',
           origin: '*',
         },
+        headers: { 'User-Agent': 'ArchDisc/1.0 (student@archdisc.ai)' },
         timeout: this.timeout,
       });
 
@@ -167,7 +171,7 @@ class RealWorldReferenceSystem {
     if (!wikitext) return null;
 
     const infobox = {};
-    
+
     // Extract height
     const heightMatch = wikitext.match(/\|?\s*height\s*=\s*([^\n|]+)/i);
     if (heightMatch) {
@@ -221,7 +225,7 @@ class RealWorldReferenceSystem {
    */
   async fetchWikidataData(subject) {
     console.log('📊 Fetching Wikidata data...');
-    
+
     try {
       // Search for Wikidata entity
       const searchResponse = await axios.get(this.wikidataBaseUrl, {
@@ -233,6 +237,7 @@ class RealWorldReferenceSystem {
           format: 'json',
           origin: '*',
         },
+        headers: { 'User-Agent': 'ArchDisc/1.0 (student@archdisc.ai)' },
         timeout: this.timeout,
       });
 
@@ -254,6 +259,7 @@ class RealWorldReferenceSystem {
           format: 'json',
           origin: '*',
         },
+        headers: { 'User-Agent': 'ArchDisc/1.0 (student@archdisc.ai)' },
         timeout: this.timeout,
       });
 
@@ -400,14 +406,14 @@ class RealWorldReferenceSystem {
   extractCoordinates(prompt) {
     const coordPattern = /coordinates?:?\s*(-?\d+\.?\d*)\s*,?\s*(-?\d+\.?\d*)/i;
     const match = prompt.match(coordPattern);
-    
+
     if (match) {
       return {
         latitude: parseFloat(match[1]),
         longitude: parseFloat(match[2]),
       };
     }
-    
+
     return null;
   }
 
@@ -427,6 +433,41 @@ class RealWorldReferenceSystem {
       size: this.cache.size,
       enabled: this.cacheEnabled,
     };
+  }
+
+  /**
+   * Enrich reference data with geospatial context
+   * @param {Object} referenceData - Existing reference data
+   */
+  async enrichWithGeospatialData(referenceData) {
+    if (!referenceData || !referenceData.subject) return referenceData;
+
+    try {
+      // 1. Resolve coordinates if not already present
+      let location = referenceData.wikidata?.location;
+
+      if (!location) {
+        const geocoder = require('../geospatial/geocoder');
+        const geoResult = await geocoder.geocode(referenceData.subject);
+        if (geoResult) {
+          location = { lat: geoResult.lat, lon: geoResult.lon };
+          referenceData.geocodedLocation = geoResult;
+        }
+      }
+
+      // 2. Fetch environmental context
+      if (location) {
+        const contextRetriever = require('../geospatial/contextRetriever');
+        const context = await contextRetriever.getContext(location);
+        referenceData.environmentalContext = context;
+        console.log(`✅ Added environmental context for ${referenceData.subject}`);
+      }
+
+    } catch (error) {
+      console.warn('⚠️ Failed to enrich with geospatial data:', error.message);
+    }
+
+    return referenceData;
   }
 }
 

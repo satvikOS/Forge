@@ -24,12 +24,12 @@ function getAxelEngine() {
   if (axelEngine !== null) {
     return axelEngine;
   }
-  
+
   try {
     if (!AxelVoxelEngine) {
       AxelVoxelEngine = require('../engines/axel/voxelEngine');
     }
-    
+
     axelEngine = new AxelVoxelEngine({
       enabled: process.env.AXEL_ENABLED !== 'false',
       resolution: process.env.AXEL_RESOLUTION || 'adaptive',
@@ -42,7 +42,7 @@ function getAxelEngine() {
       enableTooling: process.env.AXEL_ENABLE_TOOLING !== 'false',
       enableEnvironment: process.env.AXEL_ENABLE_ENVIRONMENT !== 'false'
     });
-    
+
     console.log('✅ Axel Voxel Engine initialized successfully');
     return axelEngine;
   } catch (error) {
@@ -81,11 +81,11 @@ router.post('/', async (req, res) => {
     const { position, relativePosition, keepPrevious = true } = options;
 
     // Create job with options
-    const jobId = jobQueue.createJob(prompt, { 
-      ...options, 
-      position, 
-      relativePosition, 
-      keepPrevious 
+    const jobId = jobQueue.createJob(prompt, {
+      ...options,
+      position,
+      relativePosition,
+      keepPrevious
     });
 
     // Start processing async
@@ -102,8 +102,8 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating generation job:', error);
-    res.status(500).json({ 
-      error: 'Failed to create generation job', 
+    res.status(500).json({
+      error: 'Failed to create generation job',
       message: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
@@ -205,13 +205,13 @@ async function processGenerationJob(jobId, prompt, options) {
     // Stage 0.5: Check for real-world data orchestration
     console.log('--- 🌍 Stage 0.5: Real-World Data Detection ---');
     let orchestrationData = null;
-    
+
     if (apiOrchestrator.isEnabled()) {
       try {
         // Use orchestrator to check if this needs real-world data
         console.log('🔍 Checking if prompt requires real-world data...');
         orchestrationData = await apiOrchestrator.orchestrate(prompt, options);
-        
+
         if (orchestrationData && orchestrationData.phases?.intentUnderstanding?.needsRealData) {
           console.log('✅ Real-world data orchestration successful');
           console.log('   📍 Location:', orchestrationData.phases.intentUnderstanding.location);
@@ -230,7 +230,7 @@ async function processGenerationJob(jobId, prompt, options) {
       console.log('ℹ️  API Orchestrator disabled, skipping real-world data detection');
     }
     console.log('✅ Stage 0.5 complete\n');
-    
+
     // Stage 0.8: Multi-Variant Generation (if available)
     console.log('--- 🎨 Stage 0.8: Multi-Variant Generation ---');
     let specifications = null;
@@ -240,14 +240,14 @@ async function processGenerationJob(jobId, prompt, options) {
       try {
         // Extract coordinates if present
         const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
-        
+
         // Fetch real-world reference data
         let realWorldData = null;
         if (realWorldReferenceSystem.isEnabled()) {
           console.log('🔍 Fetching real-world reference data for variants...');
           realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
         }
-        
+
         // Build context for variant generation
         const context = {
           realWorldData,
@@ -255,19 +255,19 @@ async function processGenerationJob(jobId, prompt, options) {
           orchestrationData, // Include orchestration data from Stage 0.5
           ...options,
         };
-        
+
         // Generate 3 variants
         console.log('🎨 Generating 3 ultra-realistic variants...');
         variants = await multiVariantGenerator.generateVariants(prompt, context);
         console.log(`✅ Generated ${variants.length} variants`);
-        
+
         // Select photorealistic variant as primary specification (explicitly by style)
         const photorealisticVariant = variants.find(v => v.style === 'photorealistic') || variants[0];
         console.log(`🎯 Using ${photorealisticVariant.title || 'primary'} variant as primary specification`);
-        
+
         // Convert variant to specification format
         specifications = convertVariantToSpecifications(photorealisticVariant, prompt, { ...context, allVariants: variants });
-        
+
       } catch (error) {
         console.warn('⚠️ Multi-variant generation failed, falling back to standard pipeline:', error.message);
         variants = null;
@@ -279,39 +279,39 @@ async function processGenerationJob(jobId, prompt, options) {
     if (!specifications) {
       console.log('ℹ️ Using standard AI service pipeline');
       console.log('✅ Stage 0.8 complete (skipped)\n');
-      
+
       // Stage 1: Analyzing prompt
       console.log('--- 📊 Stage 1: Analyzing Prompt ---');
       jobQueue.updateProgress(jobId, 'analyzing', 10);
-      
+
       // Validate AI service is available
       if (!aiService) {
         throw new Error('AI service not initialized');
       }
-      
+
       // If we have orchestration data, enhance the prompt with real-world context
       let enhancedPrompt = prompt;
       if (orchestrationData) {
         enhancedPrompt = enhancePromptWithOrchestrationData(prompt, orchestrationData);
         console.log('🎨 Enhanced prompt with real-world data:', enhancedPrompt.substring(0, 150) + '...');
       }
-      
+
       specifications = await aiService.processPrompt(enhancedPrompt);
     } else {
       console.log('✅ Stage 0.8 complete (multi-variant generation used)\n');
-      
+
       // Stage 1: Analyzing prompt (already done in Stage 0.8)
       console.log('--- 📊 Stage 1: Analyzing Prompt ---');
       console.log('ℹ️ Specifications already generated from multi-variant generation');
       jobQueue.updateProgress(jobId, 'analyzing', 10);
     }
     console.log('✅ Specifications generated:', JSON.stringify(specifications, null, 2));
-    
+
     // Inject real-world data into specifications if available
     if (orchestrationData) {
       specifications.realWorldData = orchestrationData;
       specifications.isRealWorldReplica = true;
-      
+
       // Check if we have landmark dimensions from Wikipedia/Wikidata (specific landmark)
       let hasLandmarkDimensions = false;
       if (orchestrationData.phases?.knowledgeGathering?.wikidata?.dimensions) {
@@ -322,7 +322,7 @@ async function processGenerationJob(jobId, prompt, options) {
           hasLandmarkDimensions = true;
         }
       }
-      
+
       // Only use OSM buildings if we DON'T have landmark dimensions
       // This prevents landmarks from being rendered as scattered OSM buildings
       if (!hasLandmarkDimensions && orchestrationData.phases?.geographicData?.osm_buildings?.length > 0) {
@@ -332,7 +332,7 @@ async function processGenerationJob(jobId, prompt, options) {
         specifications.objectCount = buildings.length;
       } else if (hasLandmarkDimensions) {
         console.log('🏛️  Landmark mode: Using Wikidata dimensions, ignoring OSM buildings');
-        
+
         // CRITICAL: Clear any urban pattern elements that were added by realWorldData.applyRealWorldPatterns
         // These cause landmarks to be rendered as scattered buildings/tiles
         if (specifications.elements && specifications.elements.length > 1) {
@@ -353,16 +353,16 @@ async function processGenerationJob(jobId, prompt, options) {
             isLandmark: true,
           }];
         }
-        
+
         specifications.objectCount = 1;
-        
+
         // CRITICAL: Clear OSM buildings array to prevent PRIORITY 2 from triggering
         // OSM buildings are for city scenes, not individual landmarks
         if (specifications.realBuildings) {
           console.log('⚠️  Clearing OSM buildings array for landmark mode (landmark takes priority)');
           delete specifications.realBuildings;
         }
-        
+
         // Also clear any real-world pattern recommendations that add urban sprawl
         if (specifications.taxonomyData?.realWorldData) {
           console.log('⚠️  Clearing urban pattern recommendations for landmark mode');
@@ -370,14 +370,14 @@ async function processGenerationJob(jobId, prompt, options) {
         }
       }
     }
-    
+
     // VERIFY AI was used (not fallback)
     if (!specifications || (!specifications.taxonomyData && !specifications.elements)) {
       console.warn('⚠️  WARNING: Specifications lack AI taxonomy data - may be using fallback');
     }
-    
+
     jobQueue.updateProgress(jobId, 'analyzing', 50);
-    
+
     // Add complexity analysis
     specifications.objectCount = specifications.objectCount || 1;
     specifications.complexity = specifications.complexity || 'medium';
@@ -385,7 +385,7 @@ async function processGenerationJob(jobId, prompt, options) {
       objectCount: specifications.objectCount,
       complexity: specifications.complexity,
     });
-    
+
     jobQueue.completeStage(jobId, 'analyzing');
     console.log('✅ Stage 1 complete\n');
 
@@ -399,7 +399,7 @@ async function processGenerationJob(jobId, prompt, options) {
       stats: modelData.stats,
     }, null, 2));
     jobQueue.updateProgress(jobId, 'generating', 60);
-    
+
     // Stage 2.5: Applying realistic materials and environment
     console.log('--- 🎨 Stage 2.5: Applying Realistic Materials ---');
     const { modelData: enhancedModel, environmentConfig } = await materialMappingService.assignRealisticMaterials(
@@ -439,7 +439,7 @@ async function processGenerationJob(jobId, prompt, options) {
     if (axelEngine.isEnabled()) {
       try {
         jobQueue.updateProgress(jobId, 'analyzing-voxels', 10);
-        
+
         // Prepare data for Axel analysis
         const axelInputData = {
           ...specifications,
@@ -451,17 +451,17 @@ async function processGenerationJob(jobId, prompt, options) {
           weather: specifications.taxonomyData?.environmentalContext?.weather || 'clear',
           timeOfDay: specifications.taxonomyData?.environmentalContext?.timeOfDay || 'noon'
         };
-        
+
         // Extract real-world references if available
         const realWorldReferences = orchestrationData ? {
           era: axelInputData.era,
           material: specifications.materials?.[0] || 'steel',
           yearBuilt: specifications.realDimensions?.yearBuilt
         } : null;
-        
+
         console.log('🔬 Axel: Processing with', axelEngine.countActiveLayers(), 'analysis layers...');
         axelAnalysis = await axelEngine.analyzeAndReplicate(axelInputData, realWorldReferences);
-        
+
         if (axelAnalysis) {
           console.log('✅ Axel analysis complete:', {
             processingTime: axelAnalysis.metadata?.processingTime + 'ms',
@@ -469,7 +469,7 @@ async function processGenerationJob(jobId, prompt, options) {
             voxelCount: axelAnalysis.voxelGrid?.totalVoxels || 0
           });
         }
-        
+
         jobQueue.updateProgress(jobId, 'analyzing-voxels', 100);
       } catch (error) {
         console.warn('⚠️  Axel analysis failed, continuing without:', error.message);
@@ -483,10 +483,10 @@ async function processGenerationJob(jobId, prompt, options) {
     // Stage 4: Preparing exports
     console.log('--- 📦 Stage 4: Preparing Exports ---');
     jobQueue.updateProgress(jobId, 'exporting', 50);
-    
+
     // Generate unique design ID for frontend tracking (Issue #27)
     const designId = `design_${jobId}_${Date.now()}`;
-    
+
     const result = {
       design: {
         specifications,
@@ -498,7 +498,7 @@ async function processGenerationJob(jobId, prompt, options) {
         variants: variants || null, // Include all variants for frontend
 
         axelAnalysis, // Include Axel voxel analysis
- origin/copilot/implement-axel-voxel-engine
+
       },
       modelData: refined, // Include modelData for frontend compatibility
       environmentConfig, // Include environment configuration
@@ -509,7 +509,7 @@ async function processGenerationJob(jobId, prompt, options) {
         formats: ['obj', 'gltf', 'fbx'],
       },
     };
-    
+
     jobQueue.completeStage(jobId, 'exporting');
     jobQueue.completeJob(jobId, result);
     console.log('✅ Stage 4 complete\n');
@@ -536,7 +536,7 @@ async function processGenerationJob(jobId, prompt, options) {
  */
 async function refineModel(modelData, specifications) {
   const { objectCount = 1, complexity = 'medium' } = specifications;
-  
+
   // Apply LOD based on object count
   let lod = 'high';
   if (objectCount > 100) {
@@ -544,7 +544,7 @@ async function refineModel(modelData, specifications) {
   } else if (objectCount > 10) {
     lod = 'medium';
   }
-  
+
   return {
     ...modelData,
     lod,
@@ -642,24 +642,24 @@ function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
  */
 function convertVariantToSpecifications(variant, prompt, context) {
   if (!variant) return null;
-  
+
   // Helper function to safely convert meters to millimeters
   const metersToMm = (value) => {
     const num = parseFloat(value);
     return isNaN(num) ? DEFAULT_DIMENSION_MM : num * 1000;
   };
-  
+
   // Convert dimensions from meters to millimeters
   const convertedDimensions = variant.dimensions ? {
     width: metersToMm(variant.dimensions.width),
     height: metersToMm(variant.dimensions.height),
     depth: metersToMm(variant.dimensions.depth),
-  } : { 
-    width: DEFAULT_DIMENSION_MM, 
-    height: DEFAULT_DIMENSION_MM, 
-    depth: DEFAULT_DIMENSION_MM 
+  } : {
+    width: DEFAULT_DIMENSION_MM,
+    height: DEFAULT_DIMENSION_MM,
+    depth: DEFAULT_DIMENSION_MM
   };
-  
+
   return {
     objectType: 'building',
     objectCount: 1,
@@ -669,7 +669,7 @@ function convertVariantToSpecifications(variant, prompt, context) {
     materials: variant.materials || ['concrete', 'steel', 'glass'],
     style: variant.style || 'modern',
     features: variant.details?.structuralFeatures || [],
-    
+
     // Enhanced taxonomy data from variant
     taxonomyData: {
       primaryCategory: 'Architecture',
@@ -678,7 +678,7 @@ function convertVariantToSpecifications(variant, prompt, context) {
       realism: { detailLevel: variant.metadata?.realism || 'high' },
       realWorldDataSource: context.realWorldData ? 'multi-variant-with-real-data' : 'multi-variant-generated',
     },
-    
+
     // Elements from variant (with dimensions in millimeters for consistency)
     elements: (variant.elements && variant.elements.length > 0) ? variant.elements : [{
       type: 'building',
@@ -688,11 +688,11 @@ function convertVariantToSpecifications(variant, prompt, context) {
       materials: variant.materials,
       features: variant.details?.structuralFeatures || [],
     }],
-    
+
     // Store all variants for future frontend selection
     allVariants: context.allVariants || null,
     selectedVariant: variant,
-    
+
     complexity: variant.metadata?.complexity || 'medium',
     detailLevel: variant.metadata?.realism || 'high',
   };
@@ -712,7 +712,7 @@ router.post('/preview', async (req, res) => {
 
     // Check if AI 3D orchestrator is enabled
     if (!ai3DOrchestrator.isEnabled()) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         error: 'AI 3D generation is not enabled',
         message: 'Please configure TRIPO_API_KEY, MESHY_API_KEY, or GOOGLE_CLOUD_PROJECT_ID'
       });
@@ -750,7 +750,7 @@ router.post('/:jobId/upgrade', async (req, res) => {
     const { quality = 'high' } = req.body;
 
     if (!ai3DOrchestrator.isEnabled()) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         error: 'AI 3D generation is not enabled'
       });
     }
@@ -784,21 +784,21 @@ router.post('/batch', async (req, res) => {
     const { prompts, mode = 'ultra_cheap' } = req.body;
 
     if (!prompts || !Array.isArray(prompts) || prompts.length === 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Prompts array is required',
         message: 'Please provide an array of prompts to generate'
       });
     }
 
     if (prompts.length > 10) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Too many prompts',
         message: 'Maximum 10 prompts per batch'
       });
     }
 
     if (!ai3DOrchestrator.isEnabled()) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         error: 'AI 3D generation is not enabled'
       });
     }
@@ -845,7 +845,7 @@ router.post('/estimate', async (req, res) => {
     }
 
     if (!ai3DOrchestrator.isEnabled()) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         error: 'AI 3D generation is not enabled'
       });
     }
@@ -901,19 +901,19 @@ router.post('/variants', async (req, res) => {
 
     // Extract coordinates if present
     const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
-    
+
     // Fetch real-world reference data
     let realWorldData = null;
     if (realWorldReferenceSystem.isEnabled()) {
       try {
         console.log('🔍 Fetching real-world reference data...');
         realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
-        
+
         if (realWorldData) {
           console.log('✅ Real-world data fetched successfully');
           console.log('   Wikipedia:', realWorldData.wikipedia ? '✓' : '✗');
           console.log('   Wikidata:', realWorldData.wikidata ? '✓' : '✗');
-          
+
           if (realWorldData.wikidata?.dimensions) {
             console.log('   Dimensions:', realWorldData.wikidata.dimensions);
           }
@@ -1006,14 +1006,14 @@ router.post('/fantasy-variants', async (req, res) => {
 
     // Extract coordinates if present (for hybrid fantasy-realism)
     const coordinates = realWorldReferenceSystem.extractCoordinates(prompt);
-    
+
     // Optionally fetch real-world reference data for hybrid designs
     let realWorldData = null;
     if (options.useRealWorldBase && realWorldReferenceSystem.isEnabled()) {
       try {
         console.log('🔍 Fetching real-world reference for hybrid fantasy design...');
         realWorldData = await realWorldReferenceSystem.fetchReferenceData(prompt);
-        
+
         if (realWorldData) {
           console.log('✅ Real-world base data fetched for fantasy transformation');
         }
