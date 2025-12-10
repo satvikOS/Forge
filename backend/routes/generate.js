@@ -643,17 +643,12 @@ function enhancePromptWithOrchestrationData(prompt, orchestrationData) {
 function convertVariantToSpecifications(variant, prompt, context) {
   if (!variant) return null;
 
-  // Helper function to safely convert meters to millimeters
-  const metersToMm = (value) => {
-    const num = parseFloat(value);
-    return isNaN(num) ? DEFAULT_DIMENSION_MM : num * 1000;
-  };
-
-  // Convert dimensions from meters to millimeters
+  // Variant dimensions are ALREADY in millimeters (from multiVariantGenerator)
+  // DO NOT convert again or models will be 1000x too large!
   const convertedDimensions = variant.dimensions ? {
-    width: metersToMm(variant.dimensions.width),
-    height: metersToMm(variant.dimensions.height),
-    depth: metersToMm(variant.dimensions.depth),
+    width: variant.dimensions.width || DEFAULT_DIMENSION_MM,
+    height: variant.dimensions.height || DEFAULT_DIMENSION_MM,
+    depth: variant.dimensions.depth || DEFAULT_DIMENSION_MM,
   } : {
     width: DEFAULT_DIMENSION_MM,
     height: DEFAULT_DIMENSION_MM,
