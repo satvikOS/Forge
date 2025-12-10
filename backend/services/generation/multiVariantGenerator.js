@@ -238,7 +238,57 @@ JSON Format:
         cleanText = cleanText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
       }
 
-      const parsed = JSON.parse(cleanText);
+      let parsed;
+      try {
+        // Try normal parse first
+        parsed = JSON.parse(cleanText);
+      } catch (error) {
+        console.warn(`⚠️  Initial JSON parse failed for ${style.title}, attempting recovery...`);
+
+        // Strategy 1: Try to fix incomplete arrays (common Gemini issue)
+        try {
+          let repaired = cleanText;
+
+          // Count opening and closing brackets
+          const openBrackets = (repaired.match(/\[/g) || []).length;
+          const closeBrackets = (repaired.match(/\]/g) || []).length;
+
+          // If array is incomplete, close it
+          if (openBrackets > closeBrackets) {
+            const missing = openBrackets - closeBrackets;
+            console.warn(`⚠️  Detected ${missing} unclosed array(s), adding closing brackets`);
+            repaired = repaired.trimEnd();
+            // Remove any trailing commas
+            if (repaired.endsWith(',')) {
+              repaired = repaired.slice(0, -1);
+            }
+            repaired += ']'.repeat(missing);
+          }
+
+          // Count opening and closing braces
+          const openBraces = (repaired.match(/\{/g) || []).length;
+          const closeBraces = (repaired.match(/\}/g) || []).length;
+
+          // If object is incomplete, close it
+          if (openBraces > closeBraces) {
+            const missing = openBraces - closeBraces;
+            console.warn(`⚠️  Detected ${missing} unclosed object(s), adding closing braces`);
+            repaired = repaired.trimEnd();
+            if (repaired.endsWith(',')) {
+              repaired = repaired.slice(0, -1);
+            }
+            repaired += '}'.repeat(missing);
+          }
+
+          parsed = JSON.parse(repaired);
+          console.log(`✅ Successfully repaired JSON for ${style.title}`);
+        } catch (repairError) {
+          console.error('❌ JSON repair failed:', repairError.message);
+          console.log('Raw response (first 1000 chars):', text.substring(0, 1000));
+          console.log('Raw response (last 500 chars):', text.substring(Math.max(0, text.length - 500)));
+          throw new Error(`Failed to parse ${style.title} variant: ${error.message}`);
+        }
+      }
 
       // Ensure required fields
       return {
@@ -258,7 +308,6 @@ JSON Format:
       };
     } catch (error) {
       console.error('❌ Failed to parse variant response:', error.message);
-      console.log('Raw response:', text.substring(0, 500));
       throw new Error(`Failed to parse ${style.title} variant: ${error.message}`);
     }
   }
