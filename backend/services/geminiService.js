@@ -9,52 +9,23 @@ class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
     this.taxonomySystem = taxonomySystem;
-    
-<<<<<<< HEAD
-    if (!this.isDemoMode) {
-      try {
-        this.genAI = new GoogleGenerativeAI(this.apiKey);
-        // Use model from environment variable or default to gemini-2.0-flash-exp (best balance)
-        this.modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
-        
-        // Configure API version based on model
-        // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)
-        const modelConfig = { model: this.modelName };
-        const requestOptions = {};
-        
-        if (this.modelName.includes('1.5')) {
-          // Gemini 1.5 models (like gemini-1.5-pro, gemini-1.5-flash) need beta API
-          requestOptions.apiVersion = 'v1beta';
-          console.log(`Using v1beta API for model: ${this.modelName}`);
-        } else {
-          console.log(`Using stable v1 API for model: ${this.modelName}`);
-        }
-        
-        this.model = this.genAI.getGenerativeModel(modelConfig, requestOptions);
-        console.log(`Gemini service initialized with model: ${this.modelName}`);
-      } catch (error) {
-        console.error('Failed to initialize Gemini API:', error);
-        this.isDemoMode = true;
-      }
-    } else {
-      console.warn('⚠️  WARNING: GEMINI_API_KEY not set - AI features will not work properly');
-=======
+
     if (!this.apiKey) {
       console.error('❌ GEMINI_API_KEY not set - service will not function');
       this.isConfigured = false;
       return;
     }
-    
+
     try {
       this.genAI = new GoogleGenerativeAI(this.apiKey);
       // Use model from environment variable or default to gemini-2.5-pro (best for 3D design)
       this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
-      
+
       // Configure API version based on model
       // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)
       const modelConfig = { model: this.modelName };
       const requestOptions = {};
-      
+
       if (this.modelName.includes('1.5')) {
         // Gemini 1.5 models (like gemini-1.5-pro, gemini-1.5-flash) need beta API
         requestOptions.apiVersion = 'v1beta';
@@ -62,16 +33,15 @@ class GeminiService {
       } else {
         console.log(`Using stable v1 API for model: ${this.modelName}`);
       }
-      
+
       this.model = this.genAI.getGenerativeModel(modelConfig, requestOptions);
       console.log(`✅ Gemini service initialized with model: ${this.modelName}`);
       this.configured = true;
     } catch (error) {
       console.error('❌ Failed to initialize Gemini API:', error);
       this.configured = false;
->>>>>>> wip/save-local-changes
     }
-    
+
     this.maxRetries = 3;
     this.retryDelay = 1000; // ms
   }
@@ -108,11 +78,11 @@ class GeminiService {
         const result = await this.model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
-        
+
         console.log(`✅ Success on attempt ${attempt}!`);
         console.log('📊 Response length:', text?.length);
         console.log('=== End Gemini API Request ===\n');
-        
+
         return text;
       } catch (error) {
         lastError = error;
@@ -122,13 +92,13 @@ class GeminiService {
           statusText: error.statusText,
           responseData: error.response?.data,
         });
-        
+
         // Don't retry on certain errors
         if (error.message?.includes('API key') || error.message?.includes('quota') || error.message?.includes('Invalid argument')) {
           console.error('🚫 Non-retryable error detected, throwing immediately');
           throw error;
         }
-        
+
         if (attempt < maxRetries) {
           const delayMs = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
           console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
@@ -148,7 +118,7 @@ class GeminiService {
   async analyzeTaxonomyPrompt(prompt) {
     // Build comprehensive system prompt with full taxonomy
     const taxonomyJSON = this.taxonomySystem.getTaxonomyForAI();
-    
+
     const systemPrompt = `You are an EXPERT 3D architect and urban designer for ArchDisc, a professional 3D architectural and environmental design platform.
 
 Your task is to analyze the user's prompt and extract structured information for ULTRA-REALISTIC, INDUSTRIAL-GRADE 3D scene generation.
@@ -512,10 +482,10 @@ IMPORTANT: Ensure all dimensions are realistic and placement rules ensure proper
    */
   async analyzeTaxonomyPromptWithRealData(prompt, realWorldData) {
     console.log('🤖 Gemini: Analyzing prompt WITH real-world data integration...');
-    
+
     // Build comprehensive system prompt with taxonomy AND real-world data
     const taxonomyJSON = this.taxonomySystem.getTaxonomyForAI();
-    
+
     let realDataContext = '';
     if (realWorldData) {
       realDataContext = `\n\nREAL-WORLD DATA PROVIDED (USE THIS FOR ACCURATE GENERATION):
@@ -581,7 +551,7 @@ If geographic/map data provided, INCORPORATE ALL buildings, roads, environmental
 Maintain realistic proportions relative to provided real-world data
 `;
     }
-    
+
     const systemPrompt = `You are an EXPERT 3D architect and urban designer for ArchDisc, a professional 3D architectural and environmental design platform.
 
 Your task is to analyze the user's prompt and extract structured information for ULTRA-REALISTIC, INDUSTRIAL-GRADE 3D scene generation.
@@ -689,16 +659,16 @@ Remember: If real-world data is provided, YOUR PRIMARY DUTY is to incorporate it
       if (!result) return null;
 
       let parsed = this.parseJSON(result);
-      
+
       if (parsed && parsed.primaryCategory) {
         console.log(`✅ Gemini taxonomy analysis with real-world data complete: ${parsed.primaryCategory}`);
-        
+
         // Log if real-world data was incorporated
         if (realWorldData) {
           console.log('✅ Real-world data successfully incorporated into analysis');
           parsed.realWorldDataSource = realWorldData.source || 'unknown';
         }
-        
+
         return parsed;
       }
 
