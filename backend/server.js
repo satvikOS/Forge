@@ -82,6 +82,9 @@ const materialsRoutes = require('./routes/materials');
 const sketchfabRoutes = require('./routes/sketchfab');
 const orchestratorRoutes = require('./routes/orchestrator');
 const creditsRoutes = require('./routes/credits');
+const crowdRoutes = require('./routes/crowd');
+const proceduralRoutes = require('./routes/procedural');
+const motionCaptureRoutes = require('./routes/motion-capture');
 
 // API routes
 app.use('/api/design', designRoutes);
@@ -93,6 +96,9 @@ app.use('/api/materials', materialsRoutes);
 app.use('/api/sketchfab', sketchfabRoutes);
 app.use('/api/orchestrate', orchestratorRoutes);
 app.use('/api/credits', creditsRoutes);
+app.use('/api/crowd', crowdRoutes);
+app.use('/api/procedural', proceduralRoutes);
+app.use('/api/motion-capture', motionCaptureRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
