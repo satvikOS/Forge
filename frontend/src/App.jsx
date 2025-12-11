@@ -12,6 +12,13 @@ import AdvancedToolbar from './components/AdvancedToolbar';
 import SceneHierarchyPanel from './components/SceneHierarchyPanel';
 import HelpPanel from './components/HelpPanel';
 import VariantSelector from './components/VariantSelector';
+// New professional 3D platform components
+import TimelineEditor from './components/timeline/TimelineEditor';
+import GizmoControls from './components/gizmos/GizmoControls';
+import ViewportOverlays from './components/ViewportOverlays';
+import ProjectSettings from './components/ProjectSettings';
+import NPCCrowdPanel from './components/NPCCrowdPanel';
+import ProceduralWorldBuilder from './components/ProceduralWorldBuilder';
 // import GeospatialViewer from './components/geospatial/GeospatialViewer'; // Kept for future internal use
 import SceneManager from './systems/SceneManager';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
@@ -66,6 +73,21 @@ function App() {
 
   // Environment system reference for scene composition
   const environmentSystemRef = useRef(null);
+
+  // New professional 3D platform state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(true);
+  const [showNPCPanel, setShowNPCPanel] = useState(false);
+  const [showWorldBuilder, setShowWorldBuilder] = useState(false);
+  const [timelineState, setTimelineState] = useState({
+    currentFrame: 0,
+    totalFrames: 250,
+    fps: 30,
+    isPlaying: false
+  });
+  const [gizmoMode, setGizmoMode] = useState('translate'); // translate, rotate, scale
+  const [gizmoConstrainAxis, setGizmoConstrainAxis] = useState(null); // null, 'x', 'y', 'z'
+
 
   // Keyboard shortcuts handler
   useEffect(() => {
@@ -143,7 +165,41 @@ function App() {
 
   const handleMenuAction = (actionId) => {
     console.log('Menu action:', actionId);
-    // Handle menu actions here
+
+    // Handle menu actions
+    switch (actionId) {
+      case 'file.save':
+        handleSaveProject();
+        break;
+      case 'file.load':
+        handleLoadProject();
+        break;
+      case 'file.export.obj':
+        handleExport('obj');
+        break;
+      case 'file.export.stl':
+        handleExport('stl');
+        break;
+      case 'file.export.gltf':
+        handleExport('gltf');
+        break;
+      case 'edit.settings':
+        setIsSettingsOpen(true);
+        break;
+      case 'create.npc_crowd':
+        setShowNPCPanel(true);
+        setShowWorldBuilder(false);
+        break;
+      case 'create.procedural_world':
+        setShowWorldBuilder(true);
+        setShowNPCPanel(false);
+        break;
+      case 'view.timeline':
+        setShowTimeline(!showTimeline);
+        break;
+      default:
+        console.log('Unhandled menu action:', actionId);
+    }
   };
 
   const handleContextAction = (actionId) => {
@@ -993,6 +1049,78 @@ function App() {
           onCreateDesign={handleCreateDesign}
           isCreating={isCreatingDesign}
         />
+      )}
+
+      {/* Timeline Editor - Cinema 4D/Blender style timeline at bottom */}
+      {showTimeline && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '25vh', zIndex: 100 }}>
+          <TimelineEditor
+            sceneManager={sceneManagerRef.current}
+            currentFrame={timelineState.currentFrame}
+            totalFrames={timelineState.totalFrames}
+            fps={timelineState.fps}
+            isPlaying={timelineState.isPlaying}
+            onFrameChange={(frame) => setTimelineState(prev => ({ ...prev, currentFrame: frame }))}
+            onPlayPause={() => setTimelineState(prev => ({ ...prev, isPlaying: !prev.isPlaying }))}
+          />
+        </div>
+      )}
+
+      {/* Project Settings Modal */}
+      {isSettingsOpen && (
+        <ProjectSettings
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          sceneManager={sceneManagerRef.current}
+        />
+      )}
+
+      {/* NPC Crowd Panel - Side panel for crowd generation */}
+      {showNPCPanel && (
+        <div style={{
+          position: 'fixed',
+          right: 0,
+          top: '72px',
+          bottom: showTimeline ? '25vh' : 0,
+          width: '400px',
+          zIndex: 90,
+          background: '#1a1a1a',
+          borderLeft: '1px solid #333',
+          boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
+        }}>
+          <NPCCrowdPanel
+            sceneManager={sceneManagerRef.current}
+            onCrowdGenerated={(crowd) => {
+              console.log('Crowd generated:', crowd);
+              // Could add NPCs to scene here
+            }}
+            onClose={() => setShowNPCPanel(false)}
+          />
+        </div>
+      )}
+
+      {/* Procedural World Builder Panel */}
+      {showWorldBuilder && (
+        <div style={{
+          position: 'fixed',
+          right: 0,
+          top: '72px',
+          bottom: showTimeline ? '25vh' : 0,
+          width: '400px',
+          zIndex: 90,
+          background: '#1a1a1a',
+          borderLeft: '1px solid #333',
+          boxShadow: '-4px 0 12px rgba(0,0,0,0.3)'
+        }}>
+          <ProceduralWorldBuilder
+            sceneManager={sceneManagerRef.current}
+            onWorldGenerated={(world) => {
+              console.log('World generated:', world);
+              // Could add world to scene here
+            }}
+            onClose={() => setShowWorldBuilder(false)}
+          />
+        </div>
       )}
 
       {/* Help Panel */}
