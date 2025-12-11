@@ -1,13 +1,26 @@
 /**
  * Job Queue - Manages async 3D generation jobs
  * Handles job creation, status tracking, and progress updates
+ * 
+ * NOTE: For serverless environments, uses a global shared Map
+ * to persist across function invocations within the same instance.
  */
+
+// Global job storage - shared across all instances in the same runtime
+// This helps with serverless "warm" instances reusing the same container
+const globalJobs = global.jobQueueStorage || new Map();
+global.jobQueueStorage = globalJobs;
+
 class JobQueue {
   constructor() {
-    this.jobs = new Map();
+    this.jobs = globalJobs; // Use global storage instead of instance-specific Map
     this.maxConcurrentJobs = 5;
     this.activeJobs = 0;
     this.jobTimeout = 5 * 60 * 1000; // 5 minutes
+    this.completedJobRetention = 10 * 60 * 1000; // Keep completed jobs for 10 minutes
+    
+    // Clean up old jobs periodically
+    this.startCleanupTimer();
   }
 
   /**
@@ -291,17 +304,63 @@ class JobQueue {
     const job = this.getJob(jobId);
     return job && job.status === 'completed' && job.result;
   }
+
+  /**
+   * Start cleanup timer for old jobs (serverless-friendly)
+   * Only cleans up truly old jobs, keeps completed jobs for 10 minutes
+   */
+  startCleanupTimer() {
+    // In serverless, we don't want persistent intervals
+    // Instead, clean up on each job creation
+    // This method is here for compatibility but does minimal work
+  }
+
+  /**
+   * Clean up old completed/failed jobs but keep recent ones
+   * Called periodically to prevent memory bloat in long-running instances
+   */
+  cleanupCompletedJobs() {
+    const now = Date.now();
+    const jobsToDelete = [];
+    
+    for (const [jobId, job] of this.jobs.entries()) {
+      // Only delete completed/failed jobs older than retention period
+      if ((job.status === 'completed' || job.status === 'failed') && 
+          job.updatedAt && (now - job.updatedAt > this.completedJobRetention)) {
+        jobsToDelete.push(jobId);
+      }
+      // Delete very old jobs regardless of status (24 hours)
+      else if (now - job.createdAt > 24 * 60 * 60 * 1000) {
+        jobsToDelete.push(jobId);
+      }
+    }
+    
+    jobsToDelete.forEach(jobId => this.deleteJob(jobId));
+    
+    if (jobsToDelete.length > 0) {
+      console.log(`🧹 Cleaned up ${jobsToDelete.length} old jobs`);
+    }
+    
+    return jobsToDelete.length;
+  }
 }
 
 // Create singleton instance
 const jobQueue = new JobQueue();
 
-// Cleanup old jobs every hour
-setInterval(() => {
-  const deleted = jobQueue.cleanupOldJobs();
-  if (deleted > 0) {
-    console.log(`Cleaned up ${deleted} old jobs`);
-  }
-}, 60 * 60 * 1000);
+// For serverless environments, clean up on module load (not interval)
+// This runs when the module is first loaded in a new container
+jobQueue.cleanupCompletedJobs();
+
+// In traditional server environments, also clean periodically
+// But make it less aggressive to not interfere with serverless
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  setInterval(() => {
+    const deleted = jobQueue.cleanupOldJobs();
+    if (deleted > 0) {
+      console.log(`Cleaned up ${deleted} old jobs`);
+    }
+  }, 60 * 60 * 1000);
+}
 
 module.exports = jobQueue;

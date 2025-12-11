@@ -8,9 +8,13 @@ class APIService {
    * Returns a job ID and polls for completion
    */
   async generateDesign(prompt, onProgress = null) {
+    console.log('🎯 API Service: generateDesign called');
+    console.log('  Prompt:', prompt?.substring(0, 50) + '...');
+    console.log('  Endpoint: POST', `${API_BASE_URL}/generate`);
+    
     try {
       // Step 1: Start the generation job
-      console.log('Starting generation job with prompt:', prompt);
+      console.log('📡 Starting generation job with prompt:', prompt);
       const startResponse = await axios.post(`${API_BASE_URL}/generate`, { prompt });
       
       if (!startResponse.data.success || !startResponse.data.jobId) {
@@ -18,13 +22,15 @@ class APIService {
       }
       
       const jobId = startResponse.data.jobId;
-      console.log('Generation job started, jobId:', jobId);
+      console.log('✅ Generation job started, jobId:', jobId);
       
-      // Step 2: Poll for job completion
+      // Step 2: Poll for job completion with proper cleanup
       const result = await this.pollJobStatus(jobId, onProgress);
       
+      console.log('✅ Generation completed successfully');
       return result;
     } catch (error) {
+<<<<<<< HEAD
       console.error('Error generating design:', error);
       
       // Enhanced error messages
@@ -37,18 +43,24 @@ class APIService {
         throw new Error('Network error: Cannot connect to API server. Please check your connection.');
       }
       
+=======
+      console.error('❌ Error generating design:', error);
+>>>>>>> wip/save-local-changes
       throw error;
     }
   }
   
   /**
    * Poll job status until completion or timeout
+   * Uses async/await pattern with proper cleanup instead of setInterval
    */
   async pollJobStatus(jobId, onProgress = null, maxAttempts = 120, pollInterval = 1000) {
     let attempts = 0;
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 3;
     let lastProgress = null; // Track last progress to avoid redundant callbacks
+    
+    console.log('🔄 Starting job polling:', { jobId, maxAttempts, pollInterval });
     
     while (attempts < maxAttempts) {
       try {
@@ -59,10 +71,19 @@ class APIService {
           throw new Error('Job not found');
         }
         
+<<<<<<< HEAD
         // Reset error counter on successful request
         consecutiveErrors = 0;
         
         // Notify progress callback if provided AND progress has changed
+=======
+        // Log polling progress
+        if (attempts % 10 === 0) {
+          console.log(`🔄 Polling attempt ${attempts}/${maxAttempts} - Status: ${job.status}`);
+        }
+        
+        // Notify progress callback if provided
+>>>>>>> wip/save-local-changes
         if (onProgress) {
           const currentProgress = {
             status: job.status,
@@ -84,7 +105,8 @@ class APIService {
         
         // Check if job is completed
         if (job.status === 'completed') {
-          console.log('Job completed successfully:', jobId);
+          console.log('✅ Job completed successfully:', jobId);
+          console.log('🛑 Polling stopped - job complete');
           return {
             success: true,
             design: job.result?.design,
@@ -95,7 +117,8 @@ class APIService {
         
         // Check if job failed
         if (job.status === 'failed') {
-          console.error('Job failed:', job.error);
+          console.error('❌ Job failed:', job.error);
+          console.log('🛑 Polling stopped - job failed');
           throw new Error(job.error || 'Generation failed');
         }
         
@@ -107,8 +130,10 @@ class APIService {
         consecutiveErrors++;
         
         if (error.response?.status === 404) {
+          console.error('❌ Job not found:', jobId);
           throw new Error('Job not found');
         }
+<<<<<<< HEAD
         
         // If we've had multiple consecutive errors, give up
         if (consecutiveErrors >= maxConsecutiveErrors) {
@@ -120,10 +145,17 @@ class APIService {
         console.warn(`Polling error (${consecutiveErrors}/${maxConsecutiveErrors}), retrying...`);
         await this.delay(pollInterval * 2); // Wait longer on error
         attempts++;
+=======
+        console.error('❌ Error polling job status:', error);
+        throw error;
+>>>>>>> wip/save-local-changes
       }
     }
     
-    throw new Error('Generation timeout - job did not complete in time');
+    // Timeout reached
+    console.error('❌ Polling timeout after', maxAttempts, 'attempts');
+    console.log('🛑 Polling stopped - timeout reached');
+    throw new Error(`Generation timeout - job did not complete within ${maxAttempts} seconds`);
   }
   
   /**

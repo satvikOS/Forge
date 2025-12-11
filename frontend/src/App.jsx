@@ -156,26 +156,46 @@ function App() {
    */
   const isSceneCompositionPrompt = (prompt) => {
     const lowerPrompt = prompt.toLowerCase();
+<<<<<<< HEAD
 
     // Scene action keywords
     const actionKeywords = ['create', 'generate', 'build', 'make', 'design'];
     const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
 
     // Environment keywords (from scene templates)
+=======
+    
+    // Scene action keywords - expanded to include "recreate"
+    const actionKeywords = ['create', 'generate', 'build', 'make', 'design', 'recreate', 'rebuild', 'construct'];
+    const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
+    
+    // Environment keywords (from scene templates) - EXPANDED with locations
+>>>>>>> wip/save-local-changes
     const environmentKeywords = [
-      'city', 'futuristic', 'urban', 'metropolis', 'cityscape',
-      'village', 'medieval', 'town', 'settlement',
-      'industrial', 'factory', 'warehouse', 'manufacturing',
-      'landscape', 'nature', 'forest', 'wilderness', 'natural',
-      'coastal', 'beach', 'ocean', 'seaside', 'harbor', 'shore',
-      'desert', 'arid', 'sand', 'dunes', 'outpost',
-      'park', 'garden', 'green space',
-      'space', 'station', 'orbital', 'spacecraft'
+      // Cities and urban
+      'city', 'futuristic', 'urban', 'metropolis', 'cityscape', 'downtown', 'skyline',
+      'manhattan', 'chicago', 'tokyo', 'london', 'paris', 'dubai', 'singapore', 'district', 'neighborhood',
+      // Villages and settlements
+      'village', 'medieval', 'town', 'settlement', 'hamlet', 'colony',
+      // Industrial
+      'industrial', 'factory', 'warehouse', 'manufacturing', 'complex',
+      // Nature
+      'landscape', 'nature', 'forest', 'wilderness', 'natural', 'terrain', 'environment',
+      // Coastal
+      'coastal', 'beach', 'ocean', 'seaside', 'harbor', 'shore', 'waterfront', 'bay', 'port',
+      // Desert
+      'desert', 'arid', 'sand', 'dunes', 'outpost', 'oasis',
+      // Parks
+      'park', 'garden', 'green space', 'plaza', 'square',
+      // Space
+      'space', 'station', 'orbital', 'spacecraft',
+      // Architecture/structures
+      'street', 'avenue', 'boulevard', 'buildings', 'skyscrapers', 'towers', 'blocks'
     ];
     const hasEnvironment = environmentKeywords.some(keyword => lowerPrompt.includes(keyword));
 
     // Qualifiers that suggest environment (not single object)
-    const environmentQualifiers = ['entire', 'whole', 'complete', 'full', 'scene', 'environment'];
+    const environmentQualifiers = ['entire', 'whole', 'complete', 'full', 'scene', 'environment', 'area', 'district'];
     const hasQualifier = environmentQualifiers.some(keyword => lowerPrompt.includes(keyword));
 
     // It's a scene composition prompt if it has action + environment, or action + qualifier
@@ -187,7 +207,12 @@ function App() {
    */
   const handleSceneComposition = async (prompt) => {
     console.log('🎨 Handling scene composition prompt:', prompt);
+<<<<<<< HEAD
 
+=======
+    console.log('🎯 Scene Composer will call AI backend (NO templates)');
+    
+>>>>>>> wip/save-local-changes
     if (!environmentSystemRef.current || !environmentSystemRef.current.sceneComposer) {
       console.error('Scene Composer not initialized');
       setError('Scene Composer system is not ready. Please wait and try again.');
@@ -200,7 +225,13 @@ function App() {
       setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Initializing scene generation...'] });
 
       const sceneComposer = environmentSystemRef.current.sceneComposer;
+<<<<<<< HEAD
 
+=======
+      
+      console.log('📡 Calling Scene Composer AI generation...');
+      
+>>>>>>> wip/save-local-changes
       // Generate scene with progress updates
       const scene = await sceneComposer.generateSceneFromPrompt(prompt, (progressInfo) => {
         setGenerationProgress({
@@ -211,7 +242,12 @@ function App() {
       });
 
       console.log(`✅ Scene composed: ${scene.assets.length} assets created`);
+<<<<<<< HEAD
 
+=======
+      console.log('✅ Scene generation used AI:', scene.aiGenerated || scene.template === 'ai_generated');
+      
+>>>>>>> wip/save-local-changes
       // The scene objects are already added to the scene manager by the composer
       // Just trigger a refresh by updating model data
       // Use scene.seed as timestamp since it's unique per generation and won't change on re-renders
@@ -223,6 +259,7 @@ function App() {
         assetCount: scene.assets.length,
         seed: scene.seed,
         timestamp: scene.seed, // Use seed as stable timestamp
+        aiGenerated: scene.aiGenerated || scene.template === 'ai_generated',
       });
 
       setDesigns(prevDesigns => [...prevDesigns, {
@@ -234,8 +271,8 @@ function App() {
 
       return true;
     } catch (err) {
-      console.error('Scene composition failed:', err);
-      setError('Failed to generate scene. Please try again.');
+      console.error('❌ Scene composition failed:', err);
+      setError(`Failed to generate scene: ${err.message}. Please check API configuration.`);
       return false;
     } finally {
       setLoading(false);
@@ -244,6 +281,7 @@ function App() {
   };
 
   const handleGenerateDesign = async (prompt) => {
+<<<<<<< HEAD
     // DISABLED: Local template generation - ALL prompts should use AI pipeline
     // This ensures prompts like "recreate downtown manhattan" go through the complete
     // AI pipeline (Gemini → Taxonomy → Real-world data → Geometry) instead of using hardcoded templates
@@ -253,6 +291,26 @@ function App() {
     // }
 
     // FORCE ALL PROMPTS through AI pipeline for ultra-realistic generation
+=======
+    console.log('🎯 Prompt routing decision:');
+    console.log('  Prompt:', prompt);
+    console.log('  Orchestrator enabled:', import.meta.env.VITE_ENABLE_ORCHESTRATOR);
+    
+    // Check if this is a scene composition prompt
+    const isScenePrompt = isSceneCompositionPrompt(prompt);
+    console.log('  Is scene composition:', isScenePrompt);
+    
+    if (isScenePrompt) {
+      console.log('  Endpoint: SceneComposer → /api/generate (AI-powered)');
+      console.log('  Using templates: false (AI-only mode)');
+      const success = await handleSceneComposition(prompt);
+      if (success) return; // Scene composition handled, don't call API
+    } else {
+      console.log('  Endpoint: Direct → /api/generate (single object)');
+    }
+    
+    // Otherwise, use the regular API-based generation
+>>>>>>> wip/save-local-changes
     setLoading(true);
     setError(null);
     setGenerationProgress(null);

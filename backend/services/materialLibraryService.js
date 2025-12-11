@@ -22,9 +22,14 @@ class MaterialLibraryService {
    * Load material database - tries API first, then cached index, then CSV
    */
   async loadDatabase() {
+<<<<<<< HEAD
     // Use /tmp for cache in serverless environments (Vercel)
     const tmpIndexPath = '/tmp/ambientcg-index.json';
     const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
+=======
+    // Use /tmp for writable storage in serverless environments
+    const indexPath = path.join('/tmp', 'ambientcg-index.json');
+>>>>>>> wip/save-local-changes
     const csvPath = path.join(__dirname, '../data/ambientcg-materials.csv');
 
     // Try loading from API first
@@ -85,7 +90,7 @@ class MaterialLibraryService {
   }
 
   /**
-   * Load materials from AmbientCG API
+   * Load materials from AmbientCG API with timeout
    */
   async loadFromAPI() {
     const url = `${this.apiBaseUrl}/full_json?include=downloadData,tagData&type=Material`;
@@ -115,12 +120,20 @@ class MaterialLibraryService {
       });
     }
 
-    const response = await fetchFunc(url, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'ArchDisc/1.0'
-      }
-    });
+    // Add timeout to fetch
+    const fetchWithTimeout = Promise.race([
+      fetchFunc(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ArchDisc/1.0'
+        }
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('API fetch timeout after 5 seconds')), 5000)
+      )
+    ]);
+
+    const response = await fetchWithTimeout;
 
     if (!response.ok) {
       throw new Error(`API returned ${response.status}: ${response.statusText}`);
@@ -212,7 +225,8 @@ class MaterialLibraryService {
     console.log('🔄 Refreshing materials from API...');
     try {
       await this.loadFromAPI();
-      const indexPath = path.join(__dirname, '../data/ambientcg-index.json');
+      // Use /tmp for writable storage in serverless environments
+      const indexPath = path.join('/tmp', 'ambientcg-index.json');
       this.saveIndex(indexPath);
       console.log(`✅ Refreshed ${this.materials.length} materials from API`);
       return { success: true, count: this.materials.length };
@@ -363,6 +377,7 @@ class MaterialLibraryService {
    */
   saveIndex(indexPath) {
     try {
+<<<<<<< HEAD
       // Ensure directory exists (create /tmp if needed)
       const dir = path.dirname(indexPath);
       if (!fs.existsSync(dir)) {
@@ -374,6 +389,21 @@ class MaterialLibraryService {
         }
       }
 
+=======
+      // /tmp directory should exist in serverless environments, but check anyway
+      const dir = path.dirname(indexPath);
+      if (dir !== '/tmp' && !fs.existsSync(dir)) {
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+          console.log(`📁 Created data directory: ${dir}`);
+        } catch (mkdirError) {
+          console.warn(`⚠️  Could not create directory ${dir}:`, mkdirError.message);
+          console.warn('   Skipping index save (not critical for operation)');
+          return;
+        }
+      }
+      
+>>>>>>> wip/save-local-changes
       const indexData = {
         version: '2.0', // Updated version for API support
         timestamp: new Date().toISOString(),
