@@ -156,21 +156,12 @@ function App() {
    */
   const isSceneCompositionPrompt = (prompt) => {
     const lowerPrompt = prompt.toLowerCase();
-<<<<<<< HEAD
 
-    // Scene action keywords
-    const actionKeywords = ['create', 'generate', 'build', 'make', 'design'];
-    const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
-
-    // Environment keywords (from scene templates)
-=======
-    
     // Scene action keywords - expanded to include "recreate"
     const actionKeywords = ['create', 'generate', 'build', 'make', 'design', 'recreate', 'rebuild', 'construct'];
     const hasAction = actionKeywords.some(keyword => lowerPrompt.includes(keyword));
-    
+
     // Environment keywords (from scene templates) - EXPANDED with locations
->>>>>>> wip/save-local-changes
     const environmentKeywords = [
       // Cities and urban
       'city', 'futuristic', 'urban', 'metropolis', 'cityscape', 'downtown', 'skyline',
@@ -207,12 +198,8 @@ function App() {
    */
   const handleSceneComposition = async (prompt) => {
     console.log('🎨 Handling scene composition prompt:', prompt);
-<<<<<<< HEAD
-
-=======
     console.log('🎯 Scene Composer will call AI backend (NO templates)');
-    
->>>>>>> wip/save-local-changes
+
     if (!environmentSystemRef.current || !environmentSystemRef.current.sceneComposer) {
       console.error('Scene Composer not initialized');
       setError('Scene Composer system is not ready. Please wait and try again.');
@@ -225,13 +212,9 @@ function App() {
       setGenerationProgress({ status: 'processing', progress: 0.1, stages: ['Initializing scene generation...'] });
 
       const sceneComposer = environmentSystemRef.current.sceneComposer;
-<<<<<<< HEAD
 
-=======
-      
       console.log('📡 Calling Scene Composer AI generation...');
-      
->>>>>>> wip/save-local-changes
+
       // Generate scene with progress updates
       const scene = await sceneComposer.generateSceneFromPrompt(prompt, (progressInfo) => {
         setGenerationProgress({
@@ -242,12 +225,8 @@ function App() {
       });
 
       console.log(`✅ Scene composed: ${scene.assets.length} assets created`);
-<<<<<<< HEAD
-
-=======
       console.log('✅ Scene generation used AI:', scene.aiGenerated || scene.template === 'ai_generated');
-      
->>>>>>> wip/save-local-changes
+
       // The scene objects are already added to the scene manager by the composer
       // Just trigger a refresh by updating model data
       // Use scene.seed as timestamp since it's unique per generation and won't change on re-renders
@@ -281,25 +260,14 @@ function App() {
   };
 
   const handleGenerateDesign = async (prompt) => {
-<<<<<<< HEAD
-    // DISABLED: Local template generation - ALL prompts should use AI pipeline
-    // This ensures prompts like "recreate downtown manhattan" go through the complete
-    // AI pipeline (Gemini → Taxonomy → Real-world data → Geometry) instead of using hardcoded templates
-    // if (isSceneCompositionPrompt(prompt)) {
-    //   const success = await handleSceneComposition(prompt);
-    //   if (success) return; // Scene composition handled, don't call API
-    // }
-
-    // FORCE ALL PROMPTS through AI pipeline for ultra-realistic generation
-=======
     console.log('🎯 Prompt routing decision:');
     console.log('  Prompt:', prompt);
     console.log('  Orchestrator enabled:', import.meta.env.VITE_ENABLE_ORCHESTRATOR);
-    
+
     // Check if this is a scene composition prompt
     const isScenePrompt = isSceneCompositionPrompt(prompt);
     console.log('  Is scene composition:', isScenePrompt);
-    
+
     if (isScenePrompt) {
       console.log('  Endpoint: SceneComposer → /api/generate (AI-powered)');
       console.log('  Using templates: false (AI-only mode)');
@@ -308,9 +276,8 @@ function App() {
     } else {
       console.log('  Endpoint: Direct → /api/generate (single object)');
     }
-    
+
     // Otherwise, use the regular API-based generation
->>>>>>> wip/save-local-changes
     setLoading(true);
     setError(null);
     setGenerationProgress(null);
