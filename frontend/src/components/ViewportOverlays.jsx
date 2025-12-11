@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import sceneUnitsSystem from '../../systems/SceneUnitsSystem';
+import sceneUnitsSystem from '../systems/SceneUnitsSystem';
 
 export default function ViewportOverlays({
     sceneManager,
