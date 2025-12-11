@@ -18,8 +18,8 @@ class GeminiService {
 
     try {
       this.genAI = new GoogleGenerativeAI(this.apiKey);
-      // Use model from environment variable or default to gemini-2.5-pro (best for 3D design)
-      this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+      // Use model from environment variable or default to gemini-3-pro (best for 3D design)
+      this.modelName = process.env.GEMINI_MODEL || 'gemini-3-pro';
 
       // Configure API version based on model
       // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)

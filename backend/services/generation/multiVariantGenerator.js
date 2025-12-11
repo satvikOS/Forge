@@ -11,7 +11,7 @@ const AxelVoxelEngine = require('../../engines/axel/voxelEngine');
 class MultiVariantGenerator {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+    this.modelName = process.env.GEMINI_MODEL || 'gemini-3-pro';
     this.variantCount = parseInt(process.env.VARIANT_COUNT, 10) || 3;
     this.geminiImageGenerator = geminiImageGenerator;
 
