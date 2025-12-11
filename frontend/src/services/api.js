@@ -11,45 +11,30 @@ class APIService {
     console.log('🎯 API Service: generateDesign called');
     console.log('  Prompt:', prompt?.substring(0, 50) + '...');
     console.log('  Endpoint: POST', `${API_BASE_URL}/generate`);
-    
+
     try {
       // Step 1: Start the generation job
       console.log('📡 Starting generation job with prompt:', prompt);
       const startResponse = await axios.post(`${API_BASE_URL}/generate`, { prompt });
-      
+
       if (!startResponse.data.success || !startResponse.data.jobId) {
         throw new Error('Failed to start generation job');
       }
-      
+
       const jobId = startResponse.data.jobId;
       console.log('✅ Generation job started, jobId:', jobId);
-      
+
       // Step 2: Poll for job completion with proper cleanup
       const result = await this.pollJobStatus(jobId, onProgress);
-      
+
       console.log('✅ Generation completed successfully');
       return result;
     } catch (error) {
-<<<<<<< HEAD
-      console.error('Error generating design:', error);
-      
-      // Enhanced error messages
-      if (error.response?.status === 500) {
-        const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Server error';
-        throw new Error(`Generation failed: ${errorMsg}. Please check API configuration and try again.`);
-      } else if (error.response?.status === 403) {
-        throw new Error('CORS error: Origin not allowed. Please check ALLOWED_ORIGINS configuration.');
-      } else if (error.message?.includes('Network Error')) {
-        throw new Error('Network error: Cannot connect to API server. Please check your connection.');
-      }
-      
-=======
       console.error('❌ Error generating design:', error);
->>>>>>> wip/save-local-changes
       throw error;
     }
   }
-  
+
   /**
    * Poll job status until completion or timeout
    * Uses async/await pattern with proper cleanup instead of setInterval
@@ -59,50 +44,43 @@ class APIService {
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 3;
     let lastProgress = null; // Track last progress to avoid redundant callbacks
-    
+
     console.log('🔄 Starting job polling:', { jobId, maxAttempts, pollInterval });
-    
+
     while (attempts < maxAttempts) {
       try {
         const response = await axios.get(`${API_BASE_URL}/generate/${jobId}`);
         const job = response.data.job;
-        
+
         if (!job) {
           throw new Error('Job not found');
         }
-        
-<<<<<<< HEAD
-        // Reset error counter on successful request
-        consecutiveErrors = 0;
-        
-        // Notify progress callback if provided AND progress has changed
-=======
+
         // Log polling progress
         if (attempts % 10 === 0) {
           console.log(`🔄 Polling attempt ${attempts}/${maxAttempts} - Status: ${job.status}`);
         }
-        
+
         // Notify progress callback if provided
->>>>>>> wip/save-local-changes
         if (onProgress) {
           const currentProgress = {
             status: job.status,
             progress: job.progress,
             stages: job.stages,
           };
-          
+
           // Only call callback if progress actually changed
-          const progressChanged = !lastProgress || 
+          const progressChanged = !lastProgress ||
             lastProgress.status !== currentProgress.status ||
             lastProgress.progress !== currentProgress.progress ||
             JSON.stringify(lastProgress.stages) !== JSON.stringify(currentProgress.stages);
-          
+
           if (progressChanged) {
             onProgress(currentProgress);
             lastProgress = currentProgress;
           }
         }
-        
+
         // Check if job is completed
         if (job.status === 'completed') {
           console.log('✅ Job completed successfully:', jobId);
@@ -114,50 +92,36 @@ class APIService {
             designId: job.result?.designId, // Include designId for multi-design tracking
           };
         }
-        
+
         // Check if job failed
         if (job.status === 'failed') {
           console.error('❌ Job failed:', job.error);
           console.log('🛑 Polling stopped - job failed');
           throw new Error(job.error || 'Generation failed');
         }
-        
+
         // Continue polling
         await this.delay(pollInterval);
         attempts++;
-        
+
       } catch (error) {
         consecutiveErrors++;
-        
+
         if (error.response?.status === 404) {
           console.error('❌ Job not found:', jobId);
           throw new Error('Job not found');
         }
-<<<<<<< HEAD
-        
-        // If we've had multiple consecutive errors, give up
-        if (consecutiveErrors >= maxConsecutiveErrors) {
-          console.error('Too many consecutive polling errors:', error);
-          throw new Error(`Polling failed: ${error.message}`);
-        }
-        
-        // Otherwise, wait and retry
-        console.warn(`Polling error (${consecutiveErrors}/${maxConsecutiveErrors}), retrying...`);
-        await this.delay(pollInterval * 2); // Wait longer on error
-        attempts++;
-=======
         console.error('❌ Error polling job status:', error);
         throw error;
->>>>>>> wip/save-local-changes
       }
     }
-    
+
     // Timeout reached
     console.error('❌ Polling timeout after', maxAttempts, 'attempts');
     console.log('🛑 Polling stopped - timeout reached');
     throw new Error(`Generation timeout - job did not complete within ${maxAttempts} seconds`);
   }
-  
+
   /**
    * Cancel a generation job
    */
@@ -170,7 +134,7 @@ class APIService {
       throw error;
     }
   }
-  
+
   /**
    * Helper to delay execution
    */
@@ -393,21 +357,21 @@ class APIService {
   async generateVariants(prompt, options = {}) {
     try {
       console.log('🎨 Starting multi-variant generation:', prompt);
-      
+
       const response = await axios.post(`${API_BASE_URL}/generate/variants`, {
         prompt,
         options,
       });
-      
+
       if (!response.data.success) {
         throw new Error(response.data.error || 'Failed to generate variants');
       }
-      
+
       console.log(`✅ Multi-variant generation complete: ${response.data.variants?.length || 0} variants`);
       return response.data;
     } catch (error) {
       console.error('Error generating variants:', error);
-      
+
       // Enhanced error messages
       if (error.response?.status === 503) {
         throw new Error('Multi-variant generation is not enabled. Please configure GEMINI_API_KEY in backend.');
@@ -417,7 +381,7 @@ class APIService {
       } else if (error.message?.includes('Network Error')) {
         throw new Error('Network error: Cannot connect to API server.');
       }
-      
+
       throw error;
     }
   }
@@ -431,22 +395,22 @@ class APIService {
     try {
       console.log('🎨 Starting fantasy variant generation:', prompt);
       console.log('🎭 Using Nano Banana Pro (Gemini Image Generation)');
-      
+
       const response = await axios.post(`${API_BASE_URL}/generate/fantasy-variants`, {
         prompt,
         options,
       });
-      
+
       if (!response.data.success) {
         throw new Error(response.data.error || 'Failed to generate fantasy variants');
       }
-      
+
       console.log(`✅ Fantasy variant generation complete: ${response.data.variants?.length || 0} variants`);
       console.log(`🎨 With ${response.data.metadata?.hasConceptImages || 0} concept images`);
       return response.data;
     } catch (error) {
       console.error('Error generating fantasy variants:', error);
-      
+
       // Enhanced error messages
       if (error.response?.status === 503) {
         throw new Error('Fantasy variant generation is not enabled. Please configure GEMINI_API_KEY in backend.');
@@ -456,7 +420,7 @@ class APIService {
       } else if (error.message?.includes('Network Error')) {
         throw new Error('Network error: Cannot connect to API server.');
       }
-      
+
       throw error;
     }
   }
