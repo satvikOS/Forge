@@ -21,7 +21,9 @@ import NPCCrowdPanel from './components/NPCCrowdPanel';
 import ProceduralWorldBuilder from './components/ProceduralWorldBuilder';
 // import GeospatialViewer from './components/geospatial/GeospatialViewer'; // Kept for future internal use
 import SceneManager from './systems/SceneManager';
+import { MaterialLibrary } from './systems/MaterialLibrary';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
+import { handleAddPrimitive } from './utils/addPrimitive';
 import apiService from './services/api';
 import './styles/index.css';
 
@@ -87,6 +89,10 @@ function App() {
   });
   const [gizmoMode, setGizmoMode] = useState('translate'); // translate, rotate, scale
   const [gizmoConstrainAxis, setGizmoConstrainAxis] = useState(null); // null, 'x', 'y', 'z'
+
+  // Material Library
+  const materialLibraryRef = useRef(new MaterialLibrary());
+  const [selectedObjectForMaterial, setSelectedObjectForMaterial] = useState(null);
 
 
   // Keyboard shortcuts handler
@@ -169,18 +175,23 @@ function App() {
     // Handle menu actions
     switch (actionId) {
       case 'file.save':
+      case 'save':
         handleSaveProject();
         break;
       case 'file.load':
+      case 'open':
         handleLoadProject();
         break;
       case 'file.export.obj':
+      case 'export-obj':
         handleExport('obj');
         break;
       case 'file.export.stl':
+      case 'export-stl':
         handleExport('stl');
         break;
       case 'file.export.gltf':
+      case 'export-gltf':
         handleExport('gltf');
         break;
       case 'edit.settings':
@@ -197,8 +208,70 @@ function App() {
       case 'view.timeline':
         setShowTimeline(!showTimeline);
         break;
+
+      // Add > Primitives menu actions
+      case 'add-cube':
+        handleAddPrimitive('box', { width: 2, height: 2, depth: 2 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-sphere':
+        handleAddPrimitive('sphere', { radius: 1 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-icosphere':
+        handleAddPrimitive('sphere', { radius: 1, detail: 2 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-plane':
+        handleAddPrimitive('plane', { width: 2, height: 2 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-cylinder':
+        handleAddPrimitive('cylinder', { radiusTop: 0.5, radiusBottom: 0.5, height: 2 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-cone':
+        handleAddPrimitive('cylinder', { radiusTop: 0, radiusBottom: 1, height: 2 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-torus':
+        handleAddPrimitive('torus', { radius: 1, tube: 0.4 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-grid':
+        handleAddPrimitive('plane', { width: 10, height: 10, segments: 10 }, sceneManagerRef.current, setModelData);
+        break;
+      case 'add-monkey':
+        // Monkey head is a special mesh - for now use icosphere as placeholder
+        handleAddPrimitive('sphere', { radius: 1, detail: 3 }, sceneManagerRef.current, setModelData);
+        break;
+
       default:
         console.log('Unhandled menu action:', actionId);
+    }
+  };
+
+  /**
+   * Handle applying material to selected object
+   */
+  const handleApplyMaterial = (material) => {
+    if (!sceneManagerRef.current || !selectedObjectForMaterial) {
+      console.warn('⚠️ No object selected for material application');
+      return;
+    }
+
+    console.log(`🎨 Applying material "${material.name}" to object`);
+
+    // Apply material via MaterialLibrary
+    const updatedObject = materialLibraryRef.current.applyMaterialToSceneObject(
+      sceneManagerRef.current,
+      selectedObjectForMaterial,
+      material.id
+    );
+
+    if (updatedObject) {
+      // Trigger scene refresh
+      setModelData({
+        type: 'material_applied',
+        objectId: selectedObjectForMaterial,
+        materialId: material.id,
+        timestamp: Date.now()
+      });
+
+      console.log(`✅ Material "${material.name}" applied successfully`);
     }
   };
 

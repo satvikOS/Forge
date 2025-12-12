@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import SceneManager from '../systems/SceneManager';
 import initializeEnvironmentSystem from '../systems/EnvironmentSystem';
 import AxelViewer from './axel/AxelViewer';
+import TransformGizmo from './gizmos/TransformGizmo';
+import GizmoControls from './gizmos/GizmoControls';
+import { MeshEditor } from '../systems/MeshEditor';
 import { fitCameraToScene, normalizeAsset, calculateBoundingBox, calculateAutoScaleFactor } from '../utils/CameraTools';
 
 /**
@@ -41,7 +44,7 @@ function normalizeElementDimensions(element) {
 /**
  * Component to render a single scene object from SceneManager
  */
-function SceneObject({ sceneObject, isWireframe }) {
+function SceneObject({ sceneObject, isWireframe, isSelected, onSelect }) {
   const meshRef = useRef();
   const prevPositionRef = useRef({ x: 0, y: 0, z: 0 });
   const prevRotationRef = useRef({ x: 0, y: 0, z: 0 });
@@ -133,14 +136,24 @@ function SceneObject({ sceneObject, isWireframe }) {
   // Material properties
   const materialColor = material?.color || '#4a90e2';
 
+  // Handle click to select
+  const handleClick = (event) => {
+    event.stopPropagation();
+    if (onSelect) {
+      onSelect(sceneObject);
+    }
+  };
+
   return (
-    <mesh ref={meshRef} castShadow receiveShadow>
+    <mesh ref={meshRef} castShadow receiveShadow onClick={handleClick}>
       {geometryElement}
       <meshStandardMaterial
         color={materialColor}
         wireframe={isWireframe}
         metalness={material?.metalness || 0.1}
         roughness={material?.roughness || 0.7}
+        emissive={isSelected ? '#4a90e2' : '#000000'}
+        emissiveIntensity={isSelected ? 0.3 : 0}
       />
     </mesh>
   );
@@ -149,7 +162,7 @@ function SceneObject({ sceneObject, isWireframe }) {
 /**
  * Component to render all objects from SceneManager
  */
-function SceneRenderer({ sceneManager, isWireframe, modelData, refreshTrigger }) {
+function SceneRenderer({ sceneManager, isWireframe, modelData, refreshTrigger, selectedObjectId, onObjectSelect }) {
   const [sceneObjects, setSceneObjects] = useState([]);
   const prevObjectCountRef = useRef(0);
 
@@ -171,7 +184,13 @@ function SceneRenderer({ sceneManager, isWireframe, modelData, refreshTrigger })
   return (
     <>
       {sceneObjects.map((obj) => (
-        <SceneObject key={obj.id} sceneObject={obj} isWireframe={isWireframe} />
+        <SceneObject
+          key={obj.id}
+          sceneObject={obj}
+          isWireframe={isWireframe}
+          isSelected={selectedObjectId === obj.id}
+          onSelect={onObjectSelect}
+        />
       ))}
     </>
   );
@@ -187,6 +206,18 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   const [initialized, setInitialized] = useState(false);
   const [sceneRefreshTrigger, setSceneRefreshTrigger] = useState(0); // Trigger re-render of scene
   const processedModelIdsRef = useRef(new Set()); // Track processed model IDs to prevent infinite loops
+
+  // Selection & Transform Gizmo State
+  const [selectedObjectId, setSelectedObjectId] = useState(null);
+  const [selectedObject, setSelectedObject] = useState(null);
+  const [gizmoMode, setGizmoMode] = useState('translate'); // 'translate', 'rotate', 'scale'
+  const [axisConstraint, setAxisConstraint] = useState(null); // 'x', 'y', 'z', or null
+
+  // Edit Mode State
+  const [editMode, setEditMode] = useState(false); // false = Object Mode, true = Edit Mode
+  const [editSelectionMode, setEditSelectionMode] = useState('vertex'); // 'vertex', 'edge', 'face'
+  const [meshEditor, setMeshEditor] = useState(null); // MeshEditor instance
+  const [selectedElements, setSelectedElements] = useState([]); // Selected indices
 
 
   // Initialize SceneManager and EnvironmentSystem once
@@ -528,6 +559,189 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
     }
   }, [modelData, sceneRefreshTrigger, initialized]);
 
+  // Handle object selection
+  const handleObjectSelect = (obj) => {
+    if (obj) {
+      setSelectedObjectId(obj.id);
+      setSelectedObject(obj);
+      console.log('🎯 Selected object:', obj.id, obj.name || obj.type);
+    } else {
+      setSelectedObjectId(null);
+      setSelectedObject(null);
+      console.log('❌ Deselected');
+    }
+  };
+
+  // Handle gizmo mode change (Move/Rotate/Scale)
+  const handleGizmoModeChange = (mode) => {
+    setGizmoMode(mode);
+    console.log(`🎨 Gizmo mode changed to: ${mode}`);
+  };
+
+  // Handle axis constraint change
+  const handleAxisConstraint = (axis) => {
+    setAxisConstraint(axis);
+    console.log(`🎯 Axis constraint: ${axis || 'none'}`);
+  };
+
+  // Handle transform changes from gizmo
+  const handleTransformChange = (transformData) => {
+    if (!selectedObject) return;
+
+    // Update scene manager with new transform
+    if (sceneManagerRef.current) {
+      const updatedObject = { ...selectedObject };
+
+      if (transformData.type === 'translate' && transformData.position) {
+        updatedObject.position = {
+          x: transformData.position.x,
+          y: transformData.position.y,
+          z: transformData.position.z
+        };
+      } else if (transformData.type === 'rotate' && transformData.rotation) {
+        updatedObject.rotation = {
+          x: transformData.rotation.x,
+          y: transformData.rotation.y,
+          z: transformData.rotation.z
+        };
+      } else if (transformData.type === 'scale' && transformData.scale) {
+        updatedObject.scale = {
+          x: transformData.scale.x,
+          y: transformData.scale.y,
+          z: transformData.scale.z
+        };
+      }
+
+      setSelectedObject(updatedObject);
+      setSceneRefreshTrigger(prev => prev + 1);
+    }
+  };
+
+  // Keyboard shortcuts for gizmo modes (G, R, S)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if user is typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+
+      // Gizmo mode shortcuts
+      if (key === 'g') {
+        handleGizmoModeChange('translate');
+      } else if (key === 'r') {
+        handleGizmoModeChange('rotate');
+      } else if (key === 's' && !e.ctrlKey) { // Prevent conflict with Ctrl+S (Save)
+        handleGizmoModeChange('scale');
+      }
+
+      // Selection shortcuts
+      else if (key === 'a' && !e.ctrlKey) { // Select All
+        if (sceneManagerRef.current) {
+          const objects = sceneManagerRef.current.getAllObjects();
+          if (objects.length > 0) {
+            handleObjectSelect(objects[0]); // Select first for now
+          }
+        }
+      } else if (key === 'escape') { // Deselect
+        handleObjectSelect(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedObject]);
+
+  // Edit Mode keyboard shortcuts
+  useEffect(() => {
+    const handleEditModeKeys = (e) => {
+      // Ignore if user is typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+
+      // Tab: Toggle Edit Mode
+      if (key === 'tab' && selectedObject && !e.shiftKey && !e.ctrlKey) {
+        e.preventDefault();
+        const newEditMode = !editMode;
+        setEditMode(newEditMode);
+
+        if (newEditMode) {
+          // Entering Edit Mode - create MeshEditor
+          console.log('📦 Entering Edit Mode');
+          if (selectedObject.userData?.geometry) {
+            // Need to convert SceneManager object to Three.js mesh
+            // For now, create placeholder
+            console.warn('Edit Mode requires mesh conversion - TODO');
+          }
+        } else {
+          // Exiting Edit Mode
+          console.log('✅ Exiting Edit Mode');
+          setMeshEditor(null);
+          setSelectedElements([]);
+        }
+      }
+
+      // Only handle edit shortcuts in Edit Mode
+      if (editMode && meshEditor) {
+        // 1/2/3: Selection mode
+        if (key === '1') {
+          e.preventDefault();
+          setEditSelectionMode('vertex');
+          meshEditor.setSelectionMode('vertex');
+          console.log('🔵 Vertex selection mode');
+        } else if (key === '2') {
+          e.preventDefault();
+          setEditSelectionMode('edge');
+          meshEditor.setSelectionMode('edge');
+          console.log('🔶 Edge selection mode');
+        } else if (key === '3') {
+          e.preventDefault();
+          setEditSelectionMode('face');
+          meshEditor.setSelectionMode('face');
+          console.log('🔷 Face selection mode');
+        }
+
+        // E: Extrude
+        else if (key === 'e' && !e.ctrlKey) {
+          e.preventDefault();
+          if (meshEditor.selectedFaces.size > 0) {
+            meshEditor.extrude(1.0);
+            setSceneRefreshTrigger(prev => prev + 1);
+            console.log('⬆️ Extrude activated');
+          } else {
+            console.warn('⚠️ No faces selected for extrude');
+          }
+        }
+
+        // I: Inset
+        else if (key === 'i' && !e.ctrlKey) {
+          e.preventDefault();
+          if (meshEditor.selectedFaces.size > 0) {
+            meshEditor.inset(0.2);
+            setSceneRefreshTrigger(prev => prev + 1);
+            console.log('🔽 Inset activated');
+          } else {
+            console.warn('⚠️ No faces selected for inset');
+          }
+        }
+
+        // Ctrl+B: Bevel (TODO: implement bevel in MeshEditor)
+        else if (key === 'b' && e.ctrlKey) {
+          e.preventDefault();
+          console.log('🔶 Bevel (not yet implemented)');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleEditModeKeys);
+    return () => window.removeEventListener('keydown', handleEditModeKeys);
+  }, [editMode, meshEditor, selectedObject, editSelectionMode]);
+
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}>
       <Canvas shadows frameloop="demand">
@@ -554,9 +768,23 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
                 isWireframe={isWireframe}
                 modelData={modelData}
                 refreshTrigger={sceneRefreshTrigger}
+                selectedObjectId={selectedObjectId}
+                onObjectSelect={handleObjectSelect}
               />
             )
           }
+
+          {/* Transform Gizmo - render when object is selected */}
+          {selectedObject && (
+            <TransformGizmo
+              selectedObject={selectedObject}
+              mode={gizmoMode}
+              onTransformChange={handleTransformChange}
+              snapToGrid={false}
+              gridSize={1}
+              constrainAxis={axisConstraint}
+            />
+          )}
 
           {/* Camera Controls with automatic fitting and smooth dampening */}
           <CameraControls
@@ -596,6 +824,42 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           </GizmoHelper>
         </Suspense>
       </Canvas>
+
+      {/* Gizmo Controls UI - Transform Mode Switcher */}
+      {selectedObject && (
+        <div style={{
+          position: 'absolute',
+          bottom: '80px',
+          left: '20px',
+          zIndex: 100,
+        }}>
+          <GizmoControls
+            mode={gizmoMode}
+            onModeChange={handleGizmoModeChange}
+            constrainAxis={axisConstraint}
+            onConstrainAxis={handleAxisConstraint}
+          />
+        </div>
+      )}
+
+      {/* Edit Mode UI Indicator */}
+      {editMode && (
+        <div style={{
+          position: 'absolute',
+          top: '20px',
+          left: '20px',
+          zIndex: 100,
+          background: '#ff6b35',
+          color: 'white',
+          padding: '8px 16px',
+          borderRadius: '6px',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        }}>
+          📦 EDIT MODE | {editSelectionMode.toUpperCase()}
+        </div>
+      )}
 
       {/* Axel Analysis Overlay */}
       {modelData && modelData.axelAnalysis && (
