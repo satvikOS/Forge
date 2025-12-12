@@ -8,7 +8,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 class GeminiImageGenerator {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.imageModel = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image';
+    this.imageModel = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-preview-image';
     this.enabled = !!this.apiKey;
 
     if (!this.enabled) {
@@ -63,7 +63,7 @@ class GeminiImageGenerator {
       // For actual image generation, we'll use Gemini to create a detailed
       // image description that can be used with image generation services
 
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-3-pro' });
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
       const imageDescriptionPrompt = `You are an expert concept artist specializing in fantasy, unrealistic, and super-complex designs.
 Generate an extremely detailed visual description for this prompt that can be used to create a stunning concept image:

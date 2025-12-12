@@ -9,7 +9,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 class ProceduralGenerationEngine {
     constructor() {
         this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-3-pro' });
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
     }
 
     /**

@@ -18,16 +18,16 @@ class GeminiService {
 
     try {
       this.genAI = new GoogleGenerativeAI(this.apiKey);
-      // Use model from environment variable or default to gemini-3-pro (best for 3D design)
-      this.modelName = process.env.GEMINI_MODEL || 'gemini-3-pro';
+      // Use model from environment variable or default to gemini-2.5-pro (latest available)
+      this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
 
       // Configure API version based on model
-      // Gemini 1.5 models require v1beta API, while 2.x models use stable v1 (default)
+      // Gemini 1.5 and 2.5 models require v1beta API, while 2.0 models use stable v1 (default)
       const modelConfig = { model: this.modelName };
       const requestOptions = {};
 
-      if (this.modelName.includes('1.5')) {
-        // Gemini 1.5 models (like gemini-1.5-pro, gemini-1.5-flash) need beta API
+      if (this.modelName.includes('1.5') || this.modelName.includes('2.5')) {
+        // Gemini 1.5 and 2.5 models need beta API
         requestOptions.apiVersion = 'v1beta';
         console.log(`Using v1beta API for model: ${this.modelName}`);
       } else {
