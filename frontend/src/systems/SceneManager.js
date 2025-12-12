@@ -71,11 +71,11 @@ export class SceneManager {
     this.historyStack = [];
     this.historyIndex = -1;
     this.maxHistory = 50;
-    
+
     // Design group tracking for multiple designs (Issue #27)
     this.designGroups = new Map(); // designId -> { objects: [], bounds: {}, metadata: {} }
     this.designIdCounter = 0;
-    
+
     // Create default layer
     this.createLayer('default', 'Default Layer');
   }
@@ -93,11 +93,13 @@ export class SceneManager {
     const object = this.objects.get(objectId);
     if (object) {
       // Remove from parent if it has one
-      if (object.parent) {
+      if (object.parent && typeof object.parent.removeChild === 'function') {
         object.parent.removeChild(object);
       }
-      // Remove all children
-      object.children.forEach(child => this.removeObject(child.id));
+      // Remove all children (only if children array exists)
+      if (object.children && Array.isArray(object.children)) {
+        object.children.forEach(child => this.removeObject(child.id));
+      }
       // Remove from scene
       this.objects.delete(objectId);
       this.selectedObjects.delete(objectId);
@@ -135,7 +137,7 @@ export class SceneManager {
     if (mode === 'replace') {
       this.selectedObjects.clear();
     }
-    
+
     if (mode === 'toggle') {
       if (this.selectedObjects.has(objectId)) {
         this.selectedObjects.delete(objectId);
@@ -233,14 +235,14 @@ export class SceneManager {
       objects: new Map(this.objects),
       selectedObjects: new Set(this.selectedObjects),
     };
-    
+
     // Remove future states if we're not at the end
     if (this.historyIndex < this.historyStack.length - 1) {
       this.historyStack = this.historyStack.slice(0, this.historyIndex + 1);
     }
-    
+
     this.historyStack.push(state);
-    
+
     // Limit history size
     if (this.historyStack.length > this.maxHistory) {
       this.historyStack.shift();
@@ -288,11 +290,11 @@ export class SceneManager {
       this.addObject(clone);
       duplicates.push(clone);
     });
-    
+
     // Select the duplicates
     this.deselectAll();
     duplicates.forEach(obj => this.selectObject(obj.id, 'add'));
-    
+
     return duplicates;
   }
 
@@ -324,18 +326,18 @@ export class SceneManager {
       obj.position.x += position.x;
       obj.position.y += position.y;
       obj.position.z += position.z;
-      
+
       // Mark object as part of this design group
       obj.userData = obj.userData || {};
       obj.userData.designId = designId;
-      
+
       // Add to scene without recording state for each object (performance optimization)
       this.addObject(obj, true);
     });
-    
+
     // Calculate bounds
     const bounds = this.calculateDesignBounds(objects);
-    
+
     // Store design group
     const designGroup = {
       id: designId,
@@ -347,14 +349,14 @@ export class SceneManager {
         timestamp: Date.now(),
       },
     };
-    
+
     this.designGroups.set(designId, designGroup);
-    
+
     console.log(`Added design group ${designId} with ${objects.length} objects`);
-    
+
     // Save state once after all objects are added
     this.saveState();
-    
+
     return designGroup;
   }
 
@@ -378,19 +380,19 @@ export class SceneManager {
 
     objects.forEach(obj => {
       if (!obj.position) return;
-      
+
       const { x, y, z } = obj.position;
       const geom = obj.geometry || {};
-      
+
       // Estimate object bounds based on geometry
       const halfWidth = (geom.width || 1) / 2;
       const halfHeight = (geom.height || 1) / 2;
       const halfDepth = (geom.depth || 1) / 2;
-      
+
       minX = Math.min(minX, x - halfWidth);
       minY = Math.min(minY, y - halfHeight);
       minZ = Math.min(minZ, z - halfDepth);
-      
+
       maxX = Math.max(maxX, x + halfWidth);
       maxY = Math.max(maxY, y + halfHeight);
       maxZ = Math.max(maxZ, z + halfDepth);
@@ -437,15 +439,15 @@ export class SceneManager {
   removeDesignGroup(designId) {
     const design = this.designGroups.get(designId);
     if (!design) return false;
-    
+
     // Remove all objects in this design
     design.objects.forEach(objId => {
       this.removeObject(objId);
     });
-    
+
     // Remove design group
     this.designGroups.delete(designId);
-    
+
     console.log(`Removed design group ${designId}`);
     return true;
   }
