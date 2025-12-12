@@ -275,23 +275,32 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           // Composite geometry with multiple parts - add each part as separate object
           console.log(`📦 Adding composite geometry with ${geom.parts.length} parts`);
           geom.parts.forEach((part, index) => {
+            // Normalize part dimensions
+            const normalized = normalizeElementDimensions({
+              dimensions: part.dimensions || { x: 10, y: 10, z: 10 },
+              position: part.position || { x: 0, y: 0, z: 0 },
+              radius: part.radius,
+              radiusTop: part.radiusTop,
+              radiusBottom: part.radiusBottom
+            });
+
             const sceneObject = {
               id: `model_${Date.now()}_part_${index}`,
               name: `${modelData.name || 'Generated Model'} - Part ${index + 1}`,
               type: 'generated',
-              position: part.position || { x: 0, y: 0, z: 0 },
+              position: normalized.position,
               rotation: part.rotation || { x: 0, y: 0, z: 0 },
               scale: { x: 1, y: 1, z: 1 },
               visible: true,
               userData: {
                 geometry: {
                   type: part.type || 'box',
-                  width: part.dimensions?.x || 10,
-                  height: part.dimensions?.y || 10,
-                  depth: part.dimensions?.z || 10,
-                  radius: part.radius,
-                  radiusTop: part.radiusTop,
-                  radiusBottom: part.radiusBottom
+                  width: normalized.width,
+                  height: normalized.height,
+                  depth: normalized.depth,
+                  radius: normalized.radius,
+                  radiusTop: normalized.radiusTop,
+                  radiusBottom: normalized.radiusBottom
                 },
                 material: part.material || modelData.material || { color: '#4a90e2' },
                 prompt: modelData.prompt
@@ -309,21 +318,28 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
               const meshDef = instance.mesh;
               const positions = instance.positions || [{ x: 0, y: 0, z: 0 }];
               positions.forEach((pos, posIndex) => {
+                // Normalize mesh dimensions
+                const normalized = normalizeElementDimensions({
+                  dimensions: meshDef.dimensions || { x: 10, y: 10, z: 10 },
+                  position: pos,
+                  radius: meshDef.radius
+                });
+
                 const sceneObject = {
                   id: `model_${Date.now()}_inst_${instanceIndex}_${posIndex}`,
                   name: `${modelData.name} - Inst ${instanceIndex}.${posIndex}`,
                   type: 'generated',
-                  position: { x: (pos.x || 0) / 1000, y: (pos.y || 0) / 1000, z: (pos.z || 0) / 1000 },
+                  position: normalized.position,
                   rotation: meshDef.rotation || { x: 0, y: 0, z: 0 },
                   scale: { x: 1, y: 1, z: 1 },
                   visible: true,
                   userData: {
                     geometry: {
                       type: meshDef.type || 'box',
-                      width: (meshDef.dimensions?.x || 10) / 1000,
-                      height: (meshDef.dimensions?.y || 10) / 1000,
-                      depth: (meshDef.dimensions?.z || 10) / 1000,
-                      radius: meshDef.radius ? meshDef.radius / 1000 : undefined
+                      width: normalized.width,
+                      height: normalized.height,
+                      depth: normalized.depth,
+                      radius: normalized.radius
                     },
                     material: meshDef.material || modelData.material || { color: '#4a90e2' },
                     prompt: modelData.prompt
@@ -335,21 +351,28 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             setSceneRefreshTrigger(prev => prev + 1);
           } else if (geom.meshes && geom.meshes.length > 0) {
             geom.meshes.forEach((mesh, index) => {
+              // Normalize mesh dimensions
+              const normalized = normalizeElementDimensions({
+                dimensions: mesh.dimensions || { x: 10, y: 10, z: 10 },
+                position: mesh.position || { x: 0, y: 0, z: 0 },
+                radius: mesh.radius
+              });
+
               const sceneObject = {
                 id: `model_${Date.now()}_mesh_${index}`,
                 name: mesh.name || `Mesh ${index}`,
                 type: 'generated',
-                position: mesh.position || { x: 0, y: 0, z: 0 },
+                position: normalized.position,
                 rotation: mesh.rotation || { x: 0, y: 0, z: 0 },
                 scale: { x: 1, y: 1, z: 1 },
                 visible: true,
                 userData: {
                   geometry: {
                     type: mesh.type || 'box',
-                    width: mesh.dimensions?.x || 10,
-                    height: mesh.dimensions?.y || 10,
-                    depth: mesh.dimensions?.z || 10,
-                    radius: mesh.radius
+                    width: normalized.width,
+                    height: normalized.height,
+                    depth: normalized.depth,
+                    radius: normalized.radius
                   },
                   material: mesh.material || modelData.material || { color: '#4a90e2' },
                   prompt: modelData.prompt
