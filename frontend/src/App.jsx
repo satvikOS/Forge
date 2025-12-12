@@ -22,6 +22,8 @@ import ProceduralWorldBuilder from './components/ProceduralWorldBuilder';
 // import GeospatialViewer from './components/geospatial/GeospatialViewer'; // Kept for future internal use
 import SceneManager from './systems/SceneManager';
 import { MaterialLibrary } from './systems/MaterialLibrary';
+import { AnimationSystem } from './systems/AnimationSystem';
+import { LightingSystem } from './systems/LightingSystem';
 import { saveProject, loadProject, exportToOBJ, exportToSTL, exportToGLTF } from './systems/FileExport';
 import { handleAddPrimitive } from './utils/addPrimitive';
 import apiService from './services/api';
@@ -93,6 +95,20 @@ function App() {
   // Material Library
   const materialLibraryRef = useRef(new MaterialLibrary());
   const [selectedObjectForMaterial, setSelectedObjectForMaterial] = useState(null);
+
+  // Animation System - initialized after sceneManager
+  const animationSystemRef = useRef(null);
+
+  // Lighting System - initialized after scene is available
+  const lightingSystemRef = useRef(null);
+
+  // Initialize systems after sceneManager
+  useEffect(() => {
+    if (sceneManagerRef.current && !animationSystemRef.current) {
+      animationSystemRef.current = new AnimationSystem(sceneManagerRef.current);
+      console.log('✅ Animation System initialized');
+    }
+  }, [sceneManagerRef.current]);
 
 
   // Keyboard shortcuts handler
