@@ -155,6 +155,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   const [initialized, setInitialized] = useState(false);
   const [sceneRefreshTrigger, setSceneRefreshTrigger] = useState(0); // Trigger re-render of scene
   const processedModelIdsRef = useRef(new Set()); // Track processed model IDs to prevent infinite loops
+  const [hasAutoFitted, setHasAutoFitted] = useState(false); // Track if camera has been auto-fitted
 
   // Initialize SceneManager and EnvironmentSystem once
   useEffect(() => {
@@ -191,6 +192,17 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
 
     console.log('📦 AdvancedWorkbench: Processing modelData', modelData);
     processedModelIdsRef.current.add(modelId);
+
+    // 🧹 Clear previous generated objects when loading new variant/design
+    const existingGenerated = sceneManagerRef.current.getAllObjects()
+      .filter(obj => obj.type === 'generated');
+
+    if (existingGenerated.length > 0) {
+      console.log(`🧹 Clearing ${existingGenerated.length} previous generated objects`);
+      existingGenerated.forEach(obj => {
+        sceneManagerRef.current.removeObject(obj.id);
+      });
+    }
 
     // Process and add modelData to scene
     try {
@@ -479,16 +491,13 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
       const pos = obj.position;
       const geom = obj.userData?.geometry;
 
-      // Get half-dimensions
-      const halfWidth = (geom?.width || 10) / 2;
-      const halfHeight = (geom?.height || 10) / 2;
-      const halfDepth = (geom?.depth || 10) / 2;
+      // Get half-dimensions (already scaled to meters by element processing)
+      const halfWidth = Math.abs((geom?.width || 10) / 2);
+      const halfHeight = Math.abs((geom?.height || 10) / 2);
+      const halfDepth = Math.abs((geom?.depth || 10) / 2);
 
-      // Validate dimensions aren't in millimeters (would be > 1000)
-      if (halfWidth > 1000 || halfHeight > 1000 || halfDepth > 1000) {
-        console.warn(`⚠️  Object ${obj.id} has huge dimensions (likely mm instead of m):`, { halfWidth, halfHeight, halfDepth });
-        return; // Skip this object from bounds calculation
-      }
+      // Include all objects - dimensions are already properly scaled to meters
+      // (Removed incorrect > 1000 check that was excluding properly-scaled objects)
 
       minX = Math.min(minX, pos.x - halfWidth);
       minY = Math.min(minY, pos.y - halfHeight);
@@ -500,14 +509,21 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
 
     console.log(`📐 Auto-fitting to bounds: min(${minX.toFixed(1)}, ${minY.toFixed(1)}, ${minZ.toFixed(1)}) max(${maxX.toFixed(1)}, ${maxY.toFixed(1)}, ${maxZ.toFixed(1)})`);
 
-    cameraControlsRef.current.fitToBox(
-      new THREE.Box3(
-        new THREE.Vector3(minX, minY, minZ),
-        new THREE.Vector3(maxX, maxY, maxZ)
-      ),
-      true,
-      { paddingLeft: 1.2, paddingRight: 1.2, paddingBottom: 1.2, paddingTop: 1.2 }
-    );
+    // Only auto-fit camera on FIRST load, not on every variant switch
+    if (!hasAutoFitted) {
+      console.log('📷 Auto-fitting camera to scene (first time)');
+      cameraControlsRef.current.fitToBox(
+        new THREE.Box3(
+          new THREE.Vector3(minX, minY, minZ),
+          new THREE.Vector3(maxX, maxY, maxZ)
+        ),
+        true,
+        { paddingLeft: 1.2, paddingRight: 1.2, paddingBottom: 1.2, paddingTop: 1.2 }
+      );
+      setHasAutoFitted(true);
+    } else {
+      console.log('📷 Skipping camera auto-fit (already fitted once)');
+    }
   }, [modelData, sceneRefreshTrigger, initialized]);
 
   return (
