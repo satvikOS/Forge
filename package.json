@@ -9,20 +9,12 @@
     "start": "node backend/server.js",
     "vercel-build": "cd frontend && npm run build"
   },
-  "keywords": ["architecture", "3d", "design", "ai"],
+  "keywords": [
+    "architecture",
+    "3d",
+    "design",
+    "ai"
+  ],
   "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "@google-cloud/vertexai": "^1.7.0",
-    "axios": "^1.13.2",
-    "body-parser": "^2.2.0",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "express-rate-limit": "^8.2.1",
-    "helmet": "^8.1.0",
-    "multer": "^2.0.2",
-    "openai": "^6.8.1"
-  }
+  "license": "ISC"
 }

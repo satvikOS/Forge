@@ -5,6 +5,38 @@ import * as THREE from 'three';
 import SceneManager from '../systems/SceneManager';
 import initializeEnvironmentSystem from '../systems/EnvironmentSystem';
 import AxelViewer from './axel/AxelViewer';
+import { fitCameraToScene, normalizeAsset, calculateBoundingBox, calculateAutoScaleFactor } from '../utils/CameraTools';
+
+/**
+ * Helper function to normalize element dimensions from backend
+ * Backend may return values in millimeters, we need meters for Three.js
+ */
+function normalizeElementDimensions(element) {
+  // Check if dimensions are suspiciously large (likely in millimeters)
+  const avgDimension = (
+    (element.dimensions?.width || element.dimensions?.x || 1) +
+    (element.dimensions?.height || element.dimensions?.y || 1) +
+    (element.dimensions?.depth || element.dimensions?.z || 1)
+  ) / 3;
+
+  // If average dimension > 100, assume millimeters and convert to meters
+  const scale = avgDimension > 100 ? 0.001 : 1;
+
+  return {
+    width: (element.dimensions?.width || element.dimensions?.x || 1) * scale,
+    height: (element.dimensions?.height || element.dimensions?.y || 1) * scale,
+    depth: (element.dimensions?.depth || element.dimensions?.z || 1) * scale,
+    position: {
+      x: (element.position?.x || 0) * scale,
+      y: (element.position?.y || 0) * scale,
+      z: (element.position?.z || 0) * scale
+    },
+    radius: element.radius ? element.radius * scale : undefined,
+    radiusTop: element.radiusTop ? element.radiusTop * scale : undefined,
+    radiusBottom: element.radiusBottom ? element.radiusBottom * scale : undefined
+  };
+}
+
 
 /**
  * Component to render a single scene object from SceneManager
@@ -155,7 +187,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   const [initialized, setInitialized] = useState(false);
   const [sceneRefreshTrigger, setSceneRefreshTrigger] = useState(0); // Trigger re-render of scene
   const processedModelIdsRef = useRef(new Set()); // Track processed model IDs to prevent infinite loops
-  const [hasAutoFitted, setHasAutoFitted] = useState(false); // Track if camera has been auto-fitted
+
 
   // Initialize SceneManager and EnvironmentSystem once
   useEffect(() => {
@@ -331,35 +363,26 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
           // Handle raw elements array (e.g. from Backend Fallback)
           console.log(`🧩 Processing ${modelData.elements.length} raw elements from modelData`);
           modelData.elements.forEach((element, index) => {
-            // scale factor: if dimensions are > 100, assume mm and convert to m (1/1000)
-            // simplified: Backend sends MM, we want M.
-            const scale = 0.001;
-
-            const width = (element.dimensions?.width || element.dimensions?.x || 10000) * scale;
-            const height = (element.dimensions?.height || element.dimensions?.y || 10000) * scale;
-            const depth = (element.dimensions?.depth || element.dimensions?.z || 10000) * scale;
-
-            const posX = (element.position?.x || 0) * scale;
-            const posY = (element.position?.y || 0) * scale;
-            const posZ = (element.position?.z || 0) * scale;
+            // Use normalization helper instead of hardcoded scale
+            const normalized = normalizeElementDimensions(element);
 
             const sceneObject = {
               id: `model_${Date.now()}_elem_${index}`,
               name: element.name || `Element ${index}`,
               type: 'generated',
-              position: { x: posX, y: posY, z: posZ },
+              position: normalized.position,
               rotation: { x: 0, y: 0, z: 0 },
               scale: { x: 1, y: 1, z: 1 },
               visible: true,
               userData: {
                 geometry: {
                   type: element.type || 'box',
-                  width: width,
-                  height: height,
-                  depth: depth,
-                  radius: width / 2, // approximation for cylinder/cone
-                  radiusTop: element.type === 'cone' ? 0 : width / 2,
-                  radiusBottom: width / 2
+                  width: normalized.width,
+                  height: normalized.height,
+                  depth: normalized.depth,
+                  radius: normalized.radius || normalized.width / 2,
+                  radiusTop: normalized.radiusTop || (element.type === 'cone' ? 0 : normalized.width / 2),
+                  radiusBottom: normalized.radiusBottom || normalized.width / 2
                 },
                 material: typeof element.material === 'string'
                   ? { name: element.material, color: '#888888' }
@@ -402,34 +425,26 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
         // TOP-LEVEL ELEMENTS HANDLING: For variants/fallbacks that have no geometry but have elements
         console.log(`🧩 TOP-LEVEL: Processing ${modelData.elements.length} elements from modelData (no geometry present)`);
         modelData.elements.forEach((element, index) => {
-          // Scale from mm to m
-          const scale = 0.001;
-
-          const width = (element.dimensions?.width || element.dimensions?.x || 10000) * scale;
-          const height = (element.dimensions?.height || element.dimensions?.y || 10000) * scale;
-          const depth = (element.dimensions?.depth || element.dimensions?.z || 10000) * scale;
-
-          const posX = (element.position?.x || 0) * scale;
-          const posY = (element.position?.y || 0) * scale;
-          const posZ = (element.position?.z || 0) * scale;
+          // Use normalization helper
+          const normalized = normalizeElementDimensions(element);
 
           const sceneObject = {
             id: `model_${Date.now()}_topelem_${index}`,
             name: element.name || `Element ${index}`,
             type: 'generated',
-            position: { x: posX, y: posY, z: posZ },
+            position: normalized.position,
             rotation: { x: 0, y: 0, z: 0 },
             scale: { x: 1, y: 1, z: 1 },
             visible: true,
             userData: {
               geometry: {
                 type: element.type || 'box',
-                width: width,
-                height: height,
-                depth: depth,
-                radius: width / 2,
-                radiusTop: element.type === 'cone' ? 0 : width / 2,
-                radiusBottom: width / 2
+                width: normalized.width,
+                height: normalized.height,
+                depth: normalized.depth,
+                radius: normalized.radius || normalized.width / 2,
+                radiusTop: normalized.radiusTop || (element.type === 'cone' ? 0 : normalized.width / 2),
+                radiusBottom: normalized.radiusBottom || normalized.width / 2
               },
               material: typeof element.material === 'string'
                 ? { name: element.material, color: '#888888' }
@@ -461,7 +476,7 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
   const isWireframe = viewMode === 'wireframe';
   const cameraControlsRef = useRef(null);
 
-  // Auto-fit camera when modelData changes
+  // Auto-fit camera when modelData changes (EVERY TIME, not just once)
   useEffect(() => {
     if (!cameraControlsRef.current || !sceneManagerRef.current || !initialized) return;
 
@@ -470,59 +485,23 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
 
     // Filter out fallback models from bounds calculation
     const realObjects = objects.filter(obj => {
-      // Check if this is a fallback model
       const isFallback = obj.userData?.isFallback ||
         obj.userData?.metadata?.fallback ||
         obj.userData?.metadata?.isFallback;
       return !isFallback;
     });
 
-    // If only fallback objects exist, include them but log a warning
     const objectsToFit = realObjects.length > 0 ? realObjects : objects;
     if (realObjects.length === 0 && objects.length > 0) {
       console.warn('⚠️  Only fallback models detected - camera may not be optimal');
     }
 
-    // Calculate PROPER bounds including object dimensions
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-    objectsToFit.forEach(obj => {
-      const pos = obj.position;
-      const geom = obj.userData?.geometry;
-
-      // Get half-dimensions (already scaled to meters by element processing)
-      const halfWidth = Math.abs((geom?.width || 10) / 2);
-      const halfHeight = Math.abs((geom?.height || 10) / 2);
-      const halfDepth = Math.abs((geom?.depth || 10) / 2);
-
-      // Include all objects - dimensions are already properly scaled to meters
-      // (Removed incorrect > 1000 check that was excluding properly-scaled objects)
-
-      minX = Math.min(minX, pos.x - halfWidth);
-      minY = Math.min(minY, pos.y - halfHeight);
-      minZ = Math.min(minZ, pos.z - halfDepth);
-      maxX = Math.max(maxX, pos.x + halfWidth);
-      maxY = Math.max(maxY, pos.y + halfHeight);
-      maxZ = Math.max(maxZ, pos.z + halfDepth);
-    });
-
-    console.log(`📐 Auto-fitting to bounds: min(${minX.toFixed(1)}, ${minY.toFixed(1)}, ${minZ.toFixed(1)}) max(${maxX.toFixed(1)}, ${maxY.toFixed(1)}, ${maxZ.toFixed(1)})`);
-
-    // Only auto-fit camera on FIRST load, not on every variant switch
-    if (!hasAutoFitted) {
-      console.log('📷 Auto-fitting camera to scene (first time)');
-      cameraControlsRef.current.fitToBox(
-        new THREE.Box3(
-          new THREE.Vector3(minX, minY, minZ),
-          new THREE.Vector3(maxX, maxY, maxZ)
-        ),
-        true,
-        { paddingLeft: 1.2, paddingRight: 1.2, paddingBottom: 1.2, paddingTop: 1.2 }
-      );
-      setHasAutoFitted(true);
-    } else {
-      console.log('📷 Skipping camera auto-fit (already fitted once)');
+    // Use CameraTools to fit camera to scene
+    try {
+      const camera = cameraControlsRef.current.camera || cameraControlsRef.current;
+      fitCameraToScene(camera, cameraControlsRef.current, objectsToFit, 1.2);
+    } catch (error) {
+      console.error('❌ Error fitting camera to scene:', error);
     }
   }, [modelData, sceneRefreshTrigger, initialized]);
 
@@ -579,9 +558,9 @@ export default function AdvancedWorkbench({ activeTool, onToolChange, viewMode, 
             }}
           />
 
-          {/* Grid - sized appropriately for typical models */}
+          {/* Grid - sized appropriately for typical models (200x200 = 200% increase) */}
           <gridHelper
-            args={[100, 100, '#333333', '#1a1a1a']}
+            args={[200, 200, '#333333', '#1a1a1a']}
             position={[0, -0.01, 0]}
           />
 
