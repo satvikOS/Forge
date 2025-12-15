@@ -1,8 +1,9 @@
 import React from 'react';
+import Viewport3D from '../../components/Viewport3D';
 
 /**
- * Industrial & Machinery Workbench - Blender Layout
- * Factory layouts, robotics, production line design
+ * Industrial & Machinery Workbench
+ * Industry Standard: Siemens Plant Simulation, AutoCAD Plant 3D
  */
 function WorkbenchIndustrial() {
     return (
@@ -21,24 +22,7 @@ function WorkbenchIndustrial() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <canvas id="render-canvas-industrial"></canvas>
-
-                {/* Viewport Controls - Top Right */}
-                <div className="viewport-overlay">
-                    <div className="viewport-controls">
-                        <button className="viewport-button">Top</button>
-                        <button className="viewport-button">Side</button>
-                        <button className="viewport-button">Front</button>
-                        <button className="viewport-button">ISO</button>
-                    </div>
-                </div>
-
-                {/* Gizmo Controls - Bottom Left */}
-                <div className="gizmo-controls">
-                    <button className="gizmo-button active">Move</button>
-                    <button className="gizmo-button">Rotate</button>
-                    <button className="gizmo-button">Array</button>
-                </div>
+                <Viewport3D canvasId="render-canvas-industrial" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

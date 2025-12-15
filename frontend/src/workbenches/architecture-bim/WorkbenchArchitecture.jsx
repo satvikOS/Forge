@@ -1,8 +1,9 @@
 import React from 'react';
+import Viewport3D from '../../components/Viewport3D';
 
 /**
- * Architecture & BIM Workbench - Blender Layout
- * Building design tools, BIM management, code compliance
+ * Architecture & BIM Workbench - Blender Layout  
+ * Industry Standard: Revit, ArchiCAD
  */
 function WorkbenchArchitecture() {
     return (
@@ -21,24 +22,7 @@ function WorkbenchArchitecture() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <canvas id="render-canvas-architecture"></canvas>
-
-                {/* Viewport Controls - Top Right */}
-                <div className="viewport-overlay">
-                    <div className="viewport-controls">
-                        <button className="viewport-button">Plan</button>
-                        <button className="viewport-button">Elevation</button>
-                        <button className="viewport-button">Section</button>
-                        <button className="viewport-button">3D</button>
-                    </div>
-                </div>
-
-                {/* Gizmo Controls - Bottom Left */}
-                <div className="gizmo-controls">
-                    <button className="gizmo-button active">Move</button>
-                    <button className="gizmo-button">Rotate</button>
-                    <button className="gizmo-button">Array</button>
-                </div>
+                <Viewport3D canvasId="render-canvas-architecture" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
