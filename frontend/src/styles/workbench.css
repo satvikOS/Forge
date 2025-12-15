@@ -1,82 +1,112 @@
-/* ArchDisc Workbench - Industry Standard UI */
-/* Inspired by Blender, AutoCAD, Revit, Unreal Engine */
+/* ArchDisc - Blender-Style Professional UI */
+/* Exact replication of Blender 3.x layout and dimensions */
 
 :root {
-    /* OLED Black Dark Theme */
-    --bg-primary: #0a0a0a;
-    --bg-secondary: #1a1a1a;
-    --bg-tertiary: #252525;
-    --bg-hover: #2d2d2d;
-    --bg-active: #353535;
+    /* OLED Black Theme - Blender Colors */
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #2b2b2b;
+    --bg-tertiary: #3a3a3a;
+    --bg-hover: #4a4a4a;
 
-    /* Light Theme (Light Grey) */
-    --bg-light-primary: #e8e8e8;
-    --bg-light-secondary: #f5f5f5;
-    --bg-light-tertiary: #ffffff;
+    /* Borders - Blender Style */
+    --border-color: #1a1a1a;
+    --border-subtle: #2a2a2a;
 
-    /* Borders - Subtle */
-    --border-color: #2a2a2a;
-    --border-light: #3a3a3a;
+    /* Text - Blender Typography */
+    --text-primary: #d9d9d9;
+    --text-secondary: #a0a0a0;
+    --text-muted: #6f6f6f;
 
-    /* Text */
-    --text-primary: #e0e0e0;
-    --text-secondary: #999999;
-    --text-muted: #666666;
-
-    /* Accent - Professional Maroon */
+    /* Accent - Maroon */
     --accent-primary: #8b1538;
-    --accent-hover: #6d1029;
+    --accent-hover: #a01641;
 
-    /* Status Colors */
-    --color-success: #10b981;
-    --color-warning: #f59e0b;
-    --color-error: #ef4444;
+    /* Dimensions - Blender Exact */
+    --toolbar-width: 32px;
+    --header-height: 24px;
+    --properties-width: 280px;
+    --footer-height: 60px;
 
-    /* Spacing - Compact */
-    --spacing-xs: 2px;
-    --spacing-sm: 4px;
-    --spacing-md: 6px;
-    --spacing-lg: 8px;
-    --spacing-xl: 12px;
+    /* Spacing - Minimal */
+    --gap-2: 2px;
+    --gap-4: 4px;
+    --gap-6: 6px;
+    --gap-8: 8px;
 
-    /* Typography - Professional */
+    /* Typography - Blender Standard */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-    font-size: 12px;
+    font-size: 11px;
+    line-height: 1.3;
 }
 
-/* Workbench Container */
+/* Main Container - Blender Grid Layout */
 .workbench-container {
     height: 100vh;
-    display: flex;
-    flex-direction: column;
+    width: 100vw;
+    display: grid;
+    grid-template-rows: var(--header-height) 1fr var(--footer-height);
+    grid-template-columns: var(--toolbar-width) 1fr var(--properties-width);
+    grid-template-areas:
+        "header header header"
+        "toolbar viewport properties"
+        "footer footer footer";
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow: hidden;
 }
 
-/* Header - Compact */
+/* ========== TOP HEADER - BLENDER STYLE ========== */
 .workbench-header {
-    height: 32px;
+    grid-area: header;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
-    padding: 0 var(--spacing-lg);
-    gap: var(--spacing-xl);
-    flex-shrink: 0;
+    padding: 0 8px;
+    gap: 12px;
+    height: var(--header-height);
 }
 
 .workbench-title {
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--accent-primary);
     margin: 0;
-    letter-spacing: 0.5px;
+    min-width: 60px;
+}
+
+.workbench-toolbar {
+    display: flex;
+    gap: 1px;
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid var(--border-subtle);
+}
+
+.toolbar-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    height: 18px;
+    transition: all 0.1s;
+}
+
+.toolbar-button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.toolbar-button.active {
+    background: var(--accent-primary);
+    color: white;
 }
 
 .header-actions {
     display: flex;
-    gap: var(--spacing-sm);
+    gap: 2px;
     margin-left: auto;
 }
 
@@ -84,86 +114,61 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 11px;
-    padding: var(--spacing-sm) var(--spacing-lg);
+    font-size: 10px;
+    padding: 2px 8px;
     cursor: pointer;
-    transition: color 0.15s;
+    height: 18px;
 }
 
 .header-button:hover {
-    color: var(--text-primary);
     background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
-/* Main Workbench Layout */
-.workbench-container>* {
-    display: flex;
-}
-
-/* Tool Sidebar - Compact */
+/* ========== LEFT TOOLBAR - ICON ONLY ========== */
 .workbench-tools {
-    width: 200px;
+    grid-area: toolbar;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
+    width: var(--toolbar-width);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 0;
+    gap: 2px;
     overflow-y: auto;
-    flex-shrink: 0;
-    padding: var(--spacing-md);
 }
 
-.tool-section {
-    margin-bottom: var(--spacing-xl);
-}
-
-.tool-section-title {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    margin: 0 0 var(--spacing-md) 0;
-    padding: var(--spacing-sm) 0;
-}
-
-.tool-button {
-    width: 100%;
+.tool-icon-button {
+    width: 28px;
+    height: 28px;
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 12px;
-    padding: var(--spacing-md) var(--spacing-lg);
-    text-align: left;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
-    transition: all 0.15s;
+    justify-content: center;
+    font-size: 16px;
     border-radius: 2px;
+    transition: all 0.1s;
 }
 
-.tool-button:hover {
+.tool-icon-button:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
 }
 
-.tool-button.active {
-    background: var(--bg-active);
-    color: var(--accent-primary);
+.tool-icon-button.active {
+    background: var(--accent-primary);
+    color: white;
 }
 
-.tool-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    opacity: 0;
-    display: none;
-    /* Hide emojis */
-}
-
-/* Viewport - With Grid */
+/* ========== VIEWPORT - HERO AREA ========== */
 .workbench-viewport {
-    flex: 1;
+    grid-area: viewport;
     position: relative;
-    background: var(--bg-primary);
+    background: #262626;
     overflow: hidden;
 }
 
@@ -173,53 +178,46 @@
     display: block;
 }
 
-/* Grid Background - Square Pattern */
+/* Grid - Blender Style (subtle) */
 .workbench-viewport::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background-image:
-        linear-gradient(rgba(42, 42, 42, 0.4) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(42, 42, 42, 0.4) 1px, transparent 1px);
-    background-size: 50px 50px;
-    opacity: 1;
+        linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
     pointer-events: none;
     z-index: 1;
 }
 
-/* Viewport Overlays */
+/* Viewport Overlay - Top Right */
 .viewport-overlay {
     position: absolute;
-    top: var(--spacing-lg);
-    right: var(--spacing-lg);
+    top: 8px;
+    right: 8px;
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
+    gap: 4px;
     z-index: 10;
 }
 
 .viewport-controls {
-    background: rgba(26, 26, 26, 0.9);
+    background: rgba(43, 43, 43, 0.85);
     border: 1px solid var(--border-color);
-    border-radius: 2px;
     display: flex;
     gap: 1px;
-    padding: 2px;
+    padding: 1px;
 }
 
 .viewport-button {
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 11px;
-    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 10px;
+    padding: 3px 8px;
     cursor: pointer;
-    transition: all 0.15s;
-    min-width: 28px;
-    height: 24px;
+    height: 20px;
 }
 
 .viewport-button:hover {
@@ -227,43 +225,93 @@
     color: var(--text-primary);
 }
 
-/* Properties Panel - Compact */
-.workbench-properties {
-    width: 280px;
-    background: var(--bg-secondary);
-    border-left: 1px solid var(--border-color);
-    overflow-y: auto;
-    flex-shrink: 0;
-    padding: var(--spacing-lg);
+/* Gizmo Controls - Bottom Left */
+.gizmo-controls {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    display: flex;
+    gap: 1px;
+    background: rgba(43, 43, 43, 0.85);
+    border: 1px solid var(--border-color);
+    padding: 1px;
+    z-index: 10;
 }
 
-.property-group {
-    margin-bottom: var(--spacing-xl);
+.gizmo-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 10px;
+    padding: 4px 10px;
+    cursor: pointer;
+    height: 22px;
+}
+
+.gizmo-button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.gizmo-button.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+/* ========== RIGHT PROPERTIES PANEL ========== */
+.workbench-properties {
+    grid-area: properties;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    width: var(--properties-width);
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.property-section {
+    margin-bottom: 12px;
+}
+
+.property-header {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 6px 0;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.property-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
 }
 
 .property-label {
     font-size: 10px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0 0 var(--spacing-md) 0;
+    color: var(--text-secondary);
+    min-width: 60px;
+    flex-shrink: 0;
 }
 
 .property-input {
-    width: 100%;
+    flex: 1;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 12px;
-    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: 10px;
+    padding: 3px 6px;
+    height: 20px;
     border-radius: 2px;
-    margin-bottom: var(--spacing-md);
 }
 
 .property-input:focus {
     outline: none;
     border-color: var(--accent-primary);
+    background: var(--bg-primary);
 }
 
 .property-button {
@@ -271,63 +319,34 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 11px;
-    padding: var(--spacing-md);
+    font-size: 10px;
+    padding: 4px 8px;
     cursor: pointer;
-    transition: all 0.15s;
+    height: 24px;
     border-radius: 2px;
-    margin-bottom: var(--spacing-sm);
 }
 
 .property-button:hover {
     background: var(--bg-hover);
-    border-color: var(--border-light);
 }
 
-/* Console - Minimized */
+/* ========== BOTTOM FOOTER - AI PROMPT ========== */
 .workbench-console {
-    height: 120px;
+    grid-area: footer;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
     display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-}
-
-.console-tabs {
-    display: flex;
-    gap: 1px;
-    background: var(--bg-primary);
-    border-bottom: 1px solid var(--border-color);
-    padding: 0 var(--spacing-lg);
-}
-
-.console-tab {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 11px;
-    padding: var(--spacing-md) var(--spacing-xl);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s;
-}
-
-.console-tab:hover {
-    color: var(--text-primary);
-}
-
-.console-tab.active {
-    color: var(--accent-primary);
-    border-bottom-color: var(--accent-primary);
-}
-
-.prompt-input-container {
-    flex: 1;
-    display: flex;
-    gap: var(--spacing-lg);
-    padding: var(--spacing-lg);
     align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    height: var(--footer-height);
+}
+
+.prompt-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    min-width: 60px;
 }
 
 .prompt-input {
@@ -335,8 +354,9 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 12px;
-    padding: var(--spacing-lg);
+    font-size: 11px;
+    padding: 6px 12px;
+    height: 36px;
     border-radius: 2px;
     resize: none;
     font-family: inherit;
@@ -345,28 +365,29 @@
 .prompt-input:focus {
     outline: none;
     border-color: var(--accent-primary);
+    background: var(--bg-primary);
 }
 
 .generate-button {
     background: var(--accent-primary);
     border: none;
     color: white;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
-    padding: var(--spacing-lg) 24px;
+    padding: 0 20px;
+    height: 36px;
     cursor: pointer;
     border-radius: 2px;
-    transition: all 0.15s;
 }
 
 .generate-button:hover {
     background: var(--accent-hover);
 }
 
-/* Scrollbar Styling */
+/* ========== SCROLLBARS - BLENDER STYLE ========== */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -375,9 +396,98 @@
 
 ::-webkit-scrollbar-thumb {
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--bg-hover);
+}
+
+/* ========== WORKBENCH SWITCHER - COMPACT ========== */
+.workbench-switcher {
+    position: relative;
+}
+
+.workbench-current {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 10px;
+    padding: 2px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 18px;
+    min-width: 140px;
+}
+
+.workbench-current:hover {
+    background: var(--bg-hover);
+}
+
+.workbench-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.expand-arrow {
+    font-size: 8px;
+    color: var(--text-muted);
+}
+
+.workbench-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    min-width: 260px;
+    max-height: 380px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.workbench-option {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    text-align: left;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.workbench-option:hover {
+    background: var(--bg-hover);
+}
+
+.workbench-option.active {
+    background: rgba(139, 21, 56, 0.2);
+    color: var(--accent-primary);
+}
+
+.workbench-option-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.workbench-icon {
+    display: none !important;
+}
+
+.workbench-option .workbench-name {
+    font-weight: 500;
+    font-size: 11px;
+}
+
+.workbench-description {
+    font-size: 9px;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.3;
 }

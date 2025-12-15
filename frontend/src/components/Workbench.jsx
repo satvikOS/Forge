@@ -9,12 +9,10 @@ import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronic
 import WorkbenchAviation from '../workbenches/aviation/WorkbenchAviation';
 import WorkbenchUIProduct from '../workbenches/ui-product/WorkbenchUIProduct';
 import '../styles/workbench.css';
-import '../styles/workbench-switcher.css';
-import '../styles/workbench-toolbar.css';
 
 /**
- * Main Workbench Container
- * Manages workbench switching and shared layout
+ * Main Workbench Container - Blender-Style Layout
+ * Grid: Header | Toolbar-Viewport-Properties | Footer
  */
 function WorkbenchContainer() {
     const [activeWorkbench, setActiveWorkbench] = useState('mechanical-cad');
@@ -27,98 +25,59 @@ function WorkbenchContainer() {
             const response = await fetch('/api/generate/design', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt,
-                    workbench: activeWorkbench
-                })
+                body: JSON.stringify({ prompt, workbench: activeWorkbench })
             });
-
             const data = await response.json();
-            console.log('Generated design:', data);
+            console.log('Generated:', data);
         } catch (error) {
-            console.error('Generation error:', error);
+            console.error('Error:', error);
         }
     };
 
     const renderWorkbench = () => {
         switch (activeWorkbench) {
-            case 'mechanical-cad':
-                return <WorkbenchMechanical onGenerate={handleGenerate} />;
-            case 'architecture-bim':
-                return <WorkbenchArchitecture onGenerate={handleGenerate} />;
-            case 'gaming-vfx':
-                return <WorkbenchGaming onGenerate={handleGenerate} />;
-            case 'automotive':
-                return <WorkbenchAutomotive onGenerate={handleGenerate} />;
-            case 'industrial':
-                return <WorkbenchIndustrial onGenerate={handleGenerate} />;
-            case 'electronics':
-                return <WorkbenchElectronics onGenerate={handleGenerate} />;
-            case 'aviation':
-                return <WorkbenchAviation onGenerate={handleGenerate} />;
-            case 'ui-product':
-                return <WorkbenchUIProduct onGenerate={handleGenerate} />;
-            default:
-                return <div className="workbench-placeholder">Workbench coming soon...</div>;
+            case 'mechanical-cad': return <WorkbenchMechanical />;
+            case 'architecture-bim': return <WorkbenchArchitecture />;
+            case 'gaming-vfx': return <WorkbenchGaming />;
+            case 'automotive': return <WorkbenchAutomotive />;
+            case 'industrial': return <WorkbenchIndustrial />;
+            case 'electronics': return <WorkbenchElectronics />;
+            case 'aviation': return <WorkbenchAviation />;
+            case 'ui-product': return <WorkbenchUIProduct />;
+            default: return null;
         }
     };
 
     const renderToolbar = () => {
-        switch (activeWorkbench) {
-            case 'mechanical-cad':
-                return (
-                    <>
-                        <button className="toolbar-button">Sketch</button>
-                        <button className="toolbar-button">Extrude</button>
-                        <button className="toolbar-button">Revolve</button>
-                        <button className="toolbar-button">Fillet</button>
-                    </>
-                );
-            case 'architecture-bim':
-                return (
-                    <>
-                        <button className="toolbar-button">Wall</button>
-                        <button className="toolbar-button">Door</button>
-                        <button className="toolbar-button">Window</button>
-                        <button className="toolbar-button">Level</button>
-                    </>
-                );
-            case 'automotive':
-                return (
-                    <>
-                        <button className="toolbar-button">Surface</button>
-                        <button className="toolbar-button">Curve</button>
-                        <button className="toolbar-button">Aerodynamics</button>
-                    </>
-                );
-            case 'electronics':
-                return (
-                    <>
-                        <button className="toolbar-button">Component</button>
-                        <button className="toolbar-button">Route</button>
-                        <button className="toolbar-button">Simulate</button>
-                    </>
-                );
-            default:
-                return null;
-        }
+        const toolbars = {
+            'mechanical-cad': ['Sketch', 'Extrude', 'Revolve', 'Fillet', 'Pattern'],
+            'architecture-bim': ['Wall', 'Door', 'Window', 'Level', 'Room'],
+            'gaming-vfx': ['Model', 'Texture', 'Rig', 'Animate', 'Render'],
+            'automotive': ['Surface', 'Curve', 'Blend', 'Aerodynamics', 'Chassis'],
+            'industrial': ['Layout', 'Conveyor', 'Robot', 'Simulate', 'Optimize'],
+            'electronics': ['Component', 'Trace', 'Route', 'Simulate', 'Export'],
+            'aviation': ['Airfoil', 'Wing', 'Fuselage', 'Analysis', 'CFD'],
+            'ui-product': ['Frame', 'Component', 'Text', 'Export', 'Preview']
+        };
+
+        const tools = toolbars[activeWorkbench] || [];
+        return tools.map(tool => (
+            <button key={tool} className="toolbar-button">{tool}</button>
+        ));
     };
 
     return (
         <div className="workbench-container">
-            {/* Header with Workbench Switcher */}
+            {/* TOP HEADER */}
             <header className="workbench-header">
                 <h1 className="workbench-title">ArchDisc</h1>
                 <WorkbenchSwitcher
                     activeWorkbench={activeWorkbench}
                     onSwitchWorkbench={setActiveWorkbench}
                 />
-
-                {/* Workbench-Specific Toolbar */}
                 <div className="workbench-toolbar">
                     {renderToolbar()}
                 </div>
-
                 <div className="header-actions">
                     <button className="header-button">File</button>
                     <button className="header-button">Edit</button>
@@ -126,29 +85,23 @@ function WorkbenchContainer() {
                 </div>
             </header>
 
-            {/* Active Workbench */}
+            {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
             {renderWorkbench()}
 
-            {/* Bottom Console - Shared across all workbenches */}
+            {/* BOTTOM FOOTER - AI PROMPT */}
             <footer className="workbench-console">
-                <div className="console-tabs">
-                    <button className="console-tab active">AI Prompt</button>
-                    <button className="console-tab">Console</button>
-                    <button className="console-tab">History</button>
-                </div>
-
-                <div className="prompt-input-container">
-                    <textarea
-                        className="prompt-input"
-                        placeholder={`Describe your ${activeWorkbench.replace('-', ' ')} design...`}
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        rows={3}
-                    />
-                    <button className="generate-button" onClick={handleGenerate}>
-                        Generate
-                    </button>
-                </div>
+                <span className="prompt-label">AI Prompt</span>
+                <input
+                    type="text"
+                    className="prompt-input"
+                    placeholder={`Describe your ${activeWorkbench.replace('-', ' ')} design...`}
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleGenerate()}
+                />
+                <button className="generate-button" onClick={handleGenerate}>
+                    Generate
+                </button>
             </footer>
         </div>
     );
