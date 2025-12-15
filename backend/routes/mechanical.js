@@ -4,9 +4,15 @@ const mechanicalDesignService = require('../services/ai/mechanicalDesignService'
 const parametricEngine = require('../services/cad/parametricEngine');
 const sketchEngine = require('../services/cad/sketchEngine');
 const assemblyEngine = require('../services/cad/assemblyEngine');
+const DrawingEngine = require('../services/cad/drawingEngine');
+const DrawingExportService = require('../services/cad/drawingExportService');
 const feaService = require('../services/analysis/feaService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
+
+// Initialize drawing services
+const drawingEngine = new DrawingEngine();
+const drawingExportService = new DrawingExportService();
 
 /**
  * Mechanical CAD API Routes
@@ -523,7 +529,7 @@ router.post('/cam/generate', async (req, res) => {
 
         console.log(`🔧 Generating toolpaths...`);
 
-        const toolpaths = await camService.generateToolpaths(model Data, options);
+        const toolpaths = await camService.generateToolpaths(modelData, options);
 
         res.json({
             success: true,
@@ -589,6 +595,265 @@ router.post('/cam/simulate', async (req, res) => {
 
     } catch (error) {
         console.error('Error simulating machining:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== 2D Drawing Generation ====================
+
+/**
+ * POST /api/mechanical/drawing/create
+ * Create a new 2D drawing from a 3D model
+ */
+router.post('/drawing/create', async (req, res) => {
+    try {
+        const { model, options = {} } = req.body;
+
+        if (!model) {
+            return res.status(400).json({ error: 'model is required' });
+        }
+
+        console.log(`📐 Creating 2D drawing for model: ${model.id || model.name}`);
+
+        const drawing = drawingEngine.createDrawing(model, options);
+
+        res.json({
+            success: true,
+            drawing,
+            message: 'Drawing created'
+        });
+
+    } catch (error) {
+        console.error('Error creating drawing:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/drawing/:drawingId/add-view
+ * Add a projection view to the drawing
+ */
+router.post('/drawing/:drawingId/add-view', async (req, res) => {
+    try {
+        const { drawingId } = req.params;
+        const { viewType, position, scale } = req.body;
+
+        if (!viewType || !position) {
+            return res.status(400).json({ error: 'viewType and position are required' });
+        }
+
+        const drawing = drawingEngine.drawings.get(drawingId);
+        if (!drawing) {
+            return res.status(404).json({ error: 'Drawing not found' });
+        }
+
+        const view = drawingEngine.addView(drawing, viewType, position, scale);
+
+        res.json({
+            success: true,
+            view,
+            message: `${viewType} view added`
+        });
+
+    } catch (error) {
+        console.error('Error adding view:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/drawing/:drawingId/dimension
+ * Add dimension to drawing
+ */
+router.post('/drawing/:drawingId/dimension', async (req, res) => {
+    try {
+        const { drawingId } = req.params;
+        const { viewId, dimensionType, parameters } = req.body;
+
+        if (!viewId || !dimensionType) {
+            return res.status(400).json({ error: 'viewId and dimensionType are required' });
+        }
+
+        const drawing = drawingEngine.drawings.get(drawingId);
+        if (!drawing) {
+            return res.status(404).json({ error: 'Drawing not found' });
+        }
+
+        let dimension;
+        switch (dimensionType) {
+            case 'linear':
+                dimension = drawingEngine.addLinearDimension(
+                    drawing,
+                    viewId,
+                    parameters.point1,
+                    parameters.point2,
+                    parameters.offset,
+                    parameters.options
+                );
+                break;
+
+            case 'radial':
+            case 'diameter':
+                dimension = drawingEngine.addRadialDimension(
+                    drawing,
+                    viewId,
+                    parameters.center,
+                    parameters.point,
+                    { ...parameters.options, isDiameter: dimensionType === 'diameter' }
+                );
+                break;
+
+            case 'angular':
+                dimension = drawingEngine.addAngularDimension(
+                    drawing,
+                    viewId,
+                    parameters.vertex,
+                    parameters.line1End,
+                    parameters.line2End,
+                    parameters.options
+                );
+                break;
+
+            case 'auto':
+                // Auto-place dimensions
+                const dimensions = drawingEngine.autoPlaceDimensions(drawing, viewId);
+                return res.json({
+                    success: true,
+                    dimensions,
+                    message: 'Auto dimensions added'
+                });
+
+            default:
+                return res.status(400).json({ error: `Unknown dimension type: ${dimensionType}` });
+        }
+
+        res.json({
+            success: true,
+            dimension,
+            message: 'Dimension added'
+        });
+
+    } catch (error) {
+        console.error('Error adding dimension:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/drawing/:drawingId/annotate
+ * Add annotation (GD&T, surface finish, note) to drawing
+ */
+router.post('/drawing/:drawingId/annotate', async (req, res) => {
+    try {
+        const { drawingId } = req.params;
+        const { annotationType, parameters } = req.body;
+
+        if (!annotationType) {
+            return res.status(400).json({ error: 'annotationType is required' });
+        }
+
+        const drawing = drawingEngine.drawings.get(drawingId);
+        if (!drawing) {
+            return res.status(404).json({ error: 'Drawing not found' });
+        }
+
+        let annotation;
+        switch (annotationType) {
+            case 'gdt':
+                annotation = drawingEngine.addGDT(
+                    drawing,
+                    parameters.viewId,
+                    parameters.feature,
+                    parameters.toleranceType,
+                    parameters.value,
+                    parameters.datum
+                );
+                break;
+
+            case 'surfaceFinish':
+                annotation = drawingEngine.addSurfaceFinish(
+                    drawing,
+                    parameters.viewId,
+                    parameters.edge,
+                    parameters.roughness
+                );
+                break;
+
+            case 'note':
+                annotation = drawingEngine.addNote(
+                    drawing,
+                    parameters.text,
+                    parameters.position,
+                    parameters.leader
+                );
+                break;
+
+            default:
+                return res.status(400).json({ error: `Unknown annotation type: ${annotationType}` });
+        }
+
+        res.json({
+            success: true,
+            annotation,
+            message: 'Annotation added'
+        });
+
+    } catch (error) {
+        console.error('Error adding annotation:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/drawing/:drawingId/export
+ * Export drawing to PDF, DXF, SVG, or image
+ */
+router.get('/drawing/:drawingId/export', async (req, res) => {
+    try {
+        const { drawingId } = req.params;
+        const { format = 'PDF', version, resolution } = req.query;
+
+        const drawing = drawingEngine.drawings.get(drawingId);
+        if (!drawing) {
+            return res.status(404).json({ error: 'Drawing not found' });
+        }
+
+        console.log(`📄 Exporting drawing to ${format}...`);
+
+        let result;
+        switch (format.toUpperCase()) {
+            case 'PDF':
+                result = await drawingExportService.exportToPDF(drawing);
+                break;
+
+            case 'DXF':
+                result = await drawingExportService.exportToDXF(drawing, version || 'R2018');
+                break;
+
+            case 'SVG':
+                result = await drawingExportService.exportToSVG(drawing);
+                break;
+
+            case 'PNG':
+            case 'JPEG':
+                result = await drawingExportService.exportToImage(
+                    drawing,
+                    format,
+                    parseInt(resolution) || 300
+                );
+                break;
+
+            default:
+                return res.status(400).json({ error: `Unsupported format: ${format}` });
+        }
+
+        res.json({
+            success: true,
+            ...result
+        });
+
+    } catch (error) {
+        console.error('Error exporting drawing:', error);
         res.status(500).json({ error: error.message });
     }
 });
