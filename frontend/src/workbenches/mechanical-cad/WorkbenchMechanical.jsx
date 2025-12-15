@@ -8,7 +8,6 @@ import Viewport3D from '../../components/Viewport3D';
 function WorkbenchMechanical() {
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
-    const [showAiPanel, setShowAiPanel] = useState(false);
 
     // AI Design Generation
     const handleGenerateDesign = async () => {
