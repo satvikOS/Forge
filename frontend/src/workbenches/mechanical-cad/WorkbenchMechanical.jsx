@@ -1,4 +1,6 @@
+```
 import React from 'react';
+import Viewport3D from '../../components/Viewport3D';
 
 /**
  * Mechanical CAD Workbench - Blender Layout
@@ -21,24 +23,7 @@ function WorkbenchMechanical() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <canvas id="render-canvas-mechanical"></canvas>
-
-                {/* Viewport Controls - Top Right */}
-                <div className="viewport-overlay">
-                    <div className="viewport-controls">
-                        <button className="viewport-button">Top</button>
-                        <button className="viewport-button">Front</button>
-                        <button className="viewport-button">Right</button>
-                        <button className="viewport-button">ISO</button>
-                    </div>
-                </div>
-
-                {/* Gizmo Controls - Bottom Left */}
-                <div className="gizmo-controls">
-                    <button className="gizmo-button active">Move</button>
-                    <button className="gizmo-button">Rotate</button>
-                    <button className="gizmo-button">Scale</button>
-                </div>
+                <Viewport3D canvasId="render-canvas-mechanical" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
