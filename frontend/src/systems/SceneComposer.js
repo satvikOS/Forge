@@ -610,7 +610,7 @@ export class SceneComposer {
     throw new Error(
       'AI pipeline failed to generate specifications. No template fallback available.\n' +
       'Please ensure:\n' +
-      '1. GEMINI_API_KEY is configured correctly\n' +
+      '1. AWS_ACCESS_KEY_ID is configured correctly\n' +
       '2. Backend services are running\n' +
       '3. Prompt is clear and specific\n\n' +
       'Check backend logs for detailed error information.'

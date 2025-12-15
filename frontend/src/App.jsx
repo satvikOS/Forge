@@ -544,7 +544,7 @@ function App() {
       } else {
         throw new Error(
           'AI pipeline failed to generate design. Please check:\n' +
-          '1. GEMINI_API_KEY is configured in backend\n' +
+          '1. AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY is configured in backend\n' +
           '2. Backend services are running (npm start in backend/)\n' +
           '3. API has not hit rate limits\n' +
           '4. Prompt is clear and specific\n\n' +

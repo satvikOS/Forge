@@ -4,7 +4,7 @@
  */
 
 const aiService = require('../services/aiService');
-const pythonWikipediaService = require('../services/pythonWikipediaService');
+// Wikipedia service removed - using Bedrock knowledge
 const geographicCoordinateService = require('../services/geographicCoordinateService');
 
 // Test configuration
@@ -33,12 +33,12 @@ describe('AI Pipeline Integration Tests', () => {
     });
     
     test('should fetch Wikipedia data for Eiffel Tower', async () => {
-      if (!pythonWikipediaService.isEnabled()) {
+      // Wikipedia test removed
         console.log('⚠️  Python Wikipedia not enabled, skipping test');
         return;
       }
       
-      const data = await pythonWikipediaService.getLandmarkData('Eiffel Tower');
+      // Wikipedia test removed
       
       expect(data).toBeTruthy();
       expect(data.title).toBeTruthy();

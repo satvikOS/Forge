@@ -891,7 +891,7 @@ router.post('/variants', async (req, res) => {
     if (!multiVariantGenerator.isEnabled()) {
       return res.status(503).json({
         error: 'Multi-variant generation is not enabled',
-        message: 'Please configure GEMINI_API_KEY in backend environment',
+        message: 'Please configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in backend environment',
       });
     }
 
@@ -973,7 +973,7 @@ router.post('/variants', async (req, res) => {
 /**
  * POST /api/generate/fantasy-variants
  * Fantasy/Unrealistic multi-variant generation with image generation support
- * Uses Gemini Image Generation (Nano Banana Pro) for concept images
+ * Uses AWS Bedrock Image Generation (Stable Diffusion XL) for concept images
  */
 router.post('/fantasy-variants', async (req, res) => {
   try {
@@ -995,13 +995,13 @@ router.post('/fantasy-variants', async (req, res) => {
     if (!multiVariantGenerator.isEnabled()) {
       return res.status(503).json({
         error: 'Fantasy variant generation is not enabled',
-        message: 'Please configure GEMINI_API_KEY in backend environment',
+        message: 'Please configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in backend environment',
       });
     }
 
     console.log('\n========================================');
     console.log('🎨 Fantasy/Unrealistic Variant Generation Request');
-    console.log('🎭 Using Nano Banana Pro (Gemini Image Generation)');
+    console.log('🎨 Using Stable Diffusion XL (AWS Bedrock Image Generation)');
     console.log('========================================');
     console.log('📋 Prompt:', prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''));
     console.log('========================================\n');

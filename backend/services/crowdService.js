@@ -4,13 +4,12 @@
  * Generates crowd distributions, behaviors, and character variations
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const bedrockService = require('./bedrockService');
 const euphoriaService = require('./euphoriaService');
 
 class CrowdService {
     constructor() {
-        this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+        this.ai = bedrockService;
     }
 
     /**
@@ -82,8 +81,8 @@ Return as JSON:
 Ensure realistic spacing (0.5-2m between NPCs depending on density) and logical behavior patterns.`;
 
         try {
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text();
+            const result = await this.ai.generateContent(prompt);
+            const text = result;
 
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (!jsonMatch) {
@@ -141,8 +140,8 @@ Generate behavior rules including:
 Return as JSON with behavior parameters and rules.`;
 
         try {
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text();
+            const result = await this.ai.generateContent(prompt);
+            const text = result;
 
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             const behaviorRules = JSON.parse(jsonMatch[0]);
@@ -178,8 +177,8 @@ For each character, provide:
 Return as JSON array of character templates that can be applied to 3D rigs.`;
 
         try {
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text();
+            const result = await this.ai.generateContent(prompt);
+            const text = result;
 
             const jsonMatch = text.match(/\[[\s\S]*\]/);
             const variations = JSON.parse(jsonMatch[0]);

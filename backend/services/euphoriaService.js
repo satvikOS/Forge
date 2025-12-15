@@ -1,15 +1,14 @@
 /**
  * Euphoria Physics Service
  * AI-powered Natural Motion Euphoria-style physics generation
- * Generates procedural animation parameters using Gemini API
+ * Generates procedural animation parameters using AWS Bedrock API
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const bedrockService = require('./bedrockService');
 
 class EuphoriaService {
     constructor() {
-        this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+        this.ai = bedrockService;
     }
 
     /**
@@ -90,8 +89,8 @@ Return the configuration as a structured JSON object with the following format:
 Ensure all values are realistic for the character type and follow biomechanical principles.`;
 
         try {
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text();
+            const result = await this.ai.generateContent(prompt);
+            const text = result;
 
             // Extract JSON from response
             const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -181,8 +180,8 @@ Return as JSON array of keyframes with format:
 }`;
 
         try {
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text();
+            const result = await this.ai.generateContent(prompt);
+            const text = result;
 
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (!jsonMatch) {
@@ -243,8 +242,8 @@ Generate balance controller parameters including:
 Return as JSON with realistic biomechanical values.`;
 
         try {
-            const result = await this.model.generateContent(prompt);
-            const text = result.response.text();
+            const result = await this.ai.generateContent(prompt);
+            const text = result;
 
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             const balanceConfig = JSON.parse(jsonMatch[0]);

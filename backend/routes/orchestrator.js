@@ -334,8 +334,8 @@ router.get('/capabilities', async (req, res) => {
         elevation: require('../services/elevationService').isEnabled(),
         
         // Knowledge
-        wikipedia: require('../services/wikipediaService').isEnabled(),
-        wikidata: require('../services/wikidataService').isEnabled(),
+        // Wikipedia removed
+        // Wikidata removed
         wikimedia: require('../services/wikimediaService').isEnabled(),
         
         // Environmental

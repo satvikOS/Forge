@@ -5,7 +5,7 @@ const vertexImageService = require('./vertexImageService');
 const modelCache = require('./modelCache');
 const creditManager = require('./creditManager');
 const apiOrchestrator = require('./apiOrchestrator');
-const geminiService = require('./geminiService');
+const bedrockService = require('./bedrockService');
 
 /**
  * AI 3D Orchestrator Service
@@ -168,9 +168,9 @@ Real-world data is needed if:
 
 Return ONLY valid JSON.`;
 
-      const response = await geminiService.generateContent(analysisPrompt);
+      const response = await bedrockService.generateContent(analysisPrompt);
       const jsonMatch = response.match(/\{[\s\S]*\}/);
-      
+
       if (jsonMatch) {
         return JSON.parse(jsonMatch[0]);
       }
@@ -189,11 +189,11 @@ Return ONLY valid JSON.`;
    */
   fallbackIntentAnalysis(prompt) {
     const lower = prompt.toLowerCase();
-    
+
     // Check for real-world indicators
     const realWorldKeywords = ['city', 'building', 'landmark', 'street', 'road', 'bridge', 'tower', 'exact', 'accurate', 'real', 'actual'];
     const hasRealWorldKeywords = realWorldKeywords.some(kw => lower.includes(kw));
-    
+
     // Check for fantasy indicators
     const fantasyKeywords = ['fantasy', 'imaginary', 'fictional', 'creative', 'concept', 'futuristic'];
     const hasFantasyKeywords = fantasyKeywords.some(kw => lower.includes(kw));
@@ -239,7 +239,7 @@ Return ONLY valid JSON.`;
    */
   async selectGenerationStrategy(mode, intent, realWorldData) {
     const modeConfig = config.generationModes[mode];
-    
+
     if (!modeConfig) {
       throw new Error(`Invalid generation mode: ${mode}`);
     }
@@ -248,9 +248,9 @@ Return ONLY valid JSON.`;
     const providerInfo = await creditManager.getBestProvider(mode);
 
     // Determine if we should use image-to-3D pipeline
-    const useImagePipeline = config.features.imageTo3D && 
-                            (realWorldData?.phases?.knowledgeGathering?.wikimedia?.length > 0 ||
-                             realWorldData?.phases?.environmentalContext?.streetLevel?.length > 0);
+    const useImagePipeline = config.features.imageTo3D &&
+      (realWorldData?.phases?.knowledgeGathering?.wikimedia?.length > 0 ||
+        realWorldData?.phases?.environmentalContext?.streetLevel?.length > 0);
 
     return {
       mode,
@@ -357,7 +357,7 @@ Return ONLY valid JSON.`;
       if (canUseImagen && canUseTripo) {
         // Generate concept image
         const imageResult = await vertexImageService.generateConceptArt(prompt);
-        
+
         // Convert to 3D
         if (imageResult.imageUrl) {
           return await tripoService.imageTo3D(imageResult.imageUrl, 'preview');
@@ -377,7 +377,7 @@ Return ONLY valid JSON.`;
     // Use reference images from real-world data if available
     if (realWorldData?.phases?.knowledgeGathering?.wikimedia?.length > 0) {
       const refImages = realWorldData.phases.knowledgeGathering.wikimedia.slice(0, 4);
-      
+
       if (tripoService.isEnabled()) {
         const imageUrls = refImages.map(img => img.url);
         return await tripoService.multiImageTo3D(imageUrls, 'standard');
@@ -388,7 +388,7 @@ Return ONLY valid JSON.`;
     if (vertexImageService.isEnabled() && tripoService.isEnabled()) {
       const multiView = await vertexImageService.generateMultiViewImages(prompt);
       const imageUrls = multiView.images.map(img => img.imageUrl).filter(Boolean);
-      
+
       if (imageUrls.length > 0) {
         return await tripoService.multiImageTo3D(imageUrls, 'standard');
       }

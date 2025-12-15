@@ -1,31 +1,27 @@
-const geminiService = require('./geminiService');
+const bedrockService = require('./bedrockService');
 const geometryGenerator = require('./geometryGenerator');
 const materialSystem = require('./materialSystem');
 const taxonomySystem = require('./taxonomySystem');
 const realWorldDataService = require('./realWorldDataService');
 const apiOrchestrator = require('./apiOrchestrator');
-const wikidataService = require('./wikidataService');
-const wikipediaService = require('./wikipediaService');
-const pythonWikipediaService = require('./pythonWikipediaService');
 const geographicCoordinateService = require('./geographicCoordinateService');
+const designMemoryService = require('./designMemoryService');
 const landmarksConfig = require('../config/landmarks');
 
 class AIService {
   constructor() {
-    this.gemini = geminiService;
+    this.bedrock = bedrockService;
     this.taxonomy = taxonomySystem;
     this.realWorldData = realWorldDataService;
     this.orchestrator = apiOrchestrator;
-    this.wikidata = wikidataService;
-    this.wikipedia = wikipediaService;
-    this.pythonWikipedia = pythonWikipediaService;
     this.geographic = geographicCoordinateService;
+    this.designMemory = designMemoryService;
   }
 
   /**
    * Process natural language prompt to generate design specifications
    * Now with COMPLETE integration: Wikipedia/Wikidata for landmarks, Geographic services for coordinates,
-   * API Orchestrator for complex scenes, and Gemini for AI analysis
+   * API Orchestrator for complex scenes, and AWS Bedrock for AI analysis
    */
   async processPrompt(prompt) {
     console.log('\n========================================');
@@ -33,10 +29,9 @@ class AIService {
     console.log('========================================');
     console.log('📝 Prompt:', prompt);
     console.log('🔧 APIs Available:');
-    console.log('   ✓ Gemini:', !!process.env.GEMINI_API_KEY);
+    console.log('   ✓ AWS Bedrock:', !!process.env.AWS_ACCESS_KEY_ID);
     console.log('   ✓ Mapbox:', !!process.env.MAPBOX_ACCESS_TOKEN);
     console.log('   ✓ Sketchfab:', !!process.env.SKETCHFAB_API_TOKEN);
-    console.log('   ✓ Wikipedia/Wikidata:', this.wikipedia.isEnabled() || this.pythonWikipedia.isEnabled());
     console.log('   ✓ Geographic Services:', this.geographic.isEnabled());
     console.log('   ✓ API Orchestrator:', this.orchestrator.isEnabled());
     console.log('========================================\n');
@@ -63,9 +58,9 @@ class AIService {
           // Convert geographic data to scene elements
           const geographicElements = this.geographic.convertToSceneElements(geographicAnalysis);
 
-          // Pass to Gemini WITH real-world geographic data
-          console.log('🤖 Passing geographic data to Gemini for enhanced analysis...');
-          const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
+          // Pass to Bedrock WITH real-world geographic data
+          console.log('🤖 Passing geographic data to Bedrock for enhanced analysis...');
+          const taxonomyAnalysis = await this.bedrock.analyzeTaxonomyPromptWithRealData(
             prompt,
             {
               source: 'geographic-coordinate',
@@ -97,96 +92,12 @@ class AIService {
       }
     }
 
-    // NEW: Step 2 - Check for famous landmarks
-    const landmarkName = this.detectLandmark(prompt);
-    if (landmarkName) {
-      console.log('🏛️  FAMOUS LANDMARK DETECTED:', landmarkName);
 
-      try {
-        // Try Python Wikipedia first (better data extraction)
-        let landmarkData = null;
-        if (this.pythonWikipedia.isEnabled()) {
-          console.log('📚 Fetching real-world data from Python Wikipedia...');
-          landmarkData = await this.pythonWikipedia.getLandmarkData(landmarkName);
-        }
+    // NOTE: Landmark detection removed - AWS Bedrock Claude 3.5 has comprehensive
+    // built-in knowledge of famous landmarks (Eiffel Tower, Burj Khalifa, etc.)
+    // No need for external Wikipedia/Wikidata API calls
 
-        // Fallback to regular Wikipedia if Python failed
-        if (!landmarkData && this.wikipedia.isEnabled()) {
-          console.log('📚 Fetching from Wikipedia REST API...');
-          try {
-            const wikiArticle = await this.wikipedia.searchLandmark(landmarkName);
-            if (wikiArticle) {
-              console.log('✅ Wikipedia REST API: Data received');
-              landmarkData = {
-                title: wikiArticle.title,
-                summary: wikiArticle.extract,
-                dimensions: this.extractDimensionsFromText(wikiArticle.extract)
-              };
-            } else {
-              console.log('⚠️  Wikipedia REST API: No article found');
-            }
-          } catch (wikiError) {
-            console.error('❌ Wikipedia REST API call failed:', wikiError.message);
-          }
-        }
-
-        // Get structured data from Wikidata
-        let wikidataInfo = null;
-        if (this.wikidata.isEnabled()) {
-          console.log('📊 Fetching structured data from Wikidata...');
-          try {
-            wikidataInfo = await this.wikidata.getBuildingData(landmarkName);
-            if (wikidataInfo) {
-              console.log('✅ Wikidata: Data received');
-            } else {
-              console.log('⚠️  Wikidata: No data found');
-            }
-          } catch (wikidataError) {
-            console.error('❌ Wikidata API call failed:', wikidataError.message);
-          }
-        }
-
-        // Merge Wikipedia and Wikidata
-        const realWorldData = {
-          source: 'wikipedia-wikidata',
-          landmark: landmarkName,
-          wikipedia: landmarkData,
-          wikidata: wikidataInfo,
-          dimensions: {
-            ...landmarkData?.dimensions,
-            ...wikidataInfo?.dimensions
-          }
-        };
-
-        if (realWorldData.dimensions && Object.keys(realWorldData.dimensions).length > 0) {
-          console.log('✅ Real-world landmark data retrieved!');
-          console.log(`   📏 Height: ${realWorldData.dimensions.height}m`);
-          console.log(`   📐 Width: ${realWorldData.dimensions.width}m`);
-          console.log(`   🏢 Floors: ${realWorldData.dimensions.floors}`);
-          console.log(`   🎨 Style: ${realWorldData.dimensions.style}`);
-
-          // Pass to Gemini WITH real-world data
-          const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
-            prompt,
-            realWorldData
-          );
-
-          if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
-            taxonomyAnalysis.realWorldData = realWorldData;
-            const specs = this.convertTaxonomyAnalysisToSpecs(taxonomyAnalysis);
-            console.log('✅ Landmark generation with real data complete!\n');
-            return specs;
-          }
-        } else {
-          console.log('⚠️  No dimensional data found for landmark');
-        }
-      } catch (error) {
-        console.error('❌ Landmark data retrieval failed:', error.message);
-        // Continue with other methods
-      }
-    }
-
-    // NEW: Step 3 - Check if API Orchestrator should be used (complex scenes)
+    // NEW: Step 2 - Check if API Orchestrator should be used (complex scenes)
     if (this.orchestrator.isEnabled() && this.shouldUseOrchestrator(prompt)) {
       console.log('🎭 COMPLEX SCENE DETECTED - Using API Orchestrator...');
 
@@ -196,7 +107,7 @@ class AIService {
           console.log('✅ API Orchestrator completed successfully!');
 
           // Convert orchestrated data to taxonomy format
-          const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPromptWithRealData(
+          const taxonomyAnalysis = await this.bedrock.analyzeTaxonomyPromptWithRealData(
             prompt,
             orchestratedData
           );
@@ -217,7 +128,7 @@ class AIService {
     // Step 4: Standard taxonomy-aware AI analysis (existing code)
     try {
       console.log('🔍 Attempting taxonomy-aware analysis...');
-      const taxonomyAnalysis = await this.gemini.analyzeTaxonomyPrompt(prompt);
+      const taxonomyAnalysis = await this.bedrock.analyzeTaxonomyPrompt(prompt);
       if (taxonomyAnalysis && taxonomyAnalysis.primaryCategory) {
         console.log('✅ Taxonomy analysis successful');
 
@@ -250,8 +161,8 @@ class AIService {
 
     // Try AI analysis (existing method)
     try {
-      console.log('🔍 Attempting Gemini analyzePrompt...');
-      const aiAnalysis = await this.gemini.analyzePrompt(prompt);
+      console.log('🔍 Attempting Bedrock analyzePrompt...');
+      const aiAnalysis = await this.bedrock.analyzePrompt(prompt);
       if (aiAnalysis) {
         console.log('✅ AI analysis successful:', JSON.stringify(aiAnalysis, null, 2));
         const specs = this.convertAIAnalysisToSpecs(aiAnalysis);
@@ -260,7 +171,7 @@ class AIService {
       }
       console.log('⚠️  AI analysis returned null, trying fallback...');
     } catch (error) {
-      console.error('❌ Error with Gemini analyzePrompt:', {
+      console.error('❌ Error with Bedrock analyzePrompt:', {
         message: error.message,
         stack: error.stack,
       });
@@ -269,7 +180,7 @@ class AIService {
     // Try design specs generation as fallback
     try {
       console.log('🔄 Falling back to generateDesignSpecs...');
-      const designSpecs = await this.gemini.generateDesignSpecs(prompt);
+      const designSpecs = await this.bedrock.generateContent(prompt);
       if (designSpecs) {
         console.log('✅ Design specs generation successful:', JSON.stringify(designSpecs, null, 2));
         console.log('=== End AI Service Processing ===\n');
@@ -288,22 +199,6 @@ class AIService {
   }
 
   /**
-   * Detect if prompt mentions a famous landmark
-   * Uses external configuration file for maintainability
-   */
-  detectLandmark(prompt) {
-    const lowerPrompt = prompt.toLowerCase();
-
-    for (const landmark of landmarksConfig.landmarks) {
-      if (landmark.keywords.some(keyword => lowerPrompt.includes(keyword))) {
-        return landmark.name;
-      }
-    }
-
-    return null;
-  }
-
-  /**
    * Determine if API Orchestrator should be used for complex scenes
    */
   shouldUseOrchestrator(prompt) {
@@ -316,36 +211,6 @@ class AIService {
 
     const lowerPrompt = prompt.toLowerCase();
     return complexSceneKeywords.some(keyword => lowerPrompt.includes(keyword));
-  }
-
-  /**
-   * Extract dimensions from Wikipedia text
-   */
-  extractDimensionsFromText(text) {
-    if (!text) return {};
-
-    const dimensions = {};
-    const lowerText = text.toLowerCase();
-
-    // Extract height
-    const heightMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:m|meters|metres)(?:\s+tall|\s+high|\s+in height)/);
-    if (heightMatch) {
-      dimensions.height = parseFloat(heightMatch[1]);
-    }
-
-    // Extract width
-    const widthMatch = lowerText.match(/width.*?(\d+(?:\.\d+)?)\s*(?:m|meters|metres)/);
-    if (widthMatch) {
-      dimensions.width = parseFloat(widthMatch[1]);
-    }
-
-    // Extract floors
-    const floorsMatch = lowerText.match(/(\d+)\s*(?:floors|stories|storeys)/);
-    if (floorsMatch) {
-      dimensions.floors = parseInt(floorsMatch[1]);
-    }
-
-    return dimensions;
   }
 
   /**

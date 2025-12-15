@@ -374,7 +374,7 @@ class APIService {
 
       // Enhanced error messages
       if (error.response?.status === 503) {
-        throw new Error('Multi-variant generation is not enabled. Please configure GEMINI_API_KEY in backend.');
+        throw new Error('Multi-variant generation is not enabled. Please configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in backend.');
       } else if (error.response?.status === 500) {
         const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Server error';
         throw new Error(`Variant generation failed: ${errorMsg}`);
@@ -388,13 +388,13 @@ class APIService {
 
   /**
    * Generate fantasy/unrealistic design variants with image generation
-   * Uses Gemini's Nano Banana Pro (image generation) for concept images
+   * Uses AWS Bedrock's Nano Banana Pro (image generation) for concept images
    * Returns 3 fantasy variants with concept image descriptions
    */
   async generateFantasyVariants(prompt, options = {}) {
     try {
       console.log('🎨 Starting fantasy variant generation:', prompt);
-      console.log('🎭 Using Nano Banana Pro (Gemini Image Generation)');
+      console.log('🎭 Using Nano Banana Pro (AWS Bedrock Image Generation)');
 
       const response = await axios.post(`${API_BASE_URL}/generate/fantasy-variants`, {
         prompt,
@@ -413,7 +413,7 @@ class APIService {
 
       // Enhanced error messages
       if (error.response?.status === 503) {
-        throw new Error('Fantasy variant generation is not enabled. Please configure GEMINI_API_KEY in backend.');
+        throw new Error('Fantasy variant generation is not enabled. Please configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in backend.');
       } else if (error.response?.status === 500) {
         const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Server error';
         throw new Error(`Fantasy variant generation failed: ${errorMsg}`);

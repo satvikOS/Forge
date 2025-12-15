@@ -268,7 +268,7 @@ export default function ProceduralWorldBuilder({ sceneManager, onWorldGenerated,
                         <li>Realistic terrain with natural features</li>
                         <li>Procedural vegetation distribution</li>
                         <li>Intelligent building placement (urban worlds)</li>
-                        <li>All generated using Gemini AI - no local fallbacks</li>
+                        <li>All generated using AWS Bedrock AI - no local fallbacks</li>
                     </ul>
                 </div>
             </div>

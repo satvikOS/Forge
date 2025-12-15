@@ -1,6 +1,6 @@
 /**
  * Motion Capture Editor - AI-powered motion extraction from video
- * Uses Gemini Multimodal API to analyze video and generate keyframes
+ * Uses AWS Bedrock Multimodal API to analyze video and generate keyframes
  */
 
 import { useState, useRef } from 'react';

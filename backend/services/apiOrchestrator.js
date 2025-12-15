@@ -1,14 +1,14 @@
-const geminiService = require('./geminiService');
+const bedrockService = require('./bedrockService');
 const mapboxService = require('./mapboxService');
 const overpassService = require('./overpassService');
 const elevationService = require('./elevationService');
-const wikipediaService = require('./wikipediaService');
-const wikidataService = require('./wikidataService');
-const wikimediaService = require('./wikimediaService');
+const geographicCoordinateService = require('./geographicCoordinateService');
+const geocodingService = require('./geocodingService');
 const weatherService = require('./weatherService');
 const treeMapService = require('./treeMapService');
 const mapillaryService = require('./mapillaryService');
 const sketchfabService = require('./sketchfabService');
+const buildingDataService = require('./buildingDataService');
 const dataValidator = require('./dataValidator');
 const cacheService = require('./cacheService');
 const analyticsService = require('./analyticsService');
@@ -25,7 +25,7 @@ class APIOrchestrator {
   constructor() {
     this.enabled = process.env.ENABLE_ORCHESTRATOR !== 'false';
     this.maxParallelRequests = parseInt(process.env.MAX_PARALLEL_REQUESTS) || 10;
-    
+
     // Phase configurations for orchestration
     this.phases = {
       intentUnderstanding: { name: 'Intent Understanding', priority: 1 },
@@ -72,7 +72,7 @@ class APIOrchestrator {
     };
 
     try {
-      // PHASE 1: Intent Understanding (Gemini AI Analysis)
+      // PHASE 1: Intent Understanding (AWS Bedrock AI Analysis)
       orchestrationResult.phases.intentUnderstanding = await this.phaseIntentUnderstanding(prompt, options);
 
       // PHASE 2: Knowledge Gathering (Parallel)
@@ -133,23 +133,23 @@ class APIOrchestrator {
    * PHASE 1: Intent Understanding - Parse prompt with Gemini AI
    */
   async phaseIntentUnderstanding(prompt, options) {
-    console.log('\n🧠 PHASE 1: Intent Understanding (Gemini AI)');
+    console.log('\n🧠 PHASE 1: Intent Understanding (AWS Bedrock AI)');
     const startTime = Date.now();
 
     try {
       const analysisPrompt = this.buildIntentAnalysisPrompt(prompt);
-      const response = await geminiService.generateContent(analysisPrompt);
-      
-      // Parse Gemini's response
+      const response = await bedrockService.generateContent(analysisPrompt);
+
+      // Parse Bedrock's response
       const intent = this.parseIntentResponse(response);
-      
+
       console.log(`✅ Phase 1 completed in ${Date.now() - startTime}ms`);
       console.log(`   🎯 Type: ${intent.type}`);
       console.log(`   🏷️  Category: ${intent.category}`);
       console.log(`   📍 Location: ${intent.location || 'N/A'}`);
       console.log(`   🎨 Style: ${intent.style || 'N/A'}`);
       console.log(`   🔧 Complexity: ${intent.complexity}`);
-      
+
       return {
         success: true,
         duration: Date.now() - startTime,
@@ -172,7 +172,7 @@ class APIOrchestrator {
   }
 
   /**
-   * Build comprehensive intent analysis prompt for Gemini
+   * Build comprehensive intent analysis prompt for Bedrock
    */
   buildIntentAnalysisPrompt(prompt) {
     return `Analyze this architectural/3D design prompt for ultra-realistic generation.
@@ -210,7 +210,7 @@ Return ONLY valid JSON, no additional text.`;
   }
 
   /**
-   * Parse Gemini's intent response
+   * Parse Bedrock's intent response
    */
   parseIntentResponse(response) {
     try {
@@ -221,7 +221,7 @@ Return ONLY valid JSON, no additional text.`;
       }
 
       const intent = JSON.parse(jsonMatch[0]);
-      
+
       // Ensure all required fields exist
       return {
         type: intent.type || 'unknown',
@@ -274,26 +274,8 @@ Return ONLY valid JSON, no additional text.`;
     const results = {};
 
     // Wikipedia search for landmark/building
-    if (intent.landmark && wikipediaService.isEnabled()) {
-      tasks.push(
-        this.executeWithFallback(
-          () => wikipediaService.searchLandmark(intent.landmark),
-          'wikipedia',
-          results
-        )
-      );
-    }
-
-    // Wikidata search for structured data
-    if (intent.landmark && wikidataService.isEnabled()) {
-      tasks.push(
-        this.executeWithFallback(
-          () => wikidataService.getBuildingData(intent.landmark),
-          'wikidata',
-          results
-        )
-      );
-    }
+    // NOTE: Wikipedia/Wikidata landmark fetching removed
+    // AWS Bedrock has comprehensive built-in landmark knowledge
 
     // Wikimedia Commons images
     if ((intent.landmark || intent.style) && wikimediaService.isEnabled()) {
@@ -579,14 +561,14 @@ Return ONLY valid JSON, no additional text.`;
     // Validate and fuse knowledge data
     if (phases.knowledgeGathering) {
       const sources = [];
-      
+
       if (phases.knowledgeGathering.wikipedia) {
         sources.push({
           name: 'wikipedia',
           data: phases.knowledgeGathering.wikipedia,
         });
       }
-      
+
       if (phases.knowledgeGathering.wikidata) {
         sources.push({
           name: 'wikidata',
@@ -763,7 +745,7 @@ Return ONLY valid JSON, no additional text.`;
    */
   generateLightingData(phases) {
     const lighting = phases.environmentalContext?.lighting;
-    
+
     if (!lighting) {
       // Default lighting
       return {
@@ -808,7 +790,7 @@ Return ONLY valid JSON, no additional text.`;
    */
   generate3DAssetData(phases) {
     const models = phases.assets3D?.models?.results || [];
-    
+
     return {
       available: models.length > 0,
       count: models.length,
@@ -890,14 +872,14 @@ Return ONLY valid JSON, no additional text.`;
       glass: 0.1,
       metal: 0.3,
     };
-    
+
     const rough = baseRoughness[material.toLowerCase()] || 0.5;
-    
+
     // Increase roughness for older eras
     if (era && (era.includes('Medieval') || era.includes('Ancient'))) {
       return Math.min(1.0, rough + 0.2);
     }
-    
+
     return rough;
   }
 
@@ -966,27 +948,27 @@ Return ONLY valid JSON, no additional text.`;
    */
   countDataSources(phases) {
     let count = 0;
-    
+
     if (phases.knowledgeGathering) {
       if (phases.knowledgeGathering.wikipedia) count++;
       if (phases.knowledgeGathering.wikidata) count++;
       if (phases.knowledgeGathering.wikimedia) count++;
     }
-    
+
     if (phases.geographicData) {
       if (phases.geographicData.osm_buildings) count++;
       if (phases.geographicData.osm_roads) count++;
       if (phases.geographicData.elevation) count++;
     }
-    
+
     if (phases.environmentalContext) {
       if (phases.environmentalContext.weather) count++;
       if (phases.environmentalContext.trees) count++;
       if (phases.environmentalContext.streetLevel) count++;
     }
-    
+
     if (phases.assets3D?.models) count++;
-    
+
     return count;
   }
 
@@ -1090,7 +1072,7 @@ Return ONLY valid JSON, no additional text.`;
    */
   calculateEnhancementLevel(phases) {
     let score = 0;
-    
+
     if (phases.knowledgeGathering?.wikidata?.dimensions) score += 15;
     if (phases.geographicData?.osm_buildings) score += 20;
     if (phases.geographicData?.elevation) score += 10;
@@ -1099,7 +1081,7 @@ Return ONLY valid JSON, no additional text.`;
     if (phases.environmentalContext?.trees) score += 10;
     if (phases.knowledgeGathering?.wikimedia) score += 10;
     if (phases.assets3D?.models) score += 5;
-    
+
     if (score >= 80) return 'maximum';
     if (score >= 60) return 'high';
     if (score >= 40) return 'medium';
