@@ -44,6 +44,18 @@ function WorkbenchSwitcher({ activeWorkbench, onSwitchWorkbench }) {
             name: 'Electronics',
             icon: '⚡',
             description: 'PCB design, circuit simulation'
+        },
+        {
+            id: 'aviation',
+            name: 'Aviation & Defense',
+            icon: '✈️',
+            description: 'Aircraft design, airfoils, CFD analysis'
+        },
+        {
+            id: 'ui-product',
+            name: 'UI/Product Design',
+            icon: '📱',
+            description: 'Interface design, mockups, prototyping'
         }
     ];
 
