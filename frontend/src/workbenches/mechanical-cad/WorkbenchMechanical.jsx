@@ -1,4 +1,3 @@
-```
 import React from 'react';
 import Viewport3D from '../../components/Viewport3D';
 
