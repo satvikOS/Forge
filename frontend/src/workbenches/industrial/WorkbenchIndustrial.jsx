@@ -1,141 +1,81 @@
 import React from 'react';
-import './WorkbenchIndustrial.css';
 
 /**
- * Industrial & Machinery Workbench
- * Factory layouts, conveyor systems, robotic arms
+ * Industrial & Machinery Workbench - Blender Layout
+ * Factory layouts, robotics, production line design
  */
-function WorkbenchIndustrial({ onGenerate }) {
+function WorkbenchIndustrial() {
     return (
         <>
-            {/* Left Sidebar - Industrial Tools */}
+            {/* LEFT TOOLBAR - ICON ONLY */}
             <aside className="workbench-tools">
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Factory Layout</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🏭</span>
-                        Assembly Line
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📦</span>
-                        Storage Zone
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🚪</span>
-                        Loading Dock
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔲</span>
-                        Floor Zones
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Machinery</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🦾</span>
-                        Robotic Arm
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔄</span>
-                        Conveyor Belt
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🏗️</span>
-                        CNC Machine
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⚙️</span>
-                        Custom Equipment
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Simulation</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🎬</span>
-                        Motion Path
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📊</span>
-                        Throughput Analysis
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⏱️</span>
-                        Cycle Time
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">AI Tools</h3>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">🤖</span>
-                        Optimize Layout
-                    </button>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">🦾</span>
-                        Design Robot Gripper
-                    </button>
-                </div>
+                <button className="tool-icon-button" title="Select">⬚</button>
+                <button className="tool-icon-button active" title="Layout">▦</button>
+                <button className="tool-icon-button" title="Conveyor">⟹</button>
+                <button className="tool-icon-button" title="Robot">🤖</button>
+                <button className="tool-icon-button" title="Machine">⚙</button>
+                <button className="tool-icon-button" title="Rack">▤</button>
+                <button className="tool-icon-button" title="Path">⤸</button>
+                <button className="tool-icon-button" title="Simulate">▶</button>
             </aside>
 
-            {/* Center - 3D Viewport */}
+            {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
                 <canvas id="render-canvas-industrial"></canvas>
+
+                {/* Viewport Controls - Top Right */}
                 <div className="viewport-overlay">
                     <div className="viewport-controls">
-                        <button className="viewport-button" title="Top View">⬇️</button>
-                        <button className="viewport-button" title="Side View">➡️</button>
-                        <button className="viewport-button" title="3D View">📦</button>
-                        <button className="viewport-button" title="Simulate">▶️</button>
+                        <button className="viewport-button">Top</button>
+                        <button className="viewport-button">Side</button>
+                        <button className="viewport-button">Front</button>
+                        <button className="viewport-button">ISO</button>
                     </div>
-                    <div className="production-stats">
-                        <div className="stat-item">
-                            <span className="stat-label">Throughput</span>
-                            <span className="stat-value">120 units/hr</span>
-                        </div>
-                        <div className="stat-item">
-                            <span className="stat-label">Efficiency</span>
-                            <span className="stat-value">87%</span>
-                        </div>
-                    </div>
+                </div>
+
+                {/* Gizmo Controls - Bottom Left */}
+                <div className="gizmo-controls">
+                    <button className="gizmo-button active">Move</button>
+                    <button className="gizmo-button">Rotate</button>
+                    <button className="gizmo-button">Array</button>
                 </div>
             </main>
 
-            {/* Right Sidebar - Properties */}
+            {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
-                <div className="property-group">
-                    <h3 className="property-label">Layout Settings</h3>
-                    <label>
-                        <span className="property-label">Factory Size (m²)</span>
-                        <input type="number" className="property-input" placeholder="5000" />
-                    </label>
-                    <label>
-                        <span className="property-label">Production Line Count</span>
-                        <input type="number" className="property-input" placeholder="3" />
-                    </label>
+                <div className="property-section">
+                    <h3 className="property-header">Equipment</h3>
+                    <div className="property-row">
+                        <span className="property-label">Type</span>
+                        <select className="property-input">
+                            <option>Robotic Arm</option>
+                            <option>Conveyor Belt</option>
+                            <option>CNC Machine</option>
+                        </select>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Capacity</span>
+                        <input type="number" className="property-input" placeholder="1000" />
+                    </div>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Robot Parameters</h3>
-                    <label>
-                        <span className="property-label">Reach (mm)</span>
-                        <input type="number" className="property-input" placeholder="1500" />
-                    </label>
-                    <label>
-                        <span className="property-label">Payload (kg)</span>
-                        <input type="number" className="property-input" placeholder="10" />
-                    </label>
-                    <label>
-                        <span className="property-label">DOF (Degrees of Freedom)</span>
-                        <input type="number" className="property-input" placeholder="6" />
-                    </label>
+                <div className="property-section">
+                    <h3 className="property-header">Layout</h3>
+                    <div className="property-row">
+                        <span className="property-label">Floor Area</span>
+                        <input type="number" className="property-input" placeholder="500" />
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Clearance</span>
+                        <input type="number" className="property-input" placeholder="2.5" />
+                    </div>
+                    <button className="property-button">Optimize Layout</button>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Analysis</h3>
-                    <button className="property-button">Run Simulation</button>
-                    <button className="property-button">Export Layout</button>
+                <div className="property-section">
+                    <h3 className="property-header">Simulation</h3>
+                    <button className="property-button">Run Throughput Analysis</button>
+                    <button className="property-button">Collision Detection</button>
                 </div>
             </aside>
         </>

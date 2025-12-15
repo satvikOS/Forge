@@ -1,148 +1,85 @@
 import React from 'react';
-import './WorkbenchAviation.css';
 
 /**
- * Aviation & Defense Workbench
- * Airfoil design, structural analysis, weight distribution
+ * Aviation & Defense Workbench - Blender Layout
+ * Aircraft design, airfoil analysis, structural integrity
  */
-function WorkbenchAviation({ onGenerate }) {
+function WorkbenchAviation() {
     return (
         <>
-            {/* Left Sidebar - Aviation Tools */}
+            {/* LEFT TOOLBAR - ICON ONLY */}
             <aside className="workbench-tools">
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Airfoil Design</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">✈️</span>
-                        Wing Design
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🌀</span>
-                        Airfoil Generator
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📐</span>
-                        NACA Profiles
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔄</span>
-                        Twist & Taper
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Structural</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🏗️</span>
-                        Fuselage Frame
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⚖️</span>
-                        Weight Distribution
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔩</span>
-                        Rivet Patterns
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Analysis</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">💨</span>
-                        Lift/Drag Analysis
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📊</span>
-                        Stress Analysis
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🎯</span>
-                        Center of Gravity
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">AI Tools</h3>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">🤖</span>
-                        AI Wing Optimizer
-                    </button>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">⚡</span>
-                        Performance Optimizer
-                    </button>
-                </div>
+                <button className="tool-icon-button" title="Select">⬚</button>
+                <button className="tool-icon-button active" title="Airfoil">⌇</button>
+                <button className="tool-icon-button" title="Wing">✈</button>
+                <button className="tool-icon-button" title="Fuselage">⬭</button>
+                <button className="tool-icon-button" title="Tail">⊿</button>
+                <button className="tool-icon-button" title="Engine">◯</button>
+                <button className="tool-icon-button" title="Airflow">≈</button>
+                <button className="tool-icon-button" title="Stress">⚡</button>
             </aside>
 
-            {/* Center - 3D Viewport */}
+            {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
                 <canvas id="render-canvas-aviation"></canvas>
+
+                {/* Viewport Controls - Top Right */}
                 <div className="viewport-overlay">
                     <div className="viewport-controls">
-                        <button className="viewport-button" title="Top View">⬆️</button>
-                        <button className="viewport-button" title="Side View">➡️</button>
-                        <button className="viewport-button" title="Front View">🔲</button>
-                        <button className="viewport-button" title="3D View">✈️</button>
+                        <button className="viewport-button">Top</button>
+                        <button className="viewport-button">Side</button>
+                        <button className="viewport-button">Front</button>
+                        <button className="viewport-button">ISO</button>
                     </div>
-                    <div className="flight-metrics">
-                        <div className="metric">
-                            <span className="metric-label">Lift Coefficient</span>
-                            <span className="metric-value">1.24</span>
-                        </div>
-                        <div className="metric">
-                            <span className="metric-label">L/D Ratio</span>
-                            <span className="metric-value">18.5</span>
-                        </div>
-                    </div>
+                </div>
+
+                {/* Gizmo Controls - Bottom Left */}
+                <div className="gizmo-controls">
+                    <button className="gizmo-button active">Move</button>
+                    <button className="gizmo-button">Rotate</button>
+                    <button className="gizmo-button">Scale</button>
                 </div>
             </main>
 
-            {/* Right Sidebar - Properties */}
+            {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
-                <div className="property-group">
-                    <h3 className="property-label">Airfoil Parameters</h3>
-                    <label>
+                <div className="property-section">
+                    <h3 className="property-header">Airfoil</h3>
+                    <div className="property-row">
                         <span className="property-label">Profile</span>
                         <select className="property-input">
                             <option>NACA 2412</option>
-                            <option>NACA 4412</option>
-                            <option>NACA 6412</option>
-                            <option>Custom</option>
+                            <option>NACA 4415</option>
+                            <option>Clark Y</option>
                         </select>
-                    </label>
-                    <label>
-                        <span className="property-label">Chord Length (m)</span>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Chord</span>
                         <input type="number" className="property-input" placeholder="2.5" />
-                    </label>
-                    <label>
-                        <span className="property-label">Angle of Attack (°)</span>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">AOA</span>
                         <input type="number" className="property-input" placeholder="5" />
-                    </label>
-                </div>
-
-                <div className="property-group">
-                    <h3 className="property-label">Performance</h3>
-                    <div className="perf-stats">
-                        <div className="stat-row">
-                            <span>Lift Coefficient:</span>
-                            <span className="stat-value">1.24</span>
-                        </div>
-                        <div className="stat-row">
-                            <span>Drag Coefficient:</span>
-                            <span className="stat-value">0.067</span>
-                        </div>
-                        <div className="stat-row">
-                            <span>L/D Ratio:</span>
-                            <span className="stat-value">18.5</span>
-                        </div>
                     </div>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Export</h3>
-                    <button className="property-button">Export STEP</button>
-                    <button className="property-button">Export to CAM</button>
+                <div className="property-section">
+                    <h3 className="property-header">Performance</h3>
+                    <div className="property-row">
+                        <span className="property-label">L/D Ratio</span>
+                        <input type="number" className="property-input" placeholder="15.5" disabled />
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Stall Speed</span>
+                        <input type="number" className="property-input" placeholder="65" disabled />
+                    </div>
+                    <button className="property-button">Run CFD Analysis</button>
+                </div>
+
+                <div className="property-section">
+                    <h3 className="property-header">Structure</h3>
+                    <button className="property-button">Stress Analysis</button>
+                    <button className="property-button">Weight Distribution</button>
                 </div>
             </aside>
         </>
