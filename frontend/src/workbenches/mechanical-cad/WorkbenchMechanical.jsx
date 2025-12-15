@@ -79,41 +79,6 @@ function WorkbenchMechanical() {
 
             {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
-                {/* AI Design Assistant Toggle */}
-                <div className="property-section">
-                    <h3 className="property-header">AI Design Assistant</h3>
-                    <button
-                        className="property-button"
-                        onClick={() => setShowAiPanel(!showAiPanel)}
-                    >
-                        {showAiPanel ? '✕ Close AI Panel' : '🤖 Open AI Panel'}
-                    </button>
-                </div>
-
-                {/* AI Panel (Expandable) */}
-                {showAiPanel && (
-                    <div className="property-section ai-design-section">
-                        <textarea
-                            className="ai-prompt-input"
-                            value={aiPrompt}
-                            onChange={(e) => setAiPrompt(e.target.value)}
-                            placeholder="Example: Design a planetary gear assembly for EV motors with 0.005mm tolerances"
-                            rows={3}
-                            disabled={isGenerating}
-                        />
-                        <button
-                            className="property-button"
-                            onClick={handleGenerateDesign}
-                            disabled={isGenerating || !aiPrompt.trim()}
-                        >
-                            {isGenerating ? '⏳ Generating...' : '✨ Generate Design'}
-                        </button>
-                        <small className="ai-hint">
-                            AI will create 3 design variants with BOM and cost analysis
-                        </small>
-                    </div>
-                )}
-
                 {/* Feature Properties */}
                 <div className="property-section">
                     <h3 className="property-header">Feature</h3>
@@ -143,7 +108,7 @@ function WorkbenchMechanical() {
                     </select>
                 </div>
 
-                {/* Actions */}
+                {/* Analysis */}
                 <div className="property-section">
                     <h3 className="property-header">Analysis</h3>
                     <button className="property-button">Run FEA Analysis</button>
