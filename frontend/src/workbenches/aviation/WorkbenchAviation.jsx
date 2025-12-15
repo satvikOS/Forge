@@ -22,7 +22,7 @@ function WorkbenchAviation() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-aviation" />
+                <Viewport3D canvasId="render-canvas-aviation" domain="aviation" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

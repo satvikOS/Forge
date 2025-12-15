@@ -22,7 +22,7 @@ function WorkbenchIndustrial() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-industrial" />
+                <Viewport3D canvasId="render-canvas-industrial" domain="industrial" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

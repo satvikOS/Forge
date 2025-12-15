@@ -22,7 +22,7 @@ function WorkbenchAutomotive() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-automotive" />
+                <Viewport3D canvasId="render-canvas-automotive" domain="automotive" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

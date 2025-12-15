@@ -22,7 +22,7 @@ function WorkbenchUIProduct() {
 
             {/* CENTER VIEWPORT - 3D Device Mockups */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-uiproduct" />
+                <Viewport3D canvasId="render-canvas-uiproduct" domain="ui-product" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

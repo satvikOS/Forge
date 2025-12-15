@@ -22,7 +22,7 @@ function WorkbenchGaming() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-gaming" />
+                <Viewport3D canvasId="render-canvas-gaming" domain="gaming" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

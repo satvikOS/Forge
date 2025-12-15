@@ -22,7 +22,7 @@ function WorkbenchElectronics() {
 
             {/* CENTER VIEWPORT - HERO (2.5D PCB View) */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-electronics" />
+                <Viewport3D canvasId="render-canvas-electronics" domain="electronics" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

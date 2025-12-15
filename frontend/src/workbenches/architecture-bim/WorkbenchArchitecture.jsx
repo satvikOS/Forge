@@ -22,7 +22,7 @@ function WorkbenchArchitecture() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-architecture" />
+                <Viewport3D canvasId="render-canvas-architecture" domain="architecture" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
