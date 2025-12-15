@@ -1,139 +1,88 @@
 import React from 'react';
-import './WorkbenchAutomotive.css';
 
 /**
- * Automotive Design Workbench
- * Vehicle design, surface modeling, aerodynamics
+ * Automotive Design Workbench - Blender Layout
+ * Surface modeling, aerodynamics, chassis design
  */
-function WorkbenchAutomotive({ onGenerate }) {
+function WorkbenchAutomotive() {
     return (
         <>
-            {/* Left Sidebar - Automotive Tools */}
+            {/* LEFT TOOLBAR - ICON ONLY */}
             <aside className="workbench-tools">
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Surface Modeling</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">📐</span>
-                        A-Class Surface
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🎨</span>
-                        Freeform Surface
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📏</span>
-                        Loft
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔄</span>
-                        Sweep
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Chassis & Frame</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🏗️</span>
-                        Frame Builder
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⚙️</span>
-                        Suspension
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔧</span>
-                        Drivetrain
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Analysis</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">💨</span>
-                        CFD (Aerodynamics)
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📊</span>
-                        Crash Test Sim
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⚡</span>
-                        Thermal Analysis
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">AI Tools</h3>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">🤖</span>
-                        AI Body Design
-                    </button>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">💨</span>
-                        Optimize Drag
-                    </button>
-                </div>
+                <button className="tool-icon-button" title="Select">⬚</button>
+                <button className="tool-icon-button active" title="Surface">⌘</button>
+                <button className="tool-icon-button" title="Curve">⌇</button>
+                <button className="tool-icon-button" title="Blend">◐</button>
+                <button className="tool-icon-button" title="Trim">✂</button>
+                <button className="tool-icon-button" title="Mirror">⇄</button>
+                <button className="tool-icon-button" title="Airflow">≈</button>
+                <button className="tool-icon-button" title="Render">◉</button>
             </aside>
 
-            {/* Center - 3D Viewport */}
+            {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
                 <canvas id="render-canvas-automotive"></canvas>
+
+                {/* Viewport Controls - Top Right */}
                 <div className="viewport-overlay">
                     <div className="viewport-controls">
-                        <button className="viewport-button" title="Exterior View">🚗</button>
-                        <button className="viewport-button" title="Interior View">🪑</button>
-                        <button className="viewport-button" title="Wireframe">📐</button>
-                        <button className="viewport-button" title="Render">🎨</button>
+                        <button className="viewport-button">Front</button>
+                        <button className="viewport-button">Side</button>
+                        <button className="viewport-button">Top</button>
+                        <button className="viewport-button">ISO</button>
                     </div>
-                    <div className="aero-indicator">
-                        <span className="aero-label">Drag Coefficient</span>
-                        <span className="aero-value">Cd = 0.28</span>
-                    </div>
+                </div>
+
+                {/* Gizmo Controls - Bottom Left */}
+                <div className="gizmo-controls">
+                    <button className="gizmo-button active">Move</button>
+                    <button className="gizmo-button">Rotate</button>
+                    <button className="gizmo-button">Scale</button>
                 </div>
             </main>
 
-            {/* Right Sidebar - Properties */}
+            {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
-                <div className="property-group">
-                    <h3 className="property-label">Vehicle Specs</h3>
-                    <label>
-                        <span className="property-label">Vehicle Type</span>
+                <div className="property-section">
+                    <h3 className="property-header">Surface</h3>
+                    <div className="property-row">
+                        <span className="property-label">Type</span>
                         <select className="property-input">
-                            <option>Sedan</option>
-                            <option>SUV</option>
-                            <option>Sports Car</option>
-                            <option>Truck</option>
+                            <option>A-Class Surface</option>
+                            <option>NACA Airfoil</option>
+                            <option>Bézier Patch</option>
                         </select>
-                    </label>
-                    <label>
-                        <span className="property-label">Wheelbase (mm)</span>
-                        <input type="number" className="property-input" placeholder="2800" />
-                    </label>
-                    <label>
-                        <span className="property-label">Track Width (mm)</span>
-                        <input type="number" className="property-input" placeholder="1600" />
-                    </label>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Continuity</span>
+                        <select className="property-input">
+                            <option>G3 (Curvature)</option>
+                            <option>G2 (Tangent)</option>
+                            <option>G1 (Smooth)</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Aerodynamics</h3>
-                    <div className="aero-stats">
-                        <div className="stat-row">
-                            <span>Drag Coefficient:</span>
-                            <span className="stat-value">0.28</span>
-                        </div>
-                        <div className="stat-row">
-                            <span>Downforce (N):</span>
-                            <span className="stat-value">450</span>
-                        </div>
+                <div className="property-section">
+                    <h3 className="property-header">Aerodynamics</h3>
+                    <div className="property-row">
+                        <span className="property-label">Cd</span>
+                        <input type="number" className="property-input" placeholder="0.28" step="0.01" />
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Cl</span>
+                        <input type="number" className="property-input" placeholder="0.15" step="0.01" />
                     </div>
                     <button className="property-button">Run CFD Analysis</button>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Export</h3>
-                    <button className="property-button">Export STEP</button>
-                    <button className="property-button">Export to CAM</button>
+                <div className="property-section">
+                    <h3 className="property-header">Chassis</h3>
+                    <div className="property-row">
+                        <span className="property-label">Wheelbase</span>
+                        <input type="number" className="property-input" placeholder="2700" />
+                    </div>
+                    <button className="property-button">Generate Frame</button>
                 </div>
             </aside>
         </>

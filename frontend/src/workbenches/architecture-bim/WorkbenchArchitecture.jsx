@@ -1,161 +1,89 @@
 import React from 'react';
-import './WorkbenchArchitecture.css';
 
 /**
- * Architecture & BIM Workbench
- * Building design, IFC import/export, code compliance
+ * Architecture & BIM Workbench - Blender Layout
+ * Building design tools, BIM management, code compliance
  */
-function WorkbenchArchitecture({ onGenerate }) {
+function WorkbenchArchitecture() {
     return (
         <>
-            {/* Left Sidebar - Architecture Tools */}
+            {/* LEFT TOOLBAR - ICON ONLY */}
             <aside className="workbench-tools">
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Building Elements</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🧱</span>
-                        Wall
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🚪</span>
-                        Door
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🪟</span>
-                        Window
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🪜</span>
-                        Stairs
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🏠</span>
-                        Roof
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Structure</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🏗️</span>
-                        Column
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">━</span>
-                        Beam
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⬜</span>
-                        Floor/Slab
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🧱</span>
-                        Foundation
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Documentation</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">📐</span>
-                        Floor Plan
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📏</span>
-                        Elevation
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">✂️</span>
-                        Section
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📋</span>
-                        Schedule
-                    </button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">AI Tools</h3>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">🤖</span>
-                        AI Design Building
-                    </button>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">✅</span>
-                        Code Compliance Check
-                    </button>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">⚡</span>
-                        Energy Optimization
-                    </button>
-                </div>
+                <button className="tool-icon-button" title="Select">⬚</button>
+                <button className="tool-icon-button active" title="Wall">▬</button>
+                <button className="tool-icon-button" title="Door">⌂</button>
+                <button className="tool-icon-button" title="Window">◫</button>
+                <button className="tool-icon-button" title="Floor">▭</button>
+                <button className="tool-icon-button" title="Roof">⌂</button>
+                <button className="tool-icon-button" title="Column">║</button>
+                <button className="tool-icon-button" title="Level">≡</button>
             </aside>
 
-            {/* Center - 3D Viewport */}
+            {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
                 <canvas id="render-canvas-architecture"></canvas>
+
+                {/* Viewport Controls - Top Right */}
                 <div className="viewport-overlay">
                     <div className="viewport-controls">
-                        <button className="viewport-button" title="Plan View">📐</button>
-                        <button className="viewport-button" title="North Elevation">🔼</button>
-                        <button className="viewport-button" title="Section">✂️</button>
-                        <button className="viewport-button" title="3D View">🏠</button>
+                        <button className="viewport-button">Plan</button>
+                        <button className="viewport-button">Elevation</button>
+                        <button className="viewport-button">Section</button>
+                        <button className="viewport-button">3D</button>
                     </div>
-                    <div className="level-indicator">
-                        <span className="level-label">Level: Ground Floor</span>
-                        <button className="level-up">↑</button>
-                        <button className="level-down">↓</button>
-                    </div>
+                </div>
+
+                {/* Gizmo Controls - Bottom Left */}
+                <div className="gizmo-controls">
+                    <button className="gizmo-button active">Move</button>
+                    <button className="gizmo-button">Rotate</button>
+                    <button className="gizmo-button">Array</button>
                 </div>
             </main>
 
-            {/* Right Sidebar - Properties */}
+            {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
-                <div className="property-group">
-                    <h3 className="property-label">Wall Properties</h3>
-                    <label>
-                        <span className="property-label">Wall Type</span>
+                <div className="property-section">
+                    <h3 className="property-header">Element</h3>
+                    <div className="property-row">
+                        <span className="property-label">Type</span>
                         <select className="property-input">
-                            <option>Exterior - Brick Veneer</option>
-                            <option>Interior - GWB on Studs</option>
-                            <option>Concrete - 200mm</option>
-                            <option>Curtain Wall - Glass</option>
+                            <option>Interior Wall</option>
+                            <option>Exterior Wall</option>
+                            <option>Curtain Wall</option>
                         </select>
-                    </label>
-                    <label>
-                        <span className="property-label">Height (mm)</span>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Height</span>
                         <input type="number" className="property-input" placeholder="3000" />
-                    </label>
-                    <label>
-                        <span className="property-label">Thickness (mm)</span>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Thickness</span>
                         <input type="number" className="property-input" placeholder="200" />
-                    </label>
+                    </div>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Level Settings</h3>
-                    <label>
-                        <span className="property-label">Level Name</span>
-                        <input type="text" className="property-input" placeholder="Ground Floor" />
-                    </label>
-                    <label>
-                        <span className="property-label">Elevation (mm)</span>
-                        <input type="number" className="property-input" placeholder="0" />
-                    </label>
+                <div className="property-section">
+                    <h3 className="property-header">BIM Data</h3>
+                    <div className="property-row">
+                        <span className="property-label">Level</span>
+                        <select className="property-input">
+                            <option>Level 1 (0.0m)</option>
+                            <option>Level 2 (3.0m)</option>
+                            <option>Roof (6.0m)</option>
+                        </select>
+                    </div>
+                    <div className="property-row">
+                        <span className="property-label">Family</span>
+                        <input type="text" className="property-input" placeholder="Basic Wall" />
+                    </div>
                 </div>
 
-                <div className="property-group">
-                    <h3 className="property-label">Compliance</h3>
-                    <button className="property-button">Check Building Code</button>
-                    <button className="property-button">ADA Compliance</button>
-                    <button className="property-button">Energy Analysis</button>
-                </div>
-
-                <div className="property-group">
-                    <h3 className="property-label">Export</h3>
-                    <button className="property-button">Export IFC</button>
-                    <button className="property-button">Export DWG</button>
-                    <button className="property-button">Generate PDF Set</button>
+                <div className="property-section">
+                    <h3 className="property-header">Analysis</h3>
+                    <button className="property-button">Check Code Compliance</button>
+                    <button className="property-button">Structural Analysis</button>
+                    <button className="property-button">Export to IFC</button>
                 </div>
             </aside>
         </>
