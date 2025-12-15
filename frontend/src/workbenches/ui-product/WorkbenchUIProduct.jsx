@@ -1,8 +1,9 @@
 import React from 'react';
+import Viewport3D from '../../components/Viewport3D';
 
 /**
- * UI/Product Design Workbench - Blender Layout
- * Vector design, mockups, prototyping, artboards
+ * UI/Product Design Workbench
+ * Industry Standard: Figma, Sketch, Adobe XD
  */
 function WorkbenchUIProduct() {
     return (
@@ -19,26 +20,9 @@ function WorkbenchUIProduct() {
                 <button className="tool-icon-button" title="Component">⊞</button>
             </aside>
 
-            {/* CENTER VIEWPORT - HERO */}
+            {/* CENTER VIEWPORT - 3D Device Mockups */}
             <main className="workbench-viewport">
-                <canvas id="render-canvas-uiproduct"></canvas>
-
-                {/* Viewport Controls - Top Right */}
-                <div className="viewport-overlay">
-                    <div className="viewport-controls">
-                        <button className="viewport-button">Desktop</button>
-                        <button className="viewport-button">Tablet</button>
-                        <button className="viewport-button">Mobile</button>
-                        <button className="viewport-button">Watch</button>
-                    </div>
-                </div>
-
-                {/* Gizmo Controls - Bottom Left */}
-                <div className="gizmo-controls">
-                    <button className="gizmo-button active">Select</button>
-                    <button className="gizmo-button">Pan</button>
-                    <button className="gizmo-button">Zoom</button>
-                </div>
+                <Viewport3D canvasId="render-canvas-uiproduct" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}

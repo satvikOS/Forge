@@ -1,8 +1,9 @@
 import React from 'react';
+import Viewport3D from '../../components/Viewport3D';
 
 /**
- * Electronics & Robotics Workbench - Blender Layout
- * PCB design, schematic capture, component placement
+ * Electronics & Robotics Workbench
+ * Industry Standard: Altium Designer, Eagle, KiCad
  */
 function WorkbenchElectronics() {
     return (
@@ -19,26 +20,9 @@ function WorkbenchElectronics() {
                 <button className="tool-icon-button" title="DRC">✓</button>
             </aside>
 
-            {/* CENTER VIEWPORT - HERO */}
+            {/* CENTER VIEWPORT - HERO (2.5D PCB View) */}
             <main className="workbench-viewport">
-                <canvas id="render-canvas-electronics"></canvas>
-
-                {/* Viewport Controls - Top Right */}
-                <div className="viewport-overlay">
-                    <div className="viewport-controls">
-                        <button className="viewport-button">Top</button>
-                        <button className="viewport-button">Bottom</button>
-                        <button className="viewport-button">3D</button>
-                        <button className="viewport-button">Schematic</button>
-                    </div>
-                </div>
-
-                {/* Gizmo Controls - Bottom Left */}
-                <div className="gizmo-controls">
-                    <button className="gizmo-button active">Place</button>
-                    <button className="gizmo-button">Route</button>
-                    <button className="gizmo-button">Measure</button>
-                </div>
+                <Viewport3D canvasId="render-canvas-electronics" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
