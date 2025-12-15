@@ -1,110 +1,110 @@
-/* Workbench Switcher Styles */
+/* Workbench Switcher - Professional Dropdown */
+
 .workbench-switcher {
     position: relative;
-    z-index: 1000;
 }
 
 .workbench-current {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 4px 12px;
+    cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    background: var(--bg-glass);
-    border: var(--glass-border);
-    border-radius: 8px;
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: all 0.2s;
-    backdrop-filter: var(--glass-backdrop);
-    font-size: 14px;
-    font-weight: 500;
-    min-width: 200px;
+    gap: 8px;
+    transition: all 0.15s;
+    border-radius: 2px;
+    min-width: 180px;
 }
 
 .workbench-current:hover {
-    background: rgba(99, 102, 241, 0.2);
-    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+    border-color: var(--border-light);
 }
 
 .workbench-icon {
-    font-size: 20px;
+    font-size: 14px;
+    display: none !important;
+    /* Hide emojis */
 }
 
 .workbench-name {
     flex: 1;
-    text-align: left;
+    font-weight: 500;
 }
 
 .expand-arrow {
-    font-size: 12px;
-    color: var(--text-secondary);
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.workbench-current:hover .expand-arrow {
+    color: var(--text-primary);
 }
 
 /* Dropdown */
 .workbench-dropdown {
     position: absolute;
-    top: calc(100% + 8px);
+    top: calc(100% + 4px);
     left: 0;
-    min-width: 320px;
     background: var(--bg-secondary);
-    border: var(--glass-border);
-    border-radius: 12px;
-    padding: 8px;
-    box-shadow: var(--shadow-lg);
-    backdrop-filter: var(--glass-backdrop);
-    animation: dropdownFadeIn 0.2s ease;
-}
-
-@keyframes dropdownFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    border: 1px solid var(--border-color);
+    border-radius: 2px;
+    min-width: 280px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .workbench-option {
     width: 100%;
-    padding: 12px;
-    margin-bottom: 4px;
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
+    border: none;
+    color: var(--text-primary);
     text-align: left;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.workbench-option:last-child {
+    border-bottom: none;
 }
 
 .workbench-option:hover {
-    background: var(--bg-glass);
-    border-color: var(--accent-primary);
+    background: var(--bg-hover);
 }
 
 .workbench-option.active {
-    background: rgba(99, 102, 241, 0.15);
-    border-color: var(--accent-primary);
+    background: var(--bg-active);
+    color: var(--accent-primary);
 }
 
 .workbench-option-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 4px;
+    gap: 8px;
+    margin-bottom: 2px;
 }
 
-.workbench-option-header .workbench-name {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 14px;
+.workbench-option .workbench-icon {
+    display: none !important;
+    /* Hide emojis */
+}
+
+.workbench-option .workbench-name {
+    font-weight: 500;
+    font-size: 12px;
 }
 
 .workbench-description {
-    font-size: 12px;
+    font-size: 10px;
     color: var(--text-secondary);
     margin: 0;
-    padding-left: 30px;
+    line-height: 1.3;
 }

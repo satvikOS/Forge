@@ -1,205 +1,320 @@
-/**
- * Workbench Architecture CSS
- * Base layout: center viewport, left tools, right properties, bottom console
- * Dark mode with glassmorphism aesthetic
- */
+/* ArchDisc Workbench - Industry Standard UI */
+/* Inspired by Blender, AutoCAD, Revit, Unreal Engine */
 
 :root {
-    /* Dark Mode Color Palette */
-    --bg-primary: #0a0a0f;
-    --bg-secondary: #1214;
-    --bg-tertiary: #1a1a24;
-    --bg-glass: rgba(26, 26, 36, 0.7);
+    /* OLED Black Dark Theme */
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #1a1a1a;
+    --bg-tertiary: #252525;
+    --bg-hover: #2d2d2d;
+    --bg-active: #353535;
 
-    /* Accent Colors */
-    --accent-primary: #6366f1;
-    --accent-secondary: #8b5cf6;
-    --accent-success: #10b981;
-    --accent-warning: #f59e0b;
-    --accent-error: #ef4444;
+    /* Light Theme (Light Grey) */
+    --bg-light-primary: #e8e8e8;
+    --bg-light-secondary: #f5f5f5;
+    --bg-light-tertiary: #ffffff;
 
-    /* Text Colors */
-    --text-primary: #ffffff;
-    --text-secondary: #a1a1aa;
-    --text-tertiary: #71717a;
+    /* Borders - Subtle */
+    --border-color: #2a2a2a;
+    --border-light: #3a3a3a;
 
-    /* Border & Shadow */
-    --border-color: rgba(255, 255, 255, 0.1);
-    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+    /* Text */
+    --text-primary: #e0e0e0;
+    --text-secondary: #999999;
+    --text-muted: #666666;
 
-    /* Glassmorphism */
-    --glass-backdrop: blur(10px);
-    --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+    /* Accent - Professional Blue */
+    --accent-primary: #3b82f6;
+    --accent-hover: #2563eb;
 
-    /* Layout Dimensions */
-    --sidebar-width: 280px;
-    --console-height: 200px;
-    --header-height: 60px;
+    /* Status Colors */
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+
+    /* Spacing - Compact */
+    --spacing-xs: 2px;
+    --spacing-sm: 4px;
+    --spacing-md: 6px;
+    --spacing-lg: 8px;
+    --spacing-xl: 12px;
+
+    /* Typography - Professional */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 12px;
 }
 
-/* Base Styles */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: 'Inter', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+/* Workbench Container */
+.workbench-container {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow: hidden;
 }
 
-/* Main Workbench Layout */
-.workbench-container {
-    display: grid;
-    grid-template-columns: var(--sidebar-width) 1fr var(--sidebar-width);
-    grid-template-rows: var(--header-height) 1fr var(--console-height);
-    grid-template-areas:
-        "header header header"
-        "tools viewport properties"
-        "console console console";
-    height: 100vh;
-    gap: 1px;
-    background: var(--border-color);
-}
-
-/* Header */
+/* Header - Compact */
 .workbench-header {
-    grid-area: header;
-    background: var(--bg-glass);
-    backdrop-filter: var(--glass-backdrop);
-    border-bottom: var(--glass-border);
+    height: 32px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
+    padding: 0 var(--spacing-lg);
+    gap: var(--spacing-xl);
+    flex-shrink: 0;
 }
 
 .workbench-title {
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 600;
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--accent-primary);
+    margin: 0;
+    letter-spacing: 0.5px;
 }
 
-/* Left Sidebar - Tools */
+.header-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-left: auto;
+}
+
+.header-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.header-button:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+/* Main Workbench Layout */
+.workbench-container>* {
+    display: flex;
+}
+
+/* Tool Sidebar - Compact */
 .workbench-tools {
-    grid-area: tools;
+    width: 200px;
     background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
     overflow-y: auto;
-    padding: 16px;
+    flex-shrink: 0;
+    padding: var(--spacing-md);
 }
 
 .tool-section {
-    margin-bottom: 24px;
+    margin-bottom: var(--spacing-xl);
 }
 
 .tool-section-title {
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 600;
+    color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-secondary);
-    margin-bottom: 12px;
+    letter-spacing: 0.8px;
+    margin: 0 0 var(--spacing-md) 0;
+    padding: var(--spacing-sm) 0;
 }
 
 .tool-button {
     width: 100%;
-    padding: 12px;
-    margin-bottom: 8px;
-    background: var(--bg-glass);
-    border: var(--glass-border);
-    border-radius: 8px;
-    color: var(--text-primary);
-    font-size: 14px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: var(--spacing-md) var(--spacing-lg);
+    text-align: left;
     cursor: pointer;
-    transition: all 0.2s;
-    backdrop-filter: var(--glass-backdrop);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    transition: all 0.15s;
+    border-radius: 2px;
 }
 
 .tool-button:hover {
-    background: rgba(99, 102, 241, 0.2);
-    border-color: var(--accent-primary);
-    transform: translateX(4px);
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
-/* Center Viewport */
+.tool-button.active {
+    background: var(--bg-active);
+    color: var(--accent-primary);
+}
+
+.tool-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    opacity: 0;
+    display: none;
+    /* Hide emojis */
+}
+
+/* Viewport - With Grid */
 .workbench-viewport {
-    grid-area: viewport;
-    background: var(--bg-primary);
+    flex: 1;
     position: relative;
+    background: var(--bg-primary);
     overflow: hidden;
 }
 
-#render-canvas {
+.workbench-viewport canvas {
     width: 100%;
     height: 100%;
+    display: block;
 }
 
-/* Right Sidebar - Properties */
+/* Grid Background */
+.workbench-viewport::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        linear-gradient(var(--border-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border-color) 1px, transparent 1px);
+    background-size: 20px 20px;
+    opacity: 0.3;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Viewport Overlays */
+.viewport-overlay {
+    position: absolute;
+    top: var(--spacing-lg);
+    right: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    z-index: 10;
+}
+
+.viewport-controls {
+    background: rgba(26, 26, 26, 0.9);
+    border: 1px solid var(--border-color);
+    border-radius: 2px;
+    display: flex;
+    gap: 1px;
+    padding: 2px;
+}
+
+.viewport-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    cursor: pointer;
+    transition: all 0.15s;
+    min-width: 28px;
+    height: 24px;
+}
+
+.viewport-button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* Properties Panel - Compact */
 .workbench-properties {
-    grid-area: properties;
+    width: 280px;
     background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
     overflow-y: auto;
-    padding: 16px;
+    flex-shrink: 0;
+    padding: var(--spacing-lg);
 }
 
 .property-group {
-    margin-bottom: 20px;
-    padding: 16px;
-    background: var(--bg-glass);
-    border: var(--glass-border);
-    border-radius: 8px;
-    backdrop-filter: var(--glass-backdrop);
+    margin-bottom: var(--spacing-xl);
 }
 
 .property-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-bottom: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 var(--spacing-md) 0;
 }
 
 .property-input {
     width: 100%;
-    padding: 8px 12px;
     background: var(--bg-tertiary);
-    border: var(--glass-border);
-    border-radius: 6px;
+    border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 12px;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: 2px;
+    margin-bottom: var(--spacing-md);
 }
 
-/* Bottom Console - Prompt */
+.property-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.property-button {
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 11px;
+    padding: var(--spacing-md);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-radius: 2px;
+    margin-bottom: var(--spacing-sm);
+}
+
+.property-button:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-light);
+}
+
+/* Console - Minimized */
 .workbench-console {
-    grid-area: console;
-    background: var(--bg-glass);
-    backdrop-filter: var(--glass-backdrop);
-    border-top: var(--glass-border);
+    height: 120px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    padding: 16px;
+    flex-shrink: 0;
 }
 
 .console-tabs {
     display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: 1px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 var(--spacing-lg);
 }
 
 .console-tab {
-    padding: 8px 16px;
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 11px;
+    padding: var(--spacing-md) var(--spacing-xl);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: all 0.2s;
+    transition: all 0.15s;
+}
+
+.console-tab:hover {
+    color: var(--text-primary);
 }
 
 .console-tab.active {
@@ -208,44 +323,44 @@ body {
 }
 
 .prompt-input-container {
+    flex: 1;
     display: flex;
-    gap: 12px;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-lg);
     align-items: center;
 }
 
 .prompt-input {
     flex: 1;
-    padding: 12px 16px;
     background: var(--bg-tertiary);
-    border: var(--glass-border);
-    border-radius: 8px;
+    border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 14px;
-    font-family: 'IBM Plex Sans', monospace;
+    font-size: 12px;
+    padding: var(--spacing-lg);
+    border-radius: 2px;
     resize: none;
+    font-family: inherit;
 }
 
 .prompt-input:focus {
     outline: none;
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 .generate-button {
-    padding: 12px 24px;
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    background: var(--accent-primary);
     border: none;
-    border-radius: 8px;
     color: white;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 500;
+    padding: var(--spacing-lg) 24px;
     cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: var(--shadow-md);
+    border-radius: 2px;
+    transition: all 0.15s;
 }
 
 .generate-button:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+    background: var(--accent-hover);
 }
 
 /* Scrollbar Styling */
@@ -259,10 +374,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--bg-glass);
+    background: var(--bg-tertiary);
     border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--bg-hover);
 }
