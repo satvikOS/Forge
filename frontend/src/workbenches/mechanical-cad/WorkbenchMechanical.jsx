@@ -22,7 +22,7 @@ function WorkbenchMechanical() {
 
             {/* CENTER VIEWPORT - HERO */}
             <main className="workbench-viewport">
-                <Viewport3D canvasId="render-canvas-mechanical" />
+                <Viewport3D canvasId="render-canvas-mechanical" domain="mechanical" />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
