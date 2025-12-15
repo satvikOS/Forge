@@ -85,6 +85,7 @@ const creditsRoutes = require('./routes/credits');
 const crowdRoutes = require('./routes/crowd');
 const proceduralRoutes = require('./routes/procedural');
 const motionCaptureRoutes = require('./routes/motion-capture');
+const mechanicalRoutes = require('./routes/mechanical');
 
 // API routes
 app.use('/api/design', designRoutes);
@@ -99,6 +100,7 @@ app.use('/api/credits', creditsRoutes);
 app.use('/api/crowd', crowdRoutes);
 app.use('/api/procedural', proceduralRoutes);
 app.use('/api/motion-capture', motionCaptureRoutes);
+app.use('/api/mechanical', mechanicalRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
