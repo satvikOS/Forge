@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
+import WorkbenchSwitcher from './WorkbenchSwitcher';
+import WorkbenchMechanical from '../workbenches/mechanical-cad/WorkbenchMechanical';
+import WorkbenchArchitecture from '../workbenches/architecture-bim/WorkbenchArchitecture';
+import WorkbenchGaming from '../workbenches/gaming-vfx/WorkbenchGaming';
+import WorkbenchAutomotive from '../workbenches/automotive/WorkbenchAutomotive';
+import WorkbenchIndustrial from '../workbenches/industrial/WorkbenchIndustrial';
+import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronics';
 import './styles/workbench.css';
+import './styles/workbench-switcher.css';
 
 /**
- * Main Workbench Component
- * Implements the complete workbench-based architecture
- * Layout: center viewport, left tools, right properties, bottom prompt console
+ * Main Workbench Container
+ * Manages workbench switching and shared layout
  */
-function Workbench() {
+function WorkbenchContainer() {
+    const [activeWorkbench, setActiveWorkbench] = useState('mechanical-cad');
     const [prompt, setPrompt] = useState('');
-    const [activeTab, setActiveTab] = useState('prompt');
 
     const handleGenerate = async () => {
         if (!prompt.trim()) return;
@@ -17,22 +24,47 @@ function Workbench() {
             const response = await fetch('/api/generate/design', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
+                body: JSON.stringify({
+                    prompt,
+                    workbench: activeWorkbench
+                })
             });
 
             const data = await response.json();
             console.log('Generated design:', data);
-            // Handle 3D model rendering here
         } catch (error) {
             console.error('Generation error:', error);
         }
     };
 
+    const renderWorkbench = () => {
+        switch (activeWorkbench) {
+            case 'mechanical-cad':
+                return <WorkbenchMechanical onGenerate={handleGenerate} />;
+            case 'architecture-bim':
+                return <WorkbenchArchitecture onGenerate={handleGenerate} />;
+            case 'gaming-vfx':
+                return <WorkbenchGaming onGenerate={handleGenerate} />;
+            case 'automotive':
+                return <WorkbenchAutomotive onGenerate={handleGenerate} />;
+            case 'industrial':
+                return <WorkbenchIndustrial onGenerate={handleGenerate} />;
+            case 'electronics':
+                return <WorkbenchElectronics onGenerate={handleGenerate} />;
+            default:
+                return <div className="workbench-placeholder">Workbench coming soon...</div>;
+        }
+    };
+
     return (
         <div className="workbench-container">
-            {/* Header */}
+            {/* Header with Workbench Switcher */}
             <header className="workbench-header">
                 <h1 className="workbench-title">ArchDisc</h1>
+                <WorkbenchSwitcher
+                    activeWorkbench={activeWorkbench}
+                    onSwitchWorkbench={setActiveWorkbench}
+                />
                 <div className="header-actions">
                     <button className="header-button">File</button>
                     <button className="header-button">Edit</button>
@@ -40,105 +72,32 @@ function Workbench() {
                 </div>
             </header>
 
-            {/* Left Sidebar - Tools */}
-            <aside className="workbench-tools">
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Create</h3>
-                    <button className="tool-button">Box</button>
-                    <button className="tool-button">Cylinder</button>
-                    <button className="tool-button">Sphere</button>
-                    <button className="tool-button">Custom Shape</button>
-                </div>
+            {/* Active Workbench */}
+            {renderWorkbench()}
 
-                <div className="tool-section">
-                    <h3 className="tool-section-title">Modify</h3>
-                    <button className="tool-button">Extrude</button>
-                    <button className="tool-button">Boolean</button>
-                    <button className="tool-button">Array</button>
-                </div>
-
-                <div className="tool-section">
-                    <h3 className="tool-section-title">AI Tools</h3>
-                    <button className="tool-button">Text-to-3D</button>
-                    <button className="tool-button">Image-to-3D</button>
-                    <button className="tool-button">Sketch-to-3D</button>
-                </div>
-            </aside>
-
-            {/* Center - 3D Viewport */}
-            <main className="workbench-viewport">
-                <canvas id="render-canvas"></canvas>
-            </main>
-
-            {/* Right Sidebar - Properties */}
-            <aside className="workbench-properties">
-                <div className="property-group">
-                    <h3 className="property-label">Transform</h3>
-                    <label>
-                        <span className="property-label">Position X</span>
-                        <input type="number" className="property-input" placeholder="0.0" />
-                    </label>
-                    <label>
-                        <span className="property-label">Position Y</span>
-                        <input type="number" className="property-input" placeholder="0.0" />
-                    </label>
-                    <label>
-                        <span className="property-label">Position Z</span>
-                        <input type="number" className="property-input" placeholder="0.0" />
-                    </label>
-                </div>
-
-                <div className="property-group">
-                    <h3 className="property-label">Material</h3>
-                    <select className="property-input">
-                        <option>Default</option>
-                        <option>Glass</option>
-                        <option>Metal</option>
-                        <option>Wood</option>
-                    </select>
-                </div>
-            </aside>
-
-            {/* Bottom - Console/Prompt */}
+            {/* Bottom Console - Shared across all workbenches */}
             <footer className="workbench-console">
                 <div className="console-tabs">
-                    <button
-                        className={`console-tab ${activeTab === 'prompt' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('prompt')}
-                    >
-                        AI Prompt
-                    </button>
-                    <button
-                        className={`console-tab ${activeTab === 'console' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('console')}
-                    >
-                        Console
-                    </button>
-                    <button
-                        className={`console-tab ${activeTab === 'history' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('history')}
-                    >
-                        History
-                    </button>
+                    <button className="console-tab active">AI Prompt</button>
+                    <button className="console-tab">Console</button>
+                    <button className="console-tab">History</button>
                 </div>
 
-                {activeTab === 'prompt' && (
-                    <div className="prompt-input-container">
-                        <textarea
-                            className="prompt-input"
-                            placeholder="Describe your design... (e.g., 'Create a modern office building with glass facade')"
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            rows={3}
-                        />
-                        <button className="generate-button" onClick={handleGenerate}>
-                            Generate
-                        </button>
-                    </div>
-                )}
+                <div className="prompt-input-container">
+                    <textarea
+                        className="prompt-input"
+                        placeholder={`Describe your ${activeWorkbench.replace('-', ' ')} design...`}
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        rows={3}
+                    />
+                    <button className="generate-button" onClick={handleGenerate}>
+                        Generate
+                    </button>
+                </div>
             </footer>
         </div>
     );
 }
 
-export default Workbench;
+export default WorkbenchContainer;

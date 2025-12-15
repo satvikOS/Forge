@@ -1,0 +1,110 @@
+/* Workbench Switcher Styles */
+.workbench-switcher {
+    position: relative;
+    z-index: 1000;
+}
+
+.workbench-current {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--bg-glass);
+    border: var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    backdrop-filter: var(--glass-backdrop);
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 200px;
+}
+
+.workbench-current:hover {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: var(--accent-primary);
+}
+
+.workbench-icon {
+    font-size: 20px;
+}
+
+.workbench-name {
+    flex: 1;
+    text-align: left;
+}
+
+.expand-arrow {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Dropdown */
+.workbench-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 320px;
+    background: var(--bg-secondary);
+    border: var(--glass-border);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: var(--glass-backdrop);
+    animation: dropdownFadeIn 0.2s ease;
+}
+
+@keyframes dropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.workbench-option {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+}
+
+.workbench-option:hover {
+    background: var(--bg-glass);
+    border-color: var(--accent-primary);
+}
+
+.workbench-option.active {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: var(--accent-primary);
+}
+
+.workbench-option-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.workbench-option-header .workbench-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.workbench-description {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0;
+    padding-left: 30px;
+}

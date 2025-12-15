@@ -1,0 +1,67 @@
+/* Mechanical CAD Workbench Specific Styles */
+
+.ai-tool {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+    border-color: var(--accent-primary);
+}
+
+.ai-tool:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+    transform: translateX(6px);
+}
+
+.tool-icon {
+    margin-right: 8px;
+    font-size: 16px;
+}
+
+.viewport-overlay {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 12px;
+}
+
+.viewport-controls {
+    display: flex;
+    gap: 8px;
+    background: var(--bg-glass);
+    padding: 8px;
+    border-radius: 8px;
+    backdrop-filter: var(--glass-backdrop);
+    border: var(--glass-border);
+}
+
+.viewport-button {
+    width: 40px;
+    height: 40px;
+    background: transparent;
+    border: var(--glass-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 18px;
+}
+
+.viewport-button:hover {
+    background: var(--accent-primary);
+    transform: scale(1.1);
+}
+
+.property-button {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    background: var(--bg-tertiary);
+    border: var(--glass-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.property-button:hover {
+    background: var(--accent-primary);
+}
