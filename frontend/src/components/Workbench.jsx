@@ -64,61 +64,94 @@ function WorkbenchContainer() {
     };
 
     const renderToolbar = () => {
-        <>
-            <button className="toolbar-button">Tool 1</button>
-            <button className="toolbar-button">Tool 2</button>
-        </>
-        );
-};
+        switch (activeWorkbench) {
+            case 'mechanical-cad':
+                return (
+                    <>
+                        <button className="toolbar-button">Sketch</button>
+                        <button className="toolbar-button">Extrude</button>
+                        <button className="toolbar-button">Revolve</button>
+                        <button className="toolbar-button">Fillet</button>
+                    </>
+                );
+            case 'architecture-bim':
+                return (
+                    <>
+                        <button className="toolbar-button">Wall</button>
+                        <button className="toolbar-button">Door</button>
+                        <button className="toolbar-button">Window</button>
+                        <button className="toolbar-button">Level</button>
+                    </>
+                );
+            case 'automotive':
+                return (
+                    <>
+                        <button className="toolbar-button">Surface</button>
+                        <button className="toolbar-button">Curve</button>
+                        <button className="toolbar-button">Aerodynamics</button>
+                    </>
+                );
+            case 'electronics':
+                return (
+                    <>
+                        <button className="toolbar-button">Component</button>
+                        <button className="toolbar-button">Route</button>
+                        <button className="toolbar-button">Simulate</button>
+                    </>
+                );
+            default:
+                return null;
+        }
+    };
 
-return (
-    <div className="workbench-container">
-        {/* Header with Workbench Switcher */}
-        <header className="workbench-header">
-            <h1 className="workbench-title">ArchDisc</h1>
-            <WorkbenchSwitcher
-                activeWorkbench={activeWorkbench}
-                onSwitchWorkbench={setActiveWorkbench}
-            />
-
-            {/* Workbench-Specific Toolbar */}
-            <div className="workbench-toolbar">
-                {renderToolbar()}
-            </div>
-
-            <div className="header-actions">
-                <button className="header-button">File</button>
-                <button className="header-button">Edit</button>
-                <button className="header-button">View</button>
-            </div>
-        </header>
-
-        {/* Active Workbench */}
-        {renderWorkbench()}
-
-        {/* Bottom Console - Shared across all workbenches */}
-        <footer className="workbench-console">
-            <div className="console-tabs">
-                <button className="console-tab active">AI Prompt</button>
-                <button className="console-tab">Console</button>
-                <button className="console-tab">History</button>
-            </div>
-
-            <div className="prompt-input-container">
-                <textarea
-                    className="prompt-input"
-                    placeholder={`Describe your ${activeWorkbench.replace('-', ' ')} design...`}
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    rows={3}
+    return (
+        <div className="workbench-container">
+            {/* Header with Workbench Switcher */}
+            <header className="workbench-header">
+                <h1 className="workbench-title">ArchDisc</h1>
+                <WorkbenchSwitcher
+                    activeWorkbench={activeWorkbench}
+                    onSwitchWorkbench={setActiveWorkbench}
                 />
-                <button className="generate-button" onClick={handleGenerate}>
-                    Generate
-                </button>
-            </div>
-        </footer>
-    </div>
-);
+
+                {/* Workbench-Specific Toolbar */}
+                <div className="workbench-toolbar">
+                    {renderToolbar()}
+                </div>
+
+                <div className="header-actions">
+                    <button className="header-button">File</button>
+                    <button className="header-button">Edit</button>
+                    <button className="header-button">View</button>
+                </div>
+            </header>
+
+            {/* Active Workbench */}
+            {renderWorkbench()}
+
+            {/* Bottom Console - Shared across all workbenches */}
+            <footer className="workbench-console">
+                <div className="console-tabs">
+                    <button className="console-tab active">AI Prompt</button>
+                    <button className="console-tab">Console</button>
+                    <button className="console-tab">History</button>
+                </div>
+
+                <div className="prompt-input-container">
+                    <textarea
+                        className="prompt-input"
+                        placeholder={`Describe your ${activeWorkbench.replace('-', ' ')} design...`}
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        rows={3}
+                    />
+                    <button className="generate-button" onClick={handleGenerate}>
+                        Generate
+                    </button>
+                </div>
+            </footer>
+        </div>
+    );
 }
 
 export default WorkbenchContainer;
