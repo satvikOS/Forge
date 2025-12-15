@@ -8,8 +8,8 @@ import WorkbenchIndustrial from '../workbenches/industrial/WorkbenchIndustrial';
 import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronics';
 import WorkbenchAviation from '../workbenches/aviation/WorkbenchAviation';
 import WorkbenchUIProduct from '../workbenches/ui-product/WorkbenchUIProduct';
-import './styles/workbench.css';
-import './styles/workbench-switcher.css';
+import '../styles/workbench.css';
+import '../styles/workbench-switcher.css';
 
 /**
  * Main Workbench Container

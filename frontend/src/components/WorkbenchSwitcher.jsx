@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './styles/workbench-switcher.css';
+import '../styles/workbench-switcher.css';
 
 /**
  * Workbench Switcher Component
