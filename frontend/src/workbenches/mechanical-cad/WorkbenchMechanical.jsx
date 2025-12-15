@@ -3,110 +3,79 @@ import './WorkbenchMechanical.css';
 
 /**
  * Mechanical CAD Workbench
- * Parametric modeling, assemblies, precision constraints
+ * Professional parametric modeling tools
  */
 function WorkbenchMechanical({ onGenerate }) {
     return (
         <>
-            {/* Left Sidebar - Mechanical Tools */}
+            {/* Single Unified Left Sidebar - Like VSCode */}
             <aside className="workbench-tools">
+                {/* Parametric Section */}
                 <div className="tool-section">
                     <h3 className="tool-section-title">Parametric</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">📐</span>
-                        Sketch
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">➡️</span>
-                        Extrude
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔄</span>
-                        Revolve
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">✂️</span>
-                        Cut
-                    </button>
+                    <button className="tool-button">Sketch</button>
+                    <button className="tool-button">Extrude</button>
+                    <button className="tool-button">Revolve</button>
+                    <button className="tool-button">Cut</button>
                 </div>
 
+                {/* Modify Section */}
                 <div className="tool-section">
                     <h3 className="tool-section-title">Modify</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔲</span>
-                        Fillet
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">📏</span>
-                        Chamfer
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔁</span>
-                        Pattern
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🪞</span>
-                        Mirror
-                    </button>
+                    <button className="tool-button">Fillet</button>
+                    <button className="tool-button">Chamfer</button>
+                    <button className="tool-button">Pattern</button>
+                    <button className="tool-button">Mirror</button>
                 </div>
 
+                {/* Assembly Section */}
                 <div className="tool-section">
                     <h3 className="tool-section-title">Assembly</h3>
-                    <button className="tool-button">
-                        <span className="tool-icon">🔗</span>
-                        Insert Component
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">🧲</span>
-                        Mate
-                    </button>
-                    <button className="tool-button">
-                        <span className="tool-icon">⚡</span>
-                        Motion Study
-                    </button>
+                    <button className="tool-button">Insert Component</button>
+                    <button className="tool-button">Mate</button>
+                    <button className="tool-button">Motion Study</button>
                 </div>
 
+                {/* Constraints Section */}
                 <div className="tool-section">
-                    <h3 className="tool-section-title">AI Tools</h3>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">🤖</span>
-                        AI Generate Part
-                    </button>
-                    <button className="tool-button ai-tool">
-                        <span className="tool-icon">⚙️</span>
-                        Auto Constraint
-                    </button>
+                    <h3 className="tool-section-title">Sketch Constraints</h3>
+                    <button className="tool-button">Dimension</button>
+                    <button className="tool-button">Linear</button>
+                </div>
+
+                {/* Analysis Section */}
+                <div className="tool-section">
+                    <h3 className="tool-section-title">Analysis</h3>
+                    <button className="tool-button">Material: Aluminum 6061</button>
+                    <button className="tool-button">Run FEA</button>
+                    <button className="tool-button">Mass Properties</button>
                 </div>
             </aside>
 
-            {/* Center - 3D Viewport */}
+            {/* Center - 3D Viewport with Canvas */}
             <main className="workbench-viewport">
                 <canvas id="render-canvas-mechanical"></canvas>
+
+                {/* Viewport Controls Overlay */}
                 <div className="viewport-overlay">
                     <div className="viewport-controls">
-                        <button className="viewport-button" title="Top View">⬆️</button>
-                        <button className="viewport-button" title="Front View">🔲</button>
-                        <button className="viewport-button" title="Right View">➡️</button>
-                        <button className="viewport-button" title="Isometric">📐</button>
+                        <button className="viewport-button" title="Top View">Top</button>
+                        <button className="viewport-button" title="Front View">Front</button>
+                        <button className="viewport-button" title="Right View">Right</button>
+                        <button className="viewport-button" title="Isometric">ISO</button>
                     </div>
+                </div>
+
+                {/* Gizmo Controls - Bottom Left */}
+                <div className="gizmo-controls">
+                    <button className="gizmo-button active" title="Move">Move</button>
+                    <button className="gizmo-button" title="Rotate">Rotate</button>
+                    <button className="gizmo-button" title="Scale">Scale</button>
                 </div>
             </main>
 
             {/* Right Sidebar - Properties */}
             <aside className="workbench-properties">
-                <div className="property-group">
-                    <h3 className="property-label">Sketch Constraints</h3>
-                    <label>
-                        <span className="property-label">Dimension Type</span>
-                        <select className="property-input">
-                            <option>Linear</option>
-                            <option>Angular</option>
-                            <option>Radial</option>
-                            <option>Diameter</option>
-                        </select>
-                    </label>
-                </div>
-
                 <div className="property-group">
                     <h3 className="property-label">Feature Parameters</h3>
                     <label>
@@ -124,16 +93,8 @@ function WorkbenchMechanical({ onGenerate }) {
                     <select className="property-input">
                         <option>Aluminum 6061</option>
                         <option>Steel 1045</option>
-                        <option>Stainless Steel 304</option>
-                        <option>Titanium Grade 5</option>
                         <option>ABS Plastic</option>
                     </select>
-                </div>
-
-                <div className="property-group">
-                    <h3 className="property-label">Analysis</h3>
-                    <button className="property-button">Run FEA</button>
-                    <button className="property-button">Mass Properties</button>
                 </div>
             </aside>
         </>

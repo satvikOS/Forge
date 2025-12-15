@@ -23,9 +23,9 @@
     --text-secondary: #999999;
     --text-muted: #666666;
 
-    /* Accent - Professional Blue */
-    --accent-primary: #3b82f6;
-    --accent-hover: #2563eb;
+    /* Accent - Professional Maroon */
+    --accent-primary: #8b1538;
+    --accent-hover: #6d1029;
 
     /* Status Colors */
     --color-success: #10b981;
@@ -173,7 +173,7 @@
     display: block;
 }
 
-/* Grid Background */
+/* Grid Background - Square Pattern */
 .workbench-viewport::before {
     content: '';
     position: absolute;
@@ -182,12 +182,12 @@
     right: 0;
     bottom: 0;
     background-image:
-        linear-gradient(var(--border-color) 1px, transparent 1px),
-        linear-gradient(90deg, var(--border-color) 1px, transparent 1px);
-    background-size: 20px 20px;
-    opacity: 0.3;
+        linear-gradient(rgba(42, 42, 42, 0.4) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(42, 42, 42, 0.4) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 1;
     pointer-events: none;
-    z-index: 0;
+    z-index: 1;
 }
 
 /* Viewport Overlays */
