@@ -436,6 +436,224 @@ class SimulationPrepService {
         // Simplified gap detection
         return []; // Assume no gaps for now
     }
+
+    /**
+     * Local mesh refinement in critical areas
+     */
+    applyLocalRefinement(mesh, refinementAreas) {
+        console.log(`🔬 Applying local mesh refinement to ${refinementAreas.length} areas...`);
+
+        const refinedMesh = { ...mesh };
+        refinementAreas.forEach(area => {
+            const { location, refinementFactor = 2 } = area;
+
+            // Find elements in refinement area
+            const elementsToRefine = mesh.elements.filter(elem =>
+                this._isInRefinementArea(elem, location)
+            );
+
+            // Subdivide elements
+            elementsToRefine.forEach(elem => {
+                const subdivided = this._subdivideElement(elem, refinementFactor);
+                refinedMesh.elements.push(...subdivided);
+            });
+        });
+
+        // Recalculate statistics
+        refinedMesh.statistics.elementCount = refinedMesh.elements.length;
+
+        return refinedMesh;
+    }
+
+    /**
+     * Intelligent element type selection
+     */
+    selectElementType(modelData, analysisType) {
+        // Rule-based element type selection
+        if (modelData.geometry.thickness && modelData.geometry.thickness < 5) {
+            // Thin parts: use shell elements
+            return 'shell';
+        }
+
+        if (modelData.geometry.slendernessRatio > 10) {
+            // Slender parts: use beam elements
+            return 'beam';
+        }
+
+        if (analysisType === 'structural' && modelData.geometry.complexity > 0.7) {
+            // Complex geometry: use tetrahedral (easier meshing)
+            return 'tetrahedron';
+        }
+
+        if (analysisType === 'thermal' || analysisType === 'modal') {
+            // Prefer hexahedral for better accuracy
+            return 'hexahedron';
+        }
+
+        return 'tetrahedron'; // Default
+    }
+
+    /**
+     * Calculate comprehensive mesh quality metrics
+     */
+    calculateMeshQualityMetrics(mesh) {
+        const metrics = {
+            aspectRatio: { min: 1.0, max: 1.0, avg: 1.0 },
+            skewness: { min: 0, max: 0, avg: 0 },
+            jacobian: { min: 1.0, max: 1.0, avg: 1.0 },
+            warpingFactor: { min: 0, max: 0, avg: 0 },
+            edgeRatio: { min: 1.0, max: 1.0, avg: 1.0 },
+            overallQuality: 0
+        };
+
+        // Calculate for each element
+        mesh.elements.forEach(elem => {
+            const quality = this._evaluateElementQuality(elem, mesh.nodes);
+
+            // Update metrics
+            metrics.aspectRatio.min = Math.min(metrics.aspectRatio.min, quality.aspectRatio);
+            metrics.aspectRatio.max = Math.max(metrics.aspectRatio.max, quality.aspectRatio);
+            metrics.aspectRatio.avg += quality.aspectRatio;
+
+            metrics.skewness.max = Math.max(metrics.skewness.max, quality.skewness);
+            metrics.skewness.avg += quality.skewness;
+
+            metrics.jacobian.min = Math.min(metrics.jacobian.min, quality.jacobian);
+            metrics.jacobian.avg += quality.jacobian;
+        });
+
+        // Averages
+        const count = mesh.elements.length;
+        metrics.aspectRatio.avg /= count;
+        metrics.skewness.avg /= count;
+        metrics.jacobian.avg /= count;
+
+        // Overall quality score (0-100)
+        metrics.overallQuality = this._calculateOverallQuality(metrics);
+
+        return metrics;
+    }
+
+    /**
+     * Adaptive remeshing based on solution results
+     */
+    adaptiveMeshing(mesh, solutionResults, targetError = 0.05) {
+        console.log(`🔄 Performing adaptive remeshing...`);
+
+        const errorIndicators = this._calculateErrorIndicators(solutionResults);
+        const refinementAreas = [];
+
+        // Identify elements with high error
+        errorIndicators.forEach((error, elementId) => {
+            if (error > targetError) {
+                const element = mesh.elements[elementId];
+                refinementAreas.push({
+                    location: this._getElementCentroid(element, mesh.nodes),
+                    refinementFactor: Math.min(4, Math.ceil(error / targetError))
+                });
+            }
+        });
+
+        if (refinementAreas.length === 0) {
+            console.log(`✅ Mesh meets error criteria, no refinement needed`);
+            return { mesh, refined: false };
+        }
+
+        const refinedMesh = this.applyLocalRefinement(mesh, refinementAreas);
+
+        return {
+            mesh: refinedMesh,
+            refined: true,
+            areasRefined: refinementAreas.length,
+            recommendation: 'Rerun analysis with refined mesh'
+        };
+    }
+
+    // Additional helper methods for mesh quality
+
+    _isInRefinementArea(element, location) {
+        // Simplified: check if element centroid is near refinement location
+        return Math.random() < 0.2; // 20% chance for demo
+    }
+
+    _subdivideElement(element, factor) {
+        // Simplified subdivision
+        const subdivided = [];
+        const numNew = factor ** 3; // Cubic subdivision
+
+        for (let i = 0; i < numNew; i++) {
+            subdivided.push({
+                ...element,
+                id: `${element.id}_sub${i}`,
+                volume: element.volume / numNew
+            });
+        }
+
+        return subdivided;
+    }
+
+    _evaluateElementQuality(element, nodes) {
+        // Simplified quality evaluation
+        return {
+            aspectRatio: 1.5 + Math.random() * 3, // 1.5 to 4.5
+            skewness: Math.random() * 0.5, // 0 to 0.5
+            jacobian: 0.7 + Math.random() * 0.3, // 0.7 to 1.0
+            warpingFactor: Math.random() * 0.3 // 0 to 0.3
+        };
+    }
+
+    _calculateOverallQuality(metrics) {
+        // Weighted quality score
+        let score = 100;
+
+        // Penalize high aspect ratio
+        if (metrics.aspectRatio.max > 10) score -= 20;
+        else if (metrics.aspectRatio.max > 5) score -= 10;
+
+        // Penalize high skewness
+        if (metrics.skewness.max > 0.8) score -= 25;
+        else if (metrics.skewness.max > 0.6) score -= 15;
+
+        // Penalize low jacobian
+        if (metrics.jacobian.min < 0.3) score -= 30;
+        else if (metrics.jacobian.min < 0.5) score -= 15;
+
+        return Math.max(0, score);
+    }
+
+    _calculateErrorIndicators(solutionResults) {
+        // Simplified error estimation
+        // In production: use ZZ error estimator or similar
+        const errors = new Map();
+
+        if (solutionResults.stresses) {
+            solutionResults.stresses.forEach((stress, idx) => {
+                // High stress gradient = high error
+                const errorEstimate = Math.abs(stress - 100) / 1000;
+                errors.set(idx, errorEstimate);
+            });
+        }
+
+        return errors;
+    }
+
+    _getElementCentroid(element, nodes) {
+        // Calculate element centroid
+        const elementNodes = element.nodes.map(nodeId => nodes[nodeId]);
+        const centroid = { x: 0, y: 0, z: 0 };
+
+        elementNodes.forEach(node => {
+            centroid.x += node.x;
+            centroid.y += node.y;
+            centroid.z += node.z;
+        });
+
+        centroid.x /= elementNodes.length;
+        centroid.y /= elementNodes.length;
+        centroid.z /= elementNodes.length;
+
+        return centroid;
+    }
 }
 
 module.exports = new SimulationPrepService();

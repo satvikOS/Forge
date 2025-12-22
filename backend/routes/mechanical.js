@@ -20,6 +20,9 @@ const DesignRationaleService = require('../services/ai/designRationaleService');
 const surfacingEngine = require('../services/cad/surfacingEngine');
 const directEditEngine = require('../services/cad/directEditEngine');
 const complianceService = require('../services/analysis/complianceService');
+const multibodyDynamics = require('../services/analysis/multibodyDynamicsService');
+const optimizationService = require('../services/ai/optimizationService');
+const constraintAnalyzer = require('../services/analysis/constraintAnalyzer');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
@@ -2077,7 +2080,6 @@ router.post('/compliance/report', async (req, res) => {
         });
     }
 });
-});
 
 // Enhanced FEA routes
 router.post('/analysis/fea/dynamic', async (req, res) => {
@@ -2107,6 +2109,139 @@ router.post('/analysis/fea/stress-concentrations', async (req, res) => {
         const { stresses, threshold } = req.body;
         const concentrations = feaService.identifyStressConcentrations(stresses, threshold);
         res.json({ success: true, concentrations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Multibody Dynamics routes
+router.post('/analysis/multibody/actuator', async (req, res) => {
+    try {
+        const actuator = multibodyDynamics.defineActuator(req.body);
+        res.json({ success: true, actuator });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/multibody/motion', async (req, res) => {
+    try {
+        const { system, simulationParams } = req.body;
+        const results = await multibodyDynamics.analyzeMotion(system, simulationParams);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/multibody/gear-train', async (req, res) => {
+    try {
+        const { gearTrain, input } = req.body;
+        const results = multibodyDynamics.analyzeGearTrain(gearTrain, input);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Optimization routes
+router.post('/optimization/parameter-variation', async (req, res) => {
+    try {
+        const { design, variationParams } = req.body;
+        const results = await optimizationService.parameterVariation(design, variationParams);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/optimization/ai-optimize', async (req, res) => {
+    try {
+        const { design, optimizationParams } = req.body;
+        const results = await optimizationService.aiOptimization(design, optimizationParams);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/optimization/tradeoff', async (req, res) => {
+    try {
+        const { designs, objectives } = req.body;
+        const results = await optimizationService.tradeoffAnalysis(designs, objectives);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Constraint Analyzer routes
+router.post('/analysis/constraints/sketch', async (req, res) => {
+    try {
+        const { sketch } = req.body;
+        const analysis = constraintAnalyzer.analyzeSketchConstraints(sketch);
+        res.json({ success: true, analysis });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/constraints/assembly-dof', async (req, res) => {
+    try {
+        const { assembly } = req.body;
+        const analysis = constraintAnalyzer.analyzeAssemblyDOF(assembly);
+        res.json({ success: true, analysis });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/constraints/verify-fea', async (req, res) => {
+    try {
+        const { feaModel } = req.body;
+        const verification = constraintAnalyzer.verifyFEASupports(feaModel);
+        res.json({ success: true, verification });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/constraints/mobility', async (req, res) => {
+    try {
+        const { assembly } = req.body;
+        const patterns = constraintAnalyzer.identifyMobilityPatterns(assembly);
+        res.json({ success: true, patterns });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Mesh Quality routes
+router.post('/simulation/mesh/quality-metrics', async (req, res) => {
+    try {
+        const { mesh } = req.body;
+        const metrics = simulationPrep.calculateMeshQualityMetrics(mesh);
+        res.json({ success: true, metrics });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/simulation/mesh/refine', async (req, res) => {
+    try {
+        const { mesh, refinementAreas } = req.body;
+        const refinedMesh = simulationPrep.applyLocalRefinement(mesh, refinementAreas);
+        res.json({ success: true, mesh: refinedMesh });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/simulation/mesh/adaptive', async (req, res) => {
+    try {
+        const { mesh, solutionResults, targetError } = req.body;
+        const result = simulationPrep.adaptiveMeshing(mesh, solutionResults, targetError);
+        res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
