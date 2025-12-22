@@ -15,6 +15,8 @@ const feaService = require('../services/analysis/feaService');
 const kinematicAnalysis = require('../services/analysis/kinematicAnalysisService');
 const thermalAnalysis = require('../services/analysis/thermalAnalysisService');
 const modalAnalysis = require('../services/analysis/modalAnalysisService');
+const simulationPrep = require('../services/analysis/simulationPrepService');
+const DesignRationaleService = require('../services/ai/designRationaleService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
@@ -27,6 +29,7 @@ const weldmentsEngine = new WeldmentsEngine();
 const topologyOptimization = new TopologyOptimizationService(bedrockService);
 const configurationService = new ConfigurationService();
 const templateService = new TemplateService();
+const designRationale = new DesignRationaleService(bedrockService);
 
 /**
  * Mechanical CAD API Routes
@@ -1683,6 +1686,120 @@ router.post('/analysis/kinematic/export', async (req, res) => {
         });
     } catch (error) {
         console.error('Error exporting animation:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ===================================================================
+// SIMULATION PREPARATION & DESIGN RATIONALE ROUTES
+// ===================================================================
+
+/**
+ * Prepare model for simulation
+ * POST /api/mechanical/simulation/prepare
+ */
+router.post('/simulation/prepare', async (req, res) => {
+    try {
+        const { modelData, analysisType, options } = req.body;
+        const prepared = await simulationPrep.prepareForSimulation(modelData, analysisType, options);
+
+        res.json({
+            success: true,
+            prepared: prepared
+        });
+    } catch (error) {
+        console.error('Error preparing simulation:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Explain design rationale
+ * POST /api/mechanical/rationale/explain
+ */
+router.post('/rationale/explain', async (req, res) => {
+    try {
+        const { modelData, context } = req.body;
+        const rationale = await designRationale.explainDesign(modelData, context);
+
+        res.json({
+            success: true,
+            rationale: rationale
+        });
+    } catch (error) {
+        console.error('Error explaining design:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Explain material choice
+ * POST /api/mechanical/rationale/material
+ */
+router.post('/rationale/material', async (req, res) => {
+    try {
+        const { modelData, material } = req.body;
+        const explanation = await designRationale.explainMaterialChoice(modelData, material);
+
+        res.json({
+            success: true,
+            explanation: explanation
+        });
+    } catch (error) {
+        console.error('Error explaining material:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Generate FMEA
+ * POST /api/mechanical/rationale/fmea
+ */
+router.post('/rationale/fmea', async (req, res) => {
+    try {
+        const { modelData } = req.body;
+        const fmea = await designRationale.generateFMEA(modelData);
+
+        res.json({
+            success: true,
+            fmea: fmea
+        });
+    } catch (error) {
+        console.error('Error generating FMEA:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Explain compliance
+ * POST /api/mechanical/rationale/compliance
+ */
+router.post('/rationale/compliance', async (req, res) => {
+    try {
+        const { modelData, standards } = req.body;
+        const compliance = await designRationale.explainCompliance(modelData, standards);
+
+        res.json({
+            success: true,
+            compliance: compliance
+        });
+    } catch (error) {
+        console.error('Error explaining compliance:', error);
         res.status(500).json({
             success: false,
             error: error.message
