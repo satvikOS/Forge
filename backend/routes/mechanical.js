@@ -6,13 +6,15 @@ const sketchEngine = require('../services/cad/sketchEngine');
 const assemblyEngine = require('../services/cad/assemblyEngine');
 const DrawingEngine = require('../services/cad/drawingEngine');
 const DrawingExportService = require('../services/cad/drawingExportService');
+const SheetMetalEngine = require('../services/cad/sheetMetalEngine');
 const feaService = require('../services/analysis/feaService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 
-// Initialize drawing services
+// Initialize drawing and sheet metal services
 const drawingEngine = new DrawingEngine();
 const drawingExportService = new DrawingExportService();
+const sheetMetalEngine = new SheetMetalEngine();
 
 /**
  * Mechanical CAD API Routes
@@ -854,6 +856,143 @@ router.get('/drawing/:drawingId/export', async (req, res) => {
 
     } catch (error) {
         console.error('Error exporting drawing:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== Sheet Metal Operations ====================
+
+/**
+ * POST /api/mechanical/sheetmetal/create-base
+ * Create base sheet metal face
+ */
+router.post('/sheetmetal/create-base', async (req, res) => {
+    try {
+        const { sketch, thickness, direction } = req.body;
+
+        if (!sketch) {
+            return res.status(400).json({ error: 'sketch is required' });
+        }
+
+        const baseFace = sheetMetalEngine.createBaseFace(sketch, thickness || 1.0, direction);
+
+        res.json({
+            success: true,
+            baseFace,
+            message: 'Sheet metal base created'
+        });
+
+    } catch (error) {
+        console.error('Error creating sheet metal base:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/sheetmetal/flange
+ * Add edge flange
+ */
+router.post('/sheetmetal/flange', async (req, res) => {
+    try {
+        const { part, edgeId, options } = req.body;
+
+        if (!part || !edgeId) {
+            return res.status(400).json({ error: 'part and edgeId are required' });
+        }
+
+        const flange = sheetMetalEngine.createEdgeFlange(part, edgeId, options);
+
+        res.json({
+            success: true,
+            flange,
+            part,
+            message: 'Edge flange added'
+        });
+
+    } catch (error) {
+        console.error('Error adding flange:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/sheetmetal/fold
+ * Create fold/bend
+ */
+router.post('/sheetmetal/fold', async (req, res) => {
+    try {
+        const { part, foldLineId, options } = req.body;
+
+        if (!part || !foldLineId) {
+            return res.status(400).json({ error: 'part and foldLineId are required' });
+        }
+
+        const fold = sheetMetalEngine.createFold(part, foldLineId, options);
+
+        res.json({
+            success: true,
+            fold,
+            message: 'Fold created'
+        });
+
+    } catch (error) {
+        console.error('Error creating fold:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/sheetmetal/:partId/flat-pattern
+ * Generate flat pattern for manufacturing
+ */
+router.get('/sheetmetal/:partId/flat-pattern', async (req, res) => {
+    try {
+        const { partId } = req.params;
+        const { part } = req.query; // Would normally fetch from database
+
+        if (!part) {
+            return res.status(400).json({ error: 'part data is required' });
+        }
+
+        const parsedPart = JSON.parse(part);
+        const flatPattern = sheetMetalEngine.generateFlatPattern(parsedPart);
+
+        res.json({
+            success: true,
+            flatPattern,
+            message: 'Flat pattern generated'
+        });
+
+    } catch (error) {
+        console.error('Error generating flat pattern:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/sheetmetal/:partId/export-dxf
+ * Export flat pattern to DXF
+ */
+router.get('/sheetmetal/:partId/export-dxf', async (req, res) => {
+    try {
+        const { partId } = req.params;
+        const { flatPattern, options } = req.query;
+
+        if (!flatPattern) {
+            return res.status(400).json({ error: 'flatPattern is required' });
+        }
+
+        const parsedPattern = JSON.parse(flatPattern);
+        const parsedOptions = options ? JSON.parse(options) : {};
+
+        const dxf = sheetMetalEngine.exportFlatPatternDXF(parsedPattern, parsedOptions);
+
+        res.set('Content-Type', 'application/dxf');
+        res.set('Content-Disposition', `attachment; filename="${dxf.filename}"`);
+        res.send(dxf.content);
+
+    } catch (error) {
+        console.error('Error exporting DXF:', error);
         res.status(500).json({ error: error.message });
     }
 });

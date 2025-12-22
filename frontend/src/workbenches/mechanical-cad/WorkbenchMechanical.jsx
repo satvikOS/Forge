@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import Viewport3D from '../../components/Viewport3D';
+import './WorkbenchMechanical.css';
 
 /**
- * Mechanical CAD Workbench - Minimalistic Blender Layout
+ * Mechanical CAD Workbench - Minimalistic Blender Layout with Dropdowns
  * Industry Standard: SolidWorks, Siemens NX, CATIA
  */
 function WorkbenchMechanical() {
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [activeDropdown, setActiveDropdown] = useState(null);
+    const [contextMenu, setContextMenu] = useState(null);
 
     // AI Design Generation
     const handleGenerateDesign = async () => {
         if (!aiPrompt.trim()) return;
-
         setIsGenerating(true);
 
         try {
@@ -57,23 +59,172 @@ function WorkbenchMechanical() {
         }, 1000);
     };
 
+    const toggleDropdown = (dropdownName) => {
+        setActiveDropdown(activeDropdown === dropdownName ? null : dropdownName);
+    };
+
+    const handleRightClick = (e, itemType) => {
+        e.preventDefault();
+        setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            type: itemType
+        });
+    };
+
+    const closeContextMenu = () => setContextMenu(null);
+
     return (
         <>
-            {/* LEFT TOOLBAR - ICON ONLY */}
-            <aside className="workbench-tools">
+            {/* LEFT TOOLBAR - ICON WITH DROPDOWNS */}
+            <aside className="workbench-tools" onClick={() => setActiveDropdown(null)}>
                 <button className="tool-icon-button" title="Select">⬚</button>
                 <button className="tool-icon-button" title="Move">✥</button>
-                <button className="tool-icon-button active" title="Sketch">✎</button>
-                <button className="tool-icon-button" title="Extrude">⬆</button>
-                <button className="tool-icon-button" title="Revolve">⟳</button>
-                <button className="tool-icon-button" title="Fillet">⌒</button>
-                <button className="tool-icon-button" title="Chamfer">⌐</button>
-                <button className="tool-icon-button" title="Hole">⊙</button>
-                <button className="tool-icon-button" title="Pattern">▦</button>
+
+                {/* Sketch Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button active"
+                        title="Sketch"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('sketch'); }}
+                    >
+                        ✎
+                    </button>
+                    {activeDropdown === 'sketch' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Line</div>
+                            <div className="dropdown-item">Circle</div>
+                            <div className="dropdown-item">Arc</div>
+                            <div className="dropdown-item">Rectangle</div>
+                            <div className="dropdown-item">Polygon</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Dimension</div>
+                            <div className="dropdown-item">Constraints</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Features Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Features"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('features'); }}
+                    >
+                        ⬆
+                    </button>
+                    {activeDropdown === 'features' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Extrude</div>
+                            <div className="dropdown-item">Revolve</div>
+                            <div className="dropdown-item">Sweep</div>
+                            <div className="dropdown-item">Loft</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Fillet</div>
+                            <div className="dropdown-item">Chamfer</div>
+                            <div className="dropdown-item">Hole</div>
+                            <div className="dropdown-item">Shell</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Sheet Metal Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Sheet Metal"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('sheetmetal'); }}
+                    >
+                        ⎕
+                    </button>
+                    {activeDropdown === 'sheetmetal' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Create</div>
+                            <div className="dropdown-item">Base Face</div>
+                            <div className="dropdown-item">Edge Flange</div>
+                            <div className="dropdown-item">Contour Flange</div>
+                            <div className="dropdown-item">Hem</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Modify</div>
+                            <div className="dropdown-item">Fold</div>
+                            <div className="dropdown-item">Unfold</div>
+                            <div className="dropdown-item">Corner Relief</div>
+                            <div className="dropdown-item">Rip</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">✓ Flat Pattern</div>
+                            <div className="dropdown-item">Export DXF</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Pattern Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Pattern"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('pattern'); }}
+                    >
+                        ▦
+                    </button>
+                    {activeDropdown === 'pattern' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Linear Pattern</div>
+                            <div className="dropdown-item">Circular Pattern</div>
+                            <div className="dropdown-item">Mirror</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Assembly Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Assembly"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('assembly'); }}
+                    >
+                        🔗
+                    </button>
+                    {activeDropdown === 'assembly' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Insert Component</div>
+                            <div className="dropdown-item">Mate</div>
+                            <div className="dropdown-item">Angle</div>
+                            <div className="dropdown-item">Tangent</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Motion Study</div>
+                            <div className="dropdown-item">Exploded View</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Analysis Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Analysis"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('analysis'); }}
+                    >
+                        📊
+                    </button>
+                    {activeDropdown === 'analysis' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">FEA Analysis</div>
+                            <div className="dropdown-item">Motion Simulation</div>
+                            <div className="dropdown-item">Mass Properties</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">2D Drawing</div>
+                            <div className="dropdown-item">Generate BOM</div>
+                        </div>
+                    )}
+                </div>
             </aside>
 
             {/* CENTER VIEWPORT - HERO */}
-            <main className="workbench-viewport">
+            <main
+                className="workbench-viewport"
+                onContextMenu={(e) => handleRightClick(e, 'viewport')}
+                onClick={closeContextMenu}
+            >
                 <Viewport3D canvasId="render-canvas-mechanical" domain="mechanical" />
             </main>
 
@@ -124,6 +275,26 @@ function WorkbenchMechanical() {
                     <button className="property-button">Generate Drawing</button>
                 </div>
             </aside>
+
+            {/* Context Menu */}
+            {contextMenu && (
+                <div
+                    className="context-menu"
+                    style={{ left: contextMenu.x, top: contextMenu.y }}
+                    onClick={closeContextMenu}
+                >
+                    <div className="context-menu-item">Edit Feature</div>
+                    <div className="context-menu-item">Suppress</div>
+                    <div className="context-menu-item">Delete</div>
+                    {contextMenu.type === 'viewport' && (
+                        <>
+                            <div className="context-menu-divider"></div>
+                            <div className="context-menu-item">New Sketch</div>
+                            <div className="context-menu-item">Select Bodies</div>
+                        </>
+                    )}
+                </div>
+            )}
         </>
     );
 }
