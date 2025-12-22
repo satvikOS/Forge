@@ -23,6 +23,10 @@ const complianceService = require('../services/analysis/complianceService');
 const multibodyDynamics = require('../services/analysis/multibodyDynamicsService');
 const optimizationService = require('../services/ai/optimizationService');
 const constraintAnalyzer = require('../services/analysis/constraintAnalyzer');
+const workflowOrchestrator = require('../services/ai/workflowOrchestrator');
+const reverseEngineering = require('../services/cad/reverseEngineeringService');
+const parametricSolver = require('../services/cad/parametricSolver');
+const brepGenerative = require('../services/ai/brepGenerativeService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
@@ -2242,6 +2246,168 @@ router.post('/simulation/mesh/adaptive', async (req, res) => {
         const { mesh, solutionResults, targetError } = req.body;
         const result = simulationPrep.adaptiveMeshing(mesh, solutionResults, targetError);
         res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Workflow Orchestrator routes
+router.post('/workflow/orchestrate', async (req, res) => {
+    try {
+        const { description, context } = req.body;
+        const result = await workflowOrchestrator.orchestrateWorkflow(description, context);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/workflow/status/:workflowId', async (req, res) => {
+    try {
+        const { workflowId } = req.params;
+        const status = workflowOrchestrator.getWorkflowStatus(workflowId);
+        res.json({ success: true, ...status });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/workflow/templates', async (req, res) => {
+    try {
+        const templates = workflowOrchestrator.getTemplates();
+        res.json({ success: true, templates });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/workflow/templates', async (req, res) => {
+    try {
+        const template = workflowOrchestrator.createTemplate(req.body);
+        res.json({ success: true, template });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Reverse Engineering routes
+router.post('/cad/reverse-engineering/import-scan', async (req, res) => {
+    try {
+        const { scanData, options } = req.body;
+        const scan = await reverseEngineering.importScan(scanData, options);
+        res.json({ success: true, scan });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cad/reverse-engineering/detect-features', async (req, res) => {
+    try {
+        const { scan, options } = req.body;
+        const features = await reverseEngineering.detectFeatures(scan, options);
+        res.json({ success: true, features });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cad/reverse-engineering/reconstruct', async (req, res) => {
+    try {
+        const { scan, features, options } = req.body;
+        const model = await reverseEngineering.reconstructModel(scan, features, options);
+        res.json({ success: true, model });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cad/reverse-engineering/deviation', async (req, res) => {
+    try {
+        const { scan, cadModel } = req.body;
+        const analysis = reverseEngineering.analyzeDeviation(scan, cadModel);
+        res.json({ success: true, analysis });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Parametric Solver routes
+router.post('/cad/parametric/update-parameter', async (req, res) => {
+    try {
+        const { modelId, parameterName, newValue } = req.body;
+        const result = await parametricSolver.updateParameter(modelId, parameterName, newValue);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/cad/parametric/dependencies/:modelId', async (req, res) => {
+    try {
+        const { modelId } = req.params;
+        const graph = parametricSolver.getDependencyGraph(modelId);
+        res.json({ success: true, graph });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cad/parametric/validate-edit', async (req, res) => {
+    try {
+        const { modelId, parameterName, newValue } = req.body;
+        const validation = parametricSolver.validateEdit(modelId, parameterName, newValue);
+        res.json({ success: true, ...validation });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cad/parametric/link-parameters', async (req, res) => {
+    try {
+        const { modelId, linkSpec } = req.body;
+        const result = parametricSolver.linkParameters(modelId, linkSpec);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// B-rep Generative routes
+router.post('/ai/brep/generate', async (req, res) => {
+    try {
+        const { prompt, options } = req.body;
+        const model = await brepGenerative.generateBRep(prompt, options);
+        res.json({ success: true, model });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/ai/brep/add-feature', async (req, res) => {
+    try {
+        const { existingModel, featureDescription } = req.body;
+        const model = await brepGenerative.addFeature(existingModel, featureDescription);
+        res.json({ success: true, model });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/ai/brep/style-transfer', async (req, res) => {
+    try {
+        const { sourceModel, targetStyle } = req.body;
+        const model = await brepGenerative.styleTransfer(sourceModel, targetStyle);
+        res.json({ success: true, model });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/ai/brep/variations', async (req, res) => {
+    try {
+        const { baseModel, options } = req.body;
+        const variations = await brepGenerative.generateVariations(baseModel, options);
+        res.json({ success: true, variations });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
