@@ -2077,6 +2077,40 @@ router.post('/compliance/report', async (req, res) => {
         });
     }
 });
+});
+
+// Enhanced FEA routes
+router.post('/analysis/fea/dynamic', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const mesh = feaService.generateMesh(modelData.geometry, options.meshSize);
+        const material = feaService.materials[options.material];
+        const results = await feaService.dynamicAnalysis(mesh, material, options.loads, options.constraints, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/fea/contacts', async (req, res) => {
+    try {
+        const { assembly } = req.body;
+        const contacts = feaService.detectContacts(assembly);
+        res.json({ success: true, contacts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/fea/stress-concentrations', async (req, res) => {
+    try {
+        const { stresses, threshold } = req.body;
+        const concentrations = feaService.identifyStressConcentrations(stresses, threshold);
+        res.json({ success: true, concentrations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 
 module.exports = router;
