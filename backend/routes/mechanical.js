@@ -17,6 +17,9 @@ const thermalAnalysis = require('../services/analysis/thermalAnalysisService');
 const modalAnalysis = require('../services/analysis/modalAnalysisService');
 const simulationPrep = require('../services/analysis/simulationPrepService');
 const DesignRationaleService = require('../services/ai/designRationaleService');
+const surfacingEngine = require('../services/cad/surfacingEngine');
+const directEditEngine = require('../services/cad/directEditEngine');
+const complianceService = require('../services/analysis/complianceService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
@@ -1800,6 +1803,274 @@ router.post('/rationale/compliance', async (req, res) => {
         });
     } catch (error) {
         console.error('Error explaining compliance:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ===================================================================
+// SURFACING, DIRECT  EDIT & COMPLIANCE ROUTES
+// ===================================================================
+
+/**
+ * Create lofted surface
+ * POST /api/mechanical/surface/loft
+ */
+router.post('/surface/loft', async (req, res) => {
+    try {
+        const { profiles, options } = req.body;
+        const surface = await surfacingEngine.createLoftedSurface(profiles, options);
+
+        res.json({
+            success: true,
+            surface: surface
+        });
+    } catch (error) {
+        console.error('Error creating lofted surface:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Create swept surface
+ * POST /api/mechanical/surface/sweep
+ */
+router.post('/surface/sweep', async (req, res) => {
+    try {
+        const { profile, path, options } = req.body;
+        const surface = await surfacingEngine.createSweptSurface(profile, path, options);
+
+        res.json({
+            success: true,
+            surface: surface
+        });
+    } catch (error) {
+        console.error('Error creating swept surface:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Create blend surface
+ * POST /api/mechanical/surface/blend
+ */
+router.post('/surface/blend', async (req, res) => {
+    try {
+        const { surface1, surface2, options } = req.body;
+        const blend = await surfacingEngine.createBlendSurface(surface1, surface2, options);
+
+        res.json({
+            success: true,
+            surface: blend
+        });
+    } catch (error) {
+        console.error('Error creating blend surface:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Analyze surface curvature
+ * POST /api/mechanical/surface/curvature
+ */
+router.post('/surface/curvature', async (req, res) => {
+    try {
+        const { surface, analysisType } = req.body;
+        const analysis = surfacingEngine.analyzeCurvature(surface, analysisType);
+
+        res.json({
+            success: true,
+            analysis: analysis
+        });
+    } catch (error) {
+        console.error('Error analyzing curvature:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Generate zebra stripes
+ * POST /api/mechanical/surface/zebra
+ */
+router.post('/surface/zebra', async (req, res) => {
+    try {
+        const { surface, lightDirection } = req.body;
+        const stripes = surfacingEngine.generateZebraStripes(surface, lightDirection);
+
+        res.json({
+            success: true,
+            stripes: stripes
+        });
+    } catch (error) {
+        console.error('Error generating zebra stripes:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Push/Pull face (direct edit)
+ * POST /api/mechanical/direct/pushpull
+ */
+router.post('/direct/pushpull', async (req, res) => {
+    try {
+        const { model, faceId, distance, options } = req.body;
+        const result = directEditEngine.pushPullFace(model, faceId, distance, options);
+
+        res.json({
+            success: true,
+            result: result
+        });
+    } catch (error) {
+        console.error('Error in push/pull:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Move face (direct edit)
+ * POST /api/mechanical/direct/moveface
+ */
+router.post('/direct/moveface', async (req, res) => {
+    try {
+        const { model, faceId, translation, options } = req.body;
+        const result = directEditEngine.moveFace(model, faceId, translation, options);
+
+        res.json({
+            success: true,
+            result: result
+        });
+    } catch (error) {
+        console.error('Error moving face:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Recognize features (direct edit)
+ * POST /api/mechanical/direct/recognize
+ */
+router.post('/direct/recognize', async (req, res) => {
+    try {
+        const { model } = req.body;
+        const recognized = await directEditEngine.recognizeFeatures(model);
+
+        res.json({
+            success: true,
+            recognized: recognized
+        });
+    } catch (error) {
+        console.error('Error recognizing features:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Verify ISO tolerances
+ * POST /api/mechanical/compliance/iso
+ */
+router.post('/compliance/iso', async (req, res) => {
+    try {
+        const { modelData, tolerances } = req.body;
+        const result = await complianceService.verifyISOTolerances(modelData, tolerances);
+
+        res.json({
+            success: true,
+            result: result
+        });
+    } catch (error) {
+        console.error('Error verifying ISO compliance:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Verify safety standards
+ * POST /api/mechanical/compliance/safety
+ */
+router.post('/compliance/safety', async (req, res) => {
+    try {
+        const { modelData, standards } = req.body;
+        const result = await complianceService.verifySafetyStandards(modelData, standards);
+
+        res.json({
+            success: true,
+            result: result
+        });
+    } catch (error) {
+        console.error('Error verifying safety standards:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Verify RoHS compliance
+ * POST /api/mechanical/compliance/rohs
+ */
+router.post('/compliance/rohs', async (req, res) => {
+    try {
+        const { modelData, materials } = req.body;
+        const result = await complianceService.verifyRoHS(modelData, materials);
+
+        res.json({
+            success: true,
+            result: result
+        });
+    } catch (error) {
+        console.error('Error verifying RoHS:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Generate compliance report
+ * POST /api/mechanical/compliance/report
+ */
+router.post('/compliance/report', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const report = await complianceService.generateComplianceReport(modelData, options);
+
+        res.json({
+            success: true,
+            report: report
+        });
+    } catch (error) {
+        console.error('Error generating compliance report:', error);
         res.status(500).json({
             success: false,
             error: error.message
