@@ -36,6 +36,12 @@ const additiveManufacturing = require('../services/manufacturing/additiveManufac
 const costEstimation = require('../services/manufacturing/costEstimationService');
 const jigsFixtures = require('../services/manufacturing/jigsFixturesService');
 const dfaMechanisms = require('../services/manufacturing/dfaMechanismsService');
+const gdtService = require('../services/cad/gdtService');
+const standardComponents = require('../services/cad/standardComponentService');
+const bomService = require('../services/cad/bomService');
+const mbdService = require('../services/cad/mbdService');
+const technicalManual = require('../services/cad/technicalManualService');
+const revisionControl = require('../services/cad/revisionControlService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
 
@@ -2750,6 +2756,270 @@ router.post('/mechanisms/design', async (req, res) => {
         const { motionRequirements, options } = req.body;
         const mechanism = await dfaMechanisms.designMechanism(motionRequirements, options);
         res.json({ success: true, mechanism });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== GD&T & TOLERANCE INTEGRATION (PHASE 1) ====================
+
+router.post('/gdt/add-annotation', async (req, res) => {
+    try {
+        const { modelData, annotationSpec } = req.body;
+        const annotation = await gdtService.addGDTAnnotation(modelData, annotationSpec);
+        res.json({ success: true, annotation });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/gdt/verify-compliance', async (req, res) => {
+    try {
+        const { modelData, standard } = req.body;
+        const compliance = await gdtService.verifyGDTCompliance(modelData, standard);
+        res.json({ success: true, compliance });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/gdt/adjust-cam', async (req, res) => {
+    try {
+        const { toolpaths, gdtAnnotations } = req.body;
+        const adjustments = gdtService.adjustCAMForTolerances(toolpaths, gdtAnnotations);
+        res.json({ success: true, adjustments });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/gdt/process-plan', async (req, res) => {
+    try {
+        const { modelData, gdtAnnotations } = req.body;
+        const processPlan = gdtService.generateProcessPlan(modelData, gdtAnnotations);
+        res.json({ success: true, processPlan });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== STANDARD COMPONENTS (PHASE 1) ====================
+
+router.post('/components/search', async (req, res) => {
+    try {
+        const { specifications } = req.body;
+        const results = standardComponents.searchComponents(specifications);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/components/suggest-replacement', async (req, res) => {
+    try {
+        const { customPart, options } = req.body;
+        const suggestions = await standardComponents.suggestStandardReplacement(customPart, options);
+        res.json({ success: true, suggestions });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/components/supplier-info/:partNumber/:vendor', async (req, res) => {
+    try {
+        const { partNumber, vendor } = req.params;
+        const info = standardComponents.getSupplierInfo(partNumber, vendor);
+        res.json({ success: true, info });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== BOM GENERATION (PHASE 2) ====================
+
+router.post('/bom/hierarchical', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const bom = await bomService.generateHierarchicalBOM(assemblyData, options);
+        res.json({ success: true, bom });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/bom/flat', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const bom = await bomService.generateFlatBOM(assemblyData, options);
+        res.json({ success: true, bom });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/bom/export', async (req, res) => {
+    try {
+        const { bom, format } = req.body;
+        const exported = await bomService.exportBOM(bom, format);
+        res.json({ success: true, exported });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/bom/configuration', async (req, res) => {
+    try {
+        const { assemblyData, configurationName } = req.body;
+        const bom = await bomService.generateConfigurationBOM(assemblyData, configurationName);
+        res.json({ success: true, bom });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/bom/add-to-drawing', async (req, res) => {
+    try {
+        const { drawingData, bom, placement } = req.body;
+        const table = bomService.addBOMToDrawing(drawingData, bom, placement);
+        res.json({ success: true, table });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== MODEL-BASED DEFINITION (PHASE 2) ====================
+
+router.post('/mbd/embed-pmi', async (req, res) => {
+    try {
+        const { modelData, pmiData } = req.body;
+        const pmi = await mbdService.embedPMI(modelData, pmiData);
+        res.json({ success: true, pmi });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mbd/generate-3d-spec', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const specification = await mbdService.generate3DSpecification(modelData, options);
+        res.json({ success: true, specification });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mbd/qr-code', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const qrCode = await mbdService.generateQRCode(modelData, options);
+        res.json({ success: true, qrCode });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mbd/shop-floor-access', async (req, res) => {
+    try {
+        const { modelData, qrCode } = req.body;
+        const accessConfig = await mbdService.setupShopFloorAccess(modelData, qrCode);
+        res.json({ success: true, accessConfig });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== TECHNICAL MANUALS (PHASE 2) ====================
+
+router.post('/manual/exploded-view', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const explodedView = await technicalManual.generateExplodedView(assemblyData, options);
+        res.json({ success: true, explodedView });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/manual/assembly-instructions', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const instructions = await technicalManual.generateAssemblyInstructions(assemblyData, options);
+        res.json({ success: true, instructions });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/manual/pdf-booklet', async (req, res) => {
+    try {
+        const { content, options } = req.body;
+        const pdf = await technicalManual.generatePDFBooklet(content, options);
+        res.json({ success: true, pdf });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/manual/service-manual', async (req, res) => {
+    try {
+        const { productData } = req.body;
+        const serviceManual = await technicalManual.generateServiceManual(productData);
+        res.json({ success: true, serviceManual });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== REVISION CONTROL (PHASE 2) ====================
+
+router.post('/revision/create', async (req, res) => {
+    try {
+        const { modelData, changes, options } = req.body;
+        const revision = await revisionControl.createRevision(modelData, changes, options);
+        res.json({ success: true, revision });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/revision/request-approval', async (req, res) => {
+    try {
+        const { revision, approvers } = req.body;
+        const approvalRequest = await revisionControl.requestApproval(revision, approvers);
+        res.json({ success: true, approvalRequest });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/revision/approve', async (req, res) => {
+    try {
+        const { revision, approverName, decision, options } = req.body;
+        const result = await revisionControl.processApproval(revision, approverName, decision, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/revision/release', async (req, res) => {
+    try {
+        const { modelData, releaseOptions } = req.body;
+        const release = await revisionControl.releaseModel(modelData, releaseOptions);
+        res.json({ success: true, release });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/revision/audit-trail/:modelId', async (req, res) => {
+    try {
+        const { modelId } = req.params;
+        // Would fetch modelData by ID
+        const modelData = { id: modelId }; // Placeholder
+        const trail = revisionControl.getAuditTrail(modelData);
+        res.json({ success: true, trail });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
