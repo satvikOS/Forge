@@ -224,6 +224,30 @@ function WorkbenchMechanical() {
                     )}
                 </div>
 
+                {/* AI Optimization Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="AI Optimization"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('ai_optimize'); }}
+                    >
+                        🧠
+                    </button>
+                    {activeDropdown === 'ai_optimize' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Optimization</div>
+                            <div className="dropdown-item">Topology Optimization</div>
+                            <div className="dropdown-item">Generative Design</div>
+                            <div className="dropdown-item">Lattice Structures</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Analysis</div>
+                            <div className="dropdown-item">DFM Analysis</div>
+                            <div className="dropdown-item">Cost Estimation</div>
+                            <div className="dropdown-item">Design Validation</div>
+                        </div>
+                    )}
+                </div>
+
                 {/* Analysis Dropdown */}
                 <div className="tool-dropdown-container">
                     <button

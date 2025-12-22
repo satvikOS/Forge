@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mechanicalDesignService = require('../services/ai/mechanicalDesignService');
+const TopologyOptimizationService = require('../services/ai/topologyOptimizationService');
 const parametricEngine = require('../services/cad/parametricEngine');
 const sketchEngine = require('../services/cad/sketchEngine');
 const assemblyEngine = require('../services/cad/assemblyEngine');
@@ -11,12 +12,14 @@ const WeldmentsEngine = require('../services/cad/weldmentsEngine');
 const feaService = require('../services/analysis/feaService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
+const bedrockService = require('../services/bedrockService');
 
 // Initialize CAD services
 const drawingEngine = new DrawingEngine();
 const drawingExportService = new DrawingExportService();
 const sheetMetalEngine = new SheetMetalEngine();
 const weldmentsEngine = new WeldmentsEngine();
+const topologyOptimization = new TopologyOptimizationService(bedrockService);
 
 /**
  * Mechanical CAD API Routes
@@ -1130,6 +1133,122 @@ router.post('/weldments/end-cap', async (req, res) => {
 
     } catch (error) {
         console.error('Error creating end cap:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== AI Optimization Operations ====================
+
+/**
+ * POST /api/mechanical/optimize/topology
+ * Run topology optimization on part
+ */
+router.post('/optimize/topology', async (req, res) => {
+    try {
+        const { part, options } = req.body;
+
+        if (!part) {
+            return res.status(400).json({ error: 'part is required' });
+        }
+
+        console.log(`🧠 Starting topology optimization...`);
+
+        const optimization = await topologyOptimization.optimizePart(part, options);
+
+        res.json({
+            success: true,
+            optimization,
+            message: 'Topology optimization completed'
+        });
+
+    } catch (error) {
+        console.error('Error in topology optimization:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/optimize/generative
+ * Generate design alternatives using AI
+ */
+router.post('/optimize/generative', async (req, res) => {
+    try {
+        const { requirements, count } = req.body;
+
+        if (!requirements) {
+            return res.status(400).json({ error: 'requirements are required' });
+        }
+
+        console.log(`🧠 Generating ${count || 5} design alternatives...`);
+
+        const alternatives = await topologyOptimization.generateDesignAlternatives(
+            requirements,
+            count || 5
+        );
+
+        res.json({
+            success: true,
+            alternatives,
+            count: alternatives.length,
+            message: 'Design alternatives generated'
+        });
+
+    } catch (error) {
+        console.error('Error generating alternatives:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/optimize/lattice
+ * Generate lattice structure
+ */
+router.post('/optimize/lattice', async (req, res) => {
+    try {
+        const { region, cellType } = req.body;
+
+        if (!region) {
+            return res.status(400).json({ error: 'region is required' });
+        }
+
+        const lattice = topologyOptimization.generateLattice(region, cellType);
+
+        res.json({
+            success: true,
+            lattice,
+            message: 'Lattice structure generated'
+        });
+
+    } catch (error) {
+        console.error('Error generating lattice:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/optimize/dfm
+ * Analyze design for manufacturability
+ */
+router.post('/optimize/dfm', async (req, res) => {
+    try {
+        const { part, manufacturingMethod } = req.body;
+
+        if (!part || !manufacturingMethod) {
+            return res.status(400).json({ error: 'part and manufacturingMethod are required' });
+        }
+
+        console.log(`🔍 Analyzing DFM for ${manufacturingMethod}...`);
+
+        const dfmAnalysis = await topologyOptimization.analyzeDFM(part, manufacturingMethod);
+
+        res.json({
+            success: true,
+            dfm: dfmAnalysis,
+            message: 'DFM analysis completed'
+        });
+
+    } catch (error) {
+        console.error('Error in DFM analysis:', error);
         res.status(500).json({ error: error.message });
     }
 });
