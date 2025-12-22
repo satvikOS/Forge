@@ -310,11 +310,20 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'analysis' && (
                         <div className="tool-dropdown">
+                            <div className="dropdown-header">Structural</div>
                             <div className="dropdown-item">FEA Analysis</div>
-                            <div className="dropdown-item">Motion Simulation</div>
-                            <div className="dropdown-item">Mass Properties</div>
+                            <div className="dropdown-item">Modal Analysis</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">2D Drawing</div>
+                            <div className="dropdown-header">Motion</div>
+                            <div className="dropdown-item">Kinematic Simulation</div>
+                            <div className="dropdown-item">Motion Analysis</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Thermal</div>
+                            <div className="dropdown-item">Steady-State</div>
+                            <div className="dropdown-item">Transient</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Other</div>
+                            <div className="dropdown-item">Mass Properties</div>
                             <div className="dropdown-item">Generate BOM</div>
                         </div>
                     )}

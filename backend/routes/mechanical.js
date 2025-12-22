@@ -12,6 +12,9 @@ const WeldmentsEngine = require('../services/cad/weldmentsEngine');
 const ConfigurationService = require('../services/cad/configurationService');
 const TemplateService = require('../services/cad/templateService');
 const feaService = require('../services/analysis/feaService');
+const kinematicAnalysis = require('../services/analysis/kinematicAnalysisService');
+const thermalAnalysis = require('../services/analysis/thermalAnalysisService');
+const modalAnalysis = require('../services/analysis/modalAnalysisService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
@@ -1543,6 +1546,143 @@ router.post('/templates/custom', async (req, res) => {
         });
     } catch (error) {
         console.error('Error creating custom template:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ===================================================================
+// ADVANCED ANALYSIS ROUTES
+// ===================================================================
+
+/**
+ * Define kinematic joint
+ * POST /api/mechanical/analysis/kinematic/joint
+ */
+router.post('/analysis/kinematic/joint', async (req, res) => {
+    try {
+        const jointData = req.body;
+        const joint = kinematicAnalysis.defineJoint(jointData);
+
+        res.json({
+            success: true,
+            joint: joint
+        });
+    } catch (error) {
+        console.error('Error defining joint:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Simulate motion
+ * POST /api/mechanical/analysis/kinematic/simulate
+ */
+router.post('/analysis/kinematic/simulate', async (req, res) => {
+    try {
+        const { joints, duration, timeSteps } = req.body;
+        const results = await kinematicAnalysis.simulateMotion(joints, duration, timeSteps);
+
+        res.json({
+            success: true,
+            results: results
+        });
+    } catch (error) {
+        console.error('Error simulating motion:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Analyze mechanism degrees of freedom
+ * POST /api/mechanical/analysis/kinematic/dof
+ */
+router.post('/analysis/kinematic/dof', async (req, res) => {
+    try {
+        const assembly = req.body;
+        const analysis = kinematicAnalysis.analyzeMechanismDoF(assembly);
+
+        res.json({
+            success: true,
+            analysis: analysis
+        });
+    } catch (error) {
+        console.error('Error analyzing DoF:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Run thermal analysis
+ * POST /api/mechanical/analysis/thermal
+ */
+router.post('/analysis/thermal', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const results = await thermalAnalysis.analyze(modelData, options);
+
+        res.json({
+            success: true,
+            results: results
+        });
+    } catch (error) {
+        console.error('Error in thermal analysis:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Run modal analysis
+ * POST /api/mechanical/analysis/modal
+ */
+router.post('/analysis/modal', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const results = await modalAnalysis.analyze(modelData, options);
+
+        res.json({
+            success: true,
+            results: results
+        });
+    } catch (error) {
+        console.error('Error in modal analysis:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Export motion animation
+ * POST /api/mechanical/analysis/kinematic/export
+ */
+router.post('/analysis/kinematic/export', async (req, res) => {
+    try {
+        const { trajectory, format } = req.body;
+        const animation = kinematicAnalysis.exportMotionAnimation(trajectory, format);
+
+        res.json({
+            success: true,
+            animation: animation,
+            format: format
+        });
+    } catch (error) {
+        console.error('Error exporting animation:', error);
         res.status(500).json({
             success: false,
             error: error.message
