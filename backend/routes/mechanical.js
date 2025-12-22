@@ -28,6 +28,14 @@ const reverseEngineering = require('../services/cad/reverseEngineeringService');
 const parametricSolver = require('../services/cad/parametricSolver');
 const brepGenerative = require('../services/ai/brepGenerativeService');
 const camService = require('../services/manufacturing/camService');
+const advancedPhysics = require('../services/analysis/advancedPhysicsService');
+const largeAssembly = require('../services/optimization/largeAssemblyService');
+const moldDesign = require('../services/manufacturing/moldDesignService');
+const machiningSimulation = require('../services/manufacturing/machiningSimulationService');
+const additiveManufacturing = require('../services/manufacturing/additiveManufacturingService');
+const costEstimation = require('../services/manufacturing/costEstimationService');
+const jigsFixtures = require('../services/manufacturing/jigsFixturesService');
+const dfaMechanisms = require('../services/manufacturing/dfaMechanismsService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
 
@@ -2408,6 +2416,340 @@ router.post('/ai/brep/variations', async (req, res) => {
         const { baseModel, options } = req.body;
         const variations = await brepGenerative.generateVariations(baseModel, options);
         res.json({ success: true, variations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ADVANCED PHYSICS & ANALYSIS (GROUP 1) ====================
+
+router.post('/analysis/fatigue', async (req, res) => {
+    try {
+        const { modelData, loadHistory, options } = req.body;
+        const results = await advancedPhysics.fatigueAnalysis(modelData, loadHistory, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/nonlinear-fea', async (req, res) => {
+    try {
+        const { mesh, material, loads, constraints, options } = req.body;
+        const results = await advancedPhysics.nonlinearAnalysis(mesh, material, loads, constraints, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/buckling', async (req, res) => {
+    try {
+        const { mesh, material, loads, constraints, options } = req.body;
+        const results = await advancedPhysics.bucklingAnalysis(mesh, material, loads, constraints, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/analysis/export-motion-loads', async (req, res) => {
+    try {
+        const { multibodyResults, targetTime, options } = req.body;
+        const loadCase = advancedPhysics.exportMotionLoadsToFEA(multibodyResults, targetTime, options);
+        res.json({ success: true, loadCase });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== LARGE ASSEMBLY & MOLD DESIGN (GROUP 2) ====================
+
+router.post('/assembly/optimize', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const optimizations = await largeAssembly.optimizeAssembly(assemblyData, options);
+        res.json({ success: true, optimizations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/assembly/simplify', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const results = largeAssembly.simplifyStructure(assemblyData, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mold/draft-analysis', async (req, res) => {
+    try {
+        const { modelData, pullDirection, options } = req.body;
+        const analysis = await moldDesign.analyzeDraft(modelData, pullDirection, options);
+        res.json({ success: true, analysis });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mold/parting-line', async (req, res) => {
+    try {
+        const { modelData, pullDirection, options } = req.body;
+        const result = await moldDesign.detectPartingLine(modelData, pullDirection, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mold/core-cavity', async (req, res) => {
+    try {
+        const { modelData, partingLine, options } = req.body;
+        const result = await moldDesign.generateCoreCavity(modelData, partingLine, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== COMPREHENSIVE CAM (GROUP 4) ====================
+
+router.post('/cam/5-axis-toolpath', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const result = await camService.generate5AxisToolpath(modelData, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cam/turning-toolpath', async (req, res) => {
+    try {
+        const { profileData, options } = req.body;
+        const result = await camService.generateTurningToolpath(profileData, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cam/adaptive-toolpath', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const result = camService.generateAdaptiveToolpath(modelData, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cam/postprocess', async (req, res) => {
+    try {
+        const { toolpaths, machine, options } = req.body;
+        const result = camService.exportWithPostProcessor(toolpaths, machine, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ADDITIVE MANUFACTURING (GROUP 5) ====================
+
+router.post('/additive/optimize-orientation', async (req, res) => {
+    try {
+        const { modelData, options } = req.body;
+        const result = await additiveManufacturing.optimizePrintOrientation(modelData, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/additive/generate-supports', async (req, res) => {
+    try {
+        const { modelData, orientation, options } = req.body;
+        const supports = await additiveManufacturing.generateSupports(modelData, orientation, options);
+        res.json({ success: true, supports });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/additive/slice', async (req, res) => {
+    try {
+        const { modelData, printer, options } = req.body;
+        const result = await additiveManufacturing.sliceModel(modelData, printer, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/additive/nest-parts', async (req, res) => {
+    try {
+        const { parts, buildVolume, options } = req.body;
+        const result = additiveManufacturing.nestParts(parts, buildVolume, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== MACHINING SIMULATION (GROUP 6) ====================
+
+router.post('/simulation/material-removal', async (req, res) => {
+    try {
+        const { stockModel, toolpaths, options } = req.body;
+        const simulation = await machiningSimulation.simulateMaterialRemoval(stockModel, toolpaths, options);
+        res.json({ success: true, simulation });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/simulation/collision-detection', async (req, res) => {
+    try {
+        const { toolpaths, machine, workholding, options } = req.body;
+        const result = await machiningSimulation.detectCollisions(toolpaths, machine, workholding, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+}); router.post('/simulation/kinematics', async (req, res) => {
+    try {
+        const { toolpath, machine, options } = req.body;
+        const result = machiningSimulation.simulateKinematics(toolpath, machine, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/simulation/cycle-time', async (req, res) => {
+    try {
+        const { toolpaths, machine, options } = req.body;
+        const result = machiningSimulation.estimateCycleTime(toolpaths, machine, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== COST ESTIMATION (GROUP 7) ====================
+
+router.post('/cost/machining', async (req, res) => {
+    try {
+        const { partData, toolpaths, options } = req.body;
+        const estimate = await costEstimation.estimateMachiningCost(partData, toolpaths, options);
+        res.json({ success: true, estimate });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cost/additive', async (req, res) => {
+    try {
+        const { partData, printSettings, options } = req.body;
+        const estimate = await costEstimation.estimateAdditiveCost(partData, printSettings, options);
+        res.json({ success: true, estimate });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cost/assembly', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const estimate = await costEstimation.estimateAssemblyCost(assemblyData, options);
+        res.json({ success: true, estimate });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cost/compare-methods', async (req, res) => {
+    try {
+        const { partData, options } = req.body;
+        const comparison = await costEstimation.compareManufacturingMethods(partData, options);
+        res.json({ success: true, comparison });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== JIGS & FIXTURES (GROUP 8) ====================
+
+router.post('/fixtures/machining', async (req, res) => {
+    try {
+        const { partData, machiningSetup, options } = req.body;
+        const fixture = await jigsFixtures.generateMachiningFixture(partData, machiningSetup, options);
+        res.json({ success: true, fixture });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/fixtures/assembly', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const jig = await jigsFixtures.generateAssemblyJig(assemblyData, options);
+        res.json({ success: true, jig });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/fixtures/validate', async (req, res) => {
+    try {
+        const { fixture, machiningForces, options } = req.body;
+        const validation = jigsFixtures.validateFixtureDesign(fixture, machiningForces, options);
+        res.json({ success: true, validation });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== DFA & MECHANISMS (GROUP 8) ====================
+
+router.post('/dfa/plan-sequence', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const sequence = await dfaMechanisms.planAssemblySequence(assemblyData, options);
+        res.json({ success: true, sequence });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/dfa/check-interferences', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const interferences = await dfaMechanisms.checkAssemblyInterferences(assemblyData, options);
+        res.json({ success: true, interferences });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/dfa/route-cables', async (req, res) => {
+    try {
+        const { assemblyData, cableSpecs, options } = req.body;
+        const routes = await dfaMechanisms.routeCables(assemblyData, cableSpecs, options);
+        res.json({ success: true, routes });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mechanisms/design', async (req, res) => {
+    try {
+        const { motionRequirements, options } = req.body;
+        const mechanism = await dfaMechanisms.designMechanism(motionRequirements, options);
+        res.json({ success: true, mechanism });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
