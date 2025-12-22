@@ -7,14 +7,16 @@ const assemblyEngine = require('../services/cad/assemblyEngine');
 const DrawingEngine = require('../services/cad/drawingEngine');
 const DrawingExportService = require('../services/cad/drawingExportService');
 const SheetMetalEngine = require('../services/cad/sheetMetalEngine');
+const WeldmentsEngine = require('../services/cad/weldmentsEngine');
 const feaService = require('../services/analysis/feaService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
 
-// Initialize drawing and sheet metal services
+// Initialize CAD services
 const drawingEngine = new DrawingEngine();
 const drawingExportService = new DrawingExportService();
 const sheetMetalEngine = new SheetMetalEngine();
+const weldmentsEngine = new WeldmentsEngine();
 
 /**
  * Mechanical CAD API Routes
@@ -993,6 +995,141 @@ router.get('/sheetmetal/:partId/export-dxf', async (req, res) => {
 
     } catch (error) {
         console.error('Error exporting DXF:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== Weldments Operations ====================
+
+/**
+ * POST /api/mechanical/weldments/structural-frame
+ * Create structural frame from 3D sketch
+ */
+router.post('/weldments/structural-frame', async (req, res) => {
+    try {
+        const { sketchPath, profileType, profileSize } = req.body;
+
+        if (!sketchPath || !profileType || !profileSize) {
+            return res.status(400).json({ error: 'sketchPath, profileType, and profileSize are required' });
+        }
+
+        const frame = weldmentsEngine.createStructuralFrame(sketchPath, profileType, profileSize);
+
+        res.json({
+            success: true,
+            frame,
+            message: 'Structural frame created'
+        });
+
+    } catch (error) {
+        console.error('Error creating structural frame:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/weldments/add-weld
+ * Add weld to joint
+ */
+router.post('/weldments/add-weld', async (req, res) => {
+    try {
+        const { frame, jointId, weldType, options } = req.body;
+
+        if (!frame || !jointId || !weldType) {
+            return res.status(400).json({ error: 'frame, jointId, and weldType are required' });
+        }
+
+        const weld = weldmentsEngine.addWeld(frame, jointId, weldType, options);
+
+        res.json({
+            success: true,
+            weld,
+            frame,
+            message: 'Weld added'
+        });
+
+    } catch (error) {
+        console.error('Error adding weld:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/weldments/:frameId/cut-list
+ * Generate cut list for manufacturing
+ */
+router.get('/weldments/:frameId/cut-list', async (req, res) => {
+    try {
+        const { frameId } = req.params;
+        const { frame } = req.query; // Would normally fetch from database
+
+        if (!frame) {
+            return res.status(400).json({ error: 'frame data is required' });
+        }
+
+        const parsedFrame = JSON.parse(frame);
+        const cutList = weldmentsEngine.generateCutList(parsedFrame);
+
+        res.json({
+            success: true,
+            cutList,
+            message: 'Cut list generated'
+        });
+
+    } catch (error) {
+        console.error('Error generating cut list:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/weldments/gusset
+ * Create gusset plate at joint
+ */
+router.post('/weldments/gusset', async (req, res) => {
+    try {
+        const { frame, jointId, options } = req.body;
+
+        if (!frame || !jointId) {
+            return res.status(400).json({ error: 'frame and jointId are required' });
+        }
+
+        const gusset = weldmentsEngine.createGusset(frame, jointId, options);
+
+        res.json({
+            success: true,
+            gusset,
+            message: 'Gusset plate created'
+        });
+
+    } catch (error) {
+        console.error('Error creating gusset:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/weldments/end-cap
+ * Create end cap on structural member
+ */
+router.post('/weldments/end-cap', async (req, res) => {
+    try {
+        const { frame, segmentId, capType } = req.body;
+
+        if (!frame || !segmentId) {
+            return res.status(400).json({ error: 'frame and segmentId are required' });
+        }
+
+        const endCap = weldmentsEngine.createEndCap(frame, segmentId, capType);
+
+        res.json({
+            success: true,
+            endCap,
+            message: 'End cap created'
+        });
+
+    } catch (error) {
+        console.error('Error creating end cap:', error);
         res.status(500).json({ error: error.message });
     }
 });

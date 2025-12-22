@@ -197,6 +197,33 @@ function WorkbenchMechanical() {
                     )}
                 </div>
 
+                {/* Weldments Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Weldments"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('weldments'); }}
+                    >
+                        🔩
+                    </button>
+                    {activeDropdown === 'weldments' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Structural</div>
+                            <div className="dropdown-item">Structural Frame</div>
+                            <div className="dropdown-item">Trim/Extend</div>
+                            <div className="dropdown-item">End Cap</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Welds</div>
+                            <div className="dropdown-item">Fillet Weld</div>
+                            <div className="dropdown-item">Groove Weld</div>
+                            <div className="dropdown-item">Spot Weld</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Gusset Plate</div>
+                            <div className="dropdown-item">✓ Cut List</div>
+                        </div>
+                    )}
+                </div>
+
                 {/* Analysis Dropdown */}
                 <div className="tool-dropdown-container">
                     <button
