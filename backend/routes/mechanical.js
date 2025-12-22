@@ -9,6 +9,7 @@ const DrawingEngine = require('../services/cad/drawingEngine');
 const DrawingExportService = require('../services/cad/drawingExportService');
 const SheetMetalEngine = require('../services/cad/sheetMetalEngine');
 const WeldmentsEngine = require('../services/cad/weldmentsEngine');
+const ConfigurationService = require('../services/cad/configurationService');
 const feaService = require('../services/analysis/feaService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
@@ -20,6 +21,7 @@ const drawingExportService = new DrawingExportService();
 const sheetMetalEngine = new SheetMetalEngine();
 const weldmentsEngine = new WeldmentsEngine();
 const topologyOptimization = new TopologyOptimizationService(bedrockService);
+const configurationService = new ConfigurationService();
 
 /**
  * Mechanical CAD API Routes
@@ -1249,6 +1251,146 @@ router.post('/optimize/dfm', async (req, res) => {
 
     } catch (error) {
         console.error('Error in DFM analysis:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== Configuration Management ====================
+
+/**
+ * POST /api/mechanical/config/create
+ * Create new configuration
+ */
+router.post('/config/create', async (req, res) => {
+    try {
+        const { model, configName, parameters } = req.body;
+
+        if (!model || !configName) {
+            return res.status(400).json({ error: 'model and configName are required' });
+        }
+
+        const config = configurationService.createConfiguration(model, configName, parameters);
+
+        res.json({
+            success: true,
+            config,
+            message: 'Configuration created'
+        });
+
+    } catch (error) {
+        console.error('Error creating configuration:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/config/design-table
+ * Create design table
+ */
+router.post('/config/design-table', async (req, res) => {
+    try {
+        const { model, options } = req.body;
+
+        if (!model) {
+            return res.status(400).json({ error: 'model is required' });
+        }
+
+        const table = configurationService.createDesignTable(model, options);
+
+        res.json({
+            success: true,
+            table,
+            message: 'Design table created'
+        });
+
+    } catch (error) {
+        console.error('Error creating design table:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/config/switch
+ * Switch active configuration
+ */
+router.post('/config/switch', async (req, res) => {
+    try {
+        const { modelId, configId } = req.body;
+
+        if (!modelId || !configId) {
+            return res.status(400).json({ error: 'modelId and configId are required' });
+        }
+
+        const result = configurationService.switchConfiguration(modelId, configId);
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('Error switching configuration:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/config/:modelId/list
+ * Get all configurations for model
+ */
+router.get('/config/:modelId/list', async (req, res) => {
+    try {
+        const { modelId } = req.params;
+
+        const configs = configurationService.getConfigurations(modelId);
+
+        res.json({
+            success: true,
+            configurations: configs,
+            count: configs.length
+        });
+
+    } catch (error) {
+        console.error('Error listing configurations:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/config/table/import
+ * Import design table from CSV/Excel
+ */
+router.post('/config/table/import', async (req, res) => {
+    try {
+        const { tableId, fileData, format } = req.body;
+
+        if (!tableId || !fileData) {
+            return res.status(400).json({ error: 'tableId and fileData are required' });
+        }
+
+        const result = await configurationService.importDesignTable(tableId, fileData, format);
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('Error importing design table:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /apiapi/mechanical/config/table/:tableId/export
+ * Export design table to CSV
+ */
+router.get('/config/table/:tableId/export', async (req, res) => {
+    try {
+        const { tableId } = req.params;
+
+        const result = configurationService.exportDesignTableCSV(tableId);
+
+        res.set('Content-Type', result.mimeType);
+        res.set('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.send(result.content);
+
+    } catch (error) {
+        console.error('Error exporting design table:', error);
         res.status(500).json({ error: error.message });
     }
 });

@@ -248,6 +248,28 @@ function WorkbenchMechanical() {
                     )}
                 </div>
 
+                {/* Configuration Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Configuration"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('configuration'); }}
+                    >
+                        ⚙️
+                    </button>
+                    {activeDropdown === 'configuration' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">New Configuration</div>
+                            <div className="dropdown-item">Design Table</div>
+                            <div className="dropdown-item">Switch Configuration</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Import CSV/Excel</div>
+                            <div className="dropdown-item">Export Table</div>
+                            <div className="dropdown-item">Compare Configs</div>
+                        </div>
+                    )}
+                </div>
+
                 {/* Analysis Dropdown */}
                 <div className="tool-dropdown-container">
                     <button
