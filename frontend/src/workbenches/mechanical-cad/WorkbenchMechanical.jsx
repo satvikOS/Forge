@@ -248,6 +248,35 @@ function WorkbenchMechanical() {
                     )}
                 </div>
 
+                {/* Templates Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Templates"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('templates'); }}
+                    >
+                        📋
+                    </button>
+                    {activeDropdown === 'templates' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Standards</div>
+                            <div className="dropdown-item">ANSI Parts</div>
+                            <div className="dropdown-item">ISO Parts</div>
+                            <div className="dropdown-item">DIN Parts</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Assemblies</div>
+                            <div className="dropdown-item">Frame Assembly</div>
+                            <div className="dropdown-item">Modular System</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Drawings</div>
+                            <div className="dropdown-item">ANSI A Size</div>
+                            <div className="dropdown-item">ISO A3</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Custom Templates...</div>
+                        </div>
+                    )}
+                </div>
+
                 {/* Configuration Dropdown */}
                 <div className="tool-dropdown-container">
                     <button

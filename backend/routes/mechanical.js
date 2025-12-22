@@ -10,6 +10,7 @@ const DrawingExportService = require('../services/cad/drawingExportService');
 const SheetMetalEngine = require('../services/cad/sheetMetalEngine');
 const WeldmentsEngine = require('../services/cad/weldmentsEngine');
 const ConfigurationService = require('../services/cad/configurationService');
+const TemplateService = require('../services/cad/templateService');
 const feaService = require('../services/analysis/feaService');
 const camService = require('../services/manufacturing/camService');
 const jobQueue = require('../services/jobQueue');
@@ -22,6 +23,7 @@ const sheetMetalEngine = new SheetMetalEngine();
 const weldmentsEngine = new WeldmentsEngine();
 const topologyOptimization = new TopologyOptimizationService(bedrockService);
 const configurationService = new ConfigurationService();
+const templateService = new TemplateService();
 
 /**
  * Mechanical CAD API Routes
@@ -1441,5 +1443,112 @@ async function processFEAJob(jobId, modelData, analysisOptions) {
         throw error;
     }
 }
+
+// ===================================================================
+// TEMPLATES & STANDARDS ROUTES
+// ===================================================================
+
+/**
+ * List available templates
+ * GET /api/mechanical/templates
+ */
+router.get('/templates', async (req, res) => {
+    try {
+        const { type, standard } = req.query;
+        const templates = templateService.listTemplates(type, standard);
+
+        res.json({
+            success: true,
+            templates: templates,
+            count: templates.length
+        });
+    } catch (error) {
+        console.error('Error listing templates:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Get template details
+ * GET /api/mechanical/templates/:templateId
+ */
+router.get('/templates/:templateId', async (req, res) => {
+    try {
+        const { templateId } = req.params;
+        const template = templateService.getTemplate(templateId);
+        const preview = templateService.getTemplatePreview(templateId);
+
+        res.json({
+            success: true,
+            template: template,
+            preview: preview
+        });
+    } catch (error) {
+        console.error('Error getting template:', error);
+        res.status(404).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Create model from template
+ * POST /api/mechanical/templates/:templateId/create
+ */
+router.post('/templates/:templateId/create', async (req, res) => {
+    try {
+        const { templateId } = req.params;
+        const { customParameters } = req.body;
+
+        const model = templateService.createFromTemplate(templateId, customParameters);
+
+        res.json({
+            success: true,
+            model: model,
+            message: `Model created from template: ${templateId}`
+        });
+    } catch (error) {
+        console.error('Error creating from template:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Create custom template
+ * POST /api/mechanical/templates/custom
+ */
+router.post('/templates/custom', async (req, res) => {
+    try {
+        const { name, baseTemplateId, customizations } = req.body;
+
+        const customTemplate = templateService.createCustomTemplate(
+            name,
+            baseTemplateId,
+            customizations
+        );
+
+        const saved = templateService.saveToLibrary(customTemplate, 'custom');
+
+        res.json({
+            success: true,
+            template: customTemplate,
+            saved: saved
+        });
+    } catch (error) {
+        console.error('Error creating custom template:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 
 module.exports = router;
