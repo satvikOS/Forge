@@ -74,6 +74,262 @@ function WorkbenchMechanical() {
 
     const closeContextMenu = () => setContextMenu(null);
 
+    // ==================== HANDLER FUNCTIONS FOR ALL SERVICES ====================
+
+    // CAM/Manufacturing Handlers
+    const handleCAMOperation = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/cam/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`CAM ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in CAM ${operation}:`, error);
+        }
+    };
+
+    // GD&T Handlers
+    const handleGDT = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/gdt/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`GD&T ${operation}completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in GD&T ${operation}:`, error);
+        }
+    };
+
+    // BOM Handlers
+    const handleBOM = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/bom/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`BOM ${operation} completed:`, result);
+                // Could trigger download for Excel/CSV exports
+                if (operation === 'export' && result.exported) {
+                    downloadFile(result.exported.content, result.exported.filename);
+                }
+            }
+        } catch (error) {
+            console.error(`Error in BOM ${operation}:`, error);
+        }
+    };
+
+    // MBD Handlers
+    const handleMBD = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/mbd/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`MBD ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in MBD ${operation}:`, error);
+        }
+    };
+
+    // Technical Manuals Handlers
+    const handleManual = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/manual/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Manual ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Manual ${operation}:`, error);
+        }
+    };
+
+    // Revision Control Handlers
+    const handleRevision = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/revision/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Revision ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Revision ${operation}:`, error);
+        }
+    };
+
+    // Cost Estimation Handlers
+    const handleCost = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/cost/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Cost ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Cost ${operation}:`, error);
+        }
+    };
+
+    // Fixtures Handlers
+    const handleFixtures = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/fixtures/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Fixtures ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Fixtures ${operation}:`, error);
+        }
+    };
+
+    // DFA & Mechanisms Handlers
+    const handleDFA = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/dfa/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`DFA ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in DFA ${operation}:`, error);
+        }
+    };
+
+    // Machining Simulation Handlers
+    const handleMachiningSimulation = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/simulation/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Machining Simulation ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Machining Simulation ${operation}:`, error);
+        }
+    };
+
+    // Mold Design Handlers
+    const handleMoldDesign = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/mold/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Mold Design ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Mold Design ${operation}:`, error);
+        }
+    };
+
+    // Additive Manufacturing Handlers
+    const handleAdditive = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/additive/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Additive ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Additive ${operation}:`, error);
+        }
+    };
+
+    // Standard Components Handlers
+    const handleComponents = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/components/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Components ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Components ${operation}:`, error);
+        }
+    };
+
+    // Analysis Handlers (Enhanced)
+    const handleAnalysis = async (operation, data = {}) => {
+        try {
+            const response = await fetch(`/api/mechanical/analysis/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`Analysis ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`Error in Analysis ${operation}:`, error);
+        }
+    };
+
+    // Helper function to trigger file downloads
+    const downloadFile = (content, filename) => {
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+
     return (
         <>
             {/* LEFT TOOLBAR - ICON WITH DROPDOWNS */}
@@ -341,19 +597,19 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'cam' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">CNC Milling</div>
-                            <div className="dropdown-item">2.5-Axis Toolpath</div>
-                            <div className="dropdown-item">3-Axis Toolpath</div>
-                            <div className="dropdown-item">5-Axis Toolpath</div>
-                            <div className="dropdown-item">Adaptive Clearing</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('generate-toolpath', { type: '2.5-axis' })}>2.5-Axis Toolpath</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('generate-toolpath', { type: '3-axis' })}>3-Axis Toolpath</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('generate-toolpath', { type: '5-axis' })}>5-Axis Toolpath</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('adaptive-clearing')}>Adaptive Clearing</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Turning</div>
-                            <div className="dropdown-item">OD Roughing</div>
-                            <div className="dropdown-item">Facing</div>
-                            <div className="dropdown-item">Threading</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('turning', { operation: 'roughing' })}>OD Roughing</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('turning', { operation: 'facing' })}>Facing</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('turning', { operation: 'threading' })}>Threading</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Post Processing</div>
-                            <div className="dropdown-item">Generate G-Code</div>
-                            <div className="dropdown-item">Simulate Toolpath</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('post-process')}>Generate G-Code</div>
+                            <div className="dropdown-item" onClick={() => handleCAMOperation('simulate')}>Simulate Toolpath</div>
                         </div>
                     )}
                 </div>
@@ -369,14 +625,14 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'mold' && (
                         <div className="tool-dropdown">
-                            <div className="dropdown-item">Draft Analysis</div>
-                            <div className="dropdown-item">Parting Line</div>
-                            <div className="dropdown-item">Core & Cavity</div>
-                            <div className="dropdown-item">Undercut Detection</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('draft-analysis')}>Draft Analysis</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('parting-line')}>Parting Line</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('core-cavity')}>Core & Cavity</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('undercut')}>Undercut Detection</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Mold Base</div>
-                            <div className="dropdown-item">Ejector Pins</div>
-                            <div className="dropdown-item">Cooling Channels</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('mold-base')}>Mold Base</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('ejector-pins')}>Ejector Pins</div>
+                            <div className="dropdown-item" onClick={() => handleMoldDesign('cooling-channels')}>Cooling Channels</div>
                         </div>
                     )}
                 </div>
@@ -393,16 +649,16 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'additive' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Preparation</div>
-                            <div className="dropdown-item">Optimize Orientation</div>
-                            <div className="dropdown-item">Generate Supports</div>
-                            <div className="dropdown-item">Nest Parts</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('optimize-orientation')}>Optimize Orientation</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('generate-supports')}>Generate Supports</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('nest-parts')}>Nest Parts</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Slicing</div>
-                            <div className="dropdown-item">Preview Layers</div>
-                            <div className="dropdown-item">Estimate Time/Cost</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('preview-layers')}>Preview Layers</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('estimate')}>Estimate Time/Cost</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Export STL</div>
-                            <div className="dropdown-item">Export G-Code</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('export-stl')}>Export STL</div>
+                            <div className="dropdown-item" onClick={() => handleAdditive('export-gcode')}>Export G-Code</div>
                         </div>
                     )}
                 </div>
@@ -419,15 +675,15 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'gdt' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Annotations</div>
-                            <div className="dropdown-item">True Position</div>
-                            <div className="dropdown-item">Perpendicularity</div>
-                            <div className="dropdown-item">Parallelism</div>
-                            <div className="dropdown-item">Flatness</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('add-annotation', { type: 'true-position' })}>True Position</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('add-annotation', { type: 'perpendicularity' })}>Perpendicularity</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('add-annotation', { type: 'parallelism' })}>Parallelism</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('add-annotation', { type: 'flatness' })}>Flatness</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Analysis</div>
-                            <div className="dropdown-item">Verify Compliance</div>
-                            <div className="dropdown-item">Tolerance Stack-Up</div>
-                            <div className="dropdown-item">Process Planning</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('verify-compliance')}>Verify Compliance</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('adjust-cam')}>Tolerance Stack-Up</div>
+                            <div className="dropdown-item" onClick={() => handleGDT('process-plan')}>Process Planning</div>
                         </div>
                     )}
                 </div>
@@ -444,17 +700,17 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'components' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Fasteners</div>
-                            <div className="dropdown-item">ISO Bolts & Screws</div>
-                            <div className="dropdown-item">ANSI Fasteners</div>
-                            <div className="dropdown-item">DIN Standards</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', { standard: 'ISO', type: 'bolts' })}>ISO Bolts & Screws</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', { standard: 'ANSI', type: 'fasteners' })}>ANSI Fasteners</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', { standard: 'DIN' })}>DIN Standards</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Other</div>
-                            <div className="dropdown-item">Bearings</div>
-                            <div className="dropdown-item">Springs</div>
-                            <div className="dropdown-item">Connectors</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', { type: 'bearings' })}>Bearings</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', { type: 'springs' })}>Springs</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', { type: 'connectors' })}>Connectors</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">🔍 Search Library</div>
-                            <div className="dropdown-item">AI Suggest Replacement</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('search', {})}>🔍 Search Library</div>
+                            <div className="dropdown-item" onClick={() => handleComponents('suggest-replacement', {})}>AI Suggest Replacement</div>
                         </div>
                     )}
                 </div>
@@ -470,14 +726,14 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'bom' && (
                         <div className="tool-dropdown">
-                            <div className="dropdown-item">Generate Hierarchical BOM</div>
-                            <div className="dropdown-item">Generate Flat BOM</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('hierarchical', {})}>Generate Hierarchical BOM</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('flat', {})}>Generate Flat BOM</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Add to Drawing</div>
-                            <div className="dropdown-item">Export to Excel</div>
-                            <div className="dropdown-item">Export to CSV</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('add-to-drawing', {})}>Add to Drawing</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('export', { format: 'excel' })}>Export to Excel</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('export', { format: 'csv' })}>Export to CSV</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Configuration-Specific BOM</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('configuration', {})}>Configuration-Specific BOM</div>
                         </div>
                     )}
                 </div>
@@ -494,17 +750,17 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'drawings' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">2D Drawings</div>
-                            <div className="dropdown-item">New Drawing</div>
-                            <div className="dropdown-item">Add View</div>
-                            <div className="dropdown-item">Section View</div>
-                            <div className="dropdown-item">Detail View</div>
+                            <div className="dropdown-item" onClick={() => console.log('Generate drawing')}>New Drawing</div>
+                            <div className="dropdown-item" onClick={() => console.log('Add view')}>Add View</div>
+                            <div className="dropdown-item" onClick={() => console.log('Section view')}>Section View</div>
+                            <div className="dropdown-item" onClick={() => console.log('Detail view')}>Detail View</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">MBD</div>
-                            <div className="dropdown-item">Embed PMI</div>
-                            <div className="dropdown-item">Generate 3D Spec</div>
-                            <div className="dropdown-item">QR Code for Shop Floor</div>
+                            <div className="dropdown-item" onClick={() => handleMBD('embed-pmi', {})}>Embed PMI</div>
+                            <div className="dropdown-item" onClick={() => handleMBD('generate-3d-spec', {})}>Generate 3D Spec</div>
+                            <div className="dropdown-item" onClick={() => handleMBD('qr-code', {})}>QR Code for Shop Floor</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Export PDF</div>
+                            <div className="dropdown-item" onClick={() => console.log('Export PDF')}>Export PDF</div>
                         </div>
                     )}
                 </div>
@@ -520,12 +776,12 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'manuals' && (
                         <div className="tool-dropdown">
-                            <div className="dropdown-item">Exploded View</div>
-                            <div className="dropdown-item">Assembly Instructions</div>
-                            <div className="dropdown-item">Service Manual</div>
+                            <div className="dropdown-item" onClick={() => handleManual('exploded-view', {})}>Exploded View</div>
+                            <div className="dropdown-item" onClick={() => handleManual('assembly-instructions', {})}>Assembly Instructions</div>
+                            <div className="dropdown-item" onClick={() => handleManual('service-manual', {})}>Service Manual</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Generate PDF Booklet</div>
-                            <div className="dropdown-item">Export Instructions</div>
+                            <div className="dropdown-item" onClick={() => handleManual('pdf-booklet', {})}>Generate PDF Booklet</div>
+                            <div className="dropdown-item" onClick={() => console.log('Export instructions')}>Export Instructions</div>
                         </div>
                     )}
                 </div>
@@ -541,15 +797,15 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'revisions' && (
                         <div className="tool-dropdown">
-                            <div className="dropdown-item">Create Revision</div>
-                            <div className="dropdown-item">Request Approval</div>
-                            <div className="dropdown-item">Approve/Reject</div>
+                            <div className="dropdown-item" onClick={() => handleRevision('create', {})}>Create Revision</div>
+                            <div className="dropdown-item" onClick={() => handleRevision('request-approval', {})}>Request Approval</div>
+                            <div className="dropdown-item" onClick={() => handleRevision('approve', { decision: 'approved' })}>Approve/Reject</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Release Model</div>
-                            <div className="dropdown-item">View Audit Trail</div>
-                            <div className="dropdown-item">Rollback to Previous</div>
+                            <div className="dropdown-item" onClick={() => handleRevision('release', {})}>Release Model</div>
+                            <div className="dropdown-item" onClick={() => console.log('View audit trail')}>View Audit Trail</div>
+                            <div className="dropdown-item" onClick={() => console.log('Rollback')}>Rollback to Previous</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Change Lifecycle State</div>
+                            <div className="dropdown-item" onClick={() => console.log('Change state')}>Change Lifecycle State</div>
                         </div>
                     )}
                 </div>
@@ -565,12 +821,12 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'machining_sim' && (
                         <div className="tool-dropdown">
-                            <div className="dropdown-item">Material Removal Sim</div>
-                            <div className="dropdown-item">Collision Detection</div>
-                            <div className="dropdown-item">Kinematic Simulation</div>
+                            <div className="dropdown-item" onClick={() => handleMachiningSimulation('material-removal', {})}>Material Removal Sim</div>
+                            <div className="dropdown-item" onClick={() => handleMachiningSimulation('collision-detect', {})}>Collision Detection</div>
+                            <div className="dropdown-item" onClick={() => handleMachiningSimulation('kinematic', {})}>Kinematic Simulation</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Estimate Cycle Time</div>
-                            <div className="dropdown-item">Verify Toolpath</div>
+                            <div className="dropdown-item" onClick={() => handleMachiningSimulation('estimate-cycle-time', {})}>Estimate Cycle Time</div>
+                            <div className="dropdown-item" onClick={() => handleMachiningSimulation('verify', {})}>Verify Toolpath</div>
                         </div>
                     )}
                 </div>
@@ -586,12 +842,12 @@ function WorkbenchMechanical() {
                     </button>
                     {activeDropdown === 'cost' && (
                         <div className="tool-dropdown">
-                            <div className="dropdown-item">Machining Cost</div>
-                            <div className="dropdown-item">Additive Manufacturing Cost</div>
-                            <div className="dropdown-item">Assembly Cost</div>
+                            <div className="dropdown-item" onClick={() => handleCost('machining-cost', {})}>Machining Cost</div>
+                            <div className="dropdown-item" onClick={() => handleCost('additive-cost', {})}>Additive Manufacturing Cost</div>
+                            <div className="dropdown-item" onClick={() => handleCost('assembly-cost', {})}>Assembly Cost</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Compare Methods</div>
-                            <div className="dropdown-item">Cost Breakdown Report</div>
+                            <div className="dropdown-item" onClick={() => handleCost('compare', {})}>Compare Methods</div>
+                            <div className="dropdown-item" onClick={() => handleCost('report', {})}>Cost Breakdown Report</div>
                         </div>
                     )}
                 </div>
@@ -608,14 +864,14 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'fixtures' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Machining</div>
-                            <div className="dropdown-item">Generate Machining Fixture</div>
-                            <div className="dropdown-item">3-2-1 Locating</div>
+                            <div className="dropdown-item" onClick={() => handleFixtures('generate-machining', {})}>Generate Machining Fixture</div>
+                            <div className="dropdown-item" onClick={() => handleFixtures('3-2-1-locating', {})}>3-2-1 Locating</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Assembly</div>
-                            <div className="dropdown-item">Assembly Jig</div>
-                            <div className="dropdown-item">Welding Fixture</div>
+                            <div className="dropdown-item" onClick={() => handleFixtures('assembly-jig', {})}>Assembly Jig</div>
+                            <div className="dropdown-item" onClick={() => handleFixtures('welding-fixture', {})}>Welding Fixture</div>
                             <div className="dropdown-divider"></div>
-                            <div className="dropdown-item">Validate Fixture</div>
+                            <div className="dropdown-item" onClick={() => handleFixtures('validate', {})}>Validate Fixture</div>
                         </div>
                     )}
                 </div>
@@ -632,18 +888,18 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'dfa' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Assembly</div>
-                            <div className="dropdown-item">Plan Assembly Sequence</div>
-                            <div className="dropdown-item">Check Interferences</div>
-                            <div className="dropdown-item">Generate Instructions</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('plan-sequence', {})}>Plan Assembly Sequence</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('check-interferences', {})}>Check Interferences</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('generate-instructions', {})}>Generate Instructions</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Routing</div>
-                            <div className="dropdown-item">Cable Routing</div>
-                            <div className="dropdown-item">Hose/Pipe Routing</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('route-cables', {})}>Cable Routing</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('route-hoses', {})}>Hose/Pipe Routing</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Mechanisms</div>
-                            <div className="dropdown-item">Design Linkage</div>
-                            <div className="dropdown-item">Gear Train</div>
-                            <div className="dropdown-item">Cam Mechanism</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('design-linkage', {})}>Design Linkage</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('design-gear-train', {})}>Gear Train</div>
+                            <div className="dropdown-item" onClick={() => handleDFA('design-cam', {})}>Cam Mechanism</div>
                         </div>
                     )}
                 </div>
@@ -660,24 +916,24 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'analysis' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Structural</div>
-                            <div className="dropdown-item">Linear FEA</div>
-                            <div className="dropdown-item">Nonlinear FEA</div>
-                            <div className="dropdown-item">Modal Analysis</div>
-                            <div className="dropdown-item">Buckling Analysis</div>
-                            <div className="dropdown-item">Fatigue Analysis</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('fea-linear', {})}>Linear FEA</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('fea-nonlinear', {})}>Nonlinear FEA</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('modal', {})}>Modal Analysis</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('buckling', {})}>Buckling Analysis</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('fatigue', {})}>Fatigue Analysis</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Motion</div>
-                            <div className="dropdown-item">Kinematic Simulation</div>
-                            <div className="dropdown-item">Dynamic Motion</div>
-                            <div className="dropdown-item">Export Motion Loads</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('kinematic', {})}>Kinematic Simulation</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('dynamic-motion', {})}>Dynamic Motion</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('export-motion-loads', {})}>Export Motion Loads</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Thermal</div>
-                            <div className="dropdown-item">Steady-State</div>
-                            <div className="dropdown-item">Transient</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('thermal-steady', {})}>Steady-State</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('thermal-transient', {})}>Transient</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Other</div>
-                            <div className="dropdown-item">Mass Properties</div>
-                            <div className="dropdown-item">Generate BOM</div>
+                            <div className="dropdown-item" onClick={() => handleAnalysis('mass-properties', {})}>Mass Properties</div>
+                            <div className="dropdown-item" onClick={() => handleBOM('flat', {})}>Generate BOM</div>
                         </div>
                     )}
                 </div>
