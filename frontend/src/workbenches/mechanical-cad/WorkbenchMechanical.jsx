@@ -364,26 +364,25 @@ function WorkbenchMechanical() {
     };
 
     return (
-        <div className="workbench-container mechanical-workbench">
-            {/* TOP HEADER - Industry Standard CAD Menu Bar */}
+        <div className="workbench-container">
+            {/* TOP HEADER - Feature Buttons (Reference Layout) */}
             <header className="workbench-header">
                 <h1 className="workbench-title">Mechanical CAD</h1>
                 <div className="workbench-toolbar">
-                    <button className="toolbar-button">File</button>
-                    <button className="toolbar-button">Edit</button>
-                    <button className="toolbar-button">View</button>
-                    <button className="toolbar-button">Insert</button>
-                    <button className="toolbar-button">Tools</button>
-                    <button className="toolbar-button">Analyze</button>
-                    <button className="toolbar-button">Manufacturing</button>
-                    <button className="toolbar-button">Documentation</button>
+                    <button className="toolbar-button">Sketch</button>
+                    <button className="toolbar-button">Extrude</button>
+                    <button className="toolbar-button">Revolve</button>
+                    <button className="toolbar-button">Fillet</button>
+                    <button className="toolbar-button">Pattern</button>
                 </div>
                 <div className="header-actions">
-                    <button className="header-button">Settings</button>
+                    <button className="header-button">File</button>
+                    <button className="header-button">Edit</button>
+                    <button className="header-button">View</button>
                 </div>
             </header>
 
-            {/* LEFT TOOLBAR - Essential CAD Tools */}
+            {/* LEFT TOOLBAR - Icon Tools */}
             <aside className="workbench-tools" onClick={() => setActiveDropdown(null)}>
                 <button className="tool-icon-button" title="Select"><Mouse size={20} /></button>
                 <button className="tool-icon-button" title="Move"><Move size={20} /></button>
@@ -1067,9 +1066,16 @@ function WorkbenchMechanical() {
                 </div>
             )}
 
-            {/* BOTTOM FOOTER - AI CHAT CONSOLE */}
+            {/* BOTTOM FOOTER - Simple AI Prompt (Reference Layout) */}
             <footer className="workbench-console">
-                <ChatConsole onCommandExecute={handleCommandExecute} />
+                <label className="prompt-label">AI Prompt</label>
+                <textarea
+                    className="prompt-input"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="Describe your mechanical CAD design..."
+                />
+                <button className="generate-button" onClick={handleAIGeneration}>Generate</button>
             </footer>
         </div>
     );
