@@ -151,7 +151,7 @@
     padding: 4px 0;
     gap: 2px;
     overflow-y: auto;
-    overflow-x: visible;
+    overflow-x: hidden;
     flex: 1;
     min-height: 0;
     position: relative;

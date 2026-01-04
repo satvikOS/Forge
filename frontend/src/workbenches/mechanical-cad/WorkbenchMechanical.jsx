@@ -16,7 +16,9 @@ function WorkbenchMechanical() {
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeDropdown, setActiveDropdown] = useState(null);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
     const [contextMenu, setContextMenu] = useState(null);
+    const buttonRefs = React.useRef({});
 
     // AI Design Generation
     const handleGenerateDesign = async () => {
@@ -65,8 +67,20 @@ function WorkbenchMechanical() {
         }, 1000);
     };
 
-    const toggleDropdown = (dropdownName) => {
-        setActiveDropdown(activeDropdown === dropdownName ? null : dropdownName);
+    const toggleDropdown = (dropdownName, event) => {
+        if (activeDropdown === dropdownName) {
+            setActiveDropdown(null);
+        } else {
+            setActiveDropdown(dropdownName);
+            // Calculate position based on button location
+            if (event && event.currentTarget) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setDropdownPosition({
+                    top: rect.top,
+                    left: rect.right + 8 // 8px margin from button
+                });
+            }
+        }
     };
 
     const handleRightClick = (e, itemType) => {
@@ -348,12 +362,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button active"
                             title="Sketch"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('sketch'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('sketch', e); }}
                         >
                             <Pencil size={20} />
                         </button>
                         {activeDropdown === 'sketch' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item">Line</div>
                                 <div className="dropdown-item">Circle</div>
                                 <div className="dropdown-item">Arc</div>
@@ -371,12 +385,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Features"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('features'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('features', e); }}
                         >
                             <Box size={20} />
                         </button>
                         {activeDropdown === 'features' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item">Extrude</div>
                                 <div className="dropdown-item">Revolve</div>
                                 <div className="dropdown-item">Sweep</div>
@@ -395,12 +409,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Sheet Metal"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('sheetmetal'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('sheetmetal', e); }}
                         >
                             <Sheet size={20} />
                         </button>
                         {activeDropdown === 'sheetmetal' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Create</div>
                                 <div className="dropdown-item">Base Face</div>
                                 <div className="dropdown-item">Edge Flange</div>
@@ -424,12 +438,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Pattern"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('pattern'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('pattern', e); }}
                         >
                             <Copy size={20} />
                         </button>
                         {activeDropdown === 'pattern' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item">Linear Pattern</div>
                                 <div className="dropdown-item">Circular Pattern</div>
                                 <div className="dropdown-item">Mirror</div>
@@ -442,12 +456,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Assembly"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('assembly'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('assembly', e); }}
                         >
                             <Link2 size={20} />
                         </button>
                         {activeDropdown === 'assembly' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item">Insert Component</div>
                                 <div className="dropdown-item">Mate</div>
                                 <div className="dropdown-item">Angle</div>
@@ -464,12 +478,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Weldments"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('weldments'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('weldments', e); }}
                         >
                             <Zap size={20} />
                         </button>
                         {activeDropdown === 'weldments' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Structural</div>
                                 <div className="dropdown-item">Structural Frame</div>
                                 <div className="dropdown-item">Trim/Extend</div>
@@ -491,12 +505,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="AI Optimization"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('ai_optimize'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('ai_optimize', e); }}
                         >
                             <Zap size={20} />
                         </button>
                         {activeDropdown === 'ai_optimize' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Optimization</div>
                                 <div className="dropdown-item">Topology Optimization</div>
                                 <div className="dropdown-item">Generative Design</div>
@@ -515,12 +529,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Templates"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('templates'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('templates', e); }}
                         >
                             <FileText size={20} />
                         </button>
                         {activeDropdown === 'templates' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Standards</div>
                                 <div className="dropdown-item">ANSI Parts</div>
                                 <div className="dropdown-item">ISO Parts</div>
@@ -544,12 +558,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Configuration"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('configuration'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('configuration', e); }}
                         >
                             <Settings size={20} />
                         </button>
                         {activeDropdown === 'configuration' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item">New Configuration</div>
                                 <div className="dropdown-item">Design Table</div>
                                 <div className="dropdown-item">Switch Configuration</div>
@@ -566,12 +580,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Surfacing"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('surfacing'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('surfacing', e); }}
                         >
                             <Waves size={20} />
                         </button>
                         {activeDropdown === 'surfacing' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Create</div>
                                 <div className="dropdown-item">Loft Surface</div>
                                 <div className="dropdown-item">Sweep Surface</div>
@@ -596,12 +610,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="CAM/Manufacturing"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('cam'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('cam', e); }}
                         >
                             <Wrench size={20} />
                         </button>
                         {activeDropdown === 'cam' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">CNC Milling</div>
                                 <div className="dropdown-item" onClick={() => handleCAMOperation('generate-toolpath', { type: '2.5-axis' })}>2.5-Axis Toolpath</div>
                                 <div className="dropdown-item" onClick={() => handleCAMOperation('generate-toolpath', { type: '3-axis' })}>3-Axis Toolpath</div>
@@ -625,12 +639,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Mold Design"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('mold'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('mold', e); }}
                         >
                             <Factory size={20} />
                         </button>
                         {activeDropdown === 'mold' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item" onClick={() => handleMoldDesign('draft-analysis')}>Draft Analysis</div>
                                 <div className="dropdown-item" onClick={() => handleMoldDesign('parting-line')}>Parting Line</div>
                                 <div className="dropdown-item" onClick={() => handleMoldDesign('core-cavity')}>Core & Cavity</div>
@@ -648,12 +662,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="3D Printing"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('additive'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('additive', e); }}
                         >
                             <Printer size={20} />
                         </button>
                         {activeDropdown === 'additive' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Preparation</div>
                                 <div className="dropdown-item" onClick={() => handleAdditive('optimize-orientation')}>Optimize Orientation</div>
                                 <div className="dropdown-item" onClick={() => handleAdditive('generate-supports')}>Generate Supports</div>
@@ -674,12 +688,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="GD&T"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('gdt'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('gdt', e); }}
                         >
                             <CircleDot size={20} />
                         </button>
                         {activeDropdown === 'gdt' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Annotations</div>
                                 <div className="dropdown-item" onClick={() => handleGDT('add-annotation', { type: 'true-position' })}>True Position</div>
                                 <div className="dropdown-item" onClick={() => handleGDT('add-annotation', { type: 'perpendicularity' })}>Perpendicularity</div>
@@ -699,12 +713,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Components Library"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('components'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('components', e); }}
                         >
                             <Package size={20} />
                         </button>
                         {activeDropdown === 'components' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Fasteners</div>
                                 <div className="dropdown-item" onClick={() => handleComponents('search', { standard: 'ISO', type: 'bolts' })}>ISO Bolts & Screws</div>
                                 <div className="dropdown-item" onClick={() => handleComponents('search', { standard: 'ANSI', type: 'fasteners' })}>ANSI Fasteners</div>
@@ -726,12 +740,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="BOM"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('bom'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('bom', e); }}
                         >
                             <FileText size={20} />
                         </button>
                         {activeDropdown === 'bom' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item" onClick={() => handleBOM('hierarchical', {})}>Generate Hierarchical BOM</div>
                                 <div className="dropdown-item" onClick={() => handleBOM('flat', {})}>Generate Flat BOM</div>
                                 <div className="dropdown-divider"></div>
@@ -749,12 +763,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Drawings & MBD"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('drawings'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('drawings', e); }}
                         >
                             <File size={20} />
                         </button>
                         {activeDropdown === 'drawings' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">2D Drawings</div>
                                 <div className="dropdown-item" onClick={() => console.log('Generate drawing')}>New Drawing</div>
                                 <div className="dropdown-item" onClick={() => console.log('Add view')}>Add View</div>
@@ -776,12 +790,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Documentation"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('manuals'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('manuals', e); }}
                         >
                             <BookOpen size={20} />
                         </button>
                         {activeDropdown === 'manuals' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item" onClick={() => handleManual('exploded-view', {})}>Exploded View</div>
                                 <div className="dropdown-item" onClick={() => handleManual('assembly-instructions', {})}>Assembly Instructions</div>
                                 <div className="dropdown-item" onClick={() => handleManual('service-manual', {})}>Service Manual</div>
@@ -797,12 +811,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Revisions"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('revisions'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('revisions', e); }}
                         >
                             <RotateCcw size={20} />
                         </button>
                         {activeDropdown === 'revisions' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item" onClick={() => handleRevision('create', {})}>Create Revision</div>
                                 <div className="dropdown-item" onClick={() => handleRevision('request-approval', {})}>Request Approval</div>
                                 <div className="dropdown-item" onClick={() => handleRevision('approve', { decision: 'approved' })}>Approve/Reject</div>
@@ -821,12 +835,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Simulation"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('machining_sim'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('machining_sim', e); }}
                         >
                             <Play size={20} />
                         </button>
                         {activeDropdown === 'machining_sim' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item" onClick={() => handleMachiningSimulation('material-removal', {})}>Material Removal Sim</div>
                                 <div className="dropdown-item" onClick={() => handleMachiningSimulation('collision-detect', {})}>Collision Detection</div>
                                 <div className="dropdown-item" onClick={() => handleMachiningSimulation('kinematic', {})}>Kinematic Simulation</div>
@@ -842,12 +856,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Cost Estimation"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('cost'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('cost', e); }}
                         >
                             <DollarSign size={20} />
                         </button>
                         {activeDropdown === 'cost' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-item" onClick={() => handleCost('machining-cost', {})}>Machining Cost</div>
                                 <div className="dropdown-item" onClick={() => handleCost('additive-cost', {})}>Additive Manufacturing Cost</div>
                                 <div className="dropdown-item" onClick={() => handleCost('assembly-cost', {})}>Assembly Cost</div>
@@ -863,12 +877,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Fixtures"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('fixtures'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('fixtures', e); }}
                         >
                             <Axis3D size={20} />
                         </button>
                         {activeDropdown === 'fixtures' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Machining</div>
                                 <div className="dropdown-item" onClick={() => handleFixtures('generate-machining', {})}>Generate Machining Fixture</div>
                                 <div className="dropdown-item" onClick={() => handleFixtures('3-2-1-locating', {})}>3-2-1 Locating</div>
@@ -887,12 +901,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="DFA & Mechanisms"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('dfa'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('dfa', e); }}
                         >
                             <Cog size={20} />
                         </button>
                         {activeDropdown === 'dfa' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Assembly</div>
                                 <div className="dropdown-item" onClick={() => handleDFA('plan-sequence', {})}>Plan Assembly Sequence</div>
                                 <div className="dropdown-item" onClick={() => handleDFA('check-interferences', {})}>Check Interferences</div>
@@ -915,12 +929,12 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Analysis"
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown('analysis'); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('analysis', e); }}
                         >
                             <BarChart3 size={20} />
                         </button>
                         {activeDropdown === 'analysis' && (
-                            <div className="tool-dropdown">
+                            <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                                 <div className="dropdown-header">Structural</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('fea-linear', {})}>Linear FEA</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('fea-nonlinear', {})}>Nonlinear FEA</div>
