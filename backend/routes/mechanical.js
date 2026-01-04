@@ -3431,4 +3431,174 @@ router.post('/ai-optimization/material-suggest', async (req, res) => {
 
 // ==================== END PHASE 3 ROUTES ====================
 
+// ============ PEAK DESIGN SERVICES ============
+const generativeDesign = require('../services/generativeDesignService');
+const advancedSurfacing = require('../services/advancedSurfacingService');
+const synchronousModeling = require('../services/synchronousModelingService');
+const aiDesignOrchestrator = require('../services/aiDesignOrchestrator');
+
+// ==================== PEAK: GENERATIVE DESIGN & TOPOLOGY OPTIMIZATION ====================
+
+/**
+ * POST /api/mechanical/peak/generative-design
+ * Run generative design with topology optimization and multi-objective optimization
+ * Returns 5 Pareto-optimal design variants
+ */
+router.post('/peak/generative-design', async (req, res) => {
+    try {
+        console.log('🧬 Peak: Running generative design with topology optimization...');
+        const results = await generativeDesign.runGenerativeDesign(req.body);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in generative design:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PEAK: ADVANCED NURBS SURFACING ====================
+
+/**
+ * POST /api/mechanical/peak/class-a-surface
+ * Create Class-A NURBS surface with G2/G3 continuity
+ * Includes curvature analysis (Gaussian, mean, principal, zebra stripes, reflection lines)
+ */
+router.post('/peak/class-a-surface', async (req, res) => {
+    try {
+        console.log('✨ Peak: Creating Class-A NURBS surface...');
+        const results = await advancedSurfacing.createClassASurface(req.body);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in Class-A surfacing:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/peak/loft-surface
+ * Advanced lofting with Class-A quality
+ */
+router.post('/peak/loft-surface', async (req, res) => {
+    try {
+        console.log('🎨 Peak: Lofting Class-A surface...');
+        const results = await advancedSurfacing.loftSurface(req.body.profiles, req.body.options);
+        res.json({ success: true, surface: results });
+    } catch (error) {
+        console.error('Error in loft surface:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PEAK: SYNCHRONOUS MODELING ====================
+
+/**
+ * POST /api/mechanical/peak/direct-edit
+ * Synchronous modeling - direct editing with parametric intelligence
+ * Push/pull faces while maintaining relationships (parallel, perpendicular, coaxial, etc.)
+ */
+router.post('/peak/direct-edit', async (req, res) => {
+    try {
+        console.log('🔧 Peak: Synchronous direct editing...');
+        const results = await synchronousModeling.directEdit(req.body);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in synchronous edit:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PEAK: AI DESIGN ORCHESTRATOR ====================
+
+/**
+ * POST /api/mechanical/peak/autonomous-design
+ * Autonomous AI-driven design workflow
+ * AI makes all design decisions iteratively to achieve high-level goals
+ * Multi-step reasoning, topology optimization, surface refinement, validation
+ */
+router.post('/peak/autonomous-design', async (req, res) => {
+    try {
+        console.log('🤖 Peak: Starting autonomous AI design workflow...');
+
+        // Create async job for long-running autonomous design
+        const job = await jobQueue.createJob('autonomous_design', req.body);
+
+        // Start async processing
+        processAutonomousDesignJob(job.id, req.body).catch(error => {
+            console.error('Error in autonomous design job:', error);
+            jobQueue.updateJob(job.id, { status: 'failed', error: error.message });
+        });
+
+        res.json({
+            success: true,
+            jobId: job.id,
+            message: 'Autonomous design workflow started',
+            status: 'queued'
+        });
+    } catch (error) {
+        console.error('Error starting autonomous design:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/peak/autonomous-design/:jobId
+ * Get status of autonomous design workflow
+ */
+router.get('/peak/autonomous-design/:jobId', async (req, res) => {
+    try {
+        const job = await jobQueue.getJob(req.params.jobId);
+
+        if (!job) {
+            return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+
+        res.json({
+            success: true,
+            job: {
+                id: job.id,
+                status: job.status,
+                progress: job.progress || 0,
+                result: job.result,
+                error: job.error,
+                createdAt: job.createdAt,
+                completedAt: job.completedAt
+            }
+        });
+    } catch (error) {
+        console.error('Error getting job status:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Process autonomous design job asynchronously
+ */
+async function processAutonomousDesignJob(jobId, requirements) {
+    try {
+        await jobQueue.updateJob(jobId, {
+            status: 'processing',
+            progress: 10,
+            message: 'Decomposing requirements...'
+        });
+
+        // Run autonomous design orchestrator
+        const results = await aiDesignOrchestrator.autonomousDesign(requirements);
+
+        await jobQueue.updateJob(jobId, {
+            status: 'completed',
+            progress: 100,
+            result: results,
+            completedAt: Date.now()
+        });
+
+        console.log(`✅ Autonomous design job ${jobId} completed successfully`);
+    } catch (error) {
+        console.error(`❌ Autonomous design job ${jobId} failed:`, error);
+        throw error;
+    }
+}
+
+// ==================== END PEAK DESIGN ROUTES ====================
+
 module.exports = router;

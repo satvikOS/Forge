@@ -377,6 +377,120 @@ function WorkbenchMechanical() {
         }
     };
 
+    // Peak Design Handlers (Advanced AI Design Features)
+    const handlePeakDesign = async (operation, data = {}) => {
+        try {
+            console.log(`🚀 Peak Design: Starting ${operation}...`);
+
+            let endpoint = '';
+            let method = 'POST';
+
+            switch (operation) {
+                case 'generative-design':
+                    endpoint = '/api/mechanical/peak/generative-design';
+                    data = {
+                        designSpace: { bounds: { x: 200, y: 200, z: 100 } },
+                        preservedRegions: [],
+                        loadCases: [{ type: 'force', magnitude: 1000, direction: [0, 0, -1] }],
+                        constraints: [],
+                        objectives: [
+                            { type: 'minimize-mass', weight: 1.0 },
+                            { type: 'maximize-stiffness', weight: 1.0 }
+                        ],
+                        targetMassReduction: 0.5,
+                        manufacturingMethod: 'additive',
+                        iterations: 50,
+                        populationSize: 30
+                    };
+                    break;
+
+                case 'class-a-surface':
+                    endpoint = '/api/mechanical/peak/class-a-surface';
+                    data = {
+                        controlPoints: generateSampleControlPoints(),
+                        degree: [3, 3],
+                        continuity: 'G2',
+                        constraints: [],
+                        surfaceType: 'loft',
+                        qualityTarget: 'class-a'
+                    };
+                    break;
+
+                case 'synchronous-edit':
+                    endpoint = '/api/mechanical/peak/direct-edit';
+                    data = {
+                        geometry: { faces: [], edges: [], vertices: [] },
+                        operation: 'move-face',
+                        selection: ['face_1'],
+                        parameters: { distance: 10, direction: [0, 0, 1] },
+                        liveRules: true,
+                        captureIntent: true
+                    };
+                    break;
+
+                case 'autonomous-design':
+                    endpoint = '/api/mechanical/peak/autonomous-design';
+                    data = {
+                        goal: prompt('Enter high-level design goal:') || 'Design a lightweight drone frame',
+                        performance: { maxLoad: 1000, maxWeight: 500 },
+                        constraints: {},
+                        userRole: 'approve',
+                        maxIterations: 10
+                    };
+                    break;
+
+                default:
+                    console.error(`Unknown peak design operation: ${operation}`);
+                    return;
+            }
+
+            const response = await fetch(endpoint, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                console.log(`✅ Peak Design ${operation} completed:`, result);
+
+                // Handle async job results
+                if (result.jobId) {
+                    console.log(`🔄 Autonomous design job started: ${result.jobId}`);
+                    console.log(`📊 Monitor progress at: /api/mechanical/peak/autonomous-design/${result.jobId}`);
+                    // TODO: Implement job polling UI
+                } else {
+                    // Display results immediately
+                    if (result.results?.variants) {
+                        console.log(`🎨 Generated ${result.results.variants.length} design variants`);
+                        result.results.variants.forEach((variant, idx) => {
+                            console.log(`  Variant ${idx + 1}: Score ${variant.score}, Mass ${variant.properties.mass}g`);
+                        });
+                    }
+                    // TODO: Update viewport with results
+                }
+            } else {
+                console.error(`❌ Peak Design ${operation} failed:`, result.error);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Peak Design ${operation}:`, error);
+        }
+    };
+
+    // Helper to generate sample control points for surface operations
+    const generateSampleControlPoints = () => {
+        const grid = [];
+        for (let i = 0; i < 5; i++) {
+            const row = [];
+            for (let j = 0; j < 5; j++) {
+                row.push([i * 25, j * 25, Math.sin(i * 0.5) * Math.cos(j * 0.5) * 10]);
+            }
+            grid.push(row);
+        }
+        return grid;
+    };
+
     // Helper function to trigger file downloads
     const downloadFile = (content, filename) => {
         const blob = new Blob([content], { type: 'text/plain' });
@@ -572,6 +686,12 @@ function WorkbenchMechanical() {
                                 <div className="dropdown-item" onClick={() => handleAIOptimization('lattice', {})}>Lattice Structures</div>
                                 <div className="dropdown-item" onClick={() => handleAIOptimization('support-generation', {})}>Smart Support Generation</div>
                                 <div className="dropdown-item" onClick={() => handleAIOptimization('material-suggest', {})}>Material Suggestions</div>
+                                <div className="dropdown-divider"></div>
+                                <div className="dropdown-header">🚀 PEAK: Advanced AI Design</div>
+                                <div className="dropdown-item" onClick={() => handlePeakDesign('generative-design', {})}>🧬 Multi-Objective Topology</div>
+                                <div className="dropdown-item" onClick={() => handlePeakDesign('class-a-surface', {})}>✨ Class-A NURBS Surface</div>
+                                <div className="dropdown-item" onClick={() => handlePeakDesign('synchronous-edit', {})}>🔧 Synchronous Modeling</div>
+                                <div className="dropdown-item" onClick={() => handlePeakDesign('autonomous-design', {})}>🤖 Autonomous Design Agent</div>
                             </div>
                         )}
                     </div>
