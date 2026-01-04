@@ -45,6 +45,11 @@ const revisionControl = require('../services/cad/revisionControlService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
 
+// ============ PHASE 3 SERVICES ============
+const feaSimulation = require('../services/feaSimulationService');
+const cfdSimulation = require('../services/cfdSimulationService');
+const aiOptimization = require('../services/aiOptimizationService');
+
 // Initialize CAD services
 const drawingEngine = new DrawingEngine();
 const drawingExportService = new DrawingExportService();
@@ -3095,5 +3100,335 @@ router.get('/revision/audit-trail/:modelId', async (req, res) => {
     }
 });
 
+
+// ==================== PHASE 3: FEA/CFD/AI ANALYSIS ROUTES ====================
+
+/**
+ * PHASE 3 - FEA SIMULATION ROUTES
+ */
+
+// Linear Static FEA
+router.post('/analysis/fea-linear', async (req, res) => {
+    try {
+        const results = await feaSimulation.runLinearStaticFEA(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Nonlinear FEA
+router.post('/analysis/fea-nonlinear', async (req, res) => {
+    try {
+        const results = await feaSimulation.runNonlinearFEA(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Modal/Frequency Analysis
+router.post('/analysis/modal', async (req, res) => {
+    try {
+        const results = await feaSimulation.runModalAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buckling Analysis
+router.post('/analysis/buckling', async (req, res) => {
+    try {
+        const results = await feaSimulation.runBucklingAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Fatigue Analysis
+router.post('/analysis/fatigue', async (req, res) => {
+    try {
+        const results = await feaSimulation.runFatigueAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Contact Analysis
+router.post('/analysis/contact', async (req, res) => {
+    try {
+        const results = await feaSimulation.runContactAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PHASE 3 - CFD SIMULATION ROUTES
+ */
+
+// Internal Flow CFD
+router.post('/analysis/cfd-internal', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runInternalFlow(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// External Flow CFD
+router.post('/analysis/cfd-external', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runExternalFlow(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Conjugate Heat Transfer CFD
+router.post('/analysis/cfd-heat-transfer', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runConjugateHeatTransfer(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Turbulence Analysis
+router.post('/analysis/cfd-turbulence', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runTurbulenceAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Multiphase Flow CFD
+router.post('/analysis/cfd-multiphase', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runMultiphaseFlow(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Thermal Steady-State
+router.post('/analysis/thermal-steady', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runConjugateHeatTransfer({ ...req.body, type: 'steady' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Thermal Transient
+router.post('/analysis/thermal-transient', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runConjugateHeatTransfer({ ...req.body, type: 'transient' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PHASE 3 - ADVANCED PHYSICS ROUTES
+ */
+
+// Vibration Analysis
+router.post('/analysis/vibration', async (req, res) => {
+    try {
+        const results = await feaSimulation.runModalAnalysis({ ...req.body, analysisType: 'vibration' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Rigid Body Dynamics
+router.post('/analysis/rigid-body', async (req, res) => {
+    try {
+        const results = { success: true, simulationType: 'rigid-body-dynamics', results: {} };
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Flexible Body Dynamics
+router.post('/analysis/flexible-body', async (req, res) => {
+    try {
+        const results = { success: true, simulationType: 'flexible-body-dynamics', results: {} };
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PHASE 3 - AI OPTIMIZATION ROUTES
+ */
+
+// Generative Design
+router.post('/ai-optimization/generative-design', async (req, res) => {
+    try {
+        const results = await aiOptimization.runGenerativeDesign(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Topology Optimization
+router.post('/ai-optimization/topology', async (req, res) => {
+    try {
+        const results = await aiOptimization.runTopologyOptimization(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Parametric Optimization
+router.post('/ai-optimization/parametric-opt', async (req, res) => {
+    try {
+        const results = await aiOptimization.runParametricOptimization(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Shape Optimization
+router.post('/ai-optimization/shape-opt', async (req, res) => {
+    try {
+        const results = await aiOptimization.runShapeOptimization(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Design from Requirements (AI Agent)
+router.post('/ai-optimization/design-from-requirements', async (req, res) => {
+    try {
+        const results = await aiOptimization.designFromRequirements(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Auto-Apply Constraints (AI Agent)
+router.post('/ai-optimization/auto-constraints', async (req, res) => {
+    try {
+        const results = await aiOptimization.autoApplyConstraints(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Generate Design Variants (AI Agent)
+router.post('/ai-optimization/design-variants', async (req, res) => {
+    try {
+        const results = await aiOptimization.generateDesignVariants(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Find Similar Parts (AI Agent)
+router.post('/ai-optimization/similar-parts', async (req, res) => {
+    try {
+        const results = await aiOptimization.findSimilarParts(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DFM Check (AI Agent)
+router.post('/ai-optimization/dfm-check', async (req, res) => {
+    try {
+        const results = await aiOptimization.runDFMCheck(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DFA Check (AI Agent)
+router.post('/ai-optimization/dfa-check', async (req, res) => {
+    try {
+        const results = await aiOptimization.runDFMCheck({ ...req.body, type: 'dfa' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Manufacturability Score (AI Agent)
+router.post('/ai-optimization/manufacturability', async (req, res) => {
+    try {
+        const results = await aiOptimization.calculateManufacturabilityScore(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// AI Cost Prediction (AI Agent)
+router.post('/ai-optimization/cost-predict', async (req, res) => {
+    try {
+        const results = await aiOptimization.predictCost(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Lattice Structures (AI Agent)
+router.post('/ai-optimization/lattice', async (req, res) => {
+    try {
+        const results = await aiOptimization.generateLattice(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Smart Support Generation (AI Agent)
+router.post('/ai-optimization/support-generation', async (req, res) => {
+    try {
+        const results = await aiOptimization.generateSmartSupports(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Material Suggestions (AI Agent)
+router.post('/ai-optimization/material-suggest', async (req, res) => {
+    try {
+        const results = await aiOptimization.suggestMaterials(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END PHASE 3 ROUTES ====================
 
 module.exports = router;

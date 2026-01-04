@@ -340,7 +340,7 @@ function WorkbenchMechanical() {
         }
     };
 
-    // Analysis Handlers (Enhanced)
+    // Analysis Handlers (Enhanced for Phase 3)
     const handleAnalysis = async (operation, data = {}) => {
         try {
             const response = await fetch(`/api/mechanical/analysis/${operation}`, {
@@ -350,10 +350,30 @@ function WorkbenchMechanical() {
             });
             const result = await response.json();
             if (result.success) {
-                console.log(`Analysis ${operation} completed:`, result);
+                console.log(`✓ Analysis ${operation} completed:`, result);
+                // TODO: Update viewport with analysis results visualization
             }
         } catch (error) {
-            console.error(`Error in Analysis ${operation}:`, error);
+            console.error(`✗ Error in Analysis ${operation}:`, error);
+        }
+    };
+
+    // AI Optimization Handlers (Phase 3 - AI Agents)
+    const handleAIOptimization = async (operation, data = {}) => {
+        try {
+            console.log(`🤖 Starting AI ${operation}...`);
+            const response = await fetch(`/api/mechanical/ai-optimization/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✓ AI ${operation} completed:`, result);
+                // TODO: Update viewport with AI-generated results
+            }
+        } catch (error) {
+            console.error(`✗ Error in AI ${operation}:`, error);
         }
     };
 
@@ -530,15 +550,28 @@ function WorkbenchMechanical() {
                         </button>
                         {activeDropdown === 'ai_optimize' && (
                             <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
-                                <div className="dropdown-header">Optimization</div>
-                                <div className="dropdown-item">Topology Optimization</div>
-                                <div className="dropdown-item">Generative Design</div>
-                                <div className="dropdown-item">Lattice Structures</div>
+                                <div className="dropdown-header">🤖 AI Generative Design</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('generative-design', {})}>Generative Design</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('topology', {})}>Topology Optimization</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('parametric-opt', {})}>Parametric Optimization</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('shape-opt', {})}>Shape Optimization</div>
                                 <div className="dropdown-divider"></div>
-                                <div className="dropdown-header">Analysis</div>
-                                <div className="dropdown-item">DFM Analysis</div>
-                                <div className="dropdown-item">Cost Estimation</div>
-                                <div className="dropdown-item">Design Validation</div>
+                                <div className="dropdown-header">🧠 AI Design Agents</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('design-from-requirements', {})}>Design from Requirements</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('auto-constraints', {})}>Auto-Apply Constraints</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('design-variants', {})}>Generate Design Variants</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('similar-parts', {})}>Find Similar Parts</div>
+                                <div className="dropdown-divider"></div>
+                                <div className="dropdown-header">✓ AI Validation</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('dfm-check', {})}>DFM Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('dfa-check', {})}>DFA Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('manufacturability', {})}>Manufacturability Score</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('cost-predict', {})}>AI Cost Prediction</div>
+                                <div className="dropdown-divider"></div>
+                                <div className="dropdown-header">🏗️ AI Structures</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('lattice', {})}>Lattice Structures</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('support-generation', {})}>Smart Support Generation</div>
+                                <div className="dropdown-item" onClick={() => handleAIOptimization('material-suggest', {})}>Material Suggestions</div>
                             </div>
                         )}
                     </div>
@@ -954,25 +987,37 @@ function WorkbenchMechanical() {
                         </button>
                         {activeDropdown === 'analysis' && (
                             <div className="tool-dropdown" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
-                                <div className="dropdown-header">Structural</div>
-                                <div className="dropdown-item" onClick={() => handleAnalysis('fea-linear', {})}>Linear FEA</div>
+                                <div className="dropdown-header">⚡ FEA - Structural</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('fea-linear', {})}>Linear Static FEA</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('fea-nonlinear', {})}>Nonlinear FEA</div>
-                                <div className="dropdown-item" onClick={() => handleAnalysis('modal', {})}>Modal Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('modal', {})}>Modal/Frequency</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('buckling', {})}>Buckling Analysis</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('fatigue', {})}>Fatigue Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('contact', {})}>Contact Analysis</div>
                                 <div className="dropdown-divider"></div>
-                                <div className="dropdown-header">Motion</div>
+                                <div className="dropdown-header">🌊 CFD - Fluid Dynamics</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('cfd-internal', {})}>Internal Flow</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('cfd-external', {})}>External Flow</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('cfd-heat-transfer', {})}>Conjugate Heat Transfer</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('cfd-turbulence', {})}>Turbulence Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('cfd-multiphase', {})}>Multiphase Flow</div>
+                                <div className="dropdown-divider"></div>
+                                <div className="dropdown-header">🔥 Thermal Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('thermal-steady', {})}>Steady-State Thermal</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('thermal-transient', {})}>Transient Thermal</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('thermal-radiation', {})}>Thermal Radiation</div>
+                                <div className="dropdown-divider"></div>
+                                <div className="dropdown-header">⚙️ Motion & Dynamics</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('kinematic', {})}>Kinematic Simulation</div>
                                 <div className="dropdown-item" onClick={() => handleAnalysis('dynamic-motion', {})}>Dynamic Motion</div>
-                                <div className="dropdown-item" onClick={() => handleAnalysis('export-motion-loads', {})}>Export Motion Loads</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('rigid-body', {})}>Rigid Body Dynamics</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('flexible-body', {})}>Flexible Body Dynamics</div>
                                 <div className="dropdown-divider"></div>
-                                <div className="dropdown-header">Thermal</div>
-                                <div className="dropdown-item" onClick={() => handleAnalysis('thermal-steady', {})}>Steady-State</div>
-                                <div className="dropdown-item" onClick={() => handleAnalysis('thermal-transient', {})}>Transient</div>
-                                <div className="dropdown-divider"></div>
-                                <div className="dropdown-header">Other</div>
-                                <div className="dropdown-item" onClick={() => handleAnalysis('mass-properties', {})}>Mass Properties</div>
-                                <div className="dropdown-item" onClick={() => handleBOM('flat', {})}>Generate BOM</div>
+                                <div className="dropdown-header">🔬 Advanced Physics</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('vibration', {})}>Vibration Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('acoustic', {})}>Acoustic Analysis</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('electromagnetics', {})}>Electromagnetics</div>
+                                <div className="dropdown-item" onClick={() => handleAnalysis('drop-test', {})}>Drop Test Simulation</div>
                             </div>
                         )}
                     </div>
