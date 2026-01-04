@@ -335,33 +335,6 @@ function WorkbenchMechanical() {
         URL.revokeObjectURL(url);
     };
 
-    // Handle command execution from chat console
-    const handleCommandExecute = async (endpoint, method, params) => {
-        try {
-            console.log(`Executing command: ${method} ${endpoint}`, params);
-
-            const response = await fetch(endpoint, {
-                method: method || 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(params || {})
-            });
-
-            const data = await response.json();
-
-            return {
-                success: data.success !== false,
-                data,
-                error: data.error
-            };
-        } catch (error) {
-            console.error('Command execution error:', error);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    };
-
     return (
         <div className="workbench-container">
             {/* TOP HEADER - Feature Buttons (Reference Layout) */}
