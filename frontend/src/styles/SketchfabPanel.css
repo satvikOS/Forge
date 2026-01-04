@@ -1,0 +1,259 @@
+/* Sketchfab Panel Styles */
+
+.sketchfab-panel {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.sketchfab-panel.disabled {
+  opacity: 0.7;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.add-model-button {
+  padding: 6px 12px;
+  background: #00a8ff;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.add-model-button:hover {
+  background: #0096e6;
+}
+
+.disabled-notice {
+  text-align: center;
+  padding: 24px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.disabled-notice p {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.disabled-notice .small {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.empty-models {
+  text-align: center;
+  padding: 32px 16px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.empty-models p {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+}
+
+.browse-button {
+  padding: 10px 20px;
+  background: transparent;
+  border: 2px solid #00a8ff;
+  border-radius: 6px;
+  color: #00a8ff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.browse-button:hover {
+  background: #00a8ff;
+  color: #fff;
+}
+
+.models-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-item {
+  background: #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #444;
+}
+
+.model-item-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+.model-thumbnail {
+  width: 60px;
+  height: 45px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #333;
+  flex-shrink: 0;
+}
+
+.model-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.model-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-title {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-author {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.expand-button,
+.remove-button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.expand-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.remove-button:hover {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+.model-viewer-container {
+  border-top: 1px solid #444;
+  padding: 12px;
+}
+
+.model-details {
+  margin-top: 12px;
+  padding: 12px;
+  background: #2a2a2a;
+  border-radius: 6px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.detail-row .label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.detail-row .value {
+  color: #fff;
+  font-weight: 500;
+}
+
+.detail-row .badge {
+  padding: 4px 8px;
+  background: rgba(0, 168, 255, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #00a8ff;
+  font-weight: 500;
+}
+
+.view-on-sketchfab {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #00a8ff;
+  border-radius: 6px;
+  color: #00a8ff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.view-on-sketchfab:hover {
+  background: #00a8ff;
+  color: #fff;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .panel-header h3 {
+    font-size: 14px;
+  }
+
+  .add-model-button {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  .model-title {
+    font-size: 13px;
+  }
+
+  .model-author {
+    font-size: 11px;
+  }
+}
