@@ -299,7 +299,356 @@ function WorkbenchMechanical() {
                     )}
                 </div>
 
-                {/* Analysis Dropdown */}
+                {/* Surfacing Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Surfacing"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('surfacing'); }}
+                    >
+                        ⌒
+                    </button>
+                    {activeDropdown === 'surfacing' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Create</div>
+                            <div className="dropdown-item">Loft Surface</div>
+                            <div className="dropdown-item">Sweep Surface</div>
+                            <div className="dropdown-item">Boundary Surface</div>
+                            <div className="dropdown-item">Ruled Surface</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Modify</div>
+                            <div className="dropdown-item">Trim Surface</div>
+                            <div className="dropdown-item">Blend Surface</div>
+                            <div className="dropdown-item">Extend Surface</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Analysis</div>
+                            <div className="dropdown-item">Curvature Analysis</div>
+                            <div className="dropdown-item">Zebra Stripes</div>
+                            <div className="dropdown-item">Draft Analysis</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* CAM/Manufacturing Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="CAM/Manufacturing"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('cam'); }}
+                    >
+                        🔧
+                    </button>
+                    {activeDropdown === 'cam' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">CNC Milling</div>
+                            <div className="dropdown-item">2.5-Axis Toolpath</div>
+                            <div className="dropdown-item">3-Axis Toolpath</div>
+                            <div className="dropdown-item">5-Axis Toolpath</div>
+                            <div className="dropdown-item">Adaptive Clearing</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Turning</div>
+                            <div className="dropdown-item">OD Roughing</div>
+                            <div className="dropdown-item">Facing</div>
+                            <div className="dropdown-item">Threading</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Post Processing</div>
+                            <div className="dropdown-item">Generate G-Code</div>
+                            <div className="dropdown-item">Simulate Toolpath</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Mold Design Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Mold Design"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('mold'); }}
+                    >
+                        🏭
+                    </button>
+                    {activeDropdown === 'mold' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Draft Analysis</div>
+                            <div className="dropdown-item">Parting Line</div>
+                            <div className="dropdown-item">Core & Cavity</div>
+                            <div className="dropdown-item">Undercut Detection</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Mold Base</div>
+                            <div className="dropdown-item">Ejector Pins</div>
+                            <div className="dropdown-item">Cooling Channels</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Additive Manufacturing Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="3D Printing"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('additive'); }}
+                    >
+                        🖨️
+                    </button>
+                    {activeDropdown === 'additive' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Preparation</div>
+                            <div className="dropdown-item">Optimize Orientation</div>
+                            <div className="dropdown-item">Generate Supports</div>
+                            <div className="dropdown-item">Nest Parts</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Slicing</div>
+                            <div className="dropdown-item">Preview Layers</div>
+                            <div className="dropdown-item">Estimate Time/Cost</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Export STL</div>
+                            <div className="dropdown-item">Export G-Code</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* GD&T/Tolerancing Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="GD&T"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('gdt'); }}
+                    >
+                        ⊕
+                    </button>
+                    {activeDropdown === 'gdt' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Annotations</div>
+                            <div className="dropdown-item">True Position</div>
+                            <div className="dropdown-item">Perpendicularity</div>
+                            <div className="dropdown-item">Parallelism</div>
+                            <div className="dropdown-item">Flatness</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Analysis</div>
+                            <div className="dropdown-item">Verify Compliance</div>
+                            <div className="dropdown-item">Tolerance Stack-Up</div>
+                            <div className="dropdown-item">Process Planning</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Standard Components Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Components Library"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('components'); }}
+                    >
+                        📦
+                    </button>
+                    {activeDropdown === 'components' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Fasteners</div>
+                            <div className="dropdown-item">ISO Bolts & Screws</div>
+                            <div className="dropdown-item">ANSI Fasteners</div>
+                            <div className="dropdown-item">DIN Standards</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Other</div>
+                            <div className="dropdown-item">Bearings</div>
+                            <div className="dropdown-item">Springs</div>
+                            <div className="dropdown-item">Connectors</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">🔍 Search Library</div>
+                            <div className="dropdown-item">AI Suggest Replacement</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* BOM Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="BOM"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('bom'); }}
+                    >
+                        📝
+                    </button>
+                    {activeDropdown === 'bom' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Generate Hierarchical BOM</div>
+                            <div className="dropdown-item">Generate Flat BOM</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Add to Drawing</div>
+                            <div className="dropdown-item">Export to Excel</div>
+                            <div className="dropdown-item">Export to CSV</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Configuration-Specific BOM</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* MBD/Drawings Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Drawings & MBD"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('drawings'); }}
+                    >
+                        📐
+                    </button>
+                    {activeDropdown === 'drawings' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">2D Drawings</div>
+                            <div className="dropdown-item">New Drawing</div>
+                            <div className="dropdown-item">Add View</div>
+                            <div className="dropdown-item">Section View</div>
+                            <div className="dropdown-item">Detail View</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">MBD</div>
+                            <div className="dropdown-item">Embed PMI</div>
+                            <div className="dropdown-item">Generate 3D Spec</div>
+                            <div className="dropdown-item">QR Code for Shop Floor</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Export PDF</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Technical Manuals Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Documentation"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('manuals'); }}
+                    >
+                        📖
+                    </button>
+                    {activeDropdown === 'manuals' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Exploded View</div>
+                            <div className="dropdown-item">Assembly Instructions</div>
+                            <div className="dropdown-item">Service Manual</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Generate PDF Booklet</div>
+                            <div className="dropdown-item">Export Instructions</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Revision Control Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Revisions"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('revisions'); }}
+                    >
+                        🔄
+                    </button>
+                    {activeDropdown === 'revisions' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Create Revision</div>
+                            <div className="dropdown-item">Request Approval</div>
+                            <div className="dropdown-item">Approve/Reject</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Release Model</div>
+                            <div className="dropdown-item">View Audit Trail</div>
+                            <div className="dropdown-item">Rollback to Previous</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Change Lifecycle State</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Machining Simulation Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Simulation"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('machining_sim'); }}
+                    >
+                        ▶️
+                    </button>
+                    {activeDropdown === 'machining_sim' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Material Removal Sim</div>
+                            <div className="dropdown-item">Collision Detection</div>
+                            <div className="dropdown-item">Kinematic Simulation</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Estimate Cycle Time</div>
+                            <div className="dropdown-item">Verify Toolpath</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Cost Estimation Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Cost Estimation"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('cost'); }}
+                    >
+                        💰
+                    </button>
+                    {activeDropdown === 'cost' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-item">Machining Cost</div>
+                            <div className="dropdown-item">Additive Manufacturing Cost</div>
+                            <div className="dropdown-item">Assembly Cost</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Compare Methods</div>
+                            <div className="dropdown-item">Cost Breakdown Report</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Jigs & Fixtures Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="Fixtures"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('fixtures'); }}
+                    >
+                        🔩
+                    </button>
+                    {activeDropdown === 'fixtures' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Machining</div>
+                            <div className="dropdown-item">Generate Machining Fixture</div>
+                            <div className="dropdown-item">3-2-1 Locating</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Assembly</div>
+                            <div className="dropdown-item">Assembly Jig</div>
+                            <div className="dropdown-item">Welding Fixture</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-item">Validate Fixture</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* DFA & Mechanisms Dropdown */}
+                <div className="tool-dropdown-container">
+                    <button
+                        className="tool-icon-button"
+                        title="DFA & Mechanisms"
+                        onClick={(e) => { e.stopPropagation(); toggleDropdown('dfa'); }}
+                    >
+                        ⚙
+                    </button>
+                    {activeDropdown === 'dfa' && (
+                        <div className="tool-dropdown">
+                            <div className="dropdown-header">Assembly</div>
+                            <div className="dropdown-item">Plan Assembly Sequence</div>
+                            <div className="dropdown-item">Check Interferences</div>
+                            <div className="dropdown-item">Generate Instructions</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Routing</div>
+                            <div className="dropdown-item">Cable Routing</div>
+                            <div className="dropdown-item">Hose/Pipe Routing</div>
+                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-header">Mechanisms</div>
+                            <div className="dropdown-item">Design Linkage</div>
+                            <div className="dropdown-item">Gear Train</div>
+                            <div className="dropdown-item">Cam Mechanism</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Analysis Dropdown - ENHANCED */}
                 <div className="tool-dropdown-container">
                     <button
                         className="tool-icon-button"
@@ -311,12 +660,16 @@ function WorkbenchMechanical() {
                     {activeDropdown === 'analysis' && (
                         <div className="tool-dropdown">
                             <div className="dropdown-header">Structural</div>
-                            <div className="dropdown-item">FEA Analysis</div>
+                            <div className="dropdown-item">Linear FEA</div>
+                            <div className="dropdown-item">Nonlinear FEA</div>
                             <div className="dropdown-item">Modal Analysis</div>
+                            <div className="dropdown-item">Buckling Analysis</div>
+                            <div className="dropdown-item">Fatigue Analysis</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Motion</div>
                             <div className="dropdown-item">Kinematic Simulation</div>
-                            <div className="dropdown-item">Motion Analysis</div>
+                            <div className="dropdown-item">Dynamic Motion</div>
+                            <div className="dropdown-item">Export Motion Loads</div>
                             <div className="dropdown-divider"></div>
                             <div className="dropdown-header">Thermal</div>
                             <div className="dropdown-item">Steady-State</div>
