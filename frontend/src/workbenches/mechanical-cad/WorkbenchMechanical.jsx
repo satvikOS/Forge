@@ -364,7 +364,7 @@ function WorkbenchMechanical() {
     };
 
     return (
-        <>
+        <div className="workbench-container mechanical-workbench">
             {/* LEFT TOOLBAR - ICON WITH DROPDOWNS */}
             <aside className="workbench-tools" onClick={() => setActiveDropdown(null)}>
                 <button className="tool-icon-button" title="Select"><Mouse size={20} /></button>
@@ -1053,7 +1053,7 @@ function WorkbenchMechanical() {
             <footer className="workbench-console">
                 <ChatConsole onCommandExecute={handleCommandExecute} />
             </footer>
-        </div >
+        </div>
     );
 }
 
