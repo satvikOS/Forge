@@ -6,7 +6,6 @@ import {
     FileText, File, BookOpen, RotateCcw, Play, DollarSign, Axis3D,
     Cog, Grid3x3
 } from 'lucide-react';
-import ChatConsole from '../../components/ChatConsole';
 import './WorkbenchMechanical.css';
 
 /**
