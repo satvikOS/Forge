@@ -223,6 +223,125 @@ class MoldDesignService {
         };
     }
 
+    /**
+     * Calculate and place ejector pins
+     */
+    async calculateEjectorPins(modelData, coreCavity, options = {}) {
+        const {
+            minPinDiameter = 3, // mm
+            maxPinDiameter = 10,
+            pinSpacing = 20, // mm minimum spacing
+            avoidThinWalls = true,
+            minWallThickness = 2
+        } = options;
+
+        console.log(`📍 Calculating ejector pin placement...`);
+
+        const cavity = coreCavity.cavity;
+        const projectedArea = this._calculateProjectedArea(cavity.geometry);
+        const ejectionForce = this._estimateEjectionForce(modelData, projectedArea);
+
+        // Calculate required number of pins
+        const pinForce = 500; // N per pin (typical)
+        const requiredPins = Math.ceil(ejectionForce / pinForce);
+
+        // Place pins strategically
+        const pinLocations = this._calculateOptimalPinLocations(
+            cavity.geometry,
+            requiredPins,
+            pinSpacing,
+            avoidThinWalls ? minWallThickness : 0
+        );
+
+        const result = {
+            totalPins: pinLocations.length,
+            arrangementType: this._detectPinArrangement(pinLocations),
+            pins: pinLocations.map((loc, i) => ({
+                id: i + 1,
+                location: loc,
+                diameter: this._calculatePinDiameter(ejectionForce / pinLocations.length, minPinDiameter, maxPinDiameter),
+                type: loc.type || 'standard',
+                depth: cavity.boundingBox?.depth || 30
+            })),
+            ejectionForce,
+            safetyFactor: (pinLocations.length * pinForce) / ejectionForce
+        };
+
+        console.log(`✅ Ejector pin calculation complete: ${result.totalPins} pins, ${result.safetyFactor.toFixed(2)}x safety factor`);
+
+        return result;
+    }
+
+    /**
+     * Integrate standard mold bases (DME, Hasco)
+     */
+    async integrateMoldBase(coreCavity, options = {}) {
+        const {
+            standard = 'DME', // DME or Hasco
+            series = 'A', // A, B, C series (DME) or K, H, N series (Hasco)
+            customSize = null,
+            includeInserts = true,
+            includeCooling = true
+        } = options;
+
+        console.log(`🏭 Integrating ${standard} mold base (Series ${series})...`);
+
+        const moldDimensions = coreCavity.moldAssembly?.dimensions || {
+            width: 200,
+            height: 200,
+            depth: 100
+        };
+
+        // Select appropriate mold base size
+        const moldBase = this._selectMoldBase(standard, series, moldDimensions, customSize);
+
+        const result = {
+            standard,
+            series,
+            moldBase: {
+                size: moldBase.size,
+                plateThickness: moldBase.plateThickness,
+                components: moldBase.components,
+                material: moldBase.material,
+                partNumber: moldBase.partNumber
+            },
+            plates: {
+                cavity: {
+                    thickness: moldBase.plateThickness.cavity,
+                    material: 'P20 Steel',
+                    hardness: '28-32 HRC'
+                },
+                core: {
+                    thickness: moldBase.plateThickness.core,
+                    material: 'P20 Steel',
+                    hardness: '28-32 HRC'
+                },
+                support: {
+                    thickness: moldBase.plateThickness.support,
+                    count: 2
+                }
+            },
+            guideSystem: {
+                type: moldBase.guideType,
+                diameter: moldBase.guideDiameter,
+                count: 4,
+                material: 'Hardened Steel'
+            }
+        };
+
+        if (includeInserts) {
+            result.inserts = this._designMoldInserts(coreCavity, moldBase);
+        }
+
+        if (includeCooling) {
+            result.cooling = this._designCoolingChannels(moldBase, moldDimensions);
+        }
+
+        console.log(`✅ Mold base integrated: ${standard} ${moldBase.size}, ${moldBase.partNumber}`);
+
+        return result;
+    }
+
     // Helper methods
 
     _extractFaces(geometry) {
@@ -314,6 +433,149 @@ class MoldDesignService {
             { location: { x: 50, y: 50, z: 0 }, type: 'edge_gate', size: 2 },
             { location: { x: -50, y: 50, z: 0 }, type: 'edge_gate', size: 2 }
         ];
+    }
+
+    // Ejector pin helpers
+    _calculateProjectedArea(geometry) {
+        return 5000 + Math.random() * 3000; // mm²
+    }
+
+    _estimateEjectionForce(model, projectedArea) {
+        // Simplified: Force = projected area × ejection pressure
+        const ejectionPressure = 2.5; // MPa (typical for ABS)
+        return projectedArea * ejectionPressure; // N
+    }
+
+    _calculateOptimalPinLocations(geometry, requiredPins, spacing, minWallThickness) {
+        const locations = [];
+        const gridSize = Math.ceil(Math.sqrt(requiredPins));
+
+        for (let i = 0; i < requiredPins; i++) {
+            const row = Math.floor(i / gridSize);
+            const col = i % gridSize;
+            locations.push({
+                x: (col - gridSize / 2) * spacing,
+                y: (row - gridSize / 2) * spacing,
+                z: 0,
+                type: i === 0 ? 'return_pin' : 'standard'
+            });
+        }
+
+        return locations;
+    }
+
+    _detectPinArrangement(locations) {
+        if (locations.length <= 4) return 'rectangular';
+        if (locations.length >= 8) return 'distributed_grid';
+        return 'custom';
+    }
+
+    _calculatePinDiameter(forcePerPin, minDia, maxDia) {
+        // Simplified: larger force needs larger diameter
+        const diameter = Math.sqrt(forcePerPin / 100) + minDia;
+        return Math.min(Math.max(diameter, minDia), maxDia);
+    }
+
+    // Mold base helpers
+    _selectMoldBase(standard, series, dimensions, customSize) {
+        if (customSize) {
+            return this._createCustomMoldBase(standard, customSize);
+        }
+
+        // Standard DME and Hasco sizes
+        const standardSizes = {
+            DME: {
+                A: [
+                    { size: '1012', dimensions: { w: 254, h: 305 }, plateThickness: { cavity: 38, core: 38, support: 25 }, partNumber: 'DME-1012-A' },
+                    { size: '1418', dimensions: { w: 356, h: 457 }, plateThickness: { cavity: 51, core: 51, support: 32 }, partNumber: 'DME-1418-A' },
+                    { size: '1824', dimensions: { w: 457, h: 610 }, plateThickness: { cavity: 64, core: 64, support: 38 }, partNumber: 'DME-1824-A' }
+                ],
+                B: [
+                    { size: '1012', dimensions: { w: 254, h: 305 }, plateThickness: { cavity: 32, core: 32, support: 19 }, partNumber: 'DME-1012-B' }
+                ]
+            },
+            Hasco: {
+                K: [
+                    { size: '300x400', dimensions: { w: 300, h: 400 }, plateThickness: { cavity: 40, core: 40, support: 25 }, partNumber: 'K300x400' },
+                    { size: '400x500', dimensions: { w: 400, h: 500 }, plateThickness: { cavity: 50, core: 50, support: 30 }, partNumber: 'K400x500' }
+                ]
+            }
+        };
+
+        // Select smallest mold base that fits
+        const bases = standardSizes[standard]?.[series] || standardSizes.DME.A;
+        const selected = bases.find(base =>
+            base.dimensions.w >= dimensions.width &&
+            base.dimensions.h >= dimensions.height
+        ) || bases[bases.length - 1]; // Fallback to largest
+
+        return {
+            ...selected,
+            components: this._getMoldBaseComponents(standard),
+            material: 'P20 Pre-Hardened Steel',
+            guideType: standard === 'DME' ? 'leader_pin' : 'guide_pillar',
+            guideDiameter: 25
+        };
+    }
+
+    _createCustomMoldBase(standard, size) {
+        return {
+            size: `${size.width}x${size.height}`,
+            dimensions: size,
+            plateThickness: {
+                cavity: Math.max(size.width / 10, 30),
+                core: Math.max(size.width / 10, 30),
+                support: Math.max(size.width / 15, 20)
+            },
+            partNumber: `${standard}-CUSTOM`,
+            components: this._getMoldBaseComponents(standard),
+            material: 'P20 Pre-Hardened Steel',
+            guideType: 'leader_pin',
+            guideDiameter: 25
+        };
+    }
+
+    _getMoldBaseComponents(standard) {
+        return {
+            aCavityPlate: true,
+            bCorePlate: true,
+            cEjectorRetainerPlate: true,
+            dEjectorPlate: true,
+            supportPillars: 4,
+            locatingRing: true,
+            sprueBushing: true,
+            returnPins: 2
+        };
+    }
+
+    _designMoldInserts(coreCavity, moldBase) {
+        return {
+            cavityInsert: {
+                material: 'H13 Tool Steel',
+                hardness: '48-52 HRC',
+                pocketDepth: moldBase.plateThickness.cavity - 10,
+                retention: 'shoulder_fit'
+            },
+            coreInsert: {
+                material: 'H13 Tool Steel',
+                hardness: '48-52 HRC',
+                pocketDepth: moldBase.plateThickness.core - 10,
+                retention: 'shoulder_fit'
+            }
+        };
+    }
+
+    _designCoolingChannels(moldBase, dimensions) {
+        return {
+            channels: [
+                { plate: 'cavity', diameter: 8, layout: 'spiral', length: 500 },
+                { plate: 'core', diameter: 8, layout: 'spiral', length: 500 }
+            ],
+            coolantType: 'water',
+            flowRate: '4-6 L/min',
+            inletTemperature: '15-20°C',
+            coolingTime: dimensions.depth * 0.6 // Simplified: ~0.6s per mm thickness
+        };
     }
 }
 

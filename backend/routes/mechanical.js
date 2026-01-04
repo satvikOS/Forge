@@ -2491,6 +2491,26 @@ router.post('/assembly/simplify', async (req, res) => {
     }
 });
 
+router.post('/assembly/lightweight-reps', async (req, res) => {
+    try {
+        const { parts, options } = req.body;
+        const results = largeAssembly.generateLightweightReps(parts, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/assembly/substitutes', async (req, res) => {
+    try {
+        const { assemblyData, options } = req.body;
+        const results = largeAssembly.createSubstituteComponents(assemblyData, options);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 router.post('/mold/draft-analysis', async (req, res) => {
     try {
         const { modelData, pullDirection, options } = req.body;
@@ -2515,6 +2535,26 @@ router.post('/mold/core-cavity', async (req, res) => {
     try {
         const { modelData, partingLine, options } = req.body;
         const result = await moldDesign.generateCoreCavity(modelData, partingLine, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mold/ejector-pins', async (req, res) => {
+    try {
+        const { modelData, coreCavity, options } = req.body;
+        const result = await moldDesign.calculateEjectorPins(modelData, coreCavity, options);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/mold/mold-base', async (req, res) => {
+    try {
+        const { coreCavity, options } = req.body;
+        const result = await moldDesign.integrateMoldBase(coreCavity, options);
         res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
