@@ -45,7 +45,7 @@
     height: 100vh;
     width: 100vw;
     display: grid;
-    grid-template-rows: var(--header-height) 1fr auto;
+    grid-template-rows: var(--header-height) 1fr 160px;
     grid-template-columns: var(--toolbar-width) 1fr var(--properties-width);
     grid-template-areas:
         "header header header"
@@ -66,6 +66,9 @@
     padding: 0 8px;
     gap: 12px;
     height: var(--header-height);
+    min-height: var(--header-height);
+    max-height: var(--header-height);
+    overflow: visible;
 }
 
 .workbench-title {
@@ -343,68 +346,8 @@
     background: var(--bg-hover);
 }
 
-/* ========== BOTTOM FOOTER - AI PROMPT ========== */
-.workbench-console {
-    grid-area: footer;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 8px;
-    height: var(--footer-height);
-}
-
-.prompt-label {
-    font-size: 10px;
-    color: var(--text-secondary);
-    font-weight: 500;
-    min-width: 60px;
-}
-
-.prompt-input {
-    flex: 1;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    font-size: 11px;
-    padding: 6px 12px;
-    height: 36px;
-    border-radius: 2px;
-    resize: none;
-    font-family: inherit;
-}
-
-.prompt-input:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-    background: var(--bg-primary);
-}
-
-.generate-button {
-    background: var(--accent-primary);
-    border: none;
-    color: white;
-    font-size: 11px;
-    font-weight: 500;
-    padding: 0 20px;
-    height: 36px;
-    cursor: pointer;
-    border-radius: 2px;
-}
-
-.generate-button:hover {
-    background: var(--accent-hover);
-}
-
-/* ========== BOTTOM FOOTER - CHAT CONSOLE ========== */
-.workbench-console {
-    grid-area: footer;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-color);
-    overflow: hidden;
-    height: 160px;
-}
+/* ========== BOTTOM FOOTER - AI CONSOLE ========== */
+/* AI Console styles are in AIConsole.css */
 
 /* ========== SCROLLBARS - BLENDER STYLE ========== */
 ::-webkit-scrollbar {

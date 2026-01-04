@@ -2,16 +2,18 @@
 
 .ai-console {
     grid-area: footer;
-    height: 160px;
+    height: 100%;
+    max-height: 160px;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    transition: height 0.3s ease;
+    transition: max-height 0.3s ease;
+    overflow: hidden;
 }
 
 .ai-console.expanded {
-    height: 400px;
+    max-height: 400px;
 }
 
 /* Header */
