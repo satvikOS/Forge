@@ -72,11 +72,30 @@ function WorkbenchMechanical() {
             setActiveDropdown(null);
         } else {
             setActiveDropdown(dropdownName);
-            // Calculate position based on button location
+            // Calculate position based on button location with viewport boundary detection
             if (event && event.currentTarget) {
                 const rect = event.currentTarget.getBoundingClientRect();
+                const viewportHeight = window.innerHeight;
+                const dropdownMaxHeight = 400; // Approximate max dropdown height
+
+                let top = rect.top;
+
+                // Check if dropdown would go off-screen at bottom
+                if (rect.top + dropdownMaxHeight > viewportHeight) {
+                    // Position above the button if there's more space above
+                    if (rect.top > viewportHeight - rect.bottom) {
+                        top = Math.max(10, rect.bottom - dropdownMaxHeight);
+                    } else {
+                        // Position at bottom of viewport with padding
+                        top = viewportHeight - dropdownMaxHeight - 10;
+                    }
+                }
+
+                // Ensure dropdown doesn't go above viewport top
+                top = Math.max(10, top);
+
                 setDropdownPosition({
-                    top: rect.top,
+                    top: top,
                     left: rect.right + 8 // 8px margin from button
                 });
             }
