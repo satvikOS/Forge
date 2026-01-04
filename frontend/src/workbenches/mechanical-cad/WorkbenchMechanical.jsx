@@ -365,7 +365,25 @@ function WorkbenchMechanical() {
 
     return (
         <div className="workbench-container mechanical-workbench">
-            {/* LEFT TOOLBAR - ICON WITH DROPDOWNS */}
+            {/* TOP HEADER - Industry Standard CAD Menu Bar */}
+            <header className="workbench-header">
+                <h1 className="workbench-title">Mechanical CAD</h1>
+                <div className="workbench-toolbar">
+                    <button className="toolbar-button">File</button>
+                    <button className="toolbar-button">Edit</button>
+                    <button className="toolbar-button">View</button>
+                    <button className="toolbar-button">Insert</button>
+                    <button className="toolbar-button">Tools</button>
+                    <button className="toolbar-button">Analyze</button>
+                    <button className="toolbar-button">Manufacturing</button>
+                    <button className="toolbar-button">Documentation</button>
+                </div>
+                <div className="header-actions">
+                    <button className="header-button">Settings</button>
+                </div>
+            </header>
+
+            {/* LEFT TOOLBAR - Essential CAD Tools */}
             <aside className="workbench-tools" onClick={() => setActiveDropdown(null)}>
                 <button className="tool-icon-button" title="Select"><Mouse size={20} /></button>
                 <button className="tool-icon-button" title="Move"><Move size={20} /></button>
