@@ -6,6 +6,7 @@ import {
     FileText, File, BookOpen, RotateCcw, Play, DollarSign, Axis3D,
     Cog, Grid3x3
 } from 'lucide-react';
+import ChatConsole from '../../components/ChatConsole';
 import './WorkbenchMechanical.css';
 
 /**
@@ -335,6 +336,32 @@ function WorkbenchMechanical() {
         URL.revokeObjectURL(url);
     };
 
+    // Handle command execution from chat console
+    const handleCommandExecute = async (endpoint, method, params) => {
+        try {
+            console.log(`Executing command: ${method} ${endpoint}`, params);
+
+            const response = await fetch(endpoint, {
+                method: method || 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(params || {})
+            });
+
+            const data = await response.json();
+
+            return {
+                success: data.success !== false,
+                data,
+                error: data.error
+            };
+        } catch (error) {
+            console.error('Command execution error:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    };
 
     return (
         <>
@@ -1021,7 +1048,12 @@ function WorkbenchMechanical() {
                     )}
                 </div>
             )}
-        </>
+
+            {/* BOTTOM FOOTER - AI CHAT CONSOLE */}
+            <footer className="workbench-console">
+                <ChatConsole onCommandExecute={handleCommandExecute} />
+            </footer>
+        </div >
     );
 }
 

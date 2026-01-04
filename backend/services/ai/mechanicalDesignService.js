@@ -681,6 +681,171 @@ Be technical but concise. Focus on engineering reasoning.`;
             designPriority: 'balanced'
         };
     }
+
+    /**
+     * Parse natural language commands for CAD operations
+     * Maps conversational input to structured API calls
+     */
+    async parseNaturalLanguageCommand(userMessage, conversationContext = []) {
+        console.log('💬 Parsing natural language command:', userMessage);
+
+        const systemPrompt = `You are an AI assistant for a professional CAD software. Parse the user's command and determine which API endpoint to call.
+
+USER COMMAND: "${userMessage}"
+
+AVAILABLE API ENDPOINTS AND THEIR PARAMETERS:
+
+**Geometry Creation:**
+- /api/mechanical/features/extrude: {sketchId, distance, direction}
+- /api/mechanical/features/revolve: {sketchId, axis, angle}
+- /api/mechanical/sketch/rectangle: {width, height, center}
+- /api/mechanical/sketch/circle: {radius, center}
+
+**Analysis:**
+- /api/mechanical/analysis/fea-linear: {modelId, loads, constraints}
+- /api/mechanical/analysis/modal: {modelId, numModes}
+- /api/mechanical/analysis/thermal-steady: {modelId, temperature}
+- /api/mechanical/analysis/mass-properties: {modelId}
+
+**Manufacturing:**
+- /api/mechanical/cam/generate-toolpath: {type, modelId, stock}
+- /api/mechanical/bom/hierarchical: {assemblyId}
+- /api/mechanical/bom/flat: {assemblyId}
+- /api/mechanical/cost/machining-cost: {modelId}
+
+**Documentation:**
+- /api/mechanical/mbd/embed-pmi: {modelId, annotations}
+- /api/mechanical/revision/create: {modelId, notes}
+
+**Examples:**
+- "Create a 50mm cube" → {endpoint: "/api/mechanical/features/extrude", params: {distance: 50}, intent: "create_cube"}
+- "Run FEA analysis" → {endpoint: "/api/mechanical/analysis/fea-linear", params: {}, intent: "run_fea"}
+- "Generate BOM" → {endpoint: "/api/mechanical/bom/hierarchical", params: {}, intent: "generate_bom"}
+- "Export to STL" → {endpoint: "/api/mechanical/additive/export-stl", params: {}, intent: "export_stl"}
+
+Return ONLY valid JSON with this structure:
+{
+  "intent": "create_geometry|run_analysis|generate_doc|manufacturing|conversational",
+  "confidence": 0.0-1.0,
+  "endpoint": "/api/mechanical/...",
+  "method": "POST",
+  "params": {...},
+  "conversationalResponse": "Brief confirmation message",
+  "suggestedFollowUps": ["Next step 1", "Next step 2"]
+}
+
+If the command is conversational (e.g., "hello", "what can you do?"), return intent="conversational" with no endpoint.`;
+
+        try {
+            const response = await bedrockService.generateContent(systemPrompt);
+            const parsed = bedrockService.parseJSON(response);
+
+            if (!parsed || !parsed.intent) {
+                throw new Error('Invalid parse response');
+            }
+
+            console.log(`✅ Command parsed: ${parsed.intent} → ${parsed.endpoint || 'conversational'}`);
+
+            return {
+                success: true,
+                ...parsed,
+                originalCommand: userMessage,
+                timestamp: new Date().toISOString()
+            };
+
+        } catch (error) {
+            console.error('Error parsing NL command:', error);
+
+            // Fallback: simple pattern matching
+            return this.fallbackCommandParse(userMessage);
+        }
+    }
+
+    /**
+     * Fallback command parser using simple pattern matching
+     */
+    fallbackCommandParse(message) {
+        const lowerMsg = message.toLowerCase();
+
+        // Geometry creation patterns
+        if (lowerMsg.includes('cube') || lowerMsg.includes('box')) {
+            const size = this.extractNumber(lowerMsg) || 50;
+            return {
+                success: true,
+                intent: 'create_geometry',
+                confidence: 0.7,
+                endpoint: '/api/mechanical/features/extrude',
+                method: 'POST',
+                params: { distance: size },
+                conversationalResponse: `Creating a ${size}mm cube.`,
+                suggestedFollowUps: ['Add fillets', 'Run FEA analysis', 'Generate BOM']
+            };
+        }
+
+        // Analysis patterns
+        if (lowerMsg.includes('fea') || lowerMsg.includes('analysis') || lowerMsg.includes('stress')) {
+            return {
+                success: true,
+                intent: 'run_analysis',
+                confidence: 0.8,
+                endpoint: '/api/mechanical/analysis/fea-linear',
+                method: 'POST',
+                params: {},
+                conversationalResponse: 'Running linear FEA analysis...',
+                suggestedFollowUps: ['View results', 'Export report', 'Modify design']
+            };
+        }
+
+        // BOM patterns
+        if (lowerMsg.includes('bom') || lowerMsg.includes('bill of materials')) {
+            const type = lowerMsg.includes('flat') ? 'flat' : 'hierarchical';
+            return {
+                success: true,
+                intent: 'generate_doc',
+                confidence: 0.9,
+                endpoint: `/api/mechanical/bom/${type}`,
+                method: 'POST',
+                params: {},
+                conversationalResponse: `Generating ${type} BOM...`,
+                suggestedFollowUps: ['Export to Excel', 'Export to CSV', 'Add to drawing']
+            };
+        }
+
+        // Cost estimation patterns
+        if (lowerMsg.includes('cost') || lowerMsg.includes('estimate')) {
+            return {
+                success: true,
+                intent: 'manufacturing',
+                confidence: 0.75,
+                endpoint: '/api/mechanical/cost/machining-cost',
+                method: 'POST',
+                params: {},
+                conversationalResponse: 'Estimating manufacturing cost...',
+                suggestedFollowUps: ['Compare methods', 'Generate cost breakdown']
+            };
+        }
+
+        // Default conversational response
+        return {
+            success: true,
+            intent: 'conversational',
+            confidence: 0.5,
+            conversationalResponse: "I can help you with CAD design, analysis, manufacturing, and documentation. Try commands like 'Create a 50mm cube', 'Run FEA analysis', or 'Generate BOM'.",
+            suggestedFollowUps: [
+                'Create geometry',
+                'Run analysis',
+                'Generate documentation'
+            ]
+        };
+    }
+
+    /**
+     * Extract first number from string
+     */
+    extractNumber(str) {
+        const match = str.match(/\d+\.?\d*/);
+        return match ? parseFloat(match[0]) : null;
+    }
 }
 
 module.exports = new MechanicalDesignService();

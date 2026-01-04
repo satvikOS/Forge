@@ -40,12 +40,13 @@
     line-height: 1.3;
 }
 
-/* Main Container - Blender Grid Layout */
+/* Main Container - Blender Grid Layout + Chat Footer */
 .workbench-container {
     height: 100vh;
     width: 100vw;
     display: grid;
-    grid-template-rows: var(--header-height) 1fr var(--footer-height);
+    grid-template-rows: var(--header-height) 1fr 160px;
+    /* header, viewport, chat footer */
     grid-template-columns: var(--toolbar-width) 1fr var(--properties-width);
     grid-template-areas:
         "header header header"
@@ -373,6 +374,15 @@
 
 .generate-button:hover {
     background: var(--accent-hover);
+}
+
+/* ========== BOTTOM FOOTER - CHAT CONSOLE ========== */
+.workbench-console {
+    grid-area: footer;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    overflow: hidden;
+    height: 160px;
 }
 
 /* ========== SCROLLBARS - BLENDER STYLE ========== */

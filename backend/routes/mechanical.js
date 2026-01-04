@@ -554,6 +554,36 @@ router.get('/analyze/results/:jobId', async (req, res) => {
     }
 });
 
+// ==================== AI CHAT INTERFACE ====================
+
+router.post('/ai/chat', async (req, res) => {
+    try {
+        const { message, conversationContext = [] } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        console.log(`\n💬 AI Chat Command:`, message);
+
+        // Parse the natural language command
+        const parsed = await mechanicalDesign.parseNaturalLanguageCommand(message, conversationContext);
+
+        res.json({
+            success: true,
+            ...parsed
+        });
+
+    } catch (error) {
+        console.error('Error in AI chat:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            conversationalResponse: "I encountered an error processing your command. Please try again."
+        });
+    }
+});
+
 // ==================== CAM Endpoints ====================
 
 /**
