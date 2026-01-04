@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
 import Viewport3D from '../../components/Viewport3D';
+import {
+    Mouse, Move, Pencil, Box, Sheet, Copy, Link2, Zap, Settings,
+    BarChart3, Waves, Wrench, Factory, Printer, CircleDot, Package,
+    FileText, File, BookOpen, RotateCcw, Play, DollarSign, Axis3D,
+    Cog, Grid3x3
+} from 'lucide-react';
 import './WorkbenchMechanical.css';
 
 /**
@@ -334,8 +340,8 @@ function WorkbenchMechanical() {
         <>
             {/* LEFT TOOLBAR - ICON WITH DROPDOWNS */}
             <aside className="workbench-tools" onClick={() => setActiveDropdown(null)}>
-                <button className="tool-icon-button" title="Select">⬚</button>
-                <button className="tool-icon-button" title="Move">✥</button>
+                <button className="tool-icon-button" title="Select"><Mouse size={20} /></button>
+                <button className="tool-icon-button" title="Move"><Move size={20} /></button>
 
                 {/* Sketch Dropdown */}
                 <div className="tool-dropdown-container">
@@ -344,7 +350,7 @@ function WorkbenchMechanical() {
                         title="Sketch"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('sketch'); }}
                     >
-                        ✎
+                        <Pencil size={20} />
                     </button>
                     {activeDropdown === 'sketch' && (
                         <div className="tool-dropdown">
@@ -367,7 +373,7 @@ function WorkbenchMechanical() {
                         title="Features"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('features'); }}
                     >
-                        ⬆
+                        <Box size={20} />
                     </button>
                     {activeDropdown === 'features' && (
                         <div className="tool-dropdown">
@@ -391,7 +397,7 @@ function WorkbenchMechanical() {
                         title="Sheet Metal"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('sheetmetal'); }}
                     >
-                        ⎕
+                        <Sheet size={20} />
                     </button>
                     {activeDropdown === 'sheetmetal' && (
                         <div className="tool-dropdown">
@@ -420,7 +426,7 @@ function WorkbenchMechanical() {
                         title="Pattern"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('pattern'); }}
                     >
-                        ▦
+                        <Copy size={20} />
                     </button>
                     {activeDropdown === 'pattern' && (
                         <div className="tool-dropdown">
@@ -438,7 +444,7 @@ function WorkbenchMechanical() {
                         title="Assembly"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('assembly'); }}
                     >
-                        🔗
+                        <Link2 size={20} />
                     </button>
                     {activeDropdown === 'assembly' && (
                         <div className="tool-dropdown">
@@ -460,7 +466,7 @@ function WorkbenchMechanical() {
                         title="Weldments"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('weldments'); }}
                     >
-                        🔩
+                        <Zap size={20} />
                     </button>
                     {activeDropdown === 'weldments' && (
                         <div className="tool-dropdown">
@@ -487,7 +493,7 @@ function WorkbenchMechanical() {
                         title="AI Optimization"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('ai_optimize'); }}
                     >
-                        🧠
+                        <Zap size={20} />
                     </button>
                     {activeDropdown === 'ai_optimize' && (
                         <div className="tool-dropdown">
@@ -511,7 +517,7 @@ function WorkbenchMechanical() {
                         title="Templates"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('templates'); }}
                     >
-                        📋
+                        <FileText size={20} />
                     </button>
                     {activeDropdown === 'templates' && (
                         <div className="tool-dropdown">
@@ -540,7 +546,7 @@ function WorkbenchMechanical() {
                         title="Configuration"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('configuration'); }}
                     >
-                        ⚙️
+                        <Settings size={20} />
                     </button>
                     {activeDropdown === 'configuration' && (
                         <div className="tool-dropdown">
@@ -562,7 +568,7 @@ function WorkbenchMechanical() {
                         title="Surfacing"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('surfacing'); }}
                     >
-                        ⌒
+                        <Waves size={20} />
                     </button>
                     {activeDropdown === 'surfacing' && (
                         <div className="tool-dropdown">
@@ -592,7 +598,7 @@ function WorkbenchMechanical() {
                         title="CAM/Manufacturing"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('cam'); }}
                     >
-                        🔧
+                        <Wrench size={20} />
                     </button>
                     {activeDropdown === 'cam' && (
                         <div className="tool-dropdown">
@@ -621,7 +627,7 @@ function WorkbenchMechanical() {
                         title="Mold Design"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('mold'); }}
                     >
-                        🏭
+                        <Factory size={20} />
                     </button>
                     {activeDropdown === 'mold' && (
                         <div className="tool-dropdown">
@@ -644,7 +650,7 @@ function WorkbenchMechanical() {
                         title="3D Printing"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('additive'); }}
                     >
-                        🖨️
+                        <Printer size={20} />
                     </button>
                     {activeDropdown === 'additive' && (
                         <div className="tool-dropdown">
@@ -670,7 +676,7 @@ function WorkbenchMechanical() {
                         title="GD&T"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('gdt'); }}
                     >
-                        ⊕
+                        <CircleDot size={20} />
                     </button>
                     {activeDropdown === 'gdt' && (
                         <div className="tool-dropdown">
@@ -695,7 +701,7 @@ function WorkbenchMechanical() {
                         title="Components Library"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('components'); }}
                     >
-                        📦
+                        <Package size={20} />
                     </button>
                     {activeDropdown === 'components' && (
                         <div className="tool-dropdown">
@@ -722,7 +728,7 @@ function WorkbenchMechanical() {
                         title="BOM"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('bom'); }}
                     >
-                        📝
+                        <FileText size={20} />
                     </button>
                     {activeDropdown === 'bom' && (
                         <div className="tool-dropdown">
@@ -745,7 +751,7 @@ function WorkbenchMechanical() {
                         title="Drawings & MBD"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('drawings'); }}
                     >
-                        📐
+                        <File size={20} />
                     </button>
                     {activeDropdown === 'drawings' && (
                         <div className="tool-dropdown">
@@ -772,7 +778,7 @@ function WorkbenchMechanical() {
                         title="Documentation"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('manuals'); }}
                     >
-                        📖
+                        <BookOpen size={20} />
                     </button>
                     {activeDropdown === 'manuals' && (
                         <div className="tool-dropdown">
@@ -793,7 +799,7 @@ function WorkbenchMechanical() {
                         title="Revisions"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('revisions'); }}
                     >
-                        🔄
+                        <RotateCcw size={20} />
                     </button>
                     {activeDropdown === 'revisions' && (
                         <div className="tool-dropdown">
@@ -817,7 +823,7 @@ function WorkbenchMechanical() {
                         title="Simulation"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('machining_sim'); }}
                     >
-                        ▶️
+                        <Play size={20} />
                     </button>
                     {activeDropdown === 'machining_sim' && (
                         <div className="tool-dropdown">
@@ -838,7 +844,7 @@ function WorkbenchMechanical() {
                         title="Cost Estimation"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('cost'); }}
                     >
-                        💰
+                        <DollarSign size={20} />
                     </button>
                     {activeDropdown === 'cost' && (
                         <div className="tool-dropdown">
@@ -859,7 +865,7 @@ function WorkbenchMechanical() {
                         title="Fixtures"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('fixtures'); }}
                     >
-                        🔩
+                        <Axis3D size={20} />
                     </button>
                     {activeDropdown === 'fixtures' && (
                         <div className="tool-dropdown">
@@ -883,7 +889,7 @@ function WorkbenchMechanical() {
                         title="DFA & Mechanisms"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('dfa'); }}
                     >
-                        ⚙
+                        <Cog size={20} />
                     </button>
                     {activeDropdown === 'dfa' && (
                         <div className="tool-dropdown">
@@ -911,7 +917,7 @@ function WorkbenchMechanical() {
                         title="Analysis"
                         onClick={(e) => { e.stopPropagation(); toggleDropdown('analysis'); }}
                     >
-                        📊
+                        <BarChart3 size={20} />
                     </button>
                     {activeDropdown === 'analysis' && (
                         <div className="tool-dropdown">
