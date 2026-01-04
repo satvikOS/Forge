@@ -24,9 +24,9 @@
     /* Dimensions - Blender Exact + Widened Sidebar */
     --toolbar-width: 51px;
     /* Increased from 32px by 0.5cm to prevent scrolling */
-    --header-height: 24px;
+    --header-height: 32px;
     --properties-width: 280px;
-    --footer-height: 60px;
+    --footer-height: 160px;
 
     /* Spacing - Minimal */
     --gap-2: 2px;
@@ -45,7 +45,7 @@
     height: 100vh;
     width: 100vw;
     display: grid;
-    grid-template-rows: var(--header-height) 1fr 160px;
+    grid-template-rows: var(--header-height) 1fr var(--footer-height);
     grid-template-columns: var(--toolbar-width) 1fr var(--properties-width);
     grid-template-areas:
         "header header header"
@@ -53,7 +53,8 @@
         "footer footer footer";
     background: var(--bg-primary);
     color: var(--text-primary);
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: hidden;
 }
 
 /* ========== TOP HEADER - BLENDER STYLE ========== */
@@ -72,11 +73,11 @@
 }
 
 .workbench-title {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--accent-primary);
     margin: 0;
-    min-width: 60px;
+    min-width: 80px;
 }
 
 .workbench-toolbar {
@@ -91,10 +92,10 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 10px;
-    padding: 2px 8px;
+    font-size: 11px;
+    padding: 4px 10px;
     cursor: pointer;
-    height: 18px;
+    height: 24px;
     transition: all 0.1s;
 }
 
@@ -135,9 +136,12 @@
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     width: var(--toolbar-width);
-    overflow: visible;
+    overflow-x: visible;
+    overflow-y: hidden;
     display: flex;
     flex-direction: column;
+    position: relative;
+    z-index: 100;
 }
 
 .workbench-tools-inner {
@@ -150,6 +154,7 @@
     overflow-x: visible;
     flex: 1;
     min-height: 0;
+    position: relative;
 }
 
 .workbench-tools-inner::-webkit-scrollbar {
@@ -193,7 +198,7 @@
     color: white;
 }
 
-/* ==========/* Viewport - Clean background for Three.js scene */
+/* Viewport - Clean background for Three.js scene */
 .workbench-viewport {
     grid-area: viewport;
     position: relative;
