@@ -137,7 +137,7 @@
     align-items: center;
     padding: 4px 0;
     gap: 2px;
-    overflow-y: auto;
+    overflow: visible;
 }
 
 .tool-icon-button {
