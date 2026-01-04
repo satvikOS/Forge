@@ -132,12 +132,34 @@
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     width: var(--toolbar-width);
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+}
+
+.workbench-tools-inner {
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: 4px 0;
     gap: 2px;
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: visible;
+    flex: 1;
+    min-height: 0;
+}
+
+.workbench-tools-inner::-webkit-scrollbar {
+    width: 4px;
+}
+
+.workbench-tools-inner::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+.workbench-tools-inner::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 2px;
 }
 
 .tool-icon-button {
