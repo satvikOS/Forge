@@ -8,6 +8,7 @@ import WorkbenchIndustrial from '../workbenches/industrial/WorkbenchIndustrial';
 import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronics';
 import WorkbenchAviation from '../workbenches/aviation/WorkbenchAviation';
 import WorkbenchUIProduct from '../workbenches/ui-product/WorkbenchUIProduct';
+import AIConsole from './AIConsole';
 import '../styles/workbench.css';
 
 /**
@@ -88,21 +89,8 @@ function WorkbenchContainer() {
             {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
             {renderWorkbench()}
 
-            {/* BOTTOM FOOTER - AI PROMPT */}
-            <footer className="workbench-console">
-                <span className="prompt-label">AI Prompt</span>
-                <input
-                    type="text"
-                    className="prompt-input"
-                    placeholder={`Describe your ${activeWorkbench.replace('-', ' ')} design...`}
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleGenerate()}
-                />
-                <button className="generate-button" onClick={handleGenerate}>
-                    Generate
-                </button>
-            </footer>
+            {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
+            <AIConsole />
         </div>
     );
 }
