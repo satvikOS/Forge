@@ -125,7 +125,7 @@ class StandardComponentService {
     /**
      * Initialize spring library
      */
-    _initializeSpringss() {
+    _initializeSprings() {
         return {
             compression: {
                 'CS_12x25x50': {

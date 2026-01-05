@@ -313,8 +313,8 @@ class FEAService {
         ));
 
         // Calculate factor of safety
-        const yield = material.yield;
-        const factorOfSafety = maxStress > 0 ? yield / maxStress : Infinity;
+        const yieldStrength = material.yield;
+        const factorOfSafety = maxStress > 0 ? yieldStrength / maxStress : Infinity;
 
         // Generate recommendations
         const recommendations = [];

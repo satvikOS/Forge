@@ -4,7 +4,7 @@
  */
 class SketchEngine {
     constructor() {
-        this.sketchId Counter = 0;
+        this.sketchIdCounter = 0;
         this.entityIdCounter = 0;
         this.constraintIdCounter = 0;
     }

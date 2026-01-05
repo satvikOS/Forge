@@ -304,3 +304,102 @@
 .ai-console-content::-webkit-scrollbar-thumb:hover {
     background: var(--bg-hover);
 }
+
+/* Parametric Terminal */
+.parametric-terminal {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.parametric-entry {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0;
+    align-items: flex-start;
+}
+
+.parametric-entry .entry-prefix {
+    min-width: 18px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.parametric-entry.prompt .entry-prefix {
+    color: var(--accent-primary);
+}
+
+.parametric-entry.result .entry-prefix {
+    color: #4caf50;
+}
+
+.parametric-entry.bom .entry-prefix {
+    color: #2196f3;
+}
+
+.parametric-entry.error .entry-prefix {
+    color: #f44336;
+}
+
+.parametric-entry.processing .entry-prefix {
+    color: #ff9800;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.parametric-entry .entry-content {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.parametric-entry.error .entry-content {
+    color: #f44336;
+}
+
+/* Variant Chips */
+.variant-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.variant-chip {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 9px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.variant-chip:hover {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+}
+
+/* Fixed Layout - Prevent auto-resizing */
+.ai-console {
+    min-height: 140px;
+    max-height: 400px;
+    flex-shrink: 0;
+    flex-grow: 0;
+}

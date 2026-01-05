@@ -39,7 +39,7 @@ class CFDService {
         const flowField = this.computeFlowField(modelData.geometry, velocity, Re);
 
         // Calculate aerodynamic coefficients
-        const aeroCoefficients = this.calculateDragAndLift(flow Field, velocity);
+        const aeroCoefficients = this.calculateDragAndLift(flowField, velocity);
 
         // Compute pressure distribution
         const pressureField = this.computePressureField(flowField);
