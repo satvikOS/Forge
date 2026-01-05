@@ -1,6 +1,6 @@
 /**
- * Main API Lambda Handler
- * Routes all API requests to appropriate Express routes
+ * Main API Lambda Handler - Minimal Version
+ * This version only includes essential routes to debug deployment issues
  */
 
 const serverless = require('serverless-http');
@@ -14,22 +14,39 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Import routes
-const mechanicalRoutes = require('../routes/mechanical');
-
-// Health check
+// Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({
         success: true,
         status: 'healthy',
         timestamp: new Date().toISOString(),
         environment: process.env.STAGE || 'dev',
-        region: process.env.AWS_REGION
+        region: process.env.AWS_REGION || 'unknown',
+        node_version: process.version
     });
 });
 
-// Mount routes
-app.use('/api/mechanical', mechanicalRoutes);
+// Test endpoint
+app.get('/api/test', (req, res) => {
+    res.json({
+        success: true,
+        message: 'API is working!',
+        endpoints: [
+            '/api/health',
+            '/api/test'
+        ]
+    });
+});
+
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        error: 'Route not found',
+        path: req.path,
+        method: req.method
+    });
+});
 
 // Error handler
 app.use((err, req, res, next) => {
