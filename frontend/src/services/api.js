@@ -10,13 +10,22 @@ class APIService {
    */
   async generateDesign(prompt, onProgress = null) {
     console.log('🎯 API Service: generateDesign called');
-    console.log('  Prompt:', prompt?.substring(0, 50) + '...');
+    console.log('  Prompt type:', typeof prompt);
+    console.log('  Prompt value:', prompt);
+    console.log('  Prompt length:', prompt?.length);
     console.log('  Endpoint: POST', `${MECHANICAL_BASE}/generate`);
 
     try {
+      // Validate prompt before sending
+      if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
+        throw new Error('Invalid prompt: must be a non-empty string');
+      }
+
       // Step 1: Start the generation job
-      console.log('📡 Starting generation job with prompt:', prompt);
-      const startResponse = await axios.post(`${MECHANICAL_BASE}/generate`, { prompt });
+      const requestBody = { prompt: prompt.trim() };
+      console.log('📡 Sending request with body:', JSON.stringify(requestBody));
+
+      const startResponse = await axios.post(`${MECHANICAL_BASE}/generate`, requestBody);
 
       if (!startResponse.data.success || !startResponse.data.jobId) {
         throw new Error('Failed to start generation job');

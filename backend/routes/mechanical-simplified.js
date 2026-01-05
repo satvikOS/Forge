@@ -107,14 +107,21 @@ router.post('/autonomous/ui-control', async (req, res) => {
  */
 router.post('/generate', async (req, res) => {
     try {
+        console.log('\n🔧 Mechanical Design Generation Request');
+        console.log('   Request body:', JSON.stringify(req.body));
+        console.log('   Content-Type:', req.headers['content-type']);
+
         const { prompt, preferences = {} } = req.body;
 
-        if (!prompt) {
-            return res.status(400).json({ error: 'Prompt is required' });
+        if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
+            console.error('❌ Invalid prompt:', { prompt, type: typeof prompt });
+            return res.status(400).json({
+                error: 'Prompt is required',
+                received: { prompt, type: typeof prompt }
+            });
         }
 
-        console.log(`\n🔧 Mechanical Design Generation Request`);
-        console.log(`   Prompt: ${prompt}`);
+        console.log(`   ✅ Valid prompt received: ${prompt}`);
 
         // Create async job for design generation
         const jobId = jobQueue.createJob(prompt, { preferences });
