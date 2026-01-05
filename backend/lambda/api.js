@@ -36,11 +36,16 @@ app.get('/api/test', (req, res) => {
     res.json({
         success: true,
         message: 'ArchDisc API is working!',
+        version: '2.0.0',
+        features: ['autonomous_ai_agent', 'bedrock_integration', 'job_queue'],
         endpoints: [
             '/api/health',
             '/api/test',
+            '/api/mechanical/autonomous - FULLY AUTONOMOUS AI AGENT',
             '/api/mechanical/generate',
             '/api/mechanical/generate/:jobId',
+            '/api/mechanical/generate/variants',
+            '/api/mechanical/generate/fantasy-variants',
             '/api/mechanical/analysis/analyze',
             '/api/mechanical/legality/check',
             '/api/mechanical/materials/*',

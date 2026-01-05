@@ -2,11 +2,54 @@ const express = require('express');
 const router = express.Router();
 const bedrockService = require('../services/bedrockService');
 const jobQueue = require('../services/jobQueue');
+const autonomousAgent = require('../services/autonomousAgent');
 
 /**
  * Simplified Mechanical CAD API Routes
  * Uses AWS Bedrock for autonomous AI-powered design generation
  */
+
+// ==================== Autonomous AI Agent ====================
+
+/**
+ * POST /api/mechanical/autonomous
+ * FULLY AUTONOMOUS design generation - the agent plans and executes everything
+ * Similar to how Claude Code works, but for CAD design
+ * Minimal human intervention - the AI makes all decisions
+ */
+router.post('/autonomous', async (req, res) => {
+    try {
+        const { prompt, options = {} } = req.body;
+
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt is required' });
+        }
+
+        console.log(`\n🤖 AUTONOMOUS AGENT REQUEST: "${prompt}"`);
+
+        // Create async job for autonomous generation
+        const jobId = jobQueue.createJob(prompt, { ...options, type: 'autonomous', mode: 'fully_autonomous' });
+
+        // Start fully autonomous processing
+        processAutonomousGeneration(jobId, prompt, options).catch(error => {
+            console.error('Autonomous generation error:', error);
+            jobQueue.failJob(jobId, error);
+        });
+
+        res.json({
+            success: true,
+            jobId,
+            status: 'queued',
+            mode: 'autonomous',
+            message: 'Autonomous AI agent activated - will plan and execute autonomously',
+            pollUrl: `/api/mechanical/generate/${jobId}`,
+            info: 'The agent will think, plan, execute, verify, and refine autonomously with minimal intervention'
+        });
+    } catch (error) {
+        console.error('Error starting autonomous generation:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // ==================== Design Generation ====================
 
@@ -592,6 +635,87 @@ Return JSON design specification.`;
         console.log(`✅ Generated ${variants.length} fantasy variants for job ${jobId}`);
     } catch (error) {
         console.error(`❌ Fantasy variant generation failed for job ${jobId}:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Process FULLY AUTONOMOUS design generation
+ * The AI agent plans and executes everything with minimal human intervention
+ */
+async function processAutonomousGeneration(jobId, prompt, options) {
+    try {
+        console.log(`\n🤖 ========================================`);
+        console.log(`🤖 AUTONOMOUS AGENT ACTIVATED`);
+        console.log(`🤖 Job ID: ${jobId}`);
+        console.log(`🤖 ========================================\n`);
+
+        // Update job to show autonomous mode is active
+        jobQueue.updateJob(jobId, {
+            mode: 'autonomous',
+            agentStatus: 'thinking'
+        });
+
+        // Stage 1: Agent thinks and plans
+        jobQueue.updateProgress(jobId, 'analyzing', 25);
+        jobQueue.updateJob(jobId, { agentStatus: 'planning' });
+
+        // Stage 2: Execute autonomously (the agent handles all stages internally)
+        jobQueue.updateProgress(jobId, 'analyzing', 100);
+        jobQueue.completeStage(jobId, 'analyzing');
+
+        jobQueue.updateProgress(jobId, 'generating', 25);
+        jobQueue.updateJob(jobId, { agentStatus: 'executing autonomously' });
+
+        // Call the autonomous agent
+        const result = await autonomousAgent.autonomousDesignGeneration(prompt, {
+            ...options,
+            maxIterations: options.maxIterations || 20
+        });
+
+        // Update progress through remaining stages
+        jobQueue.updateProgress(jobId, 'generating', 100);
+        jobQueue.completeStage(jobId, 'generating');
+
+        jobQueue.updateProgress(jobId, 'refining', 50);
+        jobQueue.updateJob(jobId, { agentStatus: 'self-verifying' });
+
+        jobQueue.updateProgress(jobId, 'refining', 100);
+        jobQueue.completeStage(jobId, 'refining');
+
+        jobQueue.updateProgress(jobId, 'exporting', 100);
+        jobQueue.completeStage(jobId, 'exporting');
+
+        // Complete with autonomous agent results
+        const finalResult = {
+            design: result.design,
+            autonomous: true,
+            agentProcess: {
+                iterations: result.process?.iterations || 0,
+                decisions: result.process?.decisions || [],
+                selfCorrections: result.process?.selfCorrections || [],
+                mode: 'fully_autonomous'
+            },
+            metadata: {
+                prompt,
+                options,
+                generatedAt: new Date().toISOString(),
+                agent: 'autonomous_cad_agent_v1'
+            }
+        };
+
+        jobQueue.completeJob(jobId, finalResult);
+
+        console.log(`\n🤖 ========================================`);
+        console.log(`🤖 AUTONOMOUS GENERATION COMPLETED`);
+        console.log(`🤖 Iterations: ${result.process?.iterations || 0}`);
+        console.log(`🤖 Decisions: ${result.process?.decisions?.length || 0}`);
+        console.log(`🤖 Self-corrections: ${result.process?.selfCorrections?.length || 0}`);
+        console.log(`🤖 ========================================\n`);
+
+    } catch (error) {
+        console.error(`\n❌ Autonomous generation failed for job ${jobId}:`, error);
+        jobQueue.updateJob(jobId, { agentStatus: 'failed', agentError: error.message });
         throw error;
     }
 }
