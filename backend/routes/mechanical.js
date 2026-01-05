@@ -50,6 +50,16 @@ const feaSimulation = require('../services/feaSimulationService');
 const cfdSimulation = require('../services/cfdSimulationService');
 const aiOptimization = require('../services/aiOptimizationService');
 
+// ============ PHASE 4 SERVICES - NEW INTEGRATIONS ============
+const cloudSync = require('../services/cloudSyncService');
+const standardPartsLibrary = require('../services/standardPartsLibraryService');
+const kinematics = require('../services/kinematicsService');
+const routing = require('../services/routingService');
+const advancedInspection = require('../services/advancedInspectionService');
+const pdmPlmIntegration = require('../services/pdmPlmIntegrationService');
+const designAutomation = require('../services/designAutomationService');
+const renderingVisualization = require('../services/renderingVisualizationService');
+
 // Initialize CAD services
 const drawingEngine = new DrawingEngine();
 const drawingExportService = new DrawingExportService();
@@ -3694,5 +3704,320 @@ router.post('/simulation/prepare', async (req, res) => {
 });
 
 // ==================== END PARAMETRIC DESIGN ROUTES ====================
+
+// ==================== CLOUD SYNC ROUTES ====================
+
+router.post('/cloud/upload', async (req, res) => {
+    try {
+        const result = await cloudSync.uploadToCloud(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cloud/download', async (req, res) => {
+    try {
+        const result = await cloudSync.downloadFromCloud(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cloud/sync', async (req, res) => {
+    try {
+        const result = await cloudSync.syncWorkspace(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/cloud/status/:workspaceId', async (req, res) => {
+    try {
+        const result = await cloudSync.getSyncStatus(req.params.workspaceId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== STANDARD PARTS LIBRARY ROUTES ====================
+
+router.post('/parts/search', async (req, res) => {
+    try {
+        const result = await standardPartsLibrary.searchParts(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/parts/:partNumber', async (req, res) => {
+    try {
+        const result = await standardPartsLibrary.getPartDetails(req.params.partNumber);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/parts/insert', async (req, res) => {
+    try {
+        const result = await standardPartsLibrary.insertPart(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== KINEMATICS ROUTES ====================
+
+router.post('/kinematics/joint/create', async (req, res) => {
+    try {
+        const result = await kinematics.createJoint(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/kinematics/mechanism/create', async (req, res) => {
+    try {
+        const result = await kinematics.createMechanism(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/kinematics/simulate', async (req, res) => {
+    try {
+        const result = await kinematics.simulateMotion(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/kinematics/forces', async (req, res) => {
+    try {
+        const result = await kinematics.analyzeForces(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ROUTING ROUTES ====================
+
+router.post('/routing/create', async (req, res) => {
+    try {
+        const result = await routing.createRoute(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/routing/harness/create', async (req, res) => {
+    try {
+        const result = await routing.createHarness(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/routing/optimize/:routeId', async (req, res) => {
+    try {
+        const result = await routing.optimizeRoute(req.params.routeId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/routing/clearance/:routeId', async (req, res) => {
+    try {
+        const result = await routing.checkClearance(req.params.routeId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ADVANCED INSPECTION ROUTES ====================
+
+router.post('/inspection/plan/create', async (req, res) => {
+    try {
+        const result = await advancedInspection.createInspectionPlan(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/inspection/cmm', async (req, res) => {
+    try {
+        const result = await advancedInspection.performCMMInspection(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/inspection/gdt', async (req, res) => {
+    try {
+        const result = await advancedInspection.analyzeGDT(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/inspection/report/:planId', async (req, res) => {
+    try {
+        const result = await advancedInspection.generateInspectionReport(req.params.planId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PDM/PLM INTEGRATION ROUTES ====================
+
+router.post('/pdm/connect', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.connectToPDM(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/pdm/checkin', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.checkIn(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/pdm/checkout', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.checkOut(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/pdm/search', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.searchParts(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== DESIGN AUTOMATION ROUTES ====================
+
+router.post('/automation/macro/create', async (req, res) => {
+    try {
+        const result = await designAutomation.createMacro(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/automation/macro/run/:macroId', async (req, res) => {
+    try {
+        const result = await designAutomation.runMacro(req.params.macroId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/automation/workflow/create', async (req, res) => {
+    try {
+        const result = await designAutomation.createWorkflow(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/automation/batch-export', async (req, res) => {
+    try {
+        const result = await designAutomation.batchExport(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== RENDERING & VISUALIZATION ROUTES ====================
+
+router.post('/rendering/scene/create', async (req, res) => {
+    try {
+        const result = await renderingVisualization.createRenderScene(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/image', async (req, res) => {
+    try {
+        const result = await renderingVisualization.renderImage(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/animation', async (req, res) => {
+    try {
+        const result = await renderingVisualization.renderAnimation(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/exploded-view', async (req, res) => {
+    try {
+        const result = await renderingVisualization.createExplodedView(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/screenshot', async (req, res) => {
+    try {
+        const result = await renderingVisualization.captureScreenshot(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/rendering/status/:renderJobId', async (req, res) => {
+    try {
+        const result = await renderingVisualization.renderJobStatus(req.params.renderJobId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END NEW SERVICE ROUTES ====================
 
 module.exports = router;

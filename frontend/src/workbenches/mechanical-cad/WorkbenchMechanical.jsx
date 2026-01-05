@@ -635,6 +635,152 @@ function WorkbenchMechanical() {
         }
     };
 
+    // ==================== PHASE 4 SERVICE HANDLERS ====================
+
+    // Cloud Sync Handlers
+    const handleCloudSync = async (operation, data = {}) => {
+        try {
+            console.log(`☁️ Cloud Sync: ${operation}...`);
+            const response = await fetch(`/api/mechanical/cloud/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Cloud ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Cloud ${operation}:`, error);
+        }
+    };
+
+    // Standard Parts Library Handlers
+    const handleStandardParts = async (operation, data = {}) => {
+        try {
+            console.log(`🔩 Standard Parts: ${operation}...`);
+            const response = await fetch(`/api/mechanical/parts/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Standard Parts ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Standard Parts ${operation}:`, error);
+        }
+    };
+
+    // Kinematics Handlers
+    const handleKinematics = async (operation, data = {}) => {
+        try {
+            console.log(`⚙️ Kinematics: ${operation}...`);
+            const response = await fetch(`/api/mechanical/kinematics/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Kinematics ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Kinematics ${operation}:`, error);
+        }
+    };
+
+    // Routing Handlers (Wires/Cables/Pipes)
+    const handleRouting = async (operation, data = {}) => {
+        try {
+            console.log(`🔌 Routing: ${operation}...`);
+            const response = await fetch(`/api/mechanical/routing/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Routing ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Routing ${operation}:`, error);
+        }
+    };
+
+    // Advanced Inspection Handlers
+    const handleAdvancedInspection = async (operation, data = {}) => {
+        try {
+            console.log(`🔍 Inspection: ${operation}...`);
+            const response = await fetch(`/api/mechanical/inspection/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Inspection ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Inspection ${operation}:`, error);
+        }
+    };
+
+    // PDM/PLM Integration Handlers
+    const handlePDMPLM = async (operation, data = {}) => {
+        try {
+            console.log(`📦 PDM/PLM: ${operation}...`);
+            const response = await fetch(`/api/mechanical/pdm/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ PDM/PLM ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in PDM/PLM ${operation}:`, error);
+        }
+    };
+
+    // Design Automation Handlers
+    const handleAutomation = async (operation, data = {}) => {
+        try {
+            console.log(`🤖 Automation: ${operation}...`);
+            const response = await fetch(`/api/mechanical/automation/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Automation ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Automation ${operation}:`, error);
+        }
+    };
+
+    // Rendering & Visualization Handlers
+    const handleRendering = async (operation, data = {}) => {
+        try {
+            console.log(`🎨 Rendering: ${operation}...`);
+            const response = await fetch(`/api/mechanical/rendering/${operation}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                console.log(`✅ Rendering ${operation} completed:`, result);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Rendering ${operation}:`, error);
+        }
+    };
+
     // Helper function to trigger file downloads
     const downloadFile = (content, filename) => {
         const blob = new Blob([content], { type: 'text/plain' });
@@ -814,17 +960,17 @@ function WorkbenchMechanical() {
                 {/* Analysis */}
                 <div className="property-section">
                     <h3 className="property-header">ANALYSIS</h3>
-                    <button className="property-button">Run FEA Analysis</button>
-                    <button className="property-button">Motion Simulation</button>
-                    <button className="property-button">Generate Toolpaths</button>
+                    <button className="property-button" onClick={() => handleAnalysis('fea-static', {})}>Run FEA Analysis</button>
+                    <button className="property-button" onClick={() => handleKinematics('simulate', {})}>Motion Simulation</button>
+                    <button className="property-button" onClick={() => handleCAMOperation('generate-toolpath', {})}>Generate Toolpaths</button>
                 </div>
 
                 {/* Export */}
                 <div className="property-section">
                     <h3 className="property-header">EXPORT</h3>
-                    <button className="property-button">Export STEP</button>
-                    <button className="property-button">Export STL</button>
-                    <button className="property-button">Generate Drawing</button>
+                    <button className="property-button" onClick={() => console.log('Export STEP')}>Export STEP</button>
+                    <button className="property-button" onClick={() => console.log('Export STL')}>Export STL</button>
+                    <button className="property-button" onClick={() => console.log('Generate Drawing')}>Generate Drawing</button>
                 </div>
 
                 {/* Configuration */}
@@ -835,24 +981,24 @@ function WorkbenchMechanical() {
                         <option>Config A</option>
                         <option>Config B</option>
                     </select>
-                    <button className="property-button">New Config</button>
-                    <button className="property-button">Design Table</button>
+                    <button className="property-button" onClick={() => console.log('New Config')}>New Config</button>
+                    <button className="property-button" onClick={() => console.log('Design Table')}>Design Table</button>
                 </div>
 
                 {/* Collaboration */}
                 <div className="property-section">
                     <h3 className="property-header">COLLABORATE</h3>
-                    <button className="property-button">Share Design</button>
-                    <button className="property-button">Add Comment</button>
-                    <button className="property-button">Review</button>
+                    <button className="property-button" onClick={() => handleCloudSync('upload', {})}>Share Design</button>
+                    <button className="property-button" onClick={() => console.log('Add Comment')}>Add Comment</button>
+                    <button className="property-button" onClick={() => console.log('Review')}>Review</button>
                 </div>
 
                 {/* Version Control */}
                 <div className="property-section">
                     <h3 className="property-header">VERSION</h3>
-                    <button className="property-button">Save Revision</button>
-                    <button className="property-button">Version History</button>
-                    <button className="property-button">Branch/Merge</button>
+                    <button className="property-button" onClick={() => handleRevision('create', {})}>Save Revision</button>
+                    <button className="property-button" onClick={() => handleRevision('history', {})}>Version History</button>
+                    <button className="property-button" onClick={() => handlePDMPLM('checkout', {})}>Branch/Merge</button>
                 </div>
 
                 {/* Standards */}
@@ -864,15 +1010,15 @@ function WorkbenchMechanical() {
                         <option>DIN</option>
                         <option>JIS</option>
                     </select>
-                    <button className="property-button">GD&T</button>
-                    <button className="property-button">Compliance Check</button>
+                    <button className="property-button" onClick={() => handleGDT('add-annotation', {})}>GD&T</button>
+                    <button className="property-button" onClick={() => console.log('Compliance Check')}>Compliance Check</button>
                 </div>
 
                 {/* Cost */}
                 <div className="property-section">
                     <h3 className="property-header">COST</h3>
-                    <button className="property-button">Estimate Cost</button>
-                    <button className="property-button">Compare Options</button>
+                    <button className="property-button" onClick={() => handleCost('estimate', {})}>Estimate Cost</button>
+                    <button className="property-button" onClick={() => handleAIOptimization('cost-prediction', {})}>Compare Options</button>
                 </div>
             </aside>
 
@@ -900,165 +1046,165 @@ function WorkbenchMechanical() {
             {activeDropdown === 'sketch' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Sketch Tools</div>
-                    <div className="dropdown-item">Line</div>
-                    <div className="dropdown-item">Circle</div>
-                    <div className="dropdown-item">Arc</div>
-                    <div className="dropdown-item">Rectangle</div>
-                    <div className="dropdown-item">Polygon</div>
-                    <div className="dropdown-item">Spline</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Line'); setActiveDropdown(null); }}>Line</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Circle'); setActiveDropdown(null); }}>Circle</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Arc'); setActiveDropdown(null); }}>Arc</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Rectangle'); setActiveDropdown(null); }}>Rectangle</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Polygon'); setActiveDropdown(null); }}>Polygon</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Spline'); setActiveDropdown(null); }}>Spline</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Trim</div>
-                    <div className="dropdown-item">Extend</div>
-                    <div className="dropdown-item">Offset</div>
-                    <div className="dropdown-item">Mirror</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Trim'); setActiveDropdown(null); }}>Trim</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Extend'); setActiveDropdown(null); }}>Extend</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Offset'); setActiveDropdown(null); }}>Offset</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Mirror'); setActiveDropdown(null); }}>Mirror</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Dimension</div>
-                    <div className="dropdown-item">Constraint</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Dimension'); setActiveDropdown(null); }}>Dimension</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Sketch: Constraint'); setActiveDropdown(null); }}>Constraint</div>
                 </div>
             )}
 
             {activeDropdown === 'features' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">3D Features</div>
-                    <div className="dropdown-item">Extrude</div>
-                    <div className="dropdown-item">Revolve</div>
-                    <div className="dropdown-item">Sweep</div>
-                    <div className="dropdown-item">Loft</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Extrude'); setActiveDropdown(null); }}>Extrude</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Revolve'); setActiveDropdown(null); }}>Revolve</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Sweep'); setActiveDropdown(null); }}>Sweep</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Loft'); setActiveDropdown(null); }}>Loft</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Fillet</div>
-                    <div className="dropdown-item">Chamfer</div>
-                    <div className="dropdown-item">Draft</div>
-                    <div className="dropdown-item">Shell</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Fillet'); setActiveDropdown(null); }}>Fillet</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Chamfer'); setActiveDropdown(null); }}>Chamfer</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Draft'); setActiveDropdown(null); }}>Draft</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Shell'); setActiveDropdown(null); }}>Shell</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Hole Wizard</div>
-                    <div className="dropdown-item">Thread</div>
-                    <div className="dropdown-item">Rib</div>
-                    <div className="dropdown-item">Web</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Hole Wizard'); setActiveDropdown(null); }}>Hole Wizard</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Thread'); setActiveDropdown(null); }}>Thread</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Rib'); setActiveDropdown(null); }}>Rib</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Feature: Web'); setActiveDropdown(null); }}>Web</div>
                 </div>
             )}
 
             {activeDropdown === 'patterns' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Patterns & Mirrors</div>
-                    <div className="dropdown-item">Linear Pattern</div>
-                    <div className="dropdown-item">Circular Pattern</div>
-                    <div className="dropdown-item">Curve Driven Pattern</div>
-                    <div className="dropdown-item">Fill Pattern</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Linear'); setActiveDropdown(null); }}>Linear Pattern</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Circular'); setActiveDropdown(null); }}>Circular Pattern</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Curve Driven'); setActiveDropdown(null); }}>Curve Driven Pattern</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Fill'); setActiveDropdown(null); }}>Fill Pattern</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Mirror</div>
-                    <div className="dropdown-item">Copy</div>
-                    <div className="dropdown-item">Move/Copy Bodies</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Mirror'); setActiveDropdown(null); }}>Mirror</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Copy'); setActiveDropdown(null); }}>Copy</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Pattern: Move/Copy Bodies'); setActiveDropdown(null); }}>Move/Copy Bodies</div>
                 </div>
             )}
 
             {activeDropdown === 'assembly' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Assembly Tools</div>
-                    <div className="dropdown-item">Insert Component</div>
-                    <div className="dropdown-item">Mate</div>
-                    <div className="dropdown-item">Quick Mate</div>
+                    <div className="dropdown-item" onClick={() => { handleStandardParts('search', { query: 'fastener' }); setActiveDropdown(null); }}>Insert Component</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Assembly: Mate'); setActiveDropdown(null); }}>Mate</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Assembly: Quick Mate'); setActiveDropdown(null); }}>Quick Mate</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Interference Detection</div>
-                    <div className="dropdown-item">Collision Detection</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Assembly: Interference Detection'); setActiveDropdown(null); }}>Interference Detection</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Assembly: Collision Detection'); setActiveDropdown(null); }}>Collision Detection</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Exploded View</div>
-                    <div className="dropdown-item">Motion Study</div>
-                    <div className="dropdown-item">BOM</div>
+                    <div className="dropdown-item" onClick={() => { handleRendering('exploded', {}); setActiveDropdown(null); }}>Exploded View</div>
+                    <div className="dropdown-item" onClick={() => { handleKinematics('simulate', { mechanismId: 'mech_1', duration: 5.0 }); setActiveDropdown(null); }}>Motion Study</div>
+                    <div className="dropdown-item" onClick={() => { handleBOM('generate', {}); setActiveDropdown(null); }}>BOM</div>
                 </div>
             )}
 
             {activeDropdown === 'manufacturing' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Manufacturing</div>
-                    <div className="dropdown-item">CAM Setup</div>
-                    <div className="dropdown-item">2D Milling</div>
-                    <div className="dropdown-item">3D Milling</div>
-                    <div className="dropdown-item">Turning</div>
+                    <div className="dropdown-item" onClick={() => { handleCAMOperation('setup', { workpiece: { material: 'aluminum' } }); setActiveDropdown(null); }}>CAM Setup</div>
+                    <div className="dropdown-item" onClick={() => { handleCAMOperation('2d-pocket', {}); setActiveDropdown(null); }}>2D Milling</div>
+                    <div className="dropdown-item" onClick={() => { handleCAMOperation('3d-adaptive', {}); setActiveDropdown(null); }}>3D Milling</div>
+                    <div className="dropdown-item" onClick={() => { handleCAMOperation('turning', {}); setActiveDropdown(null); }}>Turning</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Sheet Metal</div>
-                    <div className="dropdown-item">Weldments</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Manufacturing: Sheet Metal'); setActiveDropdown(null); }}>Sheet Metal</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Manufacturing: Weldments'); setActiveDropdown(null); }}>Weldments</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">3D Printing</div>
-                    <div className="dropdown-item">Mold Design</div>
-                    <div className="dropdown-item">DFM Analysis</div>
-                    <div className="dropdown-item">Cost Estimate</div>
+                    <div className="dropdown-item" onClick={() => { handleAdditive('slice', {}); setActiveDropdown(null); }}>3D Printing</div>
+                    <div className="dropdown-item" onClick={() => { handleMoldDesign('core-cavity', {}); setActiveDropdown(null); }}>Mold Design</div>
+                    <div className="dropdown-item" onClick={() => { handleAIOptimization('dfm-analysis', {}); setActiveDropdown(null); }}>DFM Analysis</div>
+                    <div className="dropdown-item" onClick={() => { handleCost('estimate', {}); setActiveDropdown(null); }}>Cost Estimate</div>
                 </div>
             )}
 
             {activeDropdown === 'analysis' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Analysis & Simulation</div>
-                    <div className="dropdown-item">FEA - Static</div>
-                    <div className="dropdown-item">FEA - Dynamic</div>
-                    <div className="dropdown-item">FEA - Thermal</div>
-                    <div className="dropdown-item">FEA - Fatigue</div>
+                    <div className="dropdown-item" onClick={() => { handleAnalysis('fea-static', {}); setActiveDropdown(null); }}>FEA - Static</div>
+                    <div className="dropdown-item" onClick={() => { handleAnalysis('fea-modal', {}); setActiveDropdown(null); }}>FEA - Dynamic</div>
+                    <div className="dropdown-item" onClick={() => { handleAnalysis('fea-thermal', {}); setActiveDropdown(null); }}>FEA - Thermal</div>
+                    <div className="dropdown-item" onClick={() => { handleAnalysis('fea-fatigue', {}); setActiveDropdown(null); }}>FEA - Fatigue</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">CFD Analysis</div>
-                    <div className="dropdown-item">Motion Simulation</div>
+                    <div className="dropdown-item" onClick={() => { handleAnalysis('cfd-external', {}); setActiveDropdown(null); }}>CFD Analysis</div>
+                    <div className="dropdown-item" onClick={() => { handleKinematics('simulate', {}); setActiveDropdown(null); }}>Motion Simulation</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Mass Properties</div>
-                    <div className="dropdown-item">Interference Check</div>
-                    <div className="dropdown-item">Draft Analysis</div>
-                    <div className="dropdown-item">Curvature Analysis</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Analysis: Mass Properties'); setActiveDropdown(null); }}>Mass Properties</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Analysis: Interference Check'); setActiveDropdown(null); }}>Interference Check</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Analysis: Draft Analysis'); setActiveDropdown(null); }}>Draft Analysis</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Analysis: Curvature Analysis'); setActiveDropdown(null); }}>Curvature Analysis</div>
                 </div>
             )}
 
             {activeDropdown === 'surfaces' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Surface Tools</div>
-                    <div className="dropdown-item">Planar Surface</div>
-                    <div className="dropdown-item">Boundary Surface</div>
-                    <div className="dropdown-item">Ruled Surface</div>
-                    <div className="dropdown-item">Lofted Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Planar'); setActiveDropdown(null); }}>Planar Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Boundary'); setActiveDropdown(null); }}>Boundary Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Ruled'); setActiveDropdown(null); }}>Ruled Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Lofted'); setActiveDropdown(null); }}>Lofted Surface</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Offset Surface</div>
-                    <div className="dropdown-item">Extend Surface</div>
-                    <div className="dropdown-item">Trim Surface</div>
-                    <div className="dropdown-item">Knit</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Offset'); setActiveDropdown(null); }}>Offset Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Extend'); setActiveDropdown(null); }}>Extend Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Trim'); setActiveDropdown(null); }}>Trim Surface</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Knit'); setActiveDropdown(null); }}>Knit</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Thicken</div>
-                    <div className="dropdown-item">Replace Face</div>
-                    <div className="dropdown-item">Delete Face</div>
-                    <div className="dropdown-item">Surface Flatten</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Thicken'); setActiveDropdown(null); }}>Thicken</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Replace Face'); setActiveDropdown(null); }}>Replace Face</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Delete Face'); setActiveDropdown(null); }}>Delete Face</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Surface: Flatten'); setActiveDropdown(null); }}>Surface Flatten</div>
                 </div>
             )}
 
             {activeDropdown === 'documentation' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Documentation</div>
-                    <div className="dropdown-item">Generate Drawing</div>
-                    <div className="dropdown-item">Detail View</div>
-                    <div className="dropdown-item">Section View</div>
-                    <div className="dropdown-item">Auxiliary View</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Generate Drawing'); setActiveDropdown(null); }}>Generate Drawing</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Detail View'); setActiveDropdown(null); }}>Detail View</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Section View'); setActiveDropdown(null); }}>Section View</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Auxiliary View'); setActiveDropdown(null); }}>Auxiliary View</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Dimension</div>
-                    <div className="dropdown-item">Note</div>
-                    <div className="dropdown-item">Callout</div>
-                    <div className="dropdown-item">Surface Finish</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Dimension'); setActiveDropdown(null); }}>Dimension</div>
+                    <div className="dropdown-item" onClick={() => { handleGDT('add-annotation', {}); setActiveDropdown(null); }}>Note</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Callout'); setActiveDropdown(null); }}>Callout</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Surface Finish'); setActiveDropdown(null); }}>Surface Finish</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">BOM Table</div>
-                    <div className="dropdown-item">Revision Table</div>
-                    <div className="dropdown-item">Title Block</div>
-                    <div className="dropdown-item">Export PDF</div>
+                    <div className="dropdown-item" onClick={() => { handleBOM('generate', {}); setActiveDropdown(null); }}>BOM Table</div>
+                    <div className="dropdown-item" onClick={() => { handleRevision('create', {}); setActiveDropdown(null); }}>Revision Table</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Documentation: Title Block'); setActiveDropdown(null); }}>Title Block</div>
+                    <div className="dropdown-item" onClick={() => { handleManual('export', { format: 'pdf' }); setActiveDropdown(null); }}>Export PDF</div>
                 </div>
             )}
 
             {activeDropdown === 'inspection' && (
                 <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Inspection & Quality</div>
-                    <div className="dropdown-item">Measure Distance</div>
-                    <div className="dropdown-item">Measure Angle</div>
-                    <div className="dropdown-item">Measure Area</div>
-                    <div className="dropdown-item">Measure Volume</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Measure Distance'); setActiveDropdown(null); }}>Measure Distance</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Measure Angle'); setActiveDropdown(null); }}>Measure Angle</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Measure Area'); setActiveDropdown(null); }}>Measure Area</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Measure Volume'); setActiveDropdown(null); }}>Measure Volume</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Check Geometry</div>
-                    <div className="dropdown-item">Draft Analysis</div>
-                    <div className="dropdown-item">Undercut Detection</div>
-                    <div className="dropdown-item">Thickness Analysis</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Check Geometry'); setActiveDropdown(null); }}>Check Geometry</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Draft Analysis'); setActiveDropdown(null); }}>Draft Analysis</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Undercut Detection'); setActiveDropdown(null); }}>Undercut Detection</div>
+                    <div className="dropdown-item" onClick={() => { console.log('Inspection: Thickness Analysis'); setActiveDropdown(null); }}>Thickness Analysis</div>
                     <div className="dropdown-divider"></div>
-                    <div className="dropdown-item">Clearance Check</div>
-                    <div className="dropdown-item">Deviation Analysis</div>
-                    <div className="dropdown-item">CMM Inspection</div>
+                    <div className="dropdown-item" onClick={() => { handleRouting('clearance', {}); setActiveDropdown(null); }}>Clearance Check</div>
+                    <div className="dropdown-item" onClick={() => { handleAdvancedInspection('gdt', {}); setActiveDropdown(null); }}>Deviation Analysis</div>
+                    <div className="dropdown-item" onClick={() => { handleAdvancedInspection('cmm', {}); setActiveDropdown(null); }}>CMM Inspection</div>
                 </div>
             )}
         </>
