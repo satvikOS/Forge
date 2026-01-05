@@ -739,7 +739,10 @@ function WorkbenchMechanical() {
             <main
                 className="workbench-viewport"
                 onContextMenu={(e) => handleRightClick(e, 'viewport')}
-                onClick={closeContextMenu}
+                onClick={() => {
+                    closeContextMenu();
+                    setActiveDropdown(null);
+                }}
             >
                 <Viewport3D canvasId="render-canvas-mechanical" domain="mechanical" />
             </main>
@@ -814,7 +817,7 @@ function WorkbenchMechanical() {
 
             {/* DROPDOWN MENUS */}
             {activeDropdown === 'sketch' && (
-                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Sketch Tools</div>
                     <div className="dropdown-item">Line</div>
                     <div className="dropdown-item">Circle</div>
@@ -834,7 +837,7 @@ function WorkbenchMechanical() {
             )}
 
             {activeDropdown === 'features' && (
-                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">3D Features</div>
                     <div className="dropdown-item">Extrude</div>
                     <div className="dropdown-item">Revolve</div>
@@ -854,7 +857,7 @@ function WorkbenchMechanical() {
             )}
 
             {activeDropdown === 'patterns' && (
-                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Patterns & Mirrors</div>
                     <div className="dropdown-item">Linear Pattern</div>
                     <div className="dropdown-item">Circular Pattern</div>
@@ -868,7 +871,7 @@ function WorkbenchMechanical() {
             )}
 
             {activeDropdown === 'assembly' && (
-                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Assembly Tools</div>
                     <div className="dropdown-item">Insert Component</div>
                     <div className="dropdown-item">Mate</div>
@@ -884,7 +887,7 @@ function WorkbenchMechanical() {
             )}
 
             {activeDropdown === 'manufacturing' && (
-                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Manufacturing</div>
                     <div className="dropdown-item">CAM Setup</div>
                     <div className="dropdown-item">2D Milling</div>
@@ -902,7 +905,7 @@ function WorkbenchMechanical() {
             )}
 
             {activeDropdown === 'analysis' && (
-                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
                     <div className="dropdown-header">Analysis & Simulation</div>
                     <div className="dropdown-item">FEA - Static</div>
                     <div className="dropdown-item">FEA - Dynamic</div>
