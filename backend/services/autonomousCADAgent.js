@@ -1,38 +1,32 @@
 /**
  * Autonomous CAD Agent with UI Control
  *
- * Uses Claude Sonnet 4.5 for reasoning and Gemini Vision for visual validation
+ * Uses AWS Bedrock Claude Sonnet 4.5 for reasoning and Gemini Vision for visual validation
  * Controls the CAD UI through browser automation (Playwright)
  * Operates autonomously like Claude Code but for CAD design
  */
 
-const Anthropic = require('@anthropic-ai/sdk');
+const bedrockService = require('./bedrockService');
 const geminiVision = require('./geminiVisionService');
 const playwright = require('playwright');
 
 class AutonomousCADAgent {
     constructor() {
-        // Claude Sonnet 4.5 for reasoning
-        this.apiKey = process.env.ANTHROPIC_API_KEY;
-        this.model = 'claude-sonnet-4-5-20250929'; // Latest Claude with computer use
+        // Claude Sonnet 4.5 via AWS Bedrock for reasoning
+        this.model = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0'; // Claude Sonnet 4.5 on Bedrock
+        this.bedrockService = bedrockService;
 
-        if (!this.apiKey) {
-            console.warn('⚠️  ANTHROPIC_API_KEY not configured');
+        // Check if Bedrock is configured
+        if (!this.bedrockService.isConfigured()) {
+            console.warn('⚠️  AWS Bedrock not configured');
             this.configured = false;
             return;
         }
 
-        try {
-            this.anthropic = new Anthropic({
-                apiKey: this.apiKey
-            });
-            this.configured = true;
-            console.log('✅ Autonomous CAD Agent initialized');
-            console.log(`   Model: ${this.model}`);
-        } catch (error) {
-            console.error('❌ Failed to initialize agent:', error);
-            this.configured = false;
-        }
+        this.configured = true;
+        console.log('✅ Autonomous CAD Agent initialized');
+        console.log(`   LLM: Claude Sonnet 4.5 via AWS Bedrock`);
+        console.log(`   Vision: Gemini 2.5 Pro ${geminiVision.isConfigured() ? '✓' : '✗'}`)
 
         // Browser automation
         this.browser = null;
@@ -148,17 +142,12 @@ class AutonomousCADAgent {
     }
 
     /**
-     * PHASE 1: Analyze requirements using Claude
+     * PHASE 1: Analyze requirements using AWS Bedrock Claude
      */
     async analyzeRequirements(prompt) {
-        console.log('\n🧠 PHASE 1: Analyzing requirements with Claude...');
+        console.log('\n🧠 PHASE 1: Analyzing requirements with AWS Bedrock Claude...');
 
-        const message = await this.anthropic.messages.create({
-            model: this.model,
-            max_tokens: 4096,
-            messages: [{
-                role: 'user',
-                content: `You are an expert CAD designer. Analyze this design request and extract detailed requirements.
+        const analysisPrompt = `You are an expert CAD designer. Analyze this design request and extract detailed requirements.
 
 User Request: "${prompt}"
 
@@ -179,16 +168,17 @@ Provide a comprehensive analysis in JSON format:
   "successCriteria": ["how to validate the design is correct"]
 }
 
-Think step by step and be thorough.`
-            }]
+Think step by step and be thorough.`;
+
+        const response = await this.bedrockService.generateContent(analysisPrompt, {
+            modelId: this.model
         });
 
-        const response = message.content[0].text;
         const requirements = this.parseJSON(response);
 
         console.log('✅ Requirements analyzed');
-        console.log(`   Type: ${requirements.type}`);
-        console.log(`   Complexity: ${requirements.complexity}`);
+        console.log(`   Type: ${requirements?.type || 'unknown'}`);
+        console.log(`   Complexity: ${requirements?.complexity || 'unknown'}`);
 
         return requirements;
     }
@@ -199,12 +189,7 @@ Think step by step and be thorough.`
     async createExecutionPlan(requirements) {
         console.log('\n📋 PHASE 2: Creating UI execution plan...');
 
-        const message = await this.anthropic.messages.create({
-            model: this.model,
-            max_tokens: 4096,
-            messages: [{
-                role: 'user',
-                content: `You are planning how to use a CAD software UI to create a design.
+        const planningPrompt = `You are planning how to use a CAD software UI to create a design.
 
 Requirements:
 ${JSON.stringify(requirements, null, 2)}
@@ -247,18 +232,19 @@ Return JSON:
   "complexity": "simple|moderate|complex"
 }
 
-Be specific and thorough.`
-            }]
+Be specific and thorough.`;
+
+        const response = await this.bedrockService.generateContent(planningPrompt, {
+            modelId: this.model
         });
 
-        const response = message.content[0].text;
         const plan = this.parseJSON(response);
 
-        console.log(`✅ Execution plan created with ${plan.steps?.length || 0} steps`);
+        console.log(`✅ Execution plan created with ${plan?.steps?.length || 0} steps`);
         this.decisions.push({
             phase: 'planning',
             decision: 'Created UI execution plan',
-            steps: plan.steps?.length || 0
+            steps: plan?.steps?.length || 0
         });
 
         return plan;

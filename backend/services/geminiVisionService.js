@@ -9,7 +9,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 class GeminiVisionService {
     constructor() {
         this.apiKey = process.env.GOOGLE_API_KEY;
-        this.model = 'gemini-2.0-flash-exp'; // Latest Gemini with vision
+        this.model = process.env.GEMINI_MODEL || 'gemini-2.5-pro'; // Gemini 2.5 Pro with vision
 
         if (!this.apiKey) {
             console.warn('⚠️  GOOGLE_API_KEY not configured - Gemini Vision disabled');
@@ -23,7 +23,7 @@ class GeminiVisionService {
             this.configured = true;
 
             console.log('✅ Gemini Vision service initialized');
-            console.log(`   Model: ${this.model}`);
+            console.log(`   Model: Gemini 2.5 Pro`);
         } catch (error) {
             console.error('❌ Failed to initialize Gemini Vision:', error);
             this.configured = false;

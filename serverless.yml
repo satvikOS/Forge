@@ -33,9 +33,10 @@ provider:
   # Environment variables
   environment:
     STAGE: ${self:provider.stage}
-    ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
-    OPENAI_API_KEY: ${env:OPENAI_API_KEY, ''}
     GOOGLE_API_KEY: ${env:GOOGLE_API_KEY, ''}
+    FRONTEND_URL: ${env:FRONTEND_URL, 'https://d3a7j7euh4gge.cloudfront.net'}
+    BROWSER_HEADLESS: ${env:BROWSER_HEADLESS, 'true'}
+    AUTO_VALIDATE: ${env:AUTO_VALIDATE, 'true'}
 
   # IAM permissions
   iam:
