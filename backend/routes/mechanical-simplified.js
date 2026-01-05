@@ -4,6 +4,7 @@ const bedrockService = require('../services/bedrockService');
 const jobQueue = require('../services/jobQueue');
 const autonomousAgent = require('../services/autonomousAgent');
 const AutonomousCADAgent = require('../services/autonomousCADAgent');
+const mechanicalOrchestrator = require('../services/mechanicalDomainOrchestrator');
 
 /**
  * Simplified Mechanical CAD API Routes
@@ -528,49 +529,47 @@ router.post('/generate/estimate', async (req, res) => {
 
 /**
  * Process design generation asynchronously
+ * NOW USES MECHANICAL DOMAIN ORCHESTRATOR with RAG
  */
 async function processDesignGeneration(jobId, prompt, preferences) {
     try {
-        console.log(`🚀 Starting design generation for job ${jobId}`);
+        console.log(`🚀 Starting MECHANICAL DOMAIN design generation for job ${jobId}`);
 
-        // Stage 1: Analyze prompt
+        // Stage 1: Analyze prompt with mechanical domain knowledge
         jobQueue.updateProgress(jobId, 'analyzing', 50);
-        const analysis = await bedrockService.analyzeTaxonomyPrompt(prompt);
+        jobQueue.updateJob(jobId, { agentStatus: 'retrieving mechanical knowledge (RAG)' });
+
         jobQueue.completeStage(jobId, 'analyzing');
 
-        // Stage 2: Generate design
+        // Stage 2: Generate design using mechanical orchestrator with RAG
         jobQueue.updateProgress(jobId, 'generating', 50);
+        jobQueue.updateJob(jobId, { agentStatus: 'generating with domain expertise' });
 
-        const designPrompt = `Based on this analysis, generate a detailed 3D mechanical design:
-
-Analysis: ${JSON.stringify(analysis)}
-User Prompt: ${prompt}
-
-Generate design specifications in JSON format with:
-- Geometry data (vertices, faces, meshes)
-- Material specifications
-- Dimensions and measurements
-- Assembly instructions
-- Manufacturing notes
-
-Return detailed JSON design specification.`;
-
-        const designSpec = await bedrockService.generateContent(designPrompt);
-        const design = bedrockService.parseJSON(designSpec);
+        // Use mechanical orchestrator for domain-specific generation
+        const orchestratorResult = await mechanicalOrchestrator.generateMechanicalDesign(prompt, {
+            sessionId: jobId,
+            preferences
+        });
 
         jobQueue.completeStage(jobId, 'generating');
 
         // Stage 3: Refine design
         jobQueue.updateProgress(jobId, 'refining', 50);
-        // In a real implementation, this would optimize the geometry
+        jobQueue.updateJob(jobId, { agentStatus: 'validating mechanical design' });
         jobQueue.completeStage(jobId, 'refining');
 
         // Stage 4: Export
         jobQueue.updateProgress(jobId, 'exporting', 50);
         const result = {
-            design: design || { type: 'mechanical_assembly', parts: [] },
-            analysis,
+            design: orchestratorResult.design,
+            validation: orchestratorResult.validation,
+            context: {
+                domain: 'mechanical_engineering',
+                knowledge_items_used: Object.values(orchestratorResult.context.knowledge).flat().length,
+                rag_enabled: true
+            },
             metadata: {
+                ...orchestratorResult.metadata,
                 prompt,
                 preferences,
                 generatedAt: new Date().toISOString()
@@ -580,7 +579,9 @@ Return detailed JSON design specification.`;
 
         // Complete job
         jobQueue.completeJob(jobId, result);
-        console.log(`✅ Design generation completed for job ${jobId}`);
+        console.log(`✅ Mechanical domain design generation completed for job ${jobId}`);
+        console.log(`   Knowledge items used: ${result.context.knowledge_items_used}`);
+        console.log(`   Validation score: ${orchestratorResult.validation.score}/100`);
     } catch (error) {
         console.error(`❌ Design generation failed for job ${jobId}:`, error);
         throw error;
@@ -688,12 +689,14 @@ Return JSON design specification.`;
 /**
  * Process FULLY AUTONOMOUS design generation
  * The AI agent plans and executes everything with minimal human intervention
+ * NOW WITH MECHANICAL DOMAIN EXPERTISE AND RAG
  */
 async function processAutonomousGeneration(jobId, prompt, options) {
     try {
         console.log(`\n🤖 ========================================`);
-        console.log(`🤖 AUTONOMOUS AGENT ACTIVATED`);
+        console.log(`🤖 AUTONOMOUS MECHANICAL AGENT ACTIVATED`);
         console.log(`🤖 Job ID: ${jobId}`);
+        console.log(`🤖 Domain: Mechanical Engineering + RAG`);
         console.log(`🤖 ========================================\n`);
 
         // Update job to show autonomous mode is active
@@ -702,21 +705,25 @@ async function processAutonomousGeneration(jobId, prompt, options) {
             agentStatus: 'thinking'
         });
 
-        // Stage 1: Agent thinks and plans
+        // Stage 1: Retrieve mechanical domain knowledge (RAG)
         jobQueue.updateProgress(jobId, 'analyzing', 25);
-        jobQueue.updateJob(jobId, { agentStatus: 'planning' });
+        jobQueue.updateJob(jobId, { agentStatus: 'retrieving mechanical knowledge (RAG)' });
 
-        // Stage 2: Execute autonomously (the agent handles all stages internally)
+        // Stage 2: Agent plans with domain expertise
+        jobQueue.updateProgress(jobId, 'analyzing', 75);
+        jobQueue.updateJob(jobId, { agentStatus: 'planning with mechanical expertise' });
+
         jobQueue.updateProgress(jobId, 'analyzing', 100);
         jobQueue.completeStage(jobId, 'analyzing');
 
+        // Stage 3: Execute autonomously with mechanical domain orchestrator
         jobQueue.updateProgress(jobId, 'generating', 25);
-        jobQueue.updateJob(jobId, { agentStatus: 'executing autonomously' });
+        jobQueue.updateJob(jobId, { agentStatus: 'executing with mechanical domain knowledge' });
 
-        // Call the autonomous agent
-        const result = await autonomousAgent.autonomousDesignGeneration(prompt, {
-            ...options,
-            maxIterations: options.maxIterations || 20
+        // Use mechanical orchestrator for domain-specific autonomous generation
+        const orchestratorResult = await mechanicalOrchestrator.generateMechanicalDesign(prompt, {
+            sessionId: jobId,
+            ...options
         });
 
         // Update progress through remaining stages
@@ -724,7 +731,7 @@ async function processAutonomousGeneration(jobId, prompt, options) {
         jobQueue.completeStage(jobId, 'generating');
 
         jobQueue.updateProgress(jobId, 'refining', 50);
-        jobQueue.updateJob(jobId, { agentStatus: 'self-verifying' });
+        jobQueue.updateJob(jobId, { agentStatus: 'validating mechanical design' });
 
         jobQueue.updateProgress(jobId, 'refining', 100);
         jobQueue.completeStage(jobId, 'refining');
@@ -732,31 +739,37 @@ async function processAutonomousGeneration(jobId, prompt, options) {
         jobQueue.updateProgress(jobId, 'exporting', 100);
         jobQueue.completeStage(jobId, 'exporting');
 
-        // Complete with autonomous agent results
+        // Complete with mechanical domain results
         const finalResult = {
-            design: result.design,
+            design: orchestratorResult.design,
+            validation: orchestratorResult.validation,
             autonomous: true,
+            rag_enabled: true,
+            domain: 'mechanical_engineering',
             agentProcess: {
-                iterations: result.process?.iterations || 0,
-                decisions: result.process?.decisions || [],
-                selfCorrections: result.process?.selfCorrections || [],
-                mode: 'fully_autonomous'
+                knowledge_items_used: Object.values(orchestratorResult.context.knowledge).flat().length,
+                domain_expertise: true,
+                mode: 'fully_autonomous_mechanical'
             },
+            context: orchestratorResult.context,
             metadata: {
+                ...orchestratorResult.metadata,
                 prompt,
                 options,
                 generatedAt: new Date().toISOString(),
-                agent: 'autonomous_cad_agent_v1'
+                agent: 'autonomous_mechanical_agent_v1',
+                rag: 'enabled'
             }
         };
 
         jobQueue.completeJob(jobId, finalResult);
 
         console.log(`\n🤖 ========================================`);
-        console.log(`🤖 AUTONOMOUS GENERATION COMPLETED`);
-        console.log(`🤖 Iterations: ${result.process?.iterations || 0}`);
-        console.log(`🤖 Decisions: ${result.process?.decisions?.length || 0}`);
-        console.log(`🤖 Self-corrections: ${result.process?.selfCorrections?.length || 0}`);
+        console.log(`🤖 AUTONOMOUS MECHANICAL GENERATION COMPLETED`);
+        console.log(`🤖 Knowledge items used: ${finalResult.agentProcess.knowledge_items_used}`);
+        console.log(`🤖 Validation score: ${orchestratorResult.validation.score}/100`);
+        console.log(`🤖 Domain: Mechanical Engineering`);
+        console.log(`🤖 RAG: Enabled`);
         console.log(`🤖 ========================================\n`);
 
     } catch (error) {
