@@ -9,6 +9,7 @@ import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronic
 import WorkbenchAviation from '../workbenches/aviation/WorkbenchAviation';
 import WorkbenchUIProduct from '../workbenches/ui-product/WorkbenchUIProduct';
 import AIConsole from './AIConsole';
+import apiService from '../services/api';
 import '../styles/workbench.css';
 
 /**
@@ -28,15 +29,20 @@ function WorkbenchContainer() {
         window.addEventListener('online', updateOnlineStatus);
         window.addEventListener('offline', updateOnlineStatus);
 
-        // Check backend connectivity every 30 seconds
-        const interval = setInterval(async () => {
+        // Check backend connectivity immediately and every 30 seconds
+        const checkHealth = async () => {
             try {
-                await fetch('/api/health', { method: 'GET', timeout: 5000 });
+                await apiService.healthCheck();
                 setIsOnline(true);
-            } catch {
+                console.log('✅ Backend online');
+            } catch (error) {
                 setIsOnline(false);
+                console.warn('⚠️ Backend offline:', error.message);
             }
-        }, 30000);
+        };
+
+        checkHealth(); // Check immediately on mount
+        const interval = setInterval(checkHealth, 30000);
 
         return () => {
             window.removeEventListener('online', updateOnlineStatus);

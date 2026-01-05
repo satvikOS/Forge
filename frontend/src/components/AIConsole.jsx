@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Code, Send, X, Minimize2, Maximize2 } from 'lucide-react';
+import apiService from '../services/api';
 import './AIConsole.css';
 
 /**
@@ -35,37 +36,70 @@ function AIConsole() {
         setIsProcessing(true);
 
         try {
-            const response = await fetch('/api/ai/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: userMessage })
+            console.log('🚀 Starting design generation:', userMessage);
+
+            // Use the mechanical design generation API with progress tracking
+            const result = await apiService.generateDesign(userMessage, (progress) => {
+                console.log('📊 Progress:', progress);
+                // Update UI with progress
+                setMessages(prev => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg.role === 'assistant' && lastMsg.isProgress) {
+                        // Update existing progress message
+                        return [
+                            ...prev.slice(0, -1),
+                            {
+                                role: 'assistant',
+                                content: `🔄 Generating design... ${progress.status} (${progress.progress || 0}%)`,
+                                isProgress: true
+                            }
+                        ];
+                    } else {
+                        // Add new progress message
+                        return [
+                            ...prev,
+                            {
+                                role: 'assistant',
+                                content: `🔄 Generating design... ${progress.status} (${progress.progress || 0}%)`,
+                                isProgress: true
+                            }
+                        ];
+                    }
+                });
             });
 
-            const data = await response.json();
+            console.log('✅ Design generated successfully:', result);
 
-            if (data.success) {
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: data.response,
-                    actions: data.actions // CAD operations to execute
-                }]);
+            // Remove progress message and add final result
+            setMessages(prev => {
+                const filtered = prev.filter(m => !m.isProgress);
+                return [
+                    ...filtered,
+                    {
+                        role: 'assistant',
+                        content: `✅ Design generated successfully! I've created a mechanical design based on your requirements. The design includes RAG-powered mechanical engineering expertise.`,
+                        design: result.design,
+                        modelData: result.modelData
+                    }
+                ];
+            });
 
-                // Execute any CAD actions returned
-                if (data.actions && data.actions.length > 0) {
-                    executeCADActions(data.actions);
-                }
-            } else {
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: 'Sorry, I encountered an error. Please try again.'
-                }]);
+            // Execute CAD actions if available
+            if (result.design) {
+                executeCADActions(result.design);
             }
         } catch (error) {
-            console.error('Chat error:', error);
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: 'Connection error. Please check your network.'
-            }]);
+            console.error('❌ Design generation error:', error);
+            setMessages(prev => {
+                const filtered = prev.filter(m => !m.isProgress);
+                return [
+                    ...filtered,
+                    {
+                        role: 'assistant',
+                        content: `❌ Error: ${error.message || 'Connection error. Please check your network and try again.'}`
+                    }
+                ];
+            });
         } finally {
             setIsProcessing(false);
         }
