@@ -1,112 +1,3 @@
-# ArchDisc AWS Deployment Guide
-
-## Architecture Overview
-
-**Frontend:** React app → S3 → CloudFront CDN
-**Backend:** Node.js → Lambda + API Gateway
-**Database:** DynamoDB for workflows, S3 for files
-**Security:** Secrets Manager for API keys, IAM roles
-**Monitoring:** CloudWatch logs and metrics
-
-## Prerequisites
-
-```bash
-# Install AWS CLI
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-
-# Configure AWS credentials
-aws configure
-# AWS Access Key ID: YOUR_KEY
-# AWS Secret Access Key: YOUR_SECRET
-# Default region: us-east-1
-# Default output format: json
-
-# Install Serverless Framework (recommended)
-npm install -g serverless
-
-# Or use AWS SAM CLI
-pip install aws-sam-cli
-```
-
-## Deployment Method Options
-
-### Option 1: Serverless Framework (Recommended) ⭐
-
-**Pros:**
-- Simple configuration
-- Auto-creates CloudFront, S3, Lambda, API Gateway
-- Easy rollbacks
-- Good for rapid development
-
-**Cons:**
-- Less fine-grained control
-- Vendor lock-in to Serverless.com patterns
-
-### Option 2: AWS CDK (Infrastructure as Code)
-
-**Pros:**
-- Full control over AWS resources
-- TypeScript/JavaScript configuration
-- Best practices built-in
-- Great for complex architectures
-
-**Cons:**
-- Steeper learning curve
-- More boilerplate code
-
-### Option 3: Terraform
-
-**Pros:**
-- Multi-cloud support
-- Mature ecosystem
-- State management
-- Great for large teams
-
-**Cons:**
-- HCL learning curve
-- Separate tool to learn
-
-### Option 4: AWS Amplify
-
-**Pros:**
-- Fastest deployment
-- Auto CI/CD
-- Managed everything
-- Good for prototypes
-
-**Cons:**
-- Less control
-- Higher cost
-- Opinionated structure
-
-## Recommended: Serverless Framework + AWS CDK Hybrid
-
-Use Serverless for quick deployment, CDK for custom resources.
-
----
-
-## Implementation Guide
-
-### 1. Install Dependencies
-
-```bash
-cd /home/user/archdiscv1
-
-# Install Serverless Framework
-npm install -g serverless
-
-# Install plugins
-npm install --save-dev serverless-s3-sync
-npm install --save-dev serverless-cloudfront-invalidate
-npm install --save-dev serverless-offline
-```
-
-### 2. Create Serverless Configuration
-
-```yaml
-# serverless.yml
 service: archdisc-cad
 
 frameworkVersion: '3'
@@ -360,17 +251,16 @@ resources:
           SigningProtocol: sigv4
 
 # Plugins
-plugins:
-  - serverless-s3-sync
-  - serverless-cloudfront-invalidate
-  - serverless-offline
+# plugins:
+  # - serverless-s3-sync
+  # - serverless-offline
 
 # Custom configuration
 custom:
   # S3 sync for frontend deployment
   s3Sync:
     - bucketName: archdisc-frontend-${self:provider.stage}
-      localDir: frontend/build
+      localDir: frontend/dist
       deleteRemoved: true
       params:
         - index.html:
