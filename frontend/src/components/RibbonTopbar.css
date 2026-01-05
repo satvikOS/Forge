@@ -1,0 +1,126 @@
+/* Industry-Standard Ribbon Topbar (SolidWorks/Fusion 360 style) */
+
+.ribbon-topbar {
+    width: 100%;
+    background: #2a2a2a;
+    border-bottom: 1px solid #404040;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+}
+
+/* Ribbon Tabs */
+.ribbon-tabs {
+    display: flex;
+    background: #1e1e1e;
+    border-bottom: 1px solid #404040;
+    padding-left: 8px;
+}
+
+.ribbon-tab {
+    padding: 8px 20px;
+    font-size: 13px;
+    color: #b0b0b0;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+}
+
+.ribbon-tab:hover {
+    background: #2a2a2a;
+    color: #ffffff;
+}
+
+.ribbon-tab.active {
+    background: #2a2a2a;
+    color: #ffffff;
+    border-bottom: 2px solid #007acc;
+}
+
+/* Ribbon Panels */
+.ribbon-panels {
+    display: flex;
+    padding: 8px;
+    gap: 2px;
+    min-height: 80px;
+    overflow-x: auto;
+}
+
+/* Ribbon Group */
+.ribbon-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 12px;
+    border-right: 1px solid #404040;
+    min-width: fit-content;
+}
+
+.ribbon-group:last-child {
+    border-right: none;
+}
+
+.group-label {
+    font-size: 10px;
+    color: #808080;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+/* Ribbon Buttons */
+.ribbon-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #d0d0d0;
+    cursor: pointer;
+    transition: all 0.15s;
+    min-width: 60px;
+    font-size: 11px;
+}
+
+.ribbon-btn svg {
+    flex-shrink: 0;
+}
+
+.ribbon-btn:hover {
+    background: #3a3a3a;
+    border-color: #505050;
+    color: #ffffff;
+}
+
+.ribbon-btn:active {
+    background: #4a4a4a;
+}
+
+.ribbon-btn span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Scrollbar for ribbon panels */
+.ribbon-panels::-webkit-scrollbar {
+    height: 6px;
+}
+
+.ribbon-panels::-webkit-scrollbar-track {
+    background: #1e1e1e;
+}
+
+.ribbon-panels::-webkit-scrollbar-thumb {
+    background: #505050;
+    border-radius: 3px;
+}
+
+.ribbon-panels::-webkit-scrollbar-thumb:hover {
+    background: #606060;
+}
