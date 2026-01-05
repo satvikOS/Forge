@@ -69,7 +69,21 @@ functions:
       - http:
           path: /{proxy+}
           method: ANY
-          cors: true
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+              - Accept
+            allowCredentials: false
+          request:
+            passThrough: WHEN_NO_MATCH
+            template:
+              application/json: '$input.body'
 
   # Orchestration (longer timeout for LLM calls)
   orchestrate:

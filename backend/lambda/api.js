@@ -9,10 +9,41 @@ const cors = require('cors');
 
 const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Request logging middleware (before body parsing)
+app.use((req, res, next) => {
+    console.log('\n📥 Incoming Request:');
+    console.log('   Method:', req.method);
+    console.log('   Path:', req.path);
+    console.log('   Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('   Raw body (before parsing):', req.body);
+    next();
+});
+
+// Middleware - IMPORTANT: Order matters!
+app.use(cors({
+    origin: '*',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+}));
+
+// Body parsers with increased limits
+app.use(express.json({
+    limit: '50mb',
+    strict: true,
+    type: 'application/json'
+}));
+app.use(express.urlencoded({
+    extended: true,
+    limit: '50mb',
+    parameterLimit: 50000
+}));
+
+// Log parsed body
+app.use((req, res, next) => {
+    console.log('   Parsed body:', JSON.stringify(req.body, null, 2));
+    next();
+});
 
 // Import routes
 const mechanicalRoutes = require('../routes/mechanical-simplified');
@@ -89,5 +120,21 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Export handler for Lambda
-module.exports.handler = serverless(app);
+// Export handler for Lambda with proper configuration
+module.exports.handler = serverless(app, {
+    request: (request, event, context) => {
+        // Log the raw Lambda event for debugging
+        console.log('\n🔍 Lambda Event:', JSON.stringify({
+            httpMethod: event.httpMethod,
+            path: event.path,
+            body: event.body,
+            isBase64Encoded: event.isBase64Encoded,
+            headers: event.headers
+        }, null, 2));
+
+        // Ensure body is properly decoded
+        if (event.body && event.isBase64Encoded) {
+            request.body = Buffer.from(event.body, 'base64').toString('utf-8');
+        }
+    }
+});
