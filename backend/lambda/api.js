@@ -1,6 +1,6 @@
 /**
- * Main API Lambda Handler - Minimal Version
- * This version only includes essential routes to debug deployment issues
+ * Main API Lambda Handler
+ * AWS Bedrock-powered autonomous CAD generation API
  */
 
 const serverless = require('serverless-http');
@@ -14,15 +14,20 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Import routes
+const mechanicalRoutes = require('../routes/mechanical-simplified');
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+    const bedrockService = require('../services/bedrockService');
     res.json({
         success: true,
         status: 'healthy',
         timestamp: new Date().toISOString(),
         environment: process.env.STAGE || 'dev',
         region: process.env.AWS_REGION || 'unknown',
-        node_version: process.version
+        node_version: process.version,
+        bedrock_configured: bedrockService.isConfigured()
     });
 });
 
@@ -30,13 +35,22 @@ app.get('/api/health', (req, res) => {
 app.get('/api/test', (req, res) => {
     res.json({
         success: true,
-        message: 'API is working!',
+        message: 'ArchDisc API is working!',
         endpoints: [
             '/api/health',
-            '/api/test'
+            '/api/test',
+            '/api/mechanical/generate',
+            '/api/mechanical/generate/:jobId',
+            '/api/mechanical/analysis/analyze',
+            '/api/mechanical/legality/check',
+            '/api/mechanical/materials/*',
+            '/api/mechanical/credits/*'
         ]
     });
 });
+
+// Mount mechanical routes
+app.use('/api/mechanical', mechanicalRoutes);
 
 // 404 handler
 app.use((req, res) => {

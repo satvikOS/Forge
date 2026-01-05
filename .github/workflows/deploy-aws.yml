@@ -46,6 +46,8 @@ jobs:
 
       - name: Build frontend
         working-directory: ./frontend
+        env:
+          VITE_API_BASE_URL: https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api
         run: |
           npm run build
           echo "✅ Frontend built successfully"
