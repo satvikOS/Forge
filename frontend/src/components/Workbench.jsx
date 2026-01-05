@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import WorkbenchSwitcher from './WorkbenchSwitcher';
 import WorkbenchMechanical from '../workbenches/mechanical-cad/WorkbenchMechanical';
 import WorkbenchArchitecture from '../workbenches/architecture-bim/WorkbenchArchitecture';
@@ -12,12 +12,38 @@ import AIConsole from './AIConsole';
 import '../styles/workbench.css';
 
 /**
- * Main Workbench Container - Blender-Style Layout
- * Grid: Header | Toolbar-Viewport-Properties | Footer
+ * Main Workbench Container, Blender Style Layout
+ * Grid: Header, Toolbar, Viewport, Properties, Footer
  */
 function WorkbenchContainer() {
     const [activeWorkbench, setActiveWorkbench] = useState('mechanical-cad');
     const [prompt, setPrompt] = useState('');
+    const [featureSearch, setFeatureSearch] = useState('');
+    const [isOnline, setIsOnline] = useState(true);
+
+    // Monitor online/offline status
+    useEffect(() => {
+        const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+
+        // Check backend connectivity every 30 seconds
+        const interval = setInterval(async () => {
+            try {
+                await fetch('/api/health', { method: 'GET', timeout: 5000 });
+                setIsOnline(true);
+            } catch {
+                setIsOnline(false);
+            }
+        }, 30000);
+
+        return () => {
+            window.removeEventListener('online', updateOnlineStatus);
+            window.removeEventListener('offline', updateOnlineStatus);
+            clearInterval(interval);
+        };
+    }, []);
 
     const handleGenerate = async () => {
         if (!prompt.trim()) return;
@@ -71,7 +97,13 @@ function WorkbenchContainer() {
         <div className="workbench-container">
             {/* TOP HEADER */}
             <header className="workbench-header">
-                <h1 className="workbench-title">ArchDisc</h1>
+                <div className="header-brand">
+                    <h1 className="workbench-title">ArchDisc</h1>
+                    <span
+                        className={`status-indicator ${isOnline ? 'online' : 'offline'}`}
+                        title={isOnline ? 'Online' : 'Offline'}
+                    ></span>
+                </div>
                 <WorkbenchSwitcher
                     activeWorkbench={activeWorkbench}
                     onSwitchWorkbench={setActiveWorkbench}
@@ -81,6 +113,13 @@ function WorkbenchContainer() {
                 </div>
                 <div className="header-actions">
                     <button className="header-button">File</button>
+                    <input
+                        type="text"
+                        className="feature-search"
+                        placeholder="Search features..."
+                        value={featureSearch}
+                        onChange={(e) => setFeatureSearch(e.target.value)}
+                    />
                     <button className="header-button">Edit</button>
                     <button className="header-button">View</button>
                 </div>

@@ -50,7 +50,7 @@ const feaSimulation = require('../services/feaSimulationService');
 const cfdSimulation = require('../services/cfdSimulationService');
 const aiOptimization = require('../services/aiOptimizationService');
 
-// ============ PHASE 4 SERVICES - NEW INTEGRATIONS ============
+// ============ PHASE 4 SERVICES, NEW INTEGRATIONS ============
 const cloudSync = require('../services/cloudSyncService');
 const standardPartsLibrary = require('../services/standardPartsLibraryService');
 const kinematics = require('../services/kinematicsService');
@@ -59,6 +59,7 @@ const advancedInspection = require('../services/advancedInspectionService');
 const pdmPlmIntegration = require('../services/pdmPlmIntegrationService');
 const designAutomation = require('../services/designAutomationService');
 const renderingVisualization = require('../services/renderingVisualizationService');
+const aiOrchestration = require('../services/aiOrchestrationService');
 
 // Initialize CAD services
 const drawingEngine = new DrawingEngine();
@@ -4019,5 +4020,47 @@ router.get('/rendering/status/:renderJobId', async (req, res) => {
 });
 
 // ==================== END NEW SERVICE ROUTES ====================
+
+// ==================== AI ORCHESTRATION ROUTES ====================
+// Complete workflow orchestration from natural language prompt to rendering
+
+/**
+ * POST /api/mechanical/orchestrate
+ * Orchestrate complete design workflow from natural language prompt
+ * This endpoint chains all CAD services step by step:
+ * 1. Parse prompt
+ * 2. Generate design
+ * 3. Create sketch
+ * 4. Create 3D features
+ * 5. Apply materials
+ * 6. Run analysis
+ * 7. Optimize design
+ * 8. Generate manufacturing
+ * 9. Create documentation
+ * 10. Render visualization
+ */
+router.post('/orchestrate', async (req, res) => {
+    try {
+        const result = await aiOrchestration.orchestrateFromPrompt(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/orchestrate/:workflowId
+ * Get status of orchestrated workflow
+ */
+router.get('/orchestrate/:workflowId', async (req, res) => {
+    try {
+        const result = await aiOrchestration.getWorkflowStatus(req.params.workflowId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END AI ORCHESTRATION ROUTES ====================
 
 module.exports = router;

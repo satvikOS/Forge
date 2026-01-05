@@ -130,6 +130,80 @@
     color: var(--text-primary);
 }
 
+/* Feature Search Bar */
+.feature-search {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    font-size: 10px;
+    padding: 2px 8px;
+    height: 20px;
+    width: 180px;
+    border-radius: 2px;
+    outline: none;
+    margin: 0 4px;
+}
+
+.feature-search:focus {
+    border-color: var(--accent-primary);
+    background: var(--bg-secondary);
+}
+
+.feature-search::placeholder {
+    color: var(--text-muted);
+}
+
+/* Header Brand with Status Indicator */
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Online/Offline Status Indicator */
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    position: relative;
+}
+
+.status-indicator.online {
+    background: #4ade80;
+    box-shadow: 0 0 4px #4ade80;
+}
+
+.status-indicator.offline {
+    background: #ef4444;
+    box-shadow: 0 0 4px #ef4444;
+}
+
+/* Pulsing animation for online status */
+.status-indicator.online::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: #4ade80;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    50% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1.5);
+    }
+}
+
 /* ========== LEFT TOOLBAR - ICON ONLY ========== */
 .workbench-tools {
     grid-area: toolbar;
