@@ -4,7 +4,8 @@ import {
     Mouse, Move, Pencil, Box, Layers, RotateCcw, ZoomIn, Home,
     Settings, History, Save, Circle, Square, Minus, ArrowUpDown,
     Copy, Grid3x3, Wrench, FlaskConical, FileText, Users, Package,
-    Printer, Cog, Ruler
+    Printer, Cog, Ruler, FileCode, Sheet, Zap, Eye, Database,
+    GitBranch, DollarSign, BookOpen
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
 
@@ -722,6 +723,38 @@ function WorkbenchMechanical() {
 
                     <div className="tool-divider"></div>
 
+                    {/* Surfaces */}
+                    <button
+                        ref={el => buttonRefs.current['surfaces'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'surfaces' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('surfaces', e)}
+                        title="Surfaces"
+                    >
+                        <Zap size={20} />
+                    </button>
+
+                    {/* Documentation */}
+                    <button
+                        ref={el => buttonRefs.current['documentation'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'documentation' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('documentation', e)}
+                        title="Documentation"
+                    >
+                        <FileText size={20} />
+                    </button>
+
+                    {/* Inspection */}
+                    <button
+                        ref={el => buttonRefs.current['inspection'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'inspection' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('inspection', e)}
+                        title="Inspection"
+                    >
+                        <Eye size={20} />
+                    </button>
+
+                    <div className="tool-divider"></div>
+
                     {/* Model Tree */}
                     <button className="tool-icon-button" title="Feature Tree"><Layers size={20} /></button>
 
@@ -792,6 +825,54 @@ function WorkbenchMechanical() {
                     <button className="property-button">Export STEP</button>
                     <button className="property-button">Export STL</button>
                     <button className="property-button">Generate Drawing</button>
+                </div>
+
+                {/* Configuration */}
+                <div className="property-section">
+                    <h3 className="property-header">CONFIGURATION</h3>
+                    <select className="property-input">
+                        <option>Default</option>
+                        <option>Config A</option>
+                        <option>Config B</option>
+                    </select>
+                    <button className="property-button">New Config</button>
+                    <button className="property-button">Design Table</button>
+                </div>
+
+                {/* Collaboration */}
+                <div className="property-section">
+                    <h3 className="property-header">COLLABORATE</h3>
+                    <button className="property-button">Share Design</button>
+                    <button className="property-button">Add Comment</button>
+                    <button className="property-button">Review</button>
+                </div>
+
+                {/* Version Control */}
+                <div className="property-section">
+                    <h3 className="property-header">VERSION</h3>
+                    <button className="property-button">Save Revision</button>
+                    <button className="property-button">Version History</button>
+                    <button className="property-button">Branch/Merge</button>
+                </div>
+
+                {/* Standards */}
+                <div className="property-section">
+                    <h3 className="property-header">STANDARDS</h3>
+                    <select className="property-input">
+                        <option>ANSI</option>
+                        <option>ISO</option>
+                        <option>DIN</option>
+                        <option>JIS</option>
+                    </select>
+                    <button className="property-button">GD&T</button>
+                    <button className="property-button">Compliance Check</button>
+                </div>
+
+                {/* Cost */}
+                <div className="property-section">
+                    <h3 className="property-header">COST</h3>
+                    <button className="property-button">Estimate Cost</button>
+                    <button className="property-button">Compare Options</button>
                 </div>
             </aside>
 
@@ -919,6 +1000,65 @@ function WorkbenchMechanical() {
                     <div className="dropdown-item">Interference Check</div>
                     <div className="dropdown-item">Draft Analysis</div>
                     <div className="dropdown-item">Curvature Analysis</div>
+                </div>
+            )}
+
+            {activeDropdown === 'surfaces' && (
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Surface Tools</div>
+                    <div className="dropdown-item">Planar Surface</div>
+                    <div className="dropdown-item">Boundary Surface</div>
+                    <div className="dropdown-item">Ruled Surface</div>
+                    <div className="dropdown-item">Lofted Surface</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Offset Surface</div>
+                    <div className="dropdown-item">Extend Surface</div>
+                    <div className="dropdown-item">Trim Surface</div>
+                    <div className="dropdown-item">Knit</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Thicken</div>
+                    <div className="dropdown-item">Replace Face</div>
+                    <div className="dropdown-item">Delete Face</div>
+                    <div className="dropdown-item">Surface Flatten</div>
+                </div>
+            )}
+
+            {activeDropdown === 'documentation' && (
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Documentation</div>
+                    <div className="dropdown-item">Generate Drawing</div>
+                    <div className="dropdown-item">Detail View</div>
+                    <div className="dropdown-item">Section View</div>
+                    <div className="dropdown-item">Auxiliary View</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Dimension</div>
+                    <div className="dropdown-item">Note</div>
+                    <div className="dropdown-item">Callout</div>
+                    <div className="dropdown-item">Surface Finish</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">BOM Table</div>
+                    <div className="dropdown-item">Revision Table</div>
+                    <div className="dropdown-item">Title Block</div>
+                    <div className="dropdown-item">Export PDF</div>
+                </div>
+            )}
+
+            {activeDropdown === 'inspection' && (
+                <div className="tool-dropdown" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Inspection & Quality</div>
+                    <div className="dropdown-item">Measure Distance</div>
+                    <div className="dropdown-item">Measure Angle</div>
+                    <div className="dropdown-item">Measure Area</div>
+                    <div className="dropdown-item">Measure Volume</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Check Geometry</div>
+                    <div className="dropdown-item">Draft Analysis</div>
+                    <div className="dropdown-item">Undercut Detection</div>
+                    <div className="dropdown-item">Thickness Analysis</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Clearance Check</div>
+                    <div className="dropdown-item">Deviation Analysis</div>
+                    <div className="dropdown-item">CMM Inspection</div>
                 </div>
             )}
         </>
