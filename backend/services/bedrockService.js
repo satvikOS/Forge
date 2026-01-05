@@ -58,7 +58,7 @@ class BedrockService {
      * Check if service is properly configured
      */
     isConfigured() {
-        return this.configured && this.client;
+        return Boolean(this.configured && this.client);
     }
 
     /**
