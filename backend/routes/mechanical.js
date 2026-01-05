@@ -4063,4 +4063,91 @@ router.get('/orchestrate/:workflowId', async (req, res) => {
 
 // ==================== END AI ORCHESTRATION ROUTES ====================
 
+// ==================== LLM CONFIGURATION AND INTERACTION ROUTES ====================
+
+const llmIntegration = require('../services/llmIntegrationService');
+
+/**
+ * GET /api/mechanical/llm/providers
+ * Get available LLM providers
+ */
+router.get('/llm/providers', async (req, res) => {
+    try {
+        const providers = llmIntegration.getAvailableProviders();
+        res.json({
+            success: true,
+            providers,
+            default: llmIntegration.defaultProvider
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/llm/provider
+ * Set default LLM provider
+ */
+router.post('/llm/provider', async (req, res) => {
+    try {
+        const { provider } = req.body;
+        llmIntegration.setDefaultProvider(provider);
+        res.json({
+            success: true,
+            provider,
+            message: `Default LLM provider set to ${provider}`
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/orchestrate/:workflowId/respond
+ * Respond to workflow clarification questions
+ */
+router.post('/orchestrate/:workflowId/respond', async (req, res) => {
+    try {
+        const { workflowId } = req.params;
+        const { responses } = req.body;
+
+        const result = await aiOrchestration.handleUserResponse(workflowId, responses);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/llm/test
+ * Test LLM API connection
+ */
+router.post('/llm/test', async (req, res) => {
+    try {
+        const { provider, prompt } = req.body;
+
+        const response = await llmIntegration.callLLM({
+            provider: provider || llmIntegration.defaultProvider,
+            systemPrompt: 'You are a helpful CAD assistant.',
+            userMessage: prompt || 'Hello, are you working?',
+            responseFormat: 'text'
+        });
+
+        res.json({
+            success: true,
+            provider: provider || llmIntegration.defaultProvider,
+            response: response.content,
+            usage: response.usage
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'LLM API test failed. Check API keys in environment variables.'
+        });
+    }
+});
+
+// ==================== END LLM ROUTES ====================
+
 module.exports = router;

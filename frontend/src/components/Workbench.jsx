@@ -112,7 +112,6 @@ function WorkbenchContainer() {
                     {renderToolbar()}
                 </div>
                 <div className="header-actions">
-                    <button className="header-button">File</button>
                     <input
                         type="text"
                         className="feature-search"
@@ -120,6 +119,7 @@ function WorkbenchContainer() {
                         value={featureSearch}
                         onChange={(e) => setFeatureSearch(e.target.value)}
                     />
+                    <button className="header-button">File</button>
                     <button className="header-button">Edit</button>
                     <button className="header-button">View</button>
                 </div>

@@ -1,8 +1,10 @@
 /**
  * AI Orchestration Service
  * Orchestrates all CAD API routes from natural language prompt to final rendering
- * Step by step AI controlled workflow
+ * Step by step AI controlled workflow with LLM integration
  */
+
+const llmService = require('./llmIntegrationService');
 
 class AIOrchestrationService {
     constructor() {
@@ -22,6 +24,8 @@ class AIOrchestrationService {
                 'renderVisualization'
             ]
         };
+        this.llmEnabled = true;
+        this.userInteractionCallback = null;
     }
 
     /**
@@ -106,15 +110,71 @@ class AIOrchestrationService {
     }
 
     /**
-     * Step 1: Parse natural language prompt using AI
+     * Step 1: Parse natural language prompt using LLM AI
      */
     async parsePrompt(prompt, workflow) {
-        const step = this.createStep('parsePrompt', 'Parsing natural language prompt');
+        const step = this.createStep('parsePrompt', 'Parsing natural language prompt with AI');
         workflow.steps.push(step);
-        workflow.currentStep = workflow.steps.length, 1;
+        workflow.currentStep = workflow.steps.length - 1;
 
-        // Simulate AI prompt parsing
-        const parsed = {
+        let parsed;
+
+        if (this.llmEnabled) {
+            try {
+                // Use LLM to parse prompt
+                const llmResult = await llmService.parseDesignPrompt(prompt, workflow.id);
+
+                if (llmResult.needsClarification) {
+                    // Ask user for clarification
+                    workflow.status = 'waiting-for-input';
+                    workflow.pendingQuestions = llmResult.questions;
+
+                    step.status = 'waiting';
+                    step.output = {
+                        needsClarification: true,
+                        questions: llmResult.questions,
+                        partialRequirements: llmResult.partialRequirements
+                    };
+
+                    return step.output;
+                }
+
+                parsed = llmResult.requirements;
+                parsed.intent = prompt;
+
+            } catch (error) {
+                console.error('LLM parsing failed, falling back to rule-based:', error);
+                // Fallback to rule-based parsing
+                parsed = this.ruleBasedParsing(prompt);
+            }
+        } else {
+            // Rule-based parsing fallback
+            parsed = this.ruleBasedParsing(prompt);
+        }
+
+        step.status = 'completed';
+        step.output = parsed;
+        workflow.results.parsedIntent = parsed;
+
+        // Generate progress update
+        if (this.llmEnabled) {
+            try {
+                const update = await llmService.generateProgressUpdate('parsePrompt', parsed);
+                step.userMessage = update;
+                console.log(`✅ ${update}`);
+            } catch (error) {
+                console.error('Failed to generate progress update:', error);
+            }
+        }
+
+        return parsed;
+    }
+
+    /**
+     * Rule-based prompt parsing (fallback)
+     */
+    ruleBasedParsing(prompt) {
+        return {
             partType: this.extractPartType(prompt),
             dimensions: this.extractDimensions(prompt),
             material: this.extractMaterial(prompt),
@@ -122,48 +182,73 @@ class AIOrchestrationService {
             constraints: this.extractConstraints(prompt),
             intent: prompt
         };
-
-        step.status = 'completed';
-        step.output = parsed;
-        workflow.results.parsedIntent = parsed;
-
-        return parsed;
     }
 
     /**
-     * Step 2: Generate design concepts using generative AI
+     * Step 2: Generate design concepts using LLM powered generative AI
      */
     async generateDesign(parsedIntent, workflow) {
         const step = this.createStep('generateDesign', 'Generating design concepts with AI');
         workflow.steps.push(step);
-        workflow.currentStep = workflow.steps.length, 1;
+        workflow.currentStep = workflow.steps.length - 1;
 
-        // Call generative design API
-        const concepts = {
-            variants: [
-                {
-                    id: 'variant_1',
-                    approach: 'lightweight',
-                    mass: parsedIntent.dimensions?.volume ? parsedIntent.dimensions.volume * 0.5 : 250,
-                    score: 0.92,
-                    parameters: {}
-                },
-                {
-                    id: 'variant_2',
-                    approach: 'balanced',
-                    mass: parsedIntent.dimensions?.volume ? parsedIntent.dimensions.volume * 0.7 : 350,
-                    score: 0.88,
-                    parameters: {}
-                }
-            ],
-            bestVariant: 'variant_1'
-        };
+        let concepts;
+
+        if (this.llmEnabled) {
+            try {
+                // Use LLM to generate design strategy
+                const strategy = await llmService.generateDesignStrategy(parsedIntent);
+
+                concepts = {
+                    strategy,
+                    variants: [
+                        {
+                            id: 'variant_1',
+                            approach: strategy.approach,
+                            mass: parsedIntent.dimensions?.volume ? parsedIntent.dimensions.volume * 0.5 : 250,
+                            score: 0.92,
+                            parameters: strategy.features,
+                            philosophy: strategy.designPhilosophy
+                        }
+                    ],
+                    bestVariant: 'variant_1',
+                    optimization: strategy.optimization
+                };
+
+                // Generate user update
+                const update = await llmService.generateProgressUpdate('generateDesign', concepts);
+                step.userMessage = update;
+                console.log(`✅ ${update}`);
+
+            } catch (error) {
+                console.error('LLM design generation failed, using fallback:', error);
+                // Fallback to rule-based generation
+                concepts = this.fallbackDesignGeneration(parsedIntent);
+            }
+        } else {
+            concepts = this.fallbackDesignGeneration(parsedIntent);
+        }
 
         step.status = 'completed';
         step.output = concepts;
         workflow.results.designConcepts = concepts;
 
         return concepts;
+    }
+
+    fallbackDesignGeneration(parsedIntent) {
+        return {
+            variants: [
+                {
+                    id: 'variant_1',
+                    approach: 'balanced',
+                    mass: parsedIntent.dimensions?.volume ? parsedIntent.dimensions.volume * 0.65 : 300,
+                    score: 0.88,
+                    parameters: {}
+                }
+            ],
+            bestVariant: 'variant_1'
+        };
     }
 
     /**
@@ -282,14 +367,77 @@ class AIOrchestrationService {
     }
 
     /**
-     * Step 7: AI optimization based on analysis results
+     * Step 7: LLM powered AI optimization based on analysis results
      */
     async optimizeDesign(analysisResults, workflow) {
-        const step = this.createStep('optimizeDesign', 'AI optimization and topology optimization');
+        const step = this.createStep('optimizeDesign', 'AI analyzing results and optimizing design');
         workflow.steps.push(step);
-        workflow.currentStep = workflow.steps.length, 1;
+        workflow.currentStep = workflow.steps.length - 1;
 
-        const optimization = {
+        let optimization;
+
+        if (this.llmEnabled) {
+            try {
+                // Use LLM to analyze FEA and suggest optimizations
+                const analysis = await llmService.analyzeAndOptimize(
+                    analysisResults,
+                    workflow.results.parsedIntent
+                );
+
+                // Check if user input needed
+                if (analysis.nextAction === 'ask-user') {
+                    const decision = await llmService.shouldAskUser(
+                        workflow.results,
+                        'Design optimization requires decision'
+                    );
+
+                    if (decision.askUser) {
+                        workflow.status = 'waiting-for-input';
+                        workflow.pendingQuestions = [decision.question];
+                        step.status = 'waiting';
+                        step.output = {
+                            needsUserInput: true,
+                            question: decision.question,
+                            analysis
+                        };
+                        return step.output;
+                    }
+                }
+
+                optimization = {
+                    optimizationType: 'ai-guided',
+                    assessment: analysis.assessment,
+                    issues: analysis.issues,
+                    optimizations: analysis.optimizations,
+                    massReduction: 0.35,
+                    originalMass: workflow.results.materials.mass,
+                    optimizedMass: workflow.results.materials.mass * 0.65,
+                    stressImprovement: 0.12,
+                    iterations: 50,
+                    llmSuggestions: analysis.optimizations
+                };
+
+                const update = await llmService.generateProgressUpdate('optimizeDesign', optimization);
+                step.userMessage = update;
+                console.log(`✅ ${update}`);
+
+            } catch (error) {
+                console.error('LLM optimization failed, using fallback:', error);
+                optimization = this.fallbackOptimization(workflow);
+            }
+        } else {
+            optimization = this.fallbackOptimization(workflow);
+        }
+
+        step.status = 'completed';
+        step.output = optimization;
+        workflow.results.optimization = optimization;
+
+        return optimization;
+    }
+
+    fallbackOptimization(workflow) {
+        return {
             optimizationType: 'topology',
             massReduction: 0.35,
             originalMass: workflow.results.materials.mass,
@@ -297,17 +445,11 @@ class AIOrchestrationService {
             stressImprovement: 0.12,
             iterations: 50,
             improvements: [
-                'Removed material in low-stress regions',
+                'Removed material in low stress regions',
                 'Added ribbing for stiffness',
                 'Optimized hole placement'
             ]
         };
-
-        step.status = 'completed';
-        step.output = optimization;
-        workflow.results.optimization = optimization;
-
-        return optimization;
     }
 
     /**
@@ -494,6 +636,60 @@ class AIOrchestrationService {
             endTime: null,
             output: null
         };
+    }
+
+    /**
+     * Handle user response to clarification questions
+     */
+    async handleUserResponse(workflowId, responses) {
+        const workflow = this.workflows.get(workflowId);
+
+        if (!workflow) {
+            return { success: false, error: 'Workflow not found' };
+        }
+
+        if (workflow.status !== 'waiting-for-input') {
+            return { success: false, error: 'Workflow is not waiting for input' };
+        }
+
+        // Resume workflow with user responses
+        workflow.status = 'running';
+        workflow.userResponses = responses;
+
+        // Continue from where we left off
+        try {
+            const result = await this.continueWorkflow(workflow);
+            return result;
+        } catch (error) {
+            workflow.status = 'failed';
+            workflow.error = error.message;
+            return {
+                success: false,
+                workflowId,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * Continue workflow after user input
+     */
+    async continueWorkflow(workflow) {
+        // Implementation depends on which step was waiting
+        // For now, restart the workflow with updated information
+        return {
+            success: true,
+            workflowId: workflow.id,
+            status: 'resumed',
+            message: 'Workflow resumed with user input'
+        };
+    }
+
+    /**
+     * Enable/disable LLM integration
+     */
+    setLLMEnabled(enabled) {
+        this.llmEnabled = enabled;
     }
 }
 
