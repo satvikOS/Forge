@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const MECHANICAL_BASE = `${API_BASE_URL}/mechanical`;
 
 class APIService {
   /**
@@ -10,12 +11,12 @@ class APIService {
   async generateDesign(prompt, onProgress = null) {
     console.log('🎯 API Service: generateDesign called');
     console.log('  Prompt:', prompt?.substring(0, 50) + '...');
-    console.log('  Endpoint: POST', `${API_BASE_URL}/generate`);
+    console.log('  Endpoint: POST', `${MECHANICAL_BASE}/generate`);
 
     try {
       // Step 1: Start the generation job
       console.log('📡 Starting generation job with prompt:', prompt);
-      const startResponse = await axios.post(`${API_BASE_URL}/generate`, { prompt });
+      const startResponse = await axios.post(`${MECHANICAL_BASE}/generate`, { prompt });
 
       if (!startResponse.data.success || !startResponse.data.jobId) {
         throw new Error('Failed to start generation job');
@@ -49,8 +50,8 @@ class APIService {
 
     while (attempts < maxAttempts) {
       try {
-        const response = await axios.get(`${API_BASE_URL}/generate/${jobId}`);
-        const job = response.data.job;
+        const response = await axios.get(`${MECHANICAL_BASE}/generate/${jobId}`);
+        const job = response.data;
 
         if (!job) {
           throw new Error('Job not found');
@@ -127,7 +128,7 @@ class APIService {
    */
   async cancelJob(jobId) {
     try {
-      await axios.delete(`${API_BASE_URL}/generate/${jobId}`);
+      await axios.delete(`${MECHANICAL_BASE}/generate/${jobId}`);
       return { success: true };
     } catch (error) {
       console.error('Error canceling job:', error);
@@ -147,7 +148,7 @@ class APIService {
    */
   async analyzeDesign(design) {
     try {
-      const response = await axios.post(`${API_BASE_URL}/analysis/analyze`, { design });
+      const response = await axios.post(`${MECHANICAL_BASE}/analysis/analyze`, { design });
       return response.data;
     } catch (error) {
       console.error('Error analyzing design:', error);
@@ -160,7 +161,7 @@ class APIService {
    */
   async checkCompliance(design) {
     try {
-      const response = await axios.post(`${API_BASE_URL}/legality/check`, { design });
+      const response = await axios.post(`${MECHANICAL_BASE}/legality/check`, { design });
       return response.data;
     } catch (error) {
       console.error('Error checking compliance:', error);
@@ -186,7 +187,7 @@ class APIService {
    */
   async getMaterialStats() {
     try {
-      const response = await axios.get(`${API_BASE_URL}/materials/stats`);
+      const response = await axios.get(`${MECHANICAL_BASE}/materials/stats`);
       return response.data;
     } catch (error) {
       console.error('Error fetching material stats:', error);
@@ -200,7 +201,7 @@ class APIService {
   async searchMaterials(query = '', filters = {}) {
     try {
       const params = new URLSearchParams({ query, ...filters });
-      const response = await axios.get(`${API_BASE_URL}/materials/search?${params}`);
+      const response = await axios.get(`${MECHANICAL_BASE}/materials/search?${params}`);
       return response.data;
     } catch (error) {
       console.error('Error searching materials:', error);
@@ -213,7 +214,7 @@ class APIService {
    */
   async getMaterialTypes() {
     try {
-      const response = await axios.get(`${API_BASE_URL}/materials/types`);
+      const response = await axios.get(`${MECHANICAL_BASE}/materials/types`);
       return response.data;
     } catch (error) {
       console.error('Error fetching material types:', error);
@@ -226,7 +227,7 @@ class APIService {
    */
   async getMaterialById(id) {
     try {
-      const response = await axios.get(`${API_BASE_URL}/materials/${id}`);
+      const response = await axios.get(`${MECHANICAL_BASE}/materials/${id}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching material:', error);
@@ -239,7 +240,7 @@ class APIService {
    */
   async refreshMaterials() {
     try {
-      const response = await axios.post(`${API_BASE_URL}/materials/refresh`);
+      const response = await axios.post(`${MECHANICAL_BASE}/materials/refresh`);
       return response.data;
     } catch (error) {
       console.error('Error refreshing materials:', error);
@@ -253,7 +254,7 @@ class APIService {
   async generateDesignWithQuality(prompt, quality = 'preview') {
     try {
       const endpoint = quality === 'preview' ? '/generate/preview' : '/generate';
-      const response = await axios.post(`${API_BASE_URL}${endpoint}`, {
+      const response = await axios.post(`${MECHANICAL_BASE}${endpoint}`, {
         prompt,
         options: { mode: quality === 'preview' ? 'ultra_cheap' : quality }
       });
@@ -269,7 +270,7 @@ class APIService {
    */
   async upgradeGenerationQuality(jobId, targetQuality) {
     try {
-      const response = await axios.post(`${API_BASE_URL}/generate/${jobId}/upgrade`, {
+      const response = await axios.post(`${MECHANICAL_BASE}/generate/${jobId}/upgrade`, {
         quality: targetQuality
       });
       return response.data;
@@ -284,7 +285,7 @@ class APIService {
    */
   async batchGenerate(prompts, quality = 'preview') {
     try {
-      const response = await axios.post(`${API_BASE_URL}/generate/batch`, {
+      const response = await axios.post(`${MECHANICAL_BASE}/generate/batch`, {
         prompts,
         mode: quality === 'preview' ? 'ultra_cheap' : quality
       });
@@ -300,7 +301,7 @@ class APIService {
    */
   async getCreditStatus() {
     try {
-      const response = await axios.get(`${API_BASE_URL}/credits/status`);
+      const response = await axios.get(`${MECHANICAL_BASE}/credits/status`);
       return response.data;
     } catch (error) {
       console.error('Error fetching credit status:', error);
@@ -313,7 +314,7 @@ class APIService {
    */
   async getUsageStats() {
     try {
-      const response = await axios.get(`${API_BASE_URL}/credits/usage`);
+      const response = await axios.get(`${MECHANICAL_BASE}/credits/usage`);
       return response.data;
     } catch (error) {
       console.error('Error fetching usage stats:', error);
@@ -326,7 +327,7 @@ class APIService {
    */
   async getCostForecast() {
     try {
-      const response = await axios.get(`${API_BASE_URL}/credits/forecast`);
+      const response = await axios.get(`${MECHANICAL_BASE}/credits/forecast`);
       return response.data;
     } catch (error) {
       console.error('Error fetching cost forecast:', error);
@@ -339,7 +340,7 @@ class APIService {
    */
   async estimateGenerationCost(prompt, quality) {
     try {
-      const response = await axios.post(`${API_BASE_URL}/generate/estimate`, {
+      const response = await axios.post(`${MECHANICAL_BASE}/generate/estimate`, {
         prompt,
         mode: quality === 'preview' ? 'ultra_cheap' : quality
       });
@@ -358,7 +359,7 @@ class APIService {
     try {
       console.log('🎨 Starting multi-variant generation:', prompt);
 
-      const response = await axios.post(`${API_BASE_URL}/generate/variants`, {
+      const response = await axios.post(`${MECHANICAL_BASE}/generate/variants`, {
         prompt,
         options,
       });
@@ -396,7 +397,7 @@ class APIService {
       console.log('🎨 Starting fantasy variant generation:', prompt);
       console.log('🎭 Using Nano Banana Pro (AWS Bedrock Image Generation)');
 
-      const response = await axios.post(`${API_BASE_URL}/generate/fantasy-variants`, {
+      const response = await axios.post(`${MECHANICAL_BASE}/generate/fantasy-variants`, {
         prompt,
         options,
       });
