@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import Viewport3D from '../../components/Viewport3D';
 import {
     Mouse, Move, Pencil, Box, Layers, RotateCcw, ZoomIn, Home,
-    Settings, History, Save
+    Settings, History, Save, Circle, Square, Minus, ArrowUpDown,
+    Copy, Grid3x3, Wrench, FlaskConical, FileText, Users, Package,
+    Printer, Cog, Ruler
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
 
@@ -645,7 +647,7 @@ function WorkbenchMechanical() {
 
     return (
         <>
-            {/* LEFT SIDEBAR - Essential Tools Only */}
+            {/* LEFT SIDEBAR - Tools with Dropdowns */}
             <aside className="workbench-tools">
                 <div className="workbench-tools-inner">
                     {/* Selection & Navigation */}
@@ -656,9 +658,67 @@ function WorkbenchMechanical() {
 
                     <div className="tool-divider"></div>
 
-                    {/* Quick Sketch Access */}
-                    <button className="tool-icon-button active" title="Sketch"><Pencil size={20} /></button>
-                    <button className="tool-icon-button" title="3D Feature"><Box size={20} /></button>
+                    {/* Sketch Tools */}
+                    <button
+                        ref={el => buttonRefs.current['sketch'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'sketch' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('sketch', e)}
+                        title="Sketch"
+                    >
+                        <Pencil size={20} />
+                    </button>
+
+                    {/* 3D Features */}
+                    <button
+                        ref={el => buttonRefs.current['features'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'features' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('features', e)}
+                        title="3D Features"
+                    >
+                        <Box size={20} />
+                    </button>
+
+                    {/* Patterns */}
+                    <button
+                        ref={el => buttonRefs.current['patterns'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'patterns' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('patterns', e)}
+                        title="Patterns"
+                    >
+                        <Grid3x3 size={20} />
+                    </button>
+
+                    <div className="tool-divider"></div>
+
+                    {/* Assembly */}
+                    <button
+                        ref={el => buttonRefs.current['assembly'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'assembly' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('assembly', e)}
+                        title="Assembly"
+                    >
+                        <Package size={20} />
+                    </button>
+
+                    {/* Manufacturing */}
+                    <button
+                        ref={el => buttonRefs.current['manufacturing'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'manufacturing' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('manufacturing', e)}
+                        title="Manufacturing"
+                    >
+                        <Wrench size={20} />
+                    </button>
+
+                    {/* Analysis */}
+                    <button
+                        ref={el => buttonRefs.current['analysis'] = el}
+                        className={`tool-icon-button ${activeDropdown === 'analysis' ? 'active' : ''}`}
+                        onClick={(e) => toggleDropdown('analysis', e)}
+                        title="Analysis"
+                    >
+                        <FlaskConical size={20} />
+                    </button>
 
                     <div className="tool-divider"></div>
 
@@ -749,6 +809,113 @@ function WorkbenchMechanical() {
                             <div className="context-menu-item">Select Bodies</div>
                         </>
                     )}
+                </div>
+            )}
+
+            {/* DROPDOWN MENUS */}
+            {activeDropdown === 'sketch' && (
+                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Sketch Tools</div>
+                    <div className="dropdown-item">Line</div>
+                    <div className="dropdown-item">Circle</div>
+                    <div className="dropdown-item">Arc</div>
+                    <div className="dropdown-item">Rectangle</div>
+                    <div className="dropdown-item">Polygon</div>
+                    <div className="dropdown-item">Spline</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Trim</div>
+                    <div className="dropdown-item">Extend</div>
+                    <div className="dropdown-item">Offset</div>
+                    <div className="dropdown-item">Mirror</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Dimension</div>
+                    <div className="dropdown-item">Constraint</div>
+                </div>
+            )}
+
+            {activeDropdown === 'features' && (
+                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">3D Features</div>
+                    <div className="dropdown-item">Extrude</div>
+                    <div className="dropdown-item">Revolve</div>
+                    <div className="dropdown-item">Sweep</div>
+                    <div className="dropdown-item">Loft</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Fillet</div>
+                    <div className="dropdown-item">Chamfer</div>
+                    <div className="dropdown-item">Draft</div>
+                    <div className="dropdown-item">Shell</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Hole Wizard</div>
+                    <div className="dropdown-item">Thread</div>
+                    <div className="dropdown-item">Rib</div>
+                    <div className="dropdown-item">Web</div>
+                </div>
+            )}
+
+            {activeDropdown === 'patterns' && (
+                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Patterns & Mirrors</div>
+                    <div className="dropdown-item">Linear Pattern</div>
+                    <div className="dropdown-item">Circular Pattern</div>
+                    <div className="dropdown-item">Curve Driven Pattern</div>
+                    <div className="dropdown-item">Fill Pattern</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Mirror</div>
+                    <div className="dropdown-item">Copy</div>
+                    <div className="dropdown-item">Move/Copy Bodies</div>
+                </div>
+            )}
+
+            {activeDropdown === 'assembly' && (
+                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Assembly Tools</div>
+                    <div className="dropdown-item">Insert Component</div>
+                    <div className="dropdown-item">Mate</div>
+                    <div className="dropdown-item">Quick Mate</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Interference Detection</div>
+                    <div className="dropdown-item">Collision Detection</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Exploded View</div>
+                    <div className="dropdown-item">Motion Study</div>
+                    <div className="dropdown-item">BOM</div>
+                </div>
+            )}
+
+            {activeDropdown === 'manufacturing' && (
+                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Manufacturing</div>
+                    <div className="dropdown-item">CAM Setup</div>
+                    <div className="dropdown-item">2D Milling</div>
+                    <div className="dropdown-item">3D Milling</div>
+                    <div className="dropdown-item">Turning</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Sheet Metal</div>
+                    <div className="dropdown-item">Weldments</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">3D Printing</div>
+                    <div className="dropdown-item">Mold Design</div>
+                    <div className="dropdown-item">DFM Analysis</div>
+                    <div className="dropdown-item">Cost Estimate</div>
+                </div>
+            )}
+
+            {activeDropdown === 'analysis' && (
+                <div className="dropdown-menu" style={{ top: dropdownPosition.top, left: dropdownPosition.left }}>
+                    <div className="dropdown-header">Analysis & Simulation</div>
+                    <div className="dropdown-item">FEA - Static</div>
+                    <div className="dropdown-item">FEA - Dynamic</div>
+                    <div className="dropdown-item">FEA - Thermal</div>
+                    <div className="dropdown-item">FEA - Fatigue</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">CFD Analysis</div>
+                    <div className="dropdown-item">Motion Simulation</div>
+                    <div className="dropdown-divider"></div>
+                    <div className="dropdown-item">Mass Properties</div>
+                    <div className="dropdown-item">Interference Check</div>
+                    <div className="dropdown-item">Draft Analysis</div>
+                    <div className="dropdown-item">Curvature Analysis</div>
                 </div>
             )}
         </>
