@@ -19,16 +19,27 @@ const mechanicalRoutes = require('../routes/mechanical-simplified');
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-    const bedrockService = require('../services/bedrockService');
-    res.json({
-        success: true,
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        environment: process.env.STAGE || 'dev',
-        region: process.env.AWS_REGION || 'unknown',
-        node_version: process.version,
-        bedrock_configured: bedrockService.isConfigured()
-    });
+    try {
+        const bedrockService = require('../services/bedrockService');
+        const isConfigured = bedrockService.isConfigured();
+
+        res.json({
+            success: true,
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            environment: process.env.STAGE || 'dev',
+            region: process.env.AWS_REGION || 'unknown',
+            node_version: process.version,
+            bedrock_configured: isConfigured
+        });
+    } catch (error) {
+        console.error('Health check error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Health check failed',
+            message: error.message
+        });
+    }
 });
 
 // Test endpoint
@@ -41,7 +52,8 @@ app.get('/api/test', (req, res) => {
         endpoints: [
             '/api/health',
             '/api/test',
-            '/api/mechanical/autonomous - FULLY AUTONOMOUS AI AGENT',
+            '/api/mechanical/autonomous - FULLY AUTONOMOUS AI AGENT (Bedrock)',
+            '/api/mechanical/autonomous/ui-control - UI CONTROLLED (Claude 4.5 + Gemini Vision + Playwright)',
             '/api/mechanical/generate',
             '/api/mechanical/generate/:jobId',
             '/api/mechanical/generate/variants',

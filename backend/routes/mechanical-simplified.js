@@ -3,6 +3,7 @@ const router = express.Router();
 const bedrockService = require('../services/bedrockService');
 const jobQueue = require('../services/jobQueue');
 const autonomousAgent = require('../services/autonomousAgent');
+const AutonomousCADAgent = require('../services/autonomousCADAgent');
 
 /**
  * Simplified Mechanical CAD API Routes
@@ -47,6 +48,51 @@ router.post('/autonomous', async (req, res) => {
         });
     } catch (error) {
         console.error('Error starting autonomous generation:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/autonomous/ui-control
+ * AUTONOMOUS WITH UI CONTROL - Claude Sonnet 4.5 + Gemini Vision + Playwright
+ * The agent actually controls the CAD UI like a human would
+ * Uses computer vision to validate each step
+ */
+router.post('/autonomous/ui-control', async (req, res) => {
+    try {
+        const { prompt, options = {} } = req.body;
+
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt is required' });
+        }
+
+        console.log(`\n🤖 UI-CONTROLLED AUTONOMOUS AGENT: "${prompt}"`);
+
+        // Create job for UI-controlled generation
+        const jobId = jobQueue.createJob(prompt, {
+            ...options,
+            type: 'autonomous_ui',
+            mode: 'ui_control'
+        });
+
+        // Start UI-controlled autonomous processing
+        processUIControlledGeneration(jobId, prompt, options).catch(error => {
+            console.error('UI-controlled generation error:', error);
+            jobQueue.failJob(jobId, error);
+        });
+
+        res.json({
+            success: true,
+            jobId,
+            status: 'queued',
+            mode: 'ui_control',
+            message: 'UI-controlled autonomous agent activated',
+            pollUrl: `/api/mechanical/generate/${jobId}`,
+            info: 'Agent will control browser, click buttons, validate with vision',
+            features: ['claude_sonnet_4.5', 'gemini_vision', 'playwright_automation']
+        });
+    } catch (error) {
+        console.error('Error starting UI-controlled generation:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -717,6 +763,113 @@ async function processAutonomousGeneration(jobId, prompt, options) {
         console.error(`\n❌ Autonomous generation failed for job ${jobId}:`, error);
         jobQueue.updateJob(jobId, { agentStatus: 'failed', agentError: error.message });
         throw error;
+    }
+}
+
+/**
+ * Process UI-CONTROLLED autonomous generation
+ * Uses Claude Sonnet 4.5 + Gemini Vision + Playwright for full UI control
+ */
+async function processUIControlledGeneration(jobId, prompt, options) {
+    let agent = null;
+
+    try {
+        console.log(`\n🎮 ========================================`);
+        console.log(`🎮 UI-CONTROLLED AGENT ACTIVATED`);
+        console.log(`🎮 Job ID: ${jobId}`);
+        console.log(`🎮 ========================================\n`);
+
+        // Update job status
+        jobQueue.updateJob(jobId, {
+            mode: 'ui_control',
+            agentStatus: 'initializing browser'
+        });
+
+        // Create autonomous CAD agent
+        agent = new AutonomousCADAgent();
+
+        // Check if configured
+        if (!agent.configured) {
+            throw new Error('Agent not configured - please set ANTHROPIC_API_KEY');
+        }
+
+        jobQueue.updateProgress(jobId, 'analyzing', 25);
+        jobQueue.updateJob(jobId, { agentStatus: 'analyzing requirements' });
+
+        // Execute autonomous design with UI control
+        jobQueue.updateProgress(jobId, 'analyzing', 100);
+        jobQueue.completeStage(jobId, 'analyzing');
+
+        jobQueue.updateProgress(jobId, 'generating', 25);
+        jobQueue.updateJob(jobId, { agentStatus: 'executing with UI control' });
+
+        // Run the autonomous agent
+        const result = await agent.autonomousDesign(prompt, {
+            ...options,
+            frontendUrl: process.env.FRONTEND_URL || 'https://d3a7j7euh4gge.cloudfront.net'
+        });
+
+        jobQueue.updateProgress(jobId, 'generating', 100);
+        jobQueue.completeStage(jobId, 'generating');
+
+        jobQueue.updateProgress(jobId, 'refining', 100);
+        jobQueue.updateJob(jobId, { agentStatus: 'validating with vision' });
+        jobQueue.completeStage(jobId, 'refining');
+
+        jobQueue.updateProgress(jobId, 'exporting', 100);
+        jobQueue.completeStage(jobId, 'exporting');
+
+        // Complete with results
+        const finalResult = {
+            design: result.design,
+            validation: result.validation,
+            autonomous: true,
+            uiControlled: true,
+            process: {
+                requirements: result.process.requirements,
+                plan: result.process.plan,
+                actions: result.process.actions,
+                decisions: result.process.decisions,
+                screenshots: result.process.screenshots,
+                errors: result.process.errors,
+                mode: 'ui_control'
+            },
+            metadata: {
+                prompt,
+                options,
+                generatedAt: new Date().toISOString(),
+                agent: 'autonomous_cad_agent_ui_v1',
+                llm: 'claude-sonnet-4-5',
+                vision: 'gemini-2.0-flash-exp',
+                automation: 'playwright'
+            }
+        };
+
+        jobQueue.completeJob(jobId, finalResult);
+
+        console.log(`\n🎮 ========================================`);
+        console.log(`🎮 UI-CONTROLLED GENERATION COMPLETED`);
+        console.log(`🎮 Actions performed: ${result.process?.actions?.length || 0}`);
+        console.log(`🎮 Screenshots taken: ${result.process?.screenshots || 0}`);
+        console.log(`🎮 Errors encountered: ${result.process?.errors?.length || 0}`);
+        console.log(`🎮 ========================================\n`);
+
+    } catch (error) {
+        console.error(`\n❌ UI-controlled generation failed for job ${jobId}:`, error);
+        jobQueue.updateJob(jobId, {
+            agentStatus: 'failed',
+            agentError: error.message
+        });
+        throw error;
+    } finally {
+        // Always cleanup browser resources
+        if (agent) {
+            try {
+                await agent.cleanup();
+            } catch (cleanupError) {
+                console.error('Cleanup error:', cleanupError.message);
+            }
+        }
     }
 }
 

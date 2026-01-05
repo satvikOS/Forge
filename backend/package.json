@@ -14,10 +14,14 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
     "@aws-sdk/client-bedrock": "^3.500.0",
     "@aws-sdk/client-bedrock-runtime": "^3.500.0",
     "@aws-sdk/client-lambda": "^3.950.0",
     "@aws-sdk/client-s3": "^3.948.0",
+    "@google/generative-ai": "^0.21.0",
+    "@langchain/anthropic": "^0.3.12",
+    "@langchain/core": "^0.3.28",
     "axios": "^1.13.2",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
@@ -25,10 +29,12 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
+    "langchain": "^0.3.7",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
     "openai": "^6.8.1",
     "pg": "^8.16.3",
+    "playwright": "^1.49.1",
     "serverless-http": "^3.2.0",
     "ws": "^8.18.3"
   }
