@@ -159,9 +159,28 @@ module.exports.handler = serverless(app, {
             headers: event.headers
         }, null, 2));
 
-        // Ensure body is properly decoded
-        if (event.body && event.isBase64Encoded) {
-            request.body = Buffer.from(event.body, 'base64').toString('utf-8');
+        // CRITICAL: Parse the body before Express sees it
+        if (event.body) {
+            try {
+                // If base64 encoded, decode first
+                let bodyString = event.body;
+                if (event.isBase64Encoded) {
+                    bodyString = Buffer.from(event.body, 'base64').toString('utf-8');
+                }
+
+                // Parse JSON if content-type is application/json
+                const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
+                if (contentType.includes('application/json')) {
+                    const parsed = JSON.parse(bodyString);
+                    request.body = parsed;
+                    console.log('✅ Body parsed successfully:', JSON.stringify(parsed));
+                } else {
+                    request.body = bodyString;
+                }
+            } catch (error) {
+                console.error('❌ Body parsing error:', error);
+                request.body = event.body;
+            }
         }
     }
 });
