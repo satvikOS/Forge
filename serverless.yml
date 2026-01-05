@@ -1,0 +1,394 @@
+# ArchDisc AWS Deployment Guide
+
+## Architecture Overview
+
+**Frontend:** React app → S3 → CloudFront CDN
+**Backend:** Node.js → Lambda + API Gateway
+**Database:** DynamoDB for workflows, S3 for files
+**Security:** Secrets Manager for API keys, IAM roles
+**Monitoring:** CloudWatch logs and metrics
+
+## Prerequisites
+
+```bash
+# Install AWS CLI
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+# Configure AWS credentials
+aws configure
+# AWS Access Key ID: YOUR_KEY
+# AWS Secret Access Key: YOUR_SECRET
+# Default region: us-east-1
+# Default output format: json
+
+# Install Serverless Framework (recommended)
+npm install -g serverless
+
+# Or use AWS SAM CLI
+pip install aws-sam-cli
+```
+
+## Deployment Method Options
+
+### Option 1: Serverless Framework (Recommended) ⭐
+
+**Pros:**
+- Simple configuration
+- Auto-creates CloudFront, S3, Lambda, API Gateway
+- Easy rollbacks
+- Good for rapid development
+
+**Cons:**
+- Less fine-grained control
+- Vendor lock-in to Serverless.com patterns
+
+### Option 2: AWS CDK (Infrastructure as Code)
+
+**Pros:**
+- Full control over AWS resources
+- TypeScript/JavaScript configuration
+- Best practices built-in
+- Great for complex architectures
+
+**Cons:**
+- Steeper learning curve
+- More boilerplate code
+
+### Option 3: Terraform
+
+**Pros:**
+- Multi-cloud support
+- Mature ecosystem
+- State management
+- Great for large teams
+
+**Cons:**
+- HCL learning curve
+- Separate tool to learn
+
+### Option 4: AWS Amplify
+
+**Pros:**
+- Fastest deployment
+- Auto CI/CD
+- Managed everything
+- Good for prototypes
+
+**Cons:**
+- Less control
+- Higher cost
+- Opinionated structure
+
+## Recommended: Serverless Framework + AWS CDK Hybrid
+
+Use Serverless for quick deployment, CDK for custom resources.
+
+---
+
+## Implementation Guide
+
+### 1. Install Dependencies
+
+```bash
+cd /home/user/archdiscv1
+
+# Install Serverless Framework
+npm install -g serverless
+
+# Install plugins
+npm install --save-dev serverless-s3-sync
+npm install --save-dev serverless-cloudfront-invalidate
+npm install --save-dev serverless-offline
+```
+
+### 2. Create Serverless Configuration
+
+```yaml
+# serverless.yml
+service: archdisc-cad
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+
+  # Environment variables
+  environment:
+    STAGE: ${self:provider.stage}
+    ANTHROPIC_API_KEY: ${ssm:/archdisc/${self:provider.stage}/anthropic-key~true}
+    OPENAI_API_KEY: ${ssm:/archdisc/${self:provider.stage}/openai-key~true}
+    GOOGLE_API_KEY: ${ssm:/archdisc/${self:provider.stage}/google-key~true}
+
+  # IAM permissions
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:*
+          Resource:
+            - arn:aws:s3:::archdisc-renders-${self:provider.stage}/*
+        - Effect: Allow
+          Action:
+            - dynamodb:*
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/archdisc-workflows-${self:provider.stage}
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - arn:aws:secretsmanager:${self:provider.region}:*:secret:archdisc/*
+
+# Lambda Functions
+functions:
+  # API endpoints
+  api:
+    handler: backend/lambda/api.handler
+    timeout: 30
+    memorySize: 1024
+    events:
+      - http:
+          path: /{proxy+}
+          method: ANY
+          cors: true
+
+  # Orchestration (longer timeout for LLM calls)
+  orchestrate:
+    handler: backend/lambda/orchestrate.handler
+    timeout: 900  # 15 minutes for complete workflow
+    memorySize: 2048
+    events:
+      - http:
+          path: /orchestrate
+          method: POST
+          cors: true
+      - http:
+          path: /orchestrate/{workflowId}
+          method: GET
+          cors: true
+
+  # Async job processor
+  jobProcessor:
+    handler: backend/lambda/jobProcessor.handler
+    timeout: 300
+    memorySize: 1024
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [JobQueue, Arn]
+          batchSize: 1
+
+# Resources
+resources:
+  Resources:
+    # S3 bucket for frontend
+    FrontendBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: archdisc-frontend-${self:provider.stage}
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+
+    # S3 bucket policy
+    FrontendBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref FrontendBucket
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: cloudfront.amazonaws.com
+              Action: s3:GetObject
+              Resource: !Sub ${FrontendBucket.Arn}/*
+              Condition:
+                StringEquals:
+                  AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+    # S3 bucket for renders and CAD files
+    RendersBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: archdisc-renders-${self:provider.stage}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+              AllowedHeaders:
+                - '*'
+
+    # DynamoDB table for workflows
+    WorkflowsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: archdisc-workflows-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: workflowId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: workflowId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # SQS queue for async jobs
+    JobQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: archdisc-jobs-${self:provider.stage}
+        VisibilityTimeout: 300
+
+    # CloudFront Distribution
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          DefaultRootObject: index.html
+          Comment: ArchDisc CAD Platform
+
+          # Origins
+          Origins:
+            # Frontend (S3)
+            - Id: S3Origin
+              DomainName: !GetAtt FrontendBucket.RegionalDomainName
+              S3OriginConfig:
+                OriginAccessIdentity: ''
+              OriginAccessControlId: !Ref CloudFrontOAC
+
+            # Backend API (API Gateway)
+            - Id: APIOrigin
+              DomainName: !Sub ${ApiGatewayRestApi}.execute-api.${self:provider.region}.amazonaws.com
+              CustomOriginConfig:
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+
+          # Behaviors
+          DefaultCacheBehavior:
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            MinTTL: 0
+            DefaultTTL: 86400
+            MaxTTL: 31536000
+
+          CacheBehaviors:
+            # API requests (no caching)
+            - PathPattern: /api/*
+              TargetOriginId: APIOrigin
+              ViewerProtocolPolicy: https-only
+              AllowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              CachedMethods:
+                - GET
+                - HEAD
+              ForwardedValues:
+                QueryString: true
+                Headers:
+                  - Authorization
+                  - Content-Type
+                Cookies:
+                  Forward: all
+              MinTTL: 0
+              DefaultTTL: 0
+              MaxTTL: 0
+
+          # Error pages (SPA routing)
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+
+          # SSL
+          ViewerCertificate:
+            CloudFrontDefaultCertificate: true
+            # For custom domain:
+            # AcmCertificateArn: arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT_ID
+            # MinimumProtocolVersion: TLSv1.2_2021
+
+    # CloudFront Origin Access Control
+    CloudFrontOAC:
+      Type: AWS::CloudFront::OriginAccessControl
+      Properties:
+        OriginAccessControlConfig:
+          Name: archdisc-oac-${self:provider.stage}
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+
+# Plugins
+plugins:
+  - serverless-s3-sync
+  - serverless-cloudfront-invalidate
+  - serverless-offline
+
+# Custom configuration
+custom:
+  # S3 sync for frontend deployment
+  s3Sync:
+    - bucketName: archdisc-frontend-${self:provider.stage}
+      localDir: frontend/build
+      deleteRemoved: true
+      params:
+        - index.html:
+            CacheControl: 'no-cache'
+        - "*.js":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "*.css":
+            CacheControl: 'public, max-age=31536000, immutable'
+
+  # CloudFront invalidation
+  cloudfrontInvalidate:
+    - distributionIdKey: CloudFrontDistribution
+      items:
+        - '/*'
+
+# Outputs
+outputs:
+  CloudFrontURL:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  APIEndpoint:
+    Value: !Sub https://${ApiGatewayRestApi}.execute-api.${self:provider.region}.amazonaws.com/${self:provider.stage}
