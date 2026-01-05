@@ -491,6 +491,149 @@ function WorkbenchMechanical() {
         return grid;
     };
 
+    // Parametric Design Handlers (NL → CAD)
+    const handleParametricDesign = async (operation, data = {}) => {
+        try {
+            console.log(`📐 Parametric Design: ${operation}...`);
+
+            let endpoint = '';
+            let requestData = {};
+
+            switch (operation) {
+                case 'generate-from-prompt':
+                    const userPrompt = prompt('Describe the part you want to design:\n(e.g., "aluminum bracket with 4 mounting holes, 100mm x 50mm x 25mm")');
+                    if (!userPrompt) return;
+
+                    endpoint = '/api/mechanical/parametric/generate-from-prompt';
+                    requestData = {
+                        prompt: userPrompt,
+                        options: {
+                            variantCount: 5,
+                            designStyle: 'auto',
+                            material: 'auto',
+                            manufacturingMethod: 'auto',
+                            detailLevel: 'medium'
+                        }
+                    };
+                    break;
+
+                case 'generate-conceptual-variants':
+                    endpoint = '/api/mechanical/variants/generate-conceptual';
+                    requestData = {
+                        requirements: {
+                            designIntent: { partType: 'bracket' },
+                            functionalRequirements: [],
+                            constraints: {},
+                            objectives: [
+                                { type: 'minimize-mass', priority: 'high' },
+                                { type: 'maximize-strength', priority: 'high' }
+                            ]
+                        },
+                        count: 5
+                    };
+                    break;
+
+                case 'generate-bom':
+                    endpoint = '/api/mechanical/bom/generate';
+                    requestData = {
+                        cadModel: {
+                            name: 'Current Assembly',
+                            assembly: {
+                                components: [
+                                    { name: 'Base Plate', type: 'part' },
+                                    { name: 'Bracket', type: 'part' },
+                                    { name: 'M6 Bolt', type: 'part' }
+                                ]
+                            }
+                        },
+                        options: {
+                            bomType: 'hierarchical',
+                            includeStandardParts: true,
+                            includeCosts: true,
+                            includeVendors: true
+                        }
+                    };
+                    break;
+
+                case 'prepare-simulation':
+                    endpoint = '/api/mechanical/simulation/prepare';
+                    requestData = {
+                        cadModel: { name: 'Current Part' },
+                        simulationType: 'fea',
+                        options: {
+                            autoMesh: true,
+                            meshDensity: 'medium',
+                            autoContacts: true,
+                            autoMaterials: true
+                        }
+                    };
+                    break;
+
+                default:
+                    console.error(`Unknown parametric design operation: ${operation}`);
+                    return;
+            }
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                console.log(`✅ Parametric Design ${operation} completed:`, result);
+
+                // Display results
+                if (operation === 'generate-from-prompt' && result.variants) {
+                    console.log(`🎨 Generated ${result.variants.length} parametric design variants:`);
+                    result.variants.forEach((variant, idx) => {
+                        console.log(`  Variant ${idx + 1}: ${variant.name}`);
+                        console.log(`    Approach: ${variant.approach}`);
+                        console.log(`    Mass: ${variant.properties.mass}g`);
+                        console.log(`    Score: ${variant.score}`);
+                        console.log(`    Parametric features:`, variant.features.length);
+                    });
+                    console.log(`🏆 Best variant: ${result.bestVariant.name}`);
+                }
+
+                if (operation === 'generate-conceptual-variants' && result.variants) {
+                    console.log(`🎨 Generated ${result.variants.length} conceptual variants:`);
+                    result.variants.forEach(variant => {
+                        console.log(`  ${variant.name} (${variant.approach})`);
+                        console.log(`    Philosophy: ${variant.philosophy}`);
+                        console.log(`    Mass: ${variant.properties.mass}g`);
+                        console.log(`    Score: ${variant.score}`);
+                    });
+                }
+
+                if (operation === 'generate-bom' && result.bom) {
+                    console.log(`📋 BOM Generated:`);
+                    console.log(`  Total parts: ${result.summary.totalParts}`);
+                    console.log(`  Unique parts: ${result.summary.uniqueParts}`);
+                    console.log(`  Total cost: $${result.summary.totalCost}`);
+                    console.log(`  Standard parts: ${result.summary.standardParts}`);
+                    console.log(`  Custom parts: ${result.summary.customParts}`);
+                }
+
+                if (operation === 'prepare-simulation') {
+                    console.log(`🔬 Simulation Preparation Complete:`);
+                    console.log(`  Materials assigned: ${result.materials.length}`);
+                    console.log(`  Contacts defined: ${result.contacts.length}`);
+                    console.log(`  Mesh elements: ${result.mesh?.estimatedElements}`);
+                    console.log(`  Ready for ${result.simulationType.toUpperCase()}: ${result.readyForSimulation}`);
+                }
+
+                // TODO: Update viewport with results
+            } else {
+                console.error(`❌ Parametric Design ${operation} failed:`, result.error);
+            }
+        } catch (error) {
+            console.error(`✗ Error in Parametric Design ${operation}:`, error);
+        }
+    };
+
     // Helper function to trigger file downloads
     const downloadFile = (content, filename) => {
         const blob = new Blob([content], { type: 'text/plain' });
@@ -686,6 +829,12 @@ function WorkbenchMechanical() {
                                 <div className="dropdown-item" onClick={() => handleAIOptimization('lattice', {})}>Lattice Structures</div>
                                 <div className="dropdown-item" onClick={() => handleAIOptimization('support-generation', {})}>Smart Support Generation</div>
                                 <div className="dropdown-item" onClick={() => handleAIOptimization('material-suggest', {})}>Material Suggestions</div>
+                                <div className="dropdown-divider"></div>
+                                <div className="dropdown-header">📝 NL → CAD: Parametric Design</div>
+                                <div className="dropdown-item" onClick={() => handleParametricDesign('generate-from-prompt', {})}>💬 Generate from Text Prompt</div>
+                                <div className="dropdown-item" onClick={() => handleParametricDesign('generate-conceptual-variants', {})}>🎨 Conceptual Design Variants</div>
+                                <div className="dropdown-item" onClick={() => handleParametricDesign('generate-bom', {})}>📋 Auto-Generate BOM</div>
+                                <div className="dropdown-item" onClick={() => handleParametricDesign('prepare-simulation', {})}>🔬 Prepare for Simulation</div>
                                 <div className="dropdown-divider"></div>
                                 <div className="dropdown-header">🚀 PEAK: Advanced AI Design</div>
                                 <div className="dropdown-item" onClick={() => handlePeakDesign('generative-design', {})}>🧬 Multi-Objective Topology</div>

@@ -3601,4 +3601,98 @@ async function processAutonomousDesignJob(jobId, requirements) {
 
 // ==================== END PEAK DESIGN ROUTES ====================
 
+// ============ PARAMETRIC DESIGN SERVICES ============
+const aiParametricDesignEngine = require('../services/aiParametricDesignEngine');
+const designVariantGenerator = require('../services/designVariantGenerator');
+const bomAndSimulationPrep = require('../services/bomAndSimulationPrepService');
+
+// ==================== AI PARAMETRIC DESIGN (NL → CAD) ====================
+
+/**
+ * POST /api/mechanical/parametric/generate-from-prompt
+ * Generate parametric CAD model from natural language prompt
+ * Returns 3-5 fully editable design variants
+ */
+router.post('/parametric/generate-from-prompt', async (req, res) => {
+    try {
+        console.log('🤖 Parametric Design: Generating from natural language...');
+        const { prompt, options } = req.body;
+
+        if (!prompt) {
+            return res.status(400).json({
+                success: false,
+                error: 'Prompt is required'
+            });
+        }
+
+        const results = await aiParametricDesignEngine.generateFromPrompt(prompt, options);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in parametric design generation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== DESIGN VARIANT GENERATION ====================
+
+/**
+ * POST /api/mechanical/variants/generate-conceptual
+ * Generate conceptually different design variants
+ * Traditional, Topology-Optimized, Lattice, Biomimetic, Modular approaches
+ */
+router.post('/variants/generate-conceptual', async (req, res) => {
+    try {
+        console.log('🎨 Variant Generator: Creating conceptual variants...');
+        const { requirements, count } = req.body;
+
+        const results = await designVariantGenerator.generateConceptualVariants(requirements, count);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in variant generation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== BOM AUTO-GENERATION ====================
+
+/**
+ * POST /api/mechanical/bom/generate
+ * Auto-generate Bill of Materials from CAD model
+ * Hierarchical or flat BOM with costs and vendor info
+ */
+router.post('/bom/generate', async (req, res) => {
+    try {
+        console.log('📋 BOM Generator: Generating BOM from CAD model...');
+        const { cadModel, options } = req.body;
+
+        const results = await bomAndSimulationPrep.generateBOM(cadModel, options);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in BOM generation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== SIMULATION PREPARATION ====================
+
+/**
+ * POST /api/mechanical/simulation/prepare
+ * Prepare CAD model for FEA/CFD simulation
+ * Auto-assign materials, contacts, mesh, boundary conditions
+ */
+router.post('/simulation/prepare', async (req, res) => {
+    try {
+        console.log('🔬 Simulation Prep: Preparing model for simulation...');
+        const { cadModel, simulationType, options } = req.body;
+
+        const results = await bomAndSimulationPrep.prepareForSimulation(cadModel, simulationType, options);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in simulation preparation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END PARAMETRIC DESIGN ROUTES ====================
+
 module.exports = router;
