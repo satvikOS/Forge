@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import Viewport3D from '../../components/Viewport3D';
-import RibbonTopbar from '../../components/RibbonTopbar';
 import {
     Mouse, Move, Pencil, Box, Layers, RotateCcw, ZoomIn, Home,
     Settings, History, Save
@@ -644,16 +643,8 @@ function WorkbenchMechanical() {
         URL.revokeObjectURL(url);
     };
 
-    const handleRibbonCommand = (command, data) => {
-        console.log('Ribbon command:', command, data);
-        // Handle ribbon commands here
-    };
-
     return (
         <>
-            {/* TOPBAR RIBBON - Industry Standard */}
-            <RibbonTopbar onCommand={handleRibbonCommand} />
-
             {/* LEFT SIDEBAR - Essential Tools Only */}
             <aside className="workbench-tools">
                 <div className="workbench-tools-inner">
@@ -693,7 +684,7 @@ function WorkbenchMechanical() {
                 <Viewport3D canvasId="render-canvas-mechanical" domain="mechanical" />
             </main>
 
-            {/* RIGHT PROPERTIES PANEL - Enhanced */}
+            {/* RIGHT PROPERTIES PANEL - Condensed */}
             <aside className="workbench-properties">
                 {/* Feature Properties */}
                 <div className="property-section">
@@ -712,7 +703,7 @@ function WorkbenchMechanical() {
                     </div>
                 </div>
 
-                {/* Material & Appearance */}
+                {/* Material */}
                 <div className="property-section">
                     <h3 className="property-header">MATERIAL</h3>
                     <select className="property-input">
@@ -721,23 +712,7 @@ function WorkbenchMechanical() {
                         <option>Stainless Steel 304</option>
                         <option>Titanium Ti-6Al-4V</option>
                         <option>ABS Plastic</option>
-                        <option>Carbon Fiber</option>
                     </select>
-                    <button className="property-button">Edit Material</button>
-                    <button className="property-button">Apply Appearance</button>
-                </div>
-
-                {/* Configurations */}
-                <div className="property-section">
-                    <h3 className="property-header">CONFIGURATION</h3>
-                    <select className="property-input">
-                        <option>Default</option>
-                        <option>Small (50mm)</option>
-                        <option>Medium (100mm)</option>
-                        <option>Large (150mm)</option>
-                    </select>
-                    <button className="property-button">New Configuration</button>
-                    <button className="property-button">Design Table</button>
                 </div>
 
                 {/* Analysis */}
@@ -745,44 +720,15 @@ function WorkbenchMechanical() {
                     <h3 className="property-header">ANALYSIS</h3>
                     <button className="property-button">Run FEA Analysis</button>
                     <button className="property-button">Motion Simulation</button>
-                    <button className="property-button">CFD Analysis</button>
-                </div>
-
-                {/* Manufacturing */}
-                <div className="property-section">
-                    <h3 className="property-header">MANUFACTURING</h3>
                     <button className="property-button">Generate Toolpaths</button>
-                    <button className="property-button">DFM Check</button>
-                    <button className="property-button">Cost Estimate</button>
-                </div>
-
-                {/* 3D Printing */}
-                <div className="property-section">
-                    <h3 className="property-header">3D PRINTING</h3>
-                    <select className="property-input">
-                        <option>FDM - PLA</option>
-                        <option>FDM - PETG</option>
-                        <option>SLA - Resin</option>
-                        <option>SLS - Nylon</option>
-                    </select>
-                    <button className="property-button">Prepare Print</button>
-                    <button className="property-button">Export STL</button>
-                </div>
-
-                {/* Collaboration */}
-                <div className="property-section">
-                    <h3 className="property-header">COLLABORATE</h3>
-                    <button className="property-button">Share Design</button>
-                    <button className="property-button">Add Comment</button>
-                    <button className="property-button">Version History</button>
                 </div>
 
                 {/* Export */}
                 <div className="property-section">
                     <h3 className="property-header">EXPORT</h3>
                     <button className="property-button">Export STEP</button>
+                    <button className="property-button">Export STL</button>
                     <button className="property-button">Generate Drawing</button>
-                    <button className="property-button">Export DXF</button>
                 </div>
             </aside>
 
