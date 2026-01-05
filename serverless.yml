@@ -2,6 +2,28 @@ service: archdisc-cad
 
 frameworkVersion: '3'
 
+# Package configuration - exclude unnecessary files
+package:
+  patterns:
+    - '!frontend/**'
+    - '!docs/**'
+    - '!test/**'
+    - '!tests/**'
+    - '!.git/**'
+    - '!.github/**'
+    - '!node_modules/**'
+    - 'backend/**'
+    - '!backend/node_modules/**/@types/**'
+    - '!backend/node_modules/**/test/**'
+    - '!backend/node_modules/**/tests/**'
+    - '!backend/node_modules/**/*.md'
+    - '!backend/node_modules/**/*.map'
+    - '!**/*.test.js'
+    - '!**/*.spec.js'
+    - '!**/README.md'
+    - '!**/CHANGELOG.md'
+    - '!**/.DS_Store'
+
 provider:
   name: aws
   runtime: nodejs18.x
@@ -14,28 +36,6 @@ provider:
     ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
     OPENAI_API_KEY: ${env:OPENAI_API_KEY, ''}
     GOOGLE_API_KEY: ${env:GOOGLE_API_KEY, ''}
-
-  # Package configuration - exclude unnecessary files
-  package:
-    patterns:
-      - '!frontend/**'
-      - '!docs/**'
-      - '!test/**'
-      - '!tests/**'
-      - '!.git/**'
-      - '!.github/**'
-      - '!node_modules/**'
-      - 'backend/**'
-      - '!backend/node_modules/**/@types/**'
-      - '!backend/node_modules/**/test/**'
-      - '!backend/node_modules/**/tests/**'
-      - '!backend/node_modules/**/*.md'
-      - '!backend/node_modules/**/*.map'
-      - '!**/*.test.js'
-      - '!**/*.spec.js'
-      - '!**/README.md'
-      - '!**/CHANGELOG.md'
-      - '!**/.DS_Store'
 
   # IAM permissions
   iam:
