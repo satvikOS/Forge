@@ -120,9 +120,9 @@ provider:
   # Environment variables
   environment:
     STAGE: ${self:provider.stage}
-    ANTHROPIC_API_KEY: ${ssm:/archdisc/${self:provider.stage}/anthropic-key~true}
-    OPENAI_API_KEY: ${ssm:/archdisc/${self:provider.stage}/openai-key~true}
-    GOOGLE_API_KEY: ${ssm:/archdisc/${self:provider.stage}/google-key~true}
+    ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
+    OPENAI_API_KEY: ${env:OPENAI_API_KEY, ''}
+    GOOGLE_API_KEY: ${env:GOOGLE_API_KEY, ''}
 
   # IAM permissions
   iam:
