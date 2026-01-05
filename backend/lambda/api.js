@@ -83,6 +83,7 @@ app.get('/api/test', (req, res) => {
         endpoints: [
             '/api/health',
             '/api/test',
+            '/api/debug-echo - POST to test body parsing',
             '/api/mechanical/autonomous - FULLY AUTONOMOUS AI AGENT (Bedrock)',
             '/api/mechanical/autonomous/ui-control - UI CONTROLLED (Claude 4.5 + Gemini Vision + Playwright)',
             '/api/mechanical/generate',
@@ -94,6 +95,32 @@ app.get('/api/test', (req, res) => {
             '/api/mechanical/materials/*',
             '/api/mechanical/credits/*'
         ]
+    });
+});
+
+// Debug endpoint - Echo everything received
+app.post('/api/debug-echo', (req, res) => {
+    res.json({
+        success: true,
+        received: {
+            body: req.body,
+            headers: req.headers,
+            method: req.method,
+            path: req.path,
+            query: req.query
+        }
+    });
+});
+
+app.get('/api/debug-echo', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Send POST request to test body parsing',
+        example: {
+            url: '/api/debug-echo',
+            method: 'POST',
+            body: { prompt: 'test' }
+        }
     });
 });
 
