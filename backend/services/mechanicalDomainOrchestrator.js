@@ -505,11 +505,18 @@ class MechanicalDomainOrchestrator {
         // Validate design against mechanical engineering principles
         const validation = await this.validateMechanicalDesign(design, context);
 
+        // Generate 3D geometry from design specification
+        const geometry = this.generateGeometryFromDesign(design);
+
         console.log('✅ Mechanical design generated');
         console.log(`   Validation: ${validation.valid ? 'PASS' : 'FAIL'}`);
+        console.log(`   Geometry: ${geometry.vertices.length} vertices, ${geometry.faces.length} faces`);
 
         return {
-            design,
+            design: {
+                ...design,
+                geometry  // Add 3D geometry to the design
+            },
             validation,
             context,
             metadata: {
@@ -656,6 +663,75 @@ Be precise, technical, and use mechanical engineering terminology.`;
         validation.valid = validation.score >= 70;
 
         return validation;
+    }
+
+    /**
+     * Generate 3D geometry from design specification
+     * Creates a procedural mesh that can be rendered in Three.js
+     */
+    generateGeometryFromDesign(design) {
+        // Extract dimensions from the design specification
+        const dimensions = design.design?.dimensions?.overall || { length: 100, width: 50, height: 25 };
+
+        const length = dimensions.length || 100;
+        const width = dimensions.width || 50;
+        const height = dimensions.height || 25;
+
+        console.log(`📐 Generating geometry: ${length}x${width}x${height} mm`);
+
+        // Generate box mesh vertices (8 corners)
+        const halfX = length / 2;
+        const halfY = width / 2;
+        const halfZ = height / 2;
+
+        const vertices = [
+            // Bottom face (z = -halfZ)
+            [-halfX, -halfY, -halfZ], [halfX, -halfY, -halfZ], [halfX, halfY, -halfZ], [-halfX, halfY, -halfZ],
+            // Top face (z = halfZ)
+            [-halfX, -halfY, halfZ], [halfX, -halfY, halfZ], [halfX, halfY, halfZ], [-halfX, halfY, halfZ]
+        ];
+
+        // Generate box faces (12 triangles = 6 quad faces * 2 triangles each)
+        const faces = [
+            // Bottom face (z = -halfZ)
+            [0, 2, 1], [0, 3, 2],
+            // Top face (z = halfZ)
+            [4, 5, 6], [4, 6, 7],
+            // Front face (y = -halfY)
+            [0, 1, 5], [0, 5, 4],
+            // Back face (y = halfY)
+            [2, 3, 7], [2, 7, 6],
+            // Left face (x = -halfX)
+            [0, 4, 7], [0, 7, 3],
+            // Right face (x = halfX)
+            [1, 2, 6], [1, 6, 5]
+        ];
+
+        // Generate normals for lighting
+        const normals = [
+            [0, 0, -1], [0, 0, -1], [0, 0, -1], [0, 0, -1], // Bottom
+            [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]      // Top
+        ];
+
+        return {
+            type: 'mesh',
+            vertices: vertices,
+            faces: faces,
+            normals: normals,
+            dimensions: {
+                x: length,
+                y: width,
+                z: height,
+                units: dimensions.units || 'mm'
+            },
+            volume: length * width * height,
+            metadata: {
+                format: 'triangulated_mesh',
+                vertexCount: vertices.length,
+                faceCount: faces.length,
+                generatedFrom: 'mechanical_design_specification'
+            }
+        };
     }
 
     /**
