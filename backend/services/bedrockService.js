@@ -19,9 +19,15 @@ class BedrockService {
                 region: this.region
             };
 
-            // Only use explicit credentials if provided (for local development)
-            if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-                console.log('📋 Using explicit AWS credentials from environment variables');
+            // Use Bedrock-specific credentials if provided (avoids AWS reserved env var restrictions)
+            if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
+                console.log('📋 Using Bedrock credentials from environment variables');
+                clientConfig.credentials = {
+                    accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID,
+                    secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY
+                };
+            } else if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+                console.log('📋 Using AWS credentials from environment variables');
                 clientConfig.credentials = {
                     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
                     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
