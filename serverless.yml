@@ -37,8 +37,6 @@ provider:
     FRONTEND_URL: ${env:FRONTEND_URL, 'https://d3a7j7euh4gge.cloudfront.net'}
     BROWSER_HEADLESS: ${env:BROWSER_HEADLESS, 'true'}
     AUTO_VALIDATE: ${env:AUTO_VALIDATE, 'true'}
-    BEDROCK_ACCESS_KEY_ID: 'AKIAQJITMSWQQJXLT55Y'
-    BEDROCK_SECRET_ACCESS_KEY: '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'
     BEDROCK_TEXT_MODEL: 'anthropic.claude-sonnet-4-5-20250929-v1:0'
 
   # IAM permissions
