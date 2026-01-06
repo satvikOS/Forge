@@ -1,4 +1,5 @@
 const { BedrockRuntimeClient, InvokeModelCommand, InvokeModelWithResponseStreamCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const taxonomySystem = require('./taxonomySystem');
 
 /**
@@ -12,31 +13,30 @@ class BedrockService {
         this.taxonomySystem = taxonomySystem;
 
         try {
-            // Initialize Bedrock Runtime Client
-            // When running in Lambda, credentials are automatically provided by the execution role
-            // For local development, use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
+            // Initialize Bedrock Runtime Client with explicit credential chain
+            console.log('🔧 Initializing Bedrock client...');
+            console.log('   Region:', this.region);
+            console.log('   Environment:', process.env.AWS_EXECUTION_ENV || 'local');
+
             const clientConfig = {
-                region: this.region
+                region: this.region,
+                // Explicitly use credential provider chain (Lambda role -> env vars -> instance metadata)
+                credentials: fromNodeProviderChain()
             };
 
-            // Use Bedrock-specific credentials if provided (avoids AWS reserved env var restrictions)
+            // Override with explicit credentials if provided
             if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
-                console.log('📋 Using Bedrock credentials from environment variables');
+                console.log('📋 Overriding with BEDROCK_* credentials');
                 clientConfig.credentials = {
                     accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID,
                     secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY
                 };
-            } else if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-                console.log('📋 Using AWS credentials from environment variables');
-                clientConfig.credentials = {
-                    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-                };
-            } else {
-                console.log('📋 Using AWS Lambda execution role credentials (automatic)');
             }
 
             this.client = new BedrockRuntimeClient(clientConfig);
+
+            // Test credential resolution
+            console.log('🔍 Credential provider configured successfully');
 
             // Model configuration - Use Claude Sonnet 4.5 as requested
             this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
