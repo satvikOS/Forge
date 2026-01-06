@@ -9,32 +9,33 @@ const taxonomySystem = require('./taxonomySystem');
 class BedrockService {
     constructor() {
         this.region = process.env.AWS_REGION || 'us-east-1';
-        this.accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-        this.secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
         this.taxonomySystem = taxonomySystem;
-
-        // Validate AWS credentials
-        if (!this.accessKeyId || !this.secretAccessKey) {
-            console.error('❌ AWS credentials not configured - service will not function');
-            console.error('   Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables');
-            this.configured = false;
-            return;
-        }
 
         try {
             // Initialize Bedrock Runtime Client
-            this.client = new BedrockRuntimeClient({
-                region: this.region,
-                credentials: {
-                    accessKeyId: this.accessKeyId,
-                    secretAccessKey: this.secretAccessKey
-                }
-            });
+            // When running in Lambda, credentials are automatically provided by the execution role
+            // For local development, use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
+            const clientConfig = {
+                region: this.region
+            };
 
-            // Model configuration
-            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+            // Only use explicit credentials if provided (for local development)
+            if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+                console.log('📋 Using explicit AWS credentials from environment variables');
+                clientConfig.credentials = {
+                    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+                };
+            } else {
+                console.log('📋 Using AWS Lambda execution role credentials (automatic)');
+            }
+
+            this.client = new BedrockRuntimeClient(clientConfig);
+
+            // Model configuration - using Claude Sonnet 4.5 by default
+            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
             this.imageModel = process.env.BEDROCK_IMAGE_MODEL || 'stability.stable-diffusion-xl-v1';
-            this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+            this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
 
             // Generation parameters
             this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '4096');
@@ -47,6 +48,7 @@ class BedrockService {
             this.configured = true;
         } catch (error) {
             console.error('❌ Failed to initialize AWS Bedrock:', error);
+            console.error('   Error details:', error.message);
             this.configured = false;
         }
 

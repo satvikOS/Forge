@@ -57,6 +57,14 @@ provider:
             - secretsmanager:GetSecretValue
           Resource:
             - arn:aws:secretsmanager:${self:provider.region}:*:secret:archdisc/*
+        - Effect: Allow
+          Action:
+            - bedrock:InvokeModel
+            - bedrock:InvokeModelWithResponseStream
+          Resource:
+            - arn:aws:bedrock:${self:provider.region}::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0
+            - arn:aws:bedrock:${self:provider.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0
+            - arn:aws:bedrock:${self:provider.region}::foundation-model/*
 
 # Lambda Functions
 functions:
