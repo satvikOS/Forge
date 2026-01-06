@@ -32,10 +32,18 @@ class BedrockService {
 
             this.client = new BedrockRuntimeClient(clientConfig);
 
-            // Model configuration - using Claude Sonnet 4.5 by default
-            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
+            // Model configuration - Try multiple models in fallback order
+            // Note: Claude Sonnet 4.5 and 3.5 Sonnet v2 require manual access approval in Bedrock Console
+            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+            this.fallbackModels = [
+                'anthropic.claude-3-5-sonnet-20241022-v2:0',  // Claude 3.5 Sonnet v2
+                'anthropic.claude-3-sonnet-20240229-v1:0',     // Claude 3 Sonnet
+                'anthropic.claude-instant-v1',                  // Claude Instant (usually available)
+                'anthropic.claude-v2:1',                        // Claude v2.1
+                'anthropic.claude-v2'                           // Claude v2
+            ];
             this.imageModel = process.env.BEDROCK_IMAGE_MODEL || 'stability.stable-diffusion-xl-v1';
-            this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
+            this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
 
             // Generation parameters
             this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '4096');
@@ -73,100 +81,120 @@ class BedrockService {
         }
 
         const maxRetries = options.maxRetries || this.maxRetries;
-        const modelId = options.modelId || this.textModel;
+        const requestedModel = options.modelId || this.textModel;
         let lastError = null;
+
+        // Try requested model first, then fallback models if access denied
+        const modelsToTry = [requestedModel, ...this.fallbackModels.filter(m => m !== requestedModel)];
 
         console.log('\n=== 🤖 AWS Bedrock Request ===');
         console.log('📋 Request details:', {
             promptLength: prompt?.length,
             maxRetries,
-            model: modelId,
+            requestedModel,
+            fallbackModels: modelsToTry.length - 1,
             region: this.region
         });
 
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Bedrock API...`);
+        // Try each model in order
+        for (const modelId of modelsToTry) {
+            console.log(`\n🔄 Trying model: ${modelId}`);
 
-                // Prepare request based on model type
-                let requestBody;
-                if (modelId.includes('anthropic.claude')) {
-                    // Claude format
-                    requestBody = {
-                        anthropic_version: "bedrock-2023-05-31",
-                        max_tokens: this.maxTokens,
-                        temperature: this.temperature,
-                        messages: [
-                            {
-                                role: "user",
-                                content: prompt
-                            }
-                        ]
-                    };
-                } else if (modelId.includes('amazon.titan')) {
-                    // Titan format
-                    requestBody = {
-                        inputText: prompt,
-                        textGenerationConfig: {
-                            maxTokenCount: this.maxTokens,
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Bedrock API...`);
+
+                    // Prepare request based on model type
+                    let requestBody;
+                    if (modelId.includes('anthropic.claude')) {
+                        // Claude format
+                        requestBody = {
+                            anthropic_version: "bedrock-2023-05-31",
+                            max_tokens: this.maxTokens,
                             temperature: this.temperature,
-                            topP: 0.9
-                        }
-                    };
-                } else {
-                    throw new Error(`Unsupported model type: ${modelId}`);
-                }
+                            messages: [
+                                {
+                                    role: "user",
+                                    content: prompt
+                                }
+                            ]
+                        };
+                    } else if (modelId.includes('amazon.titan')) {
+                        // Titan format
+                        requestBody = {
+                            inputText: prompt,
+                            textGenerationConfig: {
+                                maxTokenCount: this.maxTokens,
+                                temperature: this.temperature,
+                                topP: 0.9
+                            }
+                        };
+                    } else {
+                        throw new Error(`Unsupported model type: ${modelId}`);
+                    }
 
-                const command = new InvokeModelCommand({
-                    modelId: modelId,
-                    contentType: 'application/json',
-                    accept: 'application/json',
-                    body: JSON.stringify(requestBody)
-                });
+                    const command = new InvokeModelCommand({
+                        modelId: modelId,
+                        contentType: 'application/json',
+                        accept: 'application/json',
+                        body: JSON.stringify(requestBody)
+                    });
 
-                const response = await this.client.send(command);
-                const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+                    const response = await this.client.send(command);
+                    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
 
-                // Extract text based on model type
-                let text;
-                if (modelId.includes('anthropic.claude')) {
-                    text = responseBody.content[0].text;
-                } else if (modelId.includes('amazon.titan')) {
-                    text = responseBody.results[0].outputText;
-                }
+                    // Extract text based on model type
+                    let text;
+                    if (modelId.includes('anthropic.claude')) {
+                        text = responseBody.content[0].text;
+                    } else if (modelId.includes('amazon.titan')) {
+                        text = responseBody.results[0].outputText;
+                    }
 
-                console.log(`✅ Success on attempt ${attempt}!`);
-                console.log('📊 Response length:', text?.length);
-                console.log('=== End Bedrock Request ===\n');
+                    console.log(`✅ SUCCESS with model ${modelId} on attempt ${attempt}!`);
+                    console.log('📊 Response length:', text?.length);
+                    console.log('=== End Bedrock Request ===\n');
 
-                return text;
-            } catch (error) {
-                lastError = error;
-                console.error(`❌ Bedrock API error (attempt ${attempt}/${maxRetries}):`, {
-                    message: error.message,
-                    code: error.code || error.name,
-                    statusCode: error.$metadata?.httpStatusCode
-                });
+                    return text;
+                } catch (error) {
+                    lastError = error;
+                    console.error(`❌ Bedrock API error (model: ${modelId}, attempt ${attempt}/${maxRetries}):`, {
+                        message: error.message,
+                        code: error.code || error.name,
+                        statusCode: error.$metadata?.httpStatusCode
+                    });
 
-                // Don't retry on certain errors
-                if (error.code === 'AccessDeniedException' ||
-                    error.code === 'ValidationException' ||
-                    error.message?.includes('credentials') ||
-                    error.message?.includes('quota')) {
-                    console.error('🚫 Non-retryable error detected, throwing immediately');
-                    throw error;
-                }
+                    // If access denied or model not found, try next model immediately
+                    if (error.code === 'AccessDeniedException' ||
+                        error.code === 'ResourceNotFoundException' ||
+                        error.message?.includes('Could not resolve the foundation model')) {
+                        console.warn(`⚠️  Model ${modelId} not accessible, trying next model...`);
+                        break; // Break retry loop, try next model
+                    }
 
-                if (attempt < maxRetries) {
-                    const delayMs = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
-                    console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
-                    await this.delay(delayMs);
+                    // Don't retry on certain errors
+                    if (error.code === 'ValidationException' ||
+                        error.message?.includes('credentials') ||
+                        error.message?.includes('quota')) {
+                        console.error('🚫 Non-retryable error detected, throwing immediately');
+                        throw error;
+                    }
+
+                    if (attempt < maxRetries) {
+                        const delayMs = this.retryDelay * Math.pow(2, attempt - 1);
+                        console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
+                        await this.delay(delayMs);
+                    }
                 }
             }
         }
 
         console.error('=== End Bedrock Request (FAILED) ===\n');
-        throw new Error(`AWS Bedrock failed after ${maxRetries} attempts: ${lastError?.message}`);
+        console.error('❌ All models failed. Please enable Bedrock model access in AWS Console:');
+        console.error('   https://console.aws.amazon.com/bedrock/');
+        console.error('   Region: us-east-1');
+        console.error('   Enable: Claude 3.5 Sonnet, Claude 3 Sonnet, or Claude Instant');
+        throw new Error(`AWS Bedrock failed after trying ${modelsToTry.length} models: ${lastError?.message}`);
     }
 
     /**
