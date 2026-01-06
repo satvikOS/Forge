@@ -32,10 +32,10 @@ class BedrockService {
 
             this.client = new BedrockRuntimeClient(clientConfig);
 
-            // Model configuration - Try multiple models in fallback order
-            // Note: Claude Sonnet 4.5 and 3.5 Sonnet v2 require manual access approval in Bedrock Console
-            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+            // Model configuration - Use Claude Sonnet 4.5 as requested
+            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
             this.fallbackModels = [
+                'anthropic.claude-sonnet-4-5-20250929-v1:0',   // Claude Sonnet 4.5 (PRIMARY)
                 'anthropic.claude-3-5-sonnet-20241022-v2:0',  // Claude 3.5 Sonnet v2
                 'anthropic.claude-3-sonnet-20240229-v1:0',     // Claude 3 Sonnet
                 'anthropic.claude-instant-v1',                  // Claude Instant (usually available)
