@@ -53,6 +53,9 @@ export function ViewportProvider({ children }) {
                     .forEach(child => scene.remove(child));
             }
 
+            // Scale and position the mesh appropriately
+            scaleAndPositionMesh(mesh, options);
+
             // Add to scene
             scene.add(mesh);
 
@@ -173,6 +176,53 @@ function createThreeJSMeshFromAXEL(axelMesh, options = {}) {
 }
 
 /**
+ * Scale and position mesh to fit the grid properly
+ * Grid is 100x100 units, so we want models to be a reasonable size
+ */
+function scaleAndPositionMesh(mesh, options = {}) {
+    // Calculate bounding box
+    const box = new THREE.Box3().setFromObject(mesh);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    // Maximum size we want (units in Three.js space)
+    // Grid is 100x100, so let's make models fit within ~40 units max
+    const MAX_SIZE = options.maxSize || 40;
+
+    // Find the largest dimension
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    // Calculate scale factor to fit within MAX_SIZE
+    let scaleFactor = 1;
+    if (maxDim > MAX_SIZE) {
+        scaleFactor = MAX_SIZE / maxDim;
+        mesh.scale.set(scaleFactor, scaleFactor, scaleFactor);
+        console.log(`📏 Scaled model by ${scaleFactor.toFixed(3)}x to fit grid (${maxDim.toFixed(1)} → ${MAX_SIZE} units)`);
+    } else if (maxDim < 1) {
+        // Model is too small, scale it up
+        scaleFactor = 5 / maxDim; // Make it at least 5 units
+        mesh.scale.set(scaleFactor, scaleFactor, scaleFactor);
+        console.log(`📏 Scaled model up by ${scaleFactor.toFixed(3)}x (${maxDim.toFixed(3)} → ${(maxDim * scaleFactor).toFixed(1)} units)`);
+    }
+
+    // Recalculate bounding box after scaling
+    mesh.geometry.computeBoundingBox();
+    const scaledBox = new THREE.Box3().setFromObject(mesh);
+    const scaledSize = scaledBox.getSize(new THREE.Vector3());
+    const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+
+    // Position the mesh so it sits ON TOP of the grid (y = 0)
+    // The bottom of the mesh should be at y = 0
+    mesh.position.y = -scaledBox.min.y;
+
+    // Center the mesh at x=0, z=0
+    mesh.position.x = -scaledCenter.x;
+    mesh.position.z = -scaledCenter.z;
+
+    console.log(`📍 Positioned model: size=${scaledSize.x.toFixed(1)}×${scaledSize.y.toFixed(1)}×${scaledSize.z.toFixed(1)} units, bottom at y=0`);
+}
+
+/**
  * Focus camera on a specific mesh
  */
 function focusCameraOnMesh(mesh, camera, controls) {
@@ -188,14 +238,14 @@ function focusCameraOnMesh(mesh, camera, controls) {
     const fov = camera.fov * (Math.PI / 180);
     let cameraZ = Math.abs(maxDim / Math.tan(fov / 2)) * 1.5;
 
-    // Position camera
+    // Position camera at an angle to see the model nicely
     camera.position.set(
-        center.x + cameraZ * 0.5,
+        center.x + cameraZ * 0.7,
         center.y + cameraZ * 0.5,
-        center.z + cameraZ
+        center.z + cameraZ * 0.7
     );
 
-    // Update controls target if available
+    // Update controls target to the center of the model
     if (controls && controls.target) {
         controls.target.copy(center);
         controls.update();

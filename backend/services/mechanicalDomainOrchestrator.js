@@ -611,8 +611,22 @@ Return detailed JSON design specification with:
   "design": {
     "type": "part|assembly",
     "name": "descriptive name",
+    "geometry_type": "box|cylinder|sphere|cone|complex|assembly",
+    "base_shape": "description of primary shape",
     "materials": [{"component": "...", "material": "...", "justification": "..."}],
-    "dimensions": {"overall": {}, "features": []},
+    "dimensions": {
+      "overall": {"length": "100 mm", "width": "50 mm", "height": "25 mm"},
+      "features": [
+        {"type": "hole", "diameter": "10 mm", "depth": "15 mm", "location": "center"},
+        {"type": "fillet", "radius": "2 mm", "edges": "all vertical edges"},
+        {"type": "chamfer", "size": "1 mm", "edges": "top edges"}
+      ],
+      "specific": {
+        "radius": "25 mm (for cylinders/spheres)",
+        "inner_radius": "20 mm (for hollow parts)",
+        "segments": "16 (for curved surfaces)"
+      }
+    },
     "manufacturing": {"primary_process": "...", "secondary_processes": []},
     "standards": ["applicable standards"],
     "components": [{"type": "...", "specification": "...", "quantity": 1}]
@@ -630,6 +644,13 @@ Return detailed JSON design specification with:
     "estimated_cost": "cost estimate"
   }
 }
+
+GEOMETRY GUIDELINES:
+- For simple box/rectangular parts: use geometry_type="box" with overall dimensions
+- For cylindrical parts (shafts, pins, tubes): use geometry_type="cylinder" with radius and height
+- For spherical parts (balls, domes): use geometry_type="sphere" with radius
+- For complex multi-feature parts: use geometry_type="complex" with detailed feature list
+- For assemblies: use geometry_type="assembly" with component list
 
 Be precise, technical, and use mechanical engineering terminology.`;
 
@@ -682,78 +703,225 @@ Be precise, technical, and use mechanical engineering terminology.`;
      * Creates a procedural mesh that can be rendered in Three.js
      */
     generateGeometryFromDesign(design) {
-        // Extract dimensions from the design specification
-        const dimensions = design.design?.dimensions?.overall || {};
+        const geometryType = design.design?.geometry_type || 'box';
+        const dimensions = design.design?.dimensions || {};
+        const specific = dimensions.specific || {};
+        const overall = dimensions.overall || {};
 
-        // Helper function to parse dimension strings like "100 mm" or numbers
-        const parseDimension = (value, defaultValue) => {
-            if (typeof value === 'number') return value;
-            if (typeof value === 'string') {
-                const parsed = parseFloat(value.replace(/[^0-9.]/g, ''));
-                return isNaN(parsed) ? defaultValue : parsed;
-            }
-            return defaultValue;
-        };
+        console.log(`📐 Generating ${geometryType} geometry...`);
 
-        // Extract dimensions - handle various naming conventions
-        const length = parseDimension(dimensions.length || dimensions.height || dimensions.depth, 100);
-        const width = parseDimension(dimensions.width, 100);
-        const height = parseDimension(dimensions.height || dimensions.thickness || dimensions.depth, 25);
+        // Route to appropriate geometry generator
+        switch (geometryType.toLowerCase()) {
+            case 'cylinder':
+                return this.generateCylinder(overall, specific);
+            case 'sphere':
+                return this.generateSphere(overall, specific);
+            case 'cone':
+                return this.generateCone(overall, specific);
+            case 'box':
+            default:
+                return this.generateBox(overall, specific);
+        }
+    }
 
-        console.log(`📐 Generating geometry: ${length}x${width}x${height} mm`);
+    /**
+     * Helper function to parse dimension strings like "100 mm" or numbers
+     */
+    parseDimension(value, defaultValue) {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+            const parsed = parseFloat(value.replace(/[^0-9.]/g, ''));
+            return isNaN(parsed) ? defaultValue : parsed;
+        }
+        return defaultValue;
+    }
 
-        // Generate box mesh vertices (8 corners)
+    /**
+     * Generate box geometry
+     */
+    generateBox(overall, specific) {
+        const length = this.parseDimension(overall.length || overall.x || overall.depth, 100);
+        const width = this.parseDimension(overall.width || overall.y, 100);
+        const height = this.parseDimension(overall.height || overall.z || overall.thickness, 25);
+
+        console.log(`   Box: ${length}×${width}×${height} mm`);
+
         const halfX = length / 2;
         const halfY = width / 2;
         const halfZ = height / 2;
 
         const vertices = [
-            // Bottom face (z = -halfZ)
             [-halfX, -halfY, -halfZ], [halfX, -halfY, -halfZ], [halfX, halfY, -halfZ], [-halfX, halfY, -halfZ],
-            // Top face (z = halfZ)
             [-halfX, -halfY, halfZ], [halfX, -halfY, halfZ], [halfX, halfY, halfZ], [-halfX, halfY, halfZ]
         ];
 
-        // Generate box faces (12 triangles = 6 quad faces * 2 triangles each)
         const faces = [
-            // Bottom face (z = -halfZ)
-            [0, 2, 1], [0, 3, 2],
-            // Top face (z = halfZ)
-            [4, 5, 6], [4, 6, 7],
-            // Front face (y = -halfY)
-            [0, 1, 5], [0, 5, 4],
-            // Back face (y = halfY)
-            [2, 3, 7], [2, 7, 6],
-            // Left face (x = -halfX)
-            [0, 4, 7], [0, 7, 3],
-            // Right face (x = halfX)
-            [1, 2, 6], [1, 6, 5]
-        ];
-
-        // Generate normals for lighting
-        const normals = [
-            [0, 0, -1], [0, 0, -1], [0, 0, -1], [0, 0, -1], // Bottom
-            [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]      // Top
+            [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
+            [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6],
+            [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5]
         ];
 
         return {
             type: 'mesh',
-            vertices: vertices,
-            faces: faces,
-            normals: normals,
-            dimensions: {
-                x: length,
-                y: width,
-                z: height,
-                units: 'mm'
-            },
-            volume: length * width * height,
-            metadata: {
-                format: 'triangulated_mesh',
-                vertexCount: vertices.length,
-                faceCount: faces.length,
-                generatedFrom: 'mechanical_design_specification'
+            vertices, faces,
+            dimensions: { x: length, y: width, z: height, units: 'mm' },
+            metadata: { format: 'triangulated_mesh', shape: 'box' }
+        };
+    }
+
+    /**
+     * Generate cylinder geometry
+     */
+    generateCylinder(overall, specific) {
+        const radius = this.parseDimension(specific.radius || overall.radius || overall.diameter / 2, 25);
+        const height = this.parseDimension(overall.height || overall.length, 100);
+        const segments = this.parseDimension(specific.segments, 32);
+
+        console.log(`   Cylinder: r=${radius}mm, h=${height}mm, segments=${segments}`);
+
+        const vertices = [];
+        const faces = [];
+
+        // Generate vertices for top and bottom circles
+        for (let i = 0; i <= segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+
+            vertices.push([x, y, 0]);           // Bottom circle
+            vertices.push([x, y, height]);       // Top circle
+        }
+
+        // Center vertices for caps
+        const bottomCenter = vertices.length;
+        vertices.push([0, 0, 0]);               // Bottom center
+        const topCenter = vertices.length;
+        vertices.push([0, 0, height]);          // Top center
+
+        // Generate side faces
+        for (let i = 0; i < segments; i++) {
+            const b1 = i * 2;
+            const b2 = (i * 2 + 2) % (segments * 2);
+            const t1 = i * 2 + 1;
+            const t2 = (i * 2 + 3) % (segments * 2);
+
+            faces.push([b1, t1, b2]);
+            faces.push([b2, t1, t2]);
+        }
+
+        // Generate cap faces
+        for (let i = 0; i < segments; i++) {
+            const b1 = i * 2;
+            const b2 = (i * 2 + 2) % (segments * 2);
+            const t1 = i * 2 + 1;
+            const t2 = (i * 2 + 3) % (segments * 2);
+
+            faces.push([bottomCenter, b2, b1]);  // Bottom cap
+            faces.push([topCenter, t1, t2]);     // Top cap
+        }
+
+        return {
+            type: 'mesh',
+            vertices, faces,
+            dimensions: { radius, height, units: 'mm' },
+            metadata: { format: 'triangulated_mesh', shape: 'cylinder', segments }
+        };
+    }
+
+    /**
+     * Generate sphere geometry
+     */
+    generateSphere(overall, specific) {
+        const radius = this.parseDimension(specific.radius || overall.radius || overall.diameter / 2, 25);
+        const segments = this.parseDimension(specific.segments, 16);
+
+        console.log(`   Sphere: r=${radius}mm, segments=${segments}`);
+
+        const vertices = [];
+        const faces = [];
+
+        // Generate vertices using spherical coordinates
+        for (let lat = 0; lat <= segments; lat++) {
+            const theta = (lat * Math.PI) / segments;
+            const sinTheta = Math.sin(theta);
+            const cosTheta = Math.cos(theta);
+
+            for (let lon = 0; lon <= segments; lon++) {
+                const phi = (lon * 2 * Math.PI) / segments;
+                const x = Math.cos(phi) * sinTheta * radius;
+                const y = Math.sin(phi) * sinTheta * radius;
+                const z = cosTheta * radius;
+                vertices.push([x, y, z]);
             }
+        }
+
+        // Generate faces
+        for (let lat = 0; lat < segments; lat++) {
+            for (let lon = 0; lon < segments; lon++) {
+                const first = lat * (segments + 1) + lon;
+                const second = first + segments + 1;
+
+                faces.push([first, second, first + 1]);
+                faces.push([second, second + 1, first + 1]);
+            }
+        }
+
+        return {
+            type: 'mesh',
+            vertices, faces,
+            dimensions: { radius, units: 'mm' },
+            metadata: { format: 'triangulated_mesh', shape: 'sphere', segments }
+        };
+    }
+
+    /**
+     * Generate cone geometry
+     */
+    generateCone(overall, specific) {
+        const radius = this.parseDimension(specific.radius || overall.radius || overall.diameter / 2, 25);
+        const height = this.parseDimension(overall.height || overall.length, 100);
+        const segments = this.parseDimension(specific.segments, 32);
+
+        console.log(`   Cone: r=${radius}mm, h=${height}mm, segments=${segments}`);
+
+        const vertices = [];
+        const faces = [];
+
+        // Apex vertex
+        vertices.push([0, 0, height]);
+        const apexIndex = 0;
+
+        // Base circle vertices
+        for (let i = 0; i <= segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            vertices.push([x, y, 0]);
+        }
+
+        // Base center
+        const baseCenter = vertices.length;
+        vertices.push([0, 0, 0]);
+
+        // Side faces (triangles from apex to base)
+        for (let i = 0; i < segments; i++) {
+            const b1 = i + 1;
+            const b2 = i + 2;
+            faces.push([apexIndex, b1, b2]);
+        }
+
+        // Base faces
+        for (let i = 0; i < segments; i++) {
+            const b1 = i + 1;
+            const b2 = i + 2;
+            faces.push([baseCenter, b2, b1]);
+        }
+
+        return {
+            type: 'mesh',
+            vertices, faces,
+            dimensions: { radius, height, units: 'mm' },
+            metadata: { format: 'triangulated_mesh', shape: 'cone', segments }
         };
     }
 
