@@ -37,7 +37,7 @@ provider:
     FRONTEND_URL: ${env:FRONTEND_URL, 'https://d3a7j7euh4gge.cloudfront.net'}
     BROWSER_HEADLESS: ${env:BROWSER_HEADLESS, 'true'}
     AUTO_VALIDATE: ${env:AUTO_VALIDATE, 'true'}
-    BEDROCK_TEXT_MODEL: 'us.anthropic.claude-sonnet-4-5-v1:0'
+    BEDROCK_TEXT_MODEL: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 
   # IAM permissions
   iam:

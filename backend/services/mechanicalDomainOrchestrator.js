@@ -497,7 +497,7 @@ class MechanicalDomainOrchestrator {
         // Generate design using Claude Sonnet 4.5 with mechanical expertise
         console.log('🤖 Generating with Claude Sonnet 4.5 (Mechanical Domain Expert)...');
         const designSpec = await this.bedrockService.generateContent(enhancedPrompt, {
-            modelId: process.env.BEDROCK_TEXT_MODEL || 'us.anthropic.claude-sonnet-4-5-v1:0'
+            modelId: process.env.BEDROCK_TEXT_MODEL || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
         });
 
         const design = this.bedrockService.parseJSON(designSpec);
