@@ -64,7 +64,7 @@ provider:
             - bedrock:InvokeModelWithResponseStream
           Resource:
             - arn:aws:bedrock:${self:provider.region}::foundation-model/*
-            - arn:aws:bedrock:${self:provider.region}::inference-profile/*
+            - !Sub arn:aws:bedrock:${self:provider.region}:${AWS::AccountId}:inference-profile/*
         - Effect: Allow
           Action:
             - aws-marketplace:ViewSubscriptions
