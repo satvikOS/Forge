@@ -38,15 +38,10 @@ class BedrockService {
             // Test credential resolution
             console.log('🔍 Credential provider configured successfully');
 
-            // Model configuration - Use Claude Sonnet 4.5 as requested
+            // Model configuration - Use Claude Sonnet 4.5 ONLY as requested
             this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
             this.fallbackModels = [
-                'anthropic.claude-sonnet-4-5-20250929-v1:0',   // Claude Sonnet 4.5 (PRIMARY)
-                'anthropic.claude-3-5-sonnet-20241022-v2:0',  // Claude 3.5 Sonnet v2
-                'anthropic.claude-3-sonnet-20240229-v1:0',     // Claude 3 Sonnet
-                'anthropic.claude-instant-v1',                  // Claude Instant (usually available)
-                'anthropic.claude-v2:1',                        // Claude v2.1
-                'anthropic.claude-v2'                           // Claude v2
+                'anthropic.claude-sonnet-4-5-20250929-v1:0'   // Claude Sonnet 4.5 ONLY
             ];
             this.imageModel = process.env.BEDROCK_IMAGE_MODEL || 'stability.stable-diffusion-xl-v1';
             this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
