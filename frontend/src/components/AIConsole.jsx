@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Code, Send, X, Minimize2, Maximize2 } from 'lucide-react';
 import apiService from '../services/api';
+import { useViewport } from '../contexts/ViewportContext';
 import './AIConsole.css';
 
 /**
@@ -8,6 +9,7 @@ import './AIConsole.css';
  * Supports natural language CAD commands and code execution
  */
 function AIConsole() {
+    const viewport = useViewport();
     const [mode, setMode] = useState('chat'); // 'chat' or 'code'
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState([
@@ -145,10 +147,44 @@ function AIConsole() {
         }
     };
 
-    const executeCADActions = (actions) => {
-        // This would trigger actual CAD operations in the viewport
-        console.log('Executing CAD actions:', actions);
-        // TODO: Integrate with CAD engine
+    const executeCADActions = (design) => {
+        console.log('🎯 Executing CAD actions:', design);
+
+        if (!viewport || !viewport.isReady) {
+            console.warn('⚠️  Viewport not ready yet, cannot render geometry');
+            return;
+        }
+
+        // Check if design has geometry data
+        if (!design || !design.geometry) {
+            console.warn('⚠️  No geometry data in design:', design);
+            return;
+        }
+
+        const geometry = design.geometry;
+
+        // Validate geometry format
+        if (!geometry.vertices || !geometry.faces) {
+            console.error('❌ Invalid geometry format:', geometry);
+            return;
+        }
+
+        console.log(`📦 Rendering geometry: ${geometry.vertices.length} vertices, ${geometry.faces.length} faces`);
+
+        // Add geometry to viewport with options
+        const mesh = viewport.addGeometry(geometry, {
+            color: 0x2196f3,        // Blue color for mechanical parts
+            metalness: 0.5,
+            roughness: 0.3,
+            clearPrevious: true,     // Clear previous generated models
+            focusCamera: true        // Auto-focus camera on new geometry
+        });
+
+        if (mesh) {
+            console.log('✅ Geometry rendered successfully in viewport!');
+        } else {
+            console.error('❌ Failed to render geometry in viewport');
+        }
     };
 
     const handleKeyPress = (e) => {

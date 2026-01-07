@@ -9,6 +9,7 @@ import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronic
 import WorkbenchAviation from '../workbenches/aviation/WorkbenchAviation';
 import WorkbenchUIProduct from '../workbenches/ui-product/WorkbenchUIProduct';
 import AIConsole from './AIConsole';
+import { ViewportProvider } from '../contexts/ViewportContext';
 import apiService from '../services/api';
 import '../styles/workbench.css';
 
@@ -100,43 +101,45 @@ function WorkbenchContainer() {
     };
 
     return (
-        <div className="workbench-container">
-            {/* TOP HEADER */}
-            <header className="workbench-header">
-                <div className="header-brand">
-                    <h1 className="workbench-title">ArchDisc</h1>
-                    <span
-                        className={`status-indicator ${isOnline ? 'online' : 'offline'}`}
-                        title={isOnline ? 'Online' : 'Offline'}
-                    ></span>
-                </div>
-                <WorkbenchSwitcher
-                    activeWorkbench={activeWorkbench}
-                    onSwitchWorkbench={setActiveWorkbench}
-                />
-                <div className="workbench-toolbar">
-                    {renderToolbar()}
-                </div>
-                <div className="header-actions">
-                    <input
-                        type="text"
-                        className="feature-search"
-                        placeholder="Search features..."
-                        value={featureSearch}
-                        onChange={(e) => setFeatureSearch(e.target.value)}
+        <ViewportProvider>
+            <div className="workbench-container">
+                {/* TOP HEADER */}
+                <header className="workbench-header">
+                    <div className="header-brand">
+                        <h1 className="workbench-title">ArchDisc</h1>
+                        <span
+                            className={`status-indicator ${isOnline ? 'online' : 'offline'}`}
+                            title={isOnline ? 'Online' : 'Offline'}
+                        ></span>
+                    </div>
+                    <WorkbenchSwitcher
+                        activeWorkbench={activeWorkbench}
+                        onSwitchWorkbench={setActiveWorkbench}
                     />
-                    <button className="header-button">File</button>
-                    <button className="header-button">Edit</button>
-                    <button className="header-button">View</button>
-                </div>
-            </header>
+                    <div className="workbench-toolbar">
+                        {renderToolbar()}
+                    </div>
+                    <div className="header-actions">
+                        <input
+                            type="text"
+                            className="feature-search"
+                            placeholder="Search features..."
+                            value={featureSearch}
+                            onChange={(e) => setFeatureSearch(e.target.value)}
+                        />
+                        <button className="header-button">File</button>
+                        <button className="header-button">Edit</button>
+                        <button className="header-button">View</button>
+                    </div>
+                </header>
 
-            {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
-            {renderWorkbench()}
+                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
+                {renderWorkbench()}
 
-            {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
-            <AIConsole />
-        </div>
+                {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
+                <AIConsole />
+            </div>
+        </ViewportProvider>
     );
 }
 
