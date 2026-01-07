@@ -12,12 +12,14 @@
 
 const bedrockService = require('./bedrockService');
 const geminiVision = require('./geminiVisionService');
+const AxelEngine = require('../engines/axel/axelEngine');
 
 class MechanicalDomainOrchestrator {
     constructor() {
         this.domain = 'mechanical_engineering';
         this.bedrockService = bedrockService;
         this.geminiVision = geminiVision;
+        this.axelEngine = new AxelEngine({ resolution: 2.0 }); // 2mm voxel resolution
 
         // Mechanical engineering knowledge base
         this.knowledgeBase = this.initializeKnowledgeBase();
@@ -506,16 +508,20 @@ class MechanicalDomainOrchestrator {
         const validation = await this.validateMechanicalDesign(design, context);
 
         // Generate 3D geometry from design specification
-        const geometry = this.generateGeometryFromDesign(design);
+        const baseGeometry = this.generateGeometryFromDesign(design);
+
+        // Process through AXEL voxel engine for advanced topology
+        const geometry = this.axelEngine.processMesh(baseGeometry);
 
         console.log('✅ Mechanical design generated');
         console.log(`   Validation: ${validation.valid ? 'PASS' : 'FAIL'}`);
         console.log(`   Geometry: ${geometry.vertices.length} vertices, ${geometry.faces.length} faces`);
+        console.log(`   Engine: AXEL (voxel-based)`);
 
         return {
             design: {
                 ...design,
-                geometry  // Add 3D geometry to the design
+                geometry  // Add AXEL-processed 3D geometry to the design
             },
             validation,
             context,
@@ -671,11 +677,22 @@ Be precise, technical, and use mechanical engineering terminology.`;
      */
     generateGeometryFromDesign(design) {
         // Extract dimensions from the design specification
-        const dimensions = design.design?.dimensions?.overall || { length: 100, width: 50, height: 25 };
+        const dimensions = design.design?.dimensions?.overall || {};
 
-        const length = dimensions.length || 100;
-        const width = dimensions.width || 50;
-        const height = dimensions.height || 25;
+        // Helper function to parse dimension strings like "100 mm" or numbers
+        const parseDimension = (value, defaultValue) => {
+            if (typeof value === 'number') return value;
+            if (typeof value === 'string') {
+                const parsed = parseFloat(value.replace(/[^0-9.]/g, ''));
+                return isNaN(parsed) ? defaultValue : parsed;
+            }
+            return defaultValue;
+        };
+
+        // Extract dimensions - handle various naming conventions
+        const length = parseDimension(dimensions.length || dimensions.height || dimensions.depth, 100);
+        const width = parseDimension(dimensions.width, 100);
+        const height = parseDimension(dimensions.height || dimensions.thickness || dimensions.depth, 25);
 
         console.log(`📐 Generating geometry: ${length}x${width}x${height} mm`);
 
@@ -722,7 +739,7 @@ Be precise, technical, and use mechanical engineering terminology.`;
                 x: length,
                 y: width,
                 z: height,
-                units: dimensions.units || 'mm'
+                units: 'mm'
             },
             volume: length * width * height,
             metadata: {
