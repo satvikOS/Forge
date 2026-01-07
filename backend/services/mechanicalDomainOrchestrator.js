@@ -504,6 +504,12 @@ class MechanicalDomainOrchestrator {
 
         const design = this.bedrockService.parseJSON(designSpec);
 
+        // Check if JSON parsing failed
+        if (!design) {
+            console.error('❌ Failed to parse design specification from AI response');
+            throw new Error('Failed to parse JSON from AI response. The AI may have returned malformed data.');
+        }
+
         // Validate design against mechanical engineering principles
         const validation = await this.validateMechanicalDesign(design, context);
 

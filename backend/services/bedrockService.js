@@ -648,8 +648,10 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
             // Try direct JSON parse first
             return JSON.parse(text);
         } catch (e) {
-            // Try to extract JSON from markdown code blocks
-            const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+            console.log('📝 Direct JSON parse failed, trying alternative extraction methods...');
+
+            // Try to extract JSON from markdown code blocks (non-greedy)
+            const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
             if (jsonMatch) {
                 try {
                     return JSON.parse(jsonMatch[1]);
@@ -658,19 +660,69 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
                 }
             }
 
-            // Try to find JSON object in text
-            const objectMatch = text.match(/\{[\s\S]*\}/);
-            if (objectMatch) {
+            // Try to find balanced JSON object by parsing character by character
+            const extracted = this.extractBalancedJSON(text);
+            if (extracted) {
                 try {
-                    return JSON.parse(objectMatch[0]);
+                    return JSON.parse(extracted);
                 } catch (e3) {
-                    console.error('Failed to parse JSON from text:', e3);
+                    console.error('Failed to parse extracted JSON:', e3);
+                    console.error('Extracted text (first 500 chars):', extracted.substring(0, 500));
                 }
             }
 
             console.error('Could not extract valid JSON from response');
+            console.error('Response text (first 500 chars):', text.substring(0, 500));
             return null;
         }
+    }
+
+    /**
+     * Extract balanced JSON object from text (handles nested braces correctly)
+     */
+    extractBalancedJSON(text) {
+        // Find the first opening brace
+        const startIndex = text.indexOf('{');
+        if (startIndex === -1) return null;
+
+        let braceCount = 0;
+        let inString = false;
+        let escapeNext = false;
+
+        for (let i = startIndex; i < text.length; i++) {
+            const char = text[i];
+
+            // Handle escape sequences
+            if (escapeNext) {
+                escapeNext = false;
+                continue;
+            }
+            if (char === '\\') {
+                escapeNext = true;
+                continue;
+            }
+
+            // Handle strings
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
+
+            // Only count braces outside of strings
+            if (!inString) {
+                if (char === '{') {
+                    braceCount++;
+                } else if (char === '}') {
+                    braceCount--;
+                    // When braces are balanced, we found the complete JSON
+                    if (braceCount === 0) {
+                        return text.substring(startIndex, i + 1);
+                    }
+                }
+            }
+        }
+
+        return null; // No balanced JSON found
     }
 
     /**
