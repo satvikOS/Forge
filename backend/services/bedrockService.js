@@ -650,21 +650,34 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
         } catch (e) {
             console.log('📝 Direct JSON parse failed, trying alternative extraction methods...');
 
-            // Try to extract JSON from markdown code blocks (non-greedy)
-            const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-            if (jsonMatch) {
-                try {
-                    return JSON.parse(jsonMatch[1]);
-                } catch (e2) {
-                    console.error('Failed to parse JSON from code block:', e2);
+            // Try to extract JSON from markdown code blocks
+            // Look for ```json or ``` followed by JSON
+            const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (codeBlockMatch) {
+                const codeBlockContent = codeBlockMatch[1].trim();
+                console.log('Found markdown code block, extracting JSON...');
+
+                // Use balanced JSON extraction on the code block content
+                const extracted = this.extractBalancedJSON(codeBlockContent);
+                if (extracted) {
+                    try {
+                        const parsed = JSON.parse(extracted);
+                        console.log('✅ Successfully parsed JSON from code block');
+                        return parsed;
+                    } catch (e2) {
+                        console.error('Failed to parse extracted JSON from code block:', e2);
+                    }
                 }
             }
 
             // Try to find balanced JSON object by parsing character by character
+            console.log('Attempting balanced JSON extraction from full text...');
             const extracted = this.extractBalancedJSON(text);
             if (extracted) {
                 try {
-                    return JSON.parse(extracted);
+                    const parsed = JSON.parse(extracted);
+                    console.log('✅ Successfully parsed JSON using balanced extraction');
+                    return parsed;
                 } catch (e3) {
                     console.error('Failed to parse extracted JSON:', e3);
                     console.error('Extracted text (first 500 chars):', extracted.substring(0, 500));
