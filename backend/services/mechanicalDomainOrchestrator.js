@@ -606,53 +606,134 @@ REQUIREMENTS:
 5. Apply safety factors and stress analysis principles
 6. Ensure design is manufacturable and cost-effective
 
-Return detailed JSON design specification with:
+Return detailed JSON design specification with COMPLETE 3D GEOMETRY:
 {
   "design": {
     "type": "part|assembly",
     "name": "descriptive name",
-    "geometry_type": "box|cylinder|sphere|cone|complex|assembly",
-    "base_shape": "description of primary shape",
     "materials": [{"component": "...", "material": "...", "justification": "..."}],
-    "dimensions": {
-      "overall": {"length": "100 mm", "width": "50 mm", "height": "25 mm"},
-      "features": [
-        {"type": "hole", "diameter": "10 mm", "depth": "15 mm", "location": "center"},
-        {"type": "fillet", "radius": "2 mm", "edges": "all vertical edges"},
-        {"type": "chamfer", "size": "1 mm", "edges": "top edges"}
-      ],
-      "specific": {
-        "radius": "25 mm (for cylinders/spheres)",
-        "inner_radius": "20 mm (for hollow parts)",
-        "segments": "16 (for curved surfaces)"
-      }
+    "dimensions": {"overall": {"length": "100 mm", "width": "50 mm", "height": "25 mm"}},
+    "geometry": {
+      "vertices": [[x,y,z], [x,y,z], ...],
+      "faces": [[i0,i1,i2], [i0,i1,i2], ...]
     },
     "manufacturing": {"primary_process": "...", "secondary_processes": []},
-    "standards": ["applicable standards"],
-    "components": [{"type": "...", "specification": "...", "quantity": 1}]
+    "standards": ["applicable standards"]
   },
   "analysis": {
-    "loads": {"type": "...", "magnitude": "...", "location": "..."},
-    "stress_analysis": {"max_stress": "...", "safety_factor": "..."},
-    "failure_modes": ["potential failure modes"],
-    "validation": "structural validation results"
+    "loads": {"type": "...", "magnitude": "..."},
+    "stress_analysis": {"max_stress": "...", "safety_factor": "..."}
   },
   "manufacturing": {
-    "process_sequence": ["step 1", "step 2", "..."],
-    "tolerances": {"feature": "tolerance"},
-    "surface_finish": "specification",
-    "estimated_cost": "cost estimate"
+    "process_sequence": ["step 1", "step 2"],
+    "tolerances": {},
+    "surface_finish": "specification"
   }
 }
 
-GEOMETRY GUIDELINES:
-- For simple box/rectangular parts: use geometry_type="box" with overall dimensions
-- For cylindrical parts (shafts, pins, tubes): use geometry_type="cylinder" with radius and height
-- For spherical parts (balls, domes): use geometry_type="sphere" with radius
-- For complex multi-feature parts: use geometry_type="complex" with detailed feature list
-- For assemblies: use geometry_type="assembly" with component list
+🔴 CRITICAL: YOU MUST GENERATE THE 3D GEOMETRY 🔴
 
-Be precise, technical, and use mechanical engineering terminology.`;
+The "geometry" field is MANDATORY and must contain:
+1. "vertices": Array of [x, y, z] 3D coordinates in millimeters
+2. "faces": Array of [i0, i1, i2] triangle vertex indices
+
+GEOMETRY GENERATION RULES:
+
+✅ Box/Rectangular Parts (brackets, plates, blocks):
+vertices: 8 corners of the box, centered at origin
+faces: 12 triangles (6 sides × 2 triangles each)
+Example 100×50×25mm box:
+"geometry": {
+  "vertices": [[-50,-25,0],[50,-25,0],[50,25,0],[-50,25,0],[-50,-25,25],[50,-25,25],[50,25,25],[-50,25,25]],
+  "faces": [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[2,3,7],[2,7,6],[0,4,7],[0,7,3],[1,2,6],[1,6,5]]
+}
+
+✅ Cylinders (shafts, pins, tubes, pulleys):
+Generate circular cross-sections using cos/sin with 32-48 segments
+vertices: bottom circle (z=0) + top circle (z=height) + 2 centers
+Example r=25mm, h=100mm, 32 segments (generate ALL 32 points):
+"geometry": {
+  "vertices": [
+    [25,0,0],[24.52,4.9,0],[23.1,9.57,0],[21,14,0],[18.3,17.7,0],[14.9,20.6,0],[10.9,22.7,0],[6.5,24,0],
+    [1.9,24.5,0],[-2.7,24,-0],[-7.1,22.7,0],[-11.3,20.6,0],[-14.9,17.7,0],[-17.9,14,0],[-20.2,9.57,0],[-21.7,4.9,0],
+    [-22.2,0,0],[-21.7,-4.9,0],[-20.2,-9.57,0],[-17.9,-14,0],[-14.9,-17.7,0],[-11.3,-20.6,0],[-7.1,-22.7,0],[-2.7,-24,0],
+    [1.9,-24.5,0],[6.5,-24,0],[10.9,-22.7,0],[14.9,-20.6,0],[18.3,-17.7,0],[21,-14,0],[23.1,-9.57,0],[24.52,-4.9,0],
+    [25,0,100],[24.52,4.9,100],...(repeat for top circle at z=100),[0,0,0],[0,0,100]
+  ],
+  "faces": [[0,1,33],[33,1,34],[1,2,34],...(side quads as 2 triangles),[64,1,0],[64,2,1],...(caps)]
+}
+
+✅ Spheres (balls, domes):
+UV sphere with latitude/longitude grid (16-24 segments)
+Example r=25mm, 16 segments:
+"geometry": {
+  "vertices": [
+    [0,0,25],(north pole)
+    [23.1,0,9.57],[21.65,8.68,9.57],[17.7,14.9,9.57],...(ring 1: 16 points),
+    [19.13,0,14.13],[17.9,7.19,14.13],...(ring 2: 16 points),
+    ...(more rings),
+    [0,0,-25](south pole)
+  ],
+  "faces": [[0,1,2],[0,2,3],...(triangulate grid)]
+}
+
+✅ Gears (spur gears, pulleys with teeth):
+Generate tooth profile using proper involute curve or simplified rectangular teeth
+Example 16-tooth gear, 50mm diameter:
+"geometry": {
+  "vertices": [
+    (for each tooth: outer tip, valley, repeat 16 times around circle)
+    (use r_outer=25mm for tips, r_inner=22mm for valleys)
+    [25,0,0],[24,2.5,0],[22,2.5,0],[24,5,0],[25,7.1,0],...(tooth profile),
+    (extrude to thickness: repeat all vertices at z=10mm)
+  ],
+  "faces": [(connect teeth profiles, add top/bottom caps, side walls)]
+}
+
+✅ Cones (tapered parts):
+Apex at top + circular base
+Example r=25mm, h=100mm, 32 segments:
+"geometry": {
+  "vertices": [
+    [0,0,100],(apex)
+    [25,0,0],[24.52,4.9,0],...(32 base circle points),
+    [0,0,0](base center)
+  ],
+  "faces": [[0,1,2],[0,2,3],...(side triangles),[33,2,1],[33,3,2],...(base cap)]
+}
+
+✅ Complex Parts (brackets with holes, multi-feature):
+1. Generate base shape first
+2. For holes: generate inner circle vertices and connect to create hole
+3. For multiple features: combine all vertices and faces
+Example bracket with mounting hole:
+"geometry": {
+  "vertices": [
+    (outer bracket box vertices: indices 0-7)
+    (inner hole circle vertices: indices 8-39, 32 points forming circle)
+  ],
+  "faces": [
+    (outer box faces excluding hole area)
+    (hole perimeter connecting inner circle to outer box)
+  ]
+}
+
+CALCULATION FORMULAS:
+- Circle point: x = r * cos(θ), y = r * sin(θ), θ = 2πi/segments
+- Use 32-48 segments for cylinders/circles (more = smoother)
+- Use 16-24 segments for spheres
+- Always triangulate: no quads, split into 2 triangles
+- Center at origin: helps with scaling and positioning
+- Use millimeters for all coordinates
+
+IMPORTANT REMINDERS:
+- Generate ACTUAL numeric arrays, not "..." placeholders
+- All face indices must be valid (0 ≤ index < vertices.length)
+- Use right-hand rule for face winding (counter-clockwise when viewed from outside)
+- Include complete arrays (don't abbreviate with ...)
+- If unsure of exact geometry, generate a reasonable approximation
+
+Be precise, generate complete geometry arrays, and use proper mechanical engineering terminology.`;
 
         return enhancedPrompt;
     }
