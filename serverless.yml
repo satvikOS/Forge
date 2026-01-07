@@ -63,8 +63,12 @@ provider:
             - bedrock:InvokeModel
             - bedrock:InvokeModelWithResponseStream
           Resource:
-            - arn:aws:bedrock:${self:provider.region}::foundation-model/*
+            # Allow inference profile in source region
             - !Sub arn:aws:bedrock:${self:provider.region}:${AWS::AccountId}:inference-profile/*
+            # Allow foundation models in all destination regions (us-east-1, us-east-2, us-west-2)
+            - arn:aws:bedrock:us-east-1::foundation-model/*
+            - arn:aws:bedrock:us-east-2::foundation-model/*
+            - arn:aws:bedrock:us-west-2::foundation-model/*
         - Effect: Allow
           Action:
             - aws-marketplace:ViewSubscriptions
