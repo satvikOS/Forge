@@ -26,6 +26,13 @@ jobs:
           npm install -g serverless
           cd backend && npm install --production
 
+      - name: Verify setup
+        run: |
+          echo "✓ Serverless version: $(serverless --version)"
+          echo "✓ Node version: $(node --version)"
+          echo "✓ Backend dependencies installed"
+          ls -la backend/node_modules | head -5
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -35,9 +42,12 @@ jobs:
 
       - name: Deploy to AWS Lambda
         run: |
+          echo "🚀 Starting deployment..."
           serverless deploy --stage dev --verbose
         env:
           SLS_TELEMETRY_DISABLED: 1
+          SLS_DEPRECATION_DISABLE: '*'
+          SERVERLESS_ACCESS_KEY: ''
 
       - name: Deployment Summary
         run: |
