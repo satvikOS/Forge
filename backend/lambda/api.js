@@ -78,8 +78,9 @@ app.get('/api/test', (req, res) => {
     res.json({
         success: true,
         message: 'ArchDisc API is working!',
-        version: '2.0.0',
-        features: ['autonomous_ai_agent', 'bedrock_integration', 'job_queue'],
+        version: '2.1.0-json-fix',
+        deployed: new Date().toISOString(),
+        features: ['autonomous_ai_agent', 'bedrock_integration', 'job_queue', 'ai_geometry_generation', 'axel_engine'],
         endpoints: [
             '/api/health',
             '/api/test',

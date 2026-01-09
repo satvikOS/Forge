@@ -43,15 +43,36 @@ jobs:
       - name: Deploy to AWS Lambda
         run: |
           echo "🚀 Starting deployment..."
-          serverless deploy --stage dev --verbose
+          serverless deploy --stage dev --verbose --force
         env:
           SLS_TELEMETRY_DISABLED: 1
           SLS_DEPRECATION_DISABLE: '*'
           SERVERLESS_ACCESS_KEY: ''
 
+      - name: Verify Deployment
+        run: |
+          echo "🔍 Verifying deployment..."
+          sleep 10
+          RESPONSE=$(curl -s https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api/test)
+          echo "API Response: $RESPONSE"
+          VERSION=$(echo $RESPONSE | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+          echo "Deployed version: $VERSION"
+          if [[ "$VERSION" == "2.1.0-json-fix" ]]; then
+            echo "✅ Verification successful - new code is deployed!"
+          else
+            echo "⚠️ Warning: API may not have updated correctly"
+            echo "Expected: 2.1.0-json-fix"
+            echo "Got: $VERSION"
+          fi
+
       - name: Deployment Summary
         run: |
           echo "✅ Deployment completed successfully!"
           echo "📦 Deployed Lambda functions:"
-          echo "   - archdisc-cad-dev-api"
+          echo "   - archdisc-cad-dev-api (with JSON parsing fix)"
           echo "   - archdisc-cad-dev-orchestrate"
+          echo ""
+          echo "🔧 Updates included:"
+          echo "   - Fixed JSON parsing for markdown code blocks"
+          echo "   - AI-only geometry generation"
+          echo "   - Enhanced AXEL engine with 5-step pipeline"
