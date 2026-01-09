@@ -645,47 +645,68 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
      */
     parseJSON(text) {
         try {
+            // Validate input
+            if (!text || typeof text !== 'string') {
+                console.error('❌ Invalid input to parseJSON:', typeof text);
+                return null;
+            }
+
             // Try direct JSON parse first
-            return JSON.parse(text);
-        } catch (e) {
-            console.log('📝 Direct JSON parse failed, trying alternative extraction methods...');
+            try {
+                return JSON.parse(text);
+            } catch (directParseError) {
+                console.log('📝 Direct JSON parse failed, trying alternative extraction methods...');
+            }
 
             // Try to extract JSON from markdown code blocks
             // Look for ```json or ``` followed by JSON
-            const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-            if (codeBlockMatch) {
-                const codeBlockContent = codeBlockMatch[1].trim();
-                console.log('Found markdown code block, extracting JSON...');
+            try {
+                const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (codeBlockMatch) {
+                    const codeBlockContent = codeBlockMatch[1].trim();
+                    console.log('Found markdown code block, extracting JSON...');
 
-                // Use balanced JSON extraction on the code block content
-                const extracted = this.extractBalancedJSON(codeBlockContent);
-                if (extracted) {
-                    try {
-                        const parsed = JSON.parse(extracted);
-                        console.log('✅ Successfully parsed JSON from code block');
-                        return parsed;
-                    } catch (e2) {
-                        console.error('Failed to parse extracted JSON from code block:', e2);
+                    // Use balanced JSON extraction on the code block content
+                    const extracted = this.extractBalancedJSON(codeBlockContent);
+                    if (extracted) {
+                        try {
+                            const parsed = JSON.parse(extracted);
+                            console.log('✅ Successfully parsed JSON from code block');
+                            return parsed;
+                        } catch (e2) {
+                            console.error('Failed to parse extracted JSON from code block:', e2.message);
+                        }
                     }
                 }
+            } catch (codeBlockError) {
+                console.error('Error during markdown extraction:', codeBlockError.message);
             }
 
             // Try to find balanced JSON object by parsing character by character
-            console.log('Attempting balanced JSON extraction from full text...');
-            const extracted = this.extractBalancedJSON(text);
-            if (extracted) {
-                try {
-                    const parsed = JSON.parse(extracted);
-                    console.log('✅ Successfully parsed JSON using balanced extraction');
-                    return parsed;
-                } catch (e3) {
-                    console.error('Failed to parse extracted JSON:', e3);
-                    console.error('Extracted text (first 500 chars):', extracted.substring(0, 500));
+            try {
+                console.log('Attempting balanced JSON extraction from full text...');
+                const extracted = this.extractBalancedJSON(text);
+                if (extracted) {
+                    try {
+                        const parsed = JSON.parse(extracted);
+                        console.log('✅ Successfully parsed JSON using balanced extraction');
+                        return parsed;
+                    } catch (e3) {
+                        console.error('Failed to parse extracted JSON:', e3.message);
+                        console.error('Extracted text (first 500 chars):', extracted.substring(0, 500));
+                    }
                 }
+            } catch (balancedError) {
+                console.error('Error during balanced extraction:', balancedError.message);
             }
 
             console.error('Could not extract valid JSON from response');
             console.error('Response text (first 500 chars):', text.substring(0, 500));
+            return null;
+
+        } catch (outerError) {
+            console.error('💥 Critical error in parseJSON:', outerError.message);
+            console.error('Stack:', outerError.stack);
             return null;
         }
     }
@@ -694,48 +715,61 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
      * Extract balanced JSON object from text (handles nested braces correctly)
      */
     extractBalancedJSON(text) {
-        // Find the first opening brace
-        const startIndex = text.indexOf('{');
-        if (startIndex === -1) return null;
-
-        let braceCount = 0;
-        let inString = false;
-        let escapeNext = false;
-
-        for (let i = startIndex; i < text.length; i++) {
-            const char = text[i];
-
-            // Handle escape sequences
-            if (escapeNext) {
-                escapeNext = false;
-                continue;
-            }
-            if (char === '\\') {
-                escapeNext = true;
-                continue;
+        try {
+            // Validate input
+            if (!text || typeof text !== 'string') {
+                return null;
             }
 
-            // Handle strings
-            if (char === '"') {
-                inString = !inString;
-                continue;
-            }
+            // Find the first opening brace
+            const startIndex = text.indexOf('{');
+            if (startIndex === -1) return null;
 
-            // Only count braces outside of strings
-            if (!inString) {
-                if (char === '{') {
-                    braceCount++;
-                } else if (char === '}') {
-                    braceCount--;
-                    // When braces are balanced, we found the complete JSON
-                    if (braceCount === 0) {
-                        return text.substring(startIndex, i + 1);
+            let braceCount = 0;
+            let inString = false;
+            let escapeNext = false;
+
+            // Limit iteration to prevent infinite loops
+            const maxLength = Math.min(text.length, 500000); // 500KB max
+
+            for (let i = startIndex; i < maxLength; i++) {
+                const char = text[i];
+
+                // Handle escape sequences
+                if (escapeNext) {
+                    escapeNext = false;
+                    continue;
+                }
+                if (char === '\\') {
+                    escapeNext = true;
+                    continue;
+                }
+
+                // Handle strings
+                if (char === '"') {
+                    inString = !inString;
+                    continue;
+                }
+
+                // Only count braces outside of strings
+                if (!inString) {
+                    if (char === '{') {
+                        braceCount++;
+                    } else if (char === '}') {
+                        braceCount--;
+                        // When braces are balanced, we found the complete JSON
+                        if (braceCount === 0) {
+                            return text.substring(startIndex, i + 1);
+                        }
                     }
                 }
             }
-        }
 
-        return null; // No balanced JSON found
+            return null; // No balanced JSON found
+        } catch (error) {
+            console.error('💥 Error in extractBalancedJSON:', error.message);
+            return null;
+        }
     }
 
     /**

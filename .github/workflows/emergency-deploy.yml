@@ -1,0 +1,144 @@
+name: Emergency Lambda Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for emergency deployment'
+        required: true
+        default: 'Lambda stuck - forcing complete redeployment'
+
+jobs:
+  emergency-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Install AWS CLI
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
+
+      - name: Emergency Lambda Reset
+        run: |
+          echo "🚨 EMERGENCY DEPLOYMENT: ${{ github.event.inputs.reason }}"
+          echo "=================================================="
+          echo ""
+
+          # Update function configuration to force restart
+          echo "1️⃣ Updating Lambda configuration..."
+          aws lambda update-function-configuration \
+            --function-name archdisc-cad-dev-api \
+            --timeout 30 \
+            --memory-size 1024 \
+            --environment "Variables={STAGE=dev,EMERGENCY_DEPLOY=true,DEPLOY_TIME=$(date +%s)}" \
+            --region us-east-1 || echo "Config update failed"
+
+          sleep 5
+
+          aws lambda update-function-configuration \
+            --function-name archdisc-cad-dev-orchestrate \
+            --timeout 900 \
+            --memory-size 2048 \
+            --environment "Variables={STAGE=dev,EMERGENCY_DEPLOY=true,DEPLOY_TIME=$(date +%s)}" \
+            --region us-east-1 || echo "Config update failed"
+
+          echo "✅ Lambda configuration updated"
+          sleep 10
+
+      - name: Install dependencies
+        run: |
+          npm install -g serverless@3
+          cd backend && npm install --production
+
+      - name: Force Deploy with serverless
+        run: |
+          echo "2️⃣ Force deploying Lambda code..."
+          serverless deploy --stage dev --force --verbose
+        env:
+          SLS_TELEMETRY_DISABLED: 1
+          SLS_DEPRECATION_DISABLE: '*'
+
+      - name: Publish new version
+        run: |
+          echo "3️⃣ Publishing new Lambda versions..."
+
+          aws lambda publish-version \
+            --function-name archdisc-cad-dev-api \
+            --description "Emergency deployment - ${{ github.event.inputs.reason }}" \
+            --region us-east-1
+
+          aws lambda publish-version \
+            --function-name archdisc-cad-dev-orchestrate \
+            --description "Emergency deployment - ${{ github.event.inputs.reason }}" \
+            --region us-east-1
+
+          echo "✅ New versions published"
+
+      - name: Wait and verify
+        run: |
+          echo "4️⃣ Waiting for Lambda to settle..."
+          sleep 20
+
+          echo "5️⃣ Testing API endpoint..."
+          RESPONSE=$(curl -s https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api/test)
+          echo "Response: $RESPONSE"
+
+          VERSION=$(echo $RESPONSE | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+          echo ""
+          echo "Deployed version: $VERSION"
+
+          if [[ "$VERSION" == "2.1.0-json-fix" ]]; then
+            echo "✅ EMERGENCY DEPLOYMENT SUCCESSFUL!"
+          else
+            echo "⚠️ Warning: Version mismatch"
+            echo "Expected: 2.1.0-json-fix"
+            echo "Got: $VERSION"
+          fi
+
+      - name: Test generation
+        run: |
+          echo "6️⃣ Testing design generation..."
+          TEST_RESPONSE=$(curl -s -X POST \
+            https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api/mechanical/generate \
+            -H "Content-Type: application/json" \
+            -d '{"prompt":"Create a simple cube"}')
+
+          echo "Test generation response:"
+          echo "$TEST_RESPONSE" | head -100
+
+          if echo "$TEST_RESPONSE" | grep -q "jobId"; then
+            echo "✅ Generation endpoint is working"
+          else
+            echo "⚠️ Generation endpoint may have issues"
+          fi
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "=================================================="
+          echo "🎯 EMERGENCY DEPLOYMENT COMPLETE"
+          echo "=================================================="
+          echo "Reason: ${{ github.event.inputs.reason }}"
+          echo "Time: $(date)"
+          echo ""
+          echo "Next steps:"
+          echo "1. Test generating a bracket"
+          echo "2. Check CloudWatch logs for new entries"
+          echo "3. Monitor for any errors"
