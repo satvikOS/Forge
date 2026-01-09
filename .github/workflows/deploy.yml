@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install -g serverless
+          npm install -g serverless@3
           cd backend && npm install --production
 
       - name: Verify setup
