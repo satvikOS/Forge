@@ -32,6 +32,15 @@ jobs:
           echo "✓ Node version: $(node --version)"
           echo "✓ Backend dependencies installed"
           ls -la backend/node_modules | head -5
+          echo ""
+          echo "🔍 Checking critical file updates:"
+          echo "   bedrockService.js modified: $(stat -c %y backend/services/bedrockService.js)"
+          echo "   Checking for JSON parsing fix..."
+          if grep -q "Found markdown code block, extracting JSON" backend/services/bedrockService.js; then
+            echo "   ✅ JSON parsing fix is present in source"
+          else
+            echo "   ❌ WARNING: JSON parsing fix NOT found in source!"
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -43,7 +52,19 @@ jobs:
       - name: Deploy to AWS Lambda
         run: |
           echo "🚀 Starting deployment..."
-          serverless deploy --stage dev --verbose --force
+          echo "📋 Deployment configuration:"
+          echo "   Stage: dev"
+          echo "   Region: us-east-1"
+          echo "   Force: true"
+          echo ""
+          serverless deploy --stage dev --verbose --force 2>&1 | tee deploy.log
+          echo ""
+          echo "📊 Deployment completed, checking artifacts..."
+          if [ -f .serverless/archdisc-cad.zip ]; then
+            echo "   Package size: $(du -h .serverless/archdisc-cad.zip | cut -f1)"
+            echo "   Checking package contents..."
+            unzip -l .serverless/archdisc-cad.zip | grep "bedrockService.js" || echo "   ⚠️ bedrockService.js not found in package!"
+          fi
         env:
           SLS_TELEMETRY_DISABLED: 1
           SLS_DEPRECATION_DISABLE: '*'
@@ -52,17 +73,25 @@ jobs:
       - name: Verify Deployment
         run: |
           echo "🔍 Verifying deployment..."
-          sleep 10
-          RESPONSE=$(curl -s https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api/test)
-          echo "API Response: $RESPONSE"
+          echo "   Waiting for Lambda to update..."
+          sleep 15
+          echo ""
+          echo "📡 Testing API endpoint..."
+          RESPONSE=$(curl -s https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api/test || echo '{"error":"failed"}')
+          echo "   Response: $RESPONSE"
+          echo ""
           VERSION=$(echo $RESPONSE | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
-          echo "Deployed version: $VERSION"
+          echo "   Deployed version: $VERSION"
+          echo "   Expected version: 2.1.0-json-fix"
+          echo ""
           if [[ "$VERSION" == "2.1.0-json-fix" ]]; then
-            echo "✅ Verification successful - new code is deployed!"
+            echo "✅ Verification SUCCESSFUL - New code is deployed!"
+            echo "   The JSON parsing fix is now live!"
           else
-            echo "⚠️ Warning: API may not have updated correctly"
-            echo "Expected: 2.1.0-json-fix"
-            echo "Got: $VERSION"
+            echo "❌ Verification FAILED"
+            echo "   Lambda may still be running old code"
+            echo "   This could indicate a Lambda caching or versioning issue"
+            exit 1
           fi
 
       - name: Deployment Summary
