@@ -47,7 +47,8 @@ class BedrockService {
             this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
 
             // Generation parameters
-            this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '4096');
+            // Increased to 8192 for complex CAD geometry generation (gears with many teeth, etc.)
+            this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '8192');
             this.temperature = parseFloat(process.env.BEDROCK_TEMPERATURE || '0.7');
 
             console.log(`✅ AWS Bedrock service initialized`);
