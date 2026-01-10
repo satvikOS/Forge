@@ -644,6 +644,9 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
      * Parse JSON from AI response (handles markdown code blocks)
      */
     parseJSON(text) {
+        // VERSION STAMP - DO NOT REMOVE
+        console.log('🔥🔥🔥 parseJSON VERSION 2.1.0-json-fix-DEPLOYED-JAN9-2026 🔥🔥🔥');
+
         try {
             // Validate input
             if (!text || typeof text !== 'string') {
