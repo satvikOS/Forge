@@ -23,6 +23,7 @@ export function ViewportProvider({ children }) {
     const [camera, setCamera] = useState(null);
     const [renderer, setRenderer] = useState(null);
     const [controls, setControls] = useState(null);
+    const [wireframeMode, setWireframeMode] = useState('off'); // 'off', 'solid', 'transparent'
 
     // Register the viewport scene (called by Viewport3D on mount)
     const registerViewport = useCallback((viewportData) => {
@@ -99,15 +100,60 @@ export function ViewportProvider({ children }) {
         console.log('🗑️  Cleared all generated geometry');
     }, [scene]);
 
+    // Toggle wireframe mode
+    const toggleWireframeMode = useCallback((mode) => {
+        if (!scene) return;
+
+        setWireframeMode(mode);
+
+        // Update all meshes in the scene
+        scene.traverse((object) => {
+            if (object.isMesh && object.material) {
+                const material = object.material;
+
+                switch(mode) {
+                    case 'solid':
+                        // Solid wireframe mode
+                        material.wireframe = true;
+                        material.transparent = false;
+                        material.opacity = 1.0;
+                        console.log('🔲 Solid wireframe mode enabled');
+                        break;
+
+                    case 'transparent':
+                        // Transparent wireframe mode (see-through)
+                        material.wireframe = true;
+                        material.transparent = true;
+                        material.opacity = 0.3;
+                        console.log('👻 Transparent wireframe mode enabled');
+                        break;
+
+                    case 'off':
+                    default:
+                        // Normal solid rendering
+                        material.wireframe = false;
+                        material.transparent = false;
+                        material.opacity = 1.0;
+                        console.log('🎨 Normal rendering mode enabled');
+                        break;
+                }
+
+                material.needsUpdate = true;
+            }
+        });
+    }, [scene]);
+
     const value = {
         scene,
         camera,
         renderer,
         controls,
+        wireframeMode,
         registerViewport,
         addGeometry,
         removeGeometry,
         clearGeneratedGeometry,
+        toggleWireframeMode,
         isReady: !!scene
     };
 

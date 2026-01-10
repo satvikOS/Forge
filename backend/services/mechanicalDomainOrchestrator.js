@@ -544,13 +544,22 @@ class MechanicalDomainOrchestrator {
      * Create enhanced prompt with domain knowledge
      */
     createEnhancedPrompt(prompt, context) {
-        let enhancedPrompt = `You are an EXPERT MECHANICAL ENGINEER with deep knowledge of:
-- Materials science and properties
-- Manufacturing processes and constraints
-- Engineering standards (ISO, ASME, DIN)
-- Structural analysis and stress calculations
-- Design for manufacturing (DFM)
-- Failure modes and safety factors
+        let enhancedPrompt = `You are a SENIOR MECHANICAL ENGINEER AND MANUFACTURING SPECIALIST with 20+ years of experience in:
+- Precision mechanical design and CAD modeling
+- Materials science and metallurgy
+- CNC machining, casting, forging, and additive manufacturing
+- ISO 286 (tolerances), ISO 1302 (surface finish), ISO 2768 (general tolerances)
+- ANSI/ASME Y14.5 (GD&T), ANSI B1.1 (threads)
+- DIN 7168 (general tolerances), DIN 332 (center drills)
+- AGMA gear standards, involute gear tooth profiles
+- Structural analysis, FEA, and safety factors per DIN 743
+- Design for Manufacturing (DFM) and Design for Assembly (DFA)
+- Production-grade engineering with zero-defect manufacturing mindset
+
+🏭 PRODUCTION MINDSET:
+You are designing parts for ACTUAL MANUFACTURING, not conceptual models.
+Every dimension, feature, and tolerance MUST be production-ready and compliant with global standards.
+Act like you're submitting drawings to a machine shop that will manufacture 1000+ units.
 
 User Request: "${prompt}"
 
@@ -637,6 +646,55 @@ The "geometry" field is MANDATORY and must contain:
 1. "vertices": Array of [x, y, z] 3D coordinates in millimeters
 2. "faces": Array of [i0, i1, i2] triangle vertex indices
 
+⚙️ PRECISION MANUFACTURING REQUIREMENTS ⚙️
+
+ABSOLUTE REQUIREMENTS - FOLLOW THESE RULES EXACTLY:
+
+1. **EXACT TOOTH COUNT FOR GEARS**:
+   - If user specifies "96-tooth gear", you MUST generate EXACTLY 96 teeth, not approximately
+   - Calculate proper gear geometry: Module (m), Pitch Diameter (PD = m × N), Addendum (m), Dedendum (1.25m)
+   - Use involute tooth profile or simplified trapezoidal teeth with proper clearance
+   - Standard modules (ISO 54): 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25mm
+   - Pressure angle: 20° (standard) or 14.5° (older)
+   - Example: 96-tooth gear, module 2mm → PD=192mm, OD=196mm, tooth height=4.5mm
+
+2. **STANDARD DIMENSIONS**:
+   - Use ISO preferred numbers (Renard series): 10, 12, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125, 160, 200mm
+   - Shaft diameters: 6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 50, 60, 70, 80, 100mm (ISO 286)
+   - Hole sizes for bolts: M3→3.4mm, M4→4.5mm, M5→5.5mm, M6→6.6mm, M8→9mm, M10→11mm, M12→13.5mm
+   - Thread sizes: M2, M2.5, M3, M4, M5, M6, M8, M10, M12, M16, M20 (ISO metric)
+
+3. **TOLERANCES (ISO 2768-m Medium Grade)**:
+   - Linear dimensions 0.5-3mm: ±0.1mm
+   - Linear dimensions 3-6mm: ±0.1mm
+   - Linear dimensions 6-30mm: ±0.2mm
+   - Linear dimensions 30-120mm: ±0.3mm
+   - Linear dimensions 120-400mm: ±0.5mm
+   - Angular: ±0.5° for lengths ≤10mm, ±0.25° for lengths >10mm
+
+4. **MINIMUM FEATURE SIZES (ISO 286 / DIN 7168)**:
+   - Minimum wall thickness: 1.0mm (casting), 0.8mm (machining), 1.2mm (3D printing)
+   - Minimum hole diameter: 0.5mm (drilling), 3mm (standard bolt holes)
+   - Minimum fillet radius: 0.5mm (sharp edges), 1mm (standard), 2-3mm (casting)
+   - Minimum thread depth: 1.5 × diameter (steel), 2 × diameter (aluminum)
+
+5. **SURFACE FINISH (ISO 1302)**:
+   - Ra 1.6μm (N7): General machined surfaces
+   - Ra 0.8μm (N6): Precision fits
+   - Ra 0.4μm (N5): Ground surfaces, bearing seats
+   - Ra 12.5μm (N9): Cast or rough machined
+
+6. **MECHANICAL PROPERTIES**:
+   - Apply proper safety factors: 1.5-2 (static), 2-4 (dynamic), 3-6 (shock loads)
+   - Calculate based on material: Steel (S355): σ_y=355 MPa, Aluminum 6061-T6: σ_y=276 MPa
+   - Check stress concentrations at corners (use fillets), holes, and threads
+
+7. **MANUFACTURING CONSTRAINTS**:
+   - CNC Milling: Min internal radius = tool radius (3mm standard endmill)
+   - Turning/Lathe: Can't create internal features without secondary operations
+   - Casting: Requires draft angles (1-3°), no sharp internal corners
+   - 3D Printing (FDM): Min wall 1.2mm, max overhang 45°, support structures needed
+
 GEOMETRY GENERATION RULES:
 
 ✅ Box/Rectangular Parts (brackets, plates, blocks):
@@ -648,20 +706,44 @@ Example 100×50×25mm box:
   "faces": [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[2,3,7],[2,7,6],[0,4,7],[0,7,3],[1,2,6],[1,6,5]]
 }
 
-✅ Cylinders (shafts, pins, tubes, pulleys):
-Generate circular cross-sections using cos/sin with 32-48 segments
+✅ Cylinders/Shafts (shafts, pins, tubes, pulleys) - INDUSTRY STANDARD:
+**Use STANDARD SHAFT DIAMETERS** (ISO 286):
+- 6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 50, 60, 70, 80, 100mm
+- Length-to-diameter ratio: typically 3:1 to 20:1 for rigidity
+
+Generate circular cross-sections using cos/sin with 48 segments (smoother than 32)
 vertices: bottom circle (z=0) + top circle (z=height) + 2 centers
-Example r=25mm, h=100mm, 32 segments (generate ALL 32 points):
+
+Example: 25mm diameter × 100mm length shaft (L/D = 4:1, good rigidity), 48 segments:
 "geometry": {
   "vertices": [
-    [25,0,0],[24.52,4.9,0],[23.1,9.57,0],[21,14,0],[18.3,17.7,0],[14.9,20.6,0],[10.9,22.7,0],[6.5,24,0],
-    [1.9,24.5,0],[-2.7,24,-0],[-7.1,22.7,0],[-11.3,20.6,0],[-14.9,17.7,0],[-17.9,14,0],[-20.2,9.57,0],[-21.7,4.9,0],
-    [-22.2,0,0],[-21.7,-4.9,0],[-20.2,-9.57,0],[-17.9,-14,0],[-14.9,-17.7,0],[-11.3,-20.6,0],[-7.1,-22.7,0],[-2.7,-24,0],
-    [1.9,-24.5,0],[6.5,-24,0],[10.9,-22.7,0],[14.9,-20.6,0],[18.3,-17.7,0],[21,-14,0],[23.1,-9.57,0],[24.52,-4.9,0],
-    [25,0,100],[24.52,4.9,100],...(repeat for top circle at z=100),[0,0,0],[0,0,100]
+    # Bottom circle (z=0): 48 points at r=12.5mm (diameter/2)
+    # For i=0 to 47: θ = 2πi/48
+    # [12.5×cos(θ), 12.5×sin(θ), 0]
+    [12.5,0,0],[12.4,1.64,0],[12.1,3.26,0],[11.6,4.84,0],[10.8,6.35,0],...(all 48 points)
+
+    # Top circle (z=100): repeat all 48 points at z=100
+    [12.5,0,100],[12.4,1.64,100],...(all 48 points)
+
+    # Center points for end caps
+    [0,0,0],[0,0,100]
   ],
-  "faces": [[0,1,33],[33,1,34],[1,2,34],...(side quads as 2 triangles),[64,1,0],[64,2,1],...(caps)]
+  "faces": [
+    # Side wall: 48 quads × 2 triangles = 96 triangles
+    # Bottom cap: 48 triangles from center[96] to perimeter
+    # Top cap: 48 triangles from center[97] to perimeter
+    # Total: 192 triangles
+  ]
 }
+
+**Features to Add**:
+- Chamfers: 1mm×45° on both ends (ISO 13715) for assembly ease
+- Keyway: ISO 6885 (e.g., 8mm wide × 4mm deep × 20mm long for 25mm shaft)
+- Center holes: ISO 866 (for lathe turning, conical holes on ends)
+- Surface finish: Ra 1.6μm (ISO 1302) for bearing seats
+- Tolerance: h6 for press fits, h7 for sliding fits (ISO 286)
+
+**Hollow Shaft** (tube): Generate inner and outer circles, connect with quad strips
 
 ✅ Spheres (balls, domes):
 UV sphere with latitude/longitude grid (16-24 segments)
@@ -677,18 +759,45 @@ Example r=25mm, 16 segments:
   "faces": [[0,1,2],[0,2,3],...(triangulate grid)]
 }
 
-✅ Gears (spur gears, pulleys with teeth):
-Generate tooth profile using proper involute curve or simplified rectangular teeth
-Example 16-tooth gear, 50mm diameter:
+✅ Gears (spur gears, pulleys with teeth) - PRODUCTION GRADE:
+**CRITICAL**: Generate EXACT tooth count as specified (e.g., "96 teeth" → EXACTLY 96 teeth)
+
+Standard Gear Formulas (ISO 54):
+- Pitch Diameter (PD) = Module × Number of Teeth
+- Outside Diameter (OD) = PD + 2 × Module
+- Root Diameter (RD) = PD - 2.5 × Module
+- Tooth Height = 2.25 × Module
+- Tooth Thickness at PD = (π × Module) / 2
+
+Example: 96-tooth spur gear, Module 2mm, Thickness 10mm:
+- PD = 2 × 96 = 192mm, OD = 196mm, RD = 187mm
+- Generate EXACTLY 96 teeth (NOT approximately!)
+- Each tooth: 4 vertices (tip outer, tip inner, root inner, root outer) × 2 faces (front/back)
+- Tooth profile: trapezoidal with 20° pressure angle
 "geometry": {
   "vertices": [
-    (for each tooth: outer tip, valley, repeat 16 times around circle)
-    (use r_outer=25mm for tips, r_inner=22mm for valleys)
-    [25,0,0],[24,2.5,0],[22,2.5,0],[24,5,0],[25,7.1,0],...(tooth profile),
-    (extrude to thickness: repeat all vertices at z=10mm)
+    # Front face (z=0): 96 teeth × 4 vertices/tooth = 384 vertices
+    # For tooth i (i=0 to 95):
+    # θ = 2πi/96
+    # Outer tip: [98×cos(θ), 98×sin(θ), 0]
+    # Inner tip: [96×cos(θ+0.025), 96×sin(θ+0.025), 0]
+    # Inner root: [93.5×cos(θ+0.035), 93.5×sin(θ+0.035), 0]
+    # Outer root: [93.5×cos(θ+0.06), 93.5×sin(θ+0.06), 0]
+
+    # Back face (z=10): repeat all 384 vertices at z=10
+    # Center points: [0,0,0], [0,0,10]
   ],
-  "faces": [(connect teeth profiles, add top/bottom caps, side walls)]
+  "faces": [
+    # Side walls: connect front to back for each tooth edge
+    # Front cap: triangulate from center to tooth inner edges
+    # Back cap: triangulate from center to tooth inner edges
+    # Total: ~768 triangles for 96-tooth gear
+  ]
 }
+
+**Simplified Shaft/Hub**: Add central hole (e.g., 20mm diameter, 32 segments)
+**Keyway**: Add rectangular slot (ISO 6885) if power transmission needed
+**Chamfers**: 0.5mm×45° on outer edges for safety
 
 ✅ Cones (tapered parts):
 Apex at top + circular base

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Viewport3D from '../../components/Viewport3D';
+import { useViewport } from '../../contexts/ViewportContext';
 import {
     Mouse, Move, Pencil, Box, Layers, RotateCcw, ZoomIn, Home,
     Settings, History, Save, Circle, Square, Minus, ArrowUpDown,
@@ -14,12 +15,37 @@ import './WorkbenchMechanical.css';
  * Industry Standard: SolidWorks, Siemens NX, CATIA
  */
 function WorkbenchMechanical() {
+    const viewport = useViewport();
     const [aiPrompt, setAiPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeDropdown, setActiveDropdown] = useState(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
     const [contextMenu, setContextMenu] = useState(null);
     const buttonRefs = React.useRef({});
+
+    // Wireframe mode toggle handler
+    const handleWireframeToggle = () => {
+        if (!viewport || !viewport.toggleWireframeMode) return;
+
+        const currentMode = viewport.wireframeMode || 'off';
+        let nextMode;
+
+        // Cycle through: off → solid → transparent → off
+        switch(currentMode) {
+            case 'off':
+                nextMode = 'solid';
+                break;
+            case 'solid':
+                nextMode = 'transparent';
+                break;
+            case 'transparent':
+            default:
+                nextMode = 'off';
+                break;
+        }
+
+        viewport.toggleWireframeMode(nextMode);
+    };
 
     // AI Design Generation
     const handleGenerateDesign = async () => {
@@ -924,6 +950,35 @@ function WorkbenchMechanical() {
                 }}
             >
                 <Viewport3D canvasId="render-canvas-mechanical" domain="mechanical" />
+
+                {/* Wireframe Toggle Button - Top Right Corner */}
+                <button
+                    onClick={handleWireframeToggle}
+                    style={{
+                        position: 'absolute',
+                        top: '16px',
+                        right: '16px',
+                        backgroundColor: viewport?.wireframeMode !== 'off' ? 'rgba(74, 144, 226, 0.3)' : 'rgba(26, 26, 26, 0.9)',
+                        border: `1px solid ${viewport?.wireframeMode !== 'off' ? 'rgba(74, 144, 226, 0.5)' : 'rgba(255, 255, 255, 0.1)'}`,
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: '#e0e0e0',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '13px',
+                        backdropFilter: 'blur(10px)',
+                        zIndex: 100,
+                        transition: 'all 0.2s'
+                    }}
+                    title="Toggle Wireframe (W) - Cycles: Off → Solid → Transparent"
+                >
+                    <span>{viewport?.wireframeMode === 'off' ? '◼' : viewport?.wireframeMode === 'solid' ? '▦' : '▢'}</span>
+                    <span style={{ fontSize: '11px' }}>
+                        {viewport?.wireframeMode === 'off' ? 'Wireframe' : viewport?.wireframeMode === 'solid' ? 'WF Solid' : 'WF Trans'}
+                    </span>
+                </button>
             </main>
 
             {/* RIGHT PROPERTIES PANEL - Condensed */}
