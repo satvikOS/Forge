@@ -747,14 +747,25 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
      */
     extractBalancedJSON(text) {
         try {
+            console.log('🔧 extractBalancedJSON called');
+
             // Validate input
             if (!text || typeof text !== 'string') {
+                console.error('   ❌ Invalid input type:', typeof text);
                 return null;
             }
 
+            console.log('   Text length:', text.length);
+            console.log('   First 50 chars:', text.substring(0, 50));
+
             // Find the first opening brace
             const startIndex = text.indexOf('{');
-            if (startIndex === -1) return null;
+            if (startIndex === -1) {
+                console.error('   ❌ No opening brace found');
+                return null;
+            }
+
+            console.log('   Start index:', startIndex);
 
             let braceCount = 0;
             let inString = false;
@@ -762,6 +773,7 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
 
             // Limit iteration to prevent infinite loops
             const maxLength = Math.min(text.length, 500000); // 500KB max
+            console.log('   Max length for parsing:', maxLength);
 
             for (let i = startIndex; i < maxLength; i++) {
                 const char = text[i];
@@ -790,12 +802,17 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
                         braceCount--;
                         // When braces are balanced, we found the complete JSON
                         if (braceCount === 0) {
-                            return text.substring(startIndex, i + 1);
+                            const extracted = text.substring(startIndex, i + 1);
+                            console.log('   ✅ Found balanced JSON at position', i);
+                            console.log('   Extracted length:', extracted.length);
+                            return extracted;
                         }
                     }
                 }
             }
 
+            console.error('   ❌ Loop completed without finding balanced JSON');
+            console.error('   Final braceCount:', braceCount);
             return null; // No balanced JSON found
         } catch (error) {
             console.error('💥 Error in extractBalancedJSON:', error.message);
