@@ -615,17 +615,28 @@ REQUIREMENTS:
 5. Apply safety factors and stress analysis principles
 6. Ensure design is manufacturable and cost-effective
 
+🚨🚨🚨 CRITICAL: GEOMETRY IS MANDATORY - YOUR RESPONSE WILL BE REJECTED WITHOUT IT 🚨🚨🚨
+
 Return detailed JSON design specification with COMPLETE 3D GEOMETRY:
 {
   "design": {
     "type": "part|assembly",
     "name": "descriptive name",
+
+    "geometry": {
+      "vertices": [
+        [0,0,0], [100,0,0], [100,50,0], [0,50,0],
+        [0,0,25], [100,0,25], [100,50,25], [0,50,25]
+      ],
+      "faces": [
+        [0,2,1], [0,3,2], [4,5,6], [4,6,7],
+        [0,1,5], [0,5,4], [2,3,7], [2,7,6],
+        [0,4,7], [0,7,3], [1,2,6], [1,6,5]
+      ]
+    },
+
     "materials": [{"component": "...", "material": "...", "justification": "..."}],
     "dimensions": {"overall": {"length": "100 mm", "width": "50 mm", "height": "25 mm"}},
-    "geometry": {
-      "vertices": [[x,y,z], [x,y,z], ...],
-      "faces": [[i0,i1,i2], [i0,i1,i2], ...]
-    },
     "manufacturing": {"primary_process": "...", "secondary_processes": []},
     "standards": ["applicable standards"]
   },
@@ -639,6 +650,21 @@ Return detailed JSON design specification with COMPLETE 3D GEOMETRY:
     "surface_finish": "specification"
   }
 }
+
+🔴🔴🔴 ABSOLUTE REQUIREMENTS - YOUR RESPONSE WILL BE REJECTED IF YOU DON'T FOLLOW THESE 🔴🔴🔴
+
+1. The "geometry" field MUST BE THE FIRST FIELD after "name" in the "design" object
+2. NEVER use "..." placeholders in vertices or faces - generate ACTUAL NUMBERS
+3. Minimum vertices: 8 (for simple box), recommended: 48+ (for cylinders), 96+ (for gears)
+4. Minimum faces: 12 (for box)
+5. If the request is too complex (e.g., "engine"), generate a SIMPLIFIED version with basic geometry
+6. For assemblies: choose the MAIN component and generate its geometry
+
+Example: If user asks for "BMW V8 Engine", generate geometry for ONE COMPONENT like:
+- The engine block (simplified rectangular prism: 8 vertices, 12 faces)
+- OR a piston (cylinder: 48 vertices, 96 faces)
+- OR a crankshaft (complex cylinder with offsets)
+DO NOT skip geometry because the design is complex!
 
 🔴 CRITICAL: YOU MUST GENERATE THE 3D GEOMETRY 🔴
 
