@@ -664,25 +664,53 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
             // Try to extract JSON from markdown code blocks
             // Look for ```json or ``` followed by JSON
             try {
-                const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-                if (codeBlockMatch) {
-                    const codeBlockContent = codeBlockMatch[1].trim();
-                    console.log('Found markdown code block, extracting JSON...');
+                console.log('🔍 Checking for markdown code blocks...');
+                console.log('   Text starts with:', text.substring(0, 50));
+                console.log('   Text length:', text.length);
+                console.log('   Contains backticks:', text.includes('```'));
+
+                // Try multiple regex patterns to detect markdown
+                const patterns = [
+                    /```json\s*([\s\S]*?)```/,     // ```json ... ```
+                    /```\s*([\s\S]*?)```/,          // ``` ... ```
+                    /```json\s*([\s\S]*)/,          // ```json ... (no closing)
+                ];
+
+                let extracted = null;
+                let patternUsed = -1;
+
+                for (let i = 0; i < patterns.length; i++) {
+                    const match = text.match(patterns[i]);
+                    if (match && match[1]) {
+                        console.log(`✅ Pattern ${i} matched! Extracting content...`);
+                        patternUsed = i;
+                        extracted = match[1].trim();
+                        break;
+                    }
+                }
+
+                if (extracted) {
+                    console.log('📦 Extracted content length:', extracted.length);
+                    console.log('   First 100 chars:', extracted.substring(0, 100));
 
                     // Use balanced JSON extraction on the code block content
-                    const extracted = this.extractBalancedJSON(codeBlockContent);
-                    if (extracted) {
+                    const balancedJSON = this.extractBalancedJSON(extracted);
+                    if (balancedJSON) {
                         try {
-                            const parsed = JSON.parse(extracted);
-                            console.log('✅ Successfully parsed JSON from code block');
+                            const parsed = JSON.parse(balancedJSON);
+                            console.log('✅ Successfully parsed JSON from markdown code block (pattern ' + patternUsed + ')');
                             return parsed;
                         } catch (e2) {
                             console.error('Failed to parse extracted JSON from code block:', e2.message);
                         }
+                    } else {
+                        console.error('❌ extractBalancedJSON returned null');
                     }
+                } else {
+                    console.log('❌ No markdown code block patterns matched');
                 }
             } catch (codeBlockError) {
-                console.error('Error during markdown extraction:', codeBlockError.message);
+                console.error('💥 Error during markdown extraction:', codeBlockError.message);
             }
 
             // Try to find balanced JSON object by parsing character by character
