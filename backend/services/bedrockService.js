@@ -693,12 +693,23 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
                     console.log('📦 Extracted content length:', extracted.length);
                     console.log('   First 100 chars:', extracted.substring(0, 100));
 
-                    // Use balanced JSON extraction on the code block content
+                    // Try direct parse first (extracted content should be clean JSON)
+                    try {
+                        console.log('🎯 Attempting direct JSON.parse on extracted content...');
+                        const parsed = JSON.parse(extracted);
+                        console.log('✅ Successfully parsed JSON directly from markdown (pattern ' + patternUsed + ')');
+                        return parsed;
+                    } catch (directParseError) {
+                        console.log('   Direct parse failed:', directParseError.message);
+                        console.log('   Falling back to balanced extraction...');
+                    }
+
+                    // Fallback: Use balanced JSON extraction on the code block content
                     const balancedJSON = this.extractBalancedJSON(extracted);
                     if (balancedJSON) {
                         try {
                             const parsed = JSON.parse(balancedJSON);
-                            console.log('✅ Successfully parsed JSON from markdown code block (pattern ' + patternUsed + ')');
+                            console.log('✅ Successfully parsed JSON from markdown code block after balanced extraction (pattern ' + patternUsed + ')');
                             return parsed;
                         } catch (e2) {
                             console.error('Failed to parse extracted JSON from code block:', e2.message);
