@@ -47,9 +47,9 @@ class BedrockService {
             this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
 
             // Generation parameters
-            // Increased to 16384 for very complex CAD geometry (gears with many teeth, detailed brackets)
-            // Claude Sonnet 4.5 supports up to 200K tokens
-            this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '16384');
+            // Using full Claude Sonnet 4.5 capacity: 64K output tokens, 200K input tokens
+            // Enables complete geometry generation for complex CAD models
+            this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '64000');
             this.temperature = parseFloat(process.env.BEDROCK_TEMPERATURE || '0.7');
 
             console.log(`✅ AWS Bedrock service initialized`);

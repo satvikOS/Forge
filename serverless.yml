@@ -78,7 +78,7 @@ functions:
   # API endpoints
   api:
     handler: backend/lambda/api.handler
-    timeout: 30
+    timeout: 1800  # 30 minutes for complex CAD generation with 64K tokens
     memorySize: 1024
     events:
       - http:
@@ -103,7 +103,7 @@ functions:
   # Orchestration (longer timeout for LLM calls)
   orchestrate:
     handler: backend/lambda/orchestrate.handler
-    timeout: 900  # 15 minutes for complete workflow
+    timeout: 1800  # 30 minutes for complete workflow with 64K tokens
     memorySize: 2048
     events:
       - http:
