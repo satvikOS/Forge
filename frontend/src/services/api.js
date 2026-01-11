@@ -48,8 +48,9 @@ class APIService {
   /**
    * Poll job status until completion or timeout
    * Uses async/await pattern with proper cleanup instead of setInterval
+   * Default timeout: 30 minutes (1800 seconds) for complex CAD generation
    */
-  async pollJobStatus(jobId, onProgress = null, maxAttempts = 120, pollInterval = 1000) {
+  async pollJobStatus(jobId, onProgress = null, maxAttempts = 1800, pollInterval = 1000) {
     let attempts = 0;
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 3;

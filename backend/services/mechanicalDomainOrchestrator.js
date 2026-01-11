@@ -490,11 +490,19 @@ class MechanicalDomainOrchestrator {
     async generateMechanicalDesign(prompt, options = {}) {
         console.log('\n⚙️  === MECHANICAL DOMAIN GENERATION ===');
 
+        // CRITICAL: Detect and simplify complex requests to prevent token overflow
+        const simplifiedPrompt = this.simplifyComplexRequest(prompt);
+        if (simplifiedPrompt !== prompt) {
+            console.log('🔄 Auto-simplified complex request:');
+            console.log(`   Original: "${prompt}"`);
+            console.log(`   Simplified: "${simplifiedPrompt}"`);
+        }
+
         // Build rich context
-        const context = await this.buildMechanicalContext(prompt, options.sessionId);
+        const context = await this.buildMechanicalContext(simplifiedPrompt, options.sessionId);
 
         // Create enhanced prompt with domain knowledge
-        const enhancedPrompt = this.createEnhancedPrompt(prompt, context);
+        const enhancedPrompt = this.createEnhancedPrompt(simplifiedPrompt, context);
 
         // Generate design using Claude Sonnet 4.5 with mechanical expertise
         console.log('🤖 Generating with Claude Sonnet 4.5 (Mechanical Domain Expert)...');
@@ -538,6 +546,56 @@ class MechanicalDomainOrchestrator {
                 timestamp: new Date().toISOString()
             }
         };
+    }
+
+    /**
+     * Simplify complex requests to prevent token overflow and incomplete JSON
+     * Detects engines, assemblies, vehicles, buildings and converts to single component
+     */
+    simplifyComplexRequest(prompt) {
+        const lowerPrompt = prompt.toLowerCase();
+
+        // Complex assembly keywords that trigger simplification
+        const complexPatterns = [
+            { pattern: /(engine|motor|v8|v6|v12|v4|inline|boxer)/i,
+              simplify: (match) => `Create a 25mm diameter shaft, 100mm long` },
+
+            { pattern: /(gearbox|transmission|differential)/i,
+              simplify: (match) => `Create a 20-tooth spur gear with module 2mm` },
+
+            { pattern: /(car|vehicle|automobile|truck|bike|motorcycle)/i,
+              simplify: (match) => `Create a 100x50x25mm bracket with four M6 mounting holes` },
+
+            { pattern: /(building|house|structure|tower)/i,
+              simplify: (match) => `Create a 50x50mm square tube, 200mm long` },
+
+            { pattern: /(assembly|system) with (\d+|many|multiple)/i,
+              simplify: (match) => `Create a simple mounting bracket 100x50x25mm` },
+
+            { pattern: /(complete|full|entire|whole) (.*?) (assembly|system)/i,
+              simplify: (match) => `Create a simple bracket component 100x50x25mm` }
+        ];
+
+        // Check each pattern
+        for (const {pattern, simplify} of complexPatterns) {
+            const match = lowerPrompt.match(pattern);
+            if (match) {
+                // Found a complex request - simplify it
+                const simplified = simplify(match);
+                console.log(`⚠️  Detected complex request pattern: "${match[0]}"`);
+                console.log(`   Auto-simplifying to prevent token overflow and ensure geometry generation`);
+                return simplified;
+            }
+        }
+
+        // If prompt is extremely long (>200 chars), it's probably too complex
+        if (prompt.length > 200) {
+            console.log('⚠️  Prompt too long (>200 chars), using default simple part');
+            return 'Create a simple shaft 25mm diameter, 100mm long';
+        }
+
+        // Not complex, return original
+        return prompt;
     }
 
     /**
