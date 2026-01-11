@@ -78,7 +78,7 @@ functions:
   # API endpoints
   api:
     handler: backend/lambda/api.handler
-    timeout: 1800  # 30 minutes for complex CAD generation with 64K tokens
+    timeout: 900  # 15 minutes - AWS Lambda maximum (async jobs handle longer operations)
     memorySize: 1024
     events:
       - http:
@@ -103,7 +103,7 @@ functions:
   # Orchestration (longer timeout for LLM calls)
   orchestrate:
     handler: backend/lambda/orchestrate.handler
-    timeout: 1800  # 30 minutes for complete workflow with 64K tokens
+    timeout: 900  # 15 minutes - AWS Lambda maximum (async jobs handle longer operations)
     memorySize: 2048
     events:
       - http:
@@ -118,7 +118,7 @@ functions:
   # Async job processor
   jobProcessor:
     handler: backend/lambda/jobProcessor.handler
-    timeout: 300
+    timeout: 900  # 15 minutes - AWS Lambda maximum for complex CAD generation
     memorySize: 1024
     events:
       - sqs:
