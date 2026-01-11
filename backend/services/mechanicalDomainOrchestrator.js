@@ -652,27 +652,107 @@ Return detailed JSON design specification with COMPLETE 3D GEOMETRY:
   }
 }
 
+🚨🚨🚨 MANDATORY GEOMETRY REQUIREMENTS - READ THIS FIRST OR YOUR RESPONSE WILL BE REJECTED 🚨🚨🚨
+
+**MINIMUM VERTEX COUNTS (ENFORCED - YOUR RESPONSE WILL BE REJECTED IF BELOW THESE LIMITS):**
+
+├─ Simple parts (brackets, plates, simple shafts): 48+ vertices
+├─ Cylindrical parts (shafts, tubes, bushings): 96+ vertices (48 segments × 2 ends)
+├─ Gears (spur, helical): 192+ vertices (minimum - exact tooth count required)
+├─ Complex parts (engine blocks, transmissions, assemblies): 300+ vertices MINIMUM
+└─ V8 Engine Blocks: 400+ vertices MINIMUM (see detailed requirements below)
+
+**IF USER REQUESTS:**
+- "V8 engine block" → YOU MUST GENERATE 400+ VERTICES showing 8 cylinder bores, mounting holes, oil passages
+- "96-tooth gear" → YOU MUST GENERATE 384+ VERTICES (96 teeth × 4 vertices/tooth minimum)
+- "Complex assembly" → YOU MUST GENERATE 300+ VERTICES with all components
+- "Simple shaft" → YOU CAN generate 96 vertices (standard cylindrical shaft)
+
 🔴🔴🔴 ABSOLUTE REQUIREMENTS - YOUR RESPONSE WILL BE REJECTED IF YOU DON'T FOLLOW THESE 🔴🔴🔴
 
 1. **GEOMETRY FIRST**: The "geometry" field MUST BE THE FIRST FIELD after "name" in the "design" object
 2. **NO PLACEHOLDERS**: NEVER use "..." placeholders in vertices or faces - generate ACTUAL NUMBERS
-3. **COMPLETE GEOMETRY**: Generate FULL, DETAILED geometry - not simplified versions
-   - Simple parts: 48+ vertices (cylinders), 96+ vertices (gears)
-   - Complex assemblies: 200+ vertices for complete detail
-   - Engines: Generate ALL major components (block, pistons, crankshaft, valves, etc.)
+3. **COMPLETE GEOMETRY**: Generate FULL, DETAILED geometry matching the complexity requirements above
 4. **KEEP SPECS BRIEF**: Materials/analysis sections should be 1-2 lines each to save tokens for geometry
 5. **PRIORITIZE GEOMETRY**: If running low on tokens, ABBREVIATE materials/analysis, NEVER abbreviate geometry
+6. **COUNT YOUR VERTICES**: Before finishing, COUNT the vertices array - it MUST meet the minimum requirements above
 
-Example: If user asks for "BMW V8 Engine with 445 HP":
-- Generate engine block with 8 cylinders (complete geometry with cylinder bores)
-- Generate 8 pistons with rings and pins
-- Generate crankshaft with 8 throws and counterweights
-- Generate cylinder heads with intake/exhaust ports
-- Generate all mounting points, bolt holes, oil passages
-- Materials: "Al alloy block, forged steel crank, Al pistons" (brief!)
-- Analysis: "Peak stress: 450MPa, SF: 2.5" (brief!)
+📐 EXPLICIT EXAMPLE: V8 ENGINE BLOCK GEOMETRY STRUCTURE
 
-DO NOT skip geometry! DO NOT simplify! Generate PRODUCTION-READY complete models!
+If user asks for "V8 engine block with 8 cylinder bores, mounting points, and oil galleries":
+
+YOU MUST GENERATE geometry with this structure (400+ vertices MINIMUM):
+
+"geometry": {
+  "vertices": [
+    // ENGINE BLOCK MAIN BODY (rectangular box base): 8 vertices
+    [-150, -100, 0], [150, -100, 0], [150, 100, 0], [-150, 100, 0],
+    [-150, -100, 200], [150, -100, 200], [150, 100, 200], [-150, 100, 200],
+
+    // CYLINDER BORE #1 (front-left): 32 vertices (circular bore, 16 segments × 2 depths)
+    // Top of bore (z=180):
+    [-75, 37.5, 180], [-73, 42.5, 180], ...(16 points around circle r=12.5mm),
+    // Bottom of bore (z=20):
+    [-75, 37.5, 20], [-73, 42.5, 20], ...(16 points),
+
+    // CYLINDER BORE #2 (front-left-center): 32 vertices
+    [-45, 37.5, 180], ...(16 top + 16 bottom),
+
+    // CYLINDER BORE #3 (front-right-center): 32 vertices
+    [45, 37.5, 180], ...(16 top + 16 bottom),
+
+    // CYLINDER BORE #4 (front-right): 32 vertices
+    [75, 37.5, 180], ...(16 top + 16 bottom),
+
+    // CYLINDER BORE #5 (rear-left): 32 vertices
+    [-75, -37.5, 180], ...(16 top + 16 bottom),
+
+    // CYLINDER BORE #6 (rear-left-center): 32 vertices
+    [-45, -37.5, 180], ...(16 top + 16 bottom),
+
+    // CYLINDER BORE #7 (rear-right-center): 32 vertices
+    [45, -37.5, 180], ...(16 top + 16 bottom),
+
+    // CYLINDER BORE #8 (rear-right): 32 vertices
+    [75, -37.5, 180], ...(16 top + 16 bottom),
+
+    // MOUNTING HOLES (4 corners, M10 bolts): 4 × 16 vertices = 64 vertices
+    // Hole 1 (front-left corner):
+    [-130, 80, 0], [-129, 83, 0], ...(16 points r=5.5mm through-hole),
+    // Hole 2, 3, 4: (repeat for each corner),
+
+    // OIL GALLERIES (2 main passages along length): 2 × 16 vertices = 32 vertices
+    // Gallery 1 (left side):
+    [-120, 0, 50], [-119, 2, 50], ...(16 points r=6mm),
+    // Gallery 2 (right side):
+    [120, 0, 50], ...(16 points),
+
+    // DECK SURFACE DETAILS (bolt holes for head): 8 × 16 vertices = 128 vertices
+    // (M12 head bolts around each cylinder)
+
+    // COOLING PASSAGES: 48 vertices
+    // (water jacket channels around cylinders)
+  ],
+  "faces": [
+    // Faces connecting all the above geometry (triangulated)
+    // Total: ~800-1000 triangular faces
+  ]
+}
+
+**VERTEX COUNT FOR THIS EXAMPLE:**
+- Block body: 8
+- 8 cylinder bores: 8 × 32 = 256
+- 4 mounting holes: 4 × 16 = 64
+- 2 oil galleries: 2 × 16 = 32
+- 8 head bolt holes: 8 × 16 = 128
+- Cooling passages: 48
+**TOTAL: 536 VERTICES** ✅ MEETS 400+ REQUIREMENT
+
+Materials: "Al-Si alloy block (A356-T6), cast iron sleeves"
+Analysis: "Peak stress: 85 MPa, SF: 3.2, pressure: 120 bar"
+
+DO NOT skip geometry! DO NOT simplify! DO NOT generate 8-vertex boxes for complex requests!
+If you generate <400 vertices for a V8 engine block, YOUR RESPONSE WILL BE REJECTED!
 
 🔴 CRITICAL: YOU MUST GENERATE THE 3D GEOMETRY 🔴
 
@@ -938,8 +1018,9 @@ Be precise, generate complete geometry arrays, and use proper mechanical enginee
             console.log(`   Faces: ${aiGeometry.faces.length}`);
             console.log(`   Source: Claude Sonnet 4.5 (real-time generation)`);
 
-            // Validate geometry
-            if (this.validateGeometry(aiGeometry)) {
+            // Validate geometry with complexity requirements
+            const validationResult = this.validateGeometry(aiGeometry, design.design?.name || '');
+            if (validationResult.valid) {
                 return {
                     type: 'mesh',
                     vertices: aiGeometry.vertices,
@@ -949,11 +1030,15 @@ Be precise, generate complete geometry arrays, and use proper mechanical enginee
                         format: 'triangulated_mesh',
                         source: 'ai_generated',
                         model: 'claude-sonnet-4.5',
-                        generated_at: new Date().toISOString()
+                        generated_at: new Date().toISOString(),
+                        complexity: validationResult.complexity
                     }
                 };
             } else {
-                console.warn('⚠️  AI geometry validation failed, using fallback');
+                console.error('❌ AI geometry validation FAILED:', validationResult.reason);
+                console.error('   Required vertices:', validationResult.required);
+                console.error('   Actual vertices:', aiGeometry.vertices.length);
+                console.warn('⚠️  Using fallback - AI did not meet complexity requirements');
             }
         } else {
             console.warn('⚠️  No AI-generated geometry in response');
@@ -966,36 +1051,51 @@ Be precise, generate complete geometry arrays, and use proper mechanical enginee
     }
 
     /**
-     * Validate AI-generated geometry
+     * Validate AI-generated geometry with complexity requirements
      */
-    validateGeometry(geometry) {
+    validateGeometry(geometry, designName = '') {
+        const result = {
+            valid: false,
+            reason: '',
+            required: 0,
+            actual: 0,
+            complexity: 'unknown'
+        };
+
         // Check if arrays exist
         if (!Array.isArray(geometry.vertices) || !Array.isArray(geometry.faces)) {
-            console.error('❌ Geometry must have vertices and faces arrays');
-            return false;
+            result.reason = 'Geometry must have vertices and faces arrays';
+            console.error('❌', result.reason);
+            return result;
         }
 
         // Check minimum requirements
         if (geometry.vertices.length < 3) {
-            console.error('❌ Need at least 3 vertices');
-            return false;
+            result.reason = 'Need at least 3 vertices';
+            result.actual = geometry.vertices.length;
+            result.required = 3;
+            console.error('❌', result.reason);
+            return result;
         }
 
         if (geometry.faces.length < 1) {
-            console.error('❌ Need at least 1 face');
-            return false;
+            result.reason = 'Need at least 1 face';
+            console.error('❌', result.reason);
+            return result;
         }
 
         // Validate vertex format
         for (let i = 0; i < Math.min(geometry.vertices.length, 10); i++) {
             const v = geometry.vertices[i];
             if (!Array.isArray(v) || v.length !== 3) {
-                console.error(`❌ Vertex ${i} invalid format:`, v);
-                return false;
+                result.reason = `Vertex ${i} invalid format: ${JSON.stringify(v)}`;
+                console.error('❌', result.reason);
+                return result;
             }
             if (v.some(coord => typeof coord !== 'number' || isNaN(coord))) {
-                console.error(`❌ Vertex ${i} has non-numeric coordinates:`, v);
-                return false;
+                result.reason = `Vertex ${i} has non-numeric coordinates: ${JSON.stringify(v)}`;
+                console.error('❌', result.reason);
+                return result;
             }
         }
 
@@ -1003,19 +1103,78 @@ Be precise, generate complete geometry arrays, and use proper mechanical enginee
         for (let i = 0; i < Math.min(geometry.faces.length, 10); i++) {
             const f = geometry.faces[i];
             if (!Array.isArray(f) || f.length !== 3) {
-                console.error(`❌ Face ${i} invalid format (must be triangle):`, f);
-                return false;
+                result.reason = `Face ${i} invalid format (must be triangle): ${JSON.stringify(f)}`;
+                console.error('❌', result.reason);
+                return result;
             }
             for (const idx of f) {
                 if (typeof idx !== 'number' || idx < 0 || idx >= geometry.vertices.length) {
-                    console.error(`❌ Face ${i} has invalid vertex index ${idx} (vertices: ${geometry.vertices.length})`);
-                    return false;
+                    result.reason = `Face ${i} has invalid vertex index ${idx} (vertices: ${geometry.vertices.length})`;
+                    console.error('❌', result.reason);
+                    return result;
                 }
             }
         }
 
-        console.log('✅ Geometry validation passed');
-        return true;
+        // ⚠️ COMPLEXITY REQUIREMENTS ENFORCEMENT ⚠️
+        const lowerName = designName.toLowerCase();
+        const vertexCount = geometry.vertices.length;
+        result.actual = vertexCount;
+
+        // Determine required complexity based on design name
+        if (lowerName.includes('v8') || lowerName.includes('v-8') || lowerName.includes('engine block')) {
+            result.required = 400;
+            result.complexity = 'v8_engine_block';
+            if (vertexCount < 400) {
+                result.reason = `V8 engine block requires 400+ vertices (got ${vertexCount}). AI failed to generate detailed geometry.`;
+                console.error('❌', result.reason);
+                return result;
+            }
+        } else if (lowerName.includes('gear') && lowerName.match(/\d+[-\s]?tooth/)) {
+            // Extract tooth count
+            const toothMatch = lowerName.match(/(\d+)[-\s]?tooth/);
+            const toothCount = toothMatch ? parseInt(toothMatch[1]) : 0;
+            result.required = toothCount > 0 ? toothCount * 4 : 192;
+            result.complexity = `gear_${toothCount}_teeth`;
+            if (vertexCount < result.required) {
+                result.reason = `${toothCount}-tooth gear requires ${result.required}+ vertices (got ${vertexCount})`;
+                console.error('❌', result.reason);
+                return result;
+            }
+        } else if (lowerName.includes('engine') || lowerName.includes('transmission') ||
+                   lowerName.includes('assembly') || lowerName.includes('complex')) {
+            result.required = 300;
+            result.complexity = 'complex_assembly';
+            if (vertexCount < 300) {
+                result.reason = `Complex assembly requires 300+ vertices (got ${vertexCount})`;
+                console.error('❌', result.reason);
+                return result;
+            }
+        } else if (lowerName.includes('cylinder') || lowerName.includes('shaft') ||
+                   lowerName.includes('tube') || lowerName.includes('bushing')) {
+            result.required = 96;
+            result.complexity = 'cylindrical_part';
+            if (vertexCount < 96) {
+                result.reason = `Cylindrical part requires 96+ vertices (got ${vertexCount})`;
+                console.error('❌', result.reason);
+                return result;
+            }
+        } else {
+            // Default: simple part
+            result.required = 48;
+            result.complexity = 'simple_part';
+            if (vertexCount < 48) {
+                result.reason = `Part requires 48+ vertices (got ${vertexCount})`;
+                console.error('❌', result.reason);
+                return result;
+            }
+        }
+
+        result.valid = true;
+        console.log(`✅ Geometry validation passed (${result.complexity})`);
+        console.log(`   Vertices: ${vertexCount} (required: ${result.required}+)`);
+        console.log(`   Faces: ${geometry.faces.length}`);
+        return result;
     }
 
     /**
