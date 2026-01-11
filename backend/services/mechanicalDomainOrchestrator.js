@@ -489,20 +489,13 @@ class MechanicalDomainOrchestrator {
      */
     async generateMechanicalDesign(prompt, options = {}) {
         console.log('\n⚙️  === MECHANICAL DOMAIN GENERATION ===');
-
-        // CRITICAL: Detect and simplify complex requests to prevent token overflow
-        const simplifiedPrompt = this.simplifyComplexRequest(prompt);
-        if (simplifiedPrompt !== prompt) {
-            console.log('🔄 Auto-simplified complex request:');
-            console.log(`   Original: "${prompt}"`);
-            console.log(`   Simplified: "${simplifiedPrompt}"`);
-        }
+        console.log(`   Full Request: "${prompt}"`);
 
         // Build rich context
-        const context = await this.buildMechanicalContext(simplifiedPrompt, options.sessionId);
+        const context = await this.buildMechanicalContext(prompt, options.sessionId);
 
         // Create enhanced prompt with domain knowledge
-        const enhancedPrompt = this.createEnhancedPrompt(simplifiedPrompt, context);
+        const enhancedPrompt = this.createEnhancedPrompt(prompt, context);
 
         // Generate design using Claude Sonnet 4.5 with mechanical expertise
         console.log('🤖 Generating with Claude Sonnet 4.5 (Mechanical Domain Expert)...');
@@ -546,56 +539,6 @@ class MechanicalDomainOrchestrator {
                 timestamp: new Date().toISOString()
             }
         };
-    }
-
-    /**
-     * Simplify complex requests to prevent token overflow and incomplete JSON
-     * Detects engines, assemblies, vehicles, buildings and converts to single component
-     */
-    simplifyComplexRequest(prompt) {
-        const lowerPrompt = prompt.toLowerCase();
-
-        // Complex assembly keywords that trigger simplification
-        const complexPatterns = [
-            { pattern: /(engine|motor|v8|v6|v12|v4|inline|boxer)/i,
-              simplify: (match) => `Create a 25mm diameter shaft, 100mm long` },
-
-            { pattern: /(gearbox|transmission|differential)/i,
-              simplify: (match) => `Create a 20-tooth spur gear with module 2mm` },
-
-            { pattern: /(car|vehicle|automobile|truck|bike|motorcycle)/i,
-              simplify: (match) => `Create a 100x50x25mm bracket with four M6 mounting holes` },
-
-            { pattern: /(building|house|structure|tower)/i,
-              simplify: (match) => `Create a 50x50mm square tube, 200mm long` },
-
-            { pattern: /(assembly|system) with (\d+|many|multiple)/i,
-              simplify: (match) => `Create a simple mounting bracket 100x50x25mm` },
-
-            { pattern: /(complete|full|entire|whole) (.*?) (assembly|system)/i,
-              simplify: (match) => `Create a simple bracket component 100x50x25mm` }
-        ];
-
-        // Check each pattern
-        for (const {pattern, simplify} of complexPatterns) {
-            const match = lowerPrompt.match(pattern);
-            if (match) {
-                // Found a complex request - simplify it
-                const simplified = simplify(match);
-                console.log(`⚠️  Detected complex request pattern: "${match[0]}"`);
-                console.log(`   Auto-simplifying to prevent token overflow and ensure geometry generation`);
-                return simplified;
-            }
-        }
-
-        // If prompt is extremely long (>200 chars), it's probably too complex
-        if (prompt.length > 200) {
-            console.log('⚠️  Prompt too long (>200 chars), using default simple part');
-            return 'Create a simple shaft 25mm diameter, 100mm long';
-        }
-
-        // Not complex, return original
-        return prompt;
     }
 
     /**
@@ -711,18 +654,25 @@ Return detailed JSON design specification with COMPLETE 3D GEOMETRY:
 
 🔴🔴🔴 ABSOLUTE REQUIREMENTS - YOUR RESPONSE WILL BE REJECTED IF YOU DON'T FOLLOW THESE 🔴🔴🔴
 
-1. The "geometry" field MUST BE THE FIRST FIELD after "name" in the "design" object
-2. NEVER use "..." placeholders in vertices or faces - generate ACTUAL NUMBERS
-3. Minimum vertices: 8 (for simple box), recommended: 48+ (for cylinders), 96+ (for gears)
-4. Minimum faces: 12 (for box)
-5. If the request is too complex (e.g., "engine"), generate a SIMPLIFIED version with basic geometry
-6. For assemblies: choose the MAIN component and generate its geometry
+1. **GEOMETRY FIRST**: The "geometry" field MUST BE THE FIRST FIELD after "name" in the "design" object
+2. **NO PLACEHOLDERS**: NEVER use "..." placeholders in vertices or faces - generate ACTUAL NUMBERS
+3. **COMPLETE GEOMETRY**: Generate FULL, DETAILED geometry - not simplified versions
+   - Simple parts: 48+ vertices (cylinders), 96+ vertices (gears)
+   - Complex assemblies: 200+ vertices for complete detail
+   - Engines: Generate ALL major components (block, pistons, crankshaft, valves, etc.)
+4. **KEEP SPECS BRIEF**: Materials/analysis sections should be 1-2 lines each to save tokens for geometry
+5. **PRIORITIZE GEOMETRY**: If running low on tokens, ABBREVIATE materials/analysis, NEVER abbreviate geometry
 
-Example: If user asks for "BMW V8 Engine", generate geometry for ONE COMPONENT like:
-- The engine block (simplified rectangular prism: 8 vertices, 12 faces)
-- OR a piston (cylinder: 48 vertices, 96 faces)
-- OR a crankshaft (complex cylinder with offsets)
-DO NOT skip geometry because the design is complex!
+Example: If user asks for "BMW V8 Engine with 445 HP":
+- Generate engine block with 8 cylinders (complete geometry with cylinder bores)
+- Generate 8 pistons with rings and pins
+- Generate crankshaft with 8 throws and counterweights
+- Generate cylinder heads with intake/exhaust ports
+- Generate all mounting points, bolt holes, oil passages
+- Materials: "Al alloy block, forged steel crank, Al pistons" (brief!)
+- Analysis: "Peak stress: 450MPa, SF: 2.5" (brief!)
+
+DO NOT skip geometry! DO NOT simplify! Generate PRODUCTION-READY complete models!
 
 🔴 CRITICAL: YOU MUST GENERATE THE 3D GEOMETRY 🔴
 
