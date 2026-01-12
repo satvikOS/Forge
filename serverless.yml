@@ -39,6 +39,14 @@ provider:
     AUTO_VALIDATE: ${env:AUTO_VALIDATE, 'true'}
     BEDROCK_TEXT_MODEL: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 
+    # PLM System Configuration
+    USE_MULTISTAGE_PLM: ${env:USE_MULTISTAGE_PLM, 'false'}  # Enable multi-stage 5-phase workflow
+    DB_HOST: ${env:DB_HOST, ''}                               # PostgreSQL host (leave empty for mock mode)
+    DB_PORT: ${env:DB_PORT, '5432'}                           # PostgreSQL port
+    DB_NAME: ${env:DB_NAME, 'archdiscv1_plm'}                # Database name
+    DB_USER: ${env:DB_USER, 'postgres'}                       # Database user
+    DB_PASSWORD: ${env:DB_PASSWORD, ''}                       # Database password
+
   # IAM permissions
   iam:
     role:

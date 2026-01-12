@@ -548,13 +548,15 @@ async function processDesignGeneration(jobId, prompt, preferences) {
 
         jobQueue.completeStage(jobId, 'analyzing');
 
-        // Stage 2: Generate design using mechanical orchestrator with RAG
+        // Stage 2: Generate design using PLM integration service
         jobQueue.updateProgress(jobId, 'generating', 50);
-        jobQueue.updateJob(jobId, { agentStatus: 'generating with domain expertise' });
+        jobQueue.updateJob(jobId, { agentStatus: 'generating with PLM workflow' });
 
-        // Use mechanical orchestrator for domain-specific generation
-        const orchestratorResult = await mechanicalOrchestrator.generateMechanicalDesign(prompt, {
+        // Use PLM integration service (routes to multi-stage or legacy based on env variable)
+        const plmIntegration = require('../services/plmIntegrationService');
+        const orchestratorResult = await plmIntegration.generateMechanicalDesign(prompt, {
             sessionId: jobId,
+            userId: 'api-user',
             preferences
         });
 
@@ -567,28 +569,57 @@ async function processDesignGeneration(jobId, prompt, preferences) {
 
         // Stage 4: Export
         jobQueue.updateProgress(jobId, 'exporting', 50);
-        const result = {
-            design: orchestratorResult.design,
-            validation: orchestratorResult.validation,
-            context: {
-                domain: 'mechanical_engineering',
-                knowledge_items_used: Object.values(orchestratorResult.context.knowledge).flat().length,
-                rag_enabled: true
-            },
-            metadata: {
-                ...orchestratorResult.metadata,
-                prompt,
-                preferences,
-                generatedAt: new Date().toISOString()
-            }
-        };
+
+        // Format result based on workflow mode
+        let result;
+        if (orchestratorResult.mode === 'multistage-plm') {
+            result = {
+                design: orchestratorResult.design,
+                validation: orchestratorResult.validation,
+                manufacturing: orchestratorResult.manufacturing,
+                project: orchestratorResult.project,
+                context: {
+                    domain: 'mechanical_engineering',
+                    workflow_mode: 'multistage-plm',
+                    complexity_tier: orchestratorResult.project.complexity_tier,
+                    phases_completed: orchestratorResult.metadata.phases_completed
+                },
+                metadata: {
+                    ...orchestratorResult.metadata,
+                    prompt,
+                    preferences,
+                    generatedAt: new Date().toISOString()
+                }
+            };
+        } else {
+            // Legacy format
+            result = {
+                design: orchestratorResult.design,
+                validation: orchestratorResult.validation,
+                context: {
+                    domain: 'mechanical_engineering',
+                    workflow_mode: 'legacy',
+                    knowledge_items_used: Object.values(orchestratorResult.context?.knowledge || {}).flat().length,
+                    rag_enabled: true
+                },
+                metadata: {
+                    ...orchestratorResult.metadata,
+                    prompt,
+                    preferences,
+                    generatedAt: new Date().toISOString()
+                }
+            };
+        }
+
         jobQueue.completeStage(jobId, 'exporting');
 
         // Complete job
         jobQueue.completeJob(jobId, result);
         console.log(`✅ Mechanical domain design generation completed for job ${jobId}`);
-        console.log(`   Knowledge items used: ${result.context.knowledge_items_used}`);
-        console.log(`   Validation score: ${orchestratorResult.validation.score}/100`);
+        console.log(`   Workflow mode: ${result.context.workflow_mode}`);
+        if (orchestratorResult.validation) {
+            console.log(`   Validation score: ${orchestratorResult.validation.score || 'N/A'}/100`);
+        }
     } catch (error) {
         console.error(`❌ Design generation failed for job ${jobId}:`, error);
         throw error;
