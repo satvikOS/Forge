@@ -13,6 +13,7 @@
 const bedrockService = require('./bedrockService');
 const geminiVision = require('./geminiVisionService');
 const AxelEngine = require('../engines/axel/axelEngine');
+const strictEnforcer = require('./strictGeometryEnforcer');
 
 class MechanicalDomainOrchestrator {
     constructor() {
@@ -488,31 +489,89 @@ class MechanicalDomainOrchestrator {
      * Generate design with mechanical domain expertise
      */
     async generateMechanicalDesign(prompt, options = {}) {
-        console.log('\n⚙️  === MECHANICAL DOMAIN GENERATION ===');
+        console.log('\n⚙️  === MECHANICAL DOMAIN GENERATION WITH STRICT ENFORCEMENT ===');
         console.log(`   Full Request: "${prompt}"`);
+
+        // STEP 1: Analyze prompt and calculate exact requirements
+        const analysis = strictEnforcer.analyzeAndPlan(prompt);
+        analysis.attempt = 1;
 
         // Build rich context
         const context = await this.buildMechanicalContext(prompt, options.sessionId);
 
-        // Create enhanced prompt with domain knowledge
-        const enhancedPrompt = this.createEnhancedPrompt(prompt, context);
+        // STEP 2: Retry loop with escalating strictness
+        let design = null;
+        let validation = null;
+        const maxAttempts = 3;
 
-        // Generate design using Claude Sonnet 4.5 with mechanical expertise
-        console.log('🤖 Generating with Claude Sonnet 4.5 (Mechanical Domain Expert)...');
-        const designSpec = await this.bedrockService.generateContent(enhancedPrompt, {
-            modelId: process.env.BEDROCK_TEXT_MODEL || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
-        });
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            console.log(`\n🔄 ATTEMPT ${attempt}/${maxAttempts}`);
+            analysis.attempt = attempt;
 
-        const design = this.bedrockService.parseJSON(designSpec);
+            try {
+                // Create base enhanced prompt
+                const basePrompt = this.createEnhancedPrompt(prompt, context);
 
-        // Check if JSON parsing failed
-        if (!design) {
-            console.error('❌ Failed to parse design specification from AI response');
-            throw new Error('Failed to parse JSON from AI response. The AI may have returned malformed data.');
+                // ENFORCE with strict requirements and examples
+                const enforcedPrompt = strictEnforcer.buildEnforcedPrompt(prompt, basePrompt, analysis);
+
+                // Generate design using Claude Sonnet 4.5
+                console.log(`🤖 Generating with Claude Sonnet 4.5 (Attempt ${attempt})...`);
+                const designSpec = await this.bedrockService.generateContent(enforcedPrompt, {
+                    modelId: process.env.BEDROCK_TEXT_MODEL || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
+                });
+
+                design = this.bedrockService.parseJSON(designSpec);
+
+                if (!design) {
+                    console.error(`❌ Attempt ${attempt}: Failed to parse JSON`);
+                    if (attempt < maxAttempts) {
+                        console.log('   Retrying with increased strictness...');
+                        continue;
+                    } else {
+                        throw new Error('Failed to parse JSON after 3 attempts');
+                    }
+                }
+
+                // STRICT VALIDATION
+                validation = strictEnforcer.validateResponse(design, analysis);
+
+                if (validation.passed) {
+                    console.log(`✅ Attempt ${attempt}: VALIDATION PASSED`);
+                    console.log(`   Vertices: ${validation.vertexCount} (required: ${validation.required}+)`);
+                    break; // Success!
+                } else {
+                    console.error(`❌ Attempt ${attempt}: VALIDATION FAILED`);
+                    console.error(`   Reason: ${validation.reason}`);
+                    console.error(`   Issues:`, validation.issues);
+
+                    if (attempt < maxAttempts) {
+                        console.log(`   Retrying (${attempt + 1}/${maxAttempts}) with MAXIMUM strictness...`);
+                        // Increase required vertices by 20% for next attempt
+                        analysis.requiredVertices = Math.floor(analysis.requiredVertices * 1.2);
+                        continue;
+                    } else {
+                        throw new Error(`Validation failed after ${maxAttempts} attempts: ${validation.reason}`);
+                    }
+                }
+
+            } catch (error) {
+                console.error(`❌ Attempt ${attempt} error:`, error.message);
+                if (attempt < maxAttempts) {
+                    console.log(`   Retrying...`);
+                    continue;
+                } else {
+                    throw error;
+                }
+            }
+        }
+
+        if (!design || !validation || !validation.passed) {
+            throw new Error('Failed to generate valid geometry after all retry attempts');
         }
 
         // Validate design against mechanical engineering principles
-        const validation = await this.validateMechanicalDesign(design, context);
+        const mechValidation = await this.validateMechanicalDesign(design, context);
 
         // Generate 3D geometry from design specification
         const baseGeometry = this.generateGeometryFromDesign(design);
@@ -520,8 +579,11 @@ class MechanicalDomainOrchestrator {
         // Process through AXEL voxel engine for advanced topology
         const geometry = this.axelEngine.processMesh(baseGeometry);
 
-        console.log('✅ Mechanical design generated');
-        console.log(`   Validation: ${validation.valid ? 'PASS' : 'FAIL'}`);
+        console.log('\n✅ === MECHANICAL DESIGN GENERATION COMPLETE ===');
+        console.log(`   Attempts required: ${analysis.attempt}`);
+        console.log(`   Final vertex count: ${geometry.vertices.length}`);
+        console.log(`   Required minimum: ${analysis.requiredVertices}`);
+        console.log(`   Mechanical validation: ${mechValidation.valid ? 'PASS' : 'FAIL'}`);
         console.log(`   Geometry: ${geometry.vertices.length} vertices, ${geometry.faces.length} faces`);
         console.log(`   Engine: AXEL (voxel-based)`);
 
@@ -530,13 +592,23 @@ class MechanicalDomainOrchestrator {
                 ...design,
                 geometry  // Add AXEL-processed 3D geometry to the design
             },
-            validation,
+            validation: {
+                ...mechValidation,
+                strict_enforcement: {
+                    passed: validation.passed,
+                    attempts: analysis.attempt,
+                    vertex_count: validation.vertexCount,
+                    required_minimum: analysis.requiredVertices
+                }
+            },
             context,
             metadata: {
                 domain: 'mechanical_engineering',
                 rag_enabled: true,
                 knowledge_used: Object.values(context.knowledge).flat().length,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                strict_enforcement_enabled: true,
+                retry_attempts: analysis.attempt
             }
         };
     }
