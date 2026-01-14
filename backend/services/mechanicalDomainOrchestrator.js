@@ -1371,6 +1371,99 @@ Be precise, generate complete geometry arrays, and use proper mechanical enginee
     clearContext(sessionId) {
         this.contextHistory.delete(sessionId);
     }
+
+    /**
+     * Extract specifications from context
+     */
+    extractSpecifications(context) {
+        const specs = {};
+
+        // Extract from knowledge base
+        if (context.knowledge) {
+            if (context.knowledge.standards && context.knowledge.standards.length > 0) {
+                specs.standards = context.knowledge.standards;
+            }
+            if (context.knowledge.materials && context.knowledge.materials.length > 0) {
+                specs.materials = context.knowledge.materials;
+            }
+        }
+
+        return specs;
+    }
+
+    /**
+     * Select materials based on prompt analysis
+     */
+    selectMaterials(prompt) {
+        const materials = [];
+        const promptLower = prompt.toLowerCase();
+
+        // Material inference based on component type
+        if (promptLower.includes('engine') || promptLower.includes('block')) {
+            materials.push({
+                name: 'Cast Iron',
+                grade: 'A48 Class 40',
+                properties: { tensile_strength: '276 MPa', density: '7200 kg/m³' }
+            });
+        } else if (promptLower.includes('gear')) {
+            materials.push({
+                name: 'Alloy Steel',
+                grade: 'AISI 4340',
+                properties: { tensile_strength: '1100 MPa', hardness: '40 HRC' }
+            });
+        } else if (promptLower.includes('bearing')) {
+            materials.push({
+                name: 'Bearing Steel',
+                grade: 'AISI 52100',
+                properties: { tensile_strength: '2100 MPa', hardness: '60 HRC' }
+            });
+        } else {
+            materials.push({
+                name: 'Structural Steel',
+                grade: 'AISI 1045',
+                properties: { tensile_strength: '620 MPa', density: '7850 kg/m³' }
+            });
+        }
+
+        return materials;
+    }
+
+    /**
+     * Suggest manufacturing processes
+     */
+    suggestManufacturing(prompt) {
+        const processes = [];
+        const promptLower = prompt.toLowerCase();
+
+        // Process inference based on component type
+        if (promptLower.includes('engine') || promptLower.includes('block')) {
+            processes.push({
+                primary: 'Sand Casting',
+                secondary: ['CNC Milling', 'Boring', 'Honing'],
+                notes: 'Cast block, machine bearing surfaces and cylinder bores'
+            });
+        } else if (promptLower.includes('gear')) {
+            processes.push({
+                primary: 'Forging',
+                secondary: ['Gear Hobbing', 'Heat Treatment', 'Grinding'],
+                notes: 'Forge blank, cut teeth, heat treat, grind to final dimensions'
+            });
+        } else if (promptLower.includes('bearing')) {
+            processes.push({
+                primary: 'Forging',
+                secondary: ['Turning', 'Grinding', 'Superfinishing'],
+                notes: 'Forge rings, machine raceways, superfinish to Ra 0.1μm'
+            });
+        } else {
+            processes.push({
+                primary: 'CNC Machining',
+                secondary: ['Milling', 'Drilling', 'Tapping'],
+                notes: 'Machine from solid stock'
+            });
+        }
+
+        return processes;
+    }
 }
 
 // Export singleton
