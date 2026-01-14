@@ -16,7 +16,7 @@ class JobQueue {
     this.jobs = globalJobs; // Use global storage instead of instance-specific Map
     this.maxConcurrentJobs = 5;
     this.activeJobs = 0;
-    this.jobTimeout = 5 * 60 * 1000; // 5 minutes
+    this.jobTimeout = 12 * 60 * 1000; // 12 minutes (Lambda max is 15 min)
     this.completedJobRetention = 10 * 60 * 1000; // Keep completed jobs for 10 minutes
     
     // Clean up old jobs periodically
