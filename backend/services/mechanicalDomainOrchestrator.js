@@ -490,14 +490,17 @@ class MechanicalDomainOrchestrator {
      * Generate design with mechanical domain expertise
      */
     async generateMechanicalDesign(prompt, options = {}) {
-        // Check if parallel MCP mode is enabled
-        const useParallelMCP = process.env.USE_PARALLEL_MCP === 'true' || options.useParallelMCP;
+        // ALWAYS use parallel MCP for production-ready detail (default mode)
+        // Only disable if explicitly set to false
+        const disableParallelMCP = process.env.USE_PARALLEL_MCP === 'false' || options.useParallelMCP === false;
+        const useParallelMCP = !disableParallelMCP;
 
         if (useParallelMCP) {
-            console.log('\n🚀 === PARALLEL MCP MODE: PRODUCTION-READY GENERATION ===');
+            console.log('\n🚀 === PARALLEL MCP MODE: PRODUCTION-READY GENERATION (DEFAULT) ===');
             console.log(`   Full Request: "${prompt}"`);
             console.log(`   Mode: Multi-component parallel generation`);
             console.log(`   Token budget: 64K per component (unlimited total)`);
+            console.log(`   Environment: USE_PARALLEL_MCP=${process.env.USE_PARALLEL_MCP || 'not set (using default: true)'}`);
 
             try {
                 // Use parallel MCP orchestrator
@@ -527,9 +530,12 @@ class MechanicalDomainOrchestrator {
                 };
             } catch (error) {
                 console.error('❌ Parallel MCP generation failed:', error);
+                console.error('   Error details:', error.stack);
                 console.log('⚠️  Falling back to single-call mode...');
                 // Fall through to single-call mode below
             }
+        } else {
+            console.log('\n⚠️  === LEGACY MODE: Parallel MCP explicitly disabled ===');
         }
 
         console.log('\n⚙️  === MECHANICAL DOMAIN GENERATION WITH STRICT ENFORCEMENT ===');
