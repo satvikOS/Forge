@@ -41,6 +41,7 @@ provider:
 
     # PLM System Configuration
     USE_MULTISTAGE_PLM: ${env:USE_MULTISTAGE_PLM, 'false'}  # Enable multi-stage 5-phase workflow
+    USE_PARALLEL_MCP: ${env:USE_PARALLEL_MCP, 'true'}        # Enable parallel MCP for production-ready detail
     DB_HOST: ${env:DB_HOST, ''}                               # PostgreSQL host (leave empty for mock mode)
     DB_PORT: ${env:DB_PORT, '5432'}                           # PostgreSQL port
     DB_NAME: ${env:DB_NAME, 'archdiscv1_plm'}                # Database name

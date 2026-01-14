@@ -14,6 +14,7 @@ const bedrockService = require('./bedrockService');
 const geminiVision = require('./geminiVisionService');
 const AxelEngine = require('../engines/axel/axelEngine');
 const strictEnforcer = require('./strictGeometryEnforcer');
+const parallelMCPOrchestrator = require('./parallelMCPOrchestrator');
 
 class MechanicalDomainOrchestrator {
     constructor() {
@@ -489,6 +490,48 @@ class MechanicalDomainOrchestrator {
      * Generate design with mechanical domain expertise
      */
     async generateMechanicalDesign(prompt, options = {}) {
+        // Check if parallel MCP mode is enabled
+        const useParallelMCP = process.env.USE_PARALLEL_MCP === 'true' || options.useParallelMCP;
+
+        if (useParallelMCP) {
+            console.log('\n🚀 === PARALLEL MCP MODE: PRODUCTION-READY GENERATION ===');
+            console.log(`   Full Request: "${prompt}"`);
+            console.log(`   Mode: Multi-component parallel generation`);
+            console.log(`   Token budget: 64K per component (unlimited total)`);
+
+            try {
+                // Use parallel MCP orchestrator
+                const result = await parallelMCPOrchestrator.generateWithParallelMCP(prompt, options);
+
+                // Build mechanical validation context
+                const context = await this.buildMechanicalContext(prompt, options.sessionId);
+                const mechValidation = this.validateMechanicalDesign(result.geometry, context);
+
+                return {
+                    design: {
+                        geometry: result.geometry,
+                        components: result.components,
+                        specifications: this.extractSpecifications(context),
+                        materials: this.selectMaterials(prompt),
+                        manufacturing: this.suggestManufacturing(prompt)
+                    },
+                    validation: {
+                        ...mechValidation,
+                        parallel_mcp: result.validation
+                    },
+                    metadata: {
+                        ...result.metadata,
+                        mode: 'parallel_mcp',
+                        domain: 'mechanical_engineering'
+                    }
+                };
+            } catch (error) {
+                console.error('❌ Parallel MCP generation failed:', error);
+                console.log('⚠️  Falling back to single-call mode...');
+                // Fall through to single-call mode below
+            }
+        }
+
         console.log('\n⚙️  === MECHANICAL DOMAIN GENERATION WITH STRICT ENFORCEMENT ===');
         console.log(`   Full Request: "${prompt}"`);
 
