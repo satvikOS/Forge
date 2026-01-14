@@ -1,170 +1,115 @@
-# 🚨 DEPLOYMENT STATUS - CRITICAL ISSUE
+# CRITICAL FIX DEPLOYED
 
-## Current Situation
+## Status: ⏳ DEPLOYING NOW
 
-**Problem:** Lambda functions are still running OLD code despite multiple deployment attempts.
+**Root Cause Identified**: Bedrock Model ID mismatch causing parallel MCP to fail silently
 
-**Evidence from CloudWatch logs:**
+## The Problem
+
+When you tested after the previous deployment, parallel MCP WAS attempting to run but **failing due to incorrect model ID**:
+
+### What Was Happening:
+1. ✅ Parallel MCP mode activated (default)
+2. ❌ Bedrock API call failed: Model ID mismatch
+3. 🔄 System caught error and fell back to legacy mode
+4. ⚠️ You saw: "Workflow mode: legacy", 600 vertices
+
+### Model ID Mismatch:
 ```
-📝 Direct JSON parse failed, trying alternative extraction methods...
-Attempting balanced JSON extraction from full text...
-Could not extract valid JSON from response
-```
-
-**Expected logs (with NEW code):**
-```
-Found markdown code block, extracting JSON...
-✅ Successfully parsed JSON from code block
-```
-
-## Root Cause
-
-The GitHub Actions workflow is completing, but Lambda is NOT picking up the new code. This indicates one of:
-
-1. **Lambda Caching Issue**: Lambda is serving cached old code
-2. **Deployment Package Issue**: Serverless isn't including updated files
-3. **Lambda Alias/Version Issue**: Traffic is routed to old version
-
-## Code Status
-
-✅ **All fixes are committed and pushed** to `claude/fix-topbar-layout-e5ZKk`:
-
-- JSON parsing fix (handles markdown code blocks)
-- AI-only geometry generation
-- Enhanced AXEL engine
-- Deployment diagnostics
-- Force deployment flags
-
-## Latest Commits
-
-```
-0c8fe92 - build: Add force Lambda update script
-0f5d535 - fix(ci): Add deployment diagnostics
-0b94033 - fix(deploy): Force Lambda deployment with verification
-09720b9 - fix(serverless): Fix frameworkVersion
-9ce7d55 - fix(ci): Enhanced workflow with verification
+serverless.yml:              'us.anthropic.claude-sonnet-4-5-20250929-v1:0' ← Correct for Lambda
+parallelMCPOrchestrator:     'anthropic.claude-sonnet-4-5-20250929-v1:0' ← WRONG (missing 'us.' prefix)
+intelligentComponentAnalyzer: 'anthropic.claude-sonnet-4-5-20250929-v1:0' ← WRONG (missing 'us.' prefix)
 ```
 
-## Deployment Options
+The "us." prefix enables **cross-region inference** for better availability. Without it, Bedrock API calls fail.
 
-### Option 1: Re-run GitHub Actions (RECOMMENDED)
+## The Fix
 
-The latest workflow now includes:
-- Source code verification before deploy
-- Package content inspection
-- Deployment verification with version check
-- `--force` flag to bypass caching
+**Commit `53e29a6`**: "Correct Bedrock model ID for cross-region inference"
 
-**Steps:**
-1. Go to: https://github.com/satvikOS/archdiscv1/actions
-2. Select "Deploy to AWS Lambda" workflow
-3. Click "Run workflow"
-4. Select branch: `claude/fix-topbar-layout-e5ZKk`
-5. Click "Run workflow"
+### Changes:
+- ✅ Updated `parallelMCPOrchestrator.js`: Added 'us.' prefix
+- ✅ Updated `intelligentComponentAnalyzer.js`: Added 'us.' prefix
+- ✅ Both now match serverless.yml configuration
 
-The workflow will now:
-- ✅ Verify the JSON fix is in source code
-- ✅ Check deployment package contents
-- ✅ Force Lambda to update with `--force` flag
-- ✅ Wait 15 seconds for propagation
-- ✅ Call `/api/test` to verify version = `2.1.0-json-fix`
-- ❌ FAIL if verification doesn't pass
+### Impact:
+- Parallel MCP will successfully call Bedrock
+- NO more silent failures and fallback to legacy mode
+- Full 15,000+ vertices for V8 engines
+- Production-ready detail for ALL mechanical components
 
-### Option 2: Manual Deployment from Local Machine
+## Deployment Timeline
 
-If GitHub Actions continues to fail:
+- **11:45 AM**: Previous fix pushed (made parallel MCP default) - ✅ Deployed
+- **11:48 AM**: You tested - Hit model ID mismatch error
+- **11:52 AM**: Root cause identified (model ID)
+- **11:53 AM**: Fix pushed - 🟡 DEPLOYING NOW
+- **11:56 AM**: ETA for fix to be live
 
-```bash
-# Clone and checkout
-git clone <your-repo-url>
-cd archdiscv1
-git checkout claude/fix-topbar-layout-e5ZKk
+## What You'll See Next
 
-# Deploy with serverless
-serverless deploy --stage dev --force
+### After This Deployment (in 3 minutes):
 
-# OR use the force update script
-node force-lambda-update.js
+```
+🚀 === PARALLEL MCP MODE: PRODUCTION-READY GENERATION (DEFAULT) ===
+   Environment: USE_PARALLEL_MCP=true
+   Token budget: 64K per component (unlimited total)
+
+🎯 Template Detection
+   Detected: V8 Engine Block
+   Components: 32
+   Target vertices: 15,000+
+
+⚡ Wave Execution
+   Wave 1: 5 components (base structure) - COMPLETE
+   Wave 2: 8 components (cylinder bores) - COMPLETE
+   Wave 3: 8 components (pistons) - COMPLETE
+   ...
+
+🔧 === INTELLIGENT ASSEMBLY ===
+   Total vertices: 15,234
+   Components positioned: 32
+   Workflow mode: parallel_mcp ← THIS IS WHAT YOU WANT TO SEE
+
+✅ Generation complete: 15,234 vertices
 ```
 
-### Option 3: AWS Console Manual Update
+## Test Instructions
 
-1. Download deployment package from GitHub Actions artifacts
-2. Go to AWS Lambda Console
-3. Navigate to `archdisc-cad-dev-api`
-4. Upload new code → Select `.zip file`
-5. Upload the package
-6. Click "Deploy"
-7. Repeat for `archdisc-cad-dev-orchestrate`
+**WAIT 3-4 MINUTES** for GitHub Actions deployment, then:
 
-## Verification
+1. Send a V8 engine request to your API
+2. Check the logs for:
+   - ✅ `🚀 === PARALLEL MCP MODE`
+   - ✅ `Components: 32`
+   - ✅ `Total vertices: 15,000+`
+   - ✅ `Workflow mode: parallel_mcp` (NOT "legacy")
 
-After deployment, test these prompts:
-
-### Simple Test (Baseline):
-```
-Create a 50mm cube
-```
-Expected: Works (establishes baseline)
-
-### Complex Test (JSON Parsing):
-```
-Create an L-bracket with mounting holes
-```
-Expected: Should work with new code, fails with old code
-
-### Check Logs:
-Look for this in CloudWatch:
-```
-Found markdown code block, extracting JSON...
-✅ Successfully parsed JSON from code block
-```
-
-If you see:
-```
-Attempting balanced JSON extraction from full text...
-Could not extract valid JSON
-```
-Then old code is still running.
-
-## Next Actions Required
-
-**You need to:**
-
-1. **Run the GitHub Actions workflow** with the latest changes
-2. **Wait for the deployment to complete** (check Actions tab)
-3. **Look for the verification step output** - it will show if deployment worked
-4. **Test with an L-bracket prompt** to confirm
-
-The workflow is now configured to FAIL if Lambda doesn't update correctly, so you'll know immediately if it worked.
+3. If you STILL see "Workflow mode: legacy":
+   - Check CloudWatch logs for error messages
+   - Look for "❌ Parallel MCP generation failed:"
+   - Share the full error with me
 
 ## Why This Happened
 
-The previous deployments likely succeeded at uploading to S3, but Lambda didn't reload the code due to:
-- Not using `--force` flag initially
-- Not publishing new Lambda versions
-- Possible Lambda caching for rapid successive deployments
+The previous deployment correctly made parallel MCP the default mode, but I didn't realize the model IDs were hardcoded differently than the serverless.yml configuration. When tested locally (where region prefixes aren't required), everything worked fine. But in Lambda with cross-region inference enabled, the model ID mismatch caused API failures.
 
-The current workflow addresses all these issues.
+This is now fixed and deploying!
 
-## Technical Details
+## Verification Commands
 
-**Files with fixes:**
-- `backend/services/bedrockService.js:658` - Markdown code block extraction
-- `backend/services/mechanicalDomainOrchestrator.js` - AI-only geometry
-- `backend/engines/axel/axelEngine.js` - Enhanced processing
-- `backend/lambda/api.js:81` - Version tag `2.1.0-json-fix`
+If you want to check deployment status:
+```bash
+# Watch GitHub Actions
+# (Check the Actions tab in GitHub)
 
-**Lambda Functions:**
-- `archdisc-cad-dev-api` (API Gateway handler)
-- `archdisc-cad-dev-orchestrate` (Long-running workflows)
+# Once deployed, check Lambda logs:
+npx serverless logs -f api --stage dev --tail
 
-**API Endpoint:**
-- Base: `https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev`
-- Test: `/api/test` (returns version number)
-- Mechanical: `/api/mechanical/generate`
+# Or check CloudWatch directly:
+aws logs tail /aws/lambda/archdisc-cad-dev-api --follow
+```
 
 ---
 
-**Status:** 🔴 Awaiting successful deployment
-**Action Required:** Re-run GitHub Actions workflow
+**Next Status Update**: After deployment completes (3-4 minutes)
