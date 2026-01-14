@@ -14,11 +14,13 @@
  */
 
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
+const intelligentAssembly = require('./intelligentAssemblyEngine');
+const productionV8Template = require('./productionV8Template');
 
 class ParallelMCPOrchestrator {
     constructor() {
         this.bedrock = new BedrockRuntimeClient({ region: 'us-east-1' });
-        this.maxParallelCalls = 10; // AWS Lambda concurrent execution limit
+        this.maxParallelCalls = 50; // NO LIMITS - as many as needed for perfection
         this.tokensPerComponent = 64000; // Max output tokens per call
 
         // Component breakdown templates for different mechanical types
@@ -27,7 +29,8 @@ class ParallelMCPOrchestrator {
 
     buildComponentTemplates() {
         return {
-            v8_engine_block: {
+            v8_engine_block: productionV8Template,
+            v8_engine_block_old: {
                 name: 'V8 Engine Block',
                 totalComponents: 10,
                 components: [
@@ -527,52 +530,8 @@ BEGIN GENERATION:
     }
 
     assembleComponents(componentResults, template) {
-        console.log('   🔧 Combining geometries...');
-
-        const finalGeometry = {
-            vertices: [],
-            faces: [],
-            edges: [],
-            components: []
-        };
-
-        let vertexOffset = 0;
-
-        for (const result of componentResults) {
-            const { component, geometry } = result;
-
-            // Add vertices
-            finalGeometry.vertices.push(...geometry.vertices);
-
-            // Add faces with vertex offset
-            const offsetFaces = geometry.faces.map(face =>
-                face.map(v => v + vertexOffset)
-            );
-            finalGeometry.faces.push(...offsetFaces);
-
-            // Add edges with vertex offset
-            if (geometry.edges) {
-                const offsetEdges = geometry.edges.map(edge =>
-                    edge.map(v => v + vertexOffset)
-                );
-                finalGeometry.edges.push(...offsetEdges);
-            }
-
-            // Record component boundaries
-            finalGeometry.components.push({
-                id: component.id,
-                name: component.name,
-                vertexStart: vertexOffset,
-                vertexEnd: vertexOffset + geometry.vertices.length - 1,
-                vertexCount: geometry.vertices.length
-            });
-
-            vertexOffset += geometry.vertices.length;
-
-            console.log(`      ✅ Added ${component.name}: ${geometry.vertices.length} vertices`);
-        }
-
-        return finalGeometry;
+        // Use intelligent assembly engine with 3D positioning
+        return intelligentAssembly.assembleWithIntelligentPositioning(componentResults, template);
     }
 
     validateAssembly(geometry, template) {
