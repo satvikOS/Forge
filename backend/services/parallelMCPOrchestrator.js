@@ -15,7 +15,8 @@
 
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 const intelligentAssembly = require('./intelligentAssemblyEngine');
-const productionV8Template = require('./productionV8Template');
+const universalTemplates = require('./universalMechanicalTemplates');
+const intelligentAnalyzer = require('./intelligentComponentAnalyzer');
 
 class ParallelMCPOrchestrator {
     constructor() {
@@ -23,13 +24,17 @@ class ParallelMCPOrchestrator {
         this.maxParallelCalls = 50; // NO LIMITS - as many as needed for perfection
         this.tokensPerComponent = 64000; // Max output tokens per call
 
-        // Component breakdown templates for different mechanical types
-        this.componentTemplates = this.buildComponentTemplates();
+        // Use universal mechanical templates
+        this.componentTemplates = universalTemplates;
+
+        console.log('✅ Parallel MCP Orchestrator initialized');
+        console.log(`   Available templates: ${Object.keys(this.componentTemplates).length}`);
+        console.log(`   AI-powered analysis: Enabled`);
+        console.log(`   Max parallel calls: ${this.maxParallelCalls}`);
     }
 
-    buildComponentTemplates() {
+    buildComponentTemplates_OLD() {
         return {
-            v8_engine_block: productionV8Template,
             v8_engine_block_old: {
                 name: 'V8 Engine Block',
                 totalComponents: 10,
@@ -288,9 +293,10 @@ CRITICAL: All mounting points with proper thread specifications`
         console.log(`   Prompt: "${prompt.substring(0, 80)}..."`);
 
         // STEP 1: Detect component type and get breakdown template
-        const template = this.detectTemplateType(prompt);
+        const template = await this.detectTemplateType(prompt);
         console.log(`\n📋 Component Breakdown: ${template.name}`);
         console.log(`   Total components: ${template.totalComponents}`);
+        console.log(`   Target vertices: ${template.targetVertices || 'Auto'}`);
         console.log(`   Max parallel calls: ${this.maxParallelCalls}`);
 
         // STEP 2: Build dependency graph and execution plan
@@ -353,17 +359,61 @@ CRITICAL: All mounting points with proper thread specifications`
         };
     }
 
-    detectTemplateType(prompt) {
+    async detectTemplateType(prompt) {
         const promptLower = prompt.toLowerCase();
 
-        if (promptLower.includes('v8') || promptLower.includes('engine')) {
-            return this.componentTemplates.v8_engine_block;
-        } else if (promptLower.includes('gear') && promptLower.includes('spur')) {
-            return this.componentTemplates.spur_gear;
+        // Template matching rules
+        const templateMatches = {
+            // Engines
+            'v8_engine': ['v8', 'v-8', 'eight cylinder'],
+            'inline_4_engine': ['inline 4', 'i4', 'four cylinder inline'],
+
+            // Gears
+            'spur_gear': ['spur gear', 'straight gear', 'parallel shaft gear'],
+            'helical_gear': ['helical gear', 'helical tooth', 'angled gear'],
+            'bevel_gear': ['bevel gear', 'miter gear', 'cone gear', '90 degree gear'],
+
+            // Hydraulics
+            'hydraulic_cylinder': ['hydraulic cylinder', 'hydraulic ram', 'hydraulic piston'],
+
+            // Pumps
+            'centrifugal_pump': ['centrifugal pump', 'volute pump', 'impeller pump'],
+            'gear_pump': ['gear pump', 'positive displacement pump'],
+
+            // Valves
+            'ball_valve': ['ball valve', 'quarter turn valve'],
+            'gate_valve': ['gate valve', 'sluice valve', 'rising stem'],
+
+            // Bearings
+            'ball_bearing': ['ball bearing', 'deep groove bearing', 'radial bearing'],
+
+            // Transmissions
+            'gearbox_assembly': ['gearbox', 'transmission', 'gear box', 'speed reducer'],
+
+            // Motors
+            'electric_motor': ['electric motor', 'ac motor', 'induction motor', 'motor assembly']
+        };
+
+        // Try to match template
+        for (const [templateKey, keywords] of Object.entries(templateMatches)) {
+            const matches = keywords.some(keyword => promptLower.includes(keyword));
+            if (matches && this.componentTemplates[templateKey]) {
+                console.log(`   ✅ Template match found: ${templateKey}`);
+                return this.componentTemplates[templateKey];
+            }
         }
 
-        // Default to V8 for now
-        return this.componentTemplates.v8_engine_block;
+        // No template match - use AI analysis
+        console.log('   🧠 No template match - using AI component analysis...');
+
+        try {
+            const aiTemplate = await intelligentAnalyzer.analyzeAndBreakdown(prompt);
+            console.log(`   ✅ AI generated breakdown: ${aiTemplate.components.length} components`);
+            return aiTemplate;
+        } catch (error) {
+            console.error('   ❌ AI analysis failed, using fallback');
+            return this.componentTemplates.custom_component;
+        }
     }
 
     buildExecutionPlan(template) {
