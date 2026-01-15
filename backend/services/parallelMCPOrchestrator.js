@@ -590,8 +590,9 @@ BEGIN GENERATION:
     }
 
     generateFallbackGeometry(targetVertices) {
-        // Generate a simple but valid geometry to avoid complete failure
+        // Generate a valid cylinder mesh with proper topology to avoid corruption
         const vertices = [];
+        const faces = [];
         const segmentsPerCircle = Math.max(32, Math.floor(targetVertices / 2));
 
         // Generate two circles (top and bottom)
@@ -603,9 +604,35 @@ BEGIN GENERATION:
             vertices.push([x, y, 100]); // Top circle
         }
 
+        // Add center vertices for top and bottom caps
+        const bottomCenterIdx = vertices.length;
+        vertices.push([0, 0, 0]); // Bottom center
+        const topCenterIdx = vertices.length;
+        vertices.push([0, 0, 100]); // Top center
+
+        // Generate faces for the cylinder
+        for (let i = 0; i < segmentsPerCircle; i++) {
+            const bottomCurrent = i * 2;
+            const topCurrent = i * 2 + 1;
+            const bottomNext = ((i + 1) % segmentsPerCircle) * 2;
+            const topNext = ((i + 1) % segmentsPerCircle) * 2 + 1;
+
+            // Side walls (two triangles per quad)
+            faces.push([bottomCurrent, topCurrent, bottomNext]);
+            faces.push([topCurrent, topNext, bottomNext]);
+
+            // Bottom cap (triangle from center to edge)
+            faces.push([bottomCenterIdx, bottomNext, bottomCurrent]);
+
+            // Top cap (triangle from center to edge)
+            faces.push([topCenterIdx, topCurrent, topNext]);
+        }
+
+        console.log(`⚠️  Generated fallback cylinder: ${vertices.length} vertices, ${faces.length} faces`);
+
         return {
             vertices,
-            faces: []
+            faces
         };
     }
 

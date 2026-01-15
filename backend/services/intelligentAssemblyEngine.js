@@ -72,11 +72,15 @@ class IntelligentAssemblyEngine {
             // Add transformed vertices
             finalGeometry.vertices.push(...transformedVertices);
 
-            // Add faces with vertex offset
-            const offsetFaces = geometry.faces.map(face =>
-                face.map(v => v + vertexOffset)
-            );
-            finalGeometry.faces.push(...offsetFaces);
+            // Add faces with vertex offset (with safety check)
+            if (geometry.faces && geometry.faces.length > 0) {
+                const offsetFaces = geometry.faces.map(face =>
+                    face.map(v => v + vertexOffset)
+                );
+                finalGeometry.faces.push(...offsetFaces);
+            } else {
+                console.warn(`   ⚠️  Component ${component.name} has no faces - may cause rendering issues`);
+            }
 
             // Add edges with vertex offset
             if (geometry.edges) {
