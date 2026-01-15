@@ -117,7 +117,7 @@ router.post('/', async (req, res) => {
 router.get('/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const job = jobQueue.getJob(jobId);
+    const job = await jobQueue.getJob(jobId);
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
@@ -758,7 +758,7 @@ router.post('/:jobId/upgrade', async (req, res) => {
     }
 
     // Get original job
-    const job = jobQueue.getJob(jobId);
+    const job = await jobQueue.getJob(jobId);
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }

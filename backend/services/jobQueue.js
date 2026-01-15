@@ -1,24 +1,36 @@
 /**
  * Job Queue - Manages async 3D generation jobs
  * Handles job creation, status tracking, and progress updates
- * 
- * NOTE: For serverless environments, uses a global shared Map
- * to persist across function invocations within the same instance.
+ *
+ * Uses DynamoDB for persistence across Lambda instances
  */
 
-// Global job storage - shared across all instances in the same runtime
-// This helps with serverless "warm" instances reusing the same container
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+
+// Global job storage - fallback for local dev or when DynamoDB unavailable
 const globalJobs = global.jobQueueStorage || new Map();
 global.jobQueueStorage = globalJobs;
 
 class JobQueue {
   constructor() {
-    this.jobs = globalJobs; // Use global storage instead of instance-specific Map
+    this.jobs = globalJobs; // Fallback for in-memory storage
     this.maxConcurrentJobs = 5;
     this.activeJobs = 0;
     this.jobTimeout = 12 * 60 * 1000; // 12 minutes (Lambda max is 15 min)
     this.completedJobRetention = 10 * 60 * 1000; // Keep completed jobs for 10 minutes
-    
+
+    // Initialize DynamoDB for serverless persistence
+    this.useDynamoDB = process.env.AWS_REGION && process.env.AWS_EXECUTION_ENV;
+    if (this.useDynamoDB) {
+      const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
+      this.dynamoDB = DynamoDBDocumentClient.from(dynamoClient);
+      this.tableName = `archdisc-workflows-${process.env.STAGE || 'dev'}`;
+      console.log(`✅ JobQueue using DynamoDB table: ${this.tableName}`);
+    } else {
+      console.log('⚠️  JobQueue using in-memory storage (local dev mode)');
+    }
+
     // Clean up old jobs periodically
     this.startCleanupTimer();
   }
@@ -30,6 +42,8 @@ class JobQueue {
     const jobId = this.generateJobId();
     const job = {
       id: jobId,
+      workflowId: jobId, // DynamoDB primary key
+      userId: options.userId || 'anonymous',
       prompt,
       status: 'queued',
       progress: 0,
@@ -45,18 +59,49 @@ class JobQueue {
         exporting: { status: 'pending', progress: 0 },
       },
     };
-    
+
+    // Store in both memory and DynamoDB
     this.jobs.set(jobId, job);
+
+    if (this.useDynamoDB) {
+      this.dynamoDB.send(new PutCommand({
+        TableName: this.tableName,
+        Item: job
+      })).catch(err => console.error('DynamoDB PutCommand error:', err));
+    }
+
     this.processNextJob();
-    
+
     return jobId;
   }
 
   /**
    * Get job by ID
    */
-  getJob(jobId) {
-    return this.jobs.get(jobId);
+  async getJob(jobId) {
+    // Try memory first (fast)
+    let job = this.jobs.get(jobId);
+    if (job) return job;
+
+    // Try DynamoDB (for cross-instance retrieval)
+    if (this.useDynamoDB) {
+      try {
+        const response = await this.dynamoDB.send(new GetCommand({
+          TableName: this.tableName,
+          Key: { workflowId: jobId }
+        }));
+        job = response.Item;
+        if (job) {
+          // Cache in memory for future requests
+          this.jobs.set(jobId, job);
+          return job;
+        }
+      } catch (err) {
+        console.error('DynamoDB GetCommand error:', err);
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -65,10 +110,35 @@ class JobQueue {
   updateJob(jobId, updates) {
     const job = this.jobs.get(jobId);
     if (!job) return null;
-    
+
     Object.assign(job, updates, { updatedAt: Date.now() });
     this.jobs.set(jobId, job);
-    
+
+    // Update DynamoDB asynchronously
+    if (this.useDynamoDB) {
+      this.dynamoDB.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { workflowId: jobId },
+        UpdateExpression: 'SET #status = :status, #progress = :progress, #updatedAt = :updatedAt, #result = :result, #error = :error, #stages = :stages',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#progress': 'progress',
+          '#updatedAt': 'updatedAt',
+          '#result': 'result',
+          '#error': 'error',
+          '#stages': 'stages'
+        },
+        ExpressionAttributeValues: {
+          ':status': job.status,
+          ':progress': job.progress,
+          ':updatedAt': job.updatedAt,
+          ':result': job.result,
+          ':error': job.error,
+          ':stages': job.stages
+        }
+      })).catch(err => console.error('DynamoDB UpdateCommand error:', err));
+    }
+
     return job;
   }
 

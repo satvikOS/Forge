@@ -13,7 +13,7 @@ router.get('/:jobId/:format', async (req, res) => {
 
     // Check if job exists and is completed
     if (!jobQueue.isJobReady(jobId)) {
-      const job = jobQueue.getJob(jobId);
+      const job = await jobQueue.getJob(jobId);
       if (!job) {
         return res.status(404).json({ error: 'Job not found' });
       }
@@ -27,7 +27,7 @@ router.get('/:jobId/:format', async (req, res) => {
     }
 
     // Get job result
-    const job = jobQueue.getJob(jobId);
+    const job = await jobQueue.getJob(jobId);
     const geometryData = job.result?.design?.model?.geometry;
 
     if (!geometryData) {
