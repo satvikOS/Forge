@@ -193,7 +193,14 @@ VERTEX COUNT: 770 (384 front + 384 back + 2 centers, meets 384+ requirement)
 }
 
 VERTEX COUNT: 320
-`
+`,
+                features: [
+                    'Cylinder body with proper wall thickness',
+                    'Inner bore for piston travel',
+                    'Piston with seals',
+                    'Hydraulic ports (intake/outlet)',
+                    'Proper stroke length'
+                ]
             }
         };
     }
@@ -364,10 +371,10 @@ THIS IS HOW YOU MUST STRUCTURE YOUR RESPONSE:
 
 ${analysis.matchedExample.exampleStructure}
 
-FEATURES TO INCLUDE:
+${analysis.matchedExample.features ? `FEATURES TO INCLUDE:
 ${analysis.matchedExample.features.map((f, i) => `${i+1}. ${f}`).join('\n')}
 
-MINIMUM VERTEX COUNT: ${analysis.matchedExample.requiredVertices}
+` : ''}MINIMUM VERTEX COUNT: ${analysis.matchedExample.requiredVertices}
 ` : 'No specific example available - generate detailed geometry meeting vertex requirement'}
 
 ═══════════════════════════════════════════════════════════════════════════

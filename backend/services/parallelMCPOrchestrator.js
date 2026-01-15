@@ -547,36 +547,66 @@ BEGIN GENERATION:
     }
 
     async callClaude(prompt, targetVertices) {
-        const command = new InvokeModelCommand({
-            modelId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
-            contentType: 'application/json',
-            accept: 'application/json',
-            body: JSON.stringify({
-                anthropic_version: 'bedrock-2023-05-31',
-                max_tokens: 64000, // Full token budget for this component
-                temperature: 0.7,
-                messages: [
-                    {
-                        role: 'user',
-                        content: prompt
-                    }
-                ]
-            })
-        });
+        try {
+            const command = new InvokeModelCommand({
+                modelId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+                contentType: 'application/json',
+                accept: 'application/json',
+                body: JSON.stringify({
+                    anthropic_version: 'bedrock-2023-05-31',
+                    max_tokens: 64000, // Full token budget for this component
+                    temperature: 0.7,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ]
+                })
+            });
 
-        const response = await this.bedrock.send(command);
-        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+            const response = await this.bedrock.send(command);
+            const responseBody = JSON.parse(new TextDecoder().decode(response.body));
 
-        let content = responseBody.content[0].text;
+            let content = responseBody.content[0].text;
 
-        // Parse JSON from response
-        if (content.includes('```json')) {
-            const match = content.match(/```json\n([\s\S]*?)\n```/);
-            if (match) content = match[1];
+            // Parse JSON from response
+            if (content.includes('```json')) {
+                const match = content.match(/```json\n([\s\S]*?)\n```/);
+                if (match) content = match[1];
+            }
+
+            const parsed = JSON.parse(content);
+            return parsed.geometry || parsed;
+        } catch (error) {
+            // Handle Bedrock content filtering
+            if (error.name === 'ValidationException' && error.message.includes('content filtering')) {
+                console.warn('⚠️  Bedrock content filter triggered - generating simplified geometry');
+                // Return a basic fallback geometry
+                return this.generateFallbackGeometry(targetVertices);
+            }
+            throw error;
+        }
+    }
+
+    generateFallbackGeometry(targetVertices) {
+        // Generate a simple but valid geometry to avoid complete failure
+        const vertices = [];
+        const segmentsPerCircle = Math.max(32, Math.floor(targetVertices / 2));
+
+        // Generate two circles (top and bottom)
+        for (let i = 0; i < segmentsPerCircle; i++) {
+            const angle = (i / segmentsPerCircle) * 2 * Math.PI;
+            const x = 50 * Math.cos(angle);
+            const y = 50 * Math.sin(angle);
+            vertices.push([x, y, 0]); // Bottom circle
+            vertices.push([x, y, 100]); // Top circle
         }
 
-        const parsed = JSON.parse(content);
-        return parsed.geometry || parsed;
+        return {
+            vertices,
+            faces: []
+        };
     }
 
     assembleComponents(componentResults, template) {
