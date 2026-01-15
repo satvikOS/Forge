@@ -50,11 +50,11 @@ class IntelligentComponentAnalyzer {
     }
 
     buildAnalysisPrompt(userPrompt) {
-        return `You are a mechanical engineering expert. Analyze this CAD design request and break it down into parallel components for production-ready 3D modeling.
+        return `You are a mechanical engineering expert. Analyze this CAD design request and break it down into parallel components for production-ready 3D modeling WITH MATERIALS.
 
 USER REQUEST: "${userPrompt}"
 
-Your task: Create a detailed component breakdown for parallel generation.
+Your task: Create a detailed component breakdown for parallel generation WITH MATERIAL SPECIFICATIONS.
 
 ANALYSIS REQUIREMENTS:
 
@@ -68,18 +68,23 @@ ANALYSIS REQUIREMENTS:
    - Consider manufacturing and assembly sequence
    - Aim for 500-800 vertices per component (max detail)
 
-3. ASSIGN dependencies:
+3. DEFINE MATERIALS for all components:
+   - Select appropriate engineering materials (steel, aluminum, brass, composites, etc.)
+   - Assign RGB color codes for 3D rendering (realistic material colors)
+   - Include material properties (density, tensile strength, temperature ratings)
+
+4. ASSIGN dependencies:
    - Base components have no dependencies
    - Dependent components reference their required predecessors
    - Create wave-based execution plan
 
-4. DETERMINE 3D positioning:
+5. DETERMINE 3D positioning:
    - Define coordinate system origin
    - Calculate exact position {x, y, z} for each component in millimeters
    - Determine rotation {x, y, z} in degrees if needed
    - Ensure no overlapping components (unless intentional like piston in cylinder)
 
-5. WRITE detailed generation prompts:
+6. WRITE detailed generation prompts:
    - Each component needs a specific prompt describing ONLY that component
    - Include dimensions, tolerances, features, materials
    - Reference industry standards where applicable
@@ -97,6 +102,17 @@ OUTPUT FORMAT (JSON):
     "zAxis": "string (describe positive Z direction)",
     "units": "millimeters"
   },
+  "materials": {
+    "material_key_1": {
+      "name": "string (e.g., 'Aluminum Alloy 6061-T6')",
+      "color": [<R>, <G>, <B>],
+      "properties": {
+        "density": "string",
+        "tensileStrength": "string",
+        "other": "string"
+      }
+    }
+  },
   "components": [
     {
       "id": "string (lowercase_with_underscores)",
@@ -108,10 +124,23 @@ OUTPUT FORMAT (JSON):
       "position": {"x": <mm>, "y": <mm>, "z": <mm>},
       "rotation": {"x": <deg>, "y": <deg>, "z": <deg>},
       "scale": {"x": 1, "y": 1, "z": 1},
+      "material": "string (key from materials dict)",
       "prompt": "string (Detailed generation prompt for THIS component only, 200-400 words)"
     }
   ]
 }
+
+MATERIAL COLOR GUIDE (RGB 0-255):
+- Steel: [180, 180, 190] light gray
+- Aluminum: [200, 200, 210] silver
+- Brass: [200, 170, 100] gold
+- Cast Iron: [100, 100, 110] dark gray
+- Carbon Fiber: [30, 30, 30] black
+- Stainless Steel: [190, 190, 200]
+- Copper: [180, 120, 80] reddish
+- Bronze: [140, 110, 70]
+- Titanium: [160, 160, 180]
+- Rubber: [40, 40, 40] black
 
 GUIDELINES:
 - For simple components (< 6 parts): Focus on detail within fewer components
@@ -119,8 +148,9 @@ GUIDELINES:
 - Always include: Base structure, moving parts, fasteners, seals, bearings
 - Position components in proper 3D space relative to coordinate origin
 - Each prompt should result in 500-800 vertices of detailed geometry
+- ALWAYS define materials dict and assign material to each component
 
-CRITICAL: Generate a COMPLETE breakdown that enables production-ready detail.
+CRITICAL: Generate a COMPLETE breakdown with MATERIALS that enables production-ready detail and realistic rendering.
 
 BEGIN ANALYSIS:`;
     }
@@ -164,6 +194,7 @@ BEGIN ANALYSIS:`;
             targetVertices: analysis.targetVertices,
             estimatedTime: analysis.estimatedTime,
             coordinateSystem: analysis.coordinateSystem,
+            materials: analysis.materials || {}, // Include materials from AI analysis
             originalPrompt: originalPrompt,
             aiGenerated: true,
             components: analysis.components

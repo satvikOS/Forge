@@ -6,11 +6,16 @@
  */
 
 const productionV8Template = require('./productionV8Template');
+const cryogenicTankTemplate = require('./templates/cryogenicTankTemplate');
 
 module.exports = {
     // ==================== ENGINES ====================
 
     v8_engine: productionV8Template,
+
+    // ==================== AEROSPACE / CRYOGENIC ====================
+
+    cryogenic_hydrogen_tank: cryogenicTankTemplate,
 
     inline_4_engine: {
         name: 'Inline 4-Cylinder Engine',

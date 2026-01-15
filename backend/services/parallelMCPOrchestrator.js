@@ -332,87 +332,87 @@ CRITICAL: All mounting points with proper thread specifications`
         const generationTime = ((Date.now() - startTime) / 1000).toFixed(2);
         console.log(`\n⏱️  Total generation time: ${generationTime}s`);
 
-        // STEP 4: Assemble all components into final geometry
-        console.log('\n🔧 Assembling components...');
-        const assembledGeometry = this.assembleComponents(allComponents, template);
+        // STEP 4: Enrich components with material metadata (for Axel Smart Engine rendering)
+        console.log('\n🎨 Enriching components with material data...');
+        const enrichedComponents = this.enrichComponentsWithMaterials(allComponents, template);
 
-        // STEP 5: Validate assembly
-        console.log('\n✅ Validating assembly...');
-        const validation = this.validateAssembly(assembledGeometry, template);
+        // STEP 5: Calculate total statistics
+        const totalVertices = enrichedComponents.reduce((sum, comp) => sum + comp.geometry.vertices.length, 0);
+        const totalFaces = enrichedComponents.reduce((sum, comp) => sum + comp.geometry.faces.length, 0);
 
         console.log('\n🎉 === PARALLEL MCP ORCHESTRATION COMPLETE ===');
-        console.log(`   Total vertices: ${assembledGeometry.vertices.length}`);
-        console.log(`   Total faces: ${assembledGeometry.faces.length}`);
-        console.log(`   Components: ${allComponents.length}`);
-        console.log(`   Validation: ${validation.passed ? 'PASSED ✅' : 'FAILED ❌'}`);
+        console.log(`   Total vertices: ${totalVertices}`);
+        console.log(`   Total faces: ${totalFaces}`);
+        console.log(`   Components: ${enrichedComponents.length}`);
+        console.log(`   💡 Components are SEPARATE - Axel Smart Engine will assemble`);
+
+        // OPTIONAL: Create assembled geometry for backward compatibility
+        console.log('\n🔧 Creating assembled geometry (for backward compatibility)...');
+        const assembledGeometry = this.assembleComponents(enrichedComponents, template);
+        const validation = this.validateAssembly(assembledGeometry, template);
 
         return {
+            // NEW FORMAT: Separate components with materials for Axel Smart Engine
+            components: enrichedComponents,
+
+            // LEGACY FORMAT: Assembled geometry for backward compatibility
             geometry: assembledGeometry,
-            components: allComponents,
+
             validation: validation,
             metadata: {
                 template: template.name,
-                totalComponents: allComponents.length,
+                totalComponents: enrichedComponents.length,
                 generationTime: generationTime,
-                parallelWaves: executionPlan.length
+                parallelWaves: executionPlan.length,
+                outputFormat: 'separate_components_with_materials',
+                axelSmartEngine: true
             }
         };
     }
 
     async detectTemplateType(prompt) {
-        const promptLower = prompt.toLowerCase();
-
-        // Template matching rules
-        const templateMatches = {
-            // Engines
-            'v8_engine': ['v8', 'v-8', 'eight cylinder'],
-            'inline_4_engine': ['inline 4', 'i4', 'four cylinder inline'],
-
-            // Gears
-            'spur_gear': ['spur gear', 'straight gear', 'parallel shaft gear'],
-            'helical_gear': ['helical gear', 'helical tooth', 'angled gear'],
-            'bevel_gear': ['bevel gear', 'miter gear', 'cone gear', '90 degree gear'],
-
-            // Hydraulics
-            'hydraulic_cylinder': ['hydraulic cylinder', 'hydraulic ram', 'hydraulic piston'],
-
-            // Pumps
-            'centrifugal_pump': ['centrifugal pump', 'volute pump', 'impeller pump'],
-            'gear_pump': ['gear pump', 'positive displacement pump'],
-
-            // Valves
-            'ball_valve': ['ball valve', 'quarter turn valve'],
-            'gate_valve': ['gate valve', 'sluice valve', 'rising stem'],
-
-            // Bearings
-            'ball_bearing': ['ball bearing', 'deep groove bearing', 'radial bearing'],
-
-            // Transmissions
-            'gearbox_assembly': ['gearbox', 'transmission', 'gear box', 'speed reducer'],
-
-            // Motors
-            'electric_motor': ['electric motor', 'ac motor', 'induction motor', 'motor assembly']
-        };
-
-        // Try to match template
-        for (const [templateKey, keywords] of Object.entries(templateMatches)) {
-            const matches = keywords.some(keyword => promptLower.includes(keyword));
-            if (matches && this.componentTemplates[templateKey]) {
-                console.log(`   ✅ Template match found: ${templateKey}`);
-                return this.componentTemplates[templateKey];
-            }
-        }
-
-        // No template match - use AI analysis
-        console.log('   🧠 No template match - using AI component analysis...');
+        /**
+         * ALWAYS use AI-powered component analysis (no templates)
+         * AI dynamically breaks down ANY prompt into components with materials
+         */
+        console.log('   🧠 Using AI component analysis for dynamic breakdown...');
 
         try {
             const aiTemplate = await intelligentAnalyzer.analyzeAndBreakdown(prompt);
             console.log(`   ✅ AI generated breakdown: ${aiTemplate.components.length} components`);
+            console.log(`   ✅ Materials defined: ${Object.keys(aiTemplate.materials || {}).length}`);
             return aiTemplate;
         } catch (error) {
-            console.error('   ❌ AI analysis failed, using fallback');
-            return this.componentTemplates.custom_component;
+            console.error('   ❌ AI analysis failed:', error.message);
+            console.error('   Stack:', error.stack);
+
+            // Emergency fallback - single component
+            console.warn('   ⚠️  Using emergency fallback (single component mode)');
+            return {
+                name: 'AI-Generated Component',
+                totalComponents: 1,
+                targetVertices: 3000,
+                materials: {
+                    default: {
+                        name: 'Generic Material',
+                        color: [150, 150, 150],
+                        properties: {}
+                    }
+                },
+                components: [
+                    {
+                        id: 'main_component',
+                        name: 'Main Component',
+                        targetVertices: 3000,
+                        priority: 1,
+                        dependencies: [],
+                        position: { x: 0, y: 0, z: 0 },
+                        rotation: { x: 0, y: 0, z: 0 },
+                        material: 'default',
+                        prompt: `Generate the mechanical component EXACTLY as described in this prompt: "${prompt}"\n\nUse ALL available output tokens for maximum detail:\n- Complex features: threads, holes, pockets, bosses\n- Precise dimensions: extract from prompt\n- Manufacturing features: fillets, chamfers, draft angles\n- Industry standard tolerances\n\nTARGET: 3000+ vertices\nCRITICAL: Follow ALL specifications in user prompt`
+                    }
+                ]
+            };
         }
     }
 
@@ -633,6 +633,122 @@ BEGIN GENERATION:
         return {
             vertices,
             faces
+        };
+    }
+
+    enrichComponentsWithMaterials(componentResults, template) {
+        /**
+         * Enrich each component with material metadata for Axel Smart Engine rendering
+         *
+         * Output format per component:
+         * {
+         *   id: 'inner_tank_shell',
+         *   name: 'Inner Tank Shell - Aluminum Liner',
+         *   geometry: { vertices: [[x,y,z], ...], faces: [[v1,v2,v3], ...] },
+         *   material: {
+         *     name: 'Aluminum Alloy 2219-T87',
+         *     color: [200, 200, 210],    // RGB for rendering
+         *     properties: { ... }         // Physical properties
+         *   },
+         *   position: { x: 0, y: 0, z: 0 },
+         *   rotation: { x: 0, y: 0, z: 0 },
+         *   scale: { x: 1, y: 1, z: 1 }
+         * }
+         */
+
+        console.log(`   Enriching ${componentResults.length} components...`);
+
+        const materialLibrary = template.materials || {};
+        const enrichedComponents = [];
+
+        for (const result of componentResults) {
+            const { component, geometry } = result;
+
+            // Get material data from template
+            const materialKey = component.material;
+            const materialData = materialLibrary[materialKey] || this.getDefaultMaterial(materialKey);
+
+            const enrichedComponent = {
+                // Component identification
+                id: component.id,
+                name: component.name,
+                description: component.description || component.name,
+
+                // Geometry data (vertices and faces)
+                geometry: {
+                    vertices: geometry.vertices,
+                    faces: geometry.faces,
+                    edges: geometry.edges || []
+                },
+
+                // Material data for rendering
+                material: {
+                    name: materialData.name,
+                    color: materialData.color, // RGB array [r, g, b]
+                    properties: materialData.properties || {}
+                },
+
+                // Transform data for Axel Smart Engine to use for assembly
+                transform: {
+                    position: component.position || { x: 0, y: 0, z: 0 },
+                    rotation: component.rotation || { x: 0, y: 0, z: 0 },
+                    scale: component.scale || { x: 1, y: 1, z: 1 }
+                },
+
+                // Metadata
+                metadata: {
+                    targetVertices: component.targetVertices,
+                    actualVertices: geometry.vertices.length,
+                    actualFaces: geometry.faces.length,
+                    priority: component.priority,
+                    dependencies: component.dependencies || []
+                }
+            };
+
+            enrichedComponents.push(enrichedComponent);
+
+            console.log(`      ✅ ${component.name}: ${geometry.vertices.length} vertices, Material: ${materialData.name} (RGB: ${materialData.color.join(',')})`);
+        }
+
+        return enrichedComponents;
+    }
+
+    getDefaultMaterial(materialKey) {
+        /**
+         * Default materials if template doesn't specify
+         */
+        const defaults = {
+            steel: {
+                name: 'Structural Steel AISI 1045',
+                color: [180, 180, 190], // Light gray
+                properties: { density: '7850 kg/m³', tensileStrength: '620 MPa' }
+            },
+            aluminum: {
+                name: 'Aluminum Alloy 6061-T6',
+                color: [200, 200, 210], // Silver-gray
+                properties: { density: '2700 kg/m³', tensileStrength: '310 MPa' }
+            },
+            brass: {
+                name: 'Brass C36000',
+                color: [200, 170, 100], // Gold-brass
+                properties: { density: '8500 kg/m³', tensileStrength: '340 MPa' }
+            },
+            cast_iron: {
+                name: 'Cast Iron Grade 40',
+                color: [100, 100, 110], // Dark gray
+                properties: { density: '7200 kg/m³', tensileStrength: '276 MPa' }
+            },
+            composite: {
+                name: 'Carbon Fiber Composite',
+                color: [30, 30, 30], // Black
+                properties: { density: '1600 kg/m³', tensileStrength: '4900 MPa' }
+            }
+        };
+
+        return defaults[materialKey] || {
+            name: 'Generic Material',
+            color: [150, 150, 150], // Medium gray
+            properties: {}
         };
     }
 
