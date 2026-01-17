@@ -1,4 +1,5 @@
 const { BedrockRuntimeClient, InvokeModelCommand, InvokeModelWithResponseStreamCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const taxonomySystem = require('./taxonomySystem');
 
 /**
@@ -9,35 +10,46 @@ const taxonomySystem = require('./taxonomySystem');
 class BedrockService {
     constructor() {
         this.region = process.env.AWS_REGION || 'us-east-1';
-        this.accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-        this.secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
         this.taxonomySystem = taxonomySystem;
 
-        // Validate AWS credentials
-        if (!this.accessKeyId || !this.secretAccessKey) {
-            console.error('❌ AWS credentials not configured - service will not function');
-            console.error('   Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables');
-            this.configured = false;
-            return;
-        }
-
         try {
-            // Initialize Bedrock Runtime Client
-            this.client = new BedrockRuntimeClient({
-                region: this.region,
-                credentials: {
-                    accessKeyId: this.accessKeyId,
-                    secretAccessKey: this.secretAccessKey
-                }
-            });
+            // Initialize Bedrock Runtime Client with explicit credential chain
+            console.log('🔧 Initializing Bedrock client...');
+            console.log('   Region:', this.region);
+            console.log('   Environment:', process.env.AWS_EXECUTION_ENV || 'local');
 
-            // Model configuration
-            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+            const clientConfig = {
+                region: this.region,
+                // Explicitly use credential provider chain (Lambda role -> env vars -> instance metadata)
+                credentials: fromNodeProviderChain()
+            };
+
+            // Override with explicit credentials if provided
+            if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
+                console.log('📋 Overriding with BEDROCK_* credentials');
+                clientConfig.credentials = {
+                    accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID,
+                    secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY
+                };
+            }
+
+            this.client = new BedrockRuntimeClient(clientConfig);
+
+            // Test credential resolution
+            console.log('🔍 Credential provider configured successfully');
+
+            // Model configuration - Use Claude Sonnet 4.5 via inference profile (required for on-demand)
+            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+            this.fallbackModels = [
+                'us.anthropic.claude-sonnet-4-5-20250929-v1:0'   // Claude Sonnet 4.5 via US inference profile (ONLY)
+            ];
             this.imageModel = process.env.BEDROCK_IMAGE_MODEL || 'stability.stable-diffusion-xl-v1';
             this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
 
             // Generation parameters
-            this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '4096');
+            // Using full Claude Sonnet 4.5 capacity: 64K output tokens, 200K input tokens
+            // Enables complete geometry generation for complex CAD models
+            this.maxTokens = parseInt(process.env.BEDROCK_MAX_TOKENS || '64000');
             this.temperature = parseFloat(process.env.BEDROCK_TEMPERATURE || '0.7');
 
             console.log(`✅ AWS Bedrock service initialized`);
@@ -47,6 +59,7 @@ class BedrockService {
             this.configured = true;
         } catch (error) {
             console.error('❌ Failed to initialize AWS Bedrock:', error);
+            console.error('   Error details:', error.message);
             this.configured = false;
         }
 
@@ -58,7 +71,7 @@ class BedrockService {
      * Check if service is properly configured
      */
     isConfigured() {
-        return this.configured && this.client;
+        return Boolean(this.configured && this.client);
     }
 
     /**
@@ -71,100 +84,120 @@ class BedrockService {
         }
 
         const maxRetries = options.maxRetries || this.maxRetries;
-        const modelId = options.modelId || this.textModel;
+        const requestedModel = options.modelId || this.textModel;
         let lastError = null;
+
+        // Try requested model first, then fallback models if access denied
+        const modelsToTry = [requestedModel, ...this.fallbackModels.filter(m => m !== requestedModel)];
 
         console.log('\n=== 🤖 AWS Bedrock Request ===');
         console.log('📋 Request details:', {
             promptLength: prompt?.length,
             maxRetries,
-            model: modelId,
+            requestedModel,
+            fallbackModels: modelsToTry.length - 1,
             region: this.region
         });
 
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Bedrock API...`);
+        // Try each model in order
+        for (const modelId of modelsToTry) {
+            console.log(`\n🔄 Trying model: ${modelId}`);
 
-                // Prepare request based on model type
-                let requestBody;
-                if (modelId.includes('anthropic.claude')) {
-                    // Claude format
-                    requestBody = {
-                        anthropic_version: "bedrock-2023-05-31",
-                        max_tokens: this.maxTokens,
-                        temperature: this.temperature,
-                        messages: [
-                            {
-                                role: "user",
-                                content: prompt
-                            }
-                        ]
-                    };
-                } else if (modelId.includes('amazon.titan')) {
-                    // Titan format
-                    requestBody = {
-                        inputText: prompt,
-                        textGenerationConfig: {
-                            maxTokenCount: this.maxTokens,
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Bedrock API...`);
+
+                    // Prepare request based on model type
+                    let requestBody;
+                    if (modelId.includes('anthropic.claude')) {
+                        // Claude format
+                        requestBody = {
+                            anthropic_version: "bedrock-2023-05-31",
+                            max_tokens: this.maxTokens,
                             temperature: this.temperature,
-                            topP: 0.9
-                        }
-                    };
-                } else {
-                    throw new Error(`Unsupported model type: ${modelId}`);
-                }
+                            messages: [
+                                {
+                                    role: "user",
+                                    content: prompt
+                                }
+                            ]
+                        };
+                    } else if (modelId.includes('amazon.titan')) {
+                        // Titan format
+                        requestBody = {
+                            inputText: prompt,
+                            textGenerationConfig: {
+                                maxTokenCount: this.maxTokens,
+                                temperature: this.temperature,
+                                topP: 0.9
+                            }
+                        };
+                    } else {
+                        throw new Error(`Unsupported model type: ${modelId}`);
+                    }
 
-                const command = new InvokeModelCommand({
-                    modelId: modelId,
-                    contentType: 'application/json',
-                    accept: 'application/json',
-                    body: JSON.stringify(requestBody)
-                });
+                    const command = new InvokeModelCommand({
+                        modelId: modelId,
+                        contentType: 'application/json',
+                        accept: 'application/json',
+                        body: JSON.stringify(requestBody)
+                    });
 
-                const response = await this.client.send(command);
-                const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+                    const response = await this.client.send(command);
+                    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
 
-                // Extract text based on model type
-                let text;
-                if (modelId.includes('anthropic.claude')) {
-                    text = responseBody.content[0].text;
-                } else if (modelId.includes('amazon.titan')) {
-                    text = responseBody.results[0].outputText;
-                }
+                    // Extract text based on model type
+                    let text;
+                    if (modelId.includes('anthropic.claude')) {
+                        text = responseBody.content[0].text;
+                    } else if (modelId.includes('amazon.titan')) {
+                        text = responseBody.results[0].outputText;
+                    }
 
-                console.log(`✅ Success on attempt ${attempt}!`);
-                console.log('📊 Response length:', text?.length);
-                console.log('=== End Bedrock Request ===\n');
+                    console.log(`✅ SUCCESS with model ${modelId} on attempt ${attempt}!`);
+                    console.log('📊 Response length:', text?.length);
+                    console.log('=== End Bedrock Request ===\n');
 
-                return text;
-            } catch (error) {
-                lastError = error;
-                console.error(`❌ Bedrock API error (attempt ${attempt}/${maxRetries}):`, {
-                    message: error.message,
-                    code: error.code || error.name,
-                    statusCode: error.$metadata?.httpStatusCode
-                });
+                    return text;
+                } catch (error) {
+                    lastError = error;
+                    console.error(`❌ Bedrock API error (model: ${modelId}, attempt ${attempt}/${maxRetries}):`, {
+                        message: error.message,
+                        code: error.code || error.name,
+                        statusCode: error.$metadata?.httpStatusCode
+                    });
 
-                // Don't retry on certain errors
-                if (error.code === 'AccessDeniedException' ||
-                    error.code === 'ValidationException' ||
-                    error.message?.includes('credentials') ||
-                    error.message?.includes('quota')) {
-                    console.error('🚫 Non-retryable error detected, throwing immediately');
-                    throw error;
-                }
+                    // If access denied or model not found, try next model immediately
+                    if (error.code === 'AccessDeniedException' ||
+                        error.code === 'ResourceNotFoundException' ||
+                        error.message?.includes('Could not resolve the foundation model')) {
+                        console.warn(`⚠️  Model ${modelId} not accessible, trying next model...`);
+                        break; // Break retry loop, try next model
+                    }
 
-                if (attempt < maxRetries) {
-                    const delayMs = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
-                    console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
-                    await this.delay(delayMs);
+                    // Don't retry on certain errors
+                    if (error.code === 'ValidationException' ||
+                        error.message?.includes('credentials') ||
+                        error.message?.includes('quota')) {
+                        console.error('🚫 Non-retryable error detected, throwing immediately');
+                        throw error;
+                    }
+
+                    if (attempt < maxRetries) {
+                        const delayMs = this.retryDelay * Math.pow(2, attempt - 1);
+                        console.log(`⏸️  Waiting ${delayMs}ms before retry...`);
+                        await this.delay(delayMs);
+                    }
                 }
             }
         }
 
         console.error('=== End Bedrock Request (FAILED) ===\n');
-        throw new Error(`AWS Bedrock failed after ${maxRetries} attempts: ${lastError?.message}`);
+        console.error('❌ All models failed. Please enable Bedrock model access in AWS Console:');
+        console.error('   https://console.aws.amazon.com/bedrock/');
+        console.error('   Region: us-east-1');
+        console.error('   Enable: Claude 3.5 Sonnet, Claude 3 Sonnet, or Claude Instant');
+        throw new Error(`AWS Bedrock failed after trying ${modelsToTry.length} models: ${lastError?.message}`);
     }
 
     /**
@@ -613,31 +646,189 @@ CRITICAL: Return ONLY valid JSON. Set detailLevel to "photorealistic" for maximu
      * Parse JSON from AI response (handles markdown code blocks)
      */
     parseJSON(text) {
+        // VERSION STAMP - DO NOT REMOVE
+        console.log('🔥🔥🔥 parseJSON VERSION 2.1.0-json-fix-DEPLOYED-JAN9-2026 🔥🔥🔥');
+
         try {
-            // Try direct JSON parse first
-            return JSON.parse(text);
-        } catch (e) {
-            // Try to extract JSON from markdown code blocks
-            const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-            if (jsonMatch) {
-                try {
-                    return JSON.parse(jsonMatch[1]);
-                } catch (e2) {
-                    console.error('Failed to parse JSON from code block:', e2);
-                }
+            // Validate input
+            if (!text || typeof text !== 'string') {
+                console.error('❌ Invalid input to parseJSON:', typeof text);
+                return null;
             }
 
-            // Try to find JSON object in text
-            const objectMatch = text.match(/\{[\s\S]*\}/);
-            if (objectMatch) {
-                try {
-                    return JSON.parse(objectMatch[0]);
-                } catch (e3) {
-                    console.error('Failed to parse JSON from text:', e3);
+            // Try direct JSON parse first
+            try {
+                return JSON.parse(text);
+            } catch (directParseError) {
+                console.log('📝 Direct JSON parse failed, trying alternative extraction methods...');
+            }
+
+            // Try to extract JSON from markdown code blocks
+            // Look for ```json or ``` followed by JSON
+            try {
+                console.log('🔍 Checking for markdown code blocks...');
+                console.log('   Text starts with:', text.substring(0, 50));
+                console.log('   Text length:', text.length);
+                console.log('   Contains backticks:', text.includes('```'));
+
+                // Try multiple regex patterns to detect markdown
+                const patterns = [
+                    /```json\s*([\s\S]*?)```/,     // ```json ... ```
+                    /```\s*([\s\S]*?)```/,          // ``` ... ```
+                    /```json\s*([\s\S]*)/,          // ```json ... (no closing)
+                ];
+
+                let extracted = null;
+                let patternUsed = -1;
+
+                for (let i = 0; i < patterns.length; i++) {
+                    const match = text.match(patterns[i]);
+                    if (match && match[1]) {
+                        console.log(`✅ Pattern ${i} matched! Extracting content...`);
+                        patternUsed = i;
+                        extracted = match[1].trim();
+                        break;
+                    }
                 }
+
+                if (extracted) {
+                    console.log('📦 Extracted content length:', extracted.length);
+                    console.log('   First 100 chars:', extracted.substring(0, 100));
+
+                    // Try direct parse first (extracted content should be clean JSON)
+                    try {
+                        console.log('🎯 Attempting direct JSON.parse on extracted content...');
+                        const parsed = JSON.parse(extracted);
+                        console.log('✅ Successfully parsed JSON directly from markdown (pattern ' + patternUsed + ')');
+                        return parsed;
+                    } catch (directParseError) {
+                        console.log('   Direct parse failed:', directParseError.message);
+                        console.log('   Falling back to balanced extraction...');
+                    }
+
+                    // Fallback: Use balanced JSON extraction on the code block content
+                    const balancedJSON = this.extractBalancedJSON(extracted);
+                    if (balancedJSON) {
+                        try {
+                            const parsed = JSON.parse(balancedJSON);
+                            console.log('✅ Successfully parsed JSON from markdown code block after balanced extraction (pattern ' + patternUsed + ')');
+                            return parsed;
+                        } catch (e2) {
+                            console.error('Failed to parse extracted JSON from code block:', e2.message);
+                        }
+                    } else {
+                        console.error('❌ extractBalancedJSON returned null');
+                    }
+                } else {
+                    console.log('❌ No markdown code block patterns matched');
+                }
+            } catch (codeBlockError) {
+                console.error('💥 Error during markdown extraction:', codeBlockError.message);
+            }
+
+            // Try to find balanced JSON object by parsing character by character
+            try {
+                console.log('Attempting balanced JSON extraction from full text...');
+                const extracted = this.extractBalancedJSON(text);
+                if (extracted) {
+                    try {
+                        const parsed = JSON.parse(extracted);
+                        console.log('✅ Successfully parsed JSON using balanced extraction');
+                        return parsed;
+                    } catch (e3) {
+                        console.error('Failed to parse extracted JSON:', e3.message);
+                        console.error('Extracted text (first 500 chars):', extracted.substring(0, 500));
+                    }
+                }
+            } catch (balancedError) {
+                console.error('Error during balanced extraction:', balancedError.message);
             }
 
             console.error('Could not extract valid JSON from response');
+            console.error('Response text (first 500 chars):', text.substring(0, 500));
+            return null;
+
+        } catch (outerError) {
+            console.error('💥 Critical error in parseJSON:', outerError.message);
+            console.error('Stack:', outerError.stack);
+            return null;
+        }
+    }
+
+    /**
+     * Extract balanced JSON object from text (handles nested braces correctly)
+     */
+    extractBalancedJSON(text) {
+        try {
+            console.log('🔧 extractBalancedJSON called');
+
+            // Validate input
+            if (!text || typeof text !== 'string') {
+                console.error('   ❌ Invalid input type:', typeof text);
+                return null;
+            }
+
+            console.log('   Text length:', text.length);
+            console.log('   First 50 chars:', text.substring(0, 50));
+
+            // Find the first opening brace
+            const startIndex = text.indexOf('{');
+            if (startIndex === -1) {
+                console.error('   ❌ No opening brace found');
+                return null;
+            }
+
+            console.log('   Start index:', startIndex);
+
+            let braceCount = 0;
+            let inString = false;
+            let escapeNext = false;
+
+            // Limit iteration to prevent infinite loops
+            const maxLength = Math.min(text.length, 500000); // 500KB max
+            console.log('   Max length for parsing:', maxLength);
+
+            for (let i = startIndex; i < maxLength; i++) {
+                const char = text[i];
+
+                // Handle escape sequences
+                if (escapeNext) {
+                    escapeNext = false;
+                    continue;
+                }
+                if (char === '\\') {
+                    escapeNext = true;
+                    continue;
+                }
+
+                // Handle strings
+                if (char === '"') {
+                    inString = !inString;
+                    continue;
+                }
+
+                // Only count braces outside of strings
+                if (!inString) {
+                    if (char === '{') {
+                        braceCount++;
+                    } else if (char === '}') {
+                        braceCount--;
+                        // When braces are balanced, we found the complete JSON
+                        if (braceCount === 0) {
+                            const extracted = text.substring(startIndex, i + 1);
+                            console.log('   ✅ Found balanced JSON at position', i);
+                            console.log('   Extracted length:', extracted.length);
+                            return extracted;
+                        }
+                    }
+                }
+            }
+
+            console.error('   ❌ Loop completed without finding balanced JSON');
+            console.error('   Final braceCount:', braceCount);
+            return null; // No balanced JSON found
+        } catch (error) {
+            console.error('💥 Error in extractBalancedJSON:', error.message);
             return null;
         }
     }

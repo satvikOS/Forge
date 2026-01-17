@@ -500,20 +500,68 @@ Be technical but concise. Focus on engineering reasoning.`;
     }
 
     /**
-     * Generate simplified geometry representation
+     * Generate 3D mesh geometry from specification
+     * Creates a procedural box mesh that can be rendered in Three.js
      */
     generateSimplifiedGeometry(spec) {
-        // For now, return a bounding box representation
-        // In full implementation, this would generate actual B-rep geometry
+        const length = spec.parameters.length?.value || 100;
+        const width = spec.parameters.width?.value || 50;
+        const height = spec.parameters.height?.value || 25;
+
+        // Generate box mesh vertices (8 corners)
+        const halfX = length / 2;
+        const halfY = width / 2;
+        const halfZ = height / 2;
+
+        const vertices = [
+            // Bottom face (y = -halfY)
+            [-halfX, -halfY, -halfZ], [halfX, -halfY, -halfZ], [halfX, -halfY, halfZ], [-halfX, -halfY, halfZ],
+            // Top face (y = halfY)
+            [-halfX, halfY, -halfZ], [halfX, halfY, -halfZ], [halfX, halfY, halfZ], [-halfX, halfY, halfZ]
+        ];
+
+        // Generate box faces (12 triangles = 6 quad faces * 2 triangles each)
+        // Each face is defined by vertex indices
+        const faces = [
+            // Bottom face
+            [0, 1, 2], [0, 2, 3],
+            // Top face
+            [4, 6, 5], [4, 7, 6],
+            // Front face
+            [0, 3, 7], [0, 7, 4],
+            // Back face
+            [1, 5, 6], [1, 6, 2],
+            // Left face
+            [0, 4, 5], [0, 5, 1],
+            // Right face
+            [3, 2, 6], [3, 6, 7]
+        ];
+
+        // Generate normals for each vertex
+        const normals = [
+            [0, -1, 0], [0, -1, 0], [0, -1, 0], [0, -1, 0], // Bottom
+            [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]      // Top
+        ];
+
         return {
-            type: 'boundingBox',
+            type: 'mesh',
+            vertices: vertices,
+            faces: faces,
+            normals: normals,
             dimensions: {
-                x: spec.parameters.length?.value || 100,
-                y: spec.parameters.width?.value || 50,
-                z: spec.parameters.height?.value || 25
+                x: length,
+                y: width,
+                z: height
             },
             features: spec.features.length,
-            volume: this.calculateVolume(spec.parameters)
+            volume: this.calculateVolume(spec.parameters),
+            // Metadata for Three.js
+            metadata: {
+                format: 'triangulated_mesh',
+                vertexCount: vertices.length,
+                faceCount: faces.length,
+                units: 'mm'
+            }
         };
     }
 

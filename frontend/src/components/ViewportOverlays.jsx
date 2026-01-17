@@ -13,9 +13,11 @@ export default function ViewportOverlays({
     showGrid = true,
     showAxes = true,
     showStats = true,
+    wireframeMode = 'off',
     onToggleGrid,
     onToggleAxes,
     onToggleStats,
+    onToggleWireframe,
 }) {
     const [fps, setFps] = useState(60);
     const [unitSettings, setUnitSettings] = useState(sceneUnitsSystem.getSettings());
@@ -104,6 +106,20 @@ export default function ViewportOverlays({
                 >
                     <span>📊</span>
                     <span style={styles.buttonLabel}>Stats</span>
+                </button>
+
+                <button
+                    onClick={onToggleWireframe}
+                    style={{
+                        ...styles.overlayButton,
+                        ...(wireframeMode !== 'off' ? styles.activeOverlay : {})
+                    }}
+                    title="Toggle Wireframe (W) - Cycles: Off → Solid → Transparent"
+                >
+                    <span>{wireframeMode === 'off' ? '◼' : wireframeMode === 'solid' ? '▦' : '▢'}</span>
+                    <span style={styles.buttonLabel}>
+                        {wireframeMode === 'off' ? 'Wireframe' : wireframeMode === 'solid' ? 'WF Solid' : 'WF Trans'}
+                    </span>
                 </button>
             </div>
 
