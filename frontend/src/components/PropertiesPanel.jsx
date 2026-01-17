@@ -5,9 +5,10 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
 
   const tabs = [
     { id: 'specs', label: 'Specifications', icon: '📋' },
+    { id: 'project', label: 'Project Specs', icon: '📐' },
     { id: 'analysis', label: 'Analysis', icon: '📊' },
     { id: 'compliance', label: 'Compliance', icon: '✓' },
-    { id: 'edit', label: 'Edit Properties', icon: '⚙' },
+    { id: 'properties', label: 'Properties', icon: '⚙' },
   ];
 
   if (!design) {
@@ -44,25 +45,29 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
         display: 'flex',
         borderBottom: '1px solid var(--border-color)',
         background: 'var(--bg-tertiary)',
+        overflowX: 'auto',
       }}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
-              flex: 1,
-              padding: '12px 8px',
+              flex: '0 0 auto',
+              minWidth: '65px',
+              padding: '12px 6px',
               background: activeTab === tab.id ? 'var(--bg-secondary)' : 'transparent',
               border: 'none',
               borderBottom: activeTab === tab.id ? '2px solid var(--accent-orange)' : '2px solid transparent',
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
               cursor: 'pointer',
-              fontSize: '13px',
+              fontSize: '11px',
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px',
+              gap: '4px',
               transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
             }}
             onMouseEnter={(e) => {
               if (activeTab !== tab.id) {
@@ -75,7 +80,7 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
               }
             }}
           >
-            <span>{tab.icon}</span>
+            <span style={{ fontSize: '16px' }}>{tab.icon}</span>
             <span>{tab.label}</span>
           </button>
         ))}
@@ -90,14 +95,17 @@ export default function PropertiesPanel({ design, analysis, compliance }) {
         {activeTab === 'specs' && design.specifications && (
           <SpecificationsTab specs={design.specifications} />
         )}
+        {activeTab === 'project' && design && (
+          <ProjectSpecificationsTab design={design} analysis={analysis} />
+        )}
         {activeTab === 'analysis' && analysis && (
           <AnalysisTab analysis={analysis} />
         )}
         {activeTab === 'compliance' && compliance && (
           <ComplianceTab compliance={compliance} />
         )}
-        {activeTab === 'edit' && (
-          <EditTab />
+        {activeTab === 'properties' && (
+          <PropertiesTab />
         )}
       </div>
     </div>
@@ -222,7 +230,81 @@ function ComplianceTab({ compliance }) {
   );
 }
 
-function EditTab() {
+function ProjectSpecificationsTab({ design, analysis }) {
+  const specs = design.specifications;
+  
+  return (
+    <div>
+      <PropertyGroup title="Design Information">
+        {specs.dimensions && (
+          <>
+            <Property label="Dimensions" value="" />
+            {Object.entries(specs.dimensions).map(([key, value]) => (
+              <div key={key} style={{ 
+                marginLeft: '10px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                marginBottom: '4px',
+              }}>
+                • {key}: {value}mm
+              </div>
+            ))}
+          </>
+        )}
+        {specs.materials && (
+          <Property label="Materials" value={specs.materials.join(', ')} />
+        )}
+        <Property label="Tolerances" value="±0.1mm (Standard)" />
+        {specs.style && (
+          <Property label="Design Style" value={specs.style} />
+        )}
+      </PropertyGroup>
+
+      {analysis && analysis.cost && (
+        <PropertyGroup title="Manufacturability">
+          <Property 
+            label="Feasibility" 
+            value={analysis.overallScore >= 70 ? "High" : analysis.overallScore >= 50 ? "Medium" : "Low"}
+            valueColor={analysis.overallScore >= 70 ? '#4caf50' : analysis.overallScore >= 50 ? '#ff9800' : '#f44336'}
+          />
+          <Property 
+            label="Est. Cost" 
+            value={`$${analysis.cost.estimated.toLocaleString()} ${analysis.cost.currency}`}
+            valueColor="var(--accent-orange)"
+          />
+          <Property label="Production Time" value="5-7 business days" />
+          <Property 
+            label="Complexity" 
+            value={analysis.overallScore >= 70 ? "Standard" : analysis.overallScore >= 50 ? "Moderate" : "Complex"}
+          />
+        </PropertyGroup>
+      )}
+
+      <PropertyGroup title="Technical Specifications">
+        <Property label="Model Type" value="Parametric 3D" />
+        <Property label="Units" value="Millimeters (mm)" />
+        {specs.features && specs.features.length > 0 && (
+          <>
+            <Property label="Features" value="" />
+            {specs.features.map((feature, idx) => (
+              <div key={idx} style={{ 
+                marginLeft: '10px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                marginBottom: '4px',
+              }}>
+                • {feature}
+              </div>
+            ))}
+          </>
+        )}
+        <Property label="File Format" value="3D Geometry" />
+      </PropertyGroup>
+    </div>
+  );
+}
+
+function PropertiesTab() {
   return (
     <div>
       <PropertyGroup title="Transform">
