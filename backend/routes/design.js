@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const aiService = require('../services/aiService');
+const geminiService = require('../services/geminiService');
 
 /**
  * POST /api/design/generate
@@ -14,11 +14,11 @@ router.post('/generate', async (req, res) => {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    // Process prompt to get design specifications
-    const specifications = await aiService.processPrompt(prompt);
+    // Process prompt to get design specifications using Gemini
+    const specifications = await geminiService.processPrompt(prompt);
 
     // Generate 3D model data
-    const modelData = await aiService.generateModelData(specifications);
+    const modelData = await geminiService.generateModelData(specifications);
 
     res.json({
       success: true,
@@ -56,6 +56,44 @@ router.post('/sketch', async (req, res) => {
   } catch (error) {
     console.error('Error processing sketch:', error);
     res.status(500).json({ error: 'Failed to process sketch', message: error.message });
+  }
+});
+
+/**
+ * POST /api/design/proposals
+ * Generate multiple design proposals (ArchPro feature)
+ */
+router.post('/proposals', async (req, res) => {
+  try {
+    const { prompt, count = 3 } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    // Generate multiple proposals using Gemini
+    const proposals = await geminiService.generateProposals(prompt, count);
+
+    // Generate 3D model data for each proposal
+    const designs = await Promise.all(
+      proposals.map(async (spec) => {
+        const modelData = await geminiService.generateModelData(spec);
+        return {
+          specifications: spec,
+          model: modelData,
+          id: Date.now().toString() + Math.random(),
+          createdAt: new Date().toISOString(),
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      proposals: designs,
+    });
+  } catch (error) {
+    console.error('Error generating proposals:', error);
+    res.status(500).json({ error: 'Failed to generate proposals', message: error.message });
   }
 });
 
