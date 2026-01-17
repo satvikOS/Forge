@@ -124,6 +124,11 @@ class WikidataService {
    * Get building data with dimensions
    */
   async getBuildingData(buildingName) {
+    if (!this.isEnabled()) {
+      console.log('Wikidata is not enabled, skipping building data fetch');
+      return null;
+    }
+    
     const searchResults = await this.search(buildingName, 3);
     
     if (!searchResults || searchResults.length === 0) {
