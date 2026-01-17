@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import WorkbenchSwitcher from './WorkbenchSwitcher';
 import WorkbenchMechanical from '../workbenches/mechanical-cad/WorkbenchMechanical';
 import WorkbenchArchitecture from '../workbenches/architecture-bim/WorkbenchArchitecture';
@@ -9,15 +9,48 @@ import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronic
 import WorkbenchAviation from '../workbenches/aviation/WorkbenchAviation';
 import WorkbenchUIProduct from '../workbenches/ui-product/WorkbenchUIProduct';
 import AIConsole from './AIConsole';
+import { ViewportProvider } from '../contexts/ViewportContext';
+import apiService from '../services/api';
 import '../styles/workbench.css';
 
 /**
- * Main Workbench Container - Blender-Style Layout
- * Grid: Header | Toolbar-Viewport-Properties | Footer
+ * Main Workbench Container, Blender Style Layout
+ * Grid: Header, Toolbar, Viewport, Properties, Footer
  */
 function WorkbenchContainer() {
     const [activeWorkbench, setActiveWorkbench] = useState('mechanical-cad');
     const [prompt, setPrompt] = useState('');
+    const [featureSearch, setFeatureSearch] = useState('');
+    const [isOnline, setIsOnline] = useState(true);
+
+    // Monitor online/offline status
+    useEffect(() => {
+        const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+
+        // Check backend connectivity immediately and every 30 seconds
+        const checkHealth = async () => {
+            try {
+                await apiService.healthCheck();
+                setIsOnline(true);
+                console.log('✅ Backend online');
+            } catch (error) {
+                setIsOnline(false);
+                console.warn('⚠️ Backend offline:', error.message);
+            }
+        };
+
+        checkHealth(); // Check immediately on mount
+        const interval = setInterval(checkHealth, 30000);
+
+        return () => {
+            window.removeEventListener('online', updateOnlineStatus);
+            window.removeEventListener('offline', updateOnlineStatus);
+            clearInterval(interval);
+        };
+    }, []);
 
     const handleGenerate = async () => {
         if (!prompt.trim()) return;
@@ -68,30 +101,45 @@ function WorkbenchContainer() {
     };
 
     return (
-        <div className="workbench-container">
-            {/* TOP HEADER */}
-            <header className="workbench-header">
-                <h1 className="workbench-title">ArchDisc</h1>
-                <WorkbenchSwitcher
-                    activeWorkbench={activeWorkbench}
-                    onSwitchWorkbench={setActiveWorkbench}
-                />
-                <div className="workbench-toolbar">
-                    {renderToolbar()}
-                </div>
-                <div className="header-actions">
-                    <button className="header-button">File</button>
-                    <button className="header-button">Edit</button>
-                    <button className="header-button">View</button>
-                </div>
-            </header>
+        <ViewportProvider>
+            <div className="workbench-container">
+                {/* TOP HEADER */}
+                <header className="workbench-header">
+                    <div className="header-brand">
+                        <h1 className="workbench-title">ArchDisc</h1>
+                        <span
+                            className={`status-indicator ${isOnline ? 'online' : 'offline'}`}
+                            title={isOnline ? 'Online' : 'Offline'}
+                        ></span>
+                    </div>
+                    <WorkbenchSwitcher
+                        activeWorkbench={activeWorkbench}
+                        onSwitchWorkbench={setActiveWorkbench}
+                    />
+                    <div className="workbench-toolbar">
+                        {renderToolbar()}
+                    </div>
+                    <div className="header-actions">
+                        <input
+                            type="text"
+                            className="feature-search"
+                            placeholder="Search features..."
+                            value={featureSearch}
+                            onChange={(e) => setFeatureSearch(e.target.value)}
+                        />
+                        <button className="header-button">File</button>
+                        <button className="header-button">Edit</button>
+                        <button className="header-button">View</button>
+                    </div>
+                </header>
 
-            {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
-            {renderWorkbench()}
+                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
+                {renderWorkbench()}
 
-            {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
-            <AIConsole />
-        </div>
+                {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
+                <AIConsole />
+            </div>
+        </ViewportProvider>
     );
 }
 

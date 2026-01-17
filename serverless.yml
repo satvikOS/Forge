@@ -1,0 +1,345 @@
+service: archdisc-cad
+
+frameworkVersion: '>=3.0.0 <4.0.0'
+
+# Package configuration - exclude unnecessary files
+package:
+  patterns:
+    - '!frontend/**'
+    - '!docs/**'
+    - '!test/**'
+    - '!tests/**'
+    - '!.git/**'
+    - '!.github/**'
+    - '!node_modules/**'
+    - 'backend/**'
+    - '!backend/node_modules/**/@types/**'
+    - '!backend/node_modules/**/test/**'
+    - '!backend/node_modules/**/tests/**'
+    - '!backend/node_modules/**/*.md'
+    - '!backend/node_modules/**/*.map'
+    - '!**/*.test.js'
+    - '!**/*.spec.js'
+    - '!**/README.md'
+    - '!**/CHANGELOG.md'
+    - '!**/.DS_Store'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+
+  # Environment variables
+  environment:
+    STAGE: ${self:provider.stage}
+    GOOGLE_API_KEY: ${env:GOOGLE_API_KEY, ''}
+    FRONTEND_URL: ${env:FRONTEND_URL, 'https://d3a7j7euh4gge.cloudfront.net'}
+    BROWSER_HEADLESS: ${env:BROWSER_HEADLESS, 'true'}
+    AUTO_VALIDATE: ${env:AUTO_VALIDATE, 'true'}
+    BEDROCK_TEXT_MODEL: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
+
+    # PLM System Configuration
+    USE_MULTISTAGE_PLM: ${env:USE_MULTISTAGE_PLM, 'false'}  # Enable multi-stage 5-phase workflow
+    USE_PARALLEL_MCP: ${env:USE_PARALLEL_MCP, 'true'}        # Enable parallel MCP for production-ready detail
+    DB_HOST: ${env:DB_HOST, ''}                               # PostgreSQL host (leave empty for mock mode)
+    DB_PORT: ${env:DB_PORT, '5432'}                           # PostgreSQL port
+    DB_NAME: ${env:DB_NAME, 'archdiscv1_plm'}                # Database name
+    DB_USER: ${env:DB_USER, 'postgres'}                       # Database user
+    DB_PASSWORD: ${env:DB_PASSWORD, ''}                       # Database password
+
+  # IAM permissions
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:*
+          Resource:
+            - arn:aws:s3:::archdisc-renders-${self:provider.stage}/*
+        - Effect: Allow
+          Action:
+            - dynamodb:*
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/archdisc-workflows-${self:provider.stage}
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - arn:aws:secretsmanager:${self:provider.region}:*:secret:archdisc/*
+        - Effect: Allow
+          Action:
+            - bedrock:InvokeModel
+            - bedrock:InvokeModelWithResponseStream
+          Resource:
+            - arn:aws:bedrock:us-east-1:019904894369:inference-profile/*
+            - arn:aws:bedrock:us-east-1::foundation-model/*
+            - arn:aws:bedrock:us-east-2::foundation-model/*
+            - arn:aws:bedrock:us-west-2::foundation-model/*
+        - Effect: Allow
+          Action:
+            - aws-marketplace:ViewSubscriptions
+            - aws-marketplace:Subscribe
+          Resource: '*'
+
+# Lambda Functions
+functions:
+  # API endpoints
+  api:
+    handler: backend/lambda/api.handler
+    timeout: 900  # 15 minutes - AWS Lambda maximum (async jobs handle longer operations)
+    memorySize: 1024
+    events:
+      - http:
+          path: /{proxy+}
+          method: ANY
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+              - Accept
+            allowCredentials: false
+          request:
+            passThrough: WHEN_NO_MATCH
+            template:
+              application/json: '$input.body'
+
+  # Orchestration (longer timeout for LLM calls)
+  orchestrate:
+    handler: backend/lambda/orchestrate.handler
+    timeout: 900  # 15 minutes - AWS Lambda maximum (async jobs handle longer operations)
+    memorySize: 2048
+    events:
+      - http:
+          path: /orchestrate
+          method: POST
+          cors: true
+      - http:
+          path: /orchestrate/{workflowId}
+          method: GET
+          cors: true
+
+  # Async job processor
+  jobProcessor:
+    handler: backend/lambda/jobProcessor.handler
+    timeout: 900  # 15 minutes - AWS Lambda maximum for complex CAD generation
+    memorySize: 1024
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [JobQueue, Arn]
+          batchSize: 1
+
+# Resources
+resources:
+  Resources:
+    # S3 bucket for frontend
+    FrontendBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: archdisc-frontend-${self:provider.stage}
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+
+    # S3 bucket policy
+    FrontendBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref FrontendBucket
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: cloudfront.amazonaws.com
+              Action: s3:GetObject
+              Resource: !Sub ${FrontendBucket.Arn}/*
+              Condition:
+                StringEquals:
+                  AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+    # S3 bucket for renders and CAD files
+    RendersBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: archdisc-renders-${self:provider.stage}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+              AllowedHeaders:
+                - '*'
+
+    # DynamoDB table for workflows
+    WorkflowsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: archdisc-workflows-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: workflowId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: workflowId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # SQS queue for async jobs
+    JobQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: archdisc-jobs-${self:provider.stage}
+        VisibilityTimeout: 300
+
+    # CloudFront Distribution
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          DefaultRootObject: index.html
+          Comment: ArchDisc CAD Platform
+
+          # Origins
+          Origins:
+            # Frontend (S3)
+            - Id: S3Origin
+              DomainName: !GetAtt FrontendBucket.RegionalDomainName
+              S3OriginConfig:
+                OriginAccessIdentity: ''
+              OriginAccessControlId: !Ref CloudFrontOAC
+
+            # Backend API (API Gateway)
+            - Id: APIOrigin
+              DomainName: !Sub ${ApiGatewayRestApi}.execute-api.${self:provider.region}.amazonaws.com
+              CustomOriginConfig:
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+
+          # Behaviors
+          DefaultCacheBehavior:
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            MinTTL: 0
+            DefaultTTL: 86400
+            MaxTTL: 31536000
+
+          CacheBehaviors:
+            # API requests (no caching)
+            - PathPattern: /api/*
+              TargetOriginId: APIOrigin
+              ViewerProtocolPolicy: https-only
+              AllowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              CachedMethods:
+                - GET
+                - HEAD
+              ForwardedValues:
+                QueryString: true
+                Headers:
+                  - Authorization
+                  - Content-Type
+                Cookies:
+                  Forward: all
+              MinTTL: 0
+              DefaultTTL: 0
+              MaxTTL: 0
+
+          # Error pages (SPA routing)
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+
+          # SSL
+          ViewerCertificate:
+            CloudFrontDefaultCertificate: true
+            # For custom domain:
+            # AcmCertificateArn: arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT_ID
+            # MinimumProtocolVersion: TLSv1.2_2021
+
+    # CloudFront Origin Access Control
+    CloudFrontOAC:
+      Type: AWS::CloudFront::OriginAccessControl
+      Properties:
+        OriginAccessControlConfig:
+          Name: archdisc-oac-${self:provider.stage}
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+
+# Plugins
+# plugins:
+  # - serverless-s3-sync
+  # - serverless-offline
+
+# Custom configuration
+custom:
+  # S3 sync for frontend deployment
+  s3Sync:
+    - bucketName: archdisc-frontend-${self:provider.stage}
+      localDir: frontend/dist
+      deleteRemoved: true
+      params:
+        - index.html:
+            CacheControl: 'no-cache'
+        - "*.js":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "*.css":
+            CacheControl: 'public, max-age=31536000, immutable'
+
+  # CloudFront invalidation
+  cloudfrontInvalidate:
+    - distributionIdKey: CloudFrontDistribution
+      items:
+        - '/*'
+
+# Outputs
+outputs:
+  CloudFrontURL:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  APIEndpoint:
+    Value: !Sub https://${ApiGatewayRestApi}.execute-api.${self:provider.region}.amazonaws.com/${self:provider.stage}

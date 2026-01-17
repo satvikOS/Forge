@@ -18,15 +18,25 @@ class GeometryGenerator {
   generateFromSpec(spec) {
     const { objectCount = 1, elements = [], scene = {}, taxonomyData = null } = spec;
     
+    console.log('🔧 geometryGenerator.generateFromSpec called');
+    console.log(`   📊 objectCount: ${objectCount}`);
+    console.log(`   📦 elements: ${elements.length}`);
+    console.log(`   🎨 taxonomyData: ${!!taxonomyData}`);
+    console.log(`   🗺️  spatialComposition: ${!!taxonomyData?.spatialComposition}`);
+    
     // Use taxonomy-aware generation if available
     if (taxonomyData && taxonomyData.spatialComposition) {
+      console.log('✅ Using taxonomy-aware generation (generateTaxonomyScene)');
       return this.generateTaxonomyScene(elements, taxonomyData);
     }
     
+    console.log('⚠️  Falling back to non-taxonomy generation');
     // Determine if this is a complex scene or single object
     if (objectCount > 1 || elements.length > 1) {
+      console.log('→ Using generateComplexScene');
       return this.generateComplexScene(elements, scene);
     } else {
+      console.log('→ Using generateSingleObject');
       const element = elements[0] || { type: 'object', name: 'Object' };
       return this.generateSingleObject(element);
     }
@@ -40,6 +50,7 @@ class GeometryGenerator {
     
     console.log('🎨 Generating taxonomy-aware scene with realistic placement');
     console.log(`📊 Elements to generate: ${elements.length}`);
+    console.log(`📦 Elements data:`, JSON.stringify(elements, null, 2));
     
     // SPECIAL CASE: Single landmark - no complex placement needed
     if (elements.length === 1 && elements[0].metadata?.realWorld) {
@@ -93,29 +104,58 @@ class GeometryGenerator {
       environmentalContext
     );
     
+    console.log(`📍 Positioned elements count: ${positionedElements.length}`);
+    console.log(`📍 Positioned elements:`, JSON.stringify(positionedElements.slice(0, 2), null, 2));
+    
     const meshes = [];
     const instances = [];
     
     // Generate geometry for each positioned element
     positionedElements.forEach((element, index) => {
       try {
+        console.log(`🔨 Generating element ${index + 1}/${positionedElements.length}: ${element.name} (category: ${element.category})`);
         const geometry = this.generateTaxonomyElement(element, realism);
+        console.log(`✅ Generated geometry type: ${geometry.type}, parts: ${geometry.parts?.length || 'N/A'}`);
         
-        meshes.push({
-          ...geometry,
-          position: element.position,
-          rotation: element.rotation,
-          name: `${element.name || 'Object'}_${element.instanceIndex}`,
-          taxonomyData: {
-            category: element.category,
-            subcategory: element.subcategory,
-            placement: element.placement
-          }
-        });
+        // Handle composite geometry (buildings, structures with multiple parts)
+        if (geometry.type === 'composite' && geometry.parts) {
+          console.log(`📦 Extracting ${geometry.parts.length} parts from composite geometry`);
+          // Extract individual parts into meshes array
+          geometry.parts.forEach((part, partIdx) => {
+            meshes.push({
+              ...part,
+              position: part.position || element.position || { x: 0, y: 0, z: 0 },
+              rotation: part.rotation || element.rotation || { x: 0, y: 0, z: 0 },
+              name: part.name || `${element.name || 'Object'}_part_${partIdx}`,
+              taxonomyData: {
+                category: element.category,
+                subcategory: element.subcategory,
+                placement: element.placement
+              }
+            });
+          });
+        } else {
+          // Handle simple geometry (single mesh)
+          console.log(`📦 Adding simple geometry to meshes`);
+          meshes.push({
+            ...geometry,
+            position: element.position,
+            rotation: element.rotation,
+            name: `${element.name || 'Object'}_${element.instanceIndex}`,
+            taxonomyData: {
+              category: element.category,
+              subcategory: element.subcategory,
+              placement: element.placement
+            }
+          });
+        }
       } catch (error) {
-        console.error(`Error generating element ${element.name}:`, error);
+        console.error(`❌ Error generating element ${element.name}:`, error);
+        console.error(`❌ Error stack:`, error.stack);
       }
     });
+    
+    console.log(`🎯 Final meshes count: ${meshes.length}`);
     
     return {
       type: 'taxonomy_scene',
@@ -173,6 +213,7 @@ class GeometryGenerator {
     
     // Map taxonomy categories to generation methods
     switch (category) {
+      case 'Architecture':
       case 'residential':
       case 'commercial':
       case 'institutional':

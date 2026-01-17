@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { useViewport } from '../contexts/ViewportContext';
 
 /**
  * Interactive 3D Viewport Component
@@ -12,6 +13,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const cameraRef = useRef(null);
     const rendererRef = useRef(null);
     const controlsRef = useRef(null);
+    const viewport = useViewport();
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -104,6 +106,11 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         // Notify parent that scene is ready
         if (onReady) {
             onReady({ scene, camera, renderer, controls });
+        }
+
+        // Register with viewport context
+        if (viewport && viewport.registerViewport) {
+            viewport.registerViewport({ scene, camera, renderer, controls });
         }
 
         // Cleanup

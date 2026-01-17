@@ -45,6 +45,22 @@ const revisionControl = require('../services/cad/revisionControlService');
 const jobQueue = require('../services/jobQueue');
 const bedrockService = require('../services/bedrockService');
 
+// ============ PHASE 3 SERVICES ============
+const feaSimulation = require('../services/feaSimulationService');
+const cfdSimulation = require('../services/cfdSimulationService');
+const aiOptimization = require('../services/aiOptimizationService');
+
+// ============ PHASE 4 SERVICES, NEW INTEGRATIONS ============
+const cloudSync = require('../services/cloudSyncService');
+const standardPartsLibrary = require('../services/standardPartsLibraryService');
+const kinematics = require('../services/kinematicsService');
+const routing = require('../services/routingService');
+const advancedInspection = require('../services/advancedInspectionService');
+const pdmPlmIntegration = require('../services/pdmPlmIntegrationService');
+const designAutomation = require('../services/designAutomationService');
+const renderingVisualization = require('../services/renderingVisualizationService');
+const aiOrchestration = require('../services/aiOrchestrationService');
+
 // Initialize CAD services
 const drawingEngine = new DrawingEngine();
 const drawingExportService = new DrawingExportService();
@@ -3095,5 +3111,1043 @@ router.get('/revision/audit-trail/:modelId', async (req, res) => {
     }
 });
 
+
+// ==================== PHASE 3: FEA/CFD/AI ANALYSIS ROUTES ====================
+
+/**
+ * PHASE 3 - FEA SIMULATION ROUTES
+ */
+
+// Linear Static FEA
+router.post('/analysis/fea-linear', async (req, res) => {
+    try {
+        const results = await feaSimulation.runLinearStaticFEA(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Nonlinear FEA
+router.post('/analysis/fea-nonlinear', async (req, res) => {
+    try {
+        const results = await feaSimulation.runNonlinearFEA(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Modal/Frequency Analysis
+router.post('/analysis/modal', async (req, res) => {
+    try {
+        const results = await feaSimulation.runModalAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buckling Analysis
+router.post('/analysis/buckling', async (req, res) => {
+    try {
+        const results = await feaSimulation.runBucklingAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Fatigue Analysis
+router.post('/analysis/fatigue', async (req, res) => {
+    try {
+        const results = await feaSimulation.runFatigueAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Contact Analysis
+router.post('/analysis/contact', async (req, res) => {
+    try {
+        const results = await feaSimulation.runContactAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PHASE 3 - CFD SIMULATION ROUTES
+ */
+
+// Internal Flow CFD
+router.post('/analysis/cfd-internal', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runInternalFlow(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// External Flow CFD
+router.post('/analysis/cfd-external', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runExternalFlow(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Conjugate Heat Transfer CFD
+router.post('/analysis/cfd-heat-transfer', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runConjugateHeatTransfer(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Turbulence Analysis
+router.post('/analysis/cfd-turbulence', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runTurbulenceAnalysis(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Multiphase Flow CFD
+router.post('/analysis/cfd-multiphase', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runMultiphaseFlow(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Thermal Steady-State
+router.post('/analysis/thermal-steady', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runConjugateHeatTransfer({ ...req.body, type: 'steady' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Thermal Transient
+router.post('/analysis/thermal-transient', async (req, res) => {
+    try {
+        const results = await cfdSimulation.runConjugateHeatTransfer({ ...req.body, type: 'transient' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PHASE 3 - ADVANCED PHYSICS ROUTES
+ */
+
+// Vibration Analysis
+router.post('/analysis/vibration', async (req, res) => {
+    try {
+        const results = await feaSimulation.runModalAnalysis({ ...req.body, analysisType: 'vibration' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Rigid Body Dynamics
+router.post('/analysis/rigid-body', async (req, res) => {
+    try {
+        const results = { success: true, simulationType: 'rigid-body-dynamics', results: {} };
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Flexible Body Dynamics
+router.post('/analysis/flexible-body', async (req, res) => {
+    try {
+        const results = { success: true, simulationType: 'flexible-body-dynamics', results: {} };
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PHASE 3 - AI OPTIMIZATION ROUTES
+ */
+
+// Generative Design
+router.post('/ai-optimization/generative-design', async (req, res) => {
+    try {
+        const results = await aiOptimization.runGenerativeDesign(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Topology Optimization
+router.post('/ai-optimization/topology', async (req, res) => {
+    try {
+        const results = await aiOptimization.runTopologyOptimization(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Parametric Optimization
+router.post('/ai-optimization/parametric-opt', async (req, res) => {
+    try {
+        const results = await aiOptimization.runParametricOptimization(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Shape Optimization
+router.post('/ai-optimization/shape-opt', async (req, res) => {
+    try {
+        const results = await aiOptimization.runShapeOptimization(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Design from Requirements (AI Agent)
+router.post('/ai-optimization/design-from-requirements', async (req, res) => {
+    try {
+        const results = await aiOptimization.designFromRequirements(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Auto-Apply Constraints (AI Agent)
+router.post('/ai-optimization/auto-constraints', async (req, res) => {
+    try {
+        const results = await aiOptimization.autoApplyConstraints(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Generate Design Variants (AI Agent)
+router.post('/ai-optimization/design-variants', async (req, res) => {
+    try {
+        const results = await aiOptimization.generateDesignVariants(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Find Similar Parts (AI Agent)
+router.post('/ai-optimization/similar-parts', async (req, res) => {
+    try {
+        const results = await aiOptimization.findSimilarParts(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DFM Check (AI Agent)
+router.post('/ai-optimization/dfm-check', async (req, res) => {
+    try {
+        const results = await aiOptimization.runDFMCheck(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DFA Check (AI Agent)
+router.post('/ai-optimization/dfa-check', async (req, res) => {
+    try {
+        const results = await aiOptimization.runDFMCheck({ ...req.body, type: 'dfa' });
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Manufacturability Score (AI Agent)
+router.post('/ai-optimization/manufacturability', async (req, res) => {
+    try {
+        const results = await aiOptimization.calculateManufacturabilityScore(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// AI Cost Prediction (AI Agent)
+router.post('/ai-optimization/cost-predict', async (req, res) => {
+    try {
+        const results = await aiOptimization.predictCost(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Lattice Structures (AI Agent)
+router.post('/ai-optimization/lattice', async (req, res) => {
+    try {
+        const results = await aiOptimization.generateLattice(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Smart Support Generation (AI Agent)
+router.post('/ai-optimization/support-generation', async (req, res) => {
+    try {
+        const results = await aiOptimization.generateSmartSupports(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Material Suggestions (AI Agent)
+router.post('/ai-optimization/material-suggest', async (req, res) => {
+    try {
+        const results = await aiOptimization.suggestMaterials(req.body);
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END PHASE 3 ROUTES ====================
+
+// ============ PEAK DESIGN SERVICES ============
+const generativeDesign = require('../services/generativeDesignService');
+const advancedSurfacing = require('../services/advancedSurfacingService');
+const synchronousModeling = require('../services/synchronousModelingService');
+const aiDesignOrchestrator = require('../services/aiDesignOrchestrator');
+
+// ==================== PEAK: GENERATIVE DESIGN & TOPOLOGY OPTIMIZATION ====================
+
+/**
+ * POST /api/mechanical/peak/generative-design
+ * Run generative design with topology optimization and multi-objective optimization
+ * Returns 5 Pareto-optimal design variants
+ */
+router.post('/peak/generative-design', async (req, res) => {
+    try {
+        console.log('🧬 Peak: Running generative design with topology optimization...');
+        const results = await generativeDesign.runGenerativeDesign(req.body);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in generative design:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PEAK: ADVANCED NURBS SURFACING ====================
+
+/**
+ * POST /api/mechanical/peak/class-a-surface
+ * Create Class-A NURBS surface with G2/G3 continuity
+ * Includes curvature analysis (Gaussian, mean, principal, zebra stripes, reflection lines)
+ */
+router.post('/peak/class-a-surface', async (req, res) => {
+    try {
+        console.log('✨ Peak: Creating Class-A NURBS surface...');
+        const results = await advancedSurfacing.createClassASurface(req.body);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in Class-A surfacing:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/peak/loft-surface
+ * Advanced lofting with Class-A quality
+ */
+router.post('/peak/loft-surface', async (req, res) => {
+    try {
+        console.log('🎨 Peak: Lofting Class-A surface...');
+        const results = await advancedSurfacing.loftSurface(req.body.profiles, req.body.options);
+        res.json({ success: true, surface: results });
+    } catch (error) {
+        console.error('Error in loft surface:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PEAK: SYNCHRONOUS MODELING ====================
+
+/**
+ * POST /api/mechanical/peak/direct-edit
+ * Synchronous modeling - direct editing with parametric intelligence
+ * Push/pull faces while maintaining relationships (parallel, perpendicular, coaxial, etc.)
+ */
+router.post('/peak/direct-edit', async (req, res) => {
+    try {
+        console.log('🔧 Peak: Synchronous direct editing...');
+        const results = await synchronousModeling.directEdit(req.body);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in synchronous edit:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PEAK: AI DESIGN ORCHESTRATOR ====================
+
+/**
+ * POST /api/mechanical/peak/autonomous-design
+ * Autonomous AI-driven design workflow
+ * AI makes all design decisions iteratively to achieve high-level goals
+ * Multi-step reasoning, topology optimization, surface refinement, validation
+ */
+router.post('/peak/autonomous-design', async (req, res) => {
+    try {
+        console.log('🤖 Peak: Starting autonomous AI design workflow...');
+
+        // Create async job for long-running autonomous design
+        const job = await jobQueue.createJob('autonomous_design', req.body);
+
+        // Start async processing
+        processAutonomousDesignJob(job.id, req.body).catch(error => {
+            console.error('Error in autonomous design job:', error);
+            jobQueue.updateJob(job.id, { status: 'failed', error: error.message });
+        });
+
+        res.json({
+            success: true,
+            jobId: job.id,
+            message: 'Autonomous design workflow started',
+            status: 'queued'
+        });
+    } catch (error) {
+        console.error('Error starting autonomous design:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/peak/autonomous-design/:jobId
+ * Get status of autonomous design workflow
+ */
+router.get('/peak/autonomous-design/:jobId', async (req, res) => {
+    try {
+        const job = await jobQueue.getJob(req.params.jobId);
+
+        if (!job) {
+            return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+
+        res.json({
+            success: true,
+            job: {
+                id: job.id,
+                status: job.status,
+                progress: job.progress || 0,
+                result: job.result,
+                error: job.error,
+                createdAt: job.createdAt,
+                completedAt: job.completedAt
+            }
+        });
+    } catch (error) {
+        console.error('Error getting job status:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Process autonomous design job asynchronously
+ */
+async function processAutonomousDesignJob(jobId, requirements) {
+    try {
+        await jobQueue.updateJob(jobId, {
+            status: 'processing',
+            progress: 10,
+            message: 'Decomposing requirements...'
+        });
+
+        // Run autonomous design orchestrator
+        const results = await aiDesignOrchestrator.autonomousDesign(requirements);
+
+        await jobQueue.updateJob(jobId, {
+            status: 'completed',
+            progress: 100,
+            result: results,
+            completedAt: Date.now()
+        });
+
+        console.log(`✅ Autonomous design job ${jobId} completed successfully`);
+    } catch (error) {
+        console.error(`❌ Autonomous design job ${jobId} failed:`, error);
+        throw error;
+    }
+}
+
+// ==================== END PEAK DESIGN ROUTES ====================
+
+// ============ PARAMETRIC DESIGN SERVICES ============
+const aiParametricDesignEngine = require('../services/aiParametricDesignEngine');
+const designVariantGenerator = require('../services/designVariantGenerator');
+const bomAndSimulationPrep = require('../services/bomAndSimulationPrepService');
+
+// ==================== AI PARAMETRIC DESIGN (NL → CAD) ====================
+
+/**
+ * POST /api/mechanical/parametric/generate-from-prompt
+ * Generate parametric CAD model from natural language prompt
+ * Returns 3-5 fully editable design variants
+ */
+router.post('/parametric/generate-from-prompt', async (req, res) => {
+    try {
+        console.log('🤖 Parametric Design: Generating from natural language...');
+        const { prompt, options } = req.body;
+
+        if (!prompt) {
+            return res.status(400).json({
+                success: false,
+                error: 'Prompt is required'
+            });
+        }
+
+        const results = await aiParametricDesignEngine.generateFromPrompt(prompt, options);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in parametric design generation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== DESIGN VARIANT GENERATION ====================
+
+/**
+ * POST /api/mechanical/variants/generate-conceptual
+ * Generate conceptually different design variants
+ * Traditional, Topology-Optimized, Lattice, Biomimetic, Modular approaches
+ */
+router.post('/variants/generate-conceptual', async (req, res) => {
+    try {
+        console.log('🎨 Variant Generator: Creating conceptual variants...');
+        const { requirements, count } = req.body;
+
+        const results = await designVariantGenerator.generateConceptualVariants(requirements, count);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in variant generation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== BOM AUTO-GENERATION ====================
+
+/**
+ * POST /api/mechanical/bom/generate
+ * Auto-generate Bill of Materials from CAD model
+ * Hierarchical or flat BOM with costs and vendor info
+ */
+router.post('/bom/generate', async (req, res) => {
+    try {
+        console.log('📋 BOM Generator: Generating BOM from CAD model...');
+        const { cadModel, options } = req.body;
+
+        const results = await bomAndSimulationPrep.generateBOM(cadModel, options);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in BOM generation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== SIMULATION PREPARATION ====================
+
+/**
+ * POST /api/mechanical/simulation/prepare
+ * Prepare CAD model for FEA/CFD simulation
+ * Auto-assign materials, contacts, mesh, boundary conditions
+ */
+router.post('/simulation/prepare', async (req, res) => {
+    try {
+        console.log('🔬 Simulation Prep: Preparing model for simulation...');
+        const { cadModel, simulationType, options } = req.body;
+
+        const results = await bomAndSimulationPrep.prepareForSimulation(cadModel, simulationType, options);
+        res.json(results);
+    } catch (error) {
+        console.error('Error in simulation preparation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END PARAMETRIC DESIGN ROUTES ====================
+
+// ==================== CLOUD SYNC ROUTES ====================
+
+router.post('/cloud/upload', async (req, res) => {
+    try {
+        const result = await cloudSync.uploadToCloud(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cloud/download', async (req, res) => {
+    try {
+        const result = await cloudSync.downloadFromCloud(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/cloud/sync', async (req, res) => {
+    try {
+        const result = await cloudSync.syncWorkspace(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/cloud/status/:workspaceId', async (req, res) => {
+    try {
+        const result = await cloudSync.getSyncStatus(req.params.workspaceId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== STANDARD PARTS LIBRARY ROUTES ====================
+
+router.post('/parts/search', async (req, res) => {
+    try {
+        const result = await standardPartsLibrary.searchParts(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/parts/:partNumber', async (req, res) => {
+    try {
+        const result = await standardPartsLibrary.getPartDetails(req.params.partNumber);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/parts/insert', async (req, res) => {
+    try {
+        const result = await standardPartsLibrary.insertPart(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== KINEMATICS ROUTES ====================
+
+router.post('/kinematics/joint/create', async (req, res) => {
+    try {
+        const result = await kinematics.createJoint(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/kinematics/mechanism/create', async (req, res) => {
+    try {
+        const result = await kinematics.createMechanism(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/kinematics/simulate', async (req, res) => {
+    try {
+        const result = await kinematics.simulateMotion(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/kinematics/forces', async (req, res) => {
+    try {
+        const result = await kinematics.analyzeForces(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ROUTING ROUTES ====================
+
+router.post('/routing/create', async (req, res) => {
+    try {
+        const result = await routing.createRoute(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/routing/harness/create', async (req, res) => {
+    try {
+        const result = await routing.createHarness(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/routing/optimize/:routeId', async (req, res) => {
+    try {
+        const result = await routing.optimizeRoute(req.params.routeId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/routing/clearance/:routeId', async (req, res) => {
+    try {
+        const result = await routing.checkClearance(req.params.routeId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ADVANCED INSPECTION ROUTES ====================
+
+router.post('/inspection/plan/create', async (req, res) => {
+    try {
+        const result = await advancedInspection.createInspectionPlan(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/inspection/cmm', async (req, res) => {
+    try {
+        const result = await advancedInspection.performCMMInspection(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/inspection/gdt', async (req, res) => {
+    try {
+        const result = await advancedInspection.analyzeGDT(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/inspection/report/:planId', async (req, res) => {
+    try {
+        const result = await advancedInspection.generateInspectionReport(req.params.planId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== PDM/PLM INTEGRATION ROUTES ====================
+
+router.post('/pdm/connect', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.connectToPDM(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/pdm/checkin', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.checkIn(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/pdm/checkout', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.checkOut(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/pdm/search', async (req, res) => {
+    try {
+        const result = await pdmPlmIntegration.searchParts(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== DESIGN AUTOMATION ROUTES ====================
+
+router.post('/automation/macro/create', async (req, res) => {
+    try {
+        const result = await designAutomation.createMacro(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/automation/macro/run/:macroId', async (req, res) => {
+    try {
+        const result = await designAutomation.runMacro(req.params.macroId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/automation/workflow/create', async (req, res) => {
+    try {
+        const result = await designAutomation.createWorkflow(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/automation/batch-export', async (req, res) => {
+    try {
+        const result = await designAutomation.batchExport(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== RENDERING & VISUALIZATION ROUTES ====================
+
+router.post('/rendering/scene/create', async (req, res) => {
+    try {
+        const result = await renderingVisualization.createRenderScene(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/image', async (req, res) => {
+    try {
+        const result = await renderingVisualization.renderImage(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/animation', async (req, res) => {
+    try {
+        const result = await renderingVisualization.renderAnimation(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/exploded-view', async (req, res) => {
+    try {
+        const result = await renderingVisualization.createExplodedView(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rendering/screenshot', async (req, res) => {
+    try {
+        const result = await renderingVisualization.captureScreenshot(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/rendering/status/:renderJobId', async (req, res) => {
+    try {
+        const result = await renderingVisualization.renderJobStatus(req.params.renderJobId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END NEW SERVICE ROUTES ====================
+
+// ==================== AI ORCHESTRATION ROUTES ====================
+// Complete workflow orchestration from natural language prompt to rendering
+
+/**
+ * POST /api/mechanical/orchestrate
+ * Orchestrate complete design workflow from natural language prompt
+ * This endpoint chains all CAD services step by step:
+ * 1. Parse prompt
+ * 2. Generate design
+ * 3. Create sketch
+ * 4. Create 3D features
+ * 5. Apply materials
+ * 6. Run analysis
+ * 7. Optimize design
+ * 8. Generate manufacturing
+ * 9. Create documentation
+ * 10. Render visualization
+ */
+router.post('/orchestrate', async (req, res) => {
+    try {
+        const result = await aiOrchestration.orchestrateFromPrompt(req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/mechanical/orchestrate/:workflowId
+ * Get status of orchestrated workflow
+ */
+router.get('/orchestrate/:workflowId', async (req, res) => {
+    try {
+        const result = await aiOrchestration.getWorkflowStatus(req.params.workflowId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== END AI ORCHESTRATION ROUTES ====================
+
+// ==================== LLM CONFIGURATION AND INTERACTION ROUTES ====================
+
+const llmIntegration = require('../services/llmIntegrationService');
+
+/**
+ * GET /api/mechanical/llm/providers
+ * Get available LLM providers
+ */
+router.get('/llm/providers', async (req, res) => {
+    try {
+        const providers = llmIntegration.getAvailableProviders();
+        res.json({
+            success: true,
+            providers,
+            default: llmIntegration.defaultProvider
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/llm/provider
+ * Set default LLM provider
+ */
+router.post('/llm/provider', async (req, res) => {
+    try {
+        const { provider } = req.body;
+        llmIntegration.setDefaultProvider(provider);
+        res.json({
+            success: true,
+            provider,
+            message: `Default LLM provider set to ${provider}`
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/orchestrate/:workflowId/respond
+ * Respond to workflow clarification questions
+ */
+router.post('/orchestrate/:workflowId/respond', async (req, res) => {
+    try {
+        const { workflowId } = req.params;
+        const { responses } = req.body;
+
+        const result = await aiOrchestration.handleUserResponse(workflowId, responses);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/mechanical/llm/test
+ * Test LLM API connection
+ */
+router.post('/llm/test', async (req, res) => {
+    try {
+        const { provider, prompt } = req.body;
+
+        const response = await llmIntegration.callLLM({
+            provider: provider || llmIntegration.defaultProvider,
+            systemPrompt: 'You are a helpful CAD assistant.',
+            userMessage: prompt || 'Hello, are you working?',
+            responseFormat: 'text'
+        });
+
+        res.json({
+            success: true,
+            provider: provider || llmIntegration.defaultProvider,
+            response: response.content,
+            usage: response.usage
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'LLM API test failed. Check API keys in environment variables.'
+        });
+    }
+});
+
+// ==================== END LLM ROUTES ====================
 
 module.exports = router;

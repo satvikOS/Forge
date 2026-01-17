@@ -1,0 +1,139 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+      - claude/fix-topbar-layout-e5ZKk
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+
+jobs:
+  deploy:
+    name: Deploy ArchDisc to AWS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS credentials
+        run: |
+          aws sts get-caller-identity
+          echo "✅ AWS credentials verified"
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: ./frontend
+        env:
+          VITE_API_BASE_URL: https://qmgj3s9wse.execute-api.us-east-1.amazonaws.com/dev/api
+        run: |
+          npm run build
+          echo "✅ Frontend built successfully"
+          ls -lh dist/
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm install --production
+
+      - name: Deploy to AWS with Serverless
+        env:
+          SLS_TELEMETRY_DISABLED: 1
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          echo "🚀 Deploying to AWS..."
+          npx serverless deploy --stage dev --verbose
+
+      - name: Upload frontend to S3
+        run: |
+          echo "📤 Uploading frontend files to S3..."
+          aws s3 sync frontend/dist/ s3://archdisc-frontend-dev/ --delete --cache-control "public,max-age=31536000" --exclude "index.html"
+          aws s3 cp frontend/dist/index.html s3://archdisc-frontend-dev/index.html --cache-control "no-cache"
+          echo "✅ Frontend uploaded to S3"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          echo "🔄 Invalidating CloudFront cache..."
+          DISTRIBUTION_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='archdisc-cad-dev'].Id" --output text)
+          if [ ! -z "$DISTRIBUTION_ID" ]; then
+            aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+            echo "✅ CloudFront cache invalidated"
+          else
+            echo "⚠️ CloudFront distribution not found"
+          fi
+
+      - name: Get deployment info
+        run: |
+          echo "📋 Deployment Information:"
+          npx serverless info --stage dev
+
+      - name: Save deployment URL
+        id: deploy
+        run: |
+          # Try to extract CloudFront URL from serverless output
+          URL=$(npx serverless info --stage dev 2>/dev/null | grep -oP 'https://[a-z0-9]+\.cloudfront\.net' | head -1 || echo "Check AWS Console")
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "🌐 Deployment URL: $URL"
+
+      - name: Comment deployment URL on commit
+        if: github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.url }}';
+            const message = `## 🚀 Deployment Successful!
+
+            **Environment:** dev
+            **Region:** us-east-1
+            **Deployed at:** ${new Date().toISOString()}
+
+            ${url !== 'Check AWS Console' ? `**URL:** ${url}` : '**URL:** Check AWS Console for CloudFront URL'}
+
+            ### Next Steps:
+            1. Test the API: \`curl ${url}/api/health\`
+            2. View logs: \`npx serverless logs -f api --stage dev\`
+            3. Monitor in AWS CloudWatch
+            `;
+
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: message
+            });
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo ""
+          echo "📊 Summary:"
+          echo "  - Frontend: Built and deployed to S3"
+          echo "  - Backend: Lambda functions deployed"
+          echo "  - API: API Gateway configured"
+          echo "  - CDN: CloudFront distribution active"
+          echo ""
+          echo "🎉 ArchDisc is now live on AWS!"

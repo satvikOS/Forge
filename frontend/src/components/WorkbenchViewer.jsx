@@ -114,22 +114,53 @@ function Model({ geometry, selectedPart, onSelectPart, isWireframe, isExploded }
 
 export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
   const [selectedPart, setSelectedPart] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
   const isWireframe = viewMode === 'wireframe';
 
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+    });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const contextMenuItems = [
+    { label: 'Reset Camera', icon: '↻' },
+    { label: 'Focus Selected', icon: '🎯', disabled: selectedPart === null },
+    { label: 'Duplicate Part', icon: '📋', disabled: selectedPart === null },
+    { divider: true },
+    { label: 'Add Cube', icon: '⬜' },
+    { label: 'Add Sphere', icon: '⚪' },
+    { label: 'Add Cylinder', icon: '⭕' },
+    { divider: true },
+    { label: 'Export Model', icon: '💾' },
+    { label: 'Take Screenshot', icon: '📷' },
+  ];
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}>
+    <div 
+      style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-primary)' }}
+      onContextMenu={handleContextMenu}
+      onClick={closeContextMenu}
+    >
       {/* View info overlay */}
       <div style={{
         position: 'absolute',
         top: '10px',
         left: '10px',
         background: 'rgba(26, 26, 26, 0.9)',
+        backdropFilter: 'blur(10px)',
         padding: '8px 12px',
-        borderRadius: '6px',
-        fontSize: '12px',
+        borderRadius: '8px',
+        fontSize: '11px',
         color: 'var(--text-secondary)',
         zIndex: 10,
-        border: '1px solid var(--border-color)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
       }}>
         <div>View: {viewMode === 'wireframe' ? 'Wireframe' : 'Solid'}</div>
         {isExploded && <div style={{ color: 'var(--accent-orange)' }}>Exploded View</div>}
@@ -186,6 +217,71 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
         </Suspense>
       </Canvas>
 
+      {/* Context Menu */}
+      {contextMenu && (
+        <div style={{
+          position: 'fixed',
+          top: `${contextMenu.y}px`,
+          left: `${contextMenu.x}px`,
+          background: 'rgba(26, 26, 26, 0.98)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '8px',
+          padding: '6px',
+          minWidth: '180px',
+          zIndex: 1000,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+        }}>
+          {contextMenuItems.map((item, idx) => 
+            item.divider ? (
+              <div key={idx} style={{
+                height: '1px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                margin: '4px 0',
+              }} />
+            ) : (
+              <button
+                key={idx}
+                disabled={item.disabled}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: item.disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
+                  cursor: item.disabled ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  borderRadius: '4px',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (!item.disabled) {
+                    e.target.style.background = 'var(--bg-hover)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'transparent';
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!item.disabled) {
+                    console.log(`Context menu: ${item.label}`);
+                    closeContextMenu();
+                  }
+                }}
+              >
+                <span>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            )
+          )}
+        </div>
+      )}
+
       {/* Selected part info */}
       {selectedPart !== null && (
         <div style={{
@@ -193,8 +289,9 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
           bottom: '10px',
           left: '10px',
           background: 'rgba(26, 26, 26, 0.95)',
+          backdropFilter: 'blur(10px)',
           padding: '12px',
-          borderRadius: '6px',
+          borderRadius: '8px',
           fontSize: '12px',
           color: 'var(--text-primary)',
           zIndex: 10,
@@ -218,7 +315,7 @@ export default function WorkbenchViewer({ modelData, viewMode, isExploded }) {
               width: '100%',
               padding: '6px',
               background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '4px',
               color: 'var(--text-primary)',
               cursor: 'pointer',
