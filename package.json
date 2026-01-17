@@ -20,6 +20,7 @@
   "dependencies": {
     "@google-cloud/vertexai": "^1.7.0",
     "@google/generative-ai": "^0.24.1",
+    "@google-cloud/vertexai": "^1.7.0",
     "axios": "^1.13.2",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
