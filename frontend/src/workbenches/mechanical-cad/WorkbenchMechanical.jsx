@@ -418,8 +418,7 @@ function WorkbenchMechanical() {
                             ref={el => buttonRefs.current['sketch'] = el}
                             className="tool-icon-button active"
                             title="Sketch"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('sketch'); }}
                         >
                             <Pencil size={20} />
                         </button>
@@ -446,8 +445,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Features"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['features'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('features'); }}
                         >
                             <Box size={20} />
                         </button>
@@ -471,8 +470,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Sheet Metal"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['sheetmetal'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('sheetmetal'); }}
                         >
                             <Sheet size={20} />
                         </button>
@@ -501,8 +500,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Pattern"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['pattern'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('pattern'); }}
                         >
                             <Copy size={20} />
                         </button>
@@ -520,8 +519,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Assembly"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['assembly'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('assembly'); }}
                         >
                             <Link2 size={20} />
                         </button>
@@ -543,8 +542,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Weldments"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['weldments'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('weldments'); }}
                         >
                             <Zap size={20} />
                         </button>
@@ -571,8 +570,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="AI Optimization"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['ai_optimize'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('ai_optimize'); }}
                         >
                             <Zap size={20} />
                         </button>
@@ -596,8 +595,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Templates"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['templates'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('templates'); }}
                         >
                             <FileText size={20} />
                         </button>
@@ -626,8 +625,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Configuration"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['configuration'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('configuration'); }}
                         >
                             <Settings size={20} />
                         </button>
@@ -649,8 +648,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Surfacing"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['surfacing'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('surfacing'); }}
                         >
                             <Waves size={20} />
                         </button>
@@ -680,8 +679,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="CAM/Manufacturing"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['cam'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('cam'); }}
                         >
                             <Wrench size={20} />
                         </button>
@@ -710,8 +709,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Mold Design"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['mold'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('mold'); }}
                         >
                             <Factory size={20} />
                         </button>
@@ -734,8 +733,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="3D Printing"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['additive'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('additive'); }}
                         >
                             <Printer size={20} />
                         </button>
@@ -761,8 +760,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="GD&T"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['gdt'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('gdt'); }}
                         >
                             <CircleDot size={20} />
                         </button>
@@ -787,8 +786,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Components Library"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['components'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('components'); }}
                         >
                             <Package size={20} />
                         </button>
@@ -815,8 +814,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="BOM"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['bom'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('bom'); }}
                         >
                             <FileText size={20} />
                         </button>
@@ -839,8 +838,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Drawings & MBD"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['drawings'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('drawings'); }}
                         >
                             <File size={20} />
                         </button>
@@ -867,8 +866,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Documentation"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['manuals'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('manuals'); }}
                         >
                             <BookOpen size={20} />
                         </button>
@@ -889,8 +888,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Revisions"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['revisions'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('revisions'); }}
                         >
                             <RotateCcw size={20} />
                         </button>
@@ -914,8 +913,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Simulation"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['machining_sim'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('machining_sim'); }}
                         >
                             <Play size={20} />
                         </button>
@@ -936,8 +935,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Cost Estimation"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['cost'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('cost'); }}
                         >
                             <DollarSign size={20} />
                         </button>
@@ -958,8 +957,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Fixtures"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['fixtures'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('fixtures'); }}
                         >
                             <Axis3D size={20} />
                         </button>
@@ -983,8 +982,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="DFA & Mechanisms"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['dfa'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('dfa'); }}
                         >
                             <Cog size={20} />
                         </button>
@@ -1012,8 +1011,8 @@ function WorkbenchMechanical() {
                         <button
                             className="tool-icon-button"
                             title="Analysis"
-                            ref={el => buttonRefs.current[''] = el}
-                            onClick={(e) => { e.stopPropagation(); toggleDropdown(''); }}
+                            ref={el => buttonRefs.current['analysis'] = el}
+                            onClick={(e) => { e.stopPropagation(); toggleDropdown('analysis'); }}
                         >
                             <BarChart3 size={20} />
                         </button>
