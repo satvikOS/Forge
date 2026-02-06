@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
+import { Move, RotateCcw, Maximize } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
 
 /**
@@ -28,7 +29,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
         // Scene
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1e1e1e);
+        scene.background = new THREE.Color(0x0d0d0d);
         sceneRef.current = scene;
 
         // Camera
@@ -50,7 +51,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         rendererRef.current = renderer;
 
         // Infinite Grid
-        const gridHelper = new THREE.GridHelper(100, 100, 0x444444, 0x2a2a2a);
+        const gridHelper = new THREE.GridHelper(100, 100, 0x333333, 0x1a1a1a);
         scene.add(gridHelper);
 
         // Axes Helper (small, subtle)
@@ -75,7 +76,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         controls.screenSpacePanning = false;
         controls.minDistance = 1;
         controls.maxDistance = 500;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI;
         controlsRef.current = controls;
 
         // Transform Controls (Gizmo)
@@ -217,7 +218,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
     return (
         <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
-            {/* Gizmo Mode Switcher Overlay */}
+            {/* Gizmo Mode Switcher */}
             <div className="gizmo-toolbar">
                 <button
                     className={`gizmo-btn ${transformMode === 'translate' ? 'active' : ''}`}
@@ -227,7 +228,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                     }}
                     title="Move (G)"
                 >
-                    ↔
+                    <Move size={14} />
                 </button>
                 <button
                     className={`gizmo-btn ${transformMode === 'rotate' ? 'active' : ''}`}
@@ -237,7 +238,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                     }}
                     title="Rotate (R)"
                 >
-                    ⟲
+                    <RotateCcw size={14} />
                 </button>
                 <button
                     className={`gizmo-btn ${transformMode === 'scale' ? 'active' : ''}`}
@@ -247,44 +248,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                     }}
                     title="Scale (S)"
                 >
-                    ⇱
+                    <Maximize size={14} />
                 </button>
-            </div>
-
-            {/* Navigation Cube */}
-            <div className="nav-cube" title="Click to reset view">
-                <button className="nav-cube-btn" onClick={() => {
-                    if (cameraRef.current && controlsRef.current) {
-                        cameraRef.current.position.set(10, 10, 10);
-                        controlsRef.current.target.set(0, 0, 0);
-                        controlsRef.current.update();
-                    }
-                }}>
-                    <div className="nav-cube-face">3D</div>
-                </button>
-                <div className="nav-cube-axes">
-                    <button className="nav-axis-btn x" onClick={() => {
-                        if (cameraRef.current && controlsRef.current) {
-                            cameraRef.current.position.set(15, 0, 0);
-                            controlsRef.current.target.set(0, 0, 0);
-                            controlsRef.current.update();
-                        }
-                    }} title="X axis">X</button>
-                    <button className="nav-axis-btn y" onClick={() => {
-                        if (cameraRef.current && controlsRef.current) {
-                            cameraRef.current.position.set(0, 15, 0);
-                            controlsRef.current.target.set(0, 0, 0);
-                            controlsRef.current.update();
-                        }
-                    }} title="Y axis (Top)">Y</button>
-                    <button className="nav-axis-btn z" onClick={() => {
-                        if (cameraRef.current && controlsRef.current) {
-                            cameraRef.current.position.set(0, 0, 15);
-                            controlsRef.current.target.set(0, 0, 0);
-                            controlsRef.current.update();
-                        }
-                    }} title="Z axis">Z</button>
-                </div>
             </div>
         </div>
     );

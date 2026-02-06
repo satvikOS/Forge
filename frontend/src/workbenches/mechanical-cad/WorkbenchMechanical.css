@@ -1,98 +1,77 @@
-/* Mechanical CAD Workbench - Minimalistic Blender-Style Layout with Dropdowns */
+/* Mechanical CAD Workbench - Professional Dark Theme */
 
-/* Uses global workbench styles from workbench-shared.css */
-
-/* AI Design Assistant Specific Styles */
-.ai-design-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+/* Tool separator in sidebar */
+.tool-separator {
+    width: 28px;
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px auto;
+    flex-shrink: 0;
 }
 
-.ai-prompt-input {
-    width: 100%;
-    padding: 8px 10px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 3px;
-    color: var(--text-primary);
-    font-size: 12px;
-    font-family: inherit;
-    resize: vertical;
-    min-height: 60px;
-    transition: border-color 0.15s;
+/* Expand indicator on dropdown buttons */
+.tool-expand-indicator {
+    position: absolute;
+    right: 2px;
+    bottom: 4px;
+    opacity: 0.35;
+    pointer-events: none;
 }
 
-.ai-prompt-input:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-}
-
-.ai-prompt-input::placeholder {
-    color: var(--text-secondary);
+.tool-icon-button:hover .tool-expand-indicator {
     opacity: 0.6;
 }
 
-.ai-prompt-input:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.ai-hint {
-    font-size: 10px;
-    color: var(--text-secondary);
-    line-height: 1.4;
+.tool-icon-button.active .tool-expand-indicator {
     opacity: 0.8;
 }
 
-/* Tool Dropdown Container */
-.tool-dropdown-container {
-    position: relative;
-}
-
-/* Tool Dropdown Menu - Smart Positioning via JS when .smart-positioned */
-.tool-dropdown {
-    position: absolute;
-    left: 100%;
-    top: 0;
-    margin-left: 4px;
-    min-width: 200px;
-    max-width: 250px;
-    max-height: 70vh;
-    overflow-y: auto;
-    background: rgba(32, 32, 32, 0.98);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-    z-index: 9999;
-    padding: 4px 0;
-    backdrop-filter: blur(10px);
-    white-space: nowrap;
-}
-
-/* When JS applies smart positioning */
+/* Tool Dropdown - Fixed positioned via JS */
 .tool-dropdown.smart-positioned {
     position: fixed;
     left: auto;
     top: auto;
     margin-left: 0;
+    min-width: 220px;
+    max-width: 260px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    padding: 4px 0;
+}
+
+.tool-dropdown.smart-positioned::-webkit-scrollbar {
+    width: 3px;
+}
+
+.tool-dropdown.smart-positioned::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tool-dropdown.smart-positioned::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
 }
 
 .dropdown-header {
-    padding: 6px 12px;
+    padding: 6px 14px 3px;
     font-size: 10px;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
 }
 
 .dropdown-item {
-    padding: 8px 16px;
-    font-size: 13px;
+    padding: 6px 14px;
+    font-size: 12px;
     color: var(--text-primary);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.08s;
     user-select: none;
 }
 
@@ -102,33 +81,33 @@
 
 .dropdown-item:active {
     background: var(--accent-primary);
+    color: var(--text-inverse);
 }
 
 .dropdown-divider {
     height: 1px;
     background: var(--border-color);
-    margin: 4px 0;
+    margin: 3px 8px;
 }
 
 /* Context Menu */
 .context-menu {
     position: fixed;
-    min-width: 160px;
-    background: rgba(28, 28, 28, 0.98);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-    z-index: 2000;
+    min-width: 180px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+    z-index: 10000;
     padding: 4px 0;
-    backdrop-filter: blur(10px);
 }
 
 .context-menu-item {
-    padding: 8px 16px;
-    font-size: 13px;
+    padding: 6px 14px;
+    font-size: 12px;
     color: var(--text-primary);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.08s;
     user-select: none;
 }
 
@@ -139,40 +118,5 @@
 .context-menu-divider {
     height: 1px;
     background: var(--border-color);
-    margin: 4px 0;
-}
-
-/* Gizmo Controls - Bottom Left */
-.gizmo-controls {
-    position: absolute;
-    bottom: 12px;
-    left: 12px;
-    display: flex;
-    gap: 2px;
-    background: rgba(26, 26, 26, 0.9);
-    border: 1px solid var(--border-color);
-    border-radius: 2px;
-    padding: 2px;
-    z-index: 10;
-}
-
-.gizmo-button {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 11px;
-    padding: 6px 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-    border-radius: 2px;
-}
-
-.gizmo-button:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-}
-
-.gizmo-button.active {
-    background: var(--accent-primary);
-    color: white;
+    margin: 3px 8px;
 }

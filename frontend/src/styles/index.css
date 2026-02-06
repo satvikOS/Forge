@@ -8,14 +8,14 @@
 
 :root {
   /* ---- Color Palette ---- */
-  /* Backgrounds - OLED dark scale */
-  --bg-primary: #141414;
-  --bg-secondary: #1e1e1e;
-  --bg-tertiary: #282828;
-  --bg-elevated: #303030;
-  --bg-hover: #383838;
-  --bg-active: #424242;
-  --bg-surface: #1a1a1a;
+  /* Backgrounds - True OLED black scale */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #151515;
+  --bg-elevated: #1a1a1a;
+  --bg-hover: #222222;
+  --bg-active: #2a2a2a;
+  --bg-surface: #0d0d0d;
 
   /* Accent - Maroon (primary brand) */
   --accent-primary: #9b1b40;
@@ -45,16 +45,16 @@
   --color-info: #4a90e2;
 
   /* Text */
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0a0;
-  --text-muted: #6a6a6a;
-  --text-disabled: #505050;
+  --text-primary: #c8c8c8;
+  --text-secondary: #808080;
+  --text-muted: #555555;
+  --text-disabled: #3a3a3a;
   --text-inverse: #ffffff;
 
   /* Borders */
-  --border-color: #2a2a2a;
-  --border-light: #363636;
-  --border-subtle: #222222;
+  --border-color: #1a1a1a;
+  --border-light: #252525;
+  --border-subtle: #111111;
   --border-focus: var(--accent-primary);
 
   /* ---- Spacing ---- */

@@ -16,12 +16,12 @@ export default function Sidebar({
   const [showMaterialsBrowser, setShowMaterialsBrowser] = useState(false);
 
   const tabs = [
-    { id: 'properties', label: 'Properties', icon: '⚙' },
-    { id: 'modifiers', label: 'Modifiers', icon: '🔧' },
-    { id: 'materials', label: 'Materials', icon: '🎨' },
-    { id: 'physics', label: 'Physics', icon: '⚛' },
-    { id: 'scene', label: 'Scene', icon: '📊' },
-    { id: 'outliner', label: 'Outliner', icon: '📋' },
+    { id: 'properties', label: 'Properties', icon: 'P' },
+    { id: 'modifiers', label: 'Modifiers', icon: 'M' },
+    { id: 'materials', label: 'Materials', icon: 'T' },
+    { id: 'physics', label: 'Physics', icon: 'H' },
+    { id: 'scene', label: 'Scene', icon: 'S' },
+    { id: 'outliner', label: 'Outliner', icon: 'O' },
   ];
 
   if (isCollapsed) {

@@ -1,0 +1,18 @@
+/* ViewCube - 3D Orientation Widget */
+
+.viewcube-container {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 120px;
+    height: 120px;
+    z-index: 10;
+    pointer-events: auto;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.viewcube-container canvas {
+    display: block;
+    border-radius: var(--radius-sm);
+}

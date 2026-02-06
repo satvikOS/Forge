@@ -594,14 +594,23 @@
     font-weight: 500;
 }
 
-.expand-arrow {
-    font-size: 9px;
+.expand-chevron {
     color: var(--text-muted);
     transition: transform var(--transition-normal), color var(--transition-fast);
+    flex-shrink: 0;
 }
 
-.workbench-current:hover .expand-arrow {
+.expand-chevron.open {
+    transform: rotate(180deg);
+}
+
+.workbench-current:hover .expand-chevron {
     color: var(--text-primary);
+}
+
+.workbench-icon-svg {
+    flex-shrink: 0;
+    color: var(--text-secondary);
 }
 
 .workbench-dropdown {

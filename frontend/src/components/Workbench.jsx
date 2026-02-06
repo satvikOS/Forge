@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Undo2, Redo2, Search, Save, Download } from 'lucide-react';
 import WorkbenchSwitcher from './WorkbenchSwitcher';
 import WorkbenchMechanical from '../workbenches/mechanical-cad/WorkbenchMechanical';
 import WorkbenchArchitecture from '../workbenches/architecture-bim/WorkbenchArchitecture';
@@ -183,7 +184,7 @@ function WorkbenchContainer() {
                             onClick={handleUndo}
                             disabled={undoStack.length === 0}
                         >
-                            ↩
+                            <Undo2 size={14} />
                         </button>
                         <button
                             className="header-button icon-btn"
@@ -191,7 +192,7 @@ function WorkbenchContainer() {
                             onClick={handleRedo}
                             disabled={redoStack.length === 0}
                         >
-                            ↪
+                            <Redo2 size={14} />
                         </button>
                         <div className="header-divider"></div>
                         <button
@@ -199,15 +200,17 @@ function WorkbenchContainer() {
                             onClick={() => setCommandPaletteOpen(true)}
                             title="Command Palette (Ctrl+K)"
                         >
-                            <span className="search-icon">⌘</span>
+                            <Search size={12} />
                             <span className="search-text">Search...</span>
                             <kbd className="search-kbd">Ctrl+K</kbd>
                         </button>
                         <div className="header-divider"></div>
-                        <button className="header-button" onClick={handleSave}>
-                            {hasUnsavedChanges ? '● Save' : 'Save'}
+                        <button className="header-button icon-btn" onClick={handleSave} title="Save (Ctrl+S)">
+                            <Save size={14} />
                         </button>
-                        <button className="header-button">Export</button>
+                        <button className="header-button icon-btn" title="Export">
+                            <Download size={14} />
+                        </button>
                     </div>
                 </header>
 
