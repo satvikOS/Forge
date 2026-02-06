@@ -1,4 +1,4 @@
-/* Parametric Design Panel - Fixed dimensions */
+/* Parametric Design Panel - Unified tokens */
 
 .parametric-design-panel {
     width: 280px;
@@ -41,11 +41,11 @@
     color: var(--text-secondary);
     padding: 4px;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .pdp-action-btn:hover {
@@ -68,7 +68,7 @@
     font-size: 10px;
     font-weight: 500;
     color: var(--text-primary);
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .pdp-section-header:hover {
@@ -83,7 +83,7 @@
 
 .pdp-empty {
     font-size: 10px;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-align: center;
     padding: 12px;
 }
@@ -98,10 +98,10 @@
 .variant-item {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 6px 8px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .variant-item:hover {
@@ -116,7 +116,7 @@
 
 .variant-item.selected .variant-name,
 .variant-item.selected .variant-metrics span {
-    color: white;
+    color: var(--text-inverse);
 }
 
 .variant-name {
@@ -175,13 +175,13 @@
 }
 
 .tradeoff-pros li {
-    color: #4caf50;
+    color: var(--color-success);
     font-size: 9px;
     margin-bottom: 2px;
 }
 
 .tradeoff-cons li {
-    color: #ff9800;
+    color: var(--color-warning);
     font-size: 9px;
     margin-bottom: 2px;
 }
@@ -202,7 +202,7 @@
 .bom-stat {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 6px;
     text-align: center;
 }
@@ -210,8 +210,10 @@
 .stat-label {
     display: block;
     font-size: 8px;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
 }
 
 .stat-value {
@@ -222,7 +224,7 @@
 }
 
 .stat-value.total {
-    color: var(--accent-primary);
+    color: var(--accent-orange);
 }
 
 .bom-export {
@@ -237,26 +239,27 @@
     color: var(--text-primary);
     font-size: 10px;
     padding: 4px 6px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
 }
 
 .bom-format-select:focus {
     outline: none;
     border-color: var(--accent-primary);
+    box-shadow: var(--shadow-glow-accent);
 }
 
 .bom-export-btn {
     background: var(--accent-primary);
     border: none;
-    color: white;
+    color: var(--text-inverse);
     font-size: 10px;
     padding: 4px 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 4px;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .bom-export-btn:hover {
@@ -276,17 +279,17 @@
     color: var(--text-primary);
     font-size: 9px;
     padding: 6px 10px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 4px;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .sim-btn:hover {
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-inverse);
     border-color: var(--accent-primary);
 }
 
@@ -296,14 +299,14 @@
 }
 
 .pdp-section-content::-webkit-scrollbar-track {
-    background: var(--bg-primary);
+    background: transparent;
 }
 
 .pdp-section-content::-webkit-scrollbar-thumb {
-    background: var(--bg-tertiary);
-    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
 }
 
 .pdp-section-content::-webkit-scrollbar-thumb:hover {
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.15);
 }

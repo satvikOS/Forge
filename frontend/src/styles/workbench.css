@@ -1,46 +1,7 @@
 /* ArchDisc - Blender-Style Professional UI */
-/* Exact replication of Blender 3.x layout and dimensions */
+/* Polished visual layer - layout structure preserved */
 
-:root {
-    /* OLED Black Theme - Blender Colors */
-    --bg-primary: #1e1e1e;
-    --bg-secondary: #2b2b2b;
-    --bg-tertiary: #3a3a3a;
-    --bg-hover: #4a4a4a;
-
-    /* Borders - Blender Style */
-    --border-color: #1a1a1a;
-    --border-subtle: #2a2a2a;
-
-    /* Text - Blender Typography */
-    --text-primary: #d9d9d9;
-    --text-secondary: #a0a0a0;
-    --text-muted: #6f6f6f;
-
-    /* Accent - Maroon */
-    --accent-primary: #8b1538;
-    --accent-hover: #a01641;
-
-    /* Dimensions - Blender Exact + Widened Sidebar */
-    --toolbar-width: 51px;
-    /* Increased from 32px by 0.5cm to prevent scrolling */
-    --header-height: 24px;
-    --properties-width: 280px;
-    --footer-height: 60px;
-
-    /* Spacing - Minimal */
-    --gap-2: 2px;
-    --gap-4: 4px;
-    --gap-6: 6px;
-    --gap-8: 8px;
-
-    /* Typography - Blender Standard */
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-    font-size: 11px;
-    line-height: 1.3;
-}
-
-/* Main Container - Blender Grid Layout */
+/* ========== MAIN CONTAINER - GRID LAYOUT ========== */
 .workbench-container {
     height: 100vh;
     width: 100vw;
@@ -56,69 +17,130 @@
     overflow: hidden;
 }
 
-/* ========== TOP HEADER - BLENDER STYLE ========== */
+/* ========== TOP HEADER ========== */
 .workbench-header {
     grid-area: header;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
-    padding: 0 8px;
+    padding: 0 10px;
     gap: 12px;
     height: var(--header-height);
+    z-index: 100;
+    user-select: none;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-right: 8px;
 }
 
 .workbench-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--accent-primary);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
     margin: 0;
     min-width: 60px;
+    letter-spacing: -0.02em;
 }
 
+/* Status indicator dot */
+.status-indicator {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-indicator.online {
+    background: var(--color-success);
+    box-shadow: 0 0 6px rgba(67, 160, 71, 0.5);
+    animation: pulse-dot 2.5s ease-in-out infinite;
+}
+
+.status-indicator.offline {
+    background: var(--color-error);
+    box-shadow: 0 0 6px rgba(229, 57, 53, 0.4);
+}
+
+/* Header toolbar buttons */
 .workbench-toolbar {
     display: flex;
-    gap: 1px;
+    gap: var(--gap-2);
     margin-left: 8px;
-    padding-left: 8px;
-    border-left: 1px solid var(--border-subtle);
+    padding-left: 12px;
+    border-left: 1px solid var(--border-color);
 }
 
 .toolbar-button {
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     color: var(--text-secondary);
-    font-size: 10px;
-    padding: 2px 8px;
+    font-size: 11px;
+    padding: 4px 10px;
     cursor: pointer;
-    height: 18px;
-    transition: all 0.1s;
+    height: 26px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    white-space: nowrap;
 }
 
 .toolbar-button:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+    border-color: var(--border-light);
 }
 
 .toolbar-button.active {
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-inverse);
+    border-color: var(--accent-primary);
 }
 
+/* Header right actions */
 .header-actions {
     display: flex;
-    gap: 2px;
+    gap: var(--gap-4);
     margin-left: auto;
+    align-items: center;
+}
+
+.feature-search {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 11px;
+    padding: 4px 10px;
+    height: 26px;
+    border-radius: var(--radius-sm);
+    min-width: 140px;
+    transition: all var(--transition-normal);
+}
+
+.feature-search::placeholder {
+    color: var(--text-muted);
+}
+
+.feature-search:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: var(--shadow-glow-accent);
+    background: var(--bg-secondary);
 }
 
 .header-button {
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 10px;
-    padding: 2px 8px;
+    font-size: 12px;
+    padding: 4px 10px;
     cursor: pointer;
-    height: 18px;
+    height: 26px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
 }
 
 .header-button:hover {
@@ -142,32 +164,34 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 4px 0;
-    gap: 2px;
+    padding: 6px 0;
+    gap: var(--gap-2);
     overflow-y: auto;
     overflow-x: visible;
     flex: 1;
     min-height: 0;
+    /* Subtle fade at bottom when scrollable */
+    mask-image: linear-gradient(to bottom, black calc(100% - 12px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 12px), transparent 100%);
 }
 
 .workbench-tools-inner::-webkit-scrollbar {
-    width: 4px;
+    width: 3px;
 }
 
 .workbench-tools-inner::-webkit-scrollbar-track {
-    background: var(--bg-primary);
+    background: transparent;
 }
 
 .workbench-tools-inner::-webkit-scrollbar-thumb {
-    background: var(--bg-tertiary);
-    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
 }
 
+/* Tool icon button */
 .tool-icon-button {
-    width: 46px;
-    /* Increased from 28px */
-    height: 46px;
-    /* Increased from 28px */
+    width: 42px;
+    height: 42px;
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -176,9 +200,9 @@
     align-items: center;
     justify-content: center;
     font-size: 20px;
-    /* Increased from 16px for better icon visibility */
-    border-radius: 2px;
-    transition: all 0.1s;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    position: relative;
 }
 
 .tool-icon-button:hover {
@@ -188,14 +212,27 @@
 
 .tool-icon-button.active {
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-inverse);
+    box-shadow: 0 0 12px rgba(155, 27, 64, 0.3);
 }
 
-/* ==========/* Viewport - Clean background for Three.js scene */
+.tool-icon-button.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 20px;
+    background: var(--accent-orange);
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+
+/* ========== VIEWPORT ========== */
 .workbench-viewport {
     grid-area: viewport;
     position: relative;
-    background: #262626;
+    background: #1a1a1a;
     overflow: hidden;
 }
 
@@ -212,16 +249,19 @@
     right: 8px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--gap-4);
     z-index: 10;
 }
 
 .viewport-controls {
-    background: rgba(43, 43, 43, 0.85);
-    border: 1px solid var(--border-color);
+    background: rgba(20, 20, 20, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md);
     display: flex;
-    gap: 1px;
-    padding: 1px;
+    gap: var(--gap-1);
+    padding: 3px;
 }
 
 .viewport-button {
@@ -229,13 +269,15 @@
     border: none;
     color: var(--text-secondary);
     font-size: 10px;
-    padding: 3px 8px;
+    padding: 4px 10px;
     cursor: pointer;
-    height: 20px;
+    height: 22px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
 }
 
 .viewport-button:hover {
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.1);
     color: var(--text-primary);
 }
 
@@ -245,10 +287,13 @@
     bottom: 8px;
     left: 8px;
     display: flex;
-    gap: 1px;
-    background: rgba(43, 43, 43, 0.85);
-    border: 1px solid var(--border-color);
-    padding: 1px;
+    gap: var(--gap-1);
+    background: rgba(20, 20, 20, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md);
+    padding: 3px;
     z-index: 10;
 }
 
@@ -259,17 +304,19 @@
     font-size: 10px;
     padding: 4px 10px;
     cursor: pointer;
-    height: 22px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
 }
 
 .gizmo-button:hover {
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.1);
     color: var(--text-primary);
 }
 
 .gizmo-button.active {
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-inverse);
 }
 
 /* ========== RIGHT PROPERTIES PANEL ========== */
@@ -283,31 +330,43 @@
 }
 
 .property-section {
-    margin-bottom: 12px;
+    margin-bottom: 14px;
 }
 
 .property-header {
     font-size: 10px;
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0 0 6px 0;
-    padding: 4px 0;
-    border-bottom: 1px solid var(--border-subtle);
+    letter-spacing: 0.6px;
+    margin: 0 0 8px 0;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.property-header::before {
+    content: '';
+    width: 3px;
+    height: 10px;
+    background: var(--accent-primary);
+    border-radius: var(--radius-xs);
+    flex-shrink: 0;
 }
 
 .property-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
 }
 
 .property-label {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-secondary);
-    min-width: 60px;
+    min-width: 65px;
     flex-shrink: 0;
 }
 
@@ -316,16 +375,22 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 10px;
-    padding: 3px 6px;
-    height: 20px;
-    border-radius: 2px;
+    font-size: 11px;
+    padding: 4px 8px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-normal);
 }
 
 .property-input:focus {
     outline: none;
     border-color: var(--accent-primary);
+    box-shadow: var(--shadow-glow-accent);
     background: var(--bg-primary);
+}
+
+.property-input:hover:not(:focus) {
+    border-color: var(--border-light);
 }
 
 .property-button {
@@ -333,31 +398,36 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 10px;
-    padding: 4px 8px;
+    font-size: 11px;
+    padding: 5px 10px;
     cursor: pointer;
-    height: 24px;
-    border-radius: 2px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 4px;
+    transition: all var(--transition-fast);
 }
 
 .property-button:hover {
     background: var(--bg-hover);
+    border-color: var(--border-light);
 }
 
-/* ========== BOTTOM FOOTER - AI PROMPT ========== */
+.property-button:active {
+    background: var(--bg-active);
+}
+
+/* ========== BOTTOM FOOTER - AI CONSOLE ========== */
 .workbench-console {
     grid-area: footer;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 8px;
-    height: var(--footer-height);
+    overflow: hidden;
+    height: 160px;
 }
 
+/* Prompt input area (fallback) */
 .prompt-label {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-secondary);
     font-weight: 500;
     min-width: 60px;
@@ -368,65 +438,71 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 11px;
-    padding: 6px 12px;
+    font-size: 12px;
+    padding: 8px 14px;
     height: 36px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     resize: none;
     font-family: inherit;
+    transition: all var(--transition-normal);
 }
 
 .prompt-input:focus {
     outline: none;
     border-color: var(--accent-primary);
+    box-shadow: var(--shadow-glow-accent);
     background: var(--bg-primary);
+}
+
+.prompt-input::placeholder {
+    color: var(--text-muted);
 }
 
 .generate-button {
     background: var(--accent-primary);
     border: none;
-    color: white;
-    font-size: 11px;
+    color: var(--text-inverse);
+    font-size: 12px;
     font-weight: 500;
     padding: 0 20px;
     height: 36px;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
 }
 
 .generate-button:hover {
     background: var(--accent-hover);
+    box-shadow: 0 2px 8px rgba(155, 27, 64, 0.3);
 }
 
-/* ========== BOTTOM FOOTER - CHAT CONSOLE ========== */
-.workbench-console {
-    grid-area: footer;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-color);
-    overflow: hidden;
-    height: 160px;
+/* ========== PANEL SCROLLBARS ========== */
+.workbench-properties::-webkit-scrollbar,
+.ai-console-content::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar {
+    width: 4px;
 }
 
-/* ========== SCROLLBARS - BLENDER STYLE ========== */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+.workbench-properties::-webkit-scrollbar-track,
+.ai-console-content::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar-track {
+    background: transparent;
 }
 
-::-webkit-scrollbar-track {
-    background: var(--bg-primary);
+.workbench-properties::-webkit-scrollbar-thumb,
+.ai-console-content::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
 }
 
-::-webkit-scrollbar-thumb {
-    background: var(--bg-tertiary);
-    border-radius: 3px;
+.workbench-properties::-webkit-scrollbar-thumb:hover,
+.ai-console-content::-webkit-scrollbar-thumb:hover,
+.chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.15);
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: var(--bg-hover);
-}
-
-/* ========== WORKBENCH SWITCHER - COMPACT ========== */
+/* ========== WORKBENCH SWITCHER ========== */
 .workbench-switcher {
     position: relative;
 }
@@ -435,18 +511,21 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 10px;
-    padding: 2px 10px;
+    font-size: 11px;
+    padding: 3px 10px;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: 18px;
-    min-width: 140px;
+    gap: 8px;
+    height: 26px;
+    min-width: 150px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
 }
 
 .workbench-current:hover {
     background: var(--bg-hover);
+    border-color: var(--border-light);
 }
 
 .workbench-name {
@@ -455,21 +534,28 @@
 }
 
 .expand-arrow {
-    font-size: 8px;
+    font-size: 9px;
     color: var(--text-muted);
+    transition: transform var(--transition-normal), color var(--transition-fast);
+}
+
+.workbench-current:hover .expand-arrow {
+    color: var(--text-primary);
 }
 
 .workbench-dropdown {
     position: absolute;
-    top: calc(100% + 2px);
+    top: calc(100% + 4px);
     left: 0;
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    min-width: 260px;
-    max-height: 380px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-width: 280px;
+    max-height: 400px;
     overflow-y: auto;
     z-index: 1000;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-lg);
+    animation: dropdown-enter 0.15s ease-out;
 }
 
 .workbench-option {
@@ -478,9 +564,14 @@
     border: none;
     color: var(--text-primary);
     text-align: left;
-    padding: 6px 12px;
+    padding: 8px 12px;
     cursor: pointer;
     border-bottom: 1px solid var(--border-subtle);
+    transition: background var(--transition-fast);
+}
+
+.workbench-option:last-child {
+    border-bottom: none;
 }
 
 .workbench-option:hover {
@@ -488,8 +579,12 @@
 }
 
 .workbench-option.active {
-    background: rgba(139, 21, 56, 0.2);
-    color: var(--accent-primary);
+    background: var(--accent-primary-muted);
+    border-left: 3px solid var(--accent-primary);
+}
+
+.workbench-option.active .workbench-name {
+    color: var(--accent-orange);
 }
 
 .workbench-option-header {
@@ -505,12 +600,43 @@
 
 .workbench-option .workbench-name {
     font-weight: 500;
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .workbench-description {
-    font-size: 9px;
+    font-size: 10px;
     color: var(--text-secondary);
     margin: 0;
     line-height: 1.3;
+}
+
+/* ========== CONTEXT MENU ========== */
+.context-menu {
+    position: fixed;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-width: 180px;
+    padding: 4px 0;
+    z-index: 9999;
+    box-shadow: var(--shadow-lg);
+    animation: dropdown-enter 0.12s ease-out;
+}
+
+.context-menu-item {
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.context-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 8px;
 }

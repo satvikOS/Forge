@@ -1,0 +1,73 @@
+/* StatusBar - Bottom info bar */
+
+.status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    font-size: 11px;
+    color: var(--text-secondary);
+    height: var(--status-bar-height);
+    user-select: none;
+}
+
+.status-bar-left,
+.status-bar-center,
+.status-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Mode highlight */
+.status-bar-mode {
+    color: var(--accent-orange);
+    font-weight: 600;
+    font-size: 11px;
+}
+
+/* Divider */
+.status-bar-divider {
+    width: 1px;
+    height: 12px;
+    background: var(--border-light);
+}
+
+/* Tool name */
+.status-bar-tool {
+    color: var(--text-secondary);
+}
+
+/* Stat items */
+.status-bar-stat {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.status-bar-stat b {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* FPS indicator */
+.status-bar-fps {
+    font-size: 11px;
+}
+
+.status-bar-fps.good {
+    color: var(--color-success);
+}
+
+.status-bar-fps.good b {
+    color: var(--color-success);
+}
+
+.status-bar-fps.warn {
+    color: var(--color-warning);
+}
+
+.status-bar-fps.warn b {
+    color: var(--color-warning);
+}
