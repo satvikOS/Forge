@@ -88,6 +88,7 @@ const motionCaptureRoutes = require('./routes/motion-capture');
 const mechanicalRoutes = require('./routes/mechanical');
 const aiRoutes = require('./routes/ai');
 const parametricDesignRoutes = require('./routes/parametricDesign');
+const projectRoutes = require('./routes/projects');
 
 // API routes
 app.use('/api/design', designRoutes);
@@ -105,6 +106,7 @@ app.use('/api/motion-capture', motionCaptureRoutes);
 app.use('/api/mechanical', mechanicalRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/parametric', parametricDesignRoutes);
+app.use('/api/projects', projectRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

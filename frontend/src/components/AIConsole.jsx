@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, Code, Send, X, Minimize2, Maximize2, Layers, Zap } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
+import ClarificationDialog from './ClarificationDialog';
 import apiService from '../services/api';
 import './AIConsole.css';
 
@@ -9,6 +10,11 @@ import './AIConsole.css';
  * Supports natural language CAD commands, code execution, and parametric design.
  * Connected to ViewportContext: generated models are loaded into the 3D scene
  * and appear in the Model Tree with unique component IDs.
+ *
+ * Integrated with:
+ * - Parallel multi-agent AI (DeepSeek R1, Kimi K2, Llama 3.3, Claude)
+ * - Vagueness detection + clarification questions
+ * - Auto project creation on first prompt
  */
 function AIConsole() {
     const [mode, setMode] = useState('chat'); // 'chat', 'code', or 'parametric'
@@ -21,6 +27,8 @@ function AIConsole() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [variants, setVariants] = useState([]);
+    const [projectId, setProjectId] = useState(null);
+    const [clarificationState, setClarificationState] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const viewport = useViewport();
@@ -31,9 +39,46 @@ function AIConsole() {
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages, codeHistory, parametricHistory]);
+    }, [messages, codeHistory, parametricHistory, clarificationState]);
 
-    // ─── Chat Mode: NL commands → generate model → load into viewport ─────────
+    // Resume most recent project on mount
+    useEffect(() => {
+        const resumeProject = async () => {
+            try {
+                const res = await fetch('/api/projects/recent');
+                const data = await res.json();
+                if (data.success && data.project) {
+                    setProjectId(data.project.id);
+                }
+            } catch (e) {
+                // No project to resume
+            }
+        };
+        resumeProject();
+    }, []);
+
+    // Auto-create project on first user prompt
+    const ensureProject = useCallback(async (prompt) => {
+        if (projectId) return projectId;
+
+        try {
+            const res = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt }),
+            });
+            const data = await res.json();
+            if (data.success && data.project) {
+                setProjectId(data.project.id);
+                return data.project.id;
+            }
+        } catch (e) {
+            console.warn('Failed to create project:', e.message);
+        }
+        return null;
+    }, [projectId]);
+
+    // ─── Chat Mode: NL commands → vagueness check → clarify or generate ─────
     const handleSendChat = async () => {
         if (!input.trim() || isProcessing) return;
 
@@ -41,22 +86,49 @@ function AIConsole() {
         setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
         setInput('');
         setIsProcessing(true);
+        setClarificationState(null);
 
         try {
-            // First try the AI chat endpoint for NL commands
+            // Auto-create project
+            const currentProjectId = await ensureProject(userMessage);
+
+            // Send to AI chat endpoint (now uses real parallel agents)
             const response = await fetch('/api/ai/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: userMessage })
+                body: JSON.stringify({
+                    message: userMessage,
+                    projectId: currentProjectId,
+                })
             });
 
             const data = await response.json();
 
             if (data.success) {
+                // Check if AI needs clarification
+                if (data.needsClarification && data.questions?.length > 0) {
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: data.response || 'I need a few details to create the best design for you.',
+                    }]);
+
+                    setClarificationState({
+                        questions: data.questions,
+                        understood: data.response,
+                        vaguenessScore: data.vaguenessScore,
+                        originalMessage: userMessage,
+                    });
+
+                    setIsProcessing(false);
+                    return;
+                }
+
+                // Normal response
                 setMessages(prev => [...prev, {
                     role: 'assistant',
                     content: data.response,
-                    actions: data.actions
+                    actions: data.actions,
+                    agentInfo: data.agentInfo,
                 }]);
 
                 // Execute CAD actions if returned
@@ -64,11 +136,8 @@ function AIConsole() {
                     executeCADActions(data.actions);
                 }
 
-                // If the message looks like a generation request, also trigger model generation
-                const genKeywords = ['create', 'make', 'build', 'generate', 'design', 'model', 'draw'];
-                const isGenRequest = genKeywords.some(kw => userMessage.toLowerCase().includes(kw));
-
-                if (isGenRequest) {
+                // If the message looks like a generation request, trigger model generation
+                if (data.isGenerationRequest) {
                     setMessages(prev => [...prev, {
                         role: 'assistant',
                         content: 'Generating 3D model... This may take a moment.'
@@ -76,7 +145,6 @@ function AIConsole() {
 
                     try {
                         const genResult = await apiService.generateDesign(userMessage, (progress) => {
-                            // Update progress in chat
                             if (progress.status && progress.progress) {
                                 setMessages(prev => {
                                     const updated = [...prev];
@@ -93,7 +161,6 @@ function AIConsole() {
                         });
 
                         if (genResult.success && genResult.modelData) {
-                            // Load model into viewport and model tree
                             const modelRecord = viewport?.addModel(
                                 genResult.modelData,
                                 genResult.design?.specifications || {},
@@ -110,6 +177,15 @@ function AIConsole() {
                                         `Mass: ${modelRecord.massProperties.mass} kg | Volume: ${modelRecord.massProperties.volume} cm\u00B3\n` +
                                         `The model is now in the Model Tree. You can edit transform, material, run FEA/CFD, and export from the properties panel.`
                                 }]);
+
+                                // Save model to project
+                                if (currentProjectId) {
+                                    fetch(`/api/projects/${currentProjectId}/models`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(modelRecord),
+                                    }).catch(() => {});
+                                }
                             } else {
                                 setMessages(prev => [...prev, {
                                     role: 'assistant',
@@ -132,7 +208,7 @@ function AIConsole() {
             } else {
                 setMessages(prev => [...prev, {
                     role: 'assistant',
-                    content: 'Sorry, I encountered an error. Please try again.'
+                    content: data.error || 'Sorry, I encountered an error. Please try again.'
                 }]);
             }
         } catch (error) {
@@ -146,7 +222,61 @@ function AIConsole() {
         }
     };
 
-    // ─── Code Mode: execute JS in sandbox ─────────────────────────────────────────
+    // ─── Handle clarification answers ────────────────────────────────────────
+    const handleClarificationSubmit = async (answers) => {
+        if (!clarificationState) return;
+
+        const originalMessage = clarificationState.originalMessage;
+        setClarificationState(null);
+        setIsProcessing(true);
+
+        setMessages(prev => [...prev, {
+            role: 'user',
+            content: `(Clarification answers for: "${originalMessage}")`,
+        }]);
+
+        try {
+            const response = await fetch('/api/ai/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: originalMessage,
+                    clarificationAnswers: answers,
+                    projectId,
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: data.response,
+                    actions: data.actions,
+                }]);
+
+                if (data.actions?.length > 0) {
+                    executeCADActions(data.actions);
+                }
+            }
+        } catch (error) {
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: 'Error processing clarification. Please try again.'
+            }]);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleClarificationSkip = () => {
+        const msg = clarificationState?.originalMessage;
+        setClarificationState(null);
+        if (msg) {
+            setInput(msg);
+        }
+    };
+
+    // ─── Code Mode: execute CAD scripting (safe, no eval) ────────────────────
     const handleExecuteCode = async () => {
         if (!input.trim() || isProcessing) return;
 
@@ -168,8 +298,17 @@ function AIConsole() {
                 setCodeHistory(prev => [...prev, {
                     type: 'output',
                     content: data.output || 'Code executed successfully',
-                    result: data.result
+                    result: data.result,
+                    operations: data.operations,
                 }]);
+
+                // Execute parsed CAD operations in viewport
+                if (data.operations?.length > 0) {
+                    executeCADActions(data.operations.map(op => ({
+                        type: op.type,
+                        parameters: op,
+                    })));
+                }
             } else {
                 setCodeHistory(prev => [...prev, {
                     type: 'error',
@@ -187,7 +326,7 @@ function AIConsole() {
         }
     };
 
-    // ─── Parametric Mode: generate variants + BOM ─────────────────────────────────
+    // ─── Parametric Mode: generate variants + BOM ─────────────────────────────
     const handleParametricDesign = async () => {
         if (!input.trim() || isProcessing) return;
 
@@ -258,7 +397,7 @@ function AIConsole() {
 
     const executeCADActions = (actions) => {
         console.log('Executing CAD actions:', actions);
-        // Future: pipe actions to viewport
+        // TODO: pipe actions to viewport via ToolExecutionEngine
     };
 
     const handleKeyPress = (e) => {
@@ -280,6 +419,7 @@ function AIConsole() {
                 role: 'assistant',
                 content: 'Chat cleared. How can I help you?'
             }]);
+            setClarificationState(null);
         } else if (mode === 'code') {
             setCodeHistory([]);
         } else {
@@ -293,7 +433,7 @@ function AIConsole() {
             case 'chat':
                 return 'Describe what you want to create... (e.g., "Create a 50mm cube with filleted edges")';
             case 'code':
-                return 'Enter JavaScript code... (e.g., "sketch.circle([0,0], 25)")';
+                return 'Enter CAD script... (e.g., "sketch.circle([0,0], 25)")';
             case 'parametric':
                 return 'Describe a mechanical part... (e.g., "Create a mounting bracket with 4 M6 holes")';
             default:
@@ -343,6 +483,11 @@ function AIConsole() {
                 </div>
 
                 <div className="console-actions">
+                    {projectId && (
+                        <span className="project-badge" title={`Project: ${projectId}`}>
+                            Project Active
+                        </span>
+                    )}
                     <button className="action-button" onClick={clearHistory} title="Clear">
                         <X size={14} />
                     </button>
@@ -367,6 +512,18 @@ function AIConsole() {
                                 </div>
                             </div>
                         ))}
+
+                        {/* Clarification Dialog */}
+                        {clarificationState && (
+                            <ClarificationDialog
+                                questions={clarificationState.questions}
+                                understood={clarificationState.understood}
+                                vaguenessScore={clarificationState.vaguenessScore}
+                                onSubmit={handleClarificationSubmit}
+                                onSkip={handleClarificationSkip}
+                            />
+                        )}
+
                         {isProcessing && (
                             <div className="message assistant">
                                 <div className="message-content typing">

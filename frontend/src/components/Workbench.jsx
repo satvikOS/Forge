@@ -8,6 +8,8 @@ import WorkbenchGaming from '../workbenches/gaming-vfx/WorkbenchGaming';
 import WorkbenchAutomotive from '../workbenches/automotive/WorkbenchAutomotive';
 import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronics';
 import AIConsole from './AIConsole';
+import ProjectLibrary from './ProjectLibrary';
+import ComponentInfoPanel from './ComponentInfoPanel';
 import CommandPalette from './CommandPalette';
 import ToastContainer from './ToastContainer';
 import { ViewportProvider } from '../contexts/ViewportContext';
@@ -29,6 +31,7 @@ function WorkbenchContainer() {
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [activeProjectId, setActiveProjectId] = useState(null);
 
     // Toast helper
     const addToast = (message, type = 'info', duration = 3000) => {
@@ -203,7 +206,24 @@ function WorkbenchContainer() {
                 </header>
 
                 {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
-                {renderWorkbench()}
+                <div style={{ position: 'relative', flex: 1, display: 'flex', overflow: 'hidden' }}>
+                    {/* Project Library (left panel overlay) */}
+                    <ProjectLibrary
+                        activeProjectId={activeProjectId}
+                        onSelectProject={(id) => setActiveProjectId(id)}
+                        onNewProject={() => setActiveProjectId(null)}
+                    />
+
+                    {/* Main workbench area */}
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                        {renderWorkbench()}
+                    </div>
+
+                    {/* Component Info Panel (right side) */}
+                    <div style={{ width: '260px', flexShrink: 0, overflowY: 'auto', borderLeft: '1px solid var(--border-color, #2a2d35)' }}>
+                        <ComponentInfoPanel />
+                    </div>
+                </div>
 
                 {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
                 <AIConsole />
