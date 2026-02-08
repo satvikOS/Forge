@@ -1,29 +1,11 @@
-/* Topbar - Application Menu Bar */
+/* Topbar - Inline Application Menu Bar */
+/* Renders inside workbench header as a <nav> element */
 
-.topbar {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
+/* Inline menu trigger container */
+.topbar-menus {
     display: flex;
     align-items: center;
-    height: var(--header-height);
-    padding: 0 10px;
-    user-select: none;
-    position: relative;
-    z-index: 100;
-}
-
-/* Brand / App Title */
-.topbar-brand {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-right: 16px;
-    padding: 0 8px;
-    letter-spacing: -0.02em;
-}
-
-/* Menu wrapper */
-.topbar-menu-wrapper {
+    height: 100%;
     position: relative;
 }
 
@@ -32,14 +14,15 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    padding: 6px 12px;
+    padding: 0 10px;
     font-size: 12px;
     cursor: pointer;
-    height: var(--header-height);
+    height: 100%;
     display: flex;
     align-items: center;
     border-radius: 0;
-    transition: background var(--transition-fast), color var(--transition-fast);
+    transition: background 0.08s ease, color 0.08s ease;
+    white-space: nowrap;
 }
 
 .topbar-menu-trigger:hover,
@@ -52,22 +35,62 @@
     background: var(--bg-active);
 }
 
-/* Dropdown */
+/* ─── Dropdown - Fixed position overlay ───────────────────────────────────── */
 .topbar-dropdown {
-    position: absolute;
-    top: var(--header-height);
-    left: 0;
+    position: fixed;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-width: 240px;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    z-index: 1000;
+    padding: 4px 0;
+    animation: dropdown-enter 0.1s ease-out;
+}
+
+.topbar-dropdown::-webkit-scrollbar {
+    width: 3px;
+}
+
+.topbar-dropdown::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.topbar-dropdown::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
+}
+
+/* ─── Submenu - Fixed position overlay ────────────────────────────────────── */
+.topbar-submenu {
+    position: fixed;
     background: var(--bg-secondary);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
     min-width: 220px;
     max-height: 70vh;
     overflow-y: auto;
-    box-shadow: var(--shadow-lg);
-    z-index: 1000;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    z-index: 1001;
     padding: 4px 0;
-    animation: dropdown-enter 0.12s ease-out;
+    animation: dropdown-enter 0.08s ease-out;
 }
+
+.topbar-submenu::-webkit-scrollbar {
+    width: 3px;
+}
+
+.topbar-submenu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.topbar-submenu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
+}
+
+/* ─── Shared menu item styles ─────────────────────────────────────────────── */
 
 /* Separator */
 .topbar-separator {
@@ -97,7 +120,8 @@
     cursor: pointer;
     color: var(--text-primary);
     font-size: 12px;
-    transition: background var(--transition-fast);
+    transition: background 0.06s ease;
+    position: relative;
 }
 
 .topbar-item:hover {
@@ -111,10 +135,6 @@
 
 .topbar-item.disabled:hover {
     background: transparent;
-}
-
-.topbar-item.indented {
-    padding-left: 28px;
 }
 
 .topbar-item-left {
@@ -136,26 +156,32 @@
     white-space: nowrap;
 }
 
-/* Spacer */
-.topbar-spacer {
-    flex: 1;
+/* Submenu arrow indicator */
+.topbar-submenu-arrow {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 12px;
 }
 
-/* Status */
-.topbar-status {
-    font-size: 11px;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 8px;
+.topbar-item.has-submenu:hover .topbar-submenu-arrow,
+.topbar-item.submenu-active .topbar-submenu-arrow {
+    color: var(--text-primary);
 }
 
-.topbar-status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-success);
-    box-shadow: 0 0 6px rgba(67, 160, 71, 0.5);
-    animation: pulse-dot 2.5s ease-in-out infinite;
+.topbar-item.submenu-active {
+    background: var(--bg-hover);
+}
+
+/* Submenu panel items */
+.topbar-submenu .topbar-item {
+    padding: 5px 14px;
+}
+
+.topbar-submenu .topbar-item:hover {
+    background: var(--bg-hover);
+}
+
+.topbar-submenu .topbar-item:active {
+    background: var(--accent-primary);
+    color: var(--text-inverse);
 }

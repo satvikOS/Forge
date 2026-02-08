@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Code, Send, X, Minimize2, Maximize2, Layers, Zap } from 'lucide-react';
+import { useViewport } from '../contexts/ViewportContext';
+import apiService from '../services/api';
 import './AIConsole.css';
 
 /**
  * AI Console - Dual Chat/Code Terminal for Footer
- * Supports natural language CAD commands, code execution, and parametric design
+ * Supports natural language CAD commands, code execution, and parametric design.
+ * Connected to ViewportContext: generated models are loaded into the 3D scene
+ * and appear in the Model Tree with unique component IDs.
  */
 function AIConsole() {
     const [mode, setMode] = useState('chat'); // 'chat', 'code', or 'parametric'
@@ -19,6 +23,7 @@ function AIConsole() {
     const [variants, setVariants] = useState([]);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const viewport = useViewport();
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -28,6 +33,7 @@ function AIConsole() {
         scrollToBottom();
     }, [messages, codeHistory, parametricHistory]);
 
+    // ─── Chat Mode: NL commands → generate model → load into viewport ─────────
     const handleSendChat = async () => {
         if (!input.trim() || isProcessing) return;
 
@@ -37,6 +43,7 @@ function AIConsole() {
         setIsProcessing(true);
 
         try {
+            // First try the AI chat endpoint for NL commands
             const response = await fetch('/api/ai/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -49,12 +56,78 @@ function AIConsole() {
                 setMessages(prev => [...prev, {
                     role: 'assistant',
                     content: data.response,
-                    actions: data.actions // CAD operations to execute
+                    actions: data.actions
                 }]);
 
-                // Execute any CAD actions returned
+                // Execute CAD actions if returned
                 if (data.actions && data.actions.length > 0) {
                     executeCADActions(data.actions);
+                }
+
+                // If the message looks like a generation request, also trigger model generation
+                const genKeywords = ['create', 'make', 'build', 'generate', 'design', 'model', 'draw'];
+                const isGenRequest = genKeywords.some(kw => userMessage.toLowerCase().includes(kw));
+
+                if (isGenRequest) {
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: 'Generating 3D model... This may take a moment.'
+                    }]);
+
+                    try {
+                        const genResult = await apiService.generateDesign(userMessage, (progress) => {
+                            // Update progress in chat
+                            if (progress.status && progress.progress) {
+                                setMessages(prev => {
+                                    const updated = [...prev];
+                                    const lastAssistant = updated.length - 1;
+                                    if (updated[lastAssistant]?.role === 'assistant') {
+                                        updated[lastAssistant] = {
+                                            ...updated[lastAssistant],
+                                            content: `Generating... ${progress.status} (${Math.round(progress.progress)}%)`
+                                        };
+                                    }
+                                    return updated;
+                                });
+                            }
+                        });
+
+                        if (genResult.success && genResult.modelData) {
+                            // Load model into viewport and model tree
+                            const modelRecord = viewport?.addModel(
+                                genResult.modelData,
+                                genResult.design?.specifications || {},
+                                genResult.designId
+                            );
+
+                            if (modelRecord) {
+                                const compCount = modelRecord.components.length;
+                                setMessages(prev => [...prev, {
+                                    role: 'assistant',
+                                    content: `Model "${modelRecord.name}" loaded into viewport.\n` +
+                                        `ID: ${modelRecord.id} | Design: ${modelRecord.designId}\n` +
+                                        `Components: ${compCount} | IDs: ${modelRecord.components.map(c => c.id).join(', ')}\n` +
+                                        `Mass: ${modelRecord.massProperties.mass} kg | Volume: ${modelRecord.massProperties.volume} cm\u00B3\n` +
+                                        `The model is now in the Model Tree. You can edit transform, material, run FEA/CFD, and export from the properties panel.`
+                                }]);
+                            } else {
+                                setMessages(prev => [...prev, {
+                                    role: 'assistant',
+                                    content: 'Model generated but could not be loaded into viewport. Check the console for details.'
+                                }]);
+                            }
+                        } else if (genResult.success) {
+                            setMessages(prev => [...prev, {
+                                role: 'assistant',
+                                content: 'Design generated but no 3D geometry was returned. The design specification is available for export.'
+                            }]);
+                        }
+                    } catch (genError) {
+                        setMessages(prev => [...prev, {
+                            role: 'assistant',
+                            content: `Generation error: ${genError.message}. The AI chat response above may still be useful.`
+                        }]);
+                    }
                 }
             } else {
                 setMessages(prev => [...prev, {
@@ -73,6 +146,7 @@ function AIConsole() {
         }
     };
 
+    // ─── Code Mode: execute JS in sandbox ─────────────────────────────────────────
     const handleExecuteCode = async () => {
         if (!input.trim() || isProcessing) return;
 
@@ -113,6 +187,7 @@ function AIConsole() {
         }
     };
 
+    // ─── Parametric Mode: generate variants + BOM ─────────────────────────────────
     const handleParametricDesign = async () => {
         if (!input.trim() || isProcessing) return;
 
@@ -122,7 +197,6 @@ function AIConsole() {
         setIsProcessing(true);
 
         try {
-            // Call the new parametric design API
             const response = await fetch('/api/parametric/generate-variants', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -145,7 +219,7 @@ function AIConsole() {
                     comparison: data.comparison
                 }]);
 
-                // Also generate BOM for best variant
+                // Generate BOM for best variant
                 if (data.bestVariant) {
                     const bomResponse = await fetch('/api/parametric/auto-bom', {
                         method: 'POST',
@@ -183,9 +257,8 @@ function AIConsole() {
     };
 
     const executeCADActions = (actions) => {
-        // This would trigger actual CAD operations in the viewport
         console.log('Executing CAD actions:', actions);
-        // Integration with cadIntegrationService
+        // Future: pipe actions to viewport
     };
 
     const handleKeyPress = (e) => {
@@ -308,14 +381,14 @@ function AIConsole() {
                         {codeHistory.map((entry, idx) => (
                             <div key={idx} className={`terminal-entry ${entry.type}`}>
                                 <div className="entry-prefix">
-                                    {entry.type === 'input' ? '>' : entry.type === 'error' ? '✗' : '✓'}
+                                    {entry.type === 'input' ? '>' : entry.type === 'error' ? 'x' : 'ok'}
                                 </div>
                                 <div className="entry-content">{entry.content}</div>
                             </div>
                         ))}
                         {isProcessing && (
                             <div className="terminal-entry processing">
-                                <div className="entry-prefix">⟳</div>
+                                <div className="entry-prefix">...</div>
                                 <div className="entry-content">Processing...</div>
                             </div>
                         )}
@@ -326,9 +399,9 @@ function AIConsole() {
                         {parametricHistory.map((entry, idx) => (
                             <div key={idx} className={`parametric-entry ${entry.type}`}>
                                 <div className="entry-prefix">
-                                    {entry.type === 'prompt' ? '🎨' :
-                                        entry.type === 'result' ? '✅' :
-                                            entry.type === 'bom' ? '📋' : '❌'}
+                                    {entry.type === 'prompt' ? '>' :
+                                        entry.type === 'result' ? 'ok' :
+                                            entry.type === 'bom' ? '#' : 'x'}
                                 </div>
                                 <div className="entry-content">
                                     {entry.content}
@@ -382,4 +455,3 @@ function AIConsole() {
 }
 
 export default AIConsole;
-

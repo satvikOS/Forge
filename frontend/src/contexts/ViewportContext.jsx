@@ -1,11 +1,15 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import * as THREE from 'three';
 
 /**
- * Viewport Context - Provides shared access to 3D scene across components
+ * Viewport Context - 3D scene + model management
  *
- * This context allows components like AIConsole to add geometry to the viewport
- * without tight coupling between components.
+ * Provides:
+ * - Three.js scene registration
+ * - Model registry with component IDs
+ * - Geometry add/remove from AXEL format
+ * - Model selection and transform updates
+ * - Model tree data for UI display
  */
 const ViewportContext = createContext(null);
 
@@ -18,143 +22,336 @@ export const useViewport = () => {
     return context;
 };
 
+let _componentCounter = 0;
+function nextComponentId() {
+    _componentCounter++;
+    return `comp_${String(_componentCounter).padStart(4, '0')}`;
+}
+
+let _modelCounter = 0;
+function nextModelId() {
+    _modelCounter++;
+    return `model_${String(_modelCounter).padStart(4, '0')}`;
+}
+
 export function ViewportProvider({ children }) {
     const [scene, setScene] = useState(null);
     const [camera, setCamera] = useState(null);
     const [renderer, setRenderer] = useState(null);
     const [controls, setControls] = useState(null);
-    const [wireframeMode, setWireframeMode] = useState('off'); // 'off', 'solid', 'transparent'
+    const [wireframeMode, setWireframeMode] = useState('off');
+
+    // ─── Model Registry ──────────────────────────────────────────────────────────
+    const [models, setModels] = useState([]);
+    const [selectedModelId, setSelectedModelId] = useState(null);
+    const modelsRef = useRef([]);
+
+    // Keep ref in sync for callbacks
+    const updateModels = useCallback((updater) => {
+        setModels(prev => {
+            const next = typeof updater === 'function' ? updater(prev) : updater;
+            modelsRef.current = next;
+            return next;
+        });
+    }, []);
 
     // Register the viewport scene (called by Viewport3D on mount)
     const registerViewport = useCallback((viewportData) => {
-        console.log('📹 Viewport registered in context');
         setScene(viewportData.scene);
         setCamera(viewportData.camera);
         setRenderer(viewportData.renderer);
         setControls(viewportData.controls);
     }, []);
 
-    // Add geometry to the scene from AXEL polygon mesh format
-    const addGeometry = useCallback((geometry, options = {}) => {
+    // ─── Add Model ───────────────────────────────────────────────────────────────
+    // Takes raw backend response (modelData + specs) and creates tracked model
+    const addModel = useCallback((modelData, specs = {}, designId = null) => {
         if (!scene) {
-            console.error('❌ Cannot add geometry: Scene not initialized');
+            console.error('Cannot add model: scene not initialized');
             return null;
         }
 
-        console.log('🎨 Adding geometry to viewport:', geometry);
+        const modelId = nextModelId();
+        const dId = designId || modelId;
+        const modelName = specs?.name || specs?.objectType || 'Generated Model';
+        const components = [];
+
+        // Create a THREE.Group to hold all parts
+        const group = new THREE.Group();
+        group.userData.generatedModel = true;
+        group.userData.modelId = modelId;
 
         try {
-            // Convert AXEL polygon mesh to Three.js mesh
-            const mesh = createThreeJSMeshFromAXEL(geometry, options);
+            if (modelData?.type === 'composite' && modelData.parts) {
+                // Multi-part model
+                modelData.parts.forEach((part, i) => {
+                    const compId = nextComponentId();
+                    const mesh = createThreeJSMesh(part, {
+                        color: getPartColor(i),
+                        metalness: 0.3,
+                        roughness: 0.4,
+                    });
+                    mesh.userData.componentId = compId;
+                    mesh.userData.modelId = modelId;
 
-            // Clear previous generated models (optional)
-            if (options.clearPrevious) {
-                scene.children
-                    .filter(child => child.userData.generatedModel)
-                    .forEach(child => scene.remove(child));
+                    if (part.position) {
+                        mesh.position.set(
+                            part.position.x || 0,
+                            part.position.y || 0,
+                            part.position.z || 0
+                        );
+                    }
+
+                    group.add(mesh);
+                    components.push({
+                        id: compId,
+                        name: part.name || `Part ${i + 1}`,
+                        type: 'body',
+                        visible: true,
+                        meshUUID: mesh.uuid,
+                    });
+                });
+            } else if (modelData?.type === 'taxonomy_scene' && modelData.meshes) {
+                modelData.meshes.forEach((meshData, i) => {
+                    const compId = nextComponentId();
+                    const mesh = createThreeJSMesh(meshData, {
+                        color: getPartColor(i),
+                    });
+                    mesh.userData.componentId = compId;
+                    mesh.userData.modelId = modelId;
+
+                    if (meshData.position) {
+                        mesh.position.set(
+                            meshData.position.x || 0,
+                            meshData.position.y || 0,
+                            meshData.position.z || 0
+                        );
+                    }
+
+                    group.add(mesh);
+                    components.push({
+                        id: compId,
+                        name: meshData.name || meshData.category || `Component ${i + 1}`,
+                        type: meshData.category || 'body',
+                        visible: true,
+                        meshUUID: mesh.uuid,
+                    });
+                });
+            } else {
+                // Single mesh (polygon_mesh or fallback)
+                const compId = nextComponentId();
+                const rawMesh = modelData?.vertices ? modelData : (modelData?.model || modelData);
+                const mesh = createThreeJSMesh(rawMesh, {
+                    color: 0x2196f3,
+                    metalness: 0.3,
+                    roughness: 0.4,
+                });
+                mesh.userData.componentId = compId;
+                mesh.userData.modelId = modelId;
+                group.add(mesh);
+                components.push({
+                    id: compId,
+                    name: 'Body',
+                    type: 'body',
+                    visible: true,
+                    meshUUID: mesh.uuid,
+                });
             }
 
-            // Scale and position the mesh appropriately
-            scaleAndPositionMesh(mesh, options);
+            // Scale and position the whole group
+            scaleAndPositionGroup(group);
+            scene.add(group);
 
-            // Add to scene
-            scene.add(mesh);
-
-            // Center camera on new geometry
-            if (camera && options.focusCamera !== false) {
-                focusCameraOnMesh(mesh, camera, controls);
+            // Focus camera
+            if (camera && controls) {
+                focusCameraOnObject(group, camera, controls);
             }
 
-            console.log('✅ Geometry added to viewport successfully');
-            return mesh;
+            // Build model record
+            const modelRecord = {
+                id: modelId,
+                designId: dId,
+                name: modelName,
+                components,
+                groupUUID: group.uuid,
+                transform: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 },
+                material: specs?.materials?.[0] || 'Aluminum 6061-T6',
+                specs,
+                massProperties: computeMassProperties(group),
+                createdAt: new Date().toISOString(),
+            };
+
+            updateModels(prev => [...prev, modelRecord]);
+            setSelectedModelId(modelId);
+
+            return modelRecord;
         } catch (error) {
-            console.error('❌ Error adding geometry to viewport:', error);
+            console.error('Error adding model:', error);
             return null;
         }
-    }, [scene, camera, controls]);
+    }, [scene, camera, controls, updateModels]);
 
-    // Remove specific mesh from scene
-    const removeGeometry = useCallback((mesh) => {
-        if (!scene || !mesh) return;
-        scene.remove(mesh);
-        if (mesh.geometry) mesh.geometry.dispose();
-        if (mesh.material) {
-            if (Array.isArray(mesh.material)) {
-                mesh.material.forEach(m => m.dispose());
-            } else {
-                mesh.material.dispose();
-            }
+    // ─── Remove Model ────────────────────────────────────────────────────────────
+    const removeModel = useCallback((modelId) => {
+        if (!scene) return;
+        const model = modelsRef.current.find(m => m.id === modelId);
+        if (!model) return;
+
+        const group = scene.getObjectByProperty('uuid', model.groupUUID);
+        if (group) {
+            group.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
+                }
+            });
+            scene.remove(group);
         }
-    }, [scene]);
 
-    // Clear all generated geometry
-    const clearGeneratedGeometry = useCallback(() => {
+        updateModels(prev => prev.filter(m => m.id !== modelId));
+        if (selectedModelId === modelId) setSelectedModelId(null);
+    }, [scene, selectedModelId, updateModels]);
+
+    // ─── Select Model ────────────────────────────────────────────────────────────
+    const selectModel = useCallback((modelId) => {
+        setSelectedModelId(modelId);
+    }, []);
+
+    const getSelectedModel = useCallback(() => {
+        return modelsRef.current.find(m => m.id === selectedModelId) || null;
+    }, [selectedModelId]);
+
+    // ─── Update Transform ────────────────────────────────────────────────────────
+    const updateModelTransform = useCallback((modelId, field, value) => {
+        if (!scene) return;
+        const model = modelsRef.current.find(m => m.id === modelId);
+        if (!model) return;
+
+        const group = scene.getObjectByProperty('uuid', model.groupUUID);
+        if (!group) return;
+
+        const numVal = parseFloat(value) || 0;
+
+        // Apply to Three.js group
+        switch (field) {
+            case 'x': group.position.x = numVal; break;
+            case 'y': group.position.y = numVal; break;
+            case 'z': group.position.z = numVal; break;
+            case 'rx': group.rotation.x = THREE.MathUtils.degToRad(numVal); break;
+            case 'ry': group.rotation.y = THREE.MathUtils.degToRad(numVal); break;
+            case 'rz': group.rotation.z = THREE.MathUtils.degToRad(numVal); break;
+            case 'sx': group.scale.x = numVal || 1; break;
+            case 'sy': group.scale.y = numVal || 1; break;
+            case 'sz': group.scale.z = numVal || 1; break;
+        }
+
+        // Update state
+        updateModels(prev => prev.map(m =>
+            m.id === modelId ? { ...m, transform: { ...m.transform, [field]: numVal } } : m
+        ));
+    }, [scene, updateModels]);
+
+    // ─── Toggle Component Visibility ─────────────────────────────────────────────
+    const toggleComponentVisibility = useCallback((modelId, componentId) => {
+        if (!scene) return;
+        const model = modelsRef.current.find(m => m.id === modelId);
+        if (!model) return;
+
+        const comp = model.components.find(c => c.id === componentId);
+        if (!comp) return;
+
+        const group = scene.getObjectByProperty('uuid', model.groupUUID);
+        if (!group) return;
+
+        const mesh = group.children.find(c => c.uuid === comp.meshUUID);
+        if (mesh) {
+            mesh.visible = !mesh.visible;
+        }
+
+        updateModels(prev => prev.map(m =>
+            m.id === modelId ? {
+                ...m,
+                components: m.components.map(c =>
+                    c.id === componentId ? { ...c, visible: !c.visible } : c
+                )
+            } : m
+        ));
+    }, [scene, updateModels]);
+
+    // ─── Update Material ─────────────────────────────────────────────────────────
+    const updateModelMaterial = useCallback((modelId, materialName) => {
+        updateModels(prev => prev.map(m =>
+            m.id === modelId ? { ...m, material: materialName } : m
+        ));
+    }, [updateModels]);
+
+    // ─── Clear All Generated Models ──────────────────────────────────────────────
+    const clearAllModels = useCallback(() => {
         if (!scene) return;
         scene.children
             .filter(child => child.userData.generatedModel)
             .forEach(child => {
+                child.traverse(c => {
+                    if (c.geometry) c.geometry.dispose();
+                    if (c.material) {
+                        if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+                        else c.material.dispose();
+                    }
+                });
                 scene.remove(child);
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
             });
-        console.log('🗑️  Cleared all generated geometry');
+        updateModels([]);
+        setSelectedModelId(null);
+    }, [scene, updateModels]);
+
+    // Legacy compatibility
+    const addGeometry = useCallback((geometry, options = {}) => {
+        return addModel(geometry, {}, null);
+    }, [addModel]);
+    const removeGeometry = useCallback((mesh) => {
+        if (!scene || !mesh) return;
+        scene.remove(mesh);
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) mesh.material.dispose();
     }, [scene]);
+    const clearGeneratedGeometry = clearAllModels;
 
     // Toggle wireframe mode
     const toggleWireframeMode = useCallback((mode) => {
         if (!scene) return;
-
         setWireframeMode(mode);
-
-        // Update all meshes in the scene
         scene.traverse((object) => {
             if (object.isMesh && object.material) {
-                const material = object.material;
-
-                switch(mode) {
+                const mat = object.material;
+                switch (mode) {
                     case 'solid':
-                        // Solid wireframe mode
-                        material.wireframe = true;
-                        material.transparent = false;
-                        material.opacity = 1.0;
-                        console.log('🔲 Solid wireframe mode enabled');
+                        mat.wireframe = true; mat.transparent = false; mat.opacity = 1.0;
                         break;
-
                     case 'transparent':
-                        // Transparent wireframe mode (see-through)
-                        material.wireframe = true;
-                        material.transparent = true;
-                        material.opacity = 0.3;
-                        console.log('👻 Transparent wireframe mode enabled');
+                        mat.wireframe = true; mat.transparent = true; mat.opacity = 0.3;
                         break;
-
-                    case 'off':
                     default:
-                        // Normal solid rendering
-                        material.wireframe = false;
-                        material.transparent = false;
-                        material.opacity = 1.0;
-                        console.log('🎨 Normal rendering mode enabled');
+                        mat.wireframe = false; mat.transparent = false; mat.opacity = 1.0;
                         break;
                 }
-
-                material.needsUpdate = true;
+                mat.needsUpdate = true;
             }
         });
     }, [scene]);
 
     const value = {
-        scene,
-        camera,
-        renderer,
-        controls,
-        wireframeMode,
-        registerViewport,
-        addGeometry,
-        removeGeometry,
-        clearGeneratedGeometry,
-        toggleWireframeMode,
-        isReady: !!scene
+        // Three.js scene
+        scene, camera, renderer, controls,
+        wireframeMode, registerViewport, toggleWireframeMode,
+        // Model management
+        models, selectedModelId,
+        addModel, removeModel, selectModel, getSelectedModel,
+        updateModelTransform, toggleComponentVisibility, updateModelMaterial,
+        clearAllModels,
+        // Legacy
+        addGeometry, removeGeometry, clearGeneratedGeometry,
+        isReady: !!scene,
     };
 
     return (
@@ -164,140 +361,120 @@ export function ViewportProvider({ children }) {
     );
 }
 
-/**
- * Convert AXEL polygon mesh format to Three.js BufferGeometry
- *
- * AXEL Format:
- * {
- *   vertices: [[x, y, z], ...],
- *   faces: [[i0, i1, i2], ...],
- *   normals: [[x, y, z], ...],
- *   type: 'polygon_mesh'
- * }
- */
-function createThreeJSMeshFromAXEL(axelMesh, options = {}) {
-    const geometry = new THREE.BufferGeometry();
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-    // Flatten vertices array: [[x,y,z], [x,y,z]] -> [x,y,z,x,y,z]
-    const verticesFlat = new Float32Array(axelMesh.vertices.flat());
+const PART_COLORS = [
+    0x2196f3, 0x4caf50, 0xff9800, 0x9c27b0,
+    0x00bcd4, 0xf44336, 0x795548, 0x607d8b,
+];
+
+function getPartColor(index) {
+    return PART_COLORS[index % PART_COLORS.length];
+}
+
+function createThreeJSMesh(data, options = {}) {
+    if (!data || !data.vertices || !data.faces) {
+        // Fallback: create a placeholder cube
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const mat = new THREE.MeshStandardMaterial({
+            color: options.color || 0x2196f3,
+            metalness: 0.3,
+            roughness: 0.4,
+            side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.userData.generatedModel = true;
+        return mesh;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    const verticesFlat = new Float32Array(data.vertices.flat());
     geometry.setAttribute('position', new THREE.BufferAttribute(verticesFlat, 3));
 
-    // Flatten faces to indices: [[0,1,2], [2,3,4]] -> [0,1,2,2,3,4]
-    const indicesFlat = new Uint32Array(axelMesh.faces.flat());
+    const indicesFlat = new Uint32Array(data.faces.flat());
     geometry.setIndex(new THREE.BufferAttribute(indicesFlat, 1));
 
-    // Add normals if available
-    if (axelMesh.normals && axelMesh.normals.length > 0) {
-        const normalsFlat = new Float32Array(axelMesh.normals.flat());
+    if (data.normals && data.normals.length > 0) {
+        const normalsFlat = new Float32Array(data.normals.flat());
         geometry.setAttribute('normal', new THREE.BufferAttribute(normalsFlat, 3));
     } else {
-        // Compute normals if not provided
         geometry.computeVertexNormals();
     }
 
-    // Create material
     const material = new THREE.MeshStandardMaterial({
-        color: options.color || 0x2196f3, // Nice blue color
+        color: options.color || 0x2196f3,
         metalness: options.metalness || 0.3,
         roughness: options.roughness || 0.4,
         flatShading: options.flatShading || false,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
     });
 
-    // Create mesh
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.generatedModel = true;
-    mesh.userData.source = 'axel_engine';
-
-    // Apply dimensions if available
-    if (axelMesh.dimensions) {
-        mesh.userData.dimensions = axelMesh.dimensions;
-    }
-
-    console.log(`✓ Created Three.js mesh: ${axelMesh.vertices.length} vertices, ${axelMesh.faces.length} faces`);
+    if (data.dimensions) mesh.userData.dimensions = data.dimensions;
 
     return mesh;
 }
 
-/**
- * Scale and position mesh to fit the grid properly
- * Grid is 100x100 units, so we want models to be a reasonable size
- */
-function scaleAndPositionMesh(mesh, options = {}) {
-    // Calculate bounding box
-    const box = new THREE.Box3().setFromObject(mesh);
+function scaleAndPositionGroup(group) {
+    const box = new THREE.Box3().setFromObject(group);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    // Maximum size we want (units in Three.js space)
-    // Grid is 100x100, so let's make models fit within ~40 units max
-    const MAX_SIZE = options.maxSize || 40;
-
-    // Find the largest dimension
+    const MAX_SIZE = 40;
     const maxDim = Math.max(size.x, size.y, size.z);
 
-    // Calculate scale factor to fit within MAX_SIZE
-    let scaleFactor = 1;
     if (maxDim > MAX_SIZE) {
-        scaleFactor = MAX_SIZE / maxDim;
-        mesh.scale.set(scaleFactor, scaleFactor, scaleFactor);
-        console.log(`📏 Scaled model by ${scaleFactor.toFixed(3)}x to fit grid (${maxDim.toFixed(1)} → ${MAX_SIZE} units)`);
-    } else if (maxDim < 1) {
-        // Model is too small, scale it up
-        scaleFactor = 5 / maxDim; // Make it at least 5 units
-        mesh.scale.set(scaleFactor, scaleFactor, scaleFactor);
-        console.log(`📏 Scaled model up by ${scaleFactor.toFixed(3)}x (${maxDim.toFixed(3)} → ${(maxDim * scaleFactor).toFixed(1)} units)`);
+        const s = MAX_SIZE / maxDim;
+        group.scale.set(s, s, s);
+    } else if (maxDim > 0 && maxDim < 1) {
+        const s = 5 / maxDim;
+        group.scale.set(s, s, s);
     }
 
-    // Recalculate bounding box after scaling
-    mesh.geometry.computeBoundingBox();
-    const scaledBox = new THREE.Box3().setFromObject(mesh);
-    const scaledSize = scaledBox.getSize(new THREE.Vector3());
+    // Recalculate after scaling
+    const scaledBox = new THREE.Box3().setFromObject(group);
     const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
-
-    // Position the mesh so it sits ON TOP of the grid (y = 0)
-    // The bottom of the mesh should be at y = 0
-    mesh.position.y = -scaledBox.min.y;
-
-    // Center the mesh at x=0, z=0
-    mesh.position.x = -scaledCenter.x;
-    mesh.position.z = -scaledCenter.z;
-
-    console.log(`📍 Positioned model: size=${scaledSize.x.toFixed(1)}×${scaledSize.y.toFixed(1)}×${scaledSize.z.toFixed(1)} units, bottom at y=0`);
+    group.position.y = -scaledBox.min.y;
+    group.position.x = -scaledCenter.x;
+    group.position.z = -scaledCenter.z;
 }
 
-/**
- * Focus camera on a specific mesh
- */
-function focusCameraOnMesh(mesh, camera, controls) {
-    if (!camera || !mesh) return;
-
-    // Calculate bounding box
-    const box = new THREE.Box3().setFromObject(mesh);
+function focusCameraOnObject(obj, camera, controls) {
+    const box = new THREE.Box3().setFromObject(obj);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-
-    // Calculate camera distance
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = camera.fov * (Math.PI / 180);
-    let cameraZ = Math.abs(maxDim / Math.tan(fov / 2)) * 1.5;
+    const dist = Math.abs(maxDim / Math.tan(fov / 2)) * 1.5;
 
-    // Position camera at an angle to see the model nicely
     camera.position.set(
-        center.x + cameraZ * 0.7,
-        center.y + cameraZ * 0.5,
-        center.z + cameraZ * 0.7
+        center.x + dist * 0.7,
+        center.y + dist * 0.5,
+        center.z + dist * 0.7
     );
-
-    // Update controls target to the center of the model
     if (controls && controls.target) {
         controls.target.copy(center);
         controls.update();
     }
+}
 
-    console.log('📷 Camera focused on geometry');
+function computeMassProperties(group) {
+    const box = new THREE.Box3().setFromObject(group);
+    const size = box.getSize(new THREE.Vector3());
+    const volume = size.x * size.y * size.z;
+    const surfaceArea = 2 * (size.x * size.y + size.y * size.z + size.x * size.z);
+    // Approximate mass with aluminum density (2700 kg/m3)
+    const mass = volume * 0.0027; // cm3 to kg rough estimate
+    return {
+        mass: mass.toFixed(3),
+        volume: volume.toFixed(2),
+        surfaceArea: surfaceArea.toFixed(2),
+    };
 }
 
 export default ViewportContext;
