@@ -185,3 +185,27 @@
     background: var(--accent-primary);
     color: var(--text-inverse);
 }
+
+/* Action feedback toast */
+.topbar-feedback {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 33, 40, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-color, #2a2d35);
+    color: var(--text-primary, #e2e8f0);
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 9999;
+    pointer-events: none;
+    animation: topbar-fade-in 0.15s ease-out;
+}
+
+@keyframes topbar-fade-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

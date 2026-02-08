@@ -133,7 +133,7 @@ class FEASimulationService {
             success: true,
             simulationType: 'fatigue-analysis',
             results: {
-                cyclesTo Failure: cycles * (Math.random() * 0.5 + 0.5),
+                cyclesToFailure: cycles * (Math.random() * 0.5 + 0.5),
                 fatigueLife: this.calculateFatigueLife(loads, material),
                 damageRatio: Math.random() * 0.8,
                 criticalLocations: this.identifyCriticalLocations(),

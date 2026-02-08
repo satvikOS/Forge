@@ -44,11 +44,16 @@ router.post('/chat', async (req, res) => {
         // If this is a clarification response, skip vagueness check
         if (clarificationAnswers) {
             const enrichedPrompt = buildEnrichedPrompt(message, clarificationAnswers);
-            const chatResult = await parallelAgentService.runParallel('chat', enrichedPrompt, {
-                systemPrompt: CHAT_RESPONSE_PROMPT,
-            });
-
-            const response = extractChatResponse(chatResult);
+            let response;
+            try {
+                const chatResult = await parallelAgentService.runParallel('chat', enrichedPrompt, {
+                    systemPrompt: CHAT_RESPONSE_PROMPT,
+                });
+                response = extractChatResponse(chatResult);
+            } catch (aiError) {
+                console.warn('AI agents failed on clarification:', aiError.message);
+                response = { text: `Thank you for the details. AI models are currently unavailable (${aiError.message}). Please try again shortly.`, actions: [] };
+            }
             history.push({ role: 'assistant', content: response.text });
 
             return res.json({
@@ -56,7 +61,6 @@ router.post('/chat', async (req, res) => {
                 response: response.text,
                 actions: response.actions || [],
                 suggestedNextSteps: response.suggestedNextSteps || [],
-                agentInfo: chatResult.agentResults,
                 projectId,
                 timestamp: new Date().toISOString(),
             });
@@ -112,11 +116,23 @@ router.post('/chat', async (req, res) => {
             history.slice(-10).map(h => `${h.role}: ${h.content}`).join('\n')
         }\n\nCurrent user message: ${message}`;
 
-        const chatResult = await parallelAgentService.runParallel('chat', chatPrompt, {
-            systemPrompt: MECHANICAL_SYSTEM_PROMPT,
-        });
+        let response;
+        let agentInfo = null;
+        try {
+            const chatResult = await parallelAgentService.runParallel('chat', chatPrompt, {
+                systemPrompt: MECHANICAL_SYSTEM_PROMPT,
+            });
+            response = extractChatResponse(chatResult);
+            agentInfo = chatResult.agentResults || null;
+        } catch (aiError) {
+            console.warn('AI agents failed, using fallback response:', aiError.message);
+            response = {
+                text: `I received your message: "${message}". The AI models are currently unavailable (${aiError.message}). ` +
+                    `You can still use the toolbar tools manually, or try again shortly.`,
+                actions: [],
+            };
+        }
 
-        const response = extractChatResponse(chatResult);
         history.push({ role: 'assistant', content: response.text });
 
         // Trim session history to prevent memory bloat
@@ -130,7 +146,7 @@ router.post('/chat', async (req, res) => {
             actions: response.actions || [],
             suggestedNextSteps: response.suggestedNextSteps || [],
             isGenerationRequest,
-            agentInfo: chatResult.agentResults,
+            agentInfo,
             projectId,
             timestamp: new Date().toISOString(),
         });

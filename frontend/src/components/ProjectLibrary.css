@@ -1,9 +1,14 @@
 .project-library-toggle {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 20;
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: #1e2128;
+    background: rgba(30, 33, 40, 0.9);
+    backdrop-filter: blur(8px);
     border: 1px solid #2a2d35;
     border-radius: 6px;
     color: #94a3b8;

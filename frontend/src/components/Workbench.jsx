@@ -205,25 +205,8 @@ function WorkbenchContainer() {
                     </div>
                 </header>
 
-                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
-                <div style={{ position: 'relative', flex: 1, display: 'flex', overflow: 'hidden' }}>
-                    {/* Project Library (left panel overlay) */}
-                    <ProjectLibrary
-                        activeProjectId={activeProjectId}
-                        onSelectProject={(id) => setActiveProjectId(id)}
-                        onNewProject={() => setActiveProjectId(null)}
-                    />
-
-                    {/* Main workbench area */}
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                        {renderWorkbench()}
-                    </div>
-
-                    {/* Component Info Panel (right side) */}
-                    <div style={{ width: '260px', flexShrink: 0, overflowY: 'auto', borderLeft: '1px solid var(--border-color, #2a2d35)' }}>
-                        <ComponentInfoPanel />
-                    </div>
-                </div>
+                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) - renders as grid children */}
+                {renderWorkbench()}
 
                 {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
                 <AIConsole />

@@ -12,9 +12,16 @@ export default function Topbar() {
   const [dropdownStyle, setDropdownStyle] = useState({});
   const [submenuStyle, setSubmenuStyle] = useState({});
   const [activeSubmenuItems, setActiveSubmenuItems] = useState([]);
+  const [actionFeedback, setActionFeedback] = useState(null);
   const menuRef = useRef(null);
   const submenuTimerRef = useRef(null);
   const triggerRefs = useRef({});
+
+  // Show visual feedback for any menu action
+  const showFeedback = useCallback((label) => {
+      setActionFeedback(label);
+      setTimeout(() => setActionFeedback(null), 2000);
+  }, []);
 
   // Close on outside click
   useEffect(() => {
@@ -289,6 +296,7 @@ export default function Topbar() {
   const handleItemClick = (item) => {
     if (!item.disabled && item.action) {
       item.action();
+      showFeedback(item.label);
       setOpenMenu(null);
       setOpenSubmenu(null);
     }
@@ -414,6 +422,11 @@ export default function Topbar() {
             );
           })}
         </div>
+      )}
+
+      {/* Action feedback toast */}
+      {actionFeedback && (
+        <div className="topbar-feedback">{actionFeedback}</div>
       )}
     </nav>
   );

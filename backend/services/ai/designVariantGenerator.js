@@ -6,7 +6,7 @@
 
 const bedrockService = require('../bedrockService');
 const parametricEngine = require('../cad/parametricEngine');
-const generativeDesign = require('./generativeDesignService');
+const generativeDesign = require('../generativeDesignService');
 
 class DesignVariantGenerator {
     constructor() {
