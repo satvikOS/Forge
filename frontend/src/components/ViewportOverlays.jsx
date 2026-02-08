@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import sceneUnitsSystem from '../systems/SceneUnitsSystem';
+import './ViewportOverlays.css';
 
 export default function ViewportOverlays({
     sceneManager,
@@ -23,7 +24,6 @@ export default function ViewportOverlays({
     const [unitSettings, setUnitSettings] = useState(sceneUnitsSystem.getSettings());
 
     useEffect(() => {
-        // Listen to unit system changes
         const handleUnitsChange = () => {
             setUnitSettings(sceneUnitsSystem.getSettings());
         };
@@ -32,7 +32,6 @@ export default function ViewportOverlays({
         return () => sceneUnitsSystem.removeListener(handleUnitsChange);
     }, []);
 
-    // Calculate scene statistics
     const sceneStats = {
         objects: sceneManager?.getAllObjects().length || 0,
         selected: sceneManager?.selectedObjects.size || 0,
@@ -46,78 +45,66 @@ export default function ViewportOverlays({
     return (
         <>
             {/* Top-left info panel */}
-            <div style={styles.topLeftPanel}>
+            <div className="vo-top-left">
                 {/* Active Tool Indicator */}
-                <div style={styles.toolIndicator}>
-                    <span style={styles.toolIcon}>{getToolIcon(activeTool)}</span>
-                    <span style={styles.toolName}>{getToolName(activeTool)}</span>
+                <div className="vo-pill">
+                    <span className="vo-pill-icon">{getToolIcon(activeTool)}</span>
+                    <span className="vo-pill-text">{getToolName(activeTool)}</span>
                 </div>
 
                 {/* Unit Scale Indicator */}
-                <div style={styles.unitIndicator}>
-                    <span style={styles.gridIcon}>⊞</span>
-                    <span style={styles.unitText}>
+                <div className="vo-pill vo-pill-blue">
+                    <span className="vo-pill-icon">{'\u229E'}</span>
+                    <span className="vo-pill-text">
                         1 square = {gridSize} {unitInfo.abbr}
                     </span>
                 </div>
 
                 {/* Snap Indicator */}
                 {unitSettings.snapEnabled && (
-                    <div style={styles.snapIndicator}>
-                        <span style={styles.snapIcon}>🧲</span>
-                        <span style={styles.snapText}>Snap: {unitSettings.snapSize} {unitInfo.abbr}</span>
+                    <div className="vo-pill vo-pill-green">
+                        <span className="vo-pill-icon">{'\u2348'}</span>
+                        <span className="vo-pill-text">Snap: {unitSettings.snapSize} {unitInfo.abbr}</span>
                     </div>
                 )}
             </div>
 
             {/* Top-right overlay controls */}
-            <div style={styles.topRightPanel}>
+            <div className="vo-top-right">
                 <button
                     onClick={onToggleGrid}
-                    style={{
-                        ...styles.overlayButton,
-                        ...(showGrid ? styles.activeOverlay : {})
-                    }}
+                    className={`vo-toggle-btn ${showGrid ? 'active' : ''}`}
                     title="Toggle Grid (G)"
                 >
-                    <span>⊞</span>
-                    <span style={styles.buttonLabel}>Grid</span>
+                    <span>{'\u229E'}</span>
+                    <span className="vo-btn-label">Grid</span>
                 </button>
 
                 <button
                     onClick={onToggleAxes}
-                    style={{
-                        ...styles.overlayButton,
-                        ...(showAxes ? styles.activeOverlay : {})
-                    }}
+                    className={`vo-toggle-btn ${showAxes ? 'active' : ''}`}
                     title="Toggle Axes (A)"
                 >
-                    <span>⚐</span>
-                    <span style={styles.buttonLabel}>Axes</span>
+                    <span>{'\u2690'}</span>
+                    <span className="vo-btn-label">Axes</span>
                 </button>
 
                 <button
                     onClick={onToggleStats}
-                    style={{
-                        ...styles.overlayButton,
-                        ...(showStats ? styles.activeOverlay : {})
-                    }}
+                    className={`vo-toggle-btn ${showStats ? 'active' : ''}`}
                     title="Toggle Stats (I)"
                 >
-                    <span>📊</span>
-                    <span style={styles.buttonLabel}>Stats</span>
+                    <span>{'\u25A6'}</span>
+                    <span className="vo-btn-label">Stats</span>
                 </button>
 
                 <button
                     onClick={onToggleWireframe}
-                    style={{
-                        ...styles.overlayButton,
-                        ...(wireframeMode !== 'off' ? styles.activeOverlay : {})
-                    }}
-                    title="Toggle Wireframe (W) - Cycles: Off → Solid → Transparent"
+                    className={`vo-toggle-btn ${wireframeMode !== 'off' ? 'active' : ''}`}
+                    title="Toggle Wireframe (W) - Cycles: Off / Solid / Transparent"
                 >
-                    <span>{wireframeMode === 'off' ? '◼' : wireframeMode === 'solid' ? '▦' : '▢'}</span>
-                    <span style={styles.buttonLabel}>
+                    <span>{wireframeMode === 'off' ? '\u25FC' : wireframeMode === 'solid' ? '\u25A6' : '\u25A2'}</span>
+                    <span className="vo-btn-label">
                         {wireframeMode === 'off' ? 'Wireframe' : wireframeMode === 'solid' ? 'WF Solid' : 'WF Trans'}
                     </span>
                 </button>
@@ -125,26 +112,26 @@ export default function ViewportOverlays({
 
             {/* Bottom-left stats panel */}
             {showStats && (
-                <div style={styles.statsPanel}>
-                    <div style={styles.statRow}>
-                        <span style={styles.statLabel}>Objects:</span>
-                        <span style={styles.statValue}>{sceneStats.objects}</span>
+                <div className="vo-stats-panel">
+                    <div className="vo-stat-row">
+                        <span className="vo-stat-label">Objects:</span>
+                        <span className="vo-stat-value">{sceneStats.objects}</span>
                     </div>
-                    <div style={styles.statRow}>
-                        <span style={styles.statLabel}>Selected:</span>
-                        <span style={styles.statValue}>{sceneStats.selected}</span>
+                    <div className="vo-stat-row">
+                        <span className="vo-stat-label">Selected:</span>
+                        <span className="vo-stat-value">{sceneStats.selected}</span>
                     </div>
-                    <div style={styles.statRow}>
-                        <span style={styles.statLabel}>Vertices:</span>
-                        <span style={styles.statValue}>{sceneStats.vertices.toLocaleString()}</span>
+                    <div className="vo-stat-row">
+                        <span className="vo-stat-label">Vertices:</span>
+                        <span className="vo-stat-value monospace">{sceneStats.vertices.toLocaleString()}</span>
                     </div>
-                    <div style={styles.statRow}>
-                        <span style={styles.statLabel}>Faces:</span>
-                        <span style={styles.statValue}>{sceneStats.faces.toLocaleString()}</span>
+                    <div className="vo-stat-row">
+                        <span className="vo-stat-label">Faces:</span>
+                        <span className="vo-stat-value monospace">{sceneStats.faces.toLocaleString()}</span>
                     </div>
-                    <div style={styles.statRow}>
-                        <span style={styles.statLabel}>FPS:</span>
-                        <span style={{ ...styles.statValue, color: fps > 30 ? '#4caf50' : '#ff9800' }}>
+                    <div className="vo-stat-row">
+                        <span className="vo-stat-label">FPS:</span>
+                        <span className={`vo-stat-value monospace ${fps > 30 ? 'vo-fps-good' : 'vo-fps-warn'}`}>
                             {fps}
                         </span>
                     </div>
@@ -152,18 +139,18 @@ export default function ViewportOverlays({
             )}
 
             {/* Bottom-right navigation hint */}
-            <div style={styles.navigationHint}>
-                <div style={styles.hintRow}>
-                    <span style={styles.hintKey}>MMB</span>
-                    <span style={styles.hintText}>Rotate</span>
+            <div className="vo-nav-hints">
+                <div className="vo-hint-row">
+                    <span className="vo-hint-key">MMB</span>
+                    <span className="vo-hint-text">Rotate</span>
                 </div>
-                <div style={styles.hintRow}>
-                    <span style={styles.hintKey}>Shift+MMB</span>
-                    <span style={styles.hintText}>Pan</span>
+                <div className="vo-hint-row">
+                    <span className="vo-hint-key">Shift+MMB</span>
+                    <span className="vo-hint-text">Pan</span>
                 </div>
-                <div style={styles.hintRow}>
-                    <span style={styles.hintKey}>Scroll</span>
-                    <span style={styles.hintText}>Zoom</span>
+                <div className="vo-hint-row">
+                    <span className="vo-hint-key">Scroll</span>
+                    <span className="vo-hint-text">Zoom</span>
                 </div>
             </div>
         </>
@@ -172,14 +159,14 @@ export default function ViewportOverlays({
 
 function getToolIcon(tool) {
     const icons = {
-        select: '🖱',
-        translate: '↔',
-        rotate: '⟲',
-        scale: '⇱',
-        draw: '✏',
-        measure: '📏',
+        select: '\uD83D\uDDB1',
+        translate: '\u2194',
+        rotate: '\u27F2',
+        scale: '\u21F1',
+        draw: '\u270F',
+        measure: '\uD83D\uDCCF',
     };
-    return icons[tool] || '🖱';
+    return icons[tool] || '\uD83D\uDDB1';
 }
 
 function getToolName(tool) {
@@ -193,159 +180,3 @@ function getToolName(tool) {
     };
     return names[tool] || 'Unknown';
 }
-
-const styles = {
-    topLeftPanel: {
-        position: 'absolute',
-        top: '16px',
-        left: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        pointerEvents: 'none',
-        zIndex: 100,
-    },
-    toolIndicator: {
-        backgroundColor: 'rgba(26, 26, 26, 0.9)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '6px',
-        padding: '8px 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        backdropFilter: 'blur(10px)',
-    },
-    toolIcon: {
-        fontSize: '16px',
-    },
-    toolName: {
-        fontSize: '13px',
-        color: '#e0e0e0',
-        fontWeight: '500',
-    },
-    unitIndicator: {
-        backgroundColor: 'rgba(74, 144, 226, 0.15)',
-        border: '1px solid rgba(74, 144, 226, 0.3)',
-        borderRadius: '6px',
-        padding: '6px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        backdropFilter: 'blur(10px)',
-    },
-    gridIcon: {
-        fontSize: '14px',
-        color: '#4a90e2',
-    },
-    unitText: {
-        fontSize: '12px',
-        color: '#4a90e2',
-        fontWeight: '500',
-    },
-    snapIndicator: {
-        backgroundColor: 'rgba(76, 175, 80, 0.15)',
-        border: '1px solid rgba(76, 175, 80, 0.3)',
-        borderRadius: '6px',
-        padding: '6px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        backdropFilter: 'blur(10px)',
-    },
-    snapIcon: {
-        fontSize: '12px',
-    },
-    snapText: {
-        fontSize: '11px',
-        color: '#4caf50',
-        fontWeight: '500',
-    },
-    topRightPanel: {
-        position: 'absolute',
-        top: '16px',
-        right: '16px',
-        display: 'flex',
-        gap: '8px',
-        zIndex: 100,
-    },
-    overlayButton: {
-        backgroundColor: 'rgba(26, 26, 26, 0.9)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '6px',
-        padding: '8px 12px',
-        color: '#e0e0e0',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        fontSize: '13px',
-        transition: 'all 0.2s',
-        backdropFilter: 'blur(10px)',
-    },
-    activeOverlay: {
-        backgroundColor: 'rgba(74, 144, 226, 0.3)',
-        borderColor: 'rgba(74, 144, 226, 0.5)',
-    },
-    buttonLabel: {
-        fontSize: '11px',
-    },
-    statsPanel: {
-        position: 'absolute',
-        bottom: '16px',
-        left: '16px',
-        backgroundColor: 'rgba(26, 26, 26, 0.9)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '6px',
-        padding: '10px 12px',
-        backdropFilter: 'blur(10px)',
-        minWidth: '150px',
-        zIndex: 100,
-        pointerEvents: 'none',
-    },
-    statRow: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        marginBottom: '4px',
-        fontSize: '11px',
-    },
-    statLabel: {
-        color: '#999',
-    },
-    statValue: {
-        color: '#e0e0e0',
-        fontWeight: '500',
-        marginLeft: '12px',
-    },
-    navigationHint: {
-        position: 'absolute',
-        bottom: '16px',
-        right: '16px',
-        backgroundColor: 'rgba(26, 26, 26, 0.9)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '6px',
-        padding: '8px 10px',
-        backdropFilter: 'blur(10px)',
-        zIndex: 100,
-        pointerEvents: 'none',
-    },
-    hintRow: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        marginBottom: '4px',
-        fontSize: '10px',
-    },
-    hintKey: {
-        backgroundColor: '#333',
-        padding: '2px 6px',
-        borderRadius: '3px',
-        color: '#e0e0e0',
-        fontWeight: '600',
-        minWidth: '55px',
-        textAlign: 'center',
-        fontSize: '9px',
-    },
-    hintText: {
-        color: '#999',
-    },
-};

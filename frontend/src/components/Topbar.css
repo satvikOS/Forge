@@ -1,0 +1,161 @@
+/* Topbar - Application Menu Bar */
+
+.topbar {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    height: var(--header-height);
+    padding: 0 10px;
+    user-select: none;
+    position: relative;
+    z-index: 100;
+}
+
+/* Brand / App Title */
+.topbar-brand {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-right: 16px;
+    padding: 0 8px;
+    letter-spacing: -0.02em;
+}
+
+/* Menu wrapper */
+.topbar-menu-wrapper {
+    position: relative;
+}
+
+/* Menu trigger button */
+.topbar-menu-trigger {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    border-radius: 0;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.topbar-menu-trigger:hover,
+.topbar-menu-trigger.active {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.topbar-menu-trigger.active {
+    background: var(--bg-active);
+}
+
+/* Dropdown */
+.topbar-dropdown {
+    position: absolute;
+    top: var(--header-height);
+    left: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-width: 220px;
+    max-height: 70vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    padding: 4px 0;
+    animation: dropdown-enter 0.12s ease-out;
+}
+
+/* Separator */
+.topbar-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 10px;
+}
+
+/* Category header */
+.topbar-category {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 14px 4px;
+    border-left: 2px solid var(--accent-primary);
+    margin-left: 6px;
+}
+
+/* Menu item */
+.topbar-item {
+    padding: 6px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 12px;
+    transition: background var(--transition-fast);
+}
+
+.topbar-item:hover {
+    background: var(--bg-hover);
+}
+
+.topbar-item.disabled {
+    color: var(--text-disabled);
+    cursor: not-allowed;
+}
+
+.topbar-item.disabled:hover {
+    background: transparent;
+}
+
+.topbar-item.indented {
+    padding-left: 28px;
+}
+
+.topbar-item-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.topbar-check {
+    color: var(--accent-orange);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.topbar-shortcut {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 20px;
+    white-space: nowrap;
+}
+
+/* Spacer */
+.topbar-spacer {
+    flex: 1;
+}
+
+/* Status */
+.topbar-status {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+}
+
+.topbar-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 6px rgba(67, 160, 71, 0.5);
+    animation: pulse-dot 2.5s ease-in-out infinite;
+}

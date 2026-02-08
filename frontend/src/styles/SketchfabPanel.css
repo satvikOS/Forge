@@ -1,116 +1,123 @@
-/* Sketchfab Panel Styles */
+/* Sketchfab Panel Styles - Unified tokens */
 
 .sketchfab-panel {
-  background: #2a2a2a;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-color);
 }
 
 .sketchfab-panel.disabled {
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .panel-header h3 {
   margin: 0;
-  font-size: 16px;
-  color: #fff;
+  font-size: 14px;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .add-model-button {
   padding: 6px 12px;
-  background: #00a8ff;
+  background: var(--accent-blue);
   border: none;
-  border-radius: 6px;
-  color: #fff;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  color: var(--text-inverse);
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .add-model-button:hover {
-  background: #0096e6;
+  background: #3d82d4;
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
 }
 
 .disabled-notice {
   text-align: center;
-  padding: 24px;
-  color: rgba(255, 255, 255, 0.5);
+  padding: 20px;
+  color: var(--text-secondary);
 }
 
 .disabled-notice p {
-  margin: 0 0 8px 0;
-  font-size: 14px;
+  margin: 0 0 6px 0;
+  font-size: 13px;
 }
 
 .disabled-notice .small {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .empty-models {
   text-align: center;
-  padding: 32px 16px;
-  color: rgba(255, 255, 255, 0.5);
+  padding: 24px 14px;
+  color: var(--text-secondary);
 }
 
 .empty-models p {
-  margin: 0 0 16px 0;
-  font-size: 14px;
+  margin: 0 0 14px 0;
+  font-size: 13px;
 }
 
 .browse-button {
-  padding: 10px 20px;
+  padding: 8px 18px;
   background: transparent;
-  border: 2px solid #00a8ff;
-  border-radius: 6px;
-  color: #00a8ff;
-  font-size: 14px;
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius-md);
+  color: var(--accent-blue);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .browse-button:hover {
-  background: #00a8ff;
-  color: #fff;
+  background: var(--accent-blue);
+  color: var(--text-inverse);
 }
 
 .models-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .model-item {
-  background: #1a1a1a;
-  border-radius: 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  border: 1px solid #444;
+  border: 1px solid var(--border-color);
+  transition: border-color var(--transition-fast);
+}
+
+.model-item:hover {
+  border-color: var(--border-light);
 }
 
 .model-item-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .model-thumbnail {
-  width: 60px;
-  height: 45px;
-  border-radius: 4px;
+  width: 56px;
+  height: 42px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: #333;
+  background: var(--bg-tertiary);
   flex-shrink: 0;
 }
 
@@ -126,10 +133,10 @@
 }
 
 .model-title {
-  margin: 0 0 4px 0;
-  font-size: 14px;
+  margin: 0 0 3px 0;
+  font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -137,8 +144,8 @@
 
 .model-author {
   margin: 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -146,7 +153,7 @@
 
 .model-actions {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
 }
 
@@ -156,104 +163,104 @@
   height: 28px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 20px;
+  color: var(--text-secondary);
+  font-size: 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
   padding: 0;
   line-height: 1;
 }
 
 .expand-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .remove-button:hover {
-  background: rgba(255, 107, 107, 0.2);
-  color: #ff6b6b;
+  background: var(--color-error-muted);
+  color: var(--color-error);
 }
 
 .model-viewer-container {
-  border-top: 1px solid #444;
+  border-top: 1px solid var(--border-color);
   padding: 12px;
 }
 
 .model-details {
-  margin-top: 12px;
-  padding: 12px;
-  background: #2a2a2a;
-  border-radius: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
 }
 
 .detail-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 0;
-  font-size: 13px;
+  padding: 5px 0;
+  font-size: 12px;
 }
 
 .detail-row .label {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-secondary);
 }
 
 .detail-row .value {
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .detail-row .badge {
-  padding: 4px 8px;
-  background: rgba(0, 168, 255, 0.2);
-  border-radius: 4px;
-  font-size: 11px;
-  color: #00a8ff;
+  padding: 3px 7px;
+  background: var(--accent-blue-muted);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  color: var(--accent-blue);
   font-weight: 500;
 }
 
 .view-on-sketchfab {
   display: inline-block;
-  margin-top: 12px;
-  padding: 8px 16px;
+  margin-top: 10px;
+  padding: 7px 14px;
   background: transparent;
-  border: 1px solid #00a8ff;
-  border-radius: 6px;
-  color: #00a8ff;
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius-md);
+  color: var(--accent-blue);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   text-align: center;
   width: 100%;
   box-sizing: border-box;
 }
 
 .view-on-sketchfab:hover {
-  background: #00a8ff;
-  color: #fff;
+  background: var(--accent-blue);
+  color: var(--text-inverse);
 }
 
 /* Responsive */
 @media (max-width: 768px) {
   .panel-header h3 {
-    font-size: 14px;
-  }
-
-  .add-model-button {
-    font-size: 12px;
-    padding: 6px 10px;
-  }
-
-  .model-title {
     font-size: 13px;
   }
 
-  .model-author {
+  .add-model-button {
     font-size: 11px;
+    padding: 5px 10px;
+  }
+
+  .model-title {
+    font-size: 12px;
+  }
+
+  .model-author {
+    font-size: 10px;
   }
 }

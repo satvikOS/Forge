@@ -1,3 +1,5 @@
+/* ========== ArchDisc - Unified Design Tokens ========== */
+
 * {
   margin: 0;
   padding: 0;
@@ -5,24 +7,100 @@
 }
 
 :root {
-  --bg-primary: #0a0a0a;
-  --bg-secondary: #1a1a1a;
-  --bg-tertiary: #2a2a2a;
-  --bg-hover: #333333;
+  /* ---- Color Palette ---- */
+  /* Backgrounds - True OLED black scale */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #151515;
+  --bg-elevated: #1a1a1a;
+  --bg-hover: #222222;
+  --bg-active: #2a2a2a;
+  --bg-surface: #0d0d0d;
+
+  /* Accent - Maroon (primary brand) */
+  --accent-primary: #9b1b40;
+  --accent-hover: #b32050;
+  --accent-primary-muted: rgba(155, 27, 64, 0.15);
+  --accent-primary-border: rgba(155, 27, 64, 0.4);
+
+  /* Accent - Orange (highlights, CTA) */
   --accent-orange: #ff6b35;
   --accent-orange-hover: #ff8555;
   --accent-orange-dark: #e55a2a;
-  --text-primary: #ffffff;
-  --text-secondary: #b0b0b0;
-  --text-disabled: #666666;
-  --border-color: #333333;
-  --border-light: #444444;
+  --accent-orange-muted: rgba(255, 107, 53, 0.15);
+  --accent-orange-border: rgba(255, 107, 53, 0.4);
+
+  /* Accent - Blue (info, links, active overlays) */
+  --accent-blue: #4a90e2;
+  --accent-blue-muted: rgba(74, 144, 226, 0.15);
+  --accent-blue-border: rgba(74, 144, 226, 0.35);
+
+  /* Semantic colors */
+  --color-success: #43a047;
+  --color-success-muted: rgba(67, 160, 71, 0.15);
+  --color-error: #e53935;
+  --color-error-muted: rgba(229, 57, 53, 0.15);
+  --color-warning: #fb8c00;
+  --color-warning-muted: rgba(251, 140, 0, 0.15);
+  --color-info: #4a90e2;
+
+  /* Text */
+  --text-primary: #c8c8c8;
+  --text-secondary: #808080;
+  --text-muted: #555555;
+  --text-disabled: #3a3a3a;
+  --text-inverse: #ffffff;
+
+  /* Borders */
+  --border-color: #1a1a1a;
+  --border-light: #252525;
+  --border-subtle: #111111;
+  --border-focus: var(--accent-primary);
+
+  /* ---- Spacing ---- */
+  --gap-1: 1px;
+  --gap-2: 2px;
+  --gap-4: 4px;
+  --gap-6: 6px;
+  --gap-8: 8px;
+  --gap-12: 12px;
+  --gap-16: 16px;
+
+  /* ---- Radius ---- */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 100px;
+
+  /* ---- Shadows ---- */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-glow-accent: 0 0 0 2px var(--accent-primary-muted);
+  --shadow-glow-blue: 0 0 0 2px var(--accent-blue-muted);
+
+  /* ---- Transitions ---- */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.2s ease;
+  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Layout Dimensions ---- */
+  --toolbar-width: 51px;
+  --header-height: 36px;
+  --properties-width: 280px;
+  --footer-height: 60px;
+  --status-bar-height: 28px;
+
+  /* ---- Typography ---- */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
+/* ========== Body ========== */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--bg-primary);
@@ -37,51 +115,140 @@ body {
   flex-direction: column;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+/* ========== Selection ========== */
+::selection {
+  background: var(--accent-primary-muted);
+  color: var(--text-primary);
 }
 
-/* Custom scrollbar */
+::-moz-selection {
+  background: var(--accent-primary-muted);
+  color: var(--text-primary);
+}
+
+/* ========== Scrollbar ========== */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.18);
 }
 
-/* Loading spinner animation */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+/* ========== Code ========== */
+code, pre, .monospace {
+  font-family: 'IBM Plex Mono', 'SF Mono', Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* ========== Loading Spinner ========== */
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
 .spinner {
-  border: 3px solid var(--bg-tertiary);
-  border-top: 3px solid var(--accent-orange);
+  border: 2px solid var(--bg-tertiary);
+  border-top: 2px solid var(--accent-orange);
   border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  animation: spin 1s linear infinite;
+  width: 20px;
+  height: 20px;
+  animation: spin 0.8s linear infinite;
 }
 
-/* Button styles */
+/* ========== Global Button Styles ========== */
 button {
   font-family: inherit;
-  transition: all 0.2s ease;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+              border-color var(--transition-fast), box-shadow var(--transition-fast),
+              transform var(--transition-fast);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.45;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+/* ========== Global Input Styles ========== */
+input, select, textarea {
+  font-family: inherit;
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal),
+              background var(--transition-normal);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary) !important;
+  box-shadow: var(--shadow-glow-accent);
+}
+
+/* Hide number input spinners for cleaner look */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0;
+  height: 0;
+}
+
+input[type="number"]:hover::-webkit-inner-spin-button,
+input[type="number"]:hover::-webkit-outer-spin-button {
+  opacity: 1;
+  height: auto;
+}
+
+/* ========== Utility Animations ========== */
+@keyframes dropdown-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes subtle-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-primary-muted); }
+  50% { box-shadow: 0 0 8px 2px var(--accent-primary-muted); }
 }

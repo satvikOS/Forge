@@ -1,56 +1,35 @@
 import { useState } from 'react';
 import MaterialsBrowser from './MaterialsBrowser';
+import './Sidebar.css';
 
-export default function Sidebar({ 
-  design, 
-  analysis, 
-  compliance, 
+export default function Sidebar({
+  design,
+  analysis,
+  compliance,
   currentMode,
   activeTool,
   selectedObjects,
-  onPropertyChange 
+  onPropertyChange
 }) {
   const [activeTab, setActiveTab] = useState('properties');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showMaterialsBrowser, setShowMaterialsBrowser] = useState(false);
 
   const tabs = [
-    { id: 'properties', label: 'Properties', icon: '⚙' },
-    { id: 'modifiers', label: 'Modifiers', icon: '🔧' },
-    { id: 'materials', label: 'Materials', icon: '🎨' },
-    { id: 'physics', label: 'Physics', icon: '⚛' },
-    { id: 'scene', label: 'Scene', icon: '📊' },
-    { id: 'outliner', label: 'Outliner', icon: '📋' },
+    { id: 'properties', label: 'Properties', icon: 'P' },
+    { id: 'modifiers', label: 'Modifiers', icon: 'M' },
+    { id: 'materials', label: 'Materials', icon: 'T' },
+    { id: 'physics', label: 'Physics', icon: 'H' },
+    { id: 'scene', label: 'Scene', icon: 'S' },
+    { id: 'outliner', label: 'Outliner', icon: 'O' },
   ];
 
   if (isCollapsed) {
     return (
-      <div style={{
-        width: '40px',
-        minWidth: '40px',
-        maxWidth: '40px',
-        background: 'var(--bg-secondary)',
-        borderLeft: '1px solid var(--border-color)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '10px 0',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        overflow: 'hidden',
-        flexShrink: 0,
-        flexGrow: 0,
-        height: '100%',
-      }}>
+      <div className="sidebar sidebar-collapsed">
         <button
           onClick={() => setIsCollapsed(false)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '18px',
-            padding: '8px',
-          }}
+          className="sidebar-expand-btn"
           title="Expand sidebar"
         >
           ◀
@@ -60,41 +39,13 @@ export default function Sidebar({
   }
 
   return (
-    <div style={{
-      width: '350px',
-      minWidth: '350px',
-      maxWidth: '350px',
-      background: 'var(--bg-secondary)',
-      borderLeft: '1px solid var(--border-color)',
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      overflow: 'hidden',
-      flexShrink: 0,
-      flexGrow: 0,
-    }}>
+    <div className="sidebar sidebar-expanded">
       {/* Header with collapse button */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '8px 12px',
-        borderBottom: '1px solid var(--border-color)',
-      }}>
-        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '500' }}>
-          Properties Panel
-        </span>
+      <div className="sidebar-header">
+        <span className="sidebar-header-title">Properties Panel</span>
         <button
           onClick={() => setIsCollapsed(true)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '14px',
-            padding: '4px',
-          }}
+          className="sidebar-collapse-btn"
           title="Collapse sidebar"
         >
           ▶
@@ -102,60 +53,23 @@ export default function Sidebar({
       </div>
 
       {/* Tabs */}
-      <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        borderBottom: '1px solid var(--border-color)',
-        background: 'var(--bg-tertiary)',
-        padding: '4px',
-        gap: '2px',
-      }}>
+      <div className="sidebar-tabs">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            style={{
-              flex: '1 1 calc(33.333% - 2px)',
-              minWidth: '100px',
-              padding: '8px 6px',
-              background: activeTab === tab.id ? 'var(--bg-secondary)' : 'transparent',
-              border: 'none',
-              borderBottom: activeTab === tab.id ? '2px solid var(--accent-orange)' : '2px solid transparent',
-              color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontSize: '11px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '4px',
-              transition: 'all 0.15s',
-              borderRadius: '4px',
-            }}
-            onMouseEnter={(e) => {
-              if (activeTab !== tab.id) {
-                e.currentTarget.style.background = 'var(--bg-hover)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (activeTab !== tab.id) {
-                e.currentTarget.style.background = 'transparent';
-              }
-            }}
+            className={`sidebar-tab ${activeTab === tab.id ? 'active' : ''}`}
           >
-            <span>{tab.icon}</span>
+            <span className="sidebar-tab-icon">{tab.icon}</span>
             <span>{tab.label}</span>
           </button>
         ))}
       </div>
 
       {/* Content */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '12px',
-      }}>
+      <div className="sidebar-content">
         {activeTab === 'properties' && (
-          <PropertiesTab 
+          <PropertiesTab
             currentMode={currentMode}
             activeTool={activeTool}
             selectedObjects={selectedObjects}
@@ -224,28 +138,9 @@ function PropertiesTab({ currentMode, activeTool, selectedObjects, onPropertyCha
 function ModifiersTab() {
   return (
     <div>
-      <div style={{
-        padding: '12px',
-        background: 'var(--bg-tertiary)',
-        borderRadius: '6px',
-        textAlign: 'center',
-        color: 'var(--text-secondary)',
-        fontSize: '12px',
-      }}>
-        <div style={{ marginBottom: '8px' }}>No modifiers applied</div>
-        <button
-          style={{
-            padding: '6px 12px',
-            background: 'var(--accent-orange)',
-            border: 'none',
-            borderRadius: '4px',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: '12px',
-          }}
-        >
-          Add Modifier
-        </button>
+      <div className="sidebar-empty-state">
+        <div className="sidebar-empty-text">No modifiers applied</div>
+        <button className="sidebar-action-btn primary">Add Modifier</button>
       </div>
     </div>
   );
@@ -255,52 +150,12 @@ function MaterialsTab({ onOpenBrowser }) {
   return (
     <div>
       <PropertyGroup title="Material Slots">
-        <div style={{
-          padding: '12px',
-          background: 'var(--bg-tertiary)',
-          borderRadius: '6px',
-          textAlign: 'center',
-          color: 'var(--text-secondary)',
-          fontSize: '12px',
-        }}>
-          <div style={{ marginBottom: '8px' }}>No materials assigned</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <button
-              style={{
-                padding: '6px 12px',
-                background: 'var(--accent-orange)',
-                border: 'none',
-                borderRadius: '4px',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: '12px',
-              }}
-            >
-              New Material
-            </button>
-            <button
-              onClick={onOpenBrowser}
-              style={{
-                padding: '6px 12px',
-                background: 'rgba(107, 185, 240, 0.2)',
-                border: '1px solid rgba(107, 185, 240, 0.3)',
-                borderRadius: '4px',
-                color: '#6bb9f0',
-                cursor: 'pointer',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'rgba(107, 185, 240, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'rgba(107, 185, 240, 0.2)';
-              }}
-            >
-              🎨 Browse Materials
+        <div className="sidebar-empty-state">
+          <div className="sidebar-empty-text">No materials assigned</div>
+          <div className="sidebar-btn-stack">
+            <button className="sidebar-action-btn primary">New Material</button>
+            <button className="sidebar-action-btn secondary" onClick={onOpenBrowser}>
+              Browse Materials
             </button>
           </div>
         </div>
@@ -312,28 +167,9 @@ function MaterialsTab({ onOpenBrowser }) {
 function PhysicsTab() {
   return (
     <div>
-      <div style={{
-        padding: '12px',
-        background: 'var(--bg-tertiary)',
-        borderRadius: '6px',
-        textAlign: 'center',
-        color: 'var(--text-secondary)',
-        fontSize: '12px',
-      }}>
-        <div style={{ marginBottom: '8px' }}>No physics enabled</div>
-        <button
-          style={{
-            padding: '6px 12px',
-            background: 'var(--accent-orange)',
-            border: 'none',
-            borderRadius: '4px',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: '12px',
-          }}
-        >
-          Enable Physics
-        </button>
+      <div className="sidebar-empty-state">
+        <div className="sidebar-empty-text">No physics enabled</div>
+        <button className="sidebar-action-btn primary">Enable Physics</button>
       </div>
     </div>
   );
@@ -342,14 +178,7 @@ function PhysicsTab() {
 function SceneTab({ design, analysis, compliance }) {
   if (!design) {
     return (
-      <div style={{
-        padding: '12px',
-        background: 'var(--bg-tertiary)',
-        borderRadius: '6px',
-        textAlign: 'center',
-        color: 'var(--text-secondary)',
-        fontSize: '12px',
-      }}>
+      <div className="sidebar-empty-state">
         No design data available
       </div>
     );
@@ -366,20 +195,20 @@ function SceneTab({ design, analysis, compliance }) {
 
       {analysis && (
         <PropertyGroup title="Analysis">
-          <Property 
-            label="Score" 
+          <Property
+            label="Score"
             value={`${analysis.overallScore}/100`}
-            valueColor={analysis.overallScore >= 70 ? '#4caf50' : '#ff9800'}
+            valueColor={analysis.overallScore >= 70 ? 'var(--color-success)' : 'var(--color-warning)'}
           />
         </PropertyGroup>
       )}
 
       {compliance && (
         <PropertyGroup title="Compliance">
-          <Property 
-            label="Status" 
+          <Property
+            label="Status"
             value={compliance.compliant ? 'Compliant' : 'Needs Review'}
-            valueColor={compliance.compliant ? '#4caf50' : '#ff9800'}
+            valueColor={compliance.compliant ? 'var(--color-success)' : 'var(--color-warning)'}
           />
         </PropertyGroup>
       )}
@@ -398,32 +227,14 @@ function OutlinerTab() {
     <div>
       <PropertyGroup title="Scene Hierarchy">
         {sceneObjects.map((obj) => (
-          <div
-            key={obj.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '6px 8px',
-              background: 'var(--bg-primary)',
-              borderRadius: '4px',
-              marginBottom: '4px',
-              fontSize: '12px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>{obj.type === 'camera' ? '📷' : obj.type === 'light' ? '💡' : '📦'}</span>
-              <span style={{ color: 'var(--text-primary)' }}>{obj.name}</span>
+          <div key={obj.id} className="outliner-item">
+            <div className="outliner-item-left">
+              <span className="outliner-item-icon">
+                {obj.type === 'camera' ? '📷' : obj.type === 'light' ? '💡' : '📦'}
+              </span>
+              <span className="outliner-item-name">{obj.name}</span>
             </div>
-            <button
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: obj.visible ? 'var(--text-primary)' : 'var(--text-disabled)',
-                cursor: 'pointer',
-                fontSize: '12px',
-              }}
-            >
+            <button className={`outliner-visibility ${obj.visible ? 'visible' : ''}`}>
               {obj.visible ? '👁' : '👁‍🗨'}
             </button>
           </div>
@@ -435,20 +246,9 @@ function OutlinerTab() {
 
 function PropertyGroup({ title, children }) {
   return (
-    <div style={{ marginBottom: '16px' }}>
-      <h3 style={{
-        fontSize: '12px',
-        color: 'var(--accent-orange)',
-        marginBottom: '8px',
-        fontWeight: '600',
-      }}>
-        {title}
-      </h3>
-      <div style={{
-        background: 'var(--bg-tertiary)',
-        borderRadius: '6px',
-        padding: '10px',
-      }}>
+    <div className="sidebar-property-group">
+      <h3 className="sidebar-group-title">{title}</h3>
+      <div className="sidebar-group-content">
         {children}
       </div>
     </div>
@@ -457,17 +257,9 @@ function PropertyGroup({ title, children }) {
 
 function Property({ label, value, valueColor }) {
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      marginBottom: '6px',
-      fontSize: '12px',
-    }}>
-      <span style={{ color: 'var(--text-secondary)' }}>{label}:</span>
-      <span style={{ 
-        color: valueColor || 'var(--text-primary)',
-        fontWeight: '400',
-      }}>
+    <div className="sidebar-property-row">
+      <span className="sidebar-property-label">{label}:</span>
+      <span className="sidebar-property-value" style={valueColor ? { color: valueColor } : undefined}>
         {value}
       </span>
     </div>
@@ -476,29 +268,15 @@ function Property({ label, value, valueColor }) {
 
 function EditableProperty({ label, value, unit }) {
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      marginBottom: '6px',
-      fontSize: '12px',
-      gap: '6px',
-    }}>
-      <span style={{ color: 'var(--text-secondary)', minWidth: '70px' }}>{label}:</span>
+    <div className="sidebar-editable-row">
+      <span className="sidebar-property-label">{label}:</span>
       <input
         type="number"
         step="0.1"
         defaultValue={value}
-        style={{
-          flex: 1,
-          padding: '4px 6px',
-          background: 'var(--bg-primary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '4px',
-          color: 'var(--text-primary)',
-          fontSize: '12px',
-        }}
+        className="sidebar-property-input"
       />
-      <span style={{ color: 'var(--text-secondary)', minWidth: '20px' }}>{unit}</span>
+      <span className="sidebar-property-unit">{unit}</span>
     </div>
   );
 }

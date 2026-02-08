@@ -1,11 +1,13 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
+import { Move, RotateCcw, Maximize } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
 
 /**
  * Interactive 3D Viewport Component
- * Features: Infinite grid, orbit controls, domain-specific scenes
+ * Features: Infinite grid, orbit controls, transform gizmo, domain-specific scenes
  */
 function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady }) {
     const containerRef = useRef(null);
@@ -13,7 +15,10 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const cameraRef = useRef(null);
     const rendererRef = useRef(null);
     const controlsRef = useRef(null);
+    const transformRef = useRef(null);
+    const selectedRef = useRef(null);
     const viewport = useViewport();
+    const [transformMode, setTransformMode] = useState('translate');
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -24,7 +29,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
         // Scene
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1e1e1e);
+        scene.background = new THREE.Color(0x0d0d0d);
         sceneRef.current = scene;
 
         // Camera
@@ -46,7 +51,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         rendererRef.current = renderer;
 
         // Infinite Grid
-        const gridHelper = new THREE.GridHelper(100, 100, 0x444444, 0x2a2a2a);
+        const gridHelper = new THREE.GridHelper(100, 100, 0x333333, 0x1a1a1a);
         scene.add(gridHelper);
 
         // Axes Helper (small, subtle)
@@ -71,8 +76,19 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         controls.screenSpacePanning = false;
         controls.minDistance = 1;
         controls.maxDistance = 500;
-        controls.maxPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI;
         controlsRef.current = controls;
+
+        // Transform Controls (Gizmo)
+        const transformControls = new TransformControls(camera, renderer.domElement);
+        transformControls.setSize(0.75);
+        scene.add(transformControls);
+        transformRef.current = transformControls;
+
+        // Disable orbit controls while transforming
+        transformControls.addEventListener('dragging-changed', (event) => {
+            controls.enabled = !event.value;
+        });
 
         // Domain-specific objects
         createDomainScene(scene, domain);
@@ -84,6 +100,72 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         plane.rotation.x = -Math.PI / 2;
         plane.receiveShadow = true;
         scene.add(plane);
+
+        // Raycaster for object picking
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        const handleClick = (event) => {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Get pickable objects (exclude grid, axes, lights, ground plane, transform gizmo)
+            const pickable = scene.children.filter(obj =>
+                obj.isMesh &&
+                obj !== plane &&
+                !obj.isTransformControlsPlane &&
+                obj.userData.pickable !== false
+            );
+
+            const intersects = raycaster.intersectObjects(pickable, true);
+
+            if (intersects.length > 0) {
+                let target = intersects[0].object;
+                // Walk up to find the root pickable object
+                while (target.parent && target.parent !== scene) {
+                    target = target.parent;
+                }
+                selectObject(target, transformControls);
+            } else {
+                deselectObject(transformControls);
+            }
+        };
+
+        renderer.domElement.addEventListener('click', handleClick);
+
+        // Keyboard shortcuts for gizmo modes
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            switch (e.key.toLowerCase()) {
+                case 'g':
+                    transformControls.setMode('translate');
+                    setTransformMode('translate');
+                    break;
+                case 'r':
+                    transformControls.setMode('rotate');
+                    setTransformMode('rotate');
+                    break;
+                case 's':
+                    if (!e.ctrlKey && !e.metaKey) {
+                        transformControls.setMode('scale');
+                        setTransformMode('scale');
+                    }
+                    break;
+                case 'delete':
+                case 'backspace':
+                    if (selectedRef.current && e.target.tagName !== 'INPUT') {
+                        scene.remove(selectedRef.current);
+                        deselectObject(transformControls);
+                    }
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
 
         // Animation loop
         function animate() {
@@ -105,24 +187,71 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
         // Notify parent that scene is ready
         if (onReady) {
-            onReady({ scene, camera, renderer, controls });
+            onReady({ scene, camera, renderer, controls, transformControls });
         }
 
         // Register with viewport context
         if (viewport && viewport.registerViewport) {
-            viewport.registerViewport({ scene, camera, renderer, controls });
+            viewport.registerViewport({ scene, camera, renderer, controls, transformControls });
         }
 
         // Cleanup
         return () => {
             window.removeEventListener('resize', handleResize);
+            window.removeEventListener('keydown', handleKeyDown);
+            renderer.domElement.removeEventListener('click', handleClick);
+            transformControls.dispose();
             renderer.dispose();
             container.removeChild(renderer.domElement);
         };
     }, [canvasId, domain, onReady]);
 
+    const selectObject = (object, transformControls) => {
+        selectedRef.current = object;
+        transformControls.attach(object);
+    };
+
+    const deselectObject = (transformControls) => {
+        selectedRef.current = null;
+        transformControls.detach();
+    };
+
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
+        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+            {/* Gizmo Mode Switcher */}
+            <div className="gizmo-toolbar">
+                <button
+                    className={`gizmo-btn ${transformMode === 'translate' ? 'active' : ''}`}
+                    onClick={() => {
+                        setTransformMode('translate');
+                        if (transformRef.current) transformRef.current.setMode('translate');
+                    }}
+                    title="Move (G)"
+                >
+                    <Move size={14} />
+                </button>
+                <button
+                    className={`gizmo-btn ${transformMode === 'rotate' ? 'active' : ''}`}
+                    onClick={() => {
+                        setTransformMode('rotate');
+                        if (transformRef.current) transformRef.current.setMode('rotate');
+                    }}
+                    title="Rotate (R)"
+                >
+                    <RotateCcw size={14} />
+                </button>
+                <button
+                    className={`gizmo-btn ${transformMode === 'scale' ? 'active' : ''}`}
+                    onClick={() => {
+                        setTransformMode('scale');
+                        if (transformRef.current) transformRef.current.setMode('scale');
+                    }}
+                    title="Scale (S)"
+                >
+                    <Maximize size={14} />
+                </button>
+            </div>
+        </div>
     );
 }
 
@@ -137,99 +266,89 @@ function createDomainScene(scene, domain) {
     });
 
     switch (domain) {
-        case 'mechanical':
+        case 'mechanical': {
             const gear = createGear();
             gear.position.set(0, 1, 0);
+            gear.userData.pickable = true;
+            gear.name = 'Gear';
             scene.add(gear);
             break;
+        }
 
-        case 'architecture':
+        case 'architecture': {
             const wall = new THREE.Mesh(new THREE.BoxGeometry(8, 3, 0.3), material);
             wall.position.set(0, 1.5, 0);
             wall.castShadow = true;
+            wall.userData.pickable = true;
+            wall.name = 'Wall';
             scene.add(wall);
             break;
+        }
 
-        case 'automotive':
+        case 'automotive': {
             const body = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 2), material);
             body.position.set(0, 0.5, 0);
             body.castShadow = true;
+            body.userData.pickable = true;
+            body.name = 'Car Body';
             scene.add(body);
 
-            const top = new THREE.Mesh(new THREE.BoxGeometry(2, 0.8, 1.8), material);
-            top.position.set(-0.3, 1.4, 0);
-            top.castShadow = true;
-            scene.add(top);
+            const carTop = new THREE.Mesh(new THREE.BoxGeometry(2, 0.8, 1.8), material);
+            carTop.position.set(-0.3, 1.4, 0);
+            carTop.castShadow = true;
+            carTop.userData.pickable = true;
+            carTop.name = 'Car Top';
+            scene.add(carTop);
             break;
+        }
 
-        case 'gaming':
+        case 'gaming': {
             const head = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), material);
             head.position.set(0, 2.5, 0);
             head.castShadow = true;
+            head.userData.pickable = true;
+            head.name = 'Character Head';
             scene.add(head);
 
-            const body2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 0.8), material);
-            body2.position.set(0, 1.25, 0);
-            body2.castShadow = true;
-            scene.add(body2);
+            const charBody = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 0.8), material);
+            charBody.position.set(0, 1.25, 0);
+            charBody.castShadow = true;
+            charBody.userData.pickable = true;
+            charBody.name = 'Character Body';
+            scene.add(charBody);
             break;
+        }
 
-        case 'industrial':
-            const conveyor = new THREE.Mesh(new THREE.BoxGeometry(8, 0.3, 1), material);
-            conveyor.position.set(0, 0.5, 0);
-            conveyor.castShadow = true;
-            scene.add(conveyor);
-            break;
-
-        case 'electronics':
+        case 'electronics': {
             const pcb = new THREE.Mesh(
                 new THREE.BoxGeometry(6, 0.1, 4),
                 new THREE.MeshStandardMaterial({ color: 0x1a5f1a })
             );
             pcb.position.set(0, 0.5, 0);
             pcb.castShadow = true;
+            pcb.userData.pickable = true;
+            pcb.name = 'PCB Board';
             scene.add(pcb);
 
             for (let i = 0; i < 5; i++) {
                 const component = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), material);
                 component.position.set((Math.random() - 0.5) * 5, 0.7, (Math.random() - 0.5) * 3);
                 component.castShadow = true;
+                component.userData.pickable = true;
+                component.name = `Component ${i + 1}`;
                 scene.add(component);
             }
             break;
+        }
 
-        case 'aviation':
-            const wing = new THREE.Mesh(new THREE.BoxGeometry(8, 0.3, 2), material);
-            wing.position.set(0, 1, 0);
-            wing.rotation.z = Math.PI / 12;
-            wing.castShadow = true;
-            scene.add(wing);
-            break;
-
-        case 'ui-product':
-            const phone = new THREE.Mesh(
-                new THREE.BoxGeometry(1.5, 3, 0.2),
-                new THREE.MeshStandardMaterial({ color: 0x333333 })
-            );
-            phone.position.set(0, 1.5, 0);
-            phone.rotation.x = -Math.PI / 6;
-            phone.castShadow = true;
-            scene.add(phone);
-
-            const screen = new THREE.Mesh(
-                new THREE.BoxGeometry(1.3, 2.7, 0.05),
-                new THREE.MeshStandardMaterial({ color: 0x1a1a1a })
-            );
-            screen.position.set(0, 1.5, 0.13);
-            screen.rotation.x = -Math.PI / 6;
-            scene.add(screen);
-            break;
-
-        default:
+        default: {
             const cube = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), material);
             cube.position.y = 1;
             cube.castShadow = true;
+            cube.userData.pickable = true;
+            cube.name = 'Default Cube';
             scene.add(cube);
+        }
     }
 }
 

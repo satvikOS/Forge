@@ -1,59 +1,51 @@
+import './StatusBar.css';
+
 export default function StatusBar({ mode, activeTool, selectionCount, stats }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '4px 12px',
-        background: 'var(--bg-secondary)',
-        borderTop: '1px solid var(--border-color)',
-        fontSize: '12px',
-        color: 'var(--text-secondary)',
-        height: '28px',
-      }}
-    >
+    <div className="status-bar">
       {/* Left section - Mode and Tool */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="status-bar-left">
         {mode && (
-          <span style={{ color: 'var(--accent-orange)', fontWeight: '500' }}>
-            {mode}
-          </span>
+          <span className="status-bar-mode">{mode}</span>
         )}
         {activeTool && (
           <>
-            <span style={{ color: 'var(--border-color)' }}>|</span>
-            <span>{activeTool}</span>
+            <span className="status-bar-divider" />
+            <span className="status-bar-tool">{activeTool}</span>
           </>
         )}
       </div>
 
       {/* Center section - Selection info */}
       {selectionCount && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="status-bar-center">
           {selectionCount.vertices !== undefined && (
-            <span>Verts: {selectionCount.vertices}</span>
+            <span className="status-bar-stat">Verts: <b>{selectionCount.vertices}</b></span>
           )}
           {selectionCount.edges !== undefined && (
-            <span>Edges: {selectionCount.edges}</span>
+            <span className="status-bar-stat">Edges: <b>{selectionCount.edges}</b></span>
           )}
           {selectionCount.faces !== undefined && (
-            <span>Faces: {selectionCount.faces}</span>
+            <span className="status-bar-stat">Faces: <b>{selectionCount.faces}</b></span>
           )}
           {selectionCount.objects !== undefined && (
-            <span>Objects: {selectionCount.objects}</span>
+            <span className="status-bar-stat">Objects: <b>{selectionCount.objects}</b></span>
           )}
         </div>
       )}
 
       {/* Right section - Stats */}
       {stats && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="status-bar-right">
           {stats.triangles !== undefined && (
-            <span>Tris: {stats.triangles.toLocaleString()}</span>
+            <span className="status-bar-stat">
+              Tris: <b className="monospace">{stats.triangles.toLocaleString()}</b>
+            </span>
           )}
           {stats.fps !== undefined && (
-            <span>FPS: {stats.fps}</span>
+            <span className={`status-bar-fps ${stats.fps > 30 ? 'good' : 'warn'}`}>
+              FPS: <b className="monospace">{stats.fps}</b>
+            </span>
           )}
         </div>
       )}
