@@ -295,12 +295,14 @@
     position: relative;
     background: #1a1a1a;
     overflow: hidden;
+    contain: layout style paint;
 }
 
 .workbench-viewport canvas {
     width: 100%;
     height: 100%;
     display: block;
+    touch-action: none;
 }
 
 /* Viewport Overlay - Top Right */

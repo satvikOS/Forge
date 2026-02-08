@@ -1,61 +1,304 @@
 // Menu configuration for 3D modeling features
-// No software branding - generic 3D modeling terminology only
+// Comprehensive tool set covering Mechanical, Architecture, Gaming, Automotive, Electronics
 
 export const menuConfig = {
   file: {
     label: 'File',
     items: [
-      { id: 'new', label: 'New', shortcut: 'Ctrl+N' },
+      { id: 'new', label: 'New Project', shortcut: 'Ctrl+N' },
+      { id: 'new-part', label: 'New Part' },
+      { id: 'new-assembly', label: 'New Assembly' },
+      { id: 'new-drawing', label: 'New Drawing' },
+      { type: 'separator' },
       { id: 'open', label: 'Open', shortcut: 'Ctrl+O' },
       { id: 'save', label: 'Save', shortcut: 'Ctrl+S' },
       { id: 'save-as', label: 'Save As', shortcut: 'Ctrl+Shift+S' },
+      { id: 'save-all', label: 'Save All' },
       { type: 'separator' },
       { id: 'import', label: 'Import', submenu: [
-        { id: 'import-obj', label: 'OBJ' },
-        { id: 'import-fbx', label: 'FBX' },
-        { id: 'import-stl', label: 'STL' },
+        { id: 'import-step', label: 'STEP (.stp, .step)' },
+        { id: 'import-iges', label: 'IGES (.igs, .iges)' },
+        { id: 'import-parasolid', label: 'Parasolid (.x_t, .x_b)' },
+        { id: 'import-stl', label: 'STL (.stl)' },
+        { id: 'import-obj', label: 'OBJ (.obj)' },
+        { id: 'import-fbx', label: 'FBX (.fbx)' },
         { id: 'import-gltf', label: 'glTF/GLB' },
+        { id: 'import-dxf', label: 'DXF/DWG' },
+        { id: 'import-jt', label: 'JT (.jt)' },
+        { id: 'import-catia', label: 'CATIA V5 (.CATpart)' },
+        { id: 'import-nx', label: 'NX (.prt)' },
+        { id: 'import-creo', label: 'Creo/Pro-E (.prt)' },
+        { id: 'import-inventor', label: 'Inventor (.ipt)' },
       ]},
       { id: 'export', label: 'Export', submenu: [
-        { id: 'export-obj', label: 'OBJ' },
-        { id: 'export-fbx', label: 'FBX' },
-        { id: 'export-stl', label: 'STL' },
+        { id: 'export-step', label: 'STEP (.step)' },
+        { id: 'export-iges', label: 'IGES (.iges)' },
+        { id: 'export-parasolid', label: 'Parasolid (.x_t)' },
+        { id: 'export-stl', label: 'STL (.stl)' },
+        { id: 'export-3mf', label: '3MF (.3mf)' },
+        { id: 'export-obj', label: 'OBJ (.obj)' },
+        { id: 'export-fbx', label: 'FBX (.fbx)' },
         { id: 'export-gltf', label: 'glTF/GLB' },
+        { id: 'export-dxf', label: 'DXF (.dxf)' },
+        { id: 'export-dwg', label: 'DWG (.dwg)' },
+        { id: 'export-pdf', label: 'PDF Drawing' },
+        { id: 'export-3dpdf', label: '3D PDF' },
+        { id: 'export-jt', label: 'JT (.jt)' },
       ]},
       { type: 'separator' },
+      { id: 'pack-go', label: 'Pack and Go' },
       { id: 'recent', label: 'Recent Files' },
+      { type: 'separator' },
+      { id: 'properties', label: 'Properties' },
     ]
   },
-  
+
+  edit: {
+    label: 'Edit',
+    items: [
+      { id: 'undo', label: 'Undo', shortcut: 'Ctrl+Z' },
+      { id: 'redo', label: 'Redo', shortcut: 'Ctrl+Y' },
+      { type: 'separator' },
+      { id: 'cut', label: 'Cut', shortcut: 'Ctrl+X' },
+      { id: 'copy', label: 'Copy', shortcut: 'Ctrl+C' },
+      { id: 'paste', label: 'Paste', shortcut: 'Ctrl+V' },
+      { id: 'paste-special', label: 'Paste Special' },
+      { id: 'delete', label: 'Delete', shortcut: 'Del' },
+      { type: 'separator' },
+      { id: 'select-all', label: 'Select All', shortcut: 'Ctrl+A' },
+      { id: 'deselect-all', label: 'Deselect All', shortcut: 'Ctrl+D' },
+      { id: 'invert-selection', label: 'Invert Selection', shortcut: 'Ctrl+I' },
+      { type: 'separator' },
+      { id: 'suppress', label: 'Suppress Feature' },
+      { id: 'unsuppress', label: 'Unsuppress Feature' },
+      { type: 'separator' },
+      { id: 'mesh-ops', label: 'Mesh Operations', submenu: [
+        { id: 'extrude', label: 'Extrude', shortcut: 'E' },
+        { id: 'inset', label: 'Inset', shortcut: 'I' },
+        { id: 'bevel', label: 'Bevel', shortcut: 'Ctrl+B' },
+        { id: 'loop-cut', label: 'Loop Cut', shortcut: 'Ctrl+R' },
+        { id: 'knife', label: 'Knife', shortcut: 'K' },
+        { id: 'subdivide', label: 'Subdivide' },
+      ]},
+      { id: 'transform', label: 'Transform', submenu: [
+        { id: 'move', label: 'Move', shortcut: 'G' },
+        { id: 'rotate', label: 'Rotate', shortcut: 'R' },
+        { id: 'scale', label: 'Scale', shortcut: 'S' },
+        { id: 'mirror', label: 'Mirror' },
+        { id: 'array', label: 'Array' },
+      ]},
+      { type: 'separator' },
+      { id: 'preferences', label: 'Preferences' },
+    ]
+  },
+
+  view: {
+    label: 'View',
+    items: [
+      { id: 'standard-views', label: 'Standard Views', submenu: [
+        { id: 'view-front', label: 'Front', shortcut: 'Num 1' },
+        { id: 'view-back', label: 'Back', shortcut: 'Ctrl+1' },
+        { id: 'view-top', label: 'Top', shortcut: 'Num 7' },
+        { id: 'view-bottom', label: 'Bottom', shortcut: 'Ctrl+7' },
+        { id: 'view-left', label: 'Left', shortcut: 'Ctrl+3' },
+        { id: 'view-right', label: 'Right', shortcut: 'Num 3' },
+        { id: 'view-isometric', label: 'Isometric', shortcut: 'Num 0' },
+        { id: 'view-dimetric', label: 'Dimetric' },
+        { id: 'view-trimetric', label: 'Trimetric' },
+      ]},
+      { id: 'display-style', label: 'Display Style', submenu: [
+        { id: 'display-wireframe', label: 'Wireframe', shortcut: 'Z' },
+        { id: 'display-hlv', label: 'Hidden Lines Visible' },
+        { id: 'display-hlr', label: 'Hidden Lines Removed' },
+        { id: 'display-shaded', label: 'Shaded', shortcut: 'Shift+Z' },
+        { id: 'display-shaded-edges', label: 'Shaded with Edges' },
+        { id: 'display-draft', label: 'Draft Quality' },
+      ]},
+      { type: 'separator' },
+      { id: 'zoom-fit', label: 'Zoom to Fit', shortcut: 'Home' },
+      { id: 'zoom-selection', label: 'Zoom to Selection', shortcut: 'F' },
+      { type: 'separator' },
+      { id: 'section-view', label: 'Section View' },
+      { id: 'perspective', label: 'Perspective' },
+      { type: 'separator' },
+      { id: 'show-hide', label: 'Show/Hide', submenu: [
+        { id: 'toggle-grid', label: 'Grid', shortcut: 'G' },
+        { id: 'toggle-axes', label: 'Axes' },
+        { id: 'toggle-origin', label: 'Origin' },
+        { id: 'toggle-sketches', label: 'Sketches' },
+        { id: 'toggle-planes', label: 'Planes' },
+        { id: 'toggle-ref-geom', label: 'Reference Geometry' },
+      ]},
+      { type: 'separator' },
+      { id: 'toggle-sidebar', label: 'Toggle Sidebar', shortcut: 'Tab' },
+      { id: 'fullscreen', label: 'Full Screen', shortcut: 'F11' },
+    ]
+  },
+
+  insert: {
+    label: 'Insert',
+    items: [
+      { id: 'sketch', label: 'Sketch', submenu: [
+        { id: 'new-sketch', label: 'New Sketch' },
+        { id: 'sketch-on-face', label: 'Sketch on Face' },
+        { id: '3d-sketch', label: '3D Sketch' },
+      ]},
+      { id: 'boss-base', label: 'Boss/Base', submenu: [
+        { id: 'extrude-boss', label: 'Extrude' },
+        { id: 'revolve-boss', label: 'Revolve' },
+        { id: 'sweep-boss', label: 'Sweep' },
+        { id: 'loft-boss', label: 'Loft' },
+        { id: 'boundary-boss', label: 'Boundary' },
+      ]},
+      { id: 'cut', label: 'Cut', submenu: [
+        { id: 'extrude-cut', label: 'Extrude Cut' },
+        { id: 'revolve-cut', label: 'Revolve Cut' },
+        { id: 'sweep-cut', label: 'Sweep Cut' },
+        { id: 'loft-cut', label: 'Loft Cut' },
+      ]},
+      { type: 'separator' },
+      { id: 'features', label: 'Features', submenu: [
+        { id: 'fillet', label: 'Fillet' },
+        { id: 'chamfer', label: 'Chamfer' },
+        { id: 'shell', label: 'Shell' },
+        { id: 'draft', label: 'Draft' },
+        { id: 'rib', label: 'Rib' },
+        { id: 'wrap', label: 'Wrap' },
+        { id: 'dome', label: 'Dome' },
+      ]},
+      { id: 'hole-wizard', label: 'Hole Wizard' },
+      { id: 'thread', label: 'Thread' },
+      { type: 'separator' },
+      { id: 'pattern', label: 'Pattern', submenu: [
+        { id: 'linear-pattern', label: 'Linear Pattern' },
+        { id: 'circular-pattern', label: 'Circular Pattern' },
+        { id: 'mirror', label: 'Mirror' },
+        { id: 'curve-pattern', label: 'Curve-Driven Pattern' },
+        { id: 'fill-pattern', label: 'Fill Pattern' },
+      ]},
+      { type: 'separator' },
+      { id: 'ref-geom', label: 'Reference Geometry', submenu: [
+        { id: 'ref-plane', label: 'Plane' },
+        { id: 'ref-axis', label: 'Axis' },
+        { id: 'ref-point', label: 'Point' },
+        { id: 'coord-system', label: 'Coordinate System' },
+        { id: 'center-mass', label: 'Center of Mass' },
+      ]},
+      { id: 'curves', label: 'Curves', submenu: [
+        { id: 'helix', label: 'Helix/Spiral' },
+        { id: 'composite-curve', label: 'Composite Curve' },
+        { id: 'projected-curve', label: 'Projected Curve' },
+        { id: 'split-line', label: 'Split Line' },
+      ]},
+      { type: 'separator' },
+      { id: 'surface', label: 'Surface', submenu: [
+        { id: 'extrude-surface', label: 'Extrude Surface' },
+        { id: 'revolve-surface', label: 'Revolve Surface' },
+        { id: 'sweep-surface', label: 'Sweep Surface' },
+        { id: 'loft-surface', label: 'Loft Surface' },
+        { id: 'fill-surface', label: 'Fill Surface' },
+        { id: 'offset-surface', label: 'Offset Surface' },
+        { id: 'trim-surface', label: 'Trim Surface' },
+        { id: 'thicken', label: 'Thicken' },
+        { id: 'knit-surface', label: 'Knit Surface' },
+      ]},
+      { id: 'sheet-metal', label: 'Sheet Metal', submenu: [
+        { id: 'base-flange', label: 'Base Flange' },
+        { id: 'edge-flange', label: 'Edge Flange' },
+        { id: 'miter-flange', label: 'Miter Flange' },
+        { id: 'hem', label: 'Hem' },
+        { id: 'fold', label: 'Fold' },
+        { id: 'unfold', label: 'Unfold' },
+        { id: 'flat-pattern', label: 'Flat Pattern' },
+      ]},
+      { id: 'weldments', label: 'Weldments', submenu: [
+        { id: 'structural-member', label: 'Structural Member' },
+        { id: 'end-cap', label: 'End Cap' },
+        { id: 'gusset', label: 'Gusset' },
+        { id: 'weld-bead', label: 'Weld Bead' },
+        { id: 'cut-list', label: 'Cut List' },
+      ]},
+    ]
+  },
+
+  tools: {
+    label: 'Tools',
+    items: [
+      { id: 'measure', label: 'Measure', submenu: [
+        { id: 'measure-distance', label: 'Distance', shortcut: 'Ctrl+M' },
+        { id: 'measure-angle', label: 'Angle' },
+        { id: 'measure-radius', label: 'Radius' },
+        { id: 'measure-area', label: 'Area' },
+        { id: 'measure-volume', label: 'Volume' },
+      ]},
+      { id: 'mass-properties', label: 'Mass Properties' },
+      { id: 'check-geometry', label: 'Check Geometry' },
+      { type: 'separator' },
+      { id: 'equations', label: 'Equations' },
+      { id: 'design-table', label: 'Design Table' },
+      { type: 'separator' },
+      { id: 'interference', label: 'Interference Detection' },
+      { id: 'clearance', label: 'Clearance Verification' },
+      { id: 'draft-analysis', label: 'Draft Analysis' },
+      { id: 'undercut', label: 'Undercut Analysis' },
+      { id: 'wall-thickness', label: 'Wall Thickness' },
+      { type: 'separator' },
+      { id: 'compare', label: 'Compare', submenu: [
+        { id: 'compare-part', label: 'Compare Part' },
+        { id: 'compare-drawing', label: 'Compare Drawing' },
+        { id: 'compare-bom', label: 'Compare BOM' },
+      ]},
+      { type: 'separator' },
+      { id: 'exploded-view', label: 'Exploded View', shortcut: 'X' },
+      { id: 'section-view', label: 'Section View' },
+      { id: 'appearance', label: 'Appearance' },
+    ]
+  },
+
   add: {
-    label: 'Add',
+    label: '3D Assets',
     items: [
       { id: 'add-primitives', label: 'Primitives', submenu: [
-        { id: 'add-cube', label: 'Cube' },
-        { id: 'add-plane', label: 'Plane' },
-        { id: 'add-sphere', label: 'Sphere' },
-        { id: 'add-icosphere', label: 'Icosphere' },
-        { id: 'add-cylinder', label: 'Cylinder' },
+        { id: 'add-cube', label: 'Box', shortcut: 'Shift+B' },
+        { id: 'add-sphere', label: 'Sphere', shortcut: 'Shift+S' },
+        { id: 'add-cylinder', label: 'Cylinder', shortcut: 'Shift+C' },
         { id: 'add-cone', label: 'Cone' },
         { id: 'add-torus', label: 'Torus' },
-        { id: 'add-grid', label: 'Grid' },
-        { id: 'add-monkey', label: 'Monkey Head' },
+        { id: 'add-plane', label: 'Plane' },
+        { id: 'add-wedge', label: 'Wedge' },
+        { id: 'add-pipe', label: 'Pipe' },
       ]},
-      { id: 'add-shapes', label: '2D Shapes', submenu: [
-        { id: 'add-rectangle', label: 'Rectangle' },
-        { id: 'add-circle', label: 'Circle' },
-        { id: 'add-arc', label: 'Arc' },
-        { id: 'add-2point-arc', label: '2-Point Arc' },
-        { id: 'add-pie', label: 'Pie' },
-        { id: 'add-polygon', label: 'Polygon' },
+      { id: 'standard-parts', label: 'Standard Parts', submenu: [
+        { id: 'hex-bolt', label: 'Hex Bolt' },
+        { id: 'shcs', label: 'Socket Head Cap Screw' },
+        { id: 'hex-nut', label: 'Hex Nut' },
+        { id: 'flat-washer', label: 'Flat Washer' },
+        { id: 'lock-washer', label: 'Lock Washer' },
+        { id: 'dowel-pin', label: 'Dowel Pin' },
+        { id: 'retaining-ring', label: 'Retaining Ring' },
+        { id: 'key-keyway', label: 'Key / Keyway' },
+        { id: 'o-ring', label: 'O-Ring' },
+      ]},
+      { id: 'bearings', label: 'Bearings', submenu: [
+        { id: 'ball-bearing', label: 'Ball Bearing' },
+        { id: 'roller-bearing', label: 'Roller Bearing' },
+        { id: 'thrust-bearing', label: 'Thrust Bearing' },
+        { id: 'linear-bearing', label: 'Linear Bearing' },
+      ]},
+      { id: 'structural-profiles', label: 'Structural Profiles', submenu: [
+        { id: 'i-beam', label: 'I-Beam' },
+        { id: 'c-channel', label: 'C-Channel' },
+        { id: 'l-angle', label: 'L-Angle' },
+        { id: 't-section', label: 'T-Section' },
+        { id: 'rect-tube', label: 'Rectangular Tube' },
+        { id: 'round-tube', label: 'Round Tube' },
       ]},
       { type: 'separator' },
-      { id: 'add-camera', label: 'Camera' },
-      { id: 'add-light', label: 'Light' },
-      { id: 'add-empty', label: 'Empty' },
+      { id: 'browse-library', label: 'Browse Library...' },
+      { id: 'import-asset', label: 'Import Custom Asset...' },
     ]
   },
-  
+
   select: {
     label: 'Select',
     items: [
@@ -71,108 +314,38 @@ export const menuConfig = {
       { id: 'select-less', label: 'Select Less', shortcut: 'Ctrl+-' },
     ]
   },
-  
-  edit: {
-    label: 'Edit',
+
+  simulation: {
+    label: 'Simulation',
     items: [
-      { id: 'undo', label: 'Undo', shortcut: 'Ctrl+Z' },
-      { id: 'redo', label: 'Redo', shortcut: 'Ctrl+Shift+Z' },
-      { type: 'separator' },
-      { id: 'mesh-ops', label: 'Mesh Operations', submenu: [
-        { id: 'extrude', label: 'Extrude', shortcut: 'E' },
-        { id: 'inset', label: 'Inset', shortcut: 'I' },
-        { id: 'bevel', label: 'Bevel', shortcut: 'Ctrl+B' },
-        { id: 'loop-cut', label: 'Loop Cut', shortcut: 'Ctrl+R' },
-        { id: 'knife', label: 'Knife', shortcut: 'K' },
-        { id: 'subdivide', label: 'Subdivide' },
+      { id: 'structural', label: 'Structural', submenu: [
+        { id: 'linear-static', label: 'Linear Static FEA' },
+        { id: 'nonlinear', label: 'Nonlinear FEA' },
+        { id: 'modal', label: 'Modal Analysis' },
+        { id: 'buckling', label: 'Buckling Analysis' },
+        { id: 'fatigue', label: 'Fatigue Analysis' },
+        { id: 'drop-test', label: 'Drop Test' },
       ]},
-      { id: 'modifiers', label: 'Modifiers', submenu: [
-        { id: 'join', label: 'Join', shortcut: 'Ctrl+J' },
-        { id: 'separate', label: 'Separate', shortcut: 'P' },
-        { id: 'rip', label: 'Rip', shortcut: 'V' },
-        { id: 'slide', label: 'Slide', shortcut: 'Shift+V' },
-        { id: 'merge', label: 'Merge', shortcut: 'M' },
-        { id: 'delete', label: 'Delete', shortcut: 'X' },
-        { id: 'dissolve', label: 'Dissolve', shortcut: 'Ctrl+X' },
+      { id: 'thermal', label: 'Thermal / Flow', submenu: [
+        { id: 'steady-thermal', label: 'Steady-State Thermal' },
+        { id: 'transient-thermal', label: 'Transient Thermal' },
+        { id: 'cfd', label: 'CFD Flow Simulation' },
+        { id: 'conjugate-heat', label: 'Conjugate Heat Transfer' },
       ]},
-      { id: 'transform', label: 'Transform', submenu: [
-        { id: 'move', label: 'Move', shortcut: 'G' },
-        { id: 'rotate', label: 'Rotate', shortcut: 'R' },
-        { id: 'scale', label: 'Scale', shortcut: 'S' },
-        { id: 'mirror', label: 'Mirror' },
-        { id: 'array', label: 'Array' },
+      { id: 'motion', label: 'Motion', submenu: [
+        { id: 'kinematic', label: 'Kinematic Study' },
+        { id: 'dynamic-motion', label: 'Dynamic Motion' },
+        { id: 'contact-motion', label: 'Contact Motion' },
+      ]},
+      { id: 'optimization', label: 'Optimization', submenu: [
+        { id: 'topology-opt', label: 'Topology Optimization' },
+        { id: 'generative', label: 'Generative Design' },
+        { id: 'lattice', label: 'Lattice Structures' },
+        { id: 'design-study', label: 'Design Study' },
       ]},
     ]
   },
-  
-  modeling: {
-    label: 'Modeling',
-    items: [
-      { id: 'modifiers', label: 'Add Modifier', submenu: [
-        { id: 'mod-array', label: 'Array' },
-        { id: 'mod-boolean', label: 'Boolean' },
-        { id: 'mod-mirror', label: 'Mirror' },
-        { id: 'mod-subdivision', label: 'Subdivision Surface' },
-        { id: 'mod-solidify', label: 'Solidify' },
-        { id: 'mod-skin', label: 'Skin' },
-        { id: 'mod-displace', label: 'Displace' },
-        { id: 'mod-decimate', label: 'Decimate' },
-      ]},
-      { id: 'tools', label: 'Tools', submenu: [
-        { id: 'tool-spin', label: 'Spin' },
-        { id: 'tool-screw', label: 'Screw' },
-        { id: 'tool-wireframe', label: 'Wireframe' },
-        { id: 'tool-voxel-remesh', label: 'Voxel Remesh' },
-        { id: 'tool-quadriflow', label: 'QuadriFlow Remesh' },
-        { id: 'tool-dyntopo', label: 'Dynamic Topology' },
-        { id: 'tool-multiresolution', label: 'Multiresolution' },
-      ]},
-    ]
-  },
-  
-  materials: {
-    label: 'Materials',
-    items: [
-      { id: 'shaders', label: 'Shader Types', submenu: [
-        { id: 'shader-principled', label: 'Principled BSDF' },
-        { id: 'shader-glass', label: 'Glass BSDF' },
-        { id: 'shader-emission', label: 'Emission' },
-        { id: 'shader-subsurface', label: 'Subsurface Scattering' },
-      ]},
-      { id: 'textures', label: 'Textures', submenu: [
-        { id: 'tex-image', label: 'Image Texture' },
-        { id: 'tex-noise', label: 'Noise' },
-        { id: 'tex-voronoi', label: 'Voronoi' },
-        { id: 'tex-musgrave', label: 'Musgrave' },
-      ]},
-      { id: 'mapping', label: 'UV Mapping', submenu: [
-        { id: 'uv-unwrap', label: 'UV Unwrap', shortcut: 'U' },
-        { id: 'uv-mark-seam', label: 'Mark Seam' },
-        { id: 'uv-smart-project', label: 'Smart UV Project' },
-        { id: 'uv-normal-map', label: 'Normal Map' },
-        { id: 'uv-bump-map', label: 'Bump Map' },
-      ]},
-    ]
-  },
-  
-  animation: {
-    label: 'Animation',
-    items: [
-      { id: 'keyframe', label: 'Keyframe', submenu: [
-        { id: 'insert-keyframe', label: 'Insert Keyframe', shortcut: 'I' },
-        { id: 'auto-keying', label: 'Auto-Keying' },
-        { id: 'motion-paths', label: 'Motion Paths' },
-      ]},
-      { id: 'rigging', label: 'Rigging', submenu: [
-        { id: 'add-armature', label: 'Add Armature' },
-        { id: 'add-bones', label: 'Add Bones' },
-        { id: 'ik-fk', label: 'IK/FK' },
-        { id: 'weight-painting', label: 'Weight Painting' },
-        { id: 'shape-keys', label: 'Shape Keys' },
-      ]},
-    ]
-  },
-  
+
   render: {
     label: 'Render',
     items: [
@@ -188,101 +361,46 @@ export const menuConfig = {
         { id: 'render-bloom', label: 'Bloom' },
         { id: 'render-denoising', label: 'Denoising' },
       ]},
-      { id: 'passes', label: 'Passes', submenu: [
-        { id: 'render-passes', label: 'Render Passes' },
-        { id: 'cryptomatte', label: 'Cryptomatte' },
-      ]},
       { type: 'separator' },
       { id: 'render-image', label: 'Render Image', shortcut: 'F12' },
-    ]
-  },
-  
-  physics: {
-    label: 'Physics',
-    items: [
-      { id: 'simulations', label: 'Simulations', submenu: [
-        { id: 'rigid-body', label: 'Rigid Body' },
-        { id: 'cloth', label: 'Cloth' },
-        { id: 'soft-body', label: 'Soft Body' },
-        { id: 'fluid', label: 'Fluid (Mantaflow)' },
-        { id: 'smoke', label: 'Smoke' },
-        { id: 'fire', label: 'Fire' },
-      ]},
-      { id: 'particles', label: 'Particles', submenu: [
-        { id: 'particle-emitter', label: 'Emitter' },
-        { id: 'particle-hair', label: 'Hair' },
-        { id: 'particle-edit', label: 'Particle Edit' },
-      ]},
-      { id: 'effects', label: 'Effects', submenu: [
-        { id: 'dynamic-paint', label: 'Dynamic Paint' },
-        { id: 'ocean', label: 'Ocean' },
-      ]},
-    ]
-  },
-  
-  view: {
-    label: 'View',
-    items: [
-      { id: 'camera-views', label: 'Camera Views', submenu: [
-        { id: 'view-top', label: 'Top', shortcut: 'Numpad 7' },
-        { id: 'view-bottom', label: 'Bottom', shortcut: 'Ctrl+Numpad 7' },
-        { id: 'view-front', label: 'Front', shortcut: 'Numpad 1' },
-        { id: 'view-back', label: 'Back', shortcut: 'Ctrl+Numpad 1' },
-        { id: 'view-left', label: 'Left', shortcut: 'Ctrl+Numpad 3' },
-        { id: 'view-right', label: 'Right', shortcut: 'Numpad 3' },
-      ]},
-      { id: 'projection', label: 'Projection', submenu: [
-        { id: 'proj-parallel', label: 'Parallel', shortcut: 'Numpad 5' },
-        { id: 'proj-perspective', label: 'Perspective', shortcut: 'Numpad 5' },
-      ]},
-      { id: 'viewport-modes', label: 'Viewport Shading', submenu: [
-        { id: 'viewport-wireframe', label: 'Wireframe', shortcut: 'Z' },
-        { id: 'viewport-solid', label: 'Solid', shortcut: 'Z' },
-        { id: 'viewport-material', label: 'Material Preview', shortcut: 'Z' },
-        { id: 'viewport-rendered', label: 'Rendered', shortcut: 'Z' },
-      ]},
-      { type: 'separator' },
-      { id: 'toggle-grid', label: 'Toggle Grid' },
-      { id: 'toggle-axes', label: 'Toggle Axes' },
-      { id: 'frame-selected', label: 'Frame Selected', shortcut: 'Numpad .' },
     ]
   },
 };
 
 export const modes = [
-  { id: 'object', label: 'Object Mode', icon: '⬡', shortcut: 'Tab' },
-  { id: 'edit', label: 'Edit Mode', icon: '▽', shortcut: 'Tab' },
-  { id: 'sculpt', label: 'Sculpt Mode', icon: '✋', shortcut: 'Ctrl+Tab' },
-  { id: 'vertex-paint', label: 'Vertex Paint', icon: '🎨' },
-  { id: 'weight-paint', label: 'Weight Paint', icon: '⚖' },
-  { id: 'texture-paint', label: 'Texture Paint', icon: '🖌' },
-  { id: 'pose', label: 'Pose Mode', icon: '🦴' },
+  { id: 'object', label: 'Object Mode', icon: 'O', shortcut: 'Tab' },
+  { id: 'edit', label: 'Edit Mode', icon: 'E', shortcut: 'Tab' },
+  { id: 'sculpt', label: 'Sculpt Mode', icon: 'S', shortcut: 'Ctrl+Tab' },
+  { id: 'vertex-paint', label: 'Vertex Paint', icon: 'VP' },
+  { id: 'weight-paint', label: 'Weight Paint', icon: 'WP' },
+  { id: 'texture-paint', label: 'Texture Paint', icon: 'TP' },
+  { id: 'pose', label: 'Pose Mode', icon: 'P' },
 ];
 
 export const tools = {
   object: [
-    { id: 'select', label: 'Select', icon: '⬚', shortcut: 'W' },
-    { id: 'move', label: 'Move', icon: '✥', shortcut: 'G' },
-    { id: 'rotate', label: 'Rotate', icon: '↻', shortcut: 'R' },
-    { id: 'scale', label: 'Scale', icon: '⊞', shortcut: 'S' },
+    { id: 'select', label: 'Select', icon: 'S', shortcut: 'W' },
+    { id: 'move', label: 'Move', icon: 'M', shortcut: 'G' },
+    { id: 'rotate', label: 'Rotate', icon: 'R', shortcut: 'R' },
+    { id: 'scale', label: 'Scale', icon: 'Sc', shortcut: 'S' },
   ],
   edit: [
-    { id: 'select', label: 'Select', icon: '⬚', shortcut: 'W' },
-    { id: 'move', label: 'Move', icon: '✥', shortcut: 'G' },
-    { id: 'rotate', label: 'Rotate', icon: '↻', shortcut: 'R' },
-    { id: 'scale', label: 'Scale', icon: '⊞', shortcut: 'S' },
-    { id: 'extrude', label: 'Extrude', icon: '⇈', shortcut: 'E' },
+    { id: 'select', label: 'Select', icon: 'S', shortcut: 'W' },
+    { id: 'move', label: 'Move', icon: 'M', shortcut: 'G' },
+    { id: 'rotate', label: 'Rotate', icon: 'R', shortcut: 'R' },
+    { id: 'scale', label: 'Scale', icon: 'Sc', shortcut: 'S' },
+    { id: 'extrude', label: 'Extrude', icon: 'Ex', shortcut: 'E' },
   ],
   sculpt: [
-    { id: 'draw', label: 'Draw', icon: '✏' },
-    { id: 'clay', label: 'Clay', icon: '🏺' },
-    { id: 'grab', label: 'Grab', icon: '✋' },
-    { id: 'smooth', label: 'Smooth', icon: '≈' },
-    { id: 'inflate', label: 'Inflate', icon: '◉' },
-    { id: 'pinch', label: 'Pinch', icon: '⊲⊳' },
-    { id: 'scrape', label: 'Scrape', icon: '▭' },
-    { id: 'mask', label: 'Mask', icon: '◐' },
-    { id: 'cloth', label: 'Cloth', icon: '〰' },
+    { id: 'draw', label: 'Draw', icon: 'D' },
+    { id: 'clay', label: 'Clay', icon: 'C' },
+    { id: 'grab', label: 'Grab', icon: 'G' },
+    { id: 'smooth', label: 'Smooth', icon: 'Sm' },
+    { id: 'inflate', label: 'Inflate', icon: 'I' },
+    { id: 'pinch', label: 'Pinch', icon: 'P' },
+    { id: 'scrape', label: 'Scrape', icon: 'Sc' },
+    { id: 'mask', label: 'Mask', icon: 'Mk' },
+    { id: 'cloth', label: 'Cloth', icon: 'Cl' },
   ],
 };
 
@@ -290,8 +408,8 @@ export const contextMenus = {
   object: [
     { id: 'add', label: 'Add', icon: '+', hasSubmenu: true },
     { type: 'separator' },
-    { id: 'delete', label: 'Delete', icon: '×', shortcut: 'X' },
-    { id: 'duplicate', label: 'Duplicate', icon: '⧉', shortcut: 'Shift+D' },
+    { id: 'delete', label: 'Delete', shortcut: 'X' },
+    { id: 'duplicate', label: 'Duplicate', shortcut: 'Shift+D' },
     { type: 'separator' },
     { id: 'join', label: 'Join', shortcut: 'Ctrl+J' },
     { id: 'separate', label: 'Separate', shortcut: 'P' },
@@ -303,18 +421,15 @@ export const contextMenus = {
     { id: 'convert-to', label: 'Convert To', hasSubmenu: true },
   ],
   edit: [
-    { id: 'extrude', label: 'Extrude', icon: '⇈', shortcut: 'E' },
-    { id: 'inset', label: 'Inset', icon: '⊟', shortcut: 'I' },
-    { id: 'bevel', label: 'Bevel', icon: '◱', shortcut: 'Ctrl+B' },
+    { id: 'extrude', label: 'Extrude', shortcut: 'E' },
+    { id: 'inset', label: 'Inset', shortcut: 'I' },
+    { id: 'bevel', label: 'Bevel', shortcut: 'Ctrl+B' },
     { type: 'separator' },
     { id: 'subdivide', label: 'Subdivide' },
     { id: 'loop-cut', label: 'Loop Cut', shortcut: 'Ctrl+R' },
     { type: 'separator' },
     { id: 'merge', label: 'Merge', shortcut: 'M' },
     { id: 'dissolve', label: 'Dissolve', shortcut: 'Ctrl+X' },
-    { type: 'separator' },
-    { id: 'select-more', label: 'Select More', shortcut: 'Ctrl++' },
-    { id: 'select-less', label: 'Select Less', shortcut: 'Ctrl+-' },
     { type: 'separator' },
     { id: 'face-ops', label: 'Face', hasSubmenu: true },
     { id: 'edge-ops', label: 'Edge', hasSubmenu: true },

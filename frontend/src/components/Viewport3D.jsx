@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
@@ -7,7 +7,7 @@ import { useViewport } from '../contexts/ViewportContext';
 
 /**
  * Interactive 3D Viewport Component
- * Features: Infinite grid, orbit controls, transform gizmo, domain-specific scenes
+ * Performance-optimized: throttled events, reused objects, proper RAF cleanup, GPU hints
  */
 function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady }) {
     const containerRef = useRef(null);
@@ -17,6 +17,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const controlsRef = useRef(null);
     const transformRef = useRef(null);
     const selectedRef = useRef(null);
+    const rafRef = useRef(null);
     const viewport = useViewport();
     const [transformMode, setTransformMode] = useState('translate');
 
@@ -38,24 +39,27 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         camera.lookAt(0, 0, 0);
         cameraRef.current = camera;
 
-        // Renderer
+        // Renderer - high performance mode
         const renderer = new THREE.WebGLRenderer({
             antialias: true,
-            alpha: true
+            alpha: true,
+            powerPreference: 'high-performance',
         });
         renderer.setSize(width, height);
-        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 
-        // Infinite Grid
+        // Grid
         const gridHelper = new THREE.GridHelper(100, 100, 0x333333, 0x1a1a1a);
+        gridHelper.userData.pickable = false;
         scene.add(gridHelper);
 
-        // Axes Helper (small, subtle)
+        // Axes
         const axesHelper = new THREE.AxesHelper(5);
+        axesHelper.userData.pickable = false;
         scene.add(axesHelper);
 
         // Lighting
@@ -69,74 +73,82 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
 
-        // Orbit Controls
+        // Orbit Controls - responsive damping for smooth feel
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
+        controls.dampingFactor = 0.12;
         controls.screenSpacePanning = false;
         controls.minDistance = 1;
         controls.maxDistance = 500;
         controls.maxPolarAngle = Math.PI;
+        controls.rotateSpeed = 0.8;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
         controlsRef.current = controls;
 
-        // Transform Controls (Gizmo)
+        // Transform Controls
         const transformControls = new TransformControls(camera, renderer.domElement);
         transformControls.setSize(0.75);
         scene.add(transformControls);
         transformRef.current = transformControls;
 
-        // Disable orbit controls while transforming
         transformControls.addEventListener('dragging-changed', (event) => {
             controls.enabled = !event.value;
         });
 
-        // Domain-specific objects
+        // Domain-specific scene objects
         createDomainScene(scene, domain);
 
-        // Ground plane
+        // Ground shadow plane
         const planeGeometry = new THREE.PlaneGeometry(100, 100);
         const planeMaterial = new THREE.ShadowMaterial({ opacity: 0.2 });
         const plane = new THREE.Mesh(planeGeometry, planeMaterial);
         plane.rotation.x = -Math.PI / 2;
         plane.receiveShadow = true;
+        plane.userData.pickable = false;
         scene.add(plane);
 
-        // Raycaster for object picking
+        // Reusable raycaster objects (avoids GC per click)
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
+        // Throttled click handler
+        let clickPending = false;
         const handleClick = (event) => {
+            if (clickPending) return;
+            clickPending = true;
+            requestAnimationFrame(() => { clickPending = false; });
+
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
 
-            // Get pickable objects (exclude grid, axes, lights, ground plane, transform gizmo)
             const pickable = scene.children.filter(obj =>
                 obj.isMesh &&
-                obj !== plane &&
-                !obj.isTransformControlsPlane &&
-                obj.userData.pickable !== false
+                obj.userData.pickable !== false &&
+                !obj.isTransformControlsPlane
             );
 
             const intersects = raycaster.intersectObjects(pickable, true);
 
             if (intersects.length > 0) {
                 let target = intersects[0].object;
-                // Walk up to find the root pickable object
                 while (target.parent && target.parent !== scene) {
                     target = target.parent;
                 }
-                selectObject(target, transformControls);
+                selectedRef.current = target;
+                transformControls.attach(target);
             } else {
-                deselectObject(transformControls);
+                selectedRef.current = null;
+                transformControls.detach();
             }
         };
 
         renderer.domElement.addEventListener('click', handleClick);
 
-        // Keyboard shortcuts for gizmo modes
+        // Keyboard shortcuts
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -159,7 +171,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 case 'backspace':
                     if (selectedRef.current && e.target.tagName !== 'INPUT') {
                         scene.remove(selectedRef.current);
-                        deselectObject(transformControls);
+                        selectedRef.current = null;
+                        transformControls.detach();
                     }
                     break;
             }
@@ -167,85 +180,78 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
         window.addEventListener('keydown', handleKeyDown);
 
-        // Animation loop
+        // Optimized render loop - uses RAF timestamp, no allocations per frame
         function animate() {
-            requestAnimationFrame(animate);
+            rafRef.current = requestAnimationFrame(animate);
             controls.update();
             renderer.render(scene, camera);
         }
-        animate();
+        rafRef.current = requestAnimationFrame(animate);
 
-        // Resize handler
+        // Debounced resize
+        let resizeTimer;
         function handleResize() {
-            const newWidth = container.clientWidth;
-            const newHeight = container.clientHeight;
-            camera.aspect = newWidth / newHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(newWidth, newHeight);
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                const w = container.clientWidth;
+                const h = container.clientHeight;
+                if (w === 0 || h === 0) return;
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h);
+            }, 50);
         }
         window.addEventListener('resize', handleResize);
 
-        // Notify parent that scene is ready
+        // Notify parent
         if (onReady) {
             onReady({ scene, camera, renderer, controls, transformControls });
         }
 
-        // Register with viewport context
         if (viewport && viewport.registerViewport) {
             viewport.registerViewport({ scene, camera, renderer, controls, transformControls });
         }
 
-        // Cleanup
         return () => {
+            cancelAnimationFrame(rafRef.current);
+            clearTimeout(resizeTimer);
             window.removeEventListener('resize', handleResize);
             window.removeEventListener('keydown', handleKeyDown);
             renderer.domElement.removeEventListener('click', handleClick);
             transformControls.dispose();
+            controls.dispose();
             renderer.dispose();
-            container.removeChild(renderer.domElement);
+            if (container.contains(renderer.domElement)) {
+                container.removeChild(renderer.domElement);
+            }
         };
-    }, [canvasId, domain, onReady]);
+    }, [canvasId, domain]);
 
-    const selectObject = (object, transformControls) => {
-        selectedRef.current = object;
-        transformControls.attach(object);
-    };
-
-    const deselectObject = (transformControls) => {
-        selectedRef.current = null;
-        transformControls.detach();
-    };
+    const handleModeChange = useCallback((mode) => {
+        setTransformMode(mode);
+        if (transformRef.current) transformRef.current.setMode(mode);
+    }, []);
 
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
-            {/* Gizmo Mode Switcher */}
+        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', contain: 'layout style paint' }}>
             <div className="gizmo-toolbar">
                 <button
                     className={`gizmo-btn ${transformMode === 'translate' ? 'active' : ''}`}
-                    onClick={() => {
-                        setTransformMode('translate');
-                        if (transformRef.current) transformRef.current.setMode('translate');
-                    }}
+                    onClick={() => handleModeChange('translate')}
                     title="Move (G)"
                 >
                     <Move size={14} />
                 </button>
                 <button
                     className={`gizmo-btn ${transformMode === 'rotate' ? 'active' : ''}`}
-                    onClick={() => {
-                        setTransformMode('rotate');
-                        if (transformRef.current) transformRef.current.setMode('rotate');
-                    }}
+                    onClick={() => handleModeChange('rotate')}
                     title="Rotate (R)"
                 >
                     <RotateCcw size={14} />
                 </button>
                 <button
                     className={`gizmo-btn ${transformMode === 'scale' ? 'active' : ''}`}
-                    onClick={() => {
-                        setTransformMode('scale');
-                        if (transformRef.current) transformRef.current.setMode('scale');
-                    }}
+                    onClick={() => handleModeChange('scale')}
                     title="Scale (S)"
                 >
                     <Maximize size={14} />
@@ -352,24 +358,17 @@ function createDomainScene(scene, domain) {
     }
 }
 
-/**
- * Create a simple gear shape
- */
 function createGear() {
     const group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: 0x8b1538, metalness: 0.3, roughness: 0.4 });
 
-    const center = new THREE.Mesh(
-        new THREE.CylinderGeometry(1, 1, 0.5, 32),
-        new THREE.MeshStandardMaterial({ color: 0x8b1538, metalness: 0.3, roughness: 0.4 })
-    );
+    const center = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.5, 32), mat);
     center.castShadow = true;
     group.add(center);
 
+    const toothGeo = new THREE.BoxGeometry(0.3, 0.5, 0.4);
     for (let i = 0; i < 12; i++) {
-        const tooth = new THREE.Mesh(
-            new THREE.BoxGeometry(0.3, 0.5, 0.4),
-            new THREE.MeshStandardMaterial({ color: 0x8b1538, metalness: 0.3, roughness: 0.4 })
-        );
+        const tooth = new THREE.Mesh(toothGeo, mat);
         const angle = (i / 12) * Math.PI * 2;
         tooth.position.x = Math.cos(angle) * 1.2;
         tooth.position.z = Math.sin(angle) * 1.2;
