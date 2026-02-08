@@ -141,3 +141,29 @@
     background: var(--border-color);
     margin: 3px 8px;
 }
+
+/* Action status indicator */
+.action-status {
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+}
+
+.action-status.running {
+    background: var(--accent-blue-muted);
+    color: var(--accent-blue);
+    border: 1px solid var(--accent-blue-border);
+}
+
+.action-status.done {
+    background: var(--color-success-muted);
+    color: var(--color-success);
+    border: 1px solid rgba(67, 160, 71, 0.3);
+}
+
+.action-status.error {
+    background: var(--color-error-muted);
+    color: var(--color-error);
+    border: 1px solid rgba(229, 57, 53, 0.3);
+}

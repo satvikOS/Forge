@@ -1,18 +1,21 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Viewport3D from '../../components/Viewport3D';
 import NavSphere from '../../components/NavSphere';
+import ModelTree from '../../components/ModelTree';
+import { useViewport } from '../../contexts/ViewportContext';
+import apiService from '../../services/api';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
-    ChevronRight, Ruler, Shield, Pipette, GitBranch,
-    Crosshair, Package, Cog, Eye, Zap
+    ChevronRight, Ruler, Pipette, GitBranch,
+    Crosshair, Zap
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
 
 /**
  * Mechanical CAD Workbench - Professional Layout
  * Full NX / CATIA / SolidWorks feature parity
- * 12 tool groups covering the complete mechanical design workflow
+ * 13 tool groups covering the complete mechanical design workflow
  */
 
 // ─── Tool Definitions - Full Industry Parity ──────────────────────────────────
@@ -343,10 +346,15 @@ function WorkbenchMechanical() {
     const [contextMenu, setContextMenu] = useState(null);
     const [dropdownStyle, setDropdownStyle] = useState({});
     const [viewportRef, setViewportRef] = useState(null);
+    const [actionStatus, setActionStatus] = useState(null);
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
+    const viewport = useViewport();
 
-    // Smart dropdown positioning
+    // Get selected model from context
+    const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
+
+    // Smart dropdown positioning - viewport-aware fixed overlay
     const calculateDropdownPosition = useCallback((buttonElement) => {
         if (!buttonElement) return {};
 
@@ -397,7 +405,10 @@ function WorkbenchMechanical() {
         if (!activeDropdown) return;
         const handleClick = (e) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-                setActiveDropdown(null);
+                const isToolButton = Object.values(buttonRefs.current).some(
+                    btn => btn && btn.contains(e.target)
+                );
+                if (!isToolButton) setActiveDropdown(null);
             }
         };
         document.addEventListener('mousedown', handleClick);
@@ -419,6 +430,118 @@ function WorkbenchMechanical() {
         setViewportRef(data);
     };
 
+    // ─── Endpoint-Connected Quick Actions ────────────────────────────────────────
+    const runAction = async (actionName, apiCall) => {
+        setActionStatus({ action: actionName, status: 'running' });
+        try {
+            const result = await apiCall();
+            setActionStatus({ action: actionName, status: 'done', result });
+            setTimeout(() => setActionStatus(null), 3000);
+        } catch (err) {
+            setActionStatus({ action: actionName, status: 'error', error: err.message });
+            setTimeout(() => setActionStatus(null), 5000);
+        }
+    };
+
+    const handleRunFEA = () => {
+        if (!selectedModel) return;
+        runAction('FEA Analysis', () =>
+            apiService.analyzeDesign({ designId: selectedModel.designId, specs: selectedModel.specs })
+        );
+    };
+
+    const handleRunCFD = () => {
+        if (!selectedModel) return;
+        runAction('CFD Simulation', async () => {
+            const res = await fetch('/api/parametric/prep-simulation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    designData: selectedModel.specs,
+                    simulationType: 'cfd',
+                }),
+            });
+            return res.json();
+        });
+    };
+
+    const handleExportGLTF = () => {
+        if (!selectedModel) return;
+        runAction('Export glTF', async () => {
+            const res = await fetch(`/api/download/${selectedModel.designId}/gltf`);
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${selectedModel.name || 'model'}.gltf`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+            return { success: true };
+        });
+    };
+
+    const handleExportOBJ = () => {
+        if (!selectedModel) return;
+        runAction('Export OBJ', async () => {
+            const res = await fetch(`/api/download/${selectedModel.designId}/obj`);
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${selectedModel.name || 'model'}.obj`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+            return { success: true };
+        });
+    };
+
+    const handleTopoOpt = () => {
+        if (!selectedModel) return;
+        runAction('Topology Optimization', async () => {
+            const res = await fetch('/api/parametric/generate-variants', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: `Optimize topology of ${selectedModel.name}`,
+                    numVariants: 1,
+                    strategies: ['lightweight'],
+                }),
+            });
+            return res.json();
+        });
+    };
+
+    const handleGenerateToolpath = () => {
+        if (!selectedModel) return;
+        runAction('Generate Toolpath', async () => {
+            const res = await fetch('/api/mechanical/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    designData: selectedModel.specs,
+                    analysisType: 'manufacturing',
+                }),
+            });
+            return res.json();
+        });
+    };
+
+    // ─── Transform handlers ──────────────────────────────────────────────────────
+    const handleTransformChange = (field, value) => {
+        if (!viewport || !selectedModel) return;
+        viewport.updateModelTransform(selectedModel.id, field, value);
+    };
+
+    const handleMaterialChange = (e) => {
+        if (!viewport || !selectedModel) return;
+        viewport.updateModelMaterial(selectedModel.id, e.target.value);
+    };
+
+    // ─── Render Dropdown ─────────────────────────────────────────────────────────
     const renderDropdown = (groupKey) => {
         const group = TOOL_GROUPS[groupKey];
         if (activeDropdown !== groupKey) return null;
@@ -454,8 +577,8 @@ function WorkbenchMechanical() {
 
     return (
         <>
-            {/* LEFT TOOLBAR */}
-            <aside className="workbench-tools" onClick={() => setActiveDropdown(null)}>
+            {/* LEFT TOOLBAR - Icon buttons only, dropdown rendered outside */}
+            <aside className="workbench-tools">
                 <div className="workbench-tools-inner">
                     {/* Pointer tools */}
                     <button className="tool-icon-button" title="Select (V)">
@@ -467,22 +590,20 @@ function WorkbenchMechanical() {
 
                     <div className="tool-separator" />
 
-                    {/* All tool groups */}
+                    {/* All tool groups - buttons only, NO dropdown inside */}
                     {Object.entries(TOOL_GROUPS).map(([key, group]) => {
                         const Icon = group.icon;
                         return (
-                            <div className="tool-dropdown-container" key={key}>
-                                <button
-                                    ref={el => buttonRefs.current[key] = el}
-                                    className={`tool-icon-button ${activeDropdown === key ? 'active' : ''}`}
-                                    title={group.label}
-                                    onClick={(e) => { e.stopPropagation(); toggleDropdown(key); }}
-                                >
-                                    <Icon size={18} />
-                                    <ChevronRight size={8} className="tool-expand-indicator" />
-                                </button>
-                                {renderDropdown(key)}
-                            </div>
+                            <button
+                                key={key}
+                                ref={el => buttonRefs.current[key] = el}
+                                className={`tool-icon-button ${activeDropdown === key ? 'active' : ''}`}
+                                title={group.label}
+                                onClick={(e) => { e.stopPropagation(); toggleDropdown(key); }}
+                            >
+                                <Icon size={18} />
+                                <ChevronRight size={8} className="tool-expand-indicator" />
+                            </button>
                         );
                     })}
 
@@ -494,6 +615,9 @@ function WorkbenchMechanical() {
                     </button>
                 </div>
             </aside>
+
+            {/* DROPDOWN OVERLAY - Rendered OUTSIDE the sidebar to avoid mask-image clipping */}
+            {activeDropdown && renderDropdown(activeDropdown)}
 
             {/* CENTER VIEWPORT */}
             <main
@@ -518,41 +642,54 @@ function WorkbenchMechanical() {
 
             {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
+                {/* Model Tree - generated after model creation */}
+                <ModelTree />
+
+                {/* Transform - bound to selected model */}
                 <div className="property-section">
                     <h3 className="property-header">Transform</h3>
-                    <div className="property-row">
-                        <span className="property-label">X</span>
-                        <input type="number" className="property-input" placeholder="0.00" />
-                    </div>
-                    <div className="property-row">
-                        <span className="property-label">Y</span>
-                        <input type="number" className="property-input" placeholder="0.00" />
-                    </div>
-                    <div className="property-row">
-                        <span className="property-label">Z</span>
-                        <input type="number" className="property-input" placeholder="0.00" />
-                    </div>
+                    {['x', 'y', 'z'].map(axis => (
+                        <div className="property-row" key={`pos-${axis}`}>
+                            <span className="property-label">{axis.toUpperCase()}</span>
+                            <input
+                                type="number"
+                                className="property-input"
+                                value={selectedModel?.transform?.[axis] ?? 0}
+                                onChange={(e) => handleTransformChange(axis, e.target.value)}
+                                step="0.1"
+                                disabled={!selectedModel}
+                            />
+                        </div>
+                    ))}
                 </div>
 
+                {/* Rotation */}
                 <div className="property-section">
-                    <h3 className="property-header">Feature</h3>
-                    <div className="property-row">
-                        <span className="property-label">Distance</span>
-                        <input type="number" className="property-input" placeholder="10.0" />
-                    </div>
-                    <div className="property-row">
-                        <span className="property-label">Draft</span>
-                        <input type="number" className="property-input" placeholder="0.0" />
-                    </div>
-                    <div className="property-row">
-                        <span className="property-label">Radius</span>
-                        <input type="number" className="property-input" placeholder="2.0" />
-                    </div>
+                    <h3 className="property-header">Rotation</h3>
+                    {[{f:'rx',l:'X'},{f:'ry',l:'Y'},{f:'rz',l:'Z'}].map(({f,l}) => (
+                        <div className="property-row" key={f}>
+                            <span className="property-label">{l}</span>
+                            <input
+                                type="number"
+                                className="property-input"
+                                value={selectedModel?.transform?.[f] ?? 0}
+                                onChange={(e) => handleTransformChange(f, e.target.value)}
+                                step="1"
+                                disabled={!selectedModel}
+                            />
+                        </div>
+                    ))}
                 </div>
 
+                {/* Material - bound to selected model */}
                 <div className="property-section">
                     <h3 className="property-header">Material</h3>
-                    <select className="property-input">
+                    <select
+                        className="property-input"
+                        value={selectedModel?.material || 'Aluminum 6061-T6'}
+                        onChange={handleMaterialChange}
+                        disabled={!selectedModel}
+                    >
                         <option>Aluminum 6061-T6</option>
                         <option>Aluminum 7075-T6</option>
                         <option>Steel AISI 1045</option>
@@ -572,30 +709,59 @@ function WorkbenchMechanical() {
                     </select>
                 </div>
 
+                {/* Mass Properties - computed from model */}
                 <div className="property-section">
                     <h3 className="property-header">Mass Properties</h3>
                     <div className="property-row">
                         <span className="property-label">Mass</span>
-                        <span className="property-value">-- kg</span>
+                        <span className="property-value">
+                            {selectedModel ? `${selectedModel.massProperties.mass} kg` : '-- kg'}
+                        </span>
                     </div>
                     <div className="property-row">
                         <span className="property-label">Volume</span>
-                        <span className="property-value">-- cm3</span>
+                        <span className="property-value">
+                            {selectedModel ? `${selectedModel.massProperties.volume} cm\u00B3` : '-- cm\u00B3'}
+                        </span>
                     </div>
                     <div className="property-row">
                         <span className="property-label">Surface</span>
-                        <span className="property-value">-- cm2</span>
+                        <span className="property-value">
+                            {selectedModel ? `${selectedModel.massProperties.surfaceArea} cm\u00B2` : '-- cm\u00B2'}
+                        </span>
                     </div>
                 </div>
 
+                {/* Quick Actions - connected to real endpoints */}
                 <div className="property-section">
                     <h3 className="property-header">Quick Actions</h3>
-                    <button className="property-button">Run FEA</button>
-                    <button className="property-button">Run CFD</button>
-                    <button className="property-button">Generate Toolpath</button>
-                    <button className="property-button">Topology Optimization</button>
-                    <button className="property-button">Export STEP</button>
-                    <button className="property-button">Export STL</button>
+
+                    {actionStatus && (
+                        <div className={`action-status ${actionStatus.status}`}>
+                            {actionStatus.status === 'running' && `Running ${actionStatus.action}...`}
+                            {actionStatus.status === 'done' && `${actionStatus.action} complete`}
+                            {actionStatus.status === 'error' && `Error: ${actionStatus.error}`}
+                        </div>
+                    )}
+
+                    <button className="property-button" onClick={handleRunFEA} disabled={!selectedModel}>
+                        Run FEA
+                    </button>
+                    <button className="property-button" onClick={handleRunCFD} disabled={!selectedModel}>
+                        Run CFD
+                    </button>
+                    <button className="property-button" onClick={handleGenerateToolpath} disabled={!selectedModel}>
+                        Generate Toolpath
+                    </button>
+                    <button className="property-button" onClick={handleTopoOpt} disabled={!selectedModel}>
+                        Topology Optimization
+                    </button>
+                    <button className="property-button" onClick={handleExportGLTF} disabled={!selectedModel}>
+                        Export glTF
+                    </button>
+                    <button className="property-button" onClick={handleExportOBJ} disabled={!selectedModel}>
+                        Export OBJ
+                    </button>
                 </div>
             </aside>
 
