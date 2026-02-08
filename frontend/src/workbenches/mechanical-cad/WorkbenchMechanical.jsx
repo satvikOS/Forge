@@ -4,11 +4,12 @@ import NavSphere from '../../components/NavSphere';
 import ModelTree from '../../components/ModelTree';
 import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
+import { executeTool } from './ToolExecutionEngine';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
     ChevronRight, Ruler, Pipette, GitBranch,
-    Crosshair, Zap
+    Crosshair, Zap, X, CheckCircle, AlertTriangle, Info
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
 
@@ -347,12 +348,46 @@ function WorkbenchMechanical() {
     const [dropdownStyle, setDropdownStyle] = useState({});
     const [viewportRef, setViewportRef] = useState(null);
     const [actionStatus, setActionStatus] = useState(null);
+    const [toolStatus, setToolStatus] = useState(null);    // { message, type, tool }
+    const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
+    const toolStatusTimerRef = useRef(null);
     const viewport = useViewport();
 
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
+
+    // ─── Tool Execution Handler ────────────────────────────────────────────────
+    const handleToolExecute = useCallback((groupKey, toolName) => {
+        setActiveDropdown(null);
+
+        const scene = viewport?.scene;
+        if (!scene) {
+            setToolStatus({ message: 'Viewport not ready yet. Please wait.', type: 'error', tool: toolName });
+            return;
+        }
+
+        // Execute the tool action
+        const result = executeTool(groupKey, toolName, scene, viewport);
+
+        // Set active tool name
+        setActiveTool(toolName);
+
+        // Show status feedback
+        setToolStatus({
+            message: result.message,
+            type: result.status, // 'success', 'info', 'warn', 'error'
+            tool: toolName,
+        });
+
+        // Auto-clear status after a delay (longer for info/warn)
+        if (toolStatusTimerRef.current) clearTimeout(toolStatusTimerRef.current);
+        const delay = result.status === 'success' ? 4000 : result.status === 'error' ? 6000 : 8000;
+        toolStatusTimerRef.current = setTimeout(() => {
+            setToolStatus(null);
+        }, delay);
+    }, [viewport]);
 
     // Smart dropdown positioning - viewport-aware fixed overlay
     const calculateDropdownPosition = useCallback((buttonElement) => {
@@ -560,11 +595,8 @@ function WorkbenchMechanical() {
                         {section.items.map(item => (
                             <div
                                 key={item}
-                                className="dropdown-item"
-                                onClick={() => {
-                                    console.log(`${groupKey}:${item}`);
-                                    setActiveDropdown(null);
-                                }}
+                                className={`dropdown-item ${activeTool === item ? 'active-tool' : ''}`}
+                                onClick={() => handleToolExecute(groupKey, item)}
                             >
                                 {item}
                             </div>
@@ -637,6 +669,33 @@ function WorkbenchMechanical() {
                         camera={viewportRef.camera}
                         controls={viewportRef.controls}
                     />
+                )}
+
+                {/* Tool Status Bar - shows feedback when tools are clicked */}
+                {toolStatus && (
+                    <div className={`tool-status-bar tool-status-${toolStatus.type}`}>
+                        <div className="tool-status-icon">
+                            {toolStatus.type === 'success' && <CheckCircle size={14} />}
+                            {toolStatus.type === 'error' && <AlertTriangle size={14} />}
+                            {toolStatus.type === 'warn' && <AlertTriangle size={14} />}
+                            {toolStatus.type === 'info' && <Info size={14} />}
+                        </div>
+                        <div className="tool-status-content">
+                            {toolStatus.tool && <span className="tool-status-name">{toolStatus.tool}</span>}
+                            <span className="tool-status-message">{toolStatus.message}</span>
+                        </div>
+                        <button className="tool-status-close" onClick={() => setToolStatus(null)}>
+                            <X size={12} />
+                        </button>
+                    </div>
+                )}
+
+                {/* Active Tool Indicator */}
+                {activeTool && (
+                    <div className="active-tool-indicator">
+                        <span className="active-tool-dot" />
+                        <span>{activeTool}</span>
+                    </div>
                 )}
             </main>
 
