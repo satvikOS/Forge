@@ -86,8 +86,8 @@
   --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ---- Layout Dimensions ---- */
-  --toolbar-width: 51px;
-  --header-height: 36px;
+  --toolbar-width: 48px;
+  --header-height: 40px;
   --properties-width: 280px;
   --footer-height: 60px;
   --status-bar-height: 28px;

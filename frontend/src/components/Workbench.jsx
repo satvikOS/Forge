@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Undo2, Redo2, Search, Save, Download } from 'lucide-react';
+import Topbar from './Topbar';
 import WorkbenchSwitcher from './WorkbenchSwitcher';
 import WorkbenchMechanical from '../workbenches/mechanical-cad/WorkbenchMechanical';
 import WorkbenchArchitecture from '../workbenches/architecture-bim/WorkbenchArchitecture';
@@ -14,12 +15,14 @@ import apiService from '../services/api';
 import '../styles/workbench.css';
 
 /**
- * Main Workbench Container, Blender Style Layout
- * Grid: Header, Toolbar, Viewport, Properties, Footer
+ * Main Workbench Container
+ * Layout: Header (menus + actions) | Toolbar + Viewport + Properties | Footer (AI Console)
+ *
+ * Tool access is consolidated in the left sidebar per workbench.
+ * The Topbar provides application-level menus (File, Edit, View, Tools, Help).
  */
 function WorkbenchContainer() {
     const [activeWorkbench, setActiveWorkbench] = useState('mechanical-cad');
-    const [featureSearch, setFeatureSearch] = useState('');
     const [isOnline, setIsOnline] = useState(true);
     const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [toasts, setToasts] = useState([]);
@@ -120,21 +123,6 @@ function WorkbenchContainer() {
         }
     };
 
-    const renderToolbar = () => {
-        const toolbars = {
-            'mechanical-cad': ['Sketch', 'Extrude', 'Revolve', 'Fillet', 'Pattern', 'Assembly', 'CFD', 'Simulate'],
-            'architecture-bim': ['Wall', 'Door', 'Window', 'Level', 'Room', 'Roof', 'Stair'],
-            'gaming-vfx': ['Model', 'Texture', 'Rig', 'Animate', 'Render', 'Particles'],
-            'automotive': ['Surface', 'Curve', 'Blend', 'Aerodynamics', 'Chassis', 'Aero'],
-            'electronics': ['Component', 'Trace', 'Route', 'Simulate', 'Export', 'DRC'],
-        };
-
-        const tools = toolbars[activeWorkbench] || [];
-        return tools.map(tool => (
-            <button key={tool} className="toolbar-button">{tool}</button>
-        ));
-    };
-
     // Command palette actions
     const getCommandActions = () => [
         { id: 'switch-mechanical', label: 'Switch to Mechanical CAD', category: 'Workbench', action: () => setActiveWorkbench('mechanical-cad') },
@@ -154,7 +142,7 @@ function WorkbenchContainer() {
     return (
         <ViewportProvider>
             <div className="workbench-container">
-                {/* TOP HEADER */}
+                {/* TOP HEADER - Application menus + utility actions */}
                 <header className="workbench-header">
                     <div className="header-brand">
                         <h1 className="workbench-title">ArchDisc</h1>
@@ -167,17 +155,27 @@ function WorkbenchContainer() {
                         )}
                     </div>
 
+                    {/* Application menu bar - File, Edit, View, Tools, Help */}
+                    <Topbar />
+
                     <div className="header-center">
                         <WorkbenchSwitcher
                             activeWorkbench={activeWorkbench}
                             onSwitchWorkbench={setActiveWorkbench}
                         />
-                        <div className="workbench-toolbar">
-                            {renderToolbar()}
-                        </div>
                     </div>
 
                     <div className="header-actions">
+                        <button
+                            className="header-button command-palette-trigger"
+                            onClick={() => setCommandPaletteOpen(true)}
+                            title="Command Palette (Ctrl+K)"
+                        >
+                            <Search size={12} />
+                            <span className="search-text">Search...</span>
+                            <kbd className="search-kbd">Ctrl+K</kbd>
+                        </button>
+                        <div className="header-divider"></div>
                         <button
                             className="header-button icon-btn"
                             title="Undo (Ctrl+Z)"
@@ -193,16 +191,6 @@ function WorkbenchContainer() {
                             disabled={redoStack.length === 0}
                         >
                             <Redo2 size={14} />
-                        </button>
-                        <div className="header-divider"></div>
-                        <button
-                            className="header-button command-palette-trigger"
-                            onClick={() => setCommandPaletteOpen(true)}
-                            title="Command Palette (Ctrl+K)"
-                        >
-                            <Search size={12} />
-                            <span className="search-text">Search...</span>
-                            <kbd className="search-kbd">Ctrl+K</kbd>
                         </button>
                         <div className="header-divider"></div>
                         <button className="header-button icon-btn" onClick={handleSave} title="Save (Ctrl+S)">

@@ -1,27 +1,41 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import './Topbar.css';
 
 /**
- * Topbar - Application menu bar with full nested submenu support
- * Supports: flat items, separators, categories, and nested submenus (arrow indicator)
+ * Topbar - Application menu bar with smart viewport-aware positioning
+ * All dropdowns and submenus use fixed positioning to prevent overflow.
+ * Renders as an inline nav element to embed within the workbench header.
  */
 export default function Topbar() {
   const [openMenu, setOpenMenu] = useState(null);
   const [openSubmenu, setOpenSubmenu] = useState(null);
+  const [dropdownStyle, setDropdownStyle] = useState({});
+  const [submenuStyle, setSubmenuStyle] = useState({});
+  const [activeSubmenuItems, setActiveSubmenuItems] = useState([]);
   const menuRef = useRef(null);
+  const submenuTimerRef = useRef(null);
+  const triggerRefs = useRef({});
 
+  // Close on outside click
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
         setOpenMenu(null);
         setOpenSubmenu(null);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Cleanup timer
+  useEffect(() => {
+    return () => clearTimeout(submenuTimerRef.current);
+  }, []);
+
+  // ─── Menu Definitions ─────────────────────────────────────────────────────────
+  // Application-level menus only. Tool creation (Insert, Sketch, etc.) lives in
+  // the left sidebar to avoid duplication.
   const menus = {
     file: {
       label: 'File',
@@ -43,12 +57,12 @@ export default function Topbar() {
           { label: 'STL (.stl)', action: () => console.log('Import STL') },
           { label: 'OBJ (.obj)', action: () => console.log('Import OBJ') },
           { label: 'FBX (.fbx)', action: () => console.log('Import FBX') },
-          { label: 'glTF/GLB', action: () => console.log('Import glTF') },
-          { label: 'DXF/DWG', action: () => console.log('Import DXF') },
+          { label: 'glTF / GLB', action: () => console.log('Import glTF') },
+          { label: 'DXF / DWG', action: () => console.log('Import DXF') },
           { label: 'JT (.jt)', action: () => console.log('Import JT') },
           { label: 'CATIA V5 (.CATpart)', action: () => console.log('Import CATIA') },
           { label: 'NX (.prt)', action: () => console.log('Import NX') },
-          { label: 'Creo/Pro-E (.prt)', action: () => console.log('Import Creo') },
+          { label: 'Creo / Pro-E (.prt)', action: () => console.log('Import Creo') },
           { label: 'Inventor (.ipt)', action: () => console.log('Import Inventor') },
         ]},
         { label: 'Export', submenu: [
@@ -59,7 +73,7 @@ export default function Topbar() {
           { label: '3MF (.3mf)', action: () => console.log('Export 3MF') },
           { label: 'OBJ (.obj)', action: () => console.log('Export OBJ') },
           { label: 'FBX (.fbx)', action: () => console.log('Export FBX') },
-          { label: 'glTF/GLB', action: () => console.log('Export glTF') },
+          { label: 'glTF / GLB', action: () => console.log('Export glTF') },
           { label: 'DXF (.dxf)', action: () => console.log('Export DXF') },
           { label: 'DWG (.dwg)', action: () => console.log('Export DWG') },
           { label: 'PDF Drawing', action: () => console.log('Export PDF') },
@@ -90,7 +104,6 @@ export default function Topbar() {
         { label: 'Deselect All', shortcut: 'Ctrl+D', action: () => console.log('Deselect All') },
         { label: 'Invert Selection', action: () => console.log('Invert Selection') },
         { type: 'separator' },
-        { label: 'Find / Replace', shortcut: 'Ctrl+F', action: () => console.log('Find') },
         { label: 'Suppress Feature', action: () => console.log('Suppress') },
         { label: 'Unsuppress Feature', action: () => console.log('Unsuppress') },
         { type: 'separator' },
@@ -120,15 +133,13 @@ export default function Topbar() {
           { label: 'Draft Quality', action: () => console.log('Draft Quality') },
         ]},
         { type: 'separator' },
-        { label: 'Zoom In', shortcut: 'Ctrl++', action: () => console.log('Zoom In') },
-        { label: 'Zoom Out', shortcut: 'Ctrl+-', action: () => console.log('Zoom Out') },
         { label: 'Zoom to Fit', shortcut: 'Home', action: () => console.log('Zoom Fit') },
         { label: 'Zoom to Selection', shortcut: 'F', action: () => console.log('Zoom Selection') },
         { type: 'separator' },
         { label: 'Section View', action: () => console.log('Section View') },
         { label: 'Perspective', action: () => console.log('Perspective'), checked: true },
         { type: 'separator' },
-        { label: 'Show/Hide', submenu: [
+        { label: 'Show / Hide', submenu: [
           { label: 'Grid', shortcut: 'G', action: () => console.log('Grid'), checked: true },
           { label: 'Axes', action: () => console.log('Axes'), checked: true },
           { label: 'Origin', action: () => console.log('Origin') },
@@ -140,91 +151,6 @@ export default function Topbar() {
         { type: 'separator' },
         { label: 'Toggle Sidebar', shortcut: 'Tab', action: () => console.log('Toggle Sidebar') },
         { label: 'Full Screen', shortcut: 'F11', action: () => console.log('Full Screen') },
-      ],
-    },
-    insert: {
-      label: 'Insert',
-      items: [
-        { label: 'Sketch', submenu: [
-          { label: 'New Sketch', action: () => console.log('New Sketch') },
-          { label: 'Sketch on Face', action: () => console.log('Sketch on Face') },
-          { label: '3D Sketch', action: () => console.log('3D Sketch') },
-        ]},
-        { label: 'Boss/Base', submenu: [
-          { label: 'Extrude', action: () => console.log('Extrude Boss') },
-          { label: 'Revolve', action: () => console.log('Revolve Boss') },
-          { label: 'Sweep', action: () => console.log('Sweep Boss') },
-          { label: 'Loft', action: () => console.log('Loft Boss') },
-          { label: 'Boundary', action: () => console.log('Boundary Boss') },
-        ]},
-        { label: 'Cut', submenu: [
-          { label: 'Extrude Cut', action: () => console.log('Extrude Cut') },
-          { label: 'Revolve Cut', action: () => console.log('Revolve Cut') },
-          { label: 'Sweep Cut', action: () => console.log('Sweep Cut') },
-          { label: 'Loft Cut', action: () => console.log('Loft Cut') },
-        ]},
-        { type: 'separator' },
-        { label: 'Features', submenu: [
-          { label: 'Fillet', action: () => console.log('Fillet') },
-          { label: 'Chamfer', action: () => console.log('Chamfer') },
-          { label: 'Shell', action: () => console.log('Shell') },
-          { label: 'Draft', action: () => console.log('Draft') },
-          { label: 'Rib', action: () => console.log('Rib') },
-          { label: 'Wrap', action: () => console.log('Wrap') },
-          { label: 'Dome', action: () => console.log('Dome') },
-        ]},
-        { label: 'Hole Wizard', action: () => console.log('Hole Wizard') },
-        { label: 'Thread', action: () => console.log('Thread') },
-        { type: 'separator' },
-        { label: 'Pattern', submenu: [
-          { label: 'Linear Pattern', action: () => console.log('Linear Pattern') },
-          { label: 'Circular Pattern', action: () => console.log('Circular Pattern') },
-          { label: 'Mirror', action: () => console.log('Mirror') },
-          { label: 'Curve-Driven Pattern', action: () => console.log('Curve Pattern') },
-          { label: 'Fill Pattern', action: () => console.log('Fill Pattern') },
-        ]},
-        { type: 'separator' },
-        { label: 'Reference Geometry', submenu: [
-          { label: 'Plane', action: () => console.log('Ref Plane') },
-          { label: 'Axis', action: () => console.log('Ref Axis') },
-          { label: 'Point', action: () => console.log('Ref Point') },
-          { label: 'Coordinate System', action: () => console.log('Coord System') },
-          { label: 'Center of Mass', action: () => console.log('CoM') },
-        ]},
-        { label: 'Curves', submenu: [
-          { label: 'Helix/Spiral', action: () => console.log('Helix') },
-          { label: 'Composite Curve', action: () => console.log('Composite Curve') },
-          { label: 'Projected Curve', action: () => console.log('Projected Curve') },
-          { label: 'Split Line', action: () => console.log('Split Line') },
-        ]},
-        { type: 'separator' },
-        { label: 'Surface', submenu: [
-          { label: 'Extrude Surface', action: () => console.log('Extrude Surface') },
-          { label: 'Revolve Surface', action: () => console.log('Revolve Surface') },
-          { label: 'Sweep Surface', action: () => console.log('Sweep Surface') },
-          { label: 'Loft Surface', action: () => console.log('Loft Surface') },
-          { label: 'Fill Surface', action: () => console.log('Fill Surface') },
-          { label: 'Offset Surface', action: () => console.log('Offset Surface') },
-          { label: 'Trim Surface', action: () => console.log('Trim Surface') },
-          { label: 'Thicken', action: () => console.log('Thicken') },
-          { label: 'Knit Surface', action: () => console.log('Knit Surface') },
-        ]},
-        { label: 'Sheet Metal', submenu: [
-          { label: 'Base Flange', action: () => console.log('Base Flange') },
-          { label: 'Edge Flange', action: () => console.log('Edge Flange') },
-          { label: 'Miter Flange', action: () => console.log('Miter Flange') },
-          { label: 'Hem', action: () => console.log('Hem') },
-          { label: 'Fold', action: () => console.log('Fold') },
-          { label: 'Unfold', action: () => console.log('Unfold') },
-          { label: 'Flat Pattern', action: () => console.log('Flat Pattern') },
-        ]},
-        { label: 'Weldments', submenu: [
-          { label: 'Structural Member', action: () => console.log('Structural Member') },
-          { label: 'End Cap', action: () => console.log('End Cap') },
-          { label: 'Gusset', action: () => console.log('Gusset') },
-          { label: 'Weld Bead', action: () => console.log('Weld Bead') },
-          { label: 'Cut List', action: () => console.log('Cut List') },
-        ]},
       ],
     },
     tools: {
@@ -256,51 +182,7 @@ export default function Topbar() {
         ]},
         { type: 'separator' },
         { label: 'Exploded View', shortcut: 'X', action: () => console.log('Explode') },
-        { label: 'Section View', action: () => console.log('Section View') },
         { label: 'Appearance', action: () => console.log('Appearance') },
-      ],
-    },
-    assets: {
-      label: '3D Assets',
-      items: [
-        { label: 'Primitives', submenu: [
-          { label: 'Box', shortcut: 'Shift+B', action: () => console.log('Box') },
-          { label: 'Sphere', shortcut: 'Shift+S', action: () => console.log('Sphere') },
-          { label: 'Cylinder', shortcut: 'Shift+C', action: () => console.log('Cylinder') },
-          { label: 'Cone', action: () => console.log('Cone') },
-          { label: 'Torus', action: () => console.log('Torus') },
-          { label: 'Plane', action: () => console.log('Plane') },
-          { label: 'Wedge', action: () => console.log('Wedge') },
-          { label: 'Pipe', action: () => console.log('Pipe') },
-        ]},
-        { label: 'Standard Parts', submenu: [
-          { label: 'Hex Bolt', action: () => console.log('Hex Bolt') },
-          { label: 'Socket Head Cap Screw', action: () => console.log('SHCS') },
-          { label: 'Hex Nut', action: () => console.log('Hex Nut') },
-          { label: 'Flat Washer', action: () => console.log('Flat Washer') },
-          { label: 'Lock Washer', action: () => console.log('Lock Washer') },
-          { label: 'Dowel Pin', action: () => console.log('Dowel Pin') },
-          { label: 'Retaining Ring', action: () => console.log('Retaining Ring') },
-          { label: 'Key / Keyway', action: () => console.log('Key') },
-          { label: 'O-Ring', action: () => console.log('O-Ring') },
-        ]},
-        { label: 'Bearings', submenu: [
-          { label: 'Ball Bearing', action: () => console.log('Ball Bearing') },
-          { label: 'Roller Bearing', action: () => console.log('Roller Bearing') },
-          { label: 'Thrust Bearing', action: () => console.log('Thrust Bearing') },
-          { label: 'Linear Bearing', action: () => console.log('Linear Bearing') },
-        ]},
-        { label: 'Structural Profiles', submenu: [
-          { label: 'I-Beam', action: () => console.log('I-Beam') },
-          { label: 'C-Channel', action: () => console.log('C-Channel') },
-          { label: 'L-Angle', action: () => console.log('L-Angle') },
-          { label: 'T-Section', action: () => console.log('T-Section') },
-          { label: 'Rectangular Tube', action: () => console.log('Rect Tube') },
-          { label: 'Round Tube', action: () => console.log('Round Tube') },
-        ]},
-        { type: 'separator' },
-        { label: 'Browse Library...', action: () => console.log('Browse Library') },
-        { label: 'Import Custom Asset...', action: () => console.log('Import Asset') },
       ],
     },
     help: {
@@ -319,9 +201,89 @@ export default function Topbar() {
     },
   };
 
+  // ─── Smart Positioning ─────────────────────────────────────────────────────────
+
+  const calcDropdownPos = useCallback((triggerEl) => {
+    if (!triggerEl) return {};
+    const rect = triggerEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const dropW = 260;
+
+    const style = { position: 'fixed', zIndex: 1000 };
+
+    // Horizontal: align left with trigger, clamp to viewport
+    style.left = Math.min(rect.left, vw - dropW - 8);
+
+    // Vertical: directly below trigger
+    style.top = rect.bottom;
+
+    // Limit height so it doesn't go off screen
+    const maxH = vh - rect.bottom - 8;
+    if (maxH < 200) {
+      // If too little space below, show above
+      style.top = 'auto';
+      style.bottom = vh - rect.top;
+      style.maxHeight = rect.top - 8;
+    } else {
+      style.maxHeight = maxH;
+    }
+
+    return style;
+  }, []);
+
+  const calcSubmenuPos = useCallback((parentItemEl) => {
+    if (!parentItemEl) return {};
+    const rect = parentItemEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const subW = 240;
+
+    // Find the dropdown panel that contains this item
+    const dropPanel = parentItemEl.closest('.topbar-dropdown');
+    const dropRect = dropPanel ? dropPanel.getBoundingClientRect() : rect;
+
+    const style = { position: 'fixed', zIndex: 1001 };
+
+    // Horizontal: prefer right of dropdown, fall back to left
+    if (dropRect.right + subW + 4 < vw) {
+      style.left = dropRect.right + 2;
+    } else if (dropRect.left - subW - 2 > 0) {
+      style.left = dropRect.left - subW - 2;
+    } else {
+      style.left = Math.max(4, vw - subW - 4);
+    }
+
+    // Vertical: align with parent item, clamp to viewport
+    const estimateH = 300;
+    if (rect.top + estimateH < vh) {
+      style.top = rect.top - 4;
+    } else {
+      style.top = Math.max(4, vh - estimateH - 4);
+    }
+
+    return style;
+  }, []);
+
+  // ─── Event Handlers ────────────────────────────────────────────────────────────
+
   const handleMenuClick = (menuKey) => {
-    setOpenMenu(openMenu === menuKey ? null : menuKey);
-    setOpenSubmenu(null);
+    if (openMenu === menuKey) {
+      setOpenMenu(null);
+      setOpenSubmenu(null);
+    } else {
+      setOpenMenu(menuKey);
+      setOpenSubmenu(null);
+      setDropdownStyle(calcDropdownPos(triggerRefs.current[menuKey]));
+    }
+  };
+
+  const handleMenuHover = (menuKey) => {
+    if (openMenu && openMenu !== menuKey) {
+      setOpenMenu(menuKey);
+      setOpenSubmenu(null);
+      setDropdownStyle(calcDropdownPos(triggerRefs.current[menuKey]));
+    }
   };
 
   const handleItemClick = (item) => {
@@ -332,61 +294,48 @@ export default function Topbar() {
     }
   };
 
+  const handleSubmenuEnter = (key, items, e) => {
+    clearTimeout(submenuTimerRef.current);
+    setOpenSubmenu(key);
+    setActiveSubmenuItems(items);
+    setSubmenuStyle(calcSubmenuPos(e.currentTarget));
+  };
+
+  const handleSubmenuLeave = () => {
+    submenuTimerRef.current = setTimeout(() => {
+      setOpenSubmenu(null);
+    }, 120);
+  };
+
+  const handleSubmenuPanelEnter = () => {
+    clearTimeout(submenuTimerRef.current);
+  };
+
+  const handleSubmenuPanelLeave = () => {
+    setOpenSubmenu(null);
+  };
+
+  // ─── Renderers ─────────────────────────────────────────────────────────────────
+
   const renderMenuItem = (item, index, parentKey) => {
     if (item.type === 'separator') {
       return <div key={index} className="topbar-separator" />;
     }
 
-    if (item.isCategory) {
-      return (
-        <div key={index} className="topbar-category">
-          {item.label}
-        </div>
-      );
-    }
-
-    // Item with submenu
+    // Item with submenu → arrow indicator, hover to open
     if (item.submenu) {
-      const submenuKey = `${parentKey}-${index}`;
+      const subKey = `${parentKey}-${index}`;
       return (
         <div
           key={index}
-          className="topbar-item has-submenu"
-          onMouseEnter={() => setOpenSubmenu(submenuKey)}
-          onMouseLeave={() => setOpenSubmenu(null)}
+          className={`topbar-item has-submenu ${openSubmenu === subKey ? 'submenu-active' : ''}`}
+          onMouseEnter={(e) => handleSubmenuEnter(subKey, item.submenu, e)}
+          onMouseLeave={handleSubmenuLeave}
         >
           <div className="topbar-item-left">
             <span>{item.label}</span>
           </div>
           <span className="topbar-submenu-arrow">&#9656;</span>
-
-          {openSubmenu === submenuKey && (
-            <div className="topbar-submenu">
-              {item.submenu.map((subItem, subIndex) => {
-                if (subItem.type === 'separator') {
-                  return <div key={subIndex} className="topbar-separator" />;
-                }
-                return (
-                  <div
-                    key={subIndex}
-                    className={`topbar-item ${subItem.disabled ? 'disabled' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleItemClick(subItem);
-                    }}
-                  >
-                    <div className="topbar-item-left">
-                      {subItem.checked && <span className="topbar-check">&#10003;</span>}
-                      <span>{subItem.label}</span>
-                    </div>
-                    {subItem.shortcut && (
-                      <span className="topbar-shortcut">{subItem.shortcut}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       );
     }
@@ -395,7 +344,7 @@ export default function Topbar() {
     return (
       <div
         key={index}
-        className={`topbar-item ${item.disabled ? 'disabled' : ''} ${item.indent ? 'indented' : ''}`}
+        className={`topbar-item ${item.disabled ? 'disabled' : ''}`}
         onClick={() => handleItemClick(item)}
       >
         <div className="topbar-item-left">
@@ -409,36 +358,63 @@ export default function Topbar() {
     );
   };
 
+  // ─── Render ────────────────────────────────────────────────────────────────────
+
   return (
-    <div ref={menuRef} className="topbar">
-      <div className="topbar-brand">ArchDisc</div>
-
+    <nav ref={menuRef} className="topbar-menus">
+      {/* Menu triggers */}
       {Object.entries(menus).map(([key, menu]) => (
-        <div key={key} className="topbar-menu-wrapper">
-          <button
-            className={`topbar-menu-trigger ${openMenu === key ? 'active' : ''}`}
-            onClick={() => handleMenuClick(key)}
-            onMouseEnter={() => {
-              if (openMenu) handleMenuClick(key);
-            }}
-          >
-            {menu.label}
-          </button>
-
-          {openMenu === key && (
-            <div className="topbar-dropdown">
-              {menu.items.map((item, index) => renderMenuItem(item, index, key))}
-            </div>
-          )}
-        </div>
+        <button
+          key={key}
+          ref={(el) => (triggerRefs.current[key] = el)}
+          className={`topbar-menu-trigger ${openMenu === key ? 'active' : ''}`}
+          onClick={() => handleMenuClick(key)}
+          onMouseEnter={() => handleMenuHover(key)}
+        >
+          {menu.label}
+        </button>
       ))}
 
-      <div className="topbar-spacer" />
+      {/* Dropdown panel - fixed positioned overlay */}
+      {openMenu && menus[openMenu] && (
+        <div className="topbar-dropdown" style={dropdownStyle}>
+          {menus[openMenu].items.map((item, i) => renderMenuItem(item, i, openMenu))}
+        </div>
+      )}
 
-      <div className="topbar-status">
-        <div className="topbar-status-dot" />
-        <span>Ready</span>
-      </div>
-    </div>
+      {/* Submenu panel - fixed positioned overlay */}
+      {openSubmenu && activeSubmenuItems.length > 0 && (
+        <div
+          className="topbar-submenu"
+          style={submenuStyle}
+          onMouseEnter={handleSubmenuPanelEnter}
+          onMouseLeave={handleSubmenuPanelLeave}
+        >
+          {activeSubmenuItems.map((subItem, si) => {
+            if (subItem.type === 'separator') {
+              return <div key={si} className="topbar-separator" />;
+            }
+            return (
+              <div
+                key={si}
+                className={`topbar-item ${subItem.disabled ? 'disabled' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleItemClick(subItem);
+                }}
+              >
+                <div className="topbar-item-left">
+                  {subItem.checked && <span className="topbar-check">&#10003;</span>}
+                  <span>{subItem.label}</span>
+                </div>
+                {subItem.shortcut && (
+                  <span className="topbar-shortcut">{subItem.shortcut}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </nav>
   );
 }
