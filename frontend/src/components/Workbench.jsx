@@ -8,6 +8,8 @@ import WorkbenchGaming from '../workbenches/gaming-vfx/WorkbenchGaming';
 import WorkbenchAutomotive from '../workbenches/automotive/WorkbenchAutomotive';
 import WorkbenchElectronics from '../workbenches/electronics/WorkbenchElectronics';
 import AIConsole from './AIConsole';
+import ProjectLibrary from './ProjectLibrary';
+import ComponentInfoPanel from './ComponentInfoPanel';
 import CommandPalette from './CommandPalette';
 import ToastContainer from './ToastContainer';
 import { ViewportProvider } from '../contexts/ViewportContext';
@@ -29,6 +31,7 @@ function WorkbenchContainer() {
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [activeProjectId, setActiveProjectId] = useState(null);
 
     // Toast helper
     const addToast = (message, type = 'info', duration = 3000) => {
@@ -202,7 +205,7 @@ function WorkbenchContainer() {
                     </div>
                 </header>
 
-                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) */}
+                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) - renders as grid children */}
                 {renderWorkbench()}
 
                 {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}

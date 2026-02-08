@@ -2,13 +2,16 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Viewport3D from '../../components/Viewport3D';
 import NavSphere from '../../components/NavSphere';
 import ModelTree from '../../components/ModelTree';
+import ProjectLibrary from '../../components/ProjectLibrary';
+import ComponentInfoPanel from '../../components/ComponentInfoPanel';
 import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
+import { executeTool } from './ToolExecutionEngine';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
     ChevronRight, Ruler, Pipette, GitBranch,
-    Crosshair, Zap
+    Crosshair, Zap, X, CheckCircle, AlertTriangle, Info
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
 
@@ -347,12 +350,124 @@ function WorkbenchMechanical() {
     const [dropdownStyle, setDropdownStyle] = useState({});
     const [viewportRef, setViewportRef] = useState(null);
     const [actionStatus, setActionStatus] = useState(null);
+    const [toolStatus, setToolStatus] = useState(null);    // { message, type, tool }
+    const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
+    const [activeProjectId, setActiveProjectId] = useState(null);
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
+    const toolStatusTimerRef = useRef(null);
     const viewport = useViewport();
 
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
+
+    // ─── Tool Execution Handler ────────────────────────────────────────────────
+    const handleToolExecute = useCallback((groupKey, toolName) => {
+        setActiveDropdown(null);
+
+        const scene = viewport?.scene;
+        if (!scene) {
+            setToolStatus({ message: 'Viewport not ready yet. Please wait.', type: 'error', tool: toolName });
+            return;
+        }
+
+        // Execute the tool action
+        const result = executeTool(groupKey, toolName, scene, viewport);
+
+        // Set active tool name
+        setActiveTool(toolName);
+
+        // Show status feedback
+        setToolStatus({
+            message: result.message,
+            type: result.status, // 'success', 'info', 'warn', 'error'
+            tool: toolName,
+        });
+
+        // Auto-clear status after a delay (longer for info/warn)
+        if (toolStatusTimerRef.current) clearTimeout(toolStatusTimerRef.current);
+        const delay = result.status === 'success' ? 4000 : result.status === 'error' ? 6000 : 8000;
+        toolStatusTimerRef.current = setTimeout(() => {
+            setToolStatus(null);
+        }, delay);
+    }, [viewport]);
+
+    // ─── Select / Move / Settings handlers ─────────────────────────────────────
+    const [interactionMode, setInteractionMode] = useState('select'); // 'select' | 'move'
+
+    const handleSelectMode = useCallback(() => {
+        setInteractionMode('select');
+        setActiveTool('Select');
+        setToolStatus({ message: 'Select mode: Click objects to select them.', type: 'info', tool: 'Select' });
+        if (viewport?.controls) {
+            viewport.controls.enableRotate = true;
+        }
+    }, [viewport]);
+
+    const handleMoveMode = useCallback(() => {
+        setInteractionMode('move');
+        setActiveTool('Move');
+        setToolStatus({ message: 'Move mode: Drag objects to reposition. Use gizmo handles for axis-constrained movement.', type: 'info', tool: 'Move' });
+        if (viewport?.setTransformMode) {
+            viewport.setTransformMode('translate');
+        }
+    }, [viewport]);
+
+    const handleSettings = useCallback(() => {
+        setToolStatus({ message: 'Settings: Grid, Snap, Units, Display preferences. (Settings panel coming soon)', type: 'info', tool: 'Settings' });
+    }, []);
+
+    // ─── Context menu actions ────────────────────────────────────────────────────
+    const handleContextAction = useCallback((action) => {
+        setContextMenu(null);
+        const scene = viewport?.scene;
+        switch (action) {
+            case 'New Sketch':
+                if (scene) executeTool('sketch', 'Line', scene, viewport);
+                setToolStatus({ message: 'New sketch started on selected face.', type: 'success', tool: 'Sketch' });
+                break;
+            case 'Insert Reference Plane':
+                if (scene) executeTool('reference', 'Reference Plane', scene, viewport);
+                break;
+            case 'Measure':
+                if (scene) executeTool('measure', 'Distance', scene, viewport);
+                break;
+            case 'Mass Properties':
+                if (selectedModel) {
+                    setToolStatus({
+                        message: `Mass: ${selectedModel.massProperties?.mass || '--'} kg | Vol: ${selectedModel.massProperties?.volume || '--'} cm³`,
+                        type: 'info', tool: 'Mass Properties'
+                    });
+                }
+                break;
+            case 'Delete':
+                if (selectedModel && viewport?.removeModel) {
+                    viewport.removeModel(selectedModel.id);
+                    setToolStatus({ message: `Deleted "${selectedModel.name}"`, type: 'success', tool: 'Delete' });
+                }
+                break;
+            case 'Hide/Show':
+                if (selectedModel && viewport?.toggleModelVisibility) {
+                    viewport.toggleModelVisibility(selectedModel.id);
+                    setToolStatus({ message: `Toggled visibility of "${selectedModel.name}"`, type: 'info', tool: 'Visibility' });
+                }
+                break;
+            default:
+                setToolStatus({ message: `${action} activated.`, type: 'info', tool: action });
+        }
+    }, [viewport, selectedModel]);
+
+    // Keyboard shortcuts for toolbar
+    useEffect(() => {
+        const handleKey = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === 'v' || e.key === 'V') { handleSelectMode(); }
+            if (e.key === 'g' || e.key === 'G') { handleMoveMode(); }
+            if (e.key === 'Escape') { setActiveDropdown(null); setActiveTool(null); setToolStatus(null); }
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [handleSelectMode, handleMoveMode]);
 
     // Smart dropdown positioning - viewport-aware fixed overlay
     const calculateDropdownPosition = useCallback((buttonElement) => {
@@ -560,11 +675,8 @@ function WorkbenchMechanical() {
                         {section.items.map(item => (
                             <div
                                 key={item}
-                                className="dropdown-item"
-                                onClick={() => {
-                                    console.log(`${groupKey}:${item}`);
-                                    setActiveDropdown(null);
-                                }}
+                                className={`dropdown-item ${activeTool === item ? 'active-tool' : ''}`}
+                                onClick={() => handleToolExecute(groupKey, item)}
                             >
                                 {item}
                             </div>
@@ -581,10 +693,18 @@ function WorkbenchMechanical() {
             <aside className="workbench-tools">
                 <div className="workbench-tools-inner">
                     {/* Pointer tools */}
-                    <button className="tool-icon-button" title="Select (V)">
+                    <button
+                        className={`tool-icon-button ${interactionMode === 'select' ? 'active' : ''}`}
+                        title="Select (V)"
+                        onClick={handleSelectMode}
+                    >
                         <MousePointer size={18} />
                     </button>
-                    <button className="tool-icon-button" title="Move (G)">
+                    <button
+                        className={`tool-icon-button ${interactionMode === 'move' ? 'active' : ''}`}
+                        title="Move (G)"
+                        onClick={handleMoveMode}
+                    >
                         <Move size={18} />
                     </button>
 
@@ -610,7 +730,7 @@ function WorkbenchMechanical() {
                     <div className="tool-separator" />
 
                     {/* Settings */}
-                    <button className="tool-icon-button" title="Settings">
+                    <button className="tool-icon-button" title="Settings" onClick={handleSettings}>
                         <Settings size={18} />
                     </button>
                 </div>
@@ -638,12 +758,49 @@ function WorkbenchMechanical() {
                         controls={viewportRef.controls}
                     />
                 )}
+
+                {/* Tool Status Bar - shows feedback when tools are clicked */}
+                {toolStatus && (
+                    <div className={`tool-status-bar tool-status-${toolStatus.type}`}>
+                        <div className="tool-status-icon">
+                            {toolStatus.type === 'success' && <CheckCircle size={14} />}
+                            {toolStatus.type === 'error' && <AlertTriangle size={14} />}
+                            {toolStatus.type === 'warn' && <AlertTriangle size={14} />}
+                            {toolStatus.type === 'info' && <Info size={14} />}
+                        </div>
+                        <div className="tool-status-content">
+                            {toolStatus.tool && <span className="tool-status-name">{toolStatus.tool}</span>}
+                            <span className="tool-status-message">{toolStatus.message}</span>
+                        </div>
+                        <button className="tool-status-close" onClick={() => setToolStatus(null)}>
+                            <X size={12} />
+                        </button>
+                    </div>
+                )}
+
+                {/* Active Tool Indicator */}
+                {activeTool && (
+                    <div className="active-tool-indicator">
+                        <span className="active-tool-dot" />
+                        <span>{activeTool}</span>
+                    </div>
+                )}
+
+                {/* Project Library - overlay inside viewport */}
+                <ProjectLibrary
+                    activeProjectId={activeProjectId}
+                    onSelectProject={(id) => setActiveProjectId(id)}
+                    onNewProject={() => setActiveProjectId(null)}
+                />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
                 {/* Model Tree - generated after model creation */}
                 <ModelTree />
+
+                {/* Component Info - shows when a model is selected */}
+                <ComponentInfoPanel />
 
                 {/* Transform - bound to selected model */}
                 <div className="property-section">
@@ -772,20 +929,20 @@ function WorkbenchMechanical() {
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={closeContextMenu}
                 >
-                    <div className="context-menu-item">Edit Feature</div>
-                    <div className="context-menu-item">Edit Sketch</div>
-                    <div className="context-menu-item">Suppress</div>
-                    <div className="context-menu-item">Delete</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Edit Feature')}>Edit Feature</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Edit Sketch')}>Edit Sketch</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Suppress')}>Suppress</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Delete')}>Delete</div>
                     <div className="context-menu-divider" />
-                    <div className="context-menu-item">New Sketch</div>
-                    <div className="context-menu-item">Insert Reference Plane</div>
-                    <div className="context-menu-item">Measure</div>
-                    <div className="context-menu-item">Mass Properties</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('New Sketch')}>New Sketch</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Insert Reference Plane')}>Insert Reference Plane</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Measure')}>Measure</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Mass Properties')}>Mass Properties</div>
                     <div className="context-menu-divider" />
-                    <div className="context-menu-item">Select Bodies</div>
-                    <div className="context-menu-item">Hide/Show</div>
-                    <div className="context-menu-item">Isolate</div>
-                    <div className="context-menu-item">Change Transparency</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Select Bodies')}>Select Bodies</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Hide/Show')}>Hide/Show</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Isolate')}>Isolate</div>
+                    <div className="context-menu-item" onClick={() => handleContextAction('Change Transparency')}>Change Transparency</div>
                 </div>
             )}
         </>

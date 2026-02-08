@@ -76,7 +76,7 @@ class AdditiveManufacturingService {
                 orientation: orientation.angles,
                 supportVolume: this._estimateSupportVolume(modelData, orientation),
                 surfaceQuality: this._estimateSurfaceQuality(modelData, orientation),
-                buildTime: this._estimate BuildTime(modelData, orientation),
+                buildTime: this._estimateBuildTime(modelData, orientation),
                 strength: this._estimateStrength(modelData, orientation, material),
                 totalScore: 0
             };

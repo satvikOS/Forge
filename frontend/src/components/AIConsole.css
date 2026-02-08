@@ -377,6 +377,17 @@
     cursor: not-allowed;
 }
 
+/* Project badge */
+.project-badge {
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 /* ========== Scrollbar ========== */
 .ai-console-content::-webkit-scrollbar {
     width: 4px;

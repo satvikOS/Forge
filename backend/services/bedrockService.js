@@ -1,6 +1,7 @@
-const { BedrockRuntimeClient, InvokeModelCommand, InvokeModelWithResponseStreamCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { BedrockRuntimeClient, InvokeModelCommand, InvokeModelWithResponseStreamCommand, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
 const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const taxonomySystem = require('./taxonomySystem');
+const { MODEL_CATALOG, getFallbackChain } = require('../config/modelConfig');
 
 /**
  * AWS Bedrock Service - Handles AI interactions with AWS Bedrock multimodal API
@@ -38,13 +39,10 @@ class BedrockService {
             // Test credential resolution
             console.log('🔍 Credential provider configured successfully');
 
-            // Model configuration - Use Claude Sonnet 4.5 via inference profile (required for on-demand)
-            this.textModel = process.env.BEDROCK_TEXT_MODEL || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
-            this.fallbackModels = [
-                'us.anthropic.claude-sonnet-4-5-20250929-v1:0'   // Claude Sonnet 4.5 via US inference profile (ONLY)
-            ];
+            // Model configuration — Multi-model support (DeepSeek R1, Kimi K2, Llama 3.3, Claude)
+            this.textModel = process.env.BEDROCK_TEXT_MODEL || MODEL_CATALOG['deepseek-r1'].id;
+            this.fallbackModels = getFallbackChain().map(m => m.id);
             this.imageModel = process.env.BEDROCK_IMAGE_MODEL || 'stability.stable-diffusion-xl-v1';
-            this.videoModel = process.env.BEDROCK_VIDEO_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
 
             // Generation parameters
             // Using full Claude Sonnet 4.5 capacity: 64K output tokens, 200K input tokens
@@ -107,51 +105,64 @@ class BedrockService {
                 try {
                     console.log(`⏳ Attempt ${attempt}/${maxRetries} - Calling Bedrock API...`);
 
-                    // Prepare request based on model type
-                    let requestBody;
-                    if (modelId.includes('anthropic.claude')) {
-                        // Claude format
-                        requestBody = {
-                            anthropic_version: "bedrock-2023-05-31",
-                            max_tokens: this.maxTokens,
-                            temperature: this.temperature,
-                            messages: [
-                                {
-                                    role: "user",
-                                    content: prompt
-                                }
-                            ]
-                        };
-                    } else if (modelId.includes('amazon.titan')) {
-                        // Titan format
-                        requestBody = {
-                            inputText: prompt,
-                            textGenerationConfig: {
-                                maxTokenCount: this.maxTokens,
-                                temperature: this.temperature,
-                                topP: 0.9
-                            }
-                        };
-                    } else {
-                        throw new Error(`Unsupported model type: ${modelId}`);
-                    }
+                    // Use per-request overrides or defaults
+                    const effectiveMaxTokens = options.maxTokens || this.maxTokens;
+                    const effectiveTemp = options.temperature || this.temperature;
 
-                    const command = new InvokeModelCommand({
-                        modelId: modelId,
-                        contentType: 'application/json',
-                        accept: 'application/json',
-                        body: JSON.stringify(requestBody)
-                    });
-
-                    const response = await this.client.send(command);
-                    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-
-                    // Extract text based on model type
                     let text;
+
+                    // Try Converse API first (works for DeepSeek, Kimi, Llama, Claude)
+                    // Falls back to InvokeModel for Claude-specific format
                     if (modelId.includes('anthropic.claude')) {
-                        text = responseBody.content[0].text;
-                    } else if (modelId.includes('amazon.titan')) {
-                        text = responseBody.results[0].outputText;
+                        // Claude: use native InvokeModel for best compatibility
+                        const requestBody = {
+                            anthropic_version: "bedrock-2023-05-31",
+                            max_tokens: effectiveMaxTokens,
+                            temperature: effectiveTemp,
+                            messages: [{ role: "user", content: prompt }]
+                        };
+                        const command = new InvokeModelCommand({
+                            modelId, contentType: 'application/json', accept: 'application/json',
+                            body: JSON.stringify(requestBody)
+                        });
+                        const response = await this.client.send(command);
+                        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+                        text = responseBody.content?.[0]?.text;
+                    } else {
+                        // All other models (DeepSeek R1, Kimi K2, Llama 3.3): use Converse API
+                        try {
+                            const command = new ConverseCommand({
+                                modelId,
+                                messages: [
+                                    { role: 'user', content: [{ text: prompt }] }
+                                ],
+                                inferenceConfig: {
+                                    maxTokens: effectiveMaxTokens,
+                                    temperature: effectiveTemp,
+                                },
+                            });
+                            const response = await this.client.send(command);
+                            text = response.output?.message?.content?.[0]?.text;
+                        } catch (converseError) {
+                            // Fallback: try InvokeModel with generic format
+                            if (converseError.name === 'ValidationException' || converseError.message?.includes('ConverseCommand')) {
+                                console.log(`   ⚠️  Converse API failed for ${modelId}, trying InvokeModel...`);
+                                const requestBody = {
+                                    prompt: `<s>[INST] ${prompt} [/INST]`,
+                                    max_gen_len: effectiveMaxTokens,
+                                    temperature: effectiveTemp,
+                                };
+                                const command = new InvokeModelCommand({
+                                    modelId, contentType: 'application/json', accept: 'application/json',
+                                    body: JSON.stringify(requestBody)
+                                });
+                                const response = await this.client.send(command);
+                                const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+                                text = responseBody.generation || responseBody.output?.text || responseBody.content?.[0]?.text;
+                            } else {
+                                throw converseError;
+                            }
+                        }
                     }
 
                     console.log(`✅ SUCCESS with model ${modelId} on attempt ${attempt}!`);

@@ -711,7 +711,7 @@ class AdvancedSurfacingService {
         console.log(`🎨 Lofting ${profiles.length} profiles with ${continuity} continuity...`);
 
         const surface = this.generateNURBSSurface({
-            controlPoints: this.profilesTo ControlPoints(profiles, guides),
+            controlPoints: this.profilesToControlPoints(profiles, guides),
             degree: [3, 3],
             continuity,
             constraints: [startConstraint, endConstraint].filter(Boolean),
