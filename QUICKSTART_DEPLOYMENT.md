@@ -13,14 +13,14 @@
    **Secret 1:**
    ```
    Name:  AWS_ACCESS_KEY_ID
-   Value: AKIAQJITMSWQQJXLT55Y
+   Value: 
    ```
    Click `Add secret`
 
    **Secret 2:**
    ```
    Name:  AWS_SECRET_ACCESS_KEY
-   Value: A0wpLPTwXZLCPUUgoAGkh05x+AO6n84yTrGtTMCp
+   Value: 
    ```
    Click `Add secret`
 
