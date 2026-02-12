@@ -39,8 +39,8 @@ You need to add your AWS credentials as GitHub Secrets so the workflow can deplo
 
    | Secret Name | Value | Description |
    |-------------|-------|-------------|
-   | `AWS_ACCESS_KEY_ID` | `AKIAQJITMSWQQJXLT55Y` | Your AWS Access Key ID |
-   | `AWS_SECRET_ACCESS_KEY` | `A0wpLPTwXZLCPUUgoAGkh05x+AO6n84yTrGtTMCp` | Your AWS Secret Access Key |
+   | `AWS_ACCESS_KEY_ID` | Your AWS Access Key ID | Your AWS Access Key ID |
+   | `AWS_SECRET_ACCESS_KEY` | Your AWS Secret Access Key | Your AWS Secret Access Key |
 
    **Optional Secrets (for LLM features):**
 

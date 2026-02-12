@@ -47,7 +47,7 @@ Go to: https://github.com/satvikOS/archdiscv1/settings/secrets/actions
 **Add Google API Key:**
 ```
 Name: GOOGLE_API_KEY
-Value: AIzaSyBj8_QQK7TCcqi5O5wlTuAEKHCE1yMKXFg
+Value: your_google_api_key_here
 ```
 
 ---
