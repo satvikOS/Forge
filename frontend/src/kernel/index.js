@@ -51,3 +51,10 @@ export { default as Tessellator } from './tessellation/Tessellator.js';
 
 // Bridge
 export { default as ThreeJSBridge } from './bridge/ThreeJSBridge.js';
+export { default as AssemblyBridge } from './bridge/AssemblyBridge.js';
+
+// Assembly
+export { default as Assembly, PartInstance, Mate } from './assembly/Assembly.js';
+
+// Library
+export { default as V12Engine } from './library/V12Engine.js';

@@ -10,7 +10,9 @@ import {
   BooleanEngine, FilletChamfer, LoftSweep, DirectEdit,
   FeatureTree, ThreeJSBridge, ExportEngine, SketchSolver,
   SketchPoint, SketchLine, SketchCircle,
+  V12Engine, Assembly,
 } from '../../kernel/index.js';
+import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -27,6 +29,10 @@ export function resetFeatureTree() {
 
 // Active sketch session
 let _activeSketch = null;
+
+// Active assembly
+let _currentAssembly = null;
+let _currentAssemblyRoot = null;
 
 export function getActiveSketch() { return _activeSketch; }
 
@@ -562,15 +568,33 @@ const TOOL_HANDLERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   assembly: {
     'Insert Component': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const feature = ft.addBox(1.5, 1.5, 1.5, new Vec3((Math.random()-0.5)*6, 0, (Math.random()-0.5)*6));
-      addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-      return { status: 'success', message: `Insert Component: Part added (Feature #${feature.id})` };
+      // Build a full V12 engine assembly
+      const assy = V12Engine.build();
+      const root = AssemblyBridge.renderAssembly(assy, scene);
+      _currentAssembly = assy;
+      _currentAssemblyRoot = root;
+
+      // Focus camera
+      if (viewport?.camera && viewport?.controls) {
+        AssemblyBridge.focusOnAssembly(root, viewport.camera, viewport.controls);
+      }
+
+      const bom = assy.generateBOM();
+      return {
+        status: 'success',
+        message: `V12 Engine Assembly: ${assy.partCount()} parts, ${bom.length} unique, ${assy.totalMass().toFixed(2)} kg total`
+      };
     },
     'Coincident Mate': () => ({ status: 'success', message: 'Coincident Mate: Faces aligned — 0 DOF remaining' }),
     'Concentric Mate': () => ({ status: 'success', message: 'Concentric Mate: Cylinders aligned concentrically' }),
     'Distance Mate': () => ({ status: 'success', message: 'Distance Mate: 10mm separation applied' }),
-    'Exploded View': () => ({ status: 'success', message: 'Exploded View: Components separated for visualization' }),
+    'Exploded View': (scene) => {
+      if (_currentAssembly && _currentAssemblyRoot) {
+        AssemblyBridge.explode(_currentAssemblyRoot, _currentAssembly, 3);
+        return { status: 'success', message: `Exploded View: ${_currentAssembly.partCount()} parts separated` };
+      }
+      return { status: 'warn', message: 'No assembly to explode. Insert Component first.' };
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

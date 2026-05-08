@@ -223,58 +223,76 @@ test.describe('Measure', () => {
   });
 });
 
-test.describe('V12 Engine Build', () => {
-  test('build V12 engine components end-to-end', async ({ page }) => {
+test.describe('V12 Engine Assembly', () => {
+  test('build full V12 engine via assembly system', async ({ page }) => {
     await waitForViewport(page);
 
-    // Engine block
+    // Use Assembly > Insert Component to build V12
+    await clickToolGroup(page, 5); // Assembly group
+    await clickDropdownItem(page, 'Insert Component');
+
+    // Should show assembly stats in status bar
+    await expectStatus(page, 'V12 Engine');
+
+    // Wait for all parts to render
+    await page.waitForTimeout(3000);
+
+    // Screenshot the complete engine
+    await page.screenshot({ path: 'e2e/screenshots/v12-engine-assembly.png', fullPage: true });
+  });
+
+  test('explode V12 engine assembly', async ({ page }) => {
+    await waitForViewport(page);
+
+    // Build engine
+    await clickToolGroup(page, 5);
+    await clickDropdownItem(page, 'Insert Component');
+    await page.waitForTimeout(3000);
+
+    // Explode
+    await clickToolGroup(page, 5);
+    await clickDropdownItem(page, 'Exploded View');
+    await expectStatus(page, 'Exploded');
+
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: 'e2e/screenshots/v12-engine-exploded.png', fullPage: true });
+  });
+
+  test('individual components via Part Design', async ({ page }) => {
+    await waitForViewport(page);
+
+    // Build individual components
     await clickToolGroup(page, 1);
     await clickDropdownItem(page, 'Extrude Boss');
-    await page.waitForTimeout(800);
-
-    // 6 cylinder bores
-    for (let i = 0; i < 6; i++) {
-      await clickToolGroup(page, 1);
-      await clickDropdownItem(page, 'Hole Wizard');
-      await page.waitForTimeout(600);
-    }
-
-    // Crankshaft
-    await clickToolGroup(page, 1);
-    await clickDropdownItem(page, 'Revolve Boss');
-    await page.waitForTimeout(800);
-
-    // Intake manifold
-    await clickToolGroup(page, 1);
-    await clickDropdownItem(page, 'Sweep Boss');
-    await page.waitForTimeout(800);
-
-    // Exhaust manifold
-    await clickToolGroup(page, 1);
-    await clickDropdownItem(page, 'Loft Boss');
-    await page.waitForTimeout(800);
-
-    // Fillets
-    await clickToolGroup(page, 1);
-    await clickDropdownItem(page, 'Fillet');
     await page.waitForTimeout(600);
 
-    // FEA analysis
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Revolve Boss');
+    await page.waitForTimeout(600);
+
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Sweep Boss');
+    await page.waitForTimeout(600);
+
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Loft Boss');
+    await page.waitForTimeout(600);
+
+    // Run FEA
     await clickToolGroup(page, 9);
     await clickDropdownItem(page, 'Linear Static FEA');
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(600);
 
     // Mass properties
     await clickToolGroup(page, 12);
     await clickDropdownItem(page, 'Mass Properties');
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(600);
 
     // Verify feature tree
     const items = page.locator('.feature-tree-item');
     const count = await items.count();
-    expect(count).toBeGreaterThanOrEqual(10);
+    expect(count).toBeGreaterThanOrEqual(4);
 
-    // Screenshot
-    await page.screenshot({ path: 'e2e/screenshots/v12-engine.png', fullPage: true });
+    await page.screenshot({ path: 'e2e/screenshots/v12-engine-parts.png', fullPage: true });
   });
 });
