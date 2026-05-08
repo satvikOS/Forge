@@ -1002,9 +1002,9 @@ function smartFallback(groupKey, toolName, scene, viewport) {
   // --- Scale ---
   if (nameLower === 'scale') {
     if (!lastSolid) { return needSolid(toolName); }
-    const feature = ft.addBox(3, 3, 3);
+    const feature = ft.addBox(0.075, 0.075, 0.075); // 75mm scaled
     addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-    return { status: 'success', message: `${toolName}: Scaled body created (1.5× original)` };
+    return { status: 'success', message: `${toolName}: Scaled body created (1.5× original = 75mm)` };
   }
 
   // --- Dome / Indent / Rib ---
@@ -1179,27 +1179,31 @@ function createSketchEntity(nameLower, toolName, scene) {
 function createSheetMetal(nameLower, toolName, scene, viewport, ft) {
   const color = 0xcccccc;
   if (nameLower.includes('base flange') || nameLower.includes('flange')) {
-    const feature = ft.addExtrude(rectProfile(3, 2), Vec3.unitY(), 0.08);
+    // 100×60mm sheet, 1.5mm thick
+    const feature = ft.addExtrude(rectProfile(100, 60), Vec3.unitY(), 0.0015);
     addSolidToScene(scene, viewport, feature.solid, color);
-    return { status: 'success', message: `${toolName}: 3m × 2m × 1.5mm sheet (Feature #${feature.id})` };
+    return { status: 'success', message: `${toolName}: 100×60mm × 1.5mm sheet (Feature #${feature.id})` };
   }
   if (nameLower.includes('hem') || nameLower.includes('tab') || nameLower.includes('bend') || nameLower.includes('jog')) {
+    // L-bend: 1.5mm thick, 25mm tall, 50mm long
     const feature = ft.addExtrude(
-      [new Vec3(0,0,0), new Vec3(0.08,0,0), new Vec3(0.08,0.5,0), new Vec3(0,0.5,0)],
-      Vec3.unitZ(), 2
+      [new Vec3(0,0,0), new Vec3(0.0015,0,0), new Vec3(0.0015,0.025,0), new Vec3(0,0.025,0)],
+      Vec3.unitZ(), 0.050
     );
     addSolidToScene(scene, viewport, feature.solid, color);
-    return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
+    return { status: 'success', message: `${toolName}: 25mm bend on 50mm edge (Feature #${feature.id})` };
   }
   if (nameLower.includes('flat pattern') || nameLower.includes('unfold') || nameLower.includes('flatten')) {
-    const feature = ft.addBox(4, 0.08, 3);
+    // 200×150mm flat sheet, 1.5mm thick
+    const feature = ft.addBox(0.200, 0.0015, 0.150);
     addSolidToScene(scene, viewport, feature.solid, color);
-    return { status: 'success', message: `${toolName}: Unfolded flat pattern` };
+    return { status: 'success', message: `${toolName}: 200×150mm × 1.5mm flat pattern` };
   }
   if (nameLower.includes('forming') || nameLower.includes('louver') || nameLower.includes('lance') || nameLower.includes('dimple') || nameLower.includes('stamp')) {
-    const feature = ft.addCylinder(0.3, 0.1, 16, new Vec3(0, 0.08, 0));
+    // 10mm diameter, 2mm protrusion
+    const feature = ft.addCylinder(0.005, 0.002, 16, new Vec3(0, 0.0015, 0));
     addSolidToScene(scene, viewport, feature.solid, color);
-    return { status: 'success', message: `${toolName}: Form feature applied` };
+    return { status: 'success', message: `${toolName}: Ø10mm × 2mm form feature` };
   }
   if (nameLower.includes('export') || nameLower.includes('dxf')) {
     const solid = ft.getSolid();
@@ -1210,10 +1214,11 @@ function createSheetMetal(nameLower, toolName, scene, viewport, ft) {
     const solid = ft.getSolid();
     if (!solid) return needSolid(toolName);
     const area = solid.surfaceArea();
-    return { status: 'success', message: `${toolName}: Material $${(area * 8).toFixed(2)} | Bending $${(area * 3).toFixed(2)} | Total $${(area * 11).toFixed(2)}` };
+    // Realistic costs per m²: $40 material, $15 bending
+    return { status: 'success', message: `${toolName}: Material $${(area * 40).toFixed(2)} | Bending $${(area * 15).toFixed(2)} | Total $${(area * 55).toFixed(2)}` };
   }
-  // Default sheet metal
-  const feature = ft.addExtrude(rectProfile(2, 1.5), Vec3.unitY(), 0.06);
+  // Default: 60×40mm sheet at 1.5mm
+  const feature = ft.addExtrude(rectProfile(60, 40), Vec3.unitY(), 0.0015);
   addSolidToScene(scene, viewport, feature.solid, color);
   return { status: 'success', message: `${toolName}: Sheet metal feature created` };
 }
@@ -1221,116 +1226,127 @@ function createSheetMetal(nameLower, toolName, scene, viewport, ft) {
 function createWeldment(nameLower, toolName, scene, viewport, ft) {
   const color = 0x888888;
   if (nameLower.includes('structural') || nameLower.includes('frame') || nameLower.includes('member')) {
-    // Create an I-beam like structure
+    // Realistic I-beam: 100mm flange, 6mm thick, 200mm long (for viewport)
     const parts = [
-      ft.addExtrude(rectProfile(0.2, 0.02), Vec3.unitZ(), 4), // top flange
-      ft.addExtrude([new Vec3(-0.01,0,0), new Vec3(0.01,0,0), new Vec3(0.01,0.18,0), new Vec3(-0.01,0.18,0)], Vec3.unitZ(), 4), // web
-      ft.addExtrude(rectProfile(0.2, 0.02), Vec3.unitZ(), 4), // bottom flange
+      ft.addExtrude(rectProfile(100, 6), Vec3.unitZ(), 0.200), // top flange
+      ft.addExtrude([new Vec3(-0.003,0,0), new Vec3(0.003,0,0), new Vec3(0.003,0.094,0), new Vec3(-0.003,0.094,0)], Vec3.unitZ(), 0.200), // web
+      ft.addExtrude(rectProfile(100, 6), Vec3.unitZ(), 0.200), // bottom flange
     ];
     parts.forEach(f => addSolidToScene(scene, viewport, f.solid, color));
-    return { status: 'success', message: `${toolName}: I-Beam 200×200, L=4m` };
+    return { status: 'success', message: `${toolName}: I-Beam 100×100×6mm, L=200mm` };
   }
   if (nameLower.includes('i-beam') || nameLower.includes('channel') || nameLower.includes('angle') ||
       nameLower.includes('t-section') || nameLower.includes('tube') || nameLower.includes('pipe') || nameLower.includes('profile')) {
     const isRound = nameLower.includes('round') || nameLower.includes('pipe');
     const feature = isRound
-      ? ft.addCylinder(0.08, 4, 16)
-      : ft.addExtrude(rectProfile(0.1, 0.1), Vec3.unitZ(), 4);
+      ? ft.addCylinder(0.020, 0.200, 32)  // Ø40mm pipe, 200mm long
+      : ft.addExtrude(rectProfile(40, 40), Vec3.unitZ(), 0.200);  // 40×40mm tube, 200mm long
     addSolidToScene(scene, viewport, feature.solid, color);
-    return { status: 'success', message: `${toolName}: Profile created, L=4m` };
+    return { status: 'success', message: `${toolName}: Profile Ø40mm, L=200mm` };
   }
   if (nameLower.includes('weld') || nameLower.includes('bead') || nameLower.includes('gusset') || nameLower.includes('cap')) {
-    const feature = ft.addCylinder(0.05, 0.2, 8, new Vec3(0, 0, 0));
+    // 5mm fillet weld bead, 30mm long
+    const feature = ft.addCylinder(0.0025, 0.030, 8, new Vec3(0, 0, 0));
     addSolidToScene(scene, viewport, feature.solid, 0xffcc00);
-    return { status: 'success', message: `${toolName}: Weld feature applied` };
+    return { status: 'success', message: `${toolName}: 5mm fillet weld, L=30mm` };
   }
   if (nameLower.includes('cut list') || nameLower.includes('bom') || nameLower.includes('length') || nameLower.includes('properties')) {
     const feats = ft.features.filter(f => f.solid);
-    return { status: 'success', message: `${toolName}: ${feats.length} members | Total length: ${(feats.length * 4).toFixed(1)}m | Weight: ${(feats.length * 12.5).toFixed(1)} kg` };
+    return { status: 'success', message: `${toolName}: ${feats.length} members | Total length: ${(feats.length * 200).toFixed(0)}mm | Weight: ${(feats.length * 0.625).toFixed(2)} kg` };
   }
-  const feature = ft.addExtrude(rectProfile(0.1, 0.1), Vec3.unitZ(), 3);
+  // Default: 40×40mm tube, 200mm long
+  const feature = ft.addExtrude(rectProfile(40, 40), Vec3.unitZ(), 0.200);
   addSolidToScene(scene, viewport, feature.solid, color);
-  return { status: 'success', message: `${toolName}: Weldment feature created` };
+  return { status: 'success', message: `${toolName}: Weldment 40×40mm × 200mm` };
 }
 
 function createPiping(nameLower, toolName, scene, viewport, ft) {
   const color = 0x4488aa;
   if (nameLower.includes('route') || nameLower.includes('pipe') || nameLower.includes('tube') || nameLower.includes('cable') || nameLower.includes('harness')) {
-    const profile = circleProfile(0.05, 12);
+    // Ø10mm pipe, ~250mm route with bends
+    const profile = circleProfile(5, 16);  // 5mm radius
     const path = [
-      new Vec3(0, 0, 0), new Vec3(2, 0, 0), new Vec3(2, 0, 2),
-      new Vec3(2, 2, 2), new Vec3(4, 2, 2),
+      new Vec3(0, 0, 0),
+      new Vec3(0.080, 0, 0),
+      new Vec3(0.080, 0, 0.080),
+      new Vec3(0.080, 0.080, 0.080),
+      new Vec3(0.150, 0.080, 0.080),
     ];
     const feature = ft.addSweep(profile, path);
     addSolidToScene(scene, viewport, feature.solid, color);
-    return { status: 'success', message: `${toolName}: Route created, L=${path.length - 1} segments` };
+    return { status: 'success', message: `${toolName}: Ø10mm pipe, ${path.length - 1} segments, L≈250mm` };
   }
   if (nameLower.includes('fitting') || nameLower.includes('valve') || nameLower.includes('flange') ||
       nameLower.includes('tee') || nameLower.includes('elbow') || nameLower.includes('reducer') ||
       nameLower.includes('connector') || nameLower.includes('clip') || nameLower.includes('connect')) {
-    const feature = ft.addCylinder(0.08, 0.15, 16, new Vec3(2, 0, 0));
+    // Ø20mm flange/fitting, 8mm thick
+    const feature = ft.addCylinder(0.010, 0.008, 24, new Vec3(0.080, 0, 0));
     addSolidToScene(scene, viewport, feature.solid, 0x666666);
-    return { status: 'success', message: `${toolName}: Fitting placed at junction` };
+    return { status: 'success', message: `${toolName}: Ø20mm fitting at junction` };
   }
   if (nameLower.includes('flow') || nameLower.includes('pressure') || nameLower.includes('stress') || nameLower.includes('analysis') || nameLower.includes('report')) {
-    return { status: 'success', message: `${toolName}: Analysis complete — Max pressure: 2.4 MPa, Flow rate: 12.3 L/min, Pressure drop: 0.18 bar` };
+    return { status: 'success', message: `${toolName}: Analysis — Max pressure: 2.4 MPa, Flow: 12.3 L/min, ΔP: 0.18 bar` };
   }
   if (nameLower.includes('bill') || nameLower.includes('bom') || nameLower.includes('flatten') || nameLower.includes('length')) {
-    return { status: 'success', message: `${toolName}: 5 pipes, 3 elbows, 2 tees, 1 valve | Total length: 14.2m` };
+    return { status: 'success', message: `${toolName}: 5 pipes, 3 elbows, 2 tees, 1 valve | Total length: 1420mm` };
   }
-  const feature = ft.addCylinder(0.04, 3, 12);
+  // Default: Ø8mm pipe, 150mm long
+  const feature = ft.addCylinder(0.004, 0.150, 16);
   addSolidToScene(scene, viewport, feature.solid, color);
-  return { status: 'success', message: `${toolName}: Piping element created` };
+  return { status: 'success', message: `${toolName}: Ø8mm pipe × 150mm` };
 }
 
 function createSurface(nameLower, toolName, scene, viewport, ft) {
   if (nameLower.includes('planar') || nameLower.includes('fill') || nameLower.includes('patch') || nameLower.includes('mid')) {
-    const geo = new THREE.PlaneGeometry(4, 4, 8, 8);
+    // 80×80mm planar surface
+    const geo = new THREE.PlaneGeometry(0.080, 0.080, 8, 8);
     const mat = new THREE.MeshStandardMaterial({ color: 0x00cc88, transparent: true, opacity: 0.6, side: THREE.DoubleSide, metalness: 0.2, roughness: 0.5 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y = 1;
+    mesh.position.y = 0.030;
     mesh.userData.pickable = true;
     mesh.castShadow = true;
     scene.add(mesh);
-    return { status: 'success', message: `${toolName}: 4m × 4m planar surface created` };
+    return { status: 'success', message: `${toolName}: 80×80mm planar surface created` };
   }
   if (nameLower.includes('offset') || nameLower.includes('thicken')) {
-    const feature = ft.addBox(3, 0.05, 3, new Vec3(0, 2, 0));
+    // 60×60mm thickened by 1.5mm
+    const feature = ft.addBox(0.060, 0.0015, 0.060, new Vec3(0, 0.030, 0));
     addSolidToScene(scene, viewport, feature.solid, 0x00cc88);
-    return { status: 'success', message: `${toolName}: Surface offset/thickened by 50mm` };
+    return { status: 'success', message: `${toolName}: 60×60mm × 1.5mm thickened` };
   }
   if (nameLower.includes('ruled')) {
-    const geo = new THREE.PlaneGeometry(4, 4, 1, 1);
-    geo.attributes.position.array[7] = 2; // warp one corner
+    const geo = new THREE.PlaneGeometry(0.080, 0.080, 1, 1);
+    geo.attributes.position.array[7] = 0.040; // warp one corner up 40mm
     geo.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({ color: 0x00cc88, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.userData.pickable = true;
     scene.add(mesh);
-    return { status: 'success', message: `${toolName}: Ruled surface between two edges` };
+    return { status: 'success', message: `${toolName}: Ruled surface 80×80mm with 40mm twist` };
   }
   if (nameLower.includes('analysis') || nameLower.includes('curvature') || nameLower.includes('zebra') ||
       nameLower.includes('draft') || nameLower.includes('deviation') || nameLower.includes('radius') ||
       nameLower.includes('continuity') || nameLower.includes('section')) {
-    return { status: 'success', message: `${toolName}: Analysis complete — Min radius: 0.85m, Max curvature: 1.18/m, G2 continuity: Pass` };
+    return { status: 'success', message: `${toolName}: Min radius 8.5mm | Max curvature 118/m | G2 continuity: PASS` };
   }
   if (nameLower.includes('trim') || nameLower.includes('untrim') || nameLower.includes('extend') ||
       nameLower.includes('blend') || nameLower.includes('knit') || nameLower.includes('flatten') || nameLower.includes('deform')) {
     return { status: 'success', message: `${toolName}: Surface modified successfully` };
   }
-  // Default: extrude/revolve/sweep/loft surface
-  const feature = ft.addExtrude(rectProfile(2, 2), Vec3.unitY(), 0.02);
+  // Default: 50×50mm × 1mm extruded surface
+  const feature = ft.addExtrude(rectProfile(50, 50), Vec3.unitY(), 0.001);
   addSolidToScene(scene, viewport, feature.solid, 0x00cc88);
   return { status: 'success', message: `${toolName}: Surface body created` };
 }
 
 function createAssembly(nameLower, toolName, scene, viewport, ft) {
   if (nameLower.includes('insert') || nameLower.includes('new component')) {
-    const feature = ft.addBox(1.5, 1.5, 1.5, new Vec3((Math.random()-0.5)*6, 0, (Math.random()-0.5)*6));
+    // 30mm cube placed near origin
+    const feature = ft.addBox(0.030, 0.030, 0.030, new Vec3((Math.random()-0.5)*0.080, 0, (Math.random()-0.5)*0.080));
     addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-    return { status: 'success', message: `${toolName}: Component inserted (Feature #${feature.id})` };
+    return { status: 'success', message: `${toolName}: 30mm component inserted (Feature #${feature.id})` };
   }
   if (nameLower.includes('replace')) {
     return { status: 'success', message: `${toolName}: Component replaced successfully` };
@@ -1357,7 +1373,7 @@ function createAssembly(nameLower, toolName, scene, viewport, ft) {
     const solid = ft.getSolid();
     if (solid) {
       const p = solid.massProperties();
-      return { status: 'success', message: `${toolName}: Mass ${p.mass.toFixed(2)}kg, Vol ${p.volume.toFixed(4)}m³` };
+      return { status: 'success', message: `${toolName}: Mass ${(p.mass * 1000).toFixed(2)}g | Vol ${(p.volume * 1e6).toFixed(2)}cm³ | Area ${(p.surfaceArea * 1e4).toFixed(2)}cm²` };
     }
     return needSolid(toolName);
   }
@@ -1388,9 +1404,10 @@ function createAssembly(nameLower, toolName, scene, viewport, ft) {
     addSolidToScene(scene, viewport, ring.body, 0x222222);
     return { status: 'success', message: `${toolName}: O-Ring ID20 × CS3 (ISO 3601)` };
   }
-  const feature = ft.addBox(1, 1, 1, new Vec3(Math.random()*4, 0, Math.random()*4));
+  // Default: 25mm cube placed near origin
+  const feature = ft.addBox(0.025, 0.025, 0.025, new Vec3(Math.random()*0.060, 0, Math.random()*0.060));
   addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-  return { status: 'success', message: `${toolName}: Assembly operation applied` };
+  return { status: 'success', message: `${toolName}: 25mm component added` };
 }
 
 function runSimulation(nameLower, toolName, scene, viewport, ft) {
@@ -1485,9 +1502,10 @@ function runManufacturing(nameLower, toolName, scene, viewport, ft) {
     return { status: 'success', message: `${toolName}: Inspection plan — 24 measurement points, 8 GD&T callouts, CMM program exported` };
   }
   if (nameLower.includes('fixture')) {
-    const feature = ft.addBox(4, 0.5, 3, new Vec3(0, -0.25, 0));
+    // 200×150mm × 20mm fixture plate
+    const feature = ft.addBox(0.200, 0.020, 0.150, new Vec3(0, -0.010, 0));
     addSolidToScene(scene, viewport, feature.solid, 0x666666);
-    return { status: 'success', message: `${toolName}: Fixture plate created (4m × 3m)` };
+    return { status: 'success', message: `${toolName}: Fixture plate 200×150×20mm` };
   }
   if (nameLower.includes('cost')) {
     const solid = ft.getSolid();
