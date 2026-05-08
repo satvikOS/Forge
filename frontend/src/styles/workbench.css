@@ -6,12 +6,13 @@
     height: 100vh;
     width: 100vw;
     display: grid;
-    grid-template-rows: var(--header-height) auto minmax(0, 1fr) auto;
+    grid-template-rows: var(--header-height) auto minmax(0, 1fr) 22px auto;
     grid-template-columns: var(--toolbar-width) 1fr var(--properties-width);
     grid-template-areas:
         "header header header"
         "ribbon ribbon ribbon"
         "toolbar viewport properties"
+        "statusbar statusbar statusbar"
         "footer footer footer";
     background: var(--bg-primary);
     color: var(--text-primary);

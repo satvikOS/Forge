@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Undo2, Redo2, Search, Save, Download } from 'lucide-react';
 import Topbar from './Topbar';
+import StatusBarPro from './StatusBarPro';
+import './StatusBarPro.css';
 import WorkbenchSwitcher from './WorkbenchSwitcher';
 import WorkbenchMechanical from '../workbenches/mechanical-cad/WorkbenchMechanical';
 import WorkbenchArchitecture from '../workbenches/architecture-bim/WorkbenchArchitecture';
@@ -207,6 +209,9 @@ function WorkbenchContainer() {
 
                 {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) - renders as grid children */}
                 {renderWorkbench()}
+
+                {/* STATUS BAR */}
+                <StatusBarPro />
 
                 {/* BOTTOM FOOTER - AI CONSOLE (Chat/Code Terminal) */}
                 <AIConsole />

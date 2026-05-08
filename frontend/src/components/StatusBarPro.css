@@ -1,0 +1,59 @@
+.status-bar-pro {
+  grid-area: statusbar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 22px;
+  padding: 0 10px;
+  background: var(--bg-tertiary, #111122);
+  border-top: 1px solid var(--border-color, #2a2a3e);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary, #888);
+  user-select: none;
+}
+
+.status-left, .status-center, .status-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-left { flex: 1; }
+.status-center { flex: 1; justify-content: center; }
+.status-right { flex: 1; justify-content: flex-end; }
+
+.status-mode {
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.05);
+}
+
+.status-sel {
+  color: var(--text-muted, #666);
+}
+
+.status-sketch {
+  color: #00bbff;
+}
+
+.status-coords {
+  color: var(--text-secondary, #888);
+  letter-spacing: 0.3px;
+}
+
+.status-unit {
+  color: #4a90d9;
+  font-weight: 600;
+}
+
+.status-divider {
+  color: var(--border-color, #333);
+}
+
+.status-fps {
+  color: var(--text-muted, #666);
+}
