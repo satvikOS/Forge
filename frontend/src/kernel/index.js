@@ -77,3 +77,6 @@ export { default as BearingLibrary, BEARING_CATALOG } from './standards/BearingL
 
 // PDM / Version Control
 export { default as VersionControl } from './pdm/VersionControl.js';
+
+// AI Agent Bridge
+export { default as AgentBridge } from './agents/AgentBridge.js';
