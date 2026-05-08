@@ -7,6 +7,8 @@ import ComponentInfoPanel from '../../components/ComponentInfoPanel';
 import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool } from './ToolExecutionEngine';
+import FeatureTreePanel from '../../components/FeatureTreePanel';
+import '../../components/FeatureTreePanel.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
@@ -353,6 +355,7 @@ function WorkbenchMechanical() {
     const [toolStatus, setToolStatus] = useState(null);    // { message, type, tool }
     const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const [activeProjectId, setActiveProjectId] = useState(null);
+    const [selection, setSelection] = useState(null); // { type, faceId, solidId, etc. }
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
     const toolStatusTimerRef = useRef(null);
@@ -749,6 +752,7 @@ function WorkbenchMechanical() {
                     canvasId="render-canvas-mechanical"
                     domain="mechanical"
                     onReady={handleViewportReady}
+                    onSelectionChange={setSelection}
                 />
 
                 {/* NavSphere - translucent 3D navigation sphere */}
@@ -786,6 +790,17 @@ function WorkbenchMechanical() {
                     </div>
                 )}
 
+                {/* Selection Info */}
+                {selection && (
+                    <div className="selection-info-bar">
+                        <span className="selection-info-type">{selection.type}</span>
+                        {selection.faceId && <span>Face #{selection.faceId}</span>}
+                        {selection.edgeCount && <span>{selection.edgeCount} edges</span>}
+                        {selection.name && <span>{selection.name}</span>}
+                        {selection.solidId && <span className="selection-info-id">Solid #{selection.solidId}</span>}
+                    </div>
+                )}
+
                 {/* Project Library - overlay inside viewport */}
                 <ProjectLibrary
                     activeProjectId={activeProjectId}
@@ -796,6 +811,9 @@ function WorkbenchMechanical() {
 
             {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
+                {/* Feature Tree - parametric history */}
+                <FeatureTreePanel onSelectFeature={(id) => console.log('Selected feature:', id)} />
+
                 {/* Model Tree - generated after model creation */}
                 <ModelTree />
 

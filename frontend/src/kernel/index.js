@@ -44,6 +44,7 @@ export { default as DirectEdit } from './features/DirectEdit.js';
 
 // Export
 export { default as ExportEngine } from './export/ExportEngine.js';
+export { default as STEPExporter } from './export/STEPExporter.js';
 
 // Tessellation
 export { default as Tessellator } from './tessellation/Tessellator.js';

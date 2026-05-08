@@ -5,6 +5,7 @@
  */
 
 import Tessellator from '../tessellation/Tessellator.js';
+import STEPExporter from './STEPExporter.js';
 
 export default class ExportEngine {
 
@@ -265,6 +266,9 @@ export default class ExportEngine {
         break;
       case 'gltf':
         ExportEngine.download(ExportEngine.toGLTF(solid, name), `${name}.gltf`, 'model/gltf+json');
+        break;
+      case 'step':
+        ExportEngine.download(STEPExporter.toSTEP(solid, name), `${name}.step`, 'application/step');
         break;
       default:
         throw new Error(`Unsupported export format: ${format}`);

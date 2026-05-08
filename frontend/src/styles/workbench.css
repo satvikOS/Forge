@@ -726,6 +726,64 @@
     color: var(--text-inverse);
 }
 
+/* Selection mode toolbar */
+.selection-toolbar {
+    position: absolute;
+    top: 10px;
+    left: 120px;
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    background: rgba(20, 20, 20, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: 3px;
+    z-index: 10;
+}
+
+.selection-mode-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    padding: 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Selection info bar */
+.selection-info-bar {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: rgba(20, 20, 20, 0.9);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--text-primary);
+    z-index: 10;
+}
+
+.selection-info-type {
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent-primary, #4a90d9);
+    letter-spacing: 0.5px;
+    font-size: 10px;
+}
+
+.selection-info-id {
+    color: var(--text-muted, #666);
+    font-family: monospace;
+    font-size: 10px;
+}
+
 /* ========== NAVIGATION CUBE (Viewport overlay) ========== */
 .nav-cube {
     position: absolute;

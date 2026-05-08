@@ -665,7 +665,13 @@ const TOOL_HANDLERS = {
       ExportEngine.exportSolid(solid, 'obj', solid.name || 'ArchDisc');
       return { status: 'success', message: `Exported ${solid.name || 'solid'} as OBJ` };
     },
-    'Export STEP': () => ({ status: 'info', message: 'STEP export: Coming soon — requires ISO 10303 writer' }),
+    'Export STEP': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'No solid to export.' };
+      ExportEngine.exportSolid(solid, 'step', solid.name || 'ArchDisc');
+      return { status: 'success', message: `Exported ${solid.name || 'solid'} as STEP (ISO 10303)` };
+    },
     'Export glTF': (scene, viewport) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
