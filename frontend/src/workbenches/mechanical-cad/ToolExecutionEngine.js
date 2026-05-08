@@ -12,6 +12,7 @@ import {
   SketchPoint, SketchLine, SketchCircle,
   Assembly, FEAEngine, RenderEngine, GCodeGenerator, Slicer,
   SceneComposer, PixelManager,
+  FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -37,6 +38,7 @@ let _currentAssemblyRoot = null;
 let _assemblyIndex = -1;
 let _lastGCode = null;
 let _lastSliceResult = null;
+let _versionControl = new VersionControl('ArchDisc Project');
 
 export function getActiveSketch() { return _activeSketch; }
 
@@ -702,9 +704,16 @@ const TOOL_HANDLERS = {
       const valid = solid.isValid();
       const euler = solid.outerShell ? solid.outerShell.eulerCharacteristic() : 'N/A';
       const manifold = solid.outerShell ? solid.outerShell.isManifold() : false;
+
+      // GD&T report
+      const gdtReport = GDTEngine.generateReport(solid);
+
+      // Version control commit
+      _versionControl.commit(ft.toJSON(), `Geometry check: ${valid ? 'VALID' : 'ISSUES'}`, 'ArchDisc');
+
       return {
         status: valid ? 'success' : 'warn',
-        message: `Geometry check: ${valid ? 'VALID' : 'ISSUES FOUND'} | Euler: ${euler} | Manifold: ${manifold ? 'Yes' : 'No'} | V:${solid.vertices().length} E:${solid.edges().length} F:${solid.faces().length}`
+        message: `Geometry: ${valid ? 'VALID' : 'ISSUES'} | Euler: ${euler} | Manifold: ${manifold ? 'Yes' : 'No'} | V:${solid.vertices().length} E:${solid.edges().length} F:${solid.faces().length} | GD&T: ${gdtReport.summary.pass}/${gdtReport.summary.total} pass | Rev #${_versionControl.currentRevision?.id}`
       };
     },
   },
@@ -1321,11 +1330,32 @@ function createAssembly(nameLower, toolName, scene, viewport, ft) {
     }
     return needSolid(toolName);
   }
-  if (nameLower.includes('fastener') || nameLower.includes('toolbox') || nameLower.includes('standard') ||
-      nameLower.includes('bearing') || nameLower.includes('spring') || nameLower.includes('o-ring')) {
-    const feature = ft.addCylinder(0.15, 0.8, 12, new Vec3(Math.random()*3, 0, Math.random()*3));
-    addSolidToScene(scene, viewport, feature.solid, 0x666666);
-    return { status: 'success', message: `${toolName}: Standard part inserted from library` };
+  if (nameLower.includes('fastener') || nameLower.includes('toolbox') || nameLower.includes('standard')) {
+    const sizes = FastenerLibrary.availableSizes();
+    const size = sizes[Math.floor(Math.random() * sizes.length)];
+    const bolt = FastenerLibrary.hexBolt(size, 0.025);
+    addSolidToScene(scene, viewport, bolt.head, 0x999999);
+    addSolidToScene(scene, viewport, bolt.shank, 0x888888);
+    return { status: 'success', message: `${toolName}: ${size} Hex Bolt from ISO 4014 library (${sizes.length} sizes available)` };
+  }
+  if (nameLower.includes('bearing')) {
+    const des = BearingLibrary.availableDesignations();
+    const pick = des[Math.floor(Math.random() * des.length)];
+    const bearing = BearingLibrary.deepGrooveBallBearing(pick);
+    bearing.parts.forEach(p => addSolidToScene(scene, viewport, p.solid, p.color));
+    return { status: 'success', message: `Bearing ${pick}: ${bearing.parts.length} components (bore ${bearing.specs.bore * 1000}mm, OD ${bearing.specs.od * 1000}mm)` };
+  }
+  if (nameLower.includes('spring')) {
+    const profile = circleProfile(0.001, 8);
+    const path = helixPath(0.008, 0.020, 48);
+    const feature = ft.addSweep(profile, path);
+    addSolidToScene(scene, viewport, feature.solid, 0x888888);
+    return { status: 'success', message: `${toolName}: Compression spring Ø16mm × 20mm, wire Ø2mm` };
+  }
+  if (nameLower.includes('o-ring')) {
+    const ring = FastenerLibrary.oRing(0.020, 0.003);
+    addSolidToScene(scene, viewport, ring.body, 0x222222);
+    return { status: 'success', message: `${toolName}: O-Ring ID20 × CS3 (ISO 3601)` };
   }
   const feature = ft.addBox(1, 1, 1, new Vec3(Math.random()*4, 0, Math.random()*4));
   addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);

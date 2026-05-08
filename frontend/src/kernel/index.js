@@ -69,3 +69,11 @@ export { default as SceneComposer, BACKGROUNDS, CAMERA_PRESETS } from './renderi
 
 // Pixel Management (Proprietary)
 export { default as PixelManager } from './pixelmanagement/PixelManager.js';
+
+// Standards & Libraries
+export { default as FastenerLibrary, METRIC_THREADS } from './standards/FastenerLibrary.js';
+export { default as GDTEngine, GDT_TYPES, IT_GRADES } from './standards/GDTEngine.js';
+export { default as BearingLibrary, BEARING_CATALOG } from './standards/BearingLibrary.js';
+
+// PDM / Version Control
+export { default as VersionControl } from './pdm/VersionControl.js';
