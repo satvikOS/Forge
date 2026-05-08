@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import Tessellator from '../tessellation/Tessellator.js';
+import SubdivisionSurface from '../tessellation/SubdivisionSurface.js';
 
 export default class ThreeJSBridge {
 
@@ -29,6 +30,7 @@ export default class ThreeJSBridge {
       edges = true,
       opacity = 1.0,
       flatShading = false,
+      smooth = 1,  // 0=flat, 1=smooth, 2=very smooth
     } = options;
 
     const group = new THREE.Group();
@@ -36,15 +38,34 @@ export default class ThreeJSBridge {
     group.userData.solidId = solid.id;
     group.userData.featureType = solid.userData.featureType || solid.name;
 
-    // Tessellate
+    // Tessellate base mesh
     const tessResult = Tessellator.tessellate(solid);
     const threeData = Tessellator.toThreeJS(tessResult);
 
+    // Apply subdivision for smooth rendering
+    let finalPos = threeData.position;
+    let finalNorm = threeData.normal;
+    let finalIdx = threeData.index;
+
+    if (smooth > 0 && threeData.position.length > 0) {
+      try {
+        const subdivided = SubdivisionSurface.subdivide(
+          threeData.position, threeData.index, threeData.normal, new Set(), smooth
+        );
+        finalPos = subdivided.positions;
+        finalNorm = subdivided.normals;
+        finalIdx = subdivided.indices;
+      } catch (e) {
+        // Fallback to flat tessellation if subdivision fails
+        console.warn('Subdivision failed, using flat tessellation:', e.message);
+      }
+    }
+
     // Create geometry
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(threeData.position, 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(threeData.normal, 3));
-    geometry.setIndex(new THREE.BufferAttribute(threeData.index, 1));
+    geometry.setAttribute('position', new THREE.BufferAttribute(finalPos, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(finalNorm, 3));
+    geometry.setIndex(new THREE.BufferAttribute(finalIdx, 1));
     geometry.computeBoundingSphere();
     geometry.computeBoundingBox();
 
