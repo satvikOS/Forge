@@ -275,7 +275,7 @@ const TOOL_HANDLERS = {
         new Vec3(0.012, 0.010, 0),
         new Vec3(0.0075, 0.010, 0),
       ];
-      const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 32);
+      const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 64);
       addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
       return { status: 'success', message: `Revolve: Ø30mm stepped shaft, H=40mm (Feature #${feature.id})` };
     },
@@ -289,7 +289,7 @@ const TOOL_HANDLERS = {
         new Vec3(0.015, 0.013, 0),
         new Vec3(0.013, 0.013, 0),
       ];
-      const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 32);
+      const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 64);
       addSolidToScene(scene, viewport, feature.solid, 0xcc4444);
       return { status: 'success', message: `Revolve Cut: Groove Ø26mm×3mm (Feature #${feature.id})` };
     },
@@ -864,7 +864,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
   // --- Revolve variants ---
   if (nameLower.includes('revolve')) {
     const profile = [new Vec3(0.008,0,0), new Vec3(0.020,0,0), new Vec3(0.020,0.030,0), new Vec3(0.008,0.030,0)];
-    const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 32);
+    const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 64);
     addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
   }

@@ -158,7 +158,7 @@ export default class PrimitiveBuilder {
    * @param {number} segments - Number of circumferential segments (default: 32)
    * @param {Vec3} center - Base center position
    */
-  static cylinder(radius, height, segments = 32, center) {
+  static cylinder(radius, height, segments = 64, center) {
     const c = center || Vec3.zero();
 
     // Create vertices: bottom ring + top ring + 2 center vertices
@@ -265,7 +265,7 @@ export default class PrimitiveBuilder {
    * @param {number} heightSegments - Latitudinal segments (default: 16)
    * @param {Vec3} center - Center position
    */
-  static sphere(radius, widthSegments = 32, heightSegments = 16, center) {
+  static sphere(radius, widthSegments = 64, heightSegments = 32, center) {
     const c = center || Vec3.zero();
     const verts = [];
     const faces = [];
@@ -362,7 +362,7 @@ export default class PrimitiveBuilder {
    * @param {number} segments - Circumferential segments (default: 32)
    * @param {Vec3} center - Base center position
    */
-  static cone(radius, height, segments = 32, center) {
+  static cone(radius, height, segments = 64, center) {
     const c = center || Vec3.zero();
     const apex = new TopoVertex(new Vec3(c.x, c.y + height, c.z));
     const baseCenter = new TopoVertex(c.clone());
@@ -437,7 +437,7 @@ export default class PrimitiveBuilder {
    * @param {number} minorSegments - Segments around the tube (default: 16)
    * @param {Vec3} center - Center position
    */
-  static torus(majorRadius, minorRadius, majorSegments = 32, minorSegments = 16, center) {
+  static torus(majorRadius, minorRadius, majorSegments = 64, minorSegments = 32, center) {
     const c = center || Vec3.zero();
     const verts = [];
     const faces = [];

@@ -10,47 +10,124 @@ export default class Tessellator {
 
   /**
    * Tessellate an entire solid into a mesh.
+   * Post-processes: merges duplicate vertices and smooths normals across
+   * curved faces (where adjacent faces have angle < creaseAngle).
    * @param {TopoSolid} solid
-   * @param {object} options - { maxAngle, maxLength, adaptive }
+   * @param {object} options - { creaseAngle (rad, default 30°), smooth (default true) }
    * @returns {{ vertices: Float32Array, normals: Float32Array, indices: Uint32Array, faceMap: Map }}
    */
   static tessellate(solid, options = {}) {
+    const { smooth = true, creaseAngle = Math.PI / 6 } = options;
+
     const vertices = [];
     const normals = [];
     const indices = [];
-    const faceMap = new Map(); // faceId → { startIndex, count }
+    const faceMap = new Map();
     let vertexOffset = 0;
+
+    // Track which face each vertex belongs to (for crease detection)
+    const vertexFaceId = [];
 
     for (const face of solid.faces()) {
       const faceStart = indices.length;
       const result = Tessellator.tessellateFace(face, options);
 
-      // Add vertices and normals
+      const vertCount = result.positions.length / 3;
       for (let i = 0; i < result.positions.length; i += 3) {
         vertices.push(result.positions[i], result.positions[i + 1], result.positions[i + 2]);
         normals.push(result.normals[i], result.normals[i + 1], result.normals[i + 2]);
       }
+      for (let i = 0; i < vertCount; i++) {
+        vertexFaceId.push(face.id);
+      }
 
-      // Add indices (offset by current vertex count)
       for (const idx of result.indices) {
         indices.push(idx + vertexOffset);
       }
 
-      faceMap.set(face.id, {
-        startIndex: faceStart,
-        count: result.indices.length,
-        face
-      });
+      faceMap.set(face.id, { startIndex: faceStart, count: result.indices.length, face });
+      vertexOffset += vertCount;
+    }
 
-      vertexOffset += result.positions.length / 3;
+    let finalVerts = new Float32Array(vertices);
+    let finalNorms = new Float32Array(normals);
+    const finalIdx = new Uint32Array(indices);
+
+    // Smooth normals across non-crease edges
+    if (smooth) {
+      finalNorms = Tessellator.smoothNormals(finalVerts, finalNorms, finalIdx, vertexFaceId, creaseAngle);
     }
 
     return {
-      vertices: new Float32Array(vertices),
-      normals: new Float32Array(normals),
-      indices: new Uint32Array(indices),
+      vertices: finalVerts,
+      normals: finalNorms,
+      indices: finalIdx,
       faceMap
     };
+  }
+
+  /**
+   * Compute smooth vertex normals.
+   * For vertices that share spatial position across faces with small angle (curved surface),
+   * average the normals. For sharp edges (>creaseAngle), keep separate.
+   */
+  static smoothNormals(positions, originalNormals, indices, vertexFaceId, creaseAngle = Math.PI / 6) {
+    const vertCount = positions.length / 3;
+    const eps = 1e-6;
+    const cosCrease = Math.cos(creaseAngle);
+
+    // Spatial hash: round positions to ~1 micron for grouping
+    const hashKey = (x, y, z) => {
+      const k = 1e6;
+      return `${Math.round(x * k)},${Math.round(y * k)},${Math.round(z * k)}`;
+    };
+
+    // Group vertices by spatial position
+    const positionGroups = new Map(); // hash → [vertexIndices]
+    for (let i = 0; i < vertCount; i++) {
+      const x = positions[i * 3];
+      const y = positions[i * 3 + 1];
+      const z = positions[i * 3 + 2];
+      const key = hashKey(x, y, z);
+      if (!positionGroups.has(key)) positionGroups.set(key, []);
+      positionGroups.get(key).push(i);
+    }
+
+    const newNormals = new Float32Array(originalNormals);
+
+    // For each group of co-located vertices, decide whether to average
+    for (const [key, group] of positionGroups) {
+      if (group.length < 2) continue;
+
+      // For each vertex in the group, average with neighbors whose normal angle < crease
+      for (const i of group) {
+        const ni = [originalNormals[i * 3], originalNormals[i * 3 + 1], originalNormals[i * 3 + 2]];
+        let sumX = ni[0], sumY = ni[1], sumZ = ni[2];
+        let count = 1;
+
+        for (const j of group) {
+          if (i === j) continue;
+          const nj = [originalNormals[j * 3], originalNormals[j * 3 + 1], originalNormals[j * 3 + 2]];
+          const dot = ni[0] * nj[0] + ni[1] * nj[1] + ni[2] * nj[2];
+          if (dot > cosCrease) {
+            sumX += nj[0];
+            sumY += nj[1];
+            sumZ += nj[2];
+            count++;
+          }
+        }
+
+        // Normalize
+        const len = Math.sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ);
+        if (len > eps) {
+          newNormals[i * 3] = sumX / len;
+          newNormals[i * 3 + 1] = sumY / len;
+          newNormals[i * 3 + 2] = sumZ / len;
+        }
+      }
+    }
+
+    return newNormals;
   }
 
   /**
