@@ -23,6 +23,10 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const [displayMode, setDisplayMode] = useState('shaded'); // shaded | wireframe | shadedWire | xray
     const selectionModeRef = useRef('object');
     const displayModeRef = useRef('shaded');
+    const onSelectionChangeRef = useRef(onSelectionChange);
+    const onReadyRef = useRef(onReady);
+    useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
+    useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
 
     useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
     useEffect(() => { displayModeRef.current = displayMode; }, [displayMode]);
@@ -30,8 +34,14 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     useEffect(() => {
         if (!containerRef.current) return;
         const container = containerRef.current;
-        const width = container.clientWidth;
-        const height = container.clientHeight;
+
+        // Clean up any leftover canvases from StrictMode double-mount
+        while (container.querySelector('canvas')) {
+            container.querySelector('canvas').remove();
+        }
+
+        const width = container.clientWidth || 800;
+        const height = container.clientHeight || 600;
 
         // --- Scene ---
         const scene = new THREE.Scene();
@@ -123,7 +133,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         transformControls.addEventListener('objectChange', () => {
             const obj = transformControls.object;
             if (obj && onSelectionChange) {
-                onSelectionChange({
+                onSelectionChangeRef.current({
                     type: 'object',
                     name: obj.name || 'Object',
                     position: { x: obj.position.x.toFixed(3), y: obj.position.y.toFixed(3), z: obj.position.z.toFixed(3) },
@@ -228,7 +238,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
             if (intersects.length === 0) {
                 clearSelection();
-                if (onSelectionChange) onSelectionChange(null);
+                if (onSelectionChangeRef.current) onSelectionChangeRef.current?.(null);
                 return;
             }
 
@@ -248,15 +258,15 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                     const faceId = ThreeJSBridge.pickFace(hit);
                     if (faceId !== null) {
                         ThreeJSBridge.highlightFace(group, faceId, 0xff6b35);
-                        if (onSelectionChange) {
-                            onSelectionChange({ type: 'face', faceId, solidId: group.userData.kernelSolid?.id });
+                        if (onSelectionChangeRef.current) {
+                            onSelectionChangeRef.current({ type: 'face', faceId, solidId: group.userData.kernelSolid?.id });
                         }
                     }
                 } else {
                     // Non-kernel mesh — still highlight
                     selectObject(topGroup);
-                    if (onSelectionChange) {
-                        onSelectionChange({ type: 'face', name: topGroup.name, faceIndex: hit.faceIndex });
+                    if (onSelectionChangeRef.current) {
+                        onSelectionChangeRef.current({ type: 'face', name: topGroup.name, faceIndex: hit.faceIndex });
                     }
                 }
                 return;
@@ -271,9 +281,9 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 }
                 if (group && group.userData.kernelSolid) {
                     ThreeJSBridge.showVertices(group, group.userData.kernelSolid, 0.03, 0x00ff88);
-                    if (onSelectionChange) {
+                    if (onSelectionChangeRef.current) {
                         const s = group.userData.kernelSolid;
-                        onSelectionChange({ type: 'edge', solidId: s.id, edgeCount: s.edges().length, vertexCount: s.vertices().length });
+                        onSelectionChangeRef.current({ type: 'edge', solidId: s.id, edgeCount: s.edges().length, vertexCount: s.vertices().length });
                     }
                 }
                 return;
@@ -281,8 +291,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
             // Object mode — select and enable transform
             selectObject(topGroup);
-            if (onSelectionChange) {
-                onSelectionChange({
+            if (onSelectionChangeRef.current) {
+                onSelectionChangeRef.current({
                     type: 'object',
                     name: topGroup.name || 'Object',
                     position: { x: topGroup.position.x.toFixed(3), y: topGroup.position.y.toFixed(3), z: topGroup.position.z.toFixed(3) },
@@ -329,7 +339,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                             }
                         });
                         scene.remove(obj);
-                        if (onSelectionChange) onSelectionChange(null);
+                        if (onSelectionChangeRef.current) onSelectionChangeRef.current?.(null);
                     }
                     break;
                 case 'f':
@@ -374,7 +384,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         window.addEventListener('resize', handleResize);
 
         // --- Notify ---
-        if (onReady) onReady({ scene, camera, renderer, controls: orbitControls, transformControls });
+        if (onReadyRef.current) onReadyRef.current({ scene, camera, renderer, controls: orbitControls, transformControls });
         if (viewport?.registerViewport) {
             viewport.registerViewport({ scene, camera, renderer, controls: orbitControls, transformControls });
         }
@@ -384,11 +394,20 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             clearTimeout(resizeTimer);
             window.removeEventListener('resize', handleResize);
             window.removeEventListener('keydown', handleKeyDown);
-            renderer.domElement.removeEventListener('click', handleClick);
+            if (renderer.domElement) {
+                renderer.domElement.removeEventListener('click', handleClick);
+            }
+            transformControls.detach();
             transformControls.dispose();
             orbitControls.dispose();
             renderer.dispose();
-            if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
+            // Remove canvas from container
+            try {
+                if (renderer.domElement && container.contains(renderer.domElement)) {
+                    container.removeChild(renderer.domElement);
+                }
+            } catch (e) { /* ignore if already removed */ }
+            internalsRef.current = null;
         };
     }, [canvasId, domain]);
 
