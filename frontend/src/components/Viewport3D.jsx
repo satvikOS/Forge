@@ -576,6 +576,12 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         // --- Notify ---
         // Register PixelManager
         _pixelManager.register(renderer, scene, camera);
+        // Expose scene/camera/renderer to window for E2E tests and AI agents
+        if (typeof window !== 'undefined') {
+            window.__three_scene = scene;
+            window.__three_camera = camera;
+            window.__three_renderer = renderer;
+        }
 
         if (onReadyRef.current) onReadyRef.current({ scene, camera, renderer, controls: orbitControls, transformControls });
         if (viewport?.registerViewport) {
