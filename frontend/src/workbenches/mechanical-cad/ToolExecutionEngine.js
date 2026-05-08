@@ -229,66 +229,69 @@ const TOOL_HANDLERS = {
   'part-design': {
     'Extrude Boss': (scene, viewport) => {
       const ft = getFeatureTree();
+      // 80mm × 50mm rectangle extruded 25mm
       const profile = [
-        new Vec3(-1.5, -1, 0),
-        new Vec3(1.5, -1, 0),
-        new Vec3(1.5, 1, 0),
-        new Vec3(-1.5, 1, 0),
+        new Vec3(-0.040, -0.025, 0),
+        new Vec3(0.040, -0.025, 0),
+        new Vec3(0.040, 0.025, 0),
+        new Vec3(-0.040, 0.025, 0),
       ];
-      const feature = ft.addExtrude(profile, Vec3.unitZ(), 3);
+      const feature = ft.addExtrude(profile, Vec3.unitZ(), 0.025);
       addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Extrude Boss: 3m × 2m × 3m solid (Feature #${feature.id})` };
+      return { status: 'success', message: `Extrude Boss: 80×50×25mm solid (Feature #${feature.id})` };
     },
 
     'Extrude Cut': (scene, viewport) => {
       const ft = getFeatureTree();
-      // Cut a smaller hole from the last solid
+      // 15mm × 15mm cut through
       const profile = [
-        new Vec3(-0.5, -0.5, -0.1),
-        new Vec3(0.5, -0.5, -0.1),
-        new Vec3(0.5, 0.5, -0.1),
-        new Vec3(-0.5, 0.5, -0.1),
+        new Vec3(-0.0075, -0.0075, -0.001),
+        new Vec3(0.0075, -0.0075, -0.001),
+        new Vec3(0.0075, 0.0075, -0.001),
+        new Vec3(-0.0075, 0.0075, -0.001),
       ];
-      const cutFeature = ft.addExtrude(profile, Vec3.unitZ(), 3.2);
+      const cutFeature = ft.addExtrude(profile, Vec3.unitZ(), 0.027);
 
       if (ft.features.length >= 2) {
         const baseId = ft.features[ft.features.length - 2].id;
         const cutId = cutFeature.id;
         const boolFeature = ft.addBooleanSubtract(baseId, cutId);
         addSolidToScene(scene, viewport, boolFeature.solid, 0x8b1538);
-        return { status: 'success', message: `Extrude Cut: Boolean subtract applied (Feature #${boolFeature.id})` };
+        return { status: 'success', message: `Extrude Cut: 15×15mm through-cut (Feature #${boolFeature.id})` };
       }
 
       addSolidToScene(scene, viewport, cutFeature.solid, 0xcc4444);
-      return { status: 'success', message: `Cut body created. Select base and cut to subtract.` };
+      return { status: 'success', message: `Cut body created. Boolean subtract with base.` };
     },
 
     'Revolve Boss': (scene, viewport) => {
       const ft = getFeatureTree();
+      // Stepped shaft: 15mm bore, 30mm OD, 40mm tall
       const profile = [
-        new Vec3(0.5, 0, 0),
-        new Vec3(2, 0, 0),
-        new Vec3(2, 3, 0),
-        new Vec3(1.5, 3, 0),
-        new Vec3(1.5, 0.5, 0),
-        new Vec3(0.5, 0.5, 0),
+        new Vec3(0.0075, 0, 0),
+        new Vec3(0.015, 0, 0),
+        new Vec3(0.015, 0.030, 0),
+        new Vec3(0.012, 0.030, 0),
+        new Vec3(0.012, 0.010, 0),
+        new Vec3(0.0075, 0.010, 0),
       ];
       const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 32);
       addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Revolve: Full 360° revolution (Feature #${feature.id})` };
+      return { status: 'success', message: `Revolve: Ø30mm stepped shaft, H=40mm (Feature #${feature.id})` };
     },
 
     'Revolve Cut': (scene, viewport) => {
       const ft = getFeatureTree();
+      // Groove: 1mm deep, 3mm wide at R=14mm
       const profile = [
-        new Vec3(1.8, 0.5, 0),
-        new Vec3(2.2, 0.5, 0),
-        new Vec3(2.2, 2.5, 0),
-        new Vec3(1.8, 2.5, 0),
+        new Vec3(0.013, 0.010, 0),
+        new Vec3(0.015, 0.010, 0),
+        new Vec3(0.015, 0.013, 0),
+        new Vec3(0.013, 0.013, 0),
       ];
       const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 32);
       addSolidToScene(scene, viewport, feature.solid, 0xcc4444);
-      return { status: 'success', message: `Revolve Cut body created (Feature #${feature.id})` };
+      return { status: 'success', message: `Revolve Cut: Groove Ø26mm×3mm (Feature #${feature.id})` };
     },
 
     'Loft Boss': (scene, viewport) => {
@@ -344,9 +347,9 @@ const TOOL_HANDLERS = {
 
     'Hole Wizard': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addCylinder(0.3, 5, 24, new Vec3(0, -1, 0));
+      const feature = ft.addCylinder(0.004, 0.030, 24, new Vec3(0, -0.002, 0)); // M8 through-hole
       addSolidToScene(scene, viewport, feature.solid, 0xcc4444);
-      return { status: 'success', message: `Hole: Ø0.6m × 5m deep (Feature #${feature.id}). Boolean subtract with base solid.` };
+      return { status: 'success', message: `Hole: Ø8mm × 30mm deep (Feature #${feature.id})` };
     },
 
     'Shell': (scene, viewport) => {
@@ -364,14 +367,14 @@ const TOOL_HANDLERS = {
       const ft = getFeatureTree();
       const group = new THREE.Group();
       for (let i = 0; i < 4; i++) {
-        const feature = ft.addBox(1, 1, 1, new Vec3(i * 2, 0, 0));
+        const feature = ft.addCylinder(0.003, 0.015, 12, new Vec3(i * 0.020, 0, 0)); // M6 holes 20mm apart
         const solidGroup = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
         group.add(solidGroup);
       }
       group.userData.pickable = true;
       group.userData.generatedModel = true;
       scene.add(group);
-      return { status: 'success', message: 'Linear Pattern: 4 instances, 2m spacing along X' };
+      return { status: 'success', message: 'Linear Pattern: 4× Ø6mm holes, 20mm spacing' };
     },
 
     'Circular Pattern': (scene, viewport) => {
@@ -379,16 +382,16 @@ const TOOL_HANDLERS = {
       const group = new THREE.Group();
       for (let i = 0; i < 6; i++) {
         const angle = (i / 6) * Math.PI * 2;
-        const x = Math.cos(angle) * 3;
-        const z = Math.sin(angle) * 3;
-        const feature = ft.addCylinder(0.3, 2, 16, new Vec3(x, 0, z));
+        const x = Math.cos(angle) * 0.025;
+        const z = Math.sin(angle) * 0.025;
+        const feature = ft.addCylinder(0.003, 0.020, 12, new Vec3(x, 0, z)); // M6 on PCD50mm
         const solidGroup = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
         group.add(solidGroup);
       }
       group.userData.pickable = true;
       group.userData.generatedModel = true;
       scene.add(group);
-      return { status: 'success', message: 'Circular Pattern: 6 instances, R=3m' };
+      return { status: 'success', message: 'Circular Pattern: 6× Ø6mm on PCD 50mm' };
     },
   },
 
@@ -398,37 +401,37 @@ const TOOL_HANDLERS = {
   primitives: {
     'Box': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addBox(2, 2, 2);
+      const feature = ft.addBox(0.060, 0.040, 0.030); // 60×40×30mm
       addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-      return { status: 'success', message: `Box: 2m × 2m × 2m (Feature #${feature.id})` };
+      return { status: 'success', message: `Box: 60×40×30mm (Feature #${feature.id})` };
     },
 
     'Cylinder': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addCylinder(1, 3, 32);
+      const feature = ft.addCylinder(0.020, 0.050, 32); // R20mm, H50mm
       addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-      return { status: 'success', message: `Cylinder: R=1m, H=3m (Feature #${feature.id})` };
+      return { status: 'success', message: `Cylinder: Ø40mm × H50mm (Feature #${feature.id})` };
     },
 
     'Sphere': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addSphere(1.5, 32, 16);
+      const feature = ft.addSphere(0.025, 32, 16); // R25mm
       addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-      return { status: 'success', message: `Sphere: R=1.5m (Feature #${feature.id})` };
+      return { status: 'success', message: `Sphere: Ø50mm (Feature #${feature.id})` };
     },
 
     'Cone': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addCone(1.5, 3, 32);
+      const feature = ft.addCone(0.020, 0.045, 32); // R20mm, H45mm
       addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-      return { status: 'success', message: `Cone: R=1.5m, H=3m (Feature #${feature.id})` };
+      return { status: 'success', message: `Cone: Ø40mm × H45mm (Feature #${feature.id})` };
     },
 
     'Torus': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addTorus(2, 0.5, 32, 16);
+      const feature = ft.addTorus(0.030, 0.008, 32, 16); // R30mm, r8mm
       addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-      return { status: 'success', message: `Torus: R=2m, r=0.5m (Feature #${feature.id})` };
+      return { status: 'success', message: `Torus: Ø60mm × Ø16mm (Feature #${feature.id})` };
     },
   },
 
@@ -850,9 +853,9 @@ function smartFallback(groupKey, toolName, scene, viewport) {
 
   // --- Extrude/Cut/Boss variants ---
   if (nameLower.includes('extrude') || nameLower.includes('boss')) {
-    const profile = rectProfile(1.5, 1);
+    const profile = rectProfile(60, 40); // 60×40mm
     const dir = nameLower.includes('surface') ? Vec3.unitZ() : Vec3.unitY();
-    const dist = nameLower.includes('thin') ? 0.3 : 3;
+    const dist = nameLower.includes('thin') ? 0.002 : 0.025; // 2mm or 25mm
     const feature = ft.addExtrude(profile, dir, dist);
     addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
@@ -860,7 +863,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
 
   // --- Revolve variants ---
   if (nameLower.includes('revolve')) {
-    const profile = [new Vec3(0.5,0,0), new Vec3(1.5,0,0), new Vec3(1.5,2,0), new Vec3(0.5,2,0)];
+    const profile = [new Vec3(0.008,0,0), new Vec3(0.020,0,0), new Vec3(0.020,0.030,0), new Vec3(0.008,0.030,0)];
     const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 32);
     addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
@@ -868,8 +871,8 @@ function smartFallback(groupKey, toolName, scene, viewport) {
 
   // --- Sweep variants ---
   if (nameLower.includes('sweep')) {
-    const profile = circleProfile(0.25, 12);
-    const path = helixPath(2, 3, 24);
+    const profile = circleProfile(3, 12); // 3mm radius tube
+    const path = helixPath(15, 30, 24);   // R15mm, H30mm helix
     const feature = ft.addSweep(profile, path);
     addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
     return { status: 'success', message: `${toolName}: Sweep created (Feature #${feature.id})` };
@@ -877,8 +880,8 @@ function smartFallback(groupKey, toolName, scene, viewport) {
 
   // --- Loft variants ---
   if (nameLower.includes('loft') || nameLower.includes('boundary')) {
-    const p1 = circleProfile(1.5, 8).map(p => new Vec3(p.x, 0, p.z));
-    const p2 = circleProfile(0.8, 8).map(p => new Vec3(p.x, 3, p.z));
+    const p1 = circleProfile(20, 8).map(p => new Vec3(p.x, 0, p.z));   // R20mm
+    const p2 = circleProfile(10, 8).map(p => new Vec3(p.x, 0.040, p.z)); // R10mm, 40mm up
     const feature = ft.addLoft([p1, p2], 4);
     addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
@@ -943,9 +946,9 @@ function smartFallback(groupKey, toolName, scene, viewport) {
 
   // --- Hole / Thread / Counterbore / Countersink ---
   if (nameLower.includes('hole') || nameLower.includes('thread') || nameLower.includes('counterbore') || nameLower.includes('countersink') || nameLower.includes('drill')) {
-    const feature = ft.addCylinder(0.2, 4, 16, new Vec3(0, -0.5, 0));
+    const feature = ft.addCylinder(0.004, 0.030, 16, new Vec3(0, -0.001, 0)); // M8×30mm
     addSolidToScene(scene, viewport, feature.solid, 0xcc4444);
-    return { status: 'success', message: `${toolName}: Ø0.4m × 4m (Feature #${feature.id}). Boolean-subtract with base.` };
+    return { status: 'success', message: `${toolName}: Ø8mm × 30mm (Feature #${feature.id})` };
   }
 
   // --- Pattern variants ---
@@ -978,13 +981,13 @@ function smartFallback(groupKey, toolName, scene, viewport) {
 
   // --- Dome / Indent / Rib ---
   if (nameLower === 'dome') {
-    const feature = ft.addSphere(1, 16, 8, new Vec3(0, 2, 0));
+    const feature = ft.addSphere(0.015, 16, 8, new Vec3(0, 0.025, 0)); // R15mm dome
     addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-    return { status: 'success', message: `Dome: Hemispherical cap R=1m` };
+    return { status: 'success', message: `Dome: R15mm hemispherical cap` };
   }
   if (nameLower === 'rib' || nameLower === 'coil') {
-    const profile = circleProfile(0.2, 8);
-    const path = helixPath(1.5, 4, 48);
+    const profile = circleProfile(2, 8);    // 2mm wire
+    const path = helixPath(10, 25, 48);     // R10mm, H25mm
     const feature = ft.addSweep(profile, path);
     addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
     return { status: 'success', message: `${toolName}: Created along helix path` };
@@ -1060,10 +1063,10 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     }
   }
 
-  // --- Absolute last fallback: create a primitive ---
-  const feature = ft.addBox(2, 2, 2, new Vec3((Math.random()-0.5)*6, 0, (Math.random()-0.5)*6));
+  // --- Absolute last fallback: create a 50mm cube ---
+  const feature = ft.addBox(0.050, 0.050, 0.050, new Vec3((Math.random()-0.5)*0.1, 0, (Math.random()-0.5)*0.1));
   addSolidToScene(scene, viewport, feature.solid, 0x4a90d9);
-  return { status: 'success', message: `${toolName}: Created geometry (Feature #${feature.id})` };
+  return { status: 'success', message: `${toolName}: 50mm cube created (Feature #${feature.id})` };
 }
 
 // --- Domain-specific fallback creators ---
@@ -1717,25 +1720,29 @@ function addMeasureLine(scene, p1, p2) {
 
 // --- Geometry helpers ---
 
-function rectProfile(w, h) {
+// All dimensions in meters (mm scale: 0.001 = 1mm)
+function rectProfile(wMm, hMm) {
+  const w = wMm * 0.001, h = hMm * 0.001;
   const hw = w / 2, hh = h / 2;
   return [new Vec3(-hw, -hh, 0), new Vec3(hw, -hh, 0), new Vec3(hw, hh, 0), new Vec3(-hw, hh, 0)];
 }
 
-function circleProfile(radius, segments) {
+function circleProfile(radiusMm, segments) {
+  const r = radiusMm * 0.001;
   const pts = [];
   for (let i = 0; i < segments; i++) {
     const a = (i / segments) * Math.PI * 2;
-    pts.push(new Vec3(Math.cos(a) * radius, Math.sin(a) * radius, 0));
+    pts.push(new Vec3(Math.cos(a) * r, Math.sin(a) * r, 0));
   }
   return pts;
 }
 
-function helixPath(radius, height, steps) {
+function helixPath(radiusMm, heightMm, steps) {
+  const r = radiusMm * 0.001, h = heightMm * 0.001;
   const pts = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    pts.push(new Vec3(Math.cos(t * Math.PI * 4) * radius, t * height, Math.sin(t * Math.PI * 4) * radius));
+    pts.push(new Vec3(Math.cos(t * Math.PI * 4) * r, t * h, Math.sin(t * Math.PI * 4) * r));
   }
   return pts;
 }

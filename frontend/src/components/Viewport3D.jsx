@@ -59,8 +59,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         scene.background = new THREE.Color(0x1a1a2e);
 
         // --- Camera ---
-        const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 5000);
-        camera.position.set(8, 6, 8);
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.0001, 100);
+        camera.position.set(0.15, 0.10, 0.15); // ~150mm away for mm-scale parts
         camera.lookAt(0, 0, 0);
 
         // --- Renderer ---
@@ -74,13 +74,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         container.appendChild(renderer.domElement);
 
         // --- Grid ---
-        const grid = new THREE.GridHelper(100, 100, 0x444466, 0x222244);
+        const grid = new THREE.GridHelper(0.5, 50, 0x444466, 0x222244); // 500mm grid, 10mm spacing
         grid.userData.pickable = false;
         grid.userData.isHelper = true;
         scene.add(grid);
 
         // --- Axes ---
-        const axes = new THREE.AxesHelper(3);
+        const axes = new THREE.AxesHelper(0.05); // 50mm axes
         axes.userData.pickable = false;
         axes.userData.isHelper = true;
         scene.add(axes);
@@ -110,7 +110,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         scene.add(rim);
 
         // --- Ground shadow ---
-        const groundGeo = new THREE.PlaneGeometry(200, 200);
+        const groundGeo = new THREE.PlaneGeometry(1, 1); // 1m ground
         const groundMat = new THREE.ShadowMaterial({ opacity: 0.15 });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
@@ -124,8 +124,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         orbitControls.enableDamping = true;
         orbitControls.dampingFactor = 0.1;
         orbitControls.screenSpacePanning = true;
-        orbitControls.minDistance = 0.5;
-        orbitControls.maxDistance = 500;
+        orbitControls.minDistance = 0.01;  // 10mm min
+        orbitControls.maxDistance = 5;     // 5m max
         orbitControls.rotateSpeed = 0.8;
         orbitControls.zoomSpeed = 1.2;
         orbitControls.panSpeed = 0.8;
