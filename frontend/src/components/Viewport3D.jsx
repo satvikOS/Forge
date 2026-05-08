@@ -2,110 +2,207 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
-import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon } from 'lucide-react';
+import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, Layers } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
 import { ThreeJSBridge } from '../kernel/index.js';
 
 /**
- * Interactive 3D Viewport with face/edge/vertex picking.
- * Selection modes: Object, Face, Edge — controlled by toolbar buttons.
+ * Industrial-grade 3D Viewport
+ * - Object/Face/Edge selection modes (1/2/3)
+ * - Transform gizmos: Move(G), Rotate(R), Scale(S)
+ * - Display modes: Shaded, Wireframe, Shaded+Wireframe, X-Ray
+ * - Proper group selection with transform controls
  */
 function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady, onSelectionChange }) {
     const containerRef = useRef(null);
-    const sceneRef = useRef(null);
-    const cameraRef = useRef(null);
-    const rendererRef = useRef(null);
-    const controlsRef = useRef(null);
-    const transformRef = useRef(null);
-    const selectedRef = useRef(null);
+    const internalsRef = useRef(null); // store scene, camera, etc. without causing re-renders
     const rafRef = useRef(null);
     const viewport = useViewport();
     const [transformMode, setTransformMode] = useState('translate');
-    const [selectionMode, setSelectionMode] = useState('object'); // 'object' | 'face' | 'edge'
+    const [selectionMode, setSelectionMode] = useState('object');
+    const [displayMode, setDisplayMode] = useState('shaded'); // shaded | wireframe | shadedWire | xray
     const selectionModeRef = useRef('object');
+    const displayModeRef = useRef('shaded');
 
-    // Keep ref in sync
     useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
+    useEffect(() => { displayModeRef.current = displayMode; }, [displayMode]);
 
     useEffect(() => {
         if (!containerRef.current) return;
-
         const container = containerRef.current;
         const width = container.clientWidth;
         const height = container.clientHeight;
 
+        // --- Scene ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0d0d0d);
-        sceneRef.current = scene;
+        scene.background = new THREE.Color(0x1a1a2e);
 
-        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-        camera.position.set(10, 10, 10);
+        // --- Camera ---
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 5000);
+        camera.position.set(8, 6, 8);
         camera.lookAt(0, 0, 0);
-        cameraRef.current = camera;
 
-        const renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            alpha: true,
-            powerPreference: 'high-performance',
-        });
+        // --- Renderer ---
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
         renderer.setSize(width, height);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
         container.appendChild(renderer.domElement);
-        rendererRef.current = renderer;
 
-        // Grid + Axes
-        const gridHelper = new THREE.GridHelper(100, 100, 0x333333, 0x1a1a1a);
-        gridHelper.userData.pickable = false;
-        scene.add(gridHelper);
-        const axesHelper = new THREE.AxesHelper(5);
-        axesHelper.userData.pickable = false;
-        scene.add(axesHelper);
+        // --- Grid ---
+        const grid = new THREE.GridHelper(100, 100, 0x444466, 0x222244);
+        grid.userData.pickable = false;
+        grid.userData.isHelper = true;
+        scene.add(grid);
 
-        // Lighting
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(10, 20, 10);
-        dirLight.castShadow = true;
-        dirLight.shadow.mapSize.set(2048, 2048);
-        scene.add(dirLight);
+        // --- Axes ---
+        const axes = new THREE.AxesHelper(3);
+        axes.userData.pickable = false;
+        axes.userData.isHelper = true;
+        scene.add(axes);
 
-        // Controls
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.12;
-        controls.screenSpacePanning = false;
-        controls.minDistance = 1;
-        controls.maxDistance = 500;
-        controls.maxPolarAngle = Math.PI;
-        controlsRef.current = controls;
+        // --- Lighting (studio setup) ---
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambient);
 
+        const key = new THREE.DirectionalLight(0xffffff, 0.9);
+        key.position.set(10, 20, 10);
+        key.castShadow = true;
+        key.shadow.mapSize.set(2048, 2048);
+        key.shadow.camera.near = 0.5;
+        key.shadow.camera.far = 100;
+        key.shadow.camera.left = -20;
+        key.shadow.camera.right = 20;
+        key.shadow.camera.top = 20;
+        key.shadow.camera.bottom = -20;
+        scene.add(key);
+
+        const fill = new THREE.DirectionalLight(0x8888ff, 0.3);
+        fill.position.set(-10, 5, -10);
+        scene.add(fill);
+
+        const rim = new THREE.DirectionalLight(0xffffff, 0.2);
+        rim.position.set(0, -5, -10);
+        scene.add(rim);
+
+        // --- Ground shadow ---
+        const groundGeo = new THREE.PlaneGeometry(200, 200);
+        const groundMat = new THREE.ShadowMaterial({ opacity: 0.15 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        ground.userData.pickable = false;
+        ground.userData.isHelper = true;
+        scene.add(ground);
+
+        // --- Orbit Controls ---
+        const orbitControls = new OrbitControls(camera, renderer.domElement);
+        orbitControls.enableDamping = true;
+        orbitControls.dampingFactor = 0.1;
+        orbitControls.screenSpacePanning = true;
+        orbitControls.minDistance = 0.5;
+        orbitControls.maxDistance = 500;
+        orbitControls.rotateSpeed = 0.8;
+        orbitControls.zoomSpeed = 1.2;
+        orbitControls.panSpeed = 0.8;
+
+        // --- Transform Controls ---
         const transformControls = new TransformControls(camera, renderer.domElement);
-        transformControls.setSize(0.75);
+        transformControls.setSize(0.8);
+        transformControls.userData.isHelper = true;
         scene.add(transformControls);
-        transformRef.current = transformControls;
-        transformControls.addEventListener('dragging-changed', (event) => {
-            controls.enabled = !event.value;
+
+        transformControls.addEventListener('dragging-changed', (e) => {
+            orbitControls.enabled = !e.value;
         });
 
-        // Ground shadow plane
-        const plane = new THREE.Mesh(
-            new THREE.PlaneGeometry(100, 100),
-            new THREE.ShadowMaterial({ opacity: 0.2 })
-        );
-        plane.rotation.x = -Math.PI / 2;
-        plane.receiveShadow = true;
-        plane.userData.pickable = false;
-        scene.add(plane);
+        // Update object position in real-time while dragging
+        transformControls.addEventListener('objectChange', () => {
+            const obj = transformControls.object;
+            if (obj && onSelectionChange) {
+                onSelectionChange({
+                    type: 'object',
+                    name: obj.name || 'Object',
+                    position: { x: obj.position.x.toFixed(3), y: obj.position.y.toFixed(3), z: obj.position.z.toFixed(3) },
+                    rotation: { x: THREE.MathUtils.radToDeg(obj.rotation.x).toFixed(1), y: THREE.MathUtils.radToDeg(obj.rotation.y).toFixed(1), z: THREE.MathUtils.radToDeg(obj.rotation.z).toFixed(1) },
+                    scale: { x: obj.scale.x.toFixed(3), y: obj.scale.y.toFixed(3), z: obj.scale.z.toFixed(3) },
+                });
+            }
+        });
 
-        // Raycaster
+        // Store references
+        const selectedRef = { current: null };
+        internalsRef.current = { scene, camera, renderer, orbitControls, transformControls, selectedRef };
+
+        // --- Raycaster ---
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
-        // --- Click handler with selection modes ---
+        // --- Selection outline material ---
+        const outlineMat = new THREE.MeshBasicMaterial({ color: 0xff6b35, wireframe: true, transparent: true, opacity: 0.5 });
+
+        function findTopGroup(obj) {
+            // Walk up to find the top-level group added to scene
+            let current = obj;
+            while (current.parent && current.parent !== scene) {
+                current = current.parent;
+            }
+            return current;
+        }
+
+        function clearSelection() {
+            // Remove selection outline
+            const existing = scene.getObjectByName('__selection_outline__');
+            if (existing) {
+                existing.traverse(c => { if (c.geometry) c.geometry.dispose(); });
+                scene.remove(existing);
+            }
+            // Clear face/edge highlights
+            scene.traverse(obj => {
+                if (obj.isGroup) {
+                    ThreeJSBridge.clearHighlight(obj);
+                    ThreeJSBridge.hideVertices(obj);
+                }
+            });
+            transformControls.detach();
+            selectedRef.current = null;
+        }
+
+        function selectObject(target) {
+            clearSelection();
+            selectedRef.current = target;
+            transformControls.attach(target);
+
+            // Add selection wireframe outline
+            const outlineGroup = new THREE.Group();
+            outlineGroup.name = '__selection_outline__';
+            target.traverse(child => {
+                if (child.isMesh && child.geometry) {
+                    const clone = new THREE.Mesh(child.geometry.clone(), outlineMat);
+                    clone.position.copy(child.position);
+                    clone.rotation.copy(child.rotation);
+                    clone.scale.copy(child.scale);
+                    clone.userData.pickable = false;
+                    outlineGroup.add(clone);
+                }
+            });
+            // Position outline at target's world position
+            outlineGroup.position.copy(target.position);
+            outlineGroup.rotation.copy(target.rotation);
+            outlineGroup.scale.copy(target.scale);
+            outlineGroup.userData.pickable = false;
+            outlineGroup.userData.isHelper = true;
+            scene.add(outlineGroup);
+        }
+
+        // --- Click handler ---
         let clickPending = false;
         const handleClick = (event) => {
+            // Don't handle if dragging transform gizmo
+            if (transformControls.dragging) return;
             if (clickPending) return;
             clickPending = true;
             requestAnimationFrame(() => { clickPending = false; });
@@ -115,10 +212,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
 
-            // Collect all pickable meshes (including inside groups)
+            // Collect pickable objects
             const pickable = [];
             scene.traverse(obj => {
-                if (obj.isMesh && obj.userData.pickable !== false && !obj.isTransformControlsPlane) {
+                if (obj.isMesh && obj.userData.pickable !== false &&
+                    !obj.userData.isHelper && !obj.isTransformControlsPlane &&
+                    obj.name !== '__selection_outline__' &&
+                    !(obj.parent && obj.parent.name === '__selection_outline__')) {
                     pickable.push(obj);
                 }
             });
@@ -126,94 +226,74 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             const intersects = raycaster.intersectObjects(pickable, false);
             const mode = selectionModeRef.current;
 
-            if (intersects.length > 0) {
-                const hit = intersects[0];
-                const mesh = hit.object;
-
-                if (mode === 'face') {
-                    // Face picking — find kernel solid group
-                    let group = mesh.parent;
-                    while (group && !group.userData.kernelSolid) {
-                        group = group.parent;
-                    }
-
-                    if (group && group.userData.kernelSolid) {
-                        const faceId = ThreeJSBridge.pickFace(hit);
-                        if (faceId !== null) {
-                            // Clear previous highlights
-                            scene.traverse(obj => {
-                                if (obj.isGroup && obj.userData.kernelSolid) {
-                                    ThreeJSBridge.clearHighlight(obj);
-                                }
-                            });
-                            ThreeJSBridge.highlightFace(group, faceId, 0xff6b35);
-                            if (onSelectionChange) {
-                                onSelectionChange({
-                                    type: 'face',
-                                    faceId,
-                                    solidId: group.userData.kernelSolid?.id,
-                                    featureId: group.userData.featureId,
-                                });
-                            }
-                        }
-                    }
-                    return;
-                }
-
-                if (mode === 'edge') {
-                    // Edge mode — show vertices on the solid
-                    let group = mesh.parent;
-                    while (group && !group.userData.kernelSolid) {
-                        group = group.parent;
-                    }
-                    if (group && group.userData.kernelSolid) {
-                        const solid = group.userData.kernelSolid;
-                        ThreeJSBridge.showVertices(group, solid, 0.03, 0x00ff88);
-                        if (onSelectionChange) {
-                            onSelectionChange({
-                                type: 'edge',
-                                solidId: solid.id,
-                                edgeCount: solid.edges().length,
-                            });
-                        }
-                    }
-                    return;
-                }
-
-                // Object mode — select entire group
-                let target = mesh;
-                while (target.parent && target.parent !== scene) {
-                    target = target.parent;
-                }
-                selectedRef.current = target;
-                transformControls.attach(target);
-
-                if (onSelectionChange) {
-                    onSelectionChange({
-                        type: 'object',
-                        name: target.name || target.userData.modelId || 'Object',
-                        solidId: target.userData.kernelSolid?.id,
-                        featureId: target.userData.featureId,
-                    });
-                }
-            } else {
-                // Deselect
-                selectedRef.current = null;
-                transformControls.detach();
-                // Clear all highlights
-                scene.traverse(obj => {
-                    if (obj.isGroup && obj.userData.kernelSolid) {
-                        ThreeJSBridge.clearHighlight(obj);
-                        ThreeJSBridge.hideVertices(obj);
-                    }
-                });
+            if (intersects.length === 0) {
+                clearSelection();
                 if (onSelectionChange) onSelectionChange(null);
+                return;
+            }
+
+            const hit = intersects[0];
+            const hitMesh = hit.object;
+            const topGroup = findTopGroup(hitMesh);
+
+            if (mode === 'face') {
+                clearSelection();
+                // Walk up to find kernel solid
+                let group = hitMesh.parent;
+                while (group && !group.userData.kernelSolid) {
+                    if (group === scene) break;
+                    group = group.parent;
+                }
+                if (group && group.userData.kernelSolid) {
+                    const faceId = ThreeJSBridge.pickFace(hit);
+                    if (faceId !== null) {
+                        ThreeJSBridge.highlightFace(group, faceId, 0xff6b35);
+                        if (onSelectionChange) {
+                            onSelectionChange({ type: 'face', faceId, solidId: group.userData.kernelSolid?.id });
+                        }
+                    }
+                } else {
+                    // Non-kernel mesh — still highlight
+                    selectObject(topGroup);
+                    if (onSelectionChange) {
+                        onSelectionChange({ type: 'face', name: topGroup.name, faceIndex: hit.faceIndex });
+                    }
+                }
+                return;
+            }
+
+            if (mode === 'edge') {
+                clearSelection();
+                let group = hitMesh.parent;
+                while (group && !group.userData.kernelSolid) {
+                    if (group === scene) break;
+                    group = group.parent;
+                }
+                if (group && group.userData.kernelSolid) {
+                    ThreeJSBridge.showVertices(group, group.userData.kernelSolid, 0.03, 0x00ff88);
+                    if (onSelectionChange) {
+                        const s = group.userData.kernelSolid;
+                        onSelectionChange({ type: 'edge', solidId: s.id, edgeCount: s.edges().length, vertexCount: s.vertices().length });
+                    }
+                }
+                return;
+            }
+
+            // Object mode — select and enable transform
+            selectObject(topGroup);
+            if (onSelectionChange) {
+                onSelectionChange({
+                    type: 'object',
+                    name: topGroup.name || 'Object',
+                    position: { x: topGroup.position.x.toFixed(3), y: topGroup.position.y.toFixed(3), z: topGroup.position.z.toFixed(3) },
+                    solidId: topGroup.userData.kernelSolid?.id,
+                });
             }
         };
 
         renderer.domElement.addEventListener('click', handleClick);
 
-        // Keyboard shortcuts
+        // --- Keyboard ---
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             switch (e.key.toLowerCase()) {
@@ -228,46 +308,75 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 case '1': setSelectionMode('object'); break;
                 case '2': setSelectionMode('face'); break;
                 case '3': setSelectionMode('edge'); break;
+                case 'z':
+                    if (!e.ctrlKey && !e.metaKey) {
+                        // Toggle wireframe
+                        const modes = ['shaded', 'wireframe', 'shadedWire', 'xray'];
+                        const next = modes[(modes.indexOf(displayModeRef.current) + 1) % modes.length];
+                        setDisplayMode(next);
+                        applyDisplayMode(scene, next);
+                    }
+                    break;
                 case 'delete': case 'backspace':
                     if (selectedRef.current && e.target.tagName !== 'INPUT') {
-                        if (selectedRef.current.userData.kernelSolid) {
-                            ThreeJSBridge.dispose(selectedRef.current);
-                        }
-                        scene.remove(selectedRef.current);
-                        selectedRef.current = null;
-                        transformControls.detach();
+                        const obj = selectedRef.current;
+                        clearSelection();
+                        obj.traverse(c => {
+                            if (c.geometry) c.geometry.dispose();
+                            if (c.material) {
+                                if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+                                else c.material.dispose();
+                            }
+                        });
+                        scene.remove(obj);
+                        if (onSelectionChange) onSelectionChange(null);
+                    }
+                    break;
+                case 'f':
+                    // Focus/frame selected or all
+                    if (selectedRef.current) {
+                        focusOnObject(selectedRef.current, camera, orbitControls);
+                    } else {
+                        focusOnAll(scene, camera, orbitControls);
+                    }
+                    break;
+                case 'h':
+                    // Hide selected
+                    if (selectedRef.current) {
+                        selectedRef.current.visible = !selectedRef.current.visible;
+                        clearSelection();
                     }
                     break;
             }
         };
         window.addEventListener('keydown', handleKeyDown);
 
-        // Render loop
+        // --- Render loop ---
         function animate() {
             rafRef.current = requestAnimationFrame(animate);
-            controls.update();
+            orbitControls.update();
             renderer.render(scene, camera);
         }
         rafRef.current = requestAnimationFrame(animate);
 
-        // Resize
+        // --- Resize ---
         let resizeTimer;
-        function handleResize() {
+        const handleResize = () => {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
-                const w = container.clientWidth;
-                const h = container.clientHeight;
+                const w = container.clientWidth, h = container.clientHeight;
                 if (w === 0 || h === 0) return;
                 camera.aspect = w / h;
                 camera.updateProjectionMatrix();
                 renderer.setSize(w, h);
             }, 50);
-        }
+        };
         window.addEventListener('resize', handleResize);
 
-        if (onReady) onReady({ scene, camera, renderer, controls, transformControls });
+        // --- Notify ---
+        if (onReady) onReady({ scene, camera, renderer, controls: orbitControls, transformControls });
         if (viewport?.registerViewport) {
-            viewport.registerViewport({ scene, camera, renderer, controls, transformControls });
+            viewport.registerViewport({ scene, camera, renderer, controls: orbitControls, transformControls });
         }
 
         return () => {
@@ -277,73 +386,127 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             window.removeEventListener('keydown', handleKeyDown);
             renderer.domElement.removeEventListener('click', handleClick);
             transformControls.dispose();
-            controls.dispose();
+            orbitControls.dispose();
             renderer.dispose();
-            if (container.contains(renderer.domElement)) {
-                container.removeChild(renderer.domElement);
-            }
+            if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
         };
     }, [canvasId, domain]);
 
+    // --- Display mode change from button ---
+    const cycleDisplayMode = useCallback(() => {
+        const modes = ['shaded', 'wireframe', 'shadedWire', 'xray'];
+        const next = modes[(modes.indexOf(displayMode) + 1) % modes.length];
+        setDisplayMode(next);
+        if (internalsRef.current) applyDisplayMode(internalsRef.current.scene, next);
+    }, [displayMode]);
+
     const handleModeChange = useCallback((mode) => {
         setTransformMode(mode);
-        if (transformRef.current) transformRef.current.setMode(mode);
+        if (internalsRef.current) internalsRef.current.transformControls.setMode(mode);
     }, []);
+
+    const displayLabels = { shaded: 'Shaded', wireframe: 'Wire', shadedWire: 'S+W', xray: 'X-Ray' };
 
     return (
         <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', contain: 'layout style paint' }}>
             {/* Transform toolbar */}
             <div className="gizmo-toolbar">
-                <button
-                    className={`gizmo-btn ${transformMode === 'translate' ? 'active' : ''}`}
-                    onClick={() => handleModeChange('translate')}
-                    title="Move (G)"
-                >
-                    <Move size={14} />
-                </button>
-                <button
-                    className={`gizmo-btn ${transformMode === 'rotate' ? 'active' : ''}`}
-                    onClick={() => handleModeChange('rotate')}
-                    title="Rotate (R)"
-                >
-                    <RotateCcw size={14} />
-                </button>
-                <button
-                    className={`gizmo-btn ${transformMode === 'scale' ? 'active' : ''}`}
-                    onClick={() => handleModeChange('scale')}
-                    title="Scale (S)"
-                >
-                    <Maximize size={14} />
-                </button>
+                <button className={`gizmo-btn ${transformMode === 'translate' ? 'active' : ''}`}
+                    onClick={() => handleModeChange('translate')} title="Move (G)"><Move size={14} /></button>
+                <button className={`gizmo-btn ${transformMode === 'rotate' ? 'active' : ''}`}
+                    onClick={() => handleModeChange('rotate')} title="Rotate (R)"><RotateCcw size={14} /></button>
+                <button className={`gizmo-btn ${transformMode === 'scale' ? 'active' : ''}`}
+                    onClick={() => handleModeChange('scale')} title="Scale (S)"><Maximize size={14} /></button>
             </div>
 
-            {/* Selection mode toolbar */}
+            {/* Selection + Display toolbar */}
             <div className="selection-toolbar">
-                <button
-                    className={`gizmo-btn ${selectionMode === 'object' ? 'active' : ''}`}
-                    onClick={() => setSelectionMode('object')}
-                    title="Object mode (1)"
-                >
-                    <MousePointer size={14} />
+                <button className={`gizmo-btn ${selectionMode === 'object' ? 'active' : ''}`}
+                    onClick={() => setSelectionMode('object')} title="Object (1)"><MousePointer size={14} /></button>
+                <button className={`gizmo-btn ${selectionMode === 'face' ? 'active' : ''}`}
+                    onClick={() => setSelectionMode('face')} title="Face (2)"><Box size={14} /></button>
+                <button className={`gizmo-btn ${selectionMode === 'edge' ? 'active' : ''}`}
+                    onClick={() => setSelectionMode('edge')} title="Edge (3)"><Hexagon size={14} /></button>
+                <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
+                <button className="gizmo-btn" onClick={cycleDisplayMode} title="Display mode (Z)">
+                    <Eye size={14} />
                 </button>
-                <button
-                    className={`gizmo-btn ${selectionMode === 'face' ? 'active' : ''}`}
-                    onClick={() => setSelectionMode('face')}
-                    title="Face mode (2)"
-                >
-                    <Box size={14} />
-                </button>
-                <button
-                    className={`gizmo-btn ${selectionMode === 'edge' ? 'active' : ''}`}
-                    onClick={() => setSelectionMode('edge')}
-                    title="Edge mode (3)"
-                >
-                    <Hexagon size={14} />
-                </button>
-                <span className="selection-mode-label">{selectionMode}</span>
+                <span className="selection-mode-label">{displayLabels[displayMode]}</span>
             </div>
         </div>
     );
+}
+
+// --- Display mode application ---
+function applyDisplayMode(scene, mode) {
+    scene.traverse(obj => {
+        if (!obj.isMesh || obj.userData.isHelper) return;
+        const mat = obj.material;
+        if (!mat) return;
+
+        // Store original color if not stored
+        if (!mat.userData) mat.userData = {};
+        if (mat.userData._origColor === undefined) {
+            mat.userData._origColor = mat.color ? mat.color.getHex() : 0x888888;
+            mat.userData._origOpacity = mat.opacity;
+            mat.userData._origTransparent = mat.transparent;
+            mat.userData._origWireframe = mat.wireframe;
+        }
+
+        switch (mode) {
+            case 'shaded':
+                mat.wireframe = false;
+                mat.transparent = mat.userData._origTransparent;
+                mat.opacity = mat.userData._origOpacity;
+                break;
+            case 'wireframe':
+                mat.wireframe = true;
+                mat.transparent = false;
+                mat.opacity = 1.0;
+                break;
+            case 'shadedWire':
+                mat.wireframe = false;
+                mat.transparent = false;
+                mat.opacity = 1.0;
+                // Add wireframe overlay — handled by edge lines in ThreeJSBridge
+                break;
+            case 'xray':
+                mat.wireframe = false;
+                mat.transparent = true;
+                mat.opacity = 0.25;
+                break;
+        }
+        mat.needsUpdate = true;
+    });
+}
+
+function focusOnObject(obj, camera, controls) {
+    const box = new THREE.Box3().setFromObject(obj);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const dist = maxDim / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.5;
+    camera.position.set(center.x + dist * 0.6, center.y + dist * 0.4, center.z + dist * 0.6);
+    controls.target.copy(center);
+    controls.update();
+}
+
+function focusOnAll(scene, camera, controls) {
+    const box = new THREE.Box3();
+    scene.traverse(obj => {
+        if (obj.isMesh && !obj.userData.isHelper && obj.visible) {
+            box.expandByObject(obj);
+        }
+    });
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 5;
+    const dist = maxDim / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.8;
+    camera.position.set(center.x + dist * 0.6, center.y + dist * 0.4, center.z + dist * 0.6);
+    controls.target.copy(center);
+    controls.update();
 }
 
 export default Viewport3D;
