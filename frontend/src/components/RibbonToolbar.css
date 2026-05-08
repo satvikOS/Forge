@@ -1,0 +1,145 @@
+/* ArchDisc Ribbon Toolbar — Professional CAD UI */
+
+.ribbon-container {
+  grid-area: ribbon;
+  background: var(--bg-secondary, #16162a);
+  border-bottom: 1px solid var(--border-color, #2a2a3e);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Tab strip */
+.ribbon-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 8px;
+  background: var(--bg-tertiary, #111122);
+  border-bottom: 1px solid var(--border-color, #2a2a3e);
+  flex-shrink: 0;
+}
+
+.ribbon-tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #888);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  letter-spacing: 0.3px;
+}
+
+.ribbon-tab:hover {
+  color: var(--text-primary, #e0e0e0);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ribbon-tab.active {
+  color: var(--accent-primary, #4a90d9);
+  border-bottom-color: var(--accent-primary, #4a90d9);
+  background: rgba(74, 144, 217, 0.08);
+}
+
+/* Content area */
+.ribbon-content {
+  display: flex;
+  gap: 0;
+  padding: 4px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+/* Tool group */
+.ribbon-group {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color, #1a1a2e);
+  padding: 0 6px;
+  min-width: 0;
+}
+
+.ribbon-group:last-child {
+  border-right: none;
+}
+
+.ribbon-group-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  flex: 1;
+  align-content: flex-start;
+  padding-bottom: 2px;
+}
+
+.ribbon-group-label {
+  font-size: 9px;
+  color: var(--text-muted, #555);
+  text-align: center;
+  padding: 1px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-top: 1px solid var(--border-color, #1a1a2e);
+  flex-shrink: 0;
+}
+
+/* Individual tool button */
+.ribbon-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-secondary, #aaa);
+  transition: all 0.1s;
+  min-width: 42px;
+}
+
+.ribbon-tool:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.ribbon-tool:active {
+  background: rgba(74, 144, 217, 0.15);
+}
+
+.ribbon-tool.primary {
+  background: rgba(74, 144, 217, 0.1);
+  border-color: rgba(74, 144, 217, 0.2);
+}
+
+.ribbon-tool.primary:hover {
+  background: rgba(74, 144, 217, 0.2);
+  border-color: rgba(74, 144, 217, 0.3);
+}
+
+.ribbon-tool-icon {
+  font-size: 16px;
+  line-height: 1;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ribbon-tool-label {
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 56px;
+  text-align: center;
+  line-height: 1.1;
+}

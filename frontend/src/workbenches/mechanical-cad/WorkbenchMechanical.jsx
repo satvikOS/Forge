@@ -9,8 +9,10 @@ import apiService from '../../services/api';
 import { executeTool } from './ToolExecutionEngine';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import ThoughtBubble from '../../components/ThoughtBubble';
+import RibbonToolbar from '../../components/RibbonToolbar';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
+import '../../components/RibbonToolbar.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
@@ -357,7 +359,8 @@ function WorkbenchMechanical() {
     const [toolStatus, setToolStatus] = useState(null);    // { message, type, tool }
     const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const [activeProjectId, setActiveProjectId] = useState(null);
-    const [selection, setSelection] = useState(null); // { type, faceId, solidId, etc. }
+    const [selection, setSelection] = useState(null);
+    const [ribbonTab, setRibbonTab] = useState('part');
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
     const toolStatusTimerRef = useRef(null);
@@ -694,6 +697,13 @@ function WorkbenchMechanical() {
 
     return (
         <>
+            {/* RIBBON TOOLBAR - Professional contextual toolbar */}
+            <RibbonToolbar
+                activeTab={ribbonTab}
+                onTabChange={setRibbonTab}
+                onToolClick={(groupKey, toolName) => handleToolExecute(groupKey, toolName)}
+            />
+
             {/* LEFT TOOLBAR - Icon buttons only, dropdown rendered outside */}
             <aside className="workbench-tools">
                 <div className="workbench-tools-inner">
