@@ -122,8 +122,15 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         // --- Transform Controls ---
         const transformControls = new TransformControls(camera, renderer.domElement);
         transformControls.setSize(0.8);
+        if (!transformControls.userData) transformControls.userData = {};
         transformControls.userData.isHelper = true;
-        scene.add(transformControls);
+        // TransformControls extends Object3D — add its gizmo helper to scene
+        try { scene.add(transformControls); } catch (e) { /* some Three.js versions need getHelper */ }
+        if (transformControls.getHelper) {
+            const helper = transformControls.getHelper();
+            helper.userData = { isHelper: true };
+            scene.add(helper);
+        }
 
         transformControls.addEventListener('dragging-changed', (e) => {
             orbitControls.enabled = !e.value;
@@ -397,8 +404,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             if (renderer.domElement) {
                 renderer.domElement.removeEventListener('click', handleClick);
             }
-            transformControls.detach();
-            transformControls.dispose();
+            try { transformControls.detach(); } catch (e) {}
+            try { transformControls.dispose(); } catch (e) {}
             orbitControls.dispose();
             renderer.dispose();
             // Remove canvas from container
