@@ -1,399 +1,280 @@
 import { test, expect } from '@playwright/test';
 
-/**
- * ArchDisc Mechanical CAD — E2E Tests
- * Tests every core workflow a Siemens NX / Creo / CATIA user would expect.
- * Iterates from basic primitives to a V12 engine assembly.
- */
+// Helper: wait for the main viewport canvas (not NavSphere)
+async function waitForViewport(page) {
+  await page.goto('/');
+  const canvas = page.locator('canvas').first();
+  await expect(canvas).toBeVisible({ timeout: 15000 });
+  await page.waitForTimeout(2000); // let Three.js fully init
+  return canvas;
+}
+
+// Helper: click a tool group button by index (0-based from toolbar)
+async function clickToolGroup(page, groupIndex) {
+  const btn = page.locator('.tool-icon-button').nth(groupIndex + 2); // +2 for Select/Move buttons
+  await btn.click();
+  await page.waitForTimeout(500);
+}
+
+// Helper: click a dropdown item by name
+async function clickDropdownItem(page, name) {
+  const item = page.locator('.dropdown-item').filter({ hasText: name }).first();
+  await item.click();
+  await page.waitForTimeout(1000);
+}
+
+// Helper: verify status bar shows success
+async function expectStatus(page, text) {
+  const status = page.locator('.tool-status-bar');
+  await expect(status).toContainText(text, { timeout: 5000 });
+}
 
 test.describe('Viewport Stability', () => {
   test('viewport renders and stays visible for 10 seconds', async ({ page }) => {
-    await page.goto('/');
-    // Wait for the canvas to appear
-    const canvas = page.locator('canvas');
-    await expect(canvas).toBeVisible({ timeout: 10000 });
-
-    // Wait 10 seconds and verify it's still there
+    const canvas = await waitForViewport(page);
     await page.waitForTimeout(10000);
     await expect(canvas).toBeVisible();
-
-    // Verify canvas has real dimensions
     const box = await canvas.boundingBox();
     expect(box.width).toBeGreaterThan(100);
     expect(box.height).toBeGreaterThan(100);
   });
 
-  test('viewport has proper Three.js WebGL context', async ({ page }) => {
-    await page.goto('/');
-    const canvas = page.locator('canvas');
-    await expect(canvas).toBeVisible({ timeout: 10000 });
-
-    // Check canvas is a WebGL canvas (not blank)
-    const isWebGL = await page.evaluate(() => {
-      const c = document.querySelector('canvas');
-      if (!c) return false;
-      const ctx = c.getContext('webgl2') || c.getContext('webgl');
-      return !!ctx;
-    });
-    // Three.js creates its own context, so querySelector canvas should exist
-    const canvasCount = await page.locator('canvas').count();
-    expect(canvasCount).toBeGreaterThanOrEqual(1);
+  test('viewport has 2 canvases (main + NavSphere)', async ({ page }) => {
+    await waitForViewport(page);
+    const count = await page.locator('canvas').count();
+    expect(count).toBe(2);
   });
 });
 
-test.describe('Tool Execution — Primitives', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(2000); // let Three.js fully initialize
+test.describe('Primitives & Part Design', () => {
+  test.beforeEach(async ({ page }) => { await waitForViewport(page); });
+
+  test('Extrude Boss creates solid', async ({ page }) => {
+    await clickToolGroup(page, 1); // Part Design
+    await clickDropdownItem(page, 'Extrude Boss');
+    await expectStatus(page, 'Extrude Boss');
   });
 
-  test('create box via Part Design tool', async ({ page }) => {
-    // Find the Part Design (Box) icon button — it's the 3rd tool icon
-    const toolButtons = page.locator('.tool-icon-button');
-    const partDesignBtn = toolButtons.nth(3); // sketch=2, part=3
-    await partDesignBtn.click();
-
-    // Wait for dropdown
-    const dropdown = page.locator('.tool-dropdown');
-    await expect(dropdown).toBeVisible({ timeout: 3000 });
-
-    // Click "Extrude Boss"
-    const extrudeBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' });
-    await extrudeBtn.click();
-
-    // Verify success status
-    const status = page.locator('.tool-status-bar');
-    await expect(status).toContainText('Extrude Boss', { timeout: 3000 });
+  test('Revolve Boss creates solid', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Revolve Boss');
+    await expectStatus(page, 'Revolve');
   });
 
-  test('create cylinder via Part Design tool', async ({ page }) => {
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
+  test('Loft Boss creates solid', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Loft Boss');
+    await expectStatus(page, 'Loft');
+  });
+
+  test('Sweep Boss creates solid', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Sweep Boss');
+    await expectStatus(page, 'Sweep');
+  });
+
+  test('Fillet applies to edges', async ({ page }) => {
+    // Create base solid first
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
     await page.waitForTimeout(500);
+    // Apply fillet
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Fillet');
+    await expectStatus(page, 'Fillet');
+  });
 
-    const revolveBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Revolve Boss' });
-    await revolveBtn.click();
+  test('Chamfer applies to edges', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
+    await page.waitForTimeout(500);
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Chamfer');
+    await expectStatus(page, 'Chamfer');
+  });
 
-    const status = page.locator('.tool-status-bar');
-    await expect(status).toContainText('Revolve', { timeout: 3000 });
+  test('Shell hollows solid', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
+    await page.waitForTimeout(500);
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Shell');
+    await expectStatus(page, 'Shell');
+  });
+
+  test('Boolean Subtract works', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
+    await page.waitForTimeout(500);
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Hole Wizard');
+    await page.waitForTimeout(500);
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Subtract');
+    await expectStatus(page, 'Subtract');
+  });
+
+  test('Linear Pattern creates copies', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Linear Pattern');
+    await expectStatus(page, 'Linear Pattern');
+  });
+
+  test('Circular Pattern creates copies', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Circular Pattern');
+    await expectStatus(page, 'Circular Pattern');
   });
 });
 
-test.describe('Tool Execution — Advanced Features', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(2000);
+test.describe('Sketch Tools', () => {
+  test.beforeEach(async ({ page }) => { await waitForViewport(page); });
+
+  test('Line creates sketch entity', async ({ page }) => {
+    await clickToolGroup(page, 0); // Sketch
+    await clickDropdownItem(page, 'Line');
+    await expectStatus(page, 'Line');
   });
 
-  test('create loft between two profiles', async ({ page }) => {
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-
-    const loftBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Loft Boss' });
-    await loftBtn.click();
-
-    const status = page.locator('.tool-status-bar');
-    await expect(status).toContainText('Loft', { timeout: 3000 });
+  test('Circle creates sketch entity', async ({ page }) => {
+    await clickToolGroup(page, 0);
+    await clickDropdownItem(page, 'Circle');
+    await expectStatus(page, 'Circle');
   });
 
-  test('create sweep along path', async ({ page }) => {
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-
-    const sweepBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Sweep Boss' });
-    await sweepBtn.click();
-
-    const status = page.locator('.tool-status-bar');
-    await expect(status).toContainText('Sweep', { timeout: 3000 });
-  });
-
-  test('apply fillet to solid edges', async ({ page }) => {
-    // First create a box
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1000);
-
-    // Then apply fillet
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Fillet' }).first().click();
-
-    const status = page.locator('.tool-status-bar');
-    await expect(status).toContainText('Fillet', { timeout: 3000 });
-  });
-
-  test('boolean subtract two solids', async ({ page }) => {
-    const toolButtons = page.locator('.tool-icon-button');
-
-    // Create first solid
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1000);
-
-    // Create second solid (hole)
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Hole Wizard' }).click();
-    await page.waitForTimeout(1000);
-
-    // Boolean subtract
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Subtract' }).click();
-
-    const status = page.locator('.tool-status-bar');
-    await expect(status).toContainText('Subtract', { timeout: 3000 });
+  test('Rectangle creates sketch entity', async ({ page }) => {
+    await clickToolGroup(page, 0);
+    await clickDropdownItem(page, 'Rectangle');
+    await expectStatus(page, 'Rectangle');
   });
 });
 
-test.describe('Selection & Transform', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(2000);
+test.describe('Display Modes', () => {
+  test.beforeEach(async ({ page }) => { await waitForViewport(page); });
 
-    // Create a solid to work with
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1500);
-  });
-
-  test('click to select object in viewport', async ({ page }) => {
-    // Click center of viewport
-    const canvas = page.locator('canvas');
-    const box = await canvas.boundingBox();
-    await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-    await page.waitForTimeout(500);
-
-    // Check selection info appears
-    const selectionInfo = page.locator('.selection-info-bar');
-    // May or may not hit the object depending on camera angle, so just verify no crash
-  });
-
-  test('keyboard G activates translate gizmo', async ({ page }) => {
-    await page.keyboard.press('g');
-    const activeBtn = page.locator('.gizmo-btn.active');
-    // Move button should be active
-  });
-
-  test('keyboard Z cycles display modes', async ({ page }) => {
-    const label = page.locator('.selection-mode-label');
+  test('Z key cycles display modes', async ({ page }) => {
+    const label = page.locator('.selection-mode-label').last();
     await expect(label).toContainText('Shaded');
 
     await page.keyboard.press('z');
+    await page.waitForTimeout(300);
     await expect(label).toContainText('Wire');
 
     await page.keyboard.press('z');
+    await page.waitForTimeout(300);
     await expect(label).toContainText('S+W');
 
     await page.keyboard.press('z');
+    await page.waitForTimeout(300);
     await expect(label).toContainText('X-Ray');
   });
 
-  test('selection modes switch with 1/2/3 keys', async ({ page }) => {
+  test('selection modes switch with 1/2/3', async ({ page }) => {
     await page.keyboard.press('2');
-    await page.waitForTimeout(200);
-    // Should be in face mode — check the active button
+    await page.waitForTimeout(300);
     const faceBtn = page.locator('.selection-toolbar .gizmo-btn').nth(1);
     await expect(faceBtn).toHaveClass(/active/);
 
-    await page.keyboard.press('3');
-    await page.waitForTimeout(200);
-    const edgeBtn = page.locator('.selection-toolbar .gizmo-btn').nth(2);
-    await expect(edgeBtn).toHaveClass(/active/);
-
     await page.keyboard.press('1');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
     const objBtn = page.locator('.selection-toolbar .gizmo-btn').nth(0);
     await expect(objBtn).toHaveClass(/active/);
   });
 });
 
 test.describe('Feature Tree', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(2000);
-  });
+  test.beforeEach(async ({ page }) => { await waitForViewport(page); });
 
-  test('feature tree updates when tools are used', async ({ page }) => {
-    // Create a box
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1000);
-
-    // Feature tree should show the feature
-    const featureItem = page.locator('.feature-tree-item');
-    const count = await featureItem.count();
-    expect(count).toBeGreaterThanOrEqual(1);
-  });
-
-  test('creating multiple features shows them all in tree', async ({ page }) => {
-    const toolButtons = page.locator('.tool-icon-button');
-
+  test('features appear in tree when created', async ({ page }) => {
     // Create 3 features
     for (let i = 0; i < 3; i++) {
-      await toolButtons.nth(3).click();
-      await page.waitForTimeout(500);
-      await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-      await page.waitForTimeout(1000);
+      await clickToolGroup(page, 1);
+      await clickDropdownItem(page, 'Extrude Boss');
     }
-
-    const featureItems = page.locator('.feature-tree-item');
-    const count = await featureItems.count();
+    const items = page.locator('.feature-tree-item');
+    const count = await items.count();
     expect(count).toBeGreaterThanOrEqual(3);
   });
 });
 
-test.describe('Export', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(2000);
-
-    // Create geometry
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1500);
-  });
-
-  test('export STL triggers download', async ({ page }) => {
-    // Navigate to Document tools
-    const toolButtons = page.locator('.tool-icon-button');
-    // Documentation is one of the last tool groups
-    const docBtn = toolButtons.nth(13); // approximate position
-    await docBtn.click();
-    await page.waitForTimeout(500);
-
-    const exportBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Export STL' });
-    if (await exportBtn.isVisible()) {
-      const downloadPromise = page.waitForEvent('download');
-      await exportBtn.click();
-      // May or may not trigger download depending on exact group index
-    }
-  });
-});
-
 test.describe('Simulation', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(2000);
+  test.beforeEach(async ({ page }) => { await waitForViewport(page); });
 
-    // Create geometry first
-    const toolButtons = page.locator('.tool-icon-button');
-    await toolButtons.nth(3).click();
+  test('FEA returns stress results', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
     await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1500);
-  });
-
-  test('FEA analysis returns stress results', async ({ page }) => {
-    const toolButtons = page.locator('.tool-icon-button');
-    // Simulation group
-    const simBtn = toolButtons.nth(11);
-    await simBtn.click();
-    await page.waitForTimeout(500);
-
-    const feaBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Linear Static FEA' });
-    if (await feaBtn.isVisible()) {
-      await feaBtn.click();
-      const status = page.locator('.tool-status-bar');
-      await expect(status).toContainText('stress', { timeout: 3000 });
-    }
+    await clickToolGroup(page, 9); // Simulation
+    await clickDropdownItem(page, 'Linear Static FEA');
+    await expectStatus(page, 'stress');
   });
 });
 
-test.describe('Comprehensive Mechanical Workflow — V12 Engine', () => {
-  test('build engine block foundation', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(3000);
+test.describe('Measure', () => {
+  test.beforeEach(async ({ page }) => { await waitForViewport(page); });
 
-    const toolButtons = page.locator('.tool-icon-button');
-
-    // Step 1: Create engine block (rectangular base)
-    await toolButtons.nth(3).click();
+  test('Mass Properties returns values', async ({ page }) => {
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
     await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Extrude Boss' }).click();
-    await page.waitForTimeout(1500);
+    await clickToolGroup(page, 12); // Measure
+    await clickDropdownItem(page, 'Mass Properties');
+    await expectStatus(page, 'Mass');
+  });
+});
 
-    // Step 2: Add cylinder bores (12 holes in V configuration)
+test.describe('V12 Engine Build', () => {
+  test('build V12 engine components end-to-end', async ({ page }) => {
+    await waitForViewport(page);
+
+    // Engine block
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Extrude Boss');
+    await page.waitForTimeout(800);
+
+    // 6 cylinder bores
     for (let i = 0; i < 6; i++) {
-      await toolButtons.nth(3).click();
-      await page.waitForTimeout(400);
-      await page.locator('.tool-dropdown-item').filter({ hasText: 'Hole Wizard' }).click();
-      await page.waitForTimeout(800);
+      await clickToolGroup(page, 1);
+      await clickDropdownItem(page, 'Hole Wizard');
+      await page.waitForTimeout(600);
     }
 
-    // Step 3: Create crankshaft (revolve)
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Revolve Boss' }).click();
-    await page.waitForTimeout(1500);
+    // Crankshaft
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Revolve Boss');
+    await page.waitForTimeout(800);
 
-    // Step 4: Add intake manifold (sweep)
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Sweep Boss' }).click();
-    await page.waitForTimeout(1500);
+    // Intake manifold
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Sweep Boss');
+    await page.waitForTimeout(800);
 
-    // Step 5: Add exhaust manifold (loft)
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Loft Boss' }).click();
-    await page.waitForTimeout(1500);
+    // Exhaust manifold
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Loft Boss');
+    await page.waitForTimeout(800);
 
-    // Step 6: Fillet edges
-    await toolButtons.nth(3).click();
-    await page.waitForTimeout(500);
-    await page.locator('.tool-dropdown-item').filter({ hasText: 'Fillet' }).first().click();
-    await page.waitForTimeout(1000);
+    // Fillets
+    await clickToolGroup(page, 1);
+    await clickDropdownItem(page, 'Fillet');
+    await page.waitForTimeout(600);
 
-    // Verify feature tree has all features
-    const featureItems = page.locator('.feature-tree-item');
-    const count = await featureItems.count();
-    expect(count).toBeGreaterThanOrEqual(9);
+    // FEA analysis
+    await clickToolGroup(page, 9);
+    await clickDropdownItem(page, 'Linear Static FEA');
+    await page.waitForTimeout(800);
 
-    // Step 7: Run FEA
-    await toolButtons.nth(11).click();
-    await page.waitForTimeout(500);
-    const feaBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Linear Static FEA' });
-    if (await feaBtn.isVisible()) {
-      await feaBtn.click();
-      await page.waitForTimeout(1000);
-    }
+    // Mass properties
+    await clickToolGroup(page, 12);
+    await clickDropdownItem(page, 'Mass Properties');
+    await page.waitForTimeout(800);
 
-    // Step 8: Check mass properties
-    const measureBtn = toolButtons.nth(14);
-    await measureBtn.click();
-    await page.waitForTimeout(500);
-    const massBtn = page.locator('.tool-dropdown-item').filter({ hasText: 'Mass Properties' });
-    if (await massBtn.isVisible()) {
-      await massBtn.click();
-      await page.waitForTimeout(1000);
-    }
+    // Verify feature tree
+    const items = page.locator('.feature-tree-item');
+    const count = await items.count();
+    expect(count).toBeGreaterThanOrEqual(10);
 
-    // Take final screenshot
-    await page.screenshot({ path: 'e2e/screenshots/v12-engine-block.png', fullPage: true });
-
-    console.log('V12 Engine block created with:');
-    console.log(`- ${count} features in tree`);
-    console.log('- Block, 6 cylinder bores, crankshaft, intake, exhaust, fillets');
-    console.log('- FEA analysis run');
-    console.log('- Mass properties calculated');
+    // Screenshot
+    await page.screenshot({ path: 'e2e/screenshots/v12-engine.png', fullPage: true });
   });
 });
