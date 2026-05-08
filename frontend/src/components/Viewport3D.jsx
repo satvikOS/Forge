@@ -34,6 +34,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const selectionModeRef = useRef('object');
     const displayModeRef = useRef('shaded');
     const sketchActiveRef = useRef(false);
+    const lastPickedFace = useRef(null);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const onReadyRef = useRef(onReady);
     useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
@@ -304,6 +305,16 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                     const faceId = ThreeJSBridge.pickFace(hit);
                     if (faceId !== null) {
                         ThreeJSBridge.highlightFace(group, faceId, 0xff6b35);
+
+                        // Store the picked face for sketch-on-face activation
+                        lastPickedFace.current = {
+                            face: group.userData.kernelSolid.faces().find(f => f.id === faceId),
+                            normal: hit.face?.normal ? new Vec3(hit.face.normal.x, hit.face.normal.y, hit.face.normal.z) : null,
+                            point: new Vec3(hit.point.x, hit.point.y, hit.point.z),
+                            faceId,
+                            solidId: group.userData.kernelSolid?.id,
+                        };
+
                         if (onSelectionChangeRef.current) {
                             onSelectionChangeRef.current({ type: 'face', faceId, solidId: group.userData.kernelSolid?.id });
                         }
@@ -311,6 +322,17 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 } else {
                     // Non-kernel mesh — still highlight
                     selectObject(topGroup);
+                    // Capture face normal for sketch-on-face
+                    if (hit.face?.normal) {
+                        const localNormal = hit.face.normal.clone();
+                        // Transform to world space
+                        const worldNormal = localNormal.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hitMesh.matrixWorld)).normalize();
+                        lastPickedFace.current = {
+                            normal: new Vec3(worldNormal.x, worldNormal.y, worldNormal.z),
+                            point: new Vec3(hit.point.x, hit.point.y, hit.point.z),
+                            faceIndex: hit.faceIndex,
+                        };
+                    }
                     if (onSelectionChangeRef.current) {
                         onSelectionChangeRef.current({ type: 'face', name: topGroup.name, faceIndex: hit.faceIndex });
                     }
@@ -365,15 +387,27 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 case '2': setSelectionMode('face'); break;
                 case '3': setSelectionMode('edge'); break;
                 case '4':
-                    // Activate sketch on XZ plane (top-down)
+                    // Activate sketch — on picked face if available, else XZ plane
                     if (!sketchActiveRef.current) {
-                        _sketch.activate(scene, 'XZ');
+                        let planeSpec = 'XZ';
+                        let label = 'XZ plane (top-down)';
+
+                        if (lastPickedFace.current?.normal && lastPickedFace.current?.point) {
+                            // Sketch on the picked face
+                            planeSpec = {
+                                origin: lastPickedFace.current.point,
+                                normal: lastPickedFace.current.normal,
+                            };
+                            label = `picked face (Face #${lastPickedFace.current.faceId || 'mesh'})`;
+                        }
+
+                        _sketch.activate(scene, planeSpec);
                         _sketch.setTool(SketchTools.LINE);
                         sketchActiveRef.current = true;
                         setSketchActive(true);
                         setSketchTool('line');
-                        setSketchStatus('Sketch active on XZ plane — click to place points');
-                        orbitControls.enableRotate = false; // lock orbit while sketching
+                        setSketchStatus(`Sketch active on ${label} — click to place points`);
+                        orbitControls.enableRotate = false;
                     }
                     break;
                 case 'l':
@@ -397,7 +431,9 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                         const profile = _sketch.getProfile();
                         if (profile.length >= 3) {
                             const ft = getFeatureTree();
-                            const feature = ft.addExtrude(profile, new Vec3(0, 1, 0), 0.02);
+                            // Extrude direction = sketch plane normal (default Y for XZ plane)
+                            const dir = _sketch.planeNormal || new Vec3(0, 1, 0);
+                            const feature = ft.addExtrude(profile, dir, 0.020); // 20mm default
                             if (feature.solid) {
                                 const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
                                 group.userData.pickable = true;
@@ -405,13 +441,14 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                                 group.userData.kernelSolid = feature.solid;
                                 scene.add(group);
                             }
-                            // Exit sketch
                             _sketch.deactivate(scene);
                             sketchActiveRef.current = false;
                             setSketchActive(false);
                             setSketchTool('none');
                             orbitControls.enableRotate = true;
-                            setSketchStatus(`Extruded: Feature #${feature.id} — ${profile.length} vertices`);
+                            setSketchStatus(`Extruded: Feature #${feature.id} — ${profile.length} vertices, depth 20mm`);
+                            // Clear the picked face so next sketch defaults to XZ
+                            lastPickedFace.current = null;
                         } else {
                             setSketchStatus('Need at least 3 points for extrusion — draw more geometry');
                         }
