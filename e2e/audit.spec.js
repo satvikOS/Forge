@@ -307,7 +307,7 @@ test.describe('AUDIT: Export', () => {
 
     // Listen for download
     const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
-    await clickTool(page, 11, 'Export STL');
+    await clickTool(page, 10, 'Export STL');
     const download = await downloadPromise;
 
     if (download) {
