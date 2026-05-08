@@ -10,7 +10,7 @@ import {
   BooleanEngine, FilletChamfer, LoftSweep, DirectEdit,
   FeatureTree, ThreeJSBridge, ExportEngine, SketchSolver,
   SketchPoint, SketchLine, SketchCircle,
-  V12Engine, Assembly, FEAEngine, RenderEngine,
+  V12Engine, EUVLithography, Assembly, FEAEngine, RenderEngine,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -33,6 +33,7 @@ let _activeSketch = null;
 // Active assembly
 let _currentAssembly = null;
 let _currentAssemblyRoot = null;
+let _assemblyIndex = -1;
 
 export function getActiveSketch() { return _activeSketch; }
 
@@ -568,13 +569,22 @@ const TOOL_HANDLERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   assembly: {
     'Insert Component': (scene, viewport) => {
-      // Build a full V12 engine assembly
-      const assy = V12Engine.build();
+      // Cycle between available assemblies
+      const assemblies = [
+        { name: 'EUV Lithography Machine', builder: () => EUVLithography.build() },
+        { name: 'V12 Engine', builder: () => V12Engine.build() },
+      ];
+      _assemblyIndex = ((_assemblyIndex || 0) + 1) % assemblies.length;
+      const { name, builder } = assemblies[_assemblyIndex];
+
+      const assy = builder();
+      if (_currentAssemblyRoot) {
+        AssemblyBridge.dispose(_currentAssemblyRoot, scene);
+      }
       const root = AssemblyBridge.renderAssembly(assy, scene);
       _currentAssembly = assy;
       _currentAssemblyRoot = root;
 
-      // Focus camera
       if (viewport?.camera && viewport?.controls) {
         AssemblyBridge.focusOnAssembly(root, viewport.camera, viewport.controls);
       }
@@ -582,7 +592,7 @@ const TOOL_HANDLERS = {
       const bom = assy.generateBOM();
       return {
         status: 'success',
-        message: `V12 Engine Assembly: ${assy.partCount()} parts, ${bom.length} unique, ${assy.totalMass().toFixed(2)} kg total`
+        message: `${name}: ${assy.partCount()} parts, ${bom.length} unique, ${assy.totalMass().toFixed(2)} kg total`
       };
     },
     'Coincident Mate': () => ({ status: 'success', message: 'Coincident Mate: Faces aligned — 0 DOF remaining' }),

@@ -62,3 +62,4 @@ export { default as RenderEngine, PBR_PRESETS, LIGHTING_PRESETS } from './simula
 
 // Library
 export { default as V12Engine } from './library/V12Engine.js';
+export { default as EUVLithography } from './library/EUVLithography.js';
