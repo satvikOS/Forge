@@ -230,8 +230,8 @@ export default class BooleanEngine {
    * @returns {TopoSolid}
    */
   static union(solidA, solidB) {
-    const a = new CSGNode(BooleanEngine._solidToPolygons(solidA));
-    const b = new CSGNode(BooleanEngine._solidToPolygons(solidB));
+    const a = new CSGNode(BooleanEngine._solidToPolygons(solidA, 'A'));
+    const b = new CSGNode(BooleanEngine._solidToPolygons(solidB, 'B'));
 
     a.clipTo(b);
     b.clipTo(a);
@@ -240,7 +240,7 @@ export default class BooleanEngine {
     b.invert();
     a.build(b.allPolygons());
 
-    return BooleanEngine._polygonsToSolid(a.allPolygons(), 'Union');
+    return BooleanEngine._polygonsToSolid(a.allPolygons(), 'Union', { solidA, solidB });
   }
 
   /**
@@ -250,8 +250,8 @@ export default class BooleanEngine {
    * @returns {TopoSolid}
    */
   static subtract(solidA, solidB) {
-    const a = new CSGNode(BooleanEngine._solidToPolygons(solidA));
-    const b = new CSGNode(BooleanEngine._solidToPolygons(solidB));
+    const a = new CSGNode(BooleanEngine._solidToPolygons(solidA, 'A'));
+    const b = new CSGNode(BooleanEngine._solidToPolygons(solidB, 'B'));
 
     a.invert();
     a.clipTo(b);
@@ -262,7 +262,7 @@ export default class BooleanEngine {
     a.build(b.allPolygons());
     a.invert();
 
-    return BooleanEngine._polygonsToSolid(a.allPolygons(), 'Subtract');
+    return BooleanEngine._polygonsToSolid(a.allPolygons(), 'Subtract', { solidA, solidB });
   }
 
   /**
@@ -272,8 +272,8 @@ export default class BooleanEngine {
    * @returns {TopoSolid}
    */
   static intersect(solidA, solidB) {
-    const a = new CSGNode(BooleanEngine._solidToPolygons(solidA));
-    const b = new CSGNode(BooleanEngine._solidToPolygons(solidB));
+    const a = new CSGNode(BooleanEngine._solidToPolygons(solidA, 'A'));
+    const b = new CSGNode(BooleanEngine._solidToPolygons(solidB, 'B'));
 
     a.invert();
     b.clipTo(a);
@@ -283,11 +283,11 @@ export default class BooleanEngine {
     a.build(b.allPolygons());
     a.invert();
 
-    return BooleanEngine._polygonsToSolid(a.allPolygons(), 'Intersect');
+    return BooleanEngine._polygonsToSolid(a.allPolygons(), 'Intersect', { solidA, solidB });
   }
 
   // --- Conversion: TopoSolid → CSGPolygons ---
-  static _solidToPolygons(solid) {
+  static _solidToPolygons(solid, sourceTag = 'A') {
     const polygons = [];
 
     for (const face of solid.faces()) {
@@ -299,14 +299,21 @@ export default class BooleanEngine {
         ? new Vec3(-normal.x, -normal.y, -normal.z)
         : new Vec3(normal.x, normal.y, normal.z);
 
-      // Fan triangulation for robust BSP
+      // Fan triangulation for robust BSP — preserve source identity
+      const shared = {
+        sourceFaceId: face.id,
+        sourceSolidId: solid.id,
+        sourceTag, // 'A' or 'B'
+        sourceFeatureType: solid.userData?.featureType,
+      };
+
       for (let i = 1; i < outerPts.length - 1; i++) {
         const verts = [
           { pos: outerPts[0].clone(), normal: faceNormal.clone() },
           { pos: outerPts[i].clone(), normal: faceNormal.clone() },
           { pos: outerPts[i + 1].clone(), normal: faceNormal.clone() },
         ];
-        polygons.push(new CSGPolygon(verts, faceNormal.clone(), { faceId: face.id }));
+        polygons.push(new CSGPolygon(verts, faceNormal.clone(), { ...shared }));
       }
     }
 
@@ -314,9 +321,13 @@ export default class BooleanEngine {
   }
 
   // --- Conversion: CSGPolygons → TopoSolid ---
-  static _polygonsToSolid(polygons, name) {
+  static _polygonsToSolid(polygons, name, sources = {}) {
     const faces = [];
-    const vertexCache = new Map(); // "x,y,z" → TopoVertex
+    const vertexCache = new Map();
+
+    // Track origin info for the resulting solid
+    const sourceFaceMap = new Map(); // sourceFaceId → [new TopoFaces created from it]
+    const sourceTagCounts = { A: 0, B: 0 };
 
     const getOrCreateVertex = (pos) => {
       const key = `${pos.x.toFixed(8)},${pos.y.toFixed(8)},${pos.z.toFixed(8)}`;
@@ -331,7 +342,6 @@ export default class BooleanEngine {
 
       const verts = poly.vertices.map(v => getOrCreateVertex(v.pos));
 
-      // Create edges
       const halfEdges = [];
       for (let i = 0; i < verts.length; i++) {
         const next = (i + 1) % verts.length;
@@ -348,13 +358,76 @@ export default class BooleanEngine {
         Plane.fromNormalAndPoint(faceNormal, verts[0].point)
       );
 
-      faces.push(new TopoFace(surface, loop));
+      const newFace = new TopoFace(surface, loop);
+
+      // Tag with source information from CSG metadata
+      if (poly.shared) {
+        if (!newFace.userData) newFace.userData = {};
+        newFace.userData.sourceFaceId = poly.shared.sourceFaceId;
+        newFace.userData.sourceSolidId = poly.shared.sourceSolidId;
+        newFace.userData.sourceTag = poly.shared.sourceTag;
+        newFace.userData.sourceFeatureType = poly.shared.sourceFeatureType;
+
+        // Build sourceFaceMap
+        const key = `${poly.shared.sourceTag}:${poly.shared.sourceFaceId}`;
+        if (!sourceFaceMap.has(key)) sourceFaceMap.set(key, []);
+        sourceFaceMap.get(key).push(newFace);
+
+        if (poly.shared.sourceTag) sourceTagCounts[poly.shared.sourceTag]++;
+      }
+
+      faces.push(newFace);
     }
 
     const shell = new TopoShell(faces);
     const solid = new TopoSolid(shell);
     solid.name = name;
     solid.userData.featureType = 'boolean';
+
+    // Track ID lineage on the resulting solid
+    solid.userData.booleanInfo = {
+      operation: name.toLowerCase(),
+      sourceA: sources.solidA?.id,
+      sourceB: sources.solidB?.id,
+      faceCountFromA: sourceTagCounts.A,
+      faceCountFromB: sourceTagCounts.B,
+      sourceFaceMap, // for downstream queries
+    };
+
     return solid;
+  }
+
+  /**
+   * Query: which faces in a boolean result came from a specific source face?
+   * @param {TopoSolid} resultSolid - Solid produced by union/subtract/intersect
+   * @param {string} sourceTag - 'A' or 'B'
+   * @param {number} sourceFaceId - Original face ID
+   * @returns {TopoFace[]}
+   */
+  static getFacesFromSource(resultSolid, sourceTag, sourceFaceId) {
+    const info = resultSolid.userData?.booleanInfo;
+    if (!info) return [];
+    return info.sourceFaceMap.get(`${sourceTag}:${sourceFaceId}`) || [];
+  }
+
+  /**
+   * Query: list all faces in a boolean result with their source info.
+   */
+  static getFaceLineage(resultSolid) {
+    const info = resultSolid.userData?.booleanInfo;
+    if (!info) return null;
+    return {
+      operation: info.operation,
+      sourceA: info.sourceA,
+      sourceB: info.sourceB,
+      faceCountFromA: info.faceCountFromA,
+      faceCountFromB: info.faceCountFromB,
+      faces: resultSolid.faces().map(f => ({
+        faceId: f.id,
+        sourceTag: f.userData?.sourceTag,
+        sourceFaceId: f.userData?.sourceFaceId,
+        sourceSolidId: f.userData?.sourceSolidId,
+      })),
+    };
   }
 }
