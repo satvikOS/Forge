@@ -11,6 +11,7 @@ import {
   FeatureTree, ThreeJSBridge, ExportEngine, SketchSolver,
   SketchPoint, SketchLine, SketchCircle,
   Assembly, FEAEngine, RenderEngine, GCodeGenerator, Slicer,
+  SceneComposer, PixelManager,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -1510,6 +1511,26 @@ function runMeasure(nameLower, toolName, scene, viewport, ft) {
 
 function runDocument(nameLower, toolName, scene, viewport, ft) {
   const solid = ft.getSolid();
+
+  // Render / Publish
+  if (nameLower.includes('export 3d pdf') || nameLower.includes('render')) {
+    if (viewport?.renderer && viewport?.camera) {
+      SceneComposer.setBackground(scene, 'studio');
+      SceneComposer.addGroundPlane(scene, { reflective: true, opacity: 0.2 });
+      RenderEngine.downloadRender(viewport.renderer, scene, viewport.camera, 'ArchDisc_4K_Render.png', 3840, 2160);
+      return { status: 'success', message: 'Rendered at 4K (3840x2160) and downloaded' };
+    }
+    return { status: 'warn', message: 'Viewport not ready for rendering' };
+  }
+  if (nameLower.includes('standard 3 view') || nameLower.includes('isometric view')) {
+    if (viewport?.renderer && viewport?.camera && viewport?.controls) {
+      const dataUrl = SceneComposer.multiViewRender(viewport.renderer, scene, viewport.camera, viewport.controls);
+      SceneComposer.downloadImage(dataUrl, 'ArchDisc_MultiView.png');
+      return { status: 'success', message: 'Multi-view layout rendered (Front, Top, Right, Isometric)' };
+    }
+    return { status: 'warn', message: 'Viewport not ready' };
+  }
+
   if (nameLower.includes('export stl')) {
     if (solid) ExportEngine.exportSolid(solid, 'stl-binary', 'ArchDisc');
     return { status: solid ? 'success' : 'warn', message: solid ? 'Exported as STL (binary)' : 'No solid to export' };

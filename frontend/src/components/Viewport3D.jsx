@@ -4,7 +4,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
 import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, Layers } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
-import { ThreeJSBridge } from '../kernel/index.js';
+import { ThreeJSBridge, PixelManager } from '../kernel/index.js';
+
+// Singleton pixel manager — accessible globally for AI agents
+const _pixelManager = new PixelManager();
+export function getPixelManager() { return _pixelManager; }
 
 /**
  * Industrial-grade 3D Viewport
@@ -391,6 +395,9 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         window.addEventListener('resize', handleResize);
 
         // --- Notify ---
+        // Register PixelManager
+        _pixelManager.register(renderer, scene, camera);
+
         if (onReadyRef.current) onReadyRef.current({ scene, camera, renderer, controls: orbitControls, transformControls });
         if (viewport?.registerViewport) {
             viewport.registerViewport({ scene, camera, renderer, controls: orbitControls, transformControls });

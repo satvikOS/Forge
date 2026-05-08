@@ -63,3 +63,9 @@ export { default as RenderEngine, PBR_PRESETS, LIGHTING_PRESETS } from './simula
 // Manufacturing
 export { default as GCodeGenerator } from './manufacturing/GCodeGenerator.js';
 export { default as Slicer } from './manufacturing/Slicer.js';
+
+// Rendering & Publishing
+export { default as SceneComposer, BACKGROUNDS, CAMERA_PRESETS } from './rendering/SceneComposer.js';
+
+// Pixel Management (Proprietary)
+export { default as PixelManager } from './pixelmanagement/PixelManager.js';
