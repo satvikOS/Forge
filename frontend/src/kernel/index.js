@@ -31,6 +31,10 @@ export { default as TopoSolid } from './topology/TopoSolid.js';
 
 // Sketch
 export { default as SketchSolver, SketchPoint, SketchLine, SketchCircle, SketchArc } from './sketch/SketchSolver.js';
+export { default as InteractiveSketch, TOOLS as SketchTools } from './sketch/InteractiveSketch.js';
+
+// Tessellation (Subdivision)
+export { default as SubdivisionSurface } from './tessellation/SubdivisionSurface.js';
 
 // Features
 export { default as PrimitiveBuilder } from './features/PrimitiveBuilder.js';
