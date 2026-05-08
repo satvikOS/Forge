@@ -427,7 +427,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const displayLabels = { shaded: 'Shaded', wireframe: 'Wire', shadedWire: 'S+W', xray: 'X-Ray' };
 
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', contain: 'layout style paint' }}>
+        <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: '200px', position: 'relative', overflow: 'hidden' }}>
             {/* Transform toolbar */}
             <div className="gizmo-toolbar">
                 <button className={`gizmo-btn ${transformMode === 'translate' ? 'active' : ''}`}

@@ -264,9 +264,10 @@
 .workbench-viewport {
     grid-area: viewport;
     position: relative;
-    background: #1a1a1a;
+    background: #1a1a2e;
     overflow: hidden;
-    contain: layout style paint;
+    min-height: 0;
+    min-width: 0;
 }
 
 .workbench-viewport canvas {
