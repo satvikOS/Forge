@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import * as THREE from 'three';
+import { ThreeJSBridge } from '../kernel/index.js';
 
 /**
  * Viewport Context - 3D scene + model management
@@ -305,6 +306,48 @@ export function ViewportProvider({ children }) {
         setSelectedModelId(null);
     }, [scene, updateModels]);
 
+    // ─── Add Kernel Solid ──────────────────────────────────────────────────────
+    const addKernelSolid = useCallback((solid, threeGroup) => {
+        if (!scene) return null;
+
+        const modelId = nextModelId();
+        const components = [];
+
+        // Track mesh children as components
+        threeGroup.traverse(child => {
+            if (child.isMesh && child.userData.pickable) {
+                const compId = nextComponentId();
+                child.userData.componentId = compId;
+                child.userData.modelId = modelId;
+                components.push({
+                    id: compId,
+                    name: child.name || `Component ${components.length + 1}`,
+                    type: 'body',
+                    visible: true,
+                    meshUUID: child.uuid,
+                });
+            }
+        });
+
+        const modelRecord = {
+            id: modelId,
+            designId: `kernel_${solid.id}`,
+            name: solid.name || 'Kernel Solid',
+            components,
+            groupUUID: threeGroup.uuid,
+            kernelSolid: solid,
+            transform: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 },
+            material: solid.material || 'Aluminum 6061-T6',
+            specs: { featureType: solid.userData?.featureType },
+            massProperties: solid.massProperties ? solid.massProperties() : computeMassProperties(threeGroup),
+            createdAt: new Date().toISOString(),
+        };
+
+        updateModels(prev => [...prev, modelRecord]);
+        setSelectedModelId(modelId);
+        return modelRecord;
+    }, [scene, updateModels]);
+
     // Legacy compatibility
     const addGeometry = useCallback((geometry, options = {}) => {
         return addModel(geometry, {}, null);
@@ -346,7 +389,7 @@ export function ViewportProvider({ children }) {
         wireframeMode, registerViewport, toggleWireframeMode,
         // Model management
         models, selectedModelId,
-        addModel, removeModel, selectModel, getSelectedModel,
+        addModel, addKernelSolid, removeModel, selectModel, getSelectedModel,
         updateModelTransform, toggleComponentVisibility, updateModelMaterial,
         clearAllModels,
         // Legacy
