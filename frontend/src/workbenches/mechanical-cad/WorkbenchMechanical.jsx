@@ -10,9 +10,11 @@ import { executeTool } from './ToolExecutionEngine';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
+import PropertyManager from '../../components/PropertyManager';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
+import '../../components/PropertyManager.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
@@ -826,133 +828,11 @@ function WorkbenchMechanical() {
 
             {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
-                {/* Feature Tree - parametric history */}
+                {/* Feature Tree at top */}
                 <FeatureTreePanel onSelectFeature={(id) => console.log('Selected feature:', id)} />
 
-                {/* Model Tree - generated after model creation */}
-                <ModelTree />
-
-                {/* Component Info - shows when a model is selected */}
-                <ComponentInfoPanel />
-
-                {/* Transform - bound to selected model */}
-                <div className="property-section">
-                    <h3 className="property-header">Transform</h3>
-                    {['x', 'y', 'z'].map(axis => (
-                        <div className="property-row" key={`pos-${axis}`}>
-                            <span className="property-label">{axis.toUpperCase()}</span>
-                            <input
-                                type="number"
-                                className="property-input"
-                                value={selectedModel?.transform?.[axis] ?? 0}
-                                onChange={(e) => handleTransformChange(axis, e.target.value)}
-                                step="0.1"
-                                disabled={!selectedModel}
-                            />
-                        </div>
-                    ))}
-                </div>
-
-                {/* Rotation */}
-                <div className="property-section">
-                    <h3 className="property-header">Rotation</h3>
-                    {[{f:'rx',l:'X'},{f:'ry',l:'Y'},{f:'rz',l:'Z'}].map(({f,l}) => (
-                        <div className="property-row" key={f}>
-                            <span className="property-label">{l}</span>
-                            <input
-                                type="number"
-                                className="property-input"
-                                value={selectedModel?.transform?.[f] ?? 0}
-                                onChange={(e) => handleTransformChange(f, e.target.value)}
-                                step="1"
-                                disabled={!selectedModel}
-                            />
-                        </div>
-                    ))}
-                </div>
-
-                {/* Material - bound to selected model */}
-                <div className="property-section">
-                    <h3 className="property-header">Material</h3>
-                    <select
-                        className="property-input"
-                        value={selectedModel?.material || 'Aluminum 6061-T6'}
-                        onChange={handleMaterialChange}
-                        disabled={!selectedModel}
-                    >
-                        <option>Aluminum 6061-T6</option>
-                        <option>Aluminum 7075-T6</option>
-                        <option>Steel AISI 1045</option>
-                        <option>Steel AISI 4140</option>
-                        <option>Stainless 304</option>
-                        <option>Stainless 316L</option>
-                        <option>Ti-6Al-4V</option>
-                        <option>ABS Plastic</option>
-                        <option>Nylon PA6</option>
-                        <option>PEEK</option>
-                        <option>Polycarbonate</option>
-                        <option>Copper C11000</option>
-                        <option>Brass C26000</option>
-                        <option>Inconel 718</option>
-                        <option>Magnesium AZ31</option>
-                        <option>Cast Iron</option>
-                    </select>
-                </div>
-
-                {/* Mass Properties - computed from model */}
-                <div className="property-section">
-                    <h3 className="property-header">Mass Properties</h3>
-                    <div className="property-row">
-                        <span className="property-label">Mass</span>
-                        <span className="property-value">
-                            {selectedModel ? `${selectedModel.massProperties.mass} kg` : '-- kg'}
-                        </span>
-                    </div>
-                    <div className="property-row">
-                        <span className="property-label">Volume</span>
-                        <span className="property-value">
-                            {selectedModel ? `${selectedModel.massProperties.volume} cm\u00B3` : '-- cm\u00B3'}
-                        </span>
-                    </div>
-                    <div className="property-row">
-                        <span className="property-label">Surface</span>
-                        <span className="property-value">
-                            {selectedModel ? `${selectedModel.massProperties.surfaceArea} cm\u00B2` : '-- cm\u00B2'}
-                        </span>
-                    </div>
-                </div>
-
-                {/* Quick Actions - connected to real endpoints */}
-                <div className="property-section">
-                    <h3 className="property-header">Quick Actions</h3>
-
-                    {actionStatus && (
-                        <div className={`action-status ${actionStatus.status}`}>
-                            {actionStatus.status === 'running' && `Running ${actionStatus.action}...`}
-                            {actionStatus.status === 'done' && `${actionStatus.action} complete`}
-                            {actionStatus.status === 'error' && `Error: ${actionStatus.error}`}
-                        </div>
-                    )}
-
-                    <button className="property-button" onClick={handleRunFEA} disabled={!selectedModel}>
-                        Run FEA
-                    </button>
-                    <button className="property-button" onClick={handleRunCFD} disabled={!selectedModel}>
-                        Run CFD
-                    </button>
-                    <button className="property-button" onClick={handleGenerateToolpath} disabled={!selectedModel}>
-                        Generate Toolpath
-                    </button>
-                    <button className="property-button" onClick={handleTopoOpt} disabled={!selectedModel}>
-                        Topology Optimization
-                    </button>
-                    <button className="property-button" onClick={handleExportGLTF} disabled={!selectedModel}>
-                        Export glTF
-                    </button>
-                    <button className="property-button" onClick={handleExportOBJ} disabled={!selectedModel}>
-                        Export OBJ
-                    </button>
-                </div>
+                {/* New PropertyManager \u2014 context-aware properties */}
+                <PropertyManager selection={selection} lastFeature={null} />
             </aside>
 
             {/* Context Menu */}
