@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "description": "ArchDisc - Professional 3D Architectural Design Platform",
   "type": "commonjs",
+  "main": "electron/main.js",
   "scripts": {
     "install": "npm install --prefix backend && npm install --prefix frontend",
     "build": "cd frontend && npm run build",
     "start": "node backend/server.js",
+    "electron:dev": "cd frontend && npx vite --port 3000 & sleep 3 && npx electron . --dev",
+    "electron:build": "cd frontend && npx vite build && npx electron-builder --win --x64",
+    "electron:start": "npx electron .",
     "vercel-build": "cd frontend && npm run build"
   },
   "keywords": [
@@ -33,6 +37,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "electron": "^42.0.0",
+    "electron-builder": "^26.8.1",
     "serverless": "^3.38.0",
     "serverless-cloudfront-invalidate": "^1.12.2",
     "serverless-offline": "^13.3.3",

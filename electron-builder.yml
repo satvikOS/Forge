@@ -1,0 +1,36 @@
+appId: com.archdisc.cad
+productName: ArchDisc
+copyright: Copyright © 2026 ArchDisc Inc.
+
+directories:
+  output: dist-electron
+  buildResources: electron
+
+files:
+  - electron/**/*
+  - frontend/dist/**/*
+  - "!node_modules/**/*"
+  - "!backend/**/*"
+  - "!e2e/**/*"
+  - "!test-results/**/*"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ArchDisc-Setup-${version}.${ext}
+  icon: electron/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: electron/icon.ico
+  uninstallerIcon: electron/icon.ico
+  installerHeaderIcon: electron/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ArchDisc
+
+extraMetadata:
+  main: electron/main.js

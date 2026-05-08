@@ -47,3 +47,4 @@ lambda-deployment.zip
 .serverless/
 lambda-*.zip
 test-results/
+dist-electron/
