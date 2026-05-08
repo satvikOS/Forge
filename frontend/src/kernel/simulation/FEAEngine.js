@@ -51,19 +51,25 @@ export default class FEAEngine {
     const bbox = solid.boundingBox();
     const size = bbox.size();
     const volume = solid.volume();
-    const crossSection = volume / Math.max(size.x, size.y, size.z, 0.001);
-    const momentOfInertia = crossSection * crossSection / 12;
 
-    // Beam bending approximation for max stress
-    const maxSpan = Math.max(size.x, size.y, size.z);
-    const maxMoment = totalForce * maxSpan / 4; // simply supported beam
-    const maxStress = maxMoment * (Math.sqrt(crossSection) / 2) / momentOfInertia;
+    // Use smallest cross-section dimension for beam approximation
+    const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
+    const span = Math.max(dims[2], 0.001); // longest dimension = beam span
+    const width = Math.max(dims[1], 0.001);
+    const height = Math.max(dims[0], 0.001);
+    const crossSection = width * height;
+    const momentOfInertia = width * Math.pow(height, 3) / 12;
+    const sectionModulus = momentOfInertia / (height / 2);
 
-    // Max deflection (beam theory)
-    const maxDeflection = (5 * totalForce * Math.pow(maxSpan, 3)) / (384 * mat.E * momentOfInertia);
+    // Beam bending: simply supported, point load at center
+    const maxMoment = totalForce * span / 4;
+    const maxStress = maxMoment / Math.max(sectionModulus, 1e-12);
+
+    // Max deflection (Euler-Bernoulli)
+    const maxDeflection = (totalForce * Math.pow(span, 3)) / (48 * mat.E * Math.max(momentOfInertia, 1e-12));
 
     // Safety factor
-    const safetyFactor = mat.yieldStrength / Math.max(maxStress, 1);
+    const safetyFactor = mat.yieldStrength / Math.max(maxStress, 0.001);
 
     // Von Mises stress distribution per element
     const stressField = mesh.elements.map((el, i) => {

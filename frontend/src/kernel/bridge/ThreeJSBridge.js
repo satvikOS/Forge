@@ -30,7 +30,7 @@ export default class ThreeJSBridge {
       edges = true,
       opacity = 1.0,
       flatShading = false,
-      smooth = 1,  // 0=flat, 1=smooth, 2=very smooth
+      smooth = 0,  // DISABLED — subdivision produces artifacts on triangulated B-Rep meshes
     } = options;
 
     const group = new THREE.Group();

@@ -56,8 +56,10 @@ export default class GCodeGenerator {
 
     let z = zTop;
     let passNum = 0;
+    const maxPasses = 50; // cap to prevent runaway on oversized geometry
+    const maxYSteps = 100;
 
-    while (z > zBottom) {
+    while (z > zBottom && passNum < maxPasses) {
       z = Math.max(z - zStep, zBottom);
       passNum++;
       lines.push('');
@@ -66,7 +68,9 @@ export default class GCodeGenerator {
       // Zigzag toolpath
       let y = yMin + toolDiameter * 500;
       let dir = 1;
-      while (y < yMax - toolDiameter * 500) {
+      let ySteps = 0;
+      while (y < yMax - toolDiameter * 500 && ySteps < maxYSteps) {
+        ySteps++;
         const x1 = dir > 0 ? xMin + toolDiameter * 500 : xMax - toolDiameter * 500;
         const x2 = dir > 0 ? xMax - toolDiameter * 500 : xMin + toolDiameter * 500;
 

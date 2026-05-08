@@ -34,7 +34,7 @@ export default class Slicer {
     const bbox = solid.boundingBox();
     const size = bbox.size();
     const height = size.y;
-    const layerCount = Math.ceil(height / layerHeight);
+    const layerCount = Math.min(Math.ceil(height / layerHeight), 2000); // cap at 2000 layers
 
     const layers = [];
     let totalLength = 0;
