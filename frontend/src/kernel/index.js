@@ -60,6 +60,6 @@ export { default as Assembly, PartInstance, Mate } from './assembly/Assembly.js'
 export { default as FEAEngine, MATERIALS } from './simulation/FEAEngine.js';
 export { default as RenderEngine, PBR_PRESETS, LIGHTING_PRESETS } from './simulation/RenderEngine.js';
 
-// Library
-export { default as V12Engine } from './library/V12Engine.js';
-export { default as EUVLithography } from './library/EUVLithography.js';
+// Manufacturing
+export { default as GCodeGenerator } from './manufacturing/GCodeGenerator.js';
+export { default as Slicer } from './manufacturing/Slicer.js';

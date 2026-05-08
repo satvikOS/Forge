@@ -10,7 +10,7 @@ import {
   BooleanEngine, FilletChamfer, LoftSweep, DirectEdit,
   FeatureTree, ThreeJSBridge, ExportEngine, SketchSolver,
   SketchPoint, SketchLine, SketchCircle,
-  V12Engine, EUVLithography, Assembly, FEAEngine, RenderEngine,
+  Assembly, FEAEngine, RenderEngine, GCodeGenerator, Slicer,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -34,6 +34,8 @@ let _activeSketch = null;
 let _currentAssembly = null;
 let _currentAssemblyRoot = null;
 let _assemblyIndex = -1;
+let _lastGCode = null;
+let _lastSliceResult = null;
 
 export function getActiveSketch() { return _activeSketch; }
 
@@ -569,31 +571,44 @@ const TOOL_HANDLERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   assembly: {
     'Insert Component': (scene, viewport) => {
-      // Cycle between available assemblies
-      const assemblies = [
-        { name: 'EUV Lithography Machine', builder: () => EUVLithography.build() },
-        { name: 'V12 Engine', builder: () => V12Engine.build() },
-      ];
-      _assemblyIndex = ((_assemblyIndex || 0) + 1) % assemblies.length;
-      const { name, builder } = assemblies[_assemblyIndex];
-
-      const assy = builder();
-      if (_currentAssemblyRoot) {
-        AssemblyBridge.dispose(_currentAssemblyRoot, scene);
+      // Create a new empty part and add to the active assembly
+      if (!_currentAssembly) {
+        _currentAssembly = new Assembly('Assembly');
       }
-      const root = AssemblyBridge.renderAssembly(assy, scene);
-      _currentAssembly = assy;
-      _currentAssemblyRoot = root;
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) {
+        // Create a default box part
+        const part = PrimitiveBuilder.box(1, 1, 1, new Vec3((Math.random()-0.5)*4, 0, (Math.random()-0.5)*4));
+        _currentAssembly.addPart(part, `Part ${_currentAssembly.parts.length + 1}`, {
+          color: 0x4a90d9,
+          position: new Vec3((Math.random()-0.5)*4, 0, (Math.random()-0.5)*4),
+        });
+      } else {
+        // Insert the currently active solid as a component
+        _currentAssembly.addPart(solid, solid.name || `Part ${_currentAssembly.parts.length + 1}`, {
+          color: 0x4a90d9,
+          position: new Vec3((Math.random()-0.5)*2, 0, (Math.random()-0.5)*2),
+        });
+      }
+
+      // Re-render assembly
+      if (_currentAssemblyRoot) AssemblyBridge.dispose(_currentAssemblyRoot, scene);
+      _currentAssemblyRoot = AssemblyBridge.renderAssembly(_currentAssembly, scene);
 
       if (viewport?.camera && viewport?.controls) {
-        AssemblyBridge.focusOnAssembly(root, viewport.camera, viewport.controls);
+        AssemblyBridge.focusOnAssembly(_currentAssemblyRoot, viewport.camera, viewport.controls);
       }
 
-      const bom = assy.generateBOM();
       return {
         status: 'success',
-        message: `${name}: ${assy.partCount()} parts, ${bom.length} unique, ${assy.totalMass().toFixed(2)} kg total`
+        message: `Component inserted — Assembly: ${_currentAssembly.partCount()} parts, ${_currentAssembly.totalMass().toFixed(3)} kg`
       };
+    },
+    'New Component': (scene, viewport) => {
+      // Reset feature tree for a new part
+      resetFeatureTree();
+      return { status: 'success', message: 'New component started. Use Part Design tools to create geometry, then Insert Component to add to assembly.' };
     },
     'Coincident Mate': () => ({ status: 'success', message: 'Coincident Mate: Faces aligned — 0 DOF remaining' }),
     'Concentric Mate': () => ({ status: 'success', message: 'Concentric Mate: Cylinders aligned concentrically' }),
@@ -620,7 +635,7 @@ const TOOL_HANDLERS = {
       const s = result.summary;
       return { status: s.pass ? 'success' : 'warn', message: `FEA: Max stress ${s.maxStressMPa} MPa (yield: ${s.yieldStrengthMPa} MPa) — SF: ${s.safetyFactor} — Deflection: ${s.maxDeflectionMm}mm — Mass: ${s.massKg}kg — ${s.pass ? 'PASS' : 'FAIL'}` };
     },
-    'Thermal': (scene, viewport) => {
+    'Steady-State Thermal': (scene, viewport) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return needSolid('Thermal');
@@ -697,24 +712,48 @@ const TOOL_HANDLERS = {
   // MANUFACTURE
   // ═══════════════════════════════════════════════════════════════════════════
   manufacture: {
-    '2.5 Axis Milling': (scene) => {
-      showToolpath(scene, 'mill');
-      return { status: 'success', message: '2.5-Axis: Toolpath generated — 1,423 moves, cycle: 8m 12s' };
-    },
-    '3 Axis Milling': (scene) => {
-      showToolpath(scene, 'mill');
-      return { status: 'success', message: '3-Axis: Toolpath generated — 2,847 moves, cycle: 14m 23s' };
-    },
-    'Turning': (scene) => {
-      showToolpath(scene, 'turn');
-      return { status: 'success', message: 'Turning: 1,240 moves, cycle: 8m 45s, spindle: 2400 RPM' };
-    },
-    'G-Code Post': () => ({ status: 'success', message: 'G-Code: 4,087 lines generated — Fanuc 0i-MF post processor' }),
-    'Additive Prep': (scene, viewport) => {
+    '2.5-Axis Milling': (scene, viewport) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
-      const vol = solid ? solid.volume() : 0.001;
-      return { status: 'success', message: `Additive: ${(vol * 1e6).toFixed(0)} cm³ material, ${Math.ceil(vol * 1e6 * 2.5)}min build time` };
+      if (!solid) return needSolid('2.5-Axis Milling');
+      const result = GCodeGenerator.pocketMill(solid, { toolDiameter: 0.010, feedRate: 800, spindleSpeed: 8000 });
+      showToolpath(scene, 'mill');
+      _lastGCode = result;
+      return { status: 'success', message: `2.5-Axis: ${result.stats.lines} lines, ${result.stats.moves} moves, ${result.stats.passes} passes, cycle: ${result.stats.cycleTimeMin}min` };
+    },
+    '3-Axis Milling': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('3-Axis Milling');
+      const result = GCodeGenerator.pocketMill(solid, { toolDiameter: 0.006, stepover: 0.3, depthOfCut: 0.001, feedRate: 600, spindleSpeed: 12000 });
+      showToolpath(scene, 'mill');
+      _lastGCode = result;
+      return { status: 'success', message: `3-Axis: ${result.stats.lines} lines, ${result.stats.moves} moves, cycle: ${result.stats.cycleTimeMin}min (Ø${result.stats.toolDiameterMm}mm)` };
+    },
+    'Turning': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('Turning');
+      const profile = [new Vec3(0.02, 0, 0), new Vec3(0.03, 0.01, 0), new Vec3(0.025, 0.04, 0), new Vec3(0.015, 0.05, 0)];
+      const result = GCodeGenerator.turning(profile, { feedRate: 150, spindleSpeed: 2400 });
+      showToolpath(scene, 'turn');
+      _lastGCode = result;
+      return { status: 'success', message: `Turning: ${result.stats.passes} passes, ${result.stats.lines} lines G-code` };
+    },
+    'G-Code Post': () => {
+      if (_lastGCode?.gcode) {
+        GCodeGenerator.download(_lastGCode.gcode, 'ArchDisc_Toolpath.nc');
+        return { status: 'success', message: `G-Code exported: ${_lastGCode.stats.lines} lines` };
+      }
+      return { status: 'warn', message: 'Generate a toolpath first (Milling or Turning)' };
+    },
+    'Slice Preview': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('Additive Prep');
+      const result = Slicer.slice(solid, { layerHeight: 0.0002, infillDensity: 0.2, nozzleDiameter: 0.0004 });
+      _lastSliceResult = result;
+      return { status: 'success', message: `Sliced: ${result.stats.layerCount} layers, ${result.stats.printTimeFormatted}, ${result.stats.filamentLengthM}m filament, ${result.stats.materialMassG}g PLA` };
     },
     'Cost Estimation': (scene, viewport) => {
       const ft = getFeatureTree();

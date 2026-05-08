@@ -46,3 +46,4 @@ lambda-deployment.zip
 *.zip
 .serverless/
 lambda-*.zip
+test-results/
