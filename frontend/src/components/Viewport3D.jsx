@@ -4,11 +4,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
 import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, Layers } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
-import { ThreeJSBridge, PixelManager } from '../kernel/index.js';
+import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature } from '../kernel/index.js';
+import { getFeatureTree } from '../workbenches/mechanical-cad/ToolExecutionEngine.js';
 
-// Singleton pixel manager — accessible globally for AI agents
+// Singletons
 const _pixelManager = new PixelManager();
+const _sketch = new InteractiveSketch();
 export function getPixelManager() { return _pixelManager; }
+export function getSketch() { return _sketch; }
 
 /**
  * Industrial-grade 3D Viewport
@@ -24,9 +27,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const viewport = useViewport();
     const [transformMode, setTransformMode] = useState('translate');
     const [selectionMode, setSelectionMode] = useState('object');
-    const [displayMode, setDisplayMode] = useState('shaded'); // shaded | wireframe | shadedWire | xray
+    const [displayMode, setDisplayMode] = useState('shaded');
+    const [sketchActive, setSketchActive] = useState(false);
+    const [sketchTool, setSketchTool] = useState('none');
+    const [sketchStatus, setSketchStatus] = useState('');
     const selectionModeRef = useRef('object');
     const displayModeRef = useRef('shaded');
+    const sketchActiveRef = useRef(false);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const onReadyRef = useRef(onReady);
     useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
@@ -219,10 +226,30 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             scene.add(outlineGroup);
         }
 
+        // --- Pointer move handler for sketch (supports mouse, touch, pen/stylus) ---
+        const handleMouseMove = (event) => {
+            if (!sketchActiveRef.current || !_sketch.active) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            // Use pointer coordinates (works with mouse, pen, touch)
+            const clientX = event.clientX ?? event.touches?.[0]?.clientX ?? 0;
+            const clientY = event.clientY ?? event.touches?.[0]?.clientY ?? 0;
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            _sketch.onMouseMove(raycaster);
+
+            // Pen pressure support — could be used for line weight
+            if (event.pressure !== undefined && event.pressure > 0) {
+                _sketch._penPressure = event.pressure;
+            }
+        };
+        // Use pointer events for pen/stylus/touch compatibility
+        renderer.domElement.addEventListener('pointermove', handleMouseMove);
+        renderer.domElement.style.touchAction = 'none'; // prevent browser handling
+
         // --- Click handler ---
         let clickPending = false;
         const handleClick = (event) => {
-            // Don't handle if dragging transform gizmo
             if (transformControls.dragging) return;
             if (clickPending) return;
             clickPending = true;
@@ -232,6 +259,14 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
+
+            // If sketch is active, route clicks to sketch engine
+            if (sketchActiveRef.current && _sketch.active) {
+                _sketch.onClick(raycaster);
+                const status = _sketch.getStatus();
+                setSketchStatus(`DOF: ${status.dof} | Entities: ${status.entityCount} | ${status.fullyConstrained ? 'Fully Constrained' : 'Under-constrained'}`);
+                return;
+            }
 
             // Collect pickable objects
             const pickable = [];
@@ -312,7 +347,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             }
         };
 
-        renderer.domElement.addEventListener('click', handleClick);
+        renderer.domElement.addEventListener('pointerup', handleClick); // pointerup for pen/touch compat
 
         // --- Keyboard ---
         const handleKeyDown = (e) => {
@@ -329,6 +364,59 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 case '1': setSelectionMode('object'); break;
                 case '2': setSelectionMode('face'); break;
                 case '3': setSelectionMode('edge'); break;
+                case '4':
+                    // Activate sketch on XZ plane (top-down)
+                    if (!sketchActiveRef.current) {
+                        _sketch.activate(scene, 'XZ');
+                        _sketch.setTool(SketchTools.LINE);
+                        sketchActiveRef.current = true;
+                        setSketchActive(true);
+                        setSketchTool('line');
+                        setSketchStatus('Sketch active on XZ plane — click to place points');
+                        orbitControls.enableRotate = false; // lock orbit while sketching
+                    }
+                    break;
+                case 'l':
+                    if (sketchActiveRef.current) { _sketch.setTool(SketchTools.LINE); setSketchTool('line'); }
+                    break;
+                case 'c':
+                    if (sketchActiveRef.current && !e.ctrlKey) { _sketch.setTool(SketchTools.CIRCLE); setSketchTool('circle'); }
+                    break;
+                case 'b':
+                    if (sketchActiveRef.current) { _sketch.setTool(SketchTools.RECTANGLE); setSketchTool('rectangle'); }
+                    break;
+                case 'a':
+                    if (sketchActiveRef.current && !e.ctrlKey) { _sketch.setTool(SketchTools.ARC); setSketchTool('arc'); }
+                    break;
+                case 'd':
+                    if (sketchActiveRef.current) { _sketch.setTool(SketchTools.DIMENSION); setSketchTool('dimension'); }
+                    break;
+                case 'e':
+                    // Extrude sketch profile
+                    if (sketchActiveRef.current && _sketch.entities.length > 0) {
+                        const profile = _sketch.getProfile();
+                        if (profile.length >= 3) {
+                            const ft = getFeatureTree();
+                            const feature = ft.addExtrude(profile, new Vec3(0, 1, 0), 0.02);
+                            if (feature.solid) {
+                                const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
+                                group.userData.pickable = true;
+                                group.userData.generatedModel = true;
+                                group.userData.kernelSolid = feature.solid;
+                                scene.add(group);
+                            }
+                            // Exit sketch
+                            _sketch.deactivate(scene);
+                            sketchActiveRef.current = false;
+                            setSketchActive(false);
+                            setSketchTool('none');
+                            orbitControls.enableRotate = true;
+                            setSketchStatus(`Extruded: Feature #${feature.id} — ${profile.length} vertices`);
+                        } else {
+                            setSketchStatus('Need at least 3 points for extrusion — draw more geometry');
+                        }
+                    }
+                    break;
                 case 'z':
                     if (!e.ctrlKey && !e.metaKey) {
                         // Toggle wireframe
@@ -336,6 +424,19 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                         const next = modes[(modes.indexOf(displayModeRef.current) + 1) % modes.length];
                         setDisplayMode(next);
                         applyDisplayMode(scene, next);
+                    }
+                    break;
+                case 'escape':
+                    if (sketchActiveRef.current) {
+                        _sketch.onEscape();
+                        if (_sketch.activeTool === SketchTools.NONE) {
+                            _sketch.deactivate(scene);
+                            sketchActiveRef.current = false;
+                            setSketchActive(false);
+                            setSketchTool('none');
+                            orbitControls.enableRotate = true;
+                            setSketchStatus('');
+                        }
                     }
                     break;
                 case 'delete': case 'backspace':
@@ -409,8 +510,10 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             window.removeEventListener('resize', handleResize);
             window.removeEventListener('keydown', handleKeyDown);
             if (renderer.domElement) {
-                renderer.domElement.removeEventListener('click', handleClick);
+                renderer.domElement.removeEventListener('pointerup', handleClick);
+                renderer.domElement.removeEventListener('pointermove', handleMouseMove);
             }
+            if (_sketch.active) _sketch.deactivate(scene);
             try { transformControls.detach(); } catch (e) {}
             try { transformControls.dispose(); } catch (e) {}
             orbitControls.dispose();
@@ -466,6 +569,63 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 </button>
                 <span className="selection-mode-label">{displayLabels[displayMode]}</span>
             </div>
+
+            {/* Sketch toolbar — appears when sketch is active */}
+            {sketchActive && (
+                <div className="sketch-toolbar">
+                    <span className="sketch-toolbar-label">SKETCH</span>
+                    <button className={`gizmo-btn ${sketchTool === 'line' ? 'active' : ''}`}
+                        onClick={() => { _sketch.setTool(SketchTools.LINE); setSketchTool('line'); }} title="Line (L)">L</button>
+                    <button className={`gizmo-btn ${sketchTool === 'rectangle' ? 'active' : ''}`}
+                        onClick={() => { _sketch.setTool(SketchTools.RECTANGLE); setSketchTool('rectangle'); }} title="Rectangle (B)">R</button>
+                    <button className={`gizmo-btn ${sketchTool === 'circle' ? 'active' : ''}`}
+                        onClick={() => { _sketch.setTool(SketchTools.CIRCLE); setSketchTool('circle'); }} title="Circle (C)">C</button>
+                    <button className={`gizmo-btn ${sketchTool === 'arc' ? 'active' : ''}`}
+                        onClick={() => { _sketch.setTool(SketchTools.ARC); setSketchTool('arc'); }} title="Arc (A)">A</button>
+                    <button className={`gizmo-btn ${sketchTool === 'dimension' ? 'active' : ''}`}
+                        onClick={() => { _sketch.setTool(SketchTools.DIMENSION); setSketchTool('dimension'); }} title="Dimension (D)">D</button>
+                    <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+                    <button className="gizmo-btn" onClick={() => {
+                        // Extrude and exit sketch
+                        const profile = _sketch.getProfile();
+                        if (profile.length >= 3 && internalsRef.current) {
+                            const ft = getFeatureTree();
+                            const feature = ft.addExtrude(profile, new Vec3(0, 1, 0), 0.02);
+                            if (feature.solid) {
+                                const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
+                                group.userData.pickable = true;
+                                group.userData.generatedModel = true;
+                                group.userData.kernelSolid = feature.solid;
+                                internalsRef.current.scene.add(group);
+                            }
+                            _sketch.deactivate(internalsRef.current.scene);
+                            sketchActiveRef.current = false;
+                            setSketchActive(false);
+                            setSketchTool('none');
+                            if (internalsRef.current.orbitControls) internalsRef.current.orbitControls.enableRotate = true;
+                            setSketchStatus(`Extruded: Feature #${feature.id}`);
+                        }
+                    }} title="Extrude (E)">Extrude</button>
+                    <button className="gizmo-btn" onClick={() => {
+                        if (internalsRef.current) {
+                            _sketch.deactivate(internalsRef.current.scene);
+                            sketchActiveRef.current = false;
+                            setSketchActive(false);
+                            setSketchTool('none');
+                            if (internalsRef.current.orbitControls) internalsRef.current.orbitControls.enableRotate = true;
+                            setSketchStatus('');
+                        }
+                    }} title="Exit Sketch (Esc)">Exit</button>
+                </div>
+            )}
+
+            {/* Sketch status */}
+            {sketchStatus && (
+                <div className="sketch-status-bar">
+                    {sketchActive && <span className="sketch-active-badge">SKETCH</span>}
+                    <span>{sketchStatus}</span>
+                </div>
+            )}
         </div>
     );
 }

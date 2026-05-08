@@ -267,8 +267,24 @@ export default class InteractiveSketch {
    * Collects all connected closed loops.
    */
   getProfile() {
-    const points = [];
+    // If there's a circle, return it as a polygonized closed loop
+    const circles = this.entities.filter(e => e.type === 'circle');
+    if (circles.length > 0) {
+      const c = circles[circles.length - 1];
+      const points = [];
+      const segments = 32;
+      for (let i = 0; i < segments; i++) {
+        const a = (i / segments) * Math.PI * 2;
+        points.push(this._to3D(
+          c.solverCenter.x + Math.cos(a) * c.solverCircle.radius,
+          c.solverCenter.y + Math.sin(a) * c.solverCircle.radius
+        ));
+      }
+      return points;
+    }
+
     // Collect all line endpoints in order
+    const points = [];
     for (const entity of this.entities) {
       if (entity.type === 'line') {
         const p1 = this._to3D(entity.solverP1.x, entity.solverP1.y);
