@@ -56,5 +56,9 @@ export { default as AssemblyBridge } from './bridge/AssemblyBridge.js';
 // Assembly
 export { default as Assembly, PartInstance, Mate } from './assembly/Assembly.js';
 
+// Simulation
+export { default as FEAEngine, MATERIALS } from './simulation/FEAEngine.js';
+export { default as RenderEngine, PBR_PRESETS, LIGHTING_PRESETS } from './simulation/RenderEngine.js';
+
 // Library
 export { default as V12Engine } from './library/V12Engine.js';

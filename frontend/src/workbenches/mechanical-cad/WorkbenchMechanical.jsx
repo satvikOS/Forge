@@ -8,7 +8,9 @@ import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool } from './ToolExecutionEngine';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
+import ThoughtBubble from '../../components/ThoughtBubble';
 import '../../components/FeatureTreePanel.css';
+import '../../components/ThoughtBubble.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
@@ -790,7 +792,10 @@ function WorkbenchMechanical() {
                     </div>
                 )}
 
-                {/* Selection Info */}
+                {/* Thought Bubble — component info on selection */}
+                {selection && <ThoughtBubble selection={selection} viewport={viewport} />}
+
+                {/* Selection Info Bar */}
                 {selection && (
                     <div className="selection-info-bar">
                         <span className="selection-info-type">{selection.type}</span>

@@ -10,7 +10,7 @@ import {
   BooleanEngine, FilletChamfer, LoftSweep, DirectEdit,
   FeatureTree, ThreeJSBridge, ExportEngine, SketchSolver,
   SketchPoint, SketchLine, SketchCircle,
-  V12Engine, Assembly,
+  V12Engine, Assembly, FEAEngine, RenderEngine,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -601,13 +601,23 @@ const TOOL_HANDLERS = {
   // SIMULATE
   // ═══════════════════════════════════════════════════════════════════════════
   simulate: {
-    'Linear Static FEA': (scene) => {
+    'Linear Static FEA': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('Linear Static FEA');
+      const result = FEAEngine.linearStatic(solid, { material: 'Aluminum 6061-T6', loads: [{ type: 'force', magnitude: 1000, direction: new Vec3(0, -1, 0) }] });
       colorizeStress(scene);
-      return { status: 'success', message: 'FEA: Max stress 124.5 MPa (yield: 276 MPa) — Safety factor: 2.22 — PASS' };
+      const s = result.summary;
+      return { status: s.pass ? 'success' : 'warn', message: `FEA: Max stress ${s.maxStressMPa} MPa (yield: ${s.yieldStrengthMPa} MPa) — SF: ${s.safetyFactor} — Deflection: ${s.maxDeflectionMm}mm — Mass: ${s.massKg}kg — ${s.pass ? 'PASS' : 'FAIL'}` };
     },
-    'Thermal': (scene) => {
+    'Thermal': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('Thermal');
+      const result = FEAEngine.thermal(solid, { material: 'Aluminum 6061-T6', heatInput: 100 });
       colorizeThermal(scene);
-      return { status: 'success', message: 'Thermal: Max temp 85.2°C, Min 22.1°C, Heat flux 1240 W/m²' };
+      const s = result.summary;
+      return { status: s.safeForMaterial ? 'success' : 'warn', message: `Thermal: Max ${s.maxTempC}°C, Min ${s.minTempC}°C, Flux ${s.heatFluxWm2} W/m², Thermal stress ${s.thermalStressMPa} MPa` };
     },
     'CFD': () => ({ status: 'success', message: 'CFD: Max velocity 4.2 m/s, Pressure drop 340 Pa, Converged in 847 iterations' }),
     'Modal': () => ({ status: 'success', message: 'Modal: Mode 1: 142.3 Hz | Mode 2: 287.6 Hz | Mode 3: 445.1 Hz' }),

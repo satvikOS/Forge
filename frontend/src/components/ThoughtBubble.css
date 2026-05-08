@@ -1,0 +1,130 @@
+.thought-bubble {
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  width: 260px;
+  background: rgba(12, 12, 24, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0;
+  z-index: 20;
+  font-size: 11px;
+  color: #e0e0e0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+
+.thought-bubble-arrow {
+  position: absolute;
+  top: 20px;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 8px solid rgba(12, 12, 24, 0.95);
+}
+
+.thought-bubble-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(74, 144, 217, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.thought-bubble-name {
+  font-weight: 700;
+  font-size: 12px;
+  color: #4a90d9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thought-bubble-toggle {
+  color: #666;
+  font-size: 10px;
+}
+
+.thought-bubble-quick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tb-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+
+.tb-label {
+  font-size: 9px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tb-value {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  color: #e0e0e0;
+}
+
+.tb-material {
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.tb-pass { color: #4caf50; }
+.tb-warn { color: #ff9800; }
+.tb-fail { color: #f44336; }
+.tb-highlight { color: #4a90d9; font-weight: 700; }
+
+.thought-bubble-details {
+  padding: 4px 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.tb-section {
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tb-section-title {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.tb-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 10px;
+}
+
+.tb-row span:first-child {
+  color: #999;
+}
+
+.tb-row span:last-child {
+  color: #ccc;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
