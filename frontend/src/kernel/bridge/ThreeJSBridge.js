@@ -91,19 +91,20 @@ export default class ThreeJSBridge {
     mesh.userData.solidId = solid.id;
     group.add(mesh);
 
-    // Edge wireframe
+    // Edge wireframe — only sharp edges (>30° between faces)
     if (edges) {
-      const edgeGeometry = ThreeJSBridge._buildEdgeGeometry(solid);
+      const edgeGeometry = ThreeJSBridge._buildEdgeGeometry(solid, { sharpOnly: true, creaseAngle: Math.PI / 6 });
       if (edgeGeometry) {
         const edgeMaterial = new THREE.LineBasicMaterial({
-          color: 0x1a1a2e,
-          linewidth: 1,
+          color: 0xeeeeee,  // light edges show on dark background
           transparent: true,
-          opacity: 0.6,
+          opacity: 0.9,
+          depthTest: true,
         });
         const edgeLine = new THREE.LineSegments(edgeGeometry, edgeMaterial);
         edgeLine.name = `${group.name}_edges`;
         edgeLine.userData.pickable = false;
+        edgeLine.renderOrder = 1; // render edges after mesh
         group.add(edgeLine);
       }
     }
@@ -114,10 +115,23 @@ export default class ThreeJSBridge {
   /**
    * Build edge wireframe geometry from solid topology.
    */
-  static _buildEdgeGeometry(solid) {
+  static _buildEdgeGeometry(solid, options = {}) {
+    const { sharpOnly = false, creaseAngle = Math.PI / 6 } = options;
     const positions = [];
+    const cosCrease = Math.cos(creaseAngle);
 
     for (const edge of solid.edges()) {
+      // If sharpOnly, skip edges between coplanar faces
+      if (sharpOnly && edge.faces && edge.faces.size === 2) {
+        const facesArr = [...edge.faces];
+        const n1 = facesArr[0].outerLoop?.computeNormal();
+        const n2 = facesArr[1].outerLoop?.computeNormal();
+        if (n1 && n2) {
+          const dot = n1.x * n2.x + n1.y * n2.y + n1.z * n2.z;
+          if (dot > cosCrease) continue; // smooth edge, skip
+        }
+      }
+
       const pts = edge.tessellate(8);
       for (let i = 0; i < pts.length - 1; i++) {
         positions.push(pts[i].x, pts[i].y, pts[i].z);
