@@ -7,7 +7,8 @@
 import * as THREE from 'three';
 import {
   Vec3, PrimitiveBuilder, ExtrudeFeature, RevolveFeature,
-  BooleanEngine, FeatureTree, ThreeJSBridge, SketchSolver,
+  BooleanEngine, FilletChamfer, LoftSweep, DirectEdit,
+  FeatureTree, ThreeJSBridge, ExportEngine, SketchSolver,
   SketchPoint, SketchLine, SketchCircle,
 } from '../../kernel/index.js';
 
@@ -276,15 +277,55 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Revolve Cut body created (Feature #${feature.id})` };
     },
 
-    'Loft': () => ({ status: 'info', message: 'Loft: Select two or more profiles to loft between' }),
-    'Sweep': () => ({ status: 'info', message: 'Sweep: Select a profile and a path curve to sweep along' }),
+    'Loft Boss': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const profile1 = [];
+      const profile2 = [];
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        profile1.push(new Vec3(Math.cos(angle) * 2, 0, Math.sin(angle) * 2));
+        profile2.push(new Vec3(Math.cos(angle) * 1, 4, Math.sin(angle) * 1));
+      }
+      const feature = ft.addLoft([profile1, profile2], 4);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Loft: Octagon R=2m → R=1m, H=4m (Feature #${feature.id})` };
+    },
+
+    'Sweep Boss': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const profile = [];
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        profile.push(new Vec3(Math.cos(angle) * 0.3, Math.sin(angle) * 0.3, 0));
+      }
+      const path = [];
+      for (let i = 0; i <= 32; i++) {
+        const t = i / 32;
+        path.push(new Vec3(Math.cos(t * Math.PI * 2) * 3, t * 4, Math.sin(t * Math.PI * 2) * 3));
+      }
+      const feature = ft.addSweep(profile, path);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Sweep: Ø0.6m tube along helix R=3m, H=4m (Feature #${feature.id})` };
+    },
 
     'Fillet': (scene, viewport) => {
-      return { status: 'info', message: 'Fillet: Select edges to round. Specify radius in properties.' };
+      const ft = getFeatureTree();
+      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
+      if (!lastSolid) return { status: 'warn', message: 'Fillet: Create a solid first' };
+      const edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
+      const feature = ft.addFillet(lastSolid.id, edgeIds, 0.2);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Fillet: R=0.2m on ${edgeIds.length} edges (Feature #${feature.id})` };
     },
 
     'Chamfer': (scene, viewport) => {
-      return { status: 'info', message: 'Chamfer: Select edges to chamfer. Specify distance in properties.' };
+      const ft = getFeatureTree();
+      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
+      if (!lastSolid) return { status: 'warn', message: 'Chamfer: Create a solid first' };
+      const edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
+      const feature = ft.addChamfer(lastSolid.id, edgeIds, 0.15);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Chamfer: 0.15m on ${edgeIds.length} edges (Feature #${feature.id})` };
     },
 
     'Hole Wizard': (scene, viewport) => {
@@ -294,7 +335,16 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Hole: Ø0.6m × 5m deep (Feature #${feature.id}). Boolean subtract with base solid.` };
     },
 
-    'Shell': () => ({ status: 'info', message: 'Shell: Select faces to remove, specify wall thickness' }),
+    'Shell': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
+      if (!lastSolid) return { status: 'warn', message: 'Shell: Create a solid first' };
+      const topFace = lastSolid.solid.faces()[0];
+      if (!topFace) return { status: 'warn', message: 'Shell: No faces found' };
+      const feature = ft.addShell(lastSolid.id, [topFace.id], 0.2);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Shell: 0.2m wall thickness, 1 face removed (Feature #${feature.id})` };
+    },
 
     'Linear Pattern': (scene, viewport) => {
       const ft = getFeatureTree();
@@ -460,10 +510,37 @@ const TOOL_HANDLERS = {
   // DIRECT EDIT
   // ═══════════════════════════════════════════════════════════════════════════
   'direct-edit': {
-    'Push/Pull Face': () => ({ status: 'info', message: 'Push/Pull: Select a face and drag to offset it' }),
-    'Move Face': () => ({ status: 'info', message: 'Move Face: Select a face and specify translation vector' }),
+    'Push/Pull Face': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
+      if (!lastSolid) return { status: 'warn', message: 'Push/Pull: Create a solid first' };
+      const face = lastSolid.solid.faces()[0];
+      if (!face) return { status: 'warn', message: 'Push/Pull: No faces found' };
+      const feature = ft.addPushPull(lastSolid.id, face.id, 1.0);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Push/Pull: Face moved 1m outward (Feature #${feature.id})` };
+    },
+    'Move Face': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
+      if (!lastSolid) return { status: 'warn', message: 'Move Face: Create a solid first' };
+      const face = lastSolid.solid.faces()[0];
+      if (!face) return { status: 'warn', message: 'Move Face: No faces found' };
+      const feature = ft.addPushPull(lastSolid.id, face.id, 0.5);
+      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      return { status: 'success', message: `Move Face: Offset 0.5m (Feature #${feature.id})` };
+    },
     'Offset Face': () => ({ status: 'info', message: 'Offset Face: Select a face and specify offset distance' }),
-    'Delete Face': () => ({ status: 'info', message: 'Delete Face: Select a face to remove from the solid' }),
+    'Delete Face': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
+      if (!lastSolid) return { status: 'warn', message: 'Delete Face: Create a solid first' };
+      const face = lastSolid.solid.faces()[0];
+      if (!face) return { status: 'warn', message: 'Delete Face: No faces found' };
+      const feature = ft.addDeleteFace(lastSolid.id, face.id);
+      addSolidToScene(scene, viewport, feature.solid, 0xff6644);
+      return { status: 'success', message: `Delete Face: Removed face #${face.id} (Feature #${feature.id})` };
+    },
     'Replace Face': () => ({ status: 'info', message: 'Replace Face: Select target face and replacement surface' }),
   },
 
@@ -574,6 +651,28 @@ const TOOL_HANDLERS = {
     'Smart Dimension': () => ({ status: 'info', message: 'Smart Dimension: Click geometry to add dimensions to drawing' }),
     'BOM Table': () => ({ status: 'info', message: 'BOM: Generate bill of materials from assembly' }),
     'Export PDF': () => ({ status: 'info', message: 'Export: Generates PDF drawing package' }),
+    'Export STL': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'No solid to export. Create geometry first.' };
+      ExportEngine.exportSolid(solid, 'stl-binary', solid.name || 'ArchDisc');
+      return { status: 'success', message: `Exported ${solid.name || 'solid'} as STL (binary)` };
+    },
+    'Export OBJ': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'No solid to export.' };
+      ExportEngine.exportSolid(solid, 'obj', solid.name || 'ArchDisc');
+      return { status: 'success', message: `Exported ${solid.name || 'solid'} as OBJ` };
+    },
+    'Export STEP': () => ({ status: 'info', message: 'STEP export: Coming soon — requires ISO 10303 writer' }),
+    'Export glTF': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'No solid to export.' };
+      ExportEngine.exportSolid(solid, 'gltf', solid.name || 'ArchDisc');
+      return { status: 'success', message: `Exported ${solid.name || 'solid'} as glTF 2.0` };
+    },
   },
 };
 

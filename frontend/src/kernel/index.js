@@ -38,6 +38,12 @@ export { default as ExtrudeFeature } from './features/ExtrudeFeature.js';
 export { default as RevolveFeature } from './features/RevolveFeature.js';
 export { default as FeatureTree } from './features/FeatureTree.js';
 export { default as BooleanEngine } from './features/BooleanEngine.js';
+export { default as FilletChamfer } from './features/FilletChamfer.js';
+export { default as LoftSweep } from './features/LoftSweep.js';
+export { default as DirectEdit } from './features/DirectEdit.js';
+
+// Export
+export { default as ExportEngine } from './export/ExportEngine.js';
 
 // Tessellation
 export { default as Tessellator } from './tessellation/Tessellator.js';

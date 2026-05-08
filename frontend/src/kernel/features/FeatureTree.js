@@ -9,6 +9,9 @@ import PrimitiveBuilder from './PrimitiveBuilder.js';
 import ExtrudeFeature from './ExtrudeFeature.js';
 import RevolveFeature from './RevolveFeature.js';
 import BooleanEngine from './BooleanEngine.js';
+import FilletChamfer from './FilletChamfer.js';
+import LoftSweep from './LoftSweep.js';
+import DirectEdit from './DirectEdit.js';
 
 let _featureId = 0;
 
@@ -97,6 +100,58 @@ export default class FeatureTree {
 
   addBooleanIntersect(solidAFeatureId, solidBFeatureId) {
     return this._addBooleanFeature('boolean_intersect', solidAFeatureId, solidBFeatureId, BooleanEngine.intersect);
+  }
+
+  addLoft(profiles, steps = 1, closed = false) {
+    return this._addFeature('loft', { profiles, steps, closed },
+      (p) => LoftSweep.loft(p.profiles, p.steps, p.closed)
+    );
+  }
+
+  addSweep(profile, pathPoints, closedPath = false) {
+    return this._addFeature('sweep', { profile, pathPoints, closedPath },
+      (p) => LoftSweep.sweep(p.profile, p.pathPoints, p.closedPath)
+    );
+  }
+
+  addFillet(targetFeatureId, edgeIds, radius, segments = 8) {
+    return this._addFeature('fillet', { targetFeatureId, edgeIds, radius, segments }, (p) => {
+      const target = this.getFeature(p.targetFeatureId);
+      if (!target?.solid) throw new Error('Fillet target has no solid');
+      return FilletChamfer.fillet(target.solid, p.edgeIds, p.radius, p.segments);
+    });
+  }
+
+  addChamfer(targetFeatureId, edgeIds, distance) {
+    return this._addFeature('chamfer', { targetFeatureId, edgeIds, distance }, (p) => {
+      const target = this.getFeature(p.targetFeatureId);
+      if (!target?.solid) throw new Error('Chamfer target has no solid');
+      return FilletChamfer.chamfer(target.solid, p.edgeIds, p.distance);
+    });
+  }
+
+  addPushPull(targetFeatureId, faceId, distance) {
+    return this._addFeature('pushpull', { targetFeatureId, faceId, distance }, (p) => {
+      const target = this.getFeature(p.targetFeatureId);
+      if (!target?.solid) throw new Error('Push/Pull target has no solid');
+      return DirectEdit.pushPull(target.solid, p.faceId, p.distance);
+    });
+  }
+
+  addShell(targetFeatureId, removeFaceIds, thickness) {
+    return this._addFeature('shell', { targetFeatureId, removeFaceIds, thickness }, (p) => {
+      const target = this.getFeature(p.targetFeatureId);
+      if (!target?.solid) throw new Error('Shell target has no solid');
+      return DirectEdit.shell(target.solid, p.removeFaceIds, p.thickness);
+    });
+  }
+
+  addDeleteFace(targetFeatureId, faceId) {
+    return this._addFeature('delete_face', { targetFeatureId, faceId }, (p) => {
+      const target = this.getFeature(p.targetFeatureId);
+      if (!target?.solid) throw new Error('Delete face target has no solid');
+      return DirectEdit.deleteFace(target.solid, p.faceId);
+    });
   }
 
   _addBooleanFeature(type, featureIdA, featureIdB, boolOp) {
@@ -308,6 +363,13 @@ export default class FeatureTree {
       boolean_union: (p) => BooleanEngine.union(this.getFeature(p.featureIdA).solid, this.getFeature(p.featureIdB).solid),
       boolean_subtract: (p) => BooleanEngine.subtract(this.getFeature(p.featureIdA).solid, this.getFeature(p.featureIdB).solid),
       boolean_intersect: (p) => BooleanEngine.intersect(this.getFeature(p.featureIdA).solid, this.getFeature(p.featureIdB).solid),
+      loft: (p) => LoftSweep.loft(p.profiles, p.steps, p.closed),
+      sweep: (p) => LoftSweep.sweep(p.profile, p.pathPoints, p.closedPath),
+      fillet: (p) => FilletChamfer.fillet(this.getFeature(p.targetFeatureId).solid, p.edgeIds, p.radius, p.segments),
+      chamfer: (p) => FilletChamfer.chamfer(this.getFeature(p.targetFeatureId).solid, p.edgeIds, p.distance),
+      pushpull: (p) => DirectEdit.pushPull(this.getFeature(p.targetFeatureId).solid, p.faceId, p.distance),
+      shell: (p) => DirectEdit.shell(this.getFeature(p.targetFeatureId).solid, p.removeFaceIds, p.thickness),
+      delete_face: (p) => DirectEdit.deleteFace(this.getFeature(p.targetFeatureId).solid, p.faceId),
     };
     return ops[type] || (() => { throw new Error(`Unknown feature type: ${type}`); });
   }
