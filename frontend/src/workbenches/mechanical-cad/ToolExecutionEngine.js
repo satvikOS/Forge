@@ -31,6 +31,8 @@ export function resetFeatureTree() {
 
 // Active sketch session
 let _activeSketch = null;
+let _selectedEdgesProvider = null;
+export function registerSelectedEdgesProvider(fn) { _selectedEdgesProvider = fn; }
 
 // Active assembly
 let _currentAssembly = null;
@@ -329,20 +331,46 @@ const TOOL_HANDLERS = {
       const ft = getFeatureTree();
       const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
       if (!lastSolid) return { status: 'warn', message: 'Fillet: Create a solid first' };
-      const edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
-      const feature = ft.addFillet(lastSolid.id, edgeIds, 0.2);
+
+      // Use user-selected edges if available, else auto-select 4
+      let edgeIds;
+      let source;
+      if (_selectedEdgesProvider && _selectedEdgesProvider().ids.size > 0) {
+        edgeIds = [..._selectedEdgesProvider().ids];
+        source = `${edgeIds.length} selected`;
+      } else {
+        edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
+        source = `${edgeIds.length} auto`;
+      }
+
+      const radius = 0.003; // 3mm default radius
+      const feature = ft.addFillet(lastSolid.id, edgeIds, radius);
       addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Fillet: R=0.2m on ${edgeIds.length} edges (Feature #${feature.id})` };
+      // Clear selection after applying
+      if (_selectedEdgesProvider) _selectedEdgesProvider().ids.clear();
+      return { status: 'success', message: `Fillet: R=3mm on ${source} edges (Feature #${feature.id})` };
     },
 
     'Chamfer': (scene, viewport) => {
       const ft = getFeatureTree();
       const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
       if (!lastSolid) return { status: 'warn', message: 'Chamfer: Create a solid first' };
-      const edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
-      const feature = ft.addChamfer(lastSolid.id, edgeIds, 0.15);
+
+      let edgeIds;
+      let source;
+      if (_selectedEdgesProvider && _selectedEdgesProvider().ids.size > 0) {
+        edgeIds = [..._selectedEdgesProvider().ids];
+        source = `${edgeIds.length} selected`;
+      } else {
+        edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
+        source = `${edgeIds.length} auto`;
+      }
+
+      const distance = 0.002; // 2mm default
+      const feature = ft.addChamfer(lastSolid.id, edgeIds, distance);
       addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Chamfer: 0.15m on ${edgeIds.length} edges (Feature #${feature.id})` };
+      if (_selectedEdgesProvider) _selectedEdgesProvider().ids.clear();
+      return { status: 'success', message: `Chamfer: 2mm on ${source} edges (Feature #${feature.id})` };
     },
 
     'Hole Wizard': (scene, viewport) => {

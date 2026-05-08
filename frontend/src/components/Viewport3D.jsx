@@ -5,13 +5,17 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, Layers } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
 import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature } from '../kernel/index.js';
-import { getFeatureTree } from '../workbenches/mechanical-cad/ToolExecutionEngine.js';
+import { getFeatureTree, registerSelectedEdgesProvider } from '../workbenches/mechanical-cad/ToolExecutionEngine.js';
 
 // Singletons
 const _pixelManager = new PixelManager();
 const _sketch = new InteractiveSketch();
+const _selectedEdges = { ids: new Set(), solidId: null };
 export function getPixelManager() { return _pixelManager; }
 export function getSketch() { return _sketch; }
+export function getSelectedEdges() { return _selectedEdges; }
+// Register the provider so ToolExecutionEngine can read selected edges
+registerSelectedEdgesProvider(() => _selectedEdges);
 
 /**
  * Industrial-grade 3D Viewport
@@ -35,6 +39,8 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
     const displayModeRef = useRef('shaded');
     const sketchActiveRef = useRef(false);
     const lastPickedFace = useRef(null);
+    const selectedEdges = useRef(new Set()); // edge IDs for fillet/chamfer
+    const [edgeSelectionInfo, setEdgeSelectionInfo] = useState({ count: 0, ids: [], solidId: null });
     const onSelectionChangeRef = useRef(onSelectionChange);
     const onReadyRef = useRef(onReady);
     useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
@@ -341,17 +347,52 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             }
 
             if (mode === 'edge') {
-                clearSelection();
                 let group = hitMesh.parent;
                 while (group && !group.userData.kernelSolid) {
                     if (group === scene) break;
                     group = group.parent;
                 }
                 if (group && group.userData.kernelSolid) {
-                    ThreeJSBridge.showVertices(group, group.userData.kernelSolid, 0.03, 0x00ff88);
-                    if (onSelectionChangeRef.current) {
-                        const s = group.userData.kernelSolid;
-                        onSelectionChangeRef.current({ type: 'edge', solidId: s.id, edgeCount: s.edges().length, vertexCount: s.vertices().length });
+                    const solid = group.userData.kernelSolid;
+                    // Find nearest edge to click point
+                    const hitWorld = hit.point.clone();
+                    let nearestEdge = null;
+                    let nearestDist = Infinity;
+                    for (const e of solid.edges()) {
+                        // Distance from hit point to edge midpoint (approx)
+                        const v1 = e.startVertex?.position;
+                        const v2 = e.endVertex?.position;
+                        if (!v1 || !v2) continue;
+                        const mid = { x: (v1.x + v2.x) / 2, y: (v1.y + v2.y) / 2, z: (v1.z + v2.z) / 2 };
+                        const d = Math.sqrt((mid.x - hitWorld.x) ** 2 + (mid.y - hitWorld.y) ** 2 + (mid.z - hitWorld.z) ** 2);
+                        if (d < nearestDist) { nearestDist = d; nearestEdge = e; }
+                    }
+
+                    if (nearestEdge) {
+                        // Toggle selection
+                        if (selectedEdges.current.has(nearestEdge.id)) {
+                            selectedEdges.current.delete(nearestEdge.id);
+                        } else {
+                            selectedEdges.current.add(nearestEdge.id);
+                        }
+
+                        ThreeJSBridge.showVertices(group, solid, 0.002, 0x00ff88);
+
+                        const ids = [...selectedEdges.current];
+                        // Sync to global singleton so ToolExecutionEngine can read it
+                        _selectedEdges.ids = new Set(ids);
+                        _selectedEdges.solidId = solid.id;
+                        setEdgeSelectionInfo({ count: ids.length, ids, solidId: solid.id });
+
+                        if (onSelectionChangeRef.current) {
+                            onSelectionChangeRef.current({
+                                type: 'edge',
+                                solidId: solid.id,
+                                selectedEdgeIds: ids,
+                                edgeCount: solid.edges().length,
+                                vertexCount: solid.vertices().length,
+                            });
+                        }
                     }
                 }
                 return;
