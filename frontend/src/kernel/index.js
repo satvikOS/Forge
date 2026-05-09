@@ -71,6 +71,8 @@ export { default as GCodeGenerator } from './manufacturing/GCodeGenerator.js';
 export { default as Slicer } from './manufacturing/Slicer.js';
 export { default as ToolLibrary, TOOL_TYPES, MATERIAL_PARAMS } from './manufacturing/ToolLibrary.js';
 export { default as CAMVisualizer } from './manufacturing/CAMVisualizer.js';
+export { default as StockSimulator } from './manufacturing/StockSimulator.js';
+export { default as MoldFlow, PLASTIC_MATERIALS } from './manufacturing/MoldFlow.js';
 
 // Rendering & Publishing
 export { default as SceneComposer, BACKGROUNDS, CAMERA_PRESETS } from './rendering/SceneComposer.js';

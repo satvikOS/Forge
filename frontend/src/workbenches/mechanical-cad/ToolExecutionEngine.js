@@ -15,7 +15,7 @@ import {
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
   DrawingEngine, Annotations,
   FEAVisualizer,
-  ToolLibrary, CAMVisualizer,
+  ToolLibrary, CAMVisualizer, StockSimulator, MoldFlow,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -874,12 +874,38 @@ const TOOL_HANDLERS = {
         message: `Turning: ${result.stats.passes} passes | ${stats.totalMoves} moves | ${stats.totalLengthMm}mm path | ${stats.totalTimeMin} min @ 2400 RPM`
       };
     },
+    'Verify Against Stock': (scene, viewport) => TOOL_HANDLERS.manufacture['Verify Toolpath'](scene, viewport),
+    'Simulate Toolpath': (scene, viewport) => TOOL_HANDLERS.manufacture['Verify Toolpath'](scene, viewport),
     'Verify Toolpath': (scene, viewport) => {
       if (!_lastGCode) return { status: 'warn', message: 'Generate a toolpath first' };
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('Verify Toolpath');
       if (_camAnimation) { _camAnimation.stop(); _camAnimation = null; }
+
       const moves = CAMVisualizer.parseGCode(_lastGCode.gcode);
-      _camAnimation = CAMVisualizer.animateTool(scene, moves, _lastGCode.stats.toolDiameterMm * 0.001 || 0.006, { speed: 5 });
-      return { status: 'success', message: `Verify Toolpath: animating ${moves.length} moves at 5×` };
+      const toolDia = (_lastGCode.stats.toolDiameterMm || 6) * 0.001;
+
+      // Build stock from part bbox (oversized by 5mm on each side)
+      const partBbox = solid.boundingBox();
+      const margin = 0.005;
+      const stockBbox = {
+        minX: partBbox.min.x - margin, maxX: partBbox.max.x + margin,
+        minY: partBbox.min.y - margin, maxY: partBbox.max.y + margin,
+        minZ: partBbox.min.z - margin, maxZ: partBbox.max.z + margin,
+      };
+      const stock = StockSimulator.buildStock(stockBbox, 28);
+
+      // Apply toolpath to stock for stats
+      const removalStats = StockSimulator.applyToolpath(stock, moves, toolDia / 2);
+      StockSimulator.renderStock(scene, stock);
+      // Animate tool too
+      _camAnimation = CAMVisualizer.animateTool(scene, moves, toolDia, { speed: 5 });
+
+      return {
+        status: 'success',
+        message: `Verify: ${moves.length} moves | Stock ${stock.totalVoxels} voxels | Removed ${(removalStats.removedFraction * 100).toFixed(1)}% (${removalStats.removedVolumeMm3} mm³) | Remaining ${removalStats.remainingVolumeMm3} mm³`
+      };
     },
     'G-Code Post': () => {
       if (_lastGCode?.gcode) {
@@ -1696,10 +1722,25 @@ function runManufacturing(nameLower, toolName, scene, viewport, ft) {
   if (nameLower.includes('simulate toolpath') || nameLower.includes('verify') || nameLower.includes('cycle time')) {
     return { status: 'success', message: `${toolName}: Verification — No gouges, no collisions. Cycle: 23m 08s. Stock removal: 78.4%` };
   }
+  if (nameLower.includes('mold flow') || nameLower.includes('mold filling')) {
+    const solid = ft.getSolid();
+    if (!solid) return needSolid(toolName);
+    const flow = MoldFlow.analyze(solid, { material: 'ABS', wallThickness: 0.002 });
+    return {
+      status: flow.pass ? 'success' : 'warn',
+      message: `${toolName}: ${flow.material} | Fill ${flow.fillTimeSec}s | Cool ${flow.coolingTimeSec}s | Cycle ${flow.cycleTimeSec}s | Clamp ${flow.clampForceTons}t | Warp ${flow.warpageMm}mm | ${flow.summary}`
+    };
+  }
   if (nameLower.includes('draft') || nameLower.includes('parting') || nameLower.includes('shut-off') ||
       nameLower.includes('core') || nameLower.includes('cavity') || nameLower.includes('cooling') ||
-      nameLower.includes('ejector') || nameLower.includes('runner') || nameLower.includes('gate') || nameLower.includes('mold flow')) {
-    return { status: 'success', message: `${toolName}: Mold analysis — Fill time: 2.1s, Clamp force: 145 tons, Warp: 0.12mm max` };
+      nameLower.includes('ejector') || nameLower.includes('runner') || nameLower.includes('gate')) {
+    const solid = ft.getSolid();
+    if (!solid) return { status: 'success', message: `${toolName}: feature added (no part loaded)` };
+    const flow = MoldFlow.analyze(solid, { material: 'ABS' });
+    return {
+      status: 'success',
+      message: `${toolName}: ABS @ ${flow.meltTempC}/${flow.moldTempC}°C | Cycle ${flow.cycleTimeSec}s | Clamp ${flow.clampForceTons}t | Shrink ${flow.shrinkagePercent}%`
+    };
   }
   if (nameLower.includes('orient') || nameLower.includes('support') || nameLower.includes('nest') ||
       nameLower.includes('slice') || nameLower.includes('material estimation') || nameLower.includes('build')) {
