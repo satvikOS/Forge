@@ -1,0 +1,42 @@
+{
+  "project": "Toyota V35X-LEV V6 Engine",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Cylinder Block",
+      "status": "COMPLETE",
+      "components": 52,
+      "mass_kg": 38.4,
+      "validation": "mateability hooks recorded; tolerance stack-up + 3D-print pass"
+    },
+    {
+      "phase": 2,
+      "name": "Cylinder Heads (×2)",
+      "status": "COMPLETE",
+      "components": 68,
+      "mass_kg": 37,
+      "validation": {
+        "headA_alignment": "12/12 head bolts aligned within ±0.10 mm",
+        "headB_alignment": "12/12 head bolts aligned within ±0.10 mm",
+        "headA_total": "14/14 checks pass",
+        "headB_total": "14/14 checks pass"
+      }
+    },
+    {
+      "phase": 3,
+      "name": "Bedplate",
+      "status": "PENDING"
+    },
+    {
+      "phase": 4,
+      "name": "Crankshaft + Mains",
+      "status": "PENDING"
+    },
+    {
+      "phase": 5,
+      "name": "Pistons + Rods + Rings",
+      "status": "PENDING"
+    }
+  ],
+  "accumulated_mass_kg": 75.4
+}
