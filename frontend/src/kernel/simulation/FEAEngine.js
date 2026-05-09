@@ -78,6 +78,7 @@ export default class FEAEngine {
       const stressFraction = 1 - (distFromLoad / (bbox.diagonal() / 2 + 0.001));
       return {
         elementId: i,
+        centroid: { x: centroid.x, y: centroid.y, z: centroid.z },
         vonMises: maxStress * Math.max(0.1, stressFraction),
         principal1: maxStress * stressFraction * 0.8,
         principal2: maxStress * stressFraction * 0.3,

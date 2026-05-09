@@ -64,6 +64,7 @@ export { default as MateSolver } from './assembly/MateSolver.js';
 // Simulation
 export { default as FEAEngine, MATERIALS } from './simulation/FEAEngine.js';
 export { default as RenderEngine, PBR_PRESETS, LIGHTING_PRESETS } from './simulation/RenderEngine.js';
+export { default as FEAVisualizer } from './simulation/FEAVisualizer.js';
 
 // Manufacturing
 export { default as GCodeGenerator } from './manufacturing/GCodeGenerator.js';

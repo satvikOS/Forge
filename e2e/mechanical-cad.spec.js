@@ -206,7 +206,7 @@ test.describe('Simulation', () => {
     await page.waitForTimeout(500);
     await clickToolGroup(page, 9); // Simulation
     await clickDropdownItem(page, 'Linear Static FEA');
-    await expectStatus(page, 'stress');
+    await expectStatus(page, 'MPa');
   });
 });
 

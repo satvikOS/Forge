@@ -14,6 +14,7 @@ import {
   SceneComposer, PixelManager,
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
   DrawingEngine, Annotations,
+  FEAVisualizer,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -42,6 +43,9 @@ let _currentAssemblyRoot = null;
 let _assemblyIndex = -1;
 let _lastGCode = null;
 let _lastSliceResult = null;
+let _lastFEAResult = null;
+let _modeAnimation = null;
+export function getLastFEAResult() { return _lastFEAResult; }
 let _versionControl = new VersionControl('ArchDisc Project');
 
 export function getActiveSketch() { return _activeSketch; }
@@ -667,9 +671,22 @@ const TOOL_HANDLERS = {
       const solid = ft.getSolid();
       if (!solid) return needSolid('Linear Static FEA');
       const result = FEAEngine.linearStatic(solid, { material: 'Aluminum 6061-T6', loads: [{ type: 'force', magnitude: 1000, direction: new Vec3(0, -1, 0) }] });
-      colorizeStress(scene);
+      _lastFEAResult = result;
+
+      // Apply real stress field coloring to all rendered solids
+      let coloredGroups = 0;
+      scene.traverse(obj => {
+        if (obj.isGroup && obj.userData?.kernelSolid && obj.userData.kernelSolid.id === solid.id) {
+          FEAVisualizer.applyStressField(obj, result);
+          coloredGroups++;
+        }
+      });
+
       const s = result.summary;
-      return { status: s.pass ? 'success' : 'warn', message: `FEA: Max stress ${s.maxStressMPa} MPa (yield: ${s.yieldStrengthMPa} MPa) — SF: ${s.safetyFactor} — Deflection: ${s.maxDeflectionMm}mm — Mass: ${s.massKg}kg — ${s.pass ? 'PASS' : 'FAIL'}` };
+      return {
+        status: s.pass ? 'success' : 'warn',
+        message: `FEA: Max ${s.maxStressMPa} MPa (yield ${s.yieldStrengthMPa}) | SF ${s.safetyFactor} | Deflect ${s.maxDeflectionMm}mm | Mass ${s.massKg}kg | ${s.pass ? 'PASS' : 'FAIL'} | Mesh ${result.mesh.elementCount} elem | ${coloredGroups} mesh${coloredGroups !== 1 ? 'es' : ''} colored`
+      };
     },
     'Steady-State Thermal': (scene, viewport) => {
       const ft = getFeatureTree();
@@ -681,7 +698,27 @@ const TOOL_HANDLERS = {
       return { status: s.safeForMaterial ? 'success' : 'warn', message: `Thermal: Max ${s.maxTempC}°C, Min ${s.minTempC}°C, Flux ${s.heatFluxWm2} W/m², Thermal stress ${s.thermalStressMPa} MPa` };
     },
     'CFD': () => ({ status: 'success', message: 'CFD: Max velocity 4.2 m/s, Pressure drop 340 Pa, Converged in 847 iterations' }),
-    'Modal': () => ({ status: 'success', message: 'Modal: Mode 1: 142.3 Hz | Mode 2: 287.6 Hz | Mode 3: 445.1 Hz' }),
+    'Modal': (scene) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('Modal');
+      const result = FEAEngine.modal(solid, { material: 'Aluminum 6061-T6' });
+      // Animate mode 1 if FEA result exists for displacement field
+      if (_lastFEAResult && _modeAnimation) { _modeAnimation.stop(); _modeAnimation = null; }
+      if (_lastFEAResult) {
+        scene.traverse(obj => {
+          if (obj.isGroup && obj.userData?.kernelSolid?.id === solid.id) {
+            _modeAnimation = FEAVisualizer.animateMode(obj, _lastFEAResult, {
+              amplitude: 0.001, // 1mm
+              frequency: result.modes[0].frequency / 100, // slow visual
+            });
+          }
+        });
+      }
+      const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
+      return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
+    },
+    'Modal Analysis': (scene) => TOOL_HANDLERS.simulate.Modal(scene),
     'Topology Optimization': (scene, viewport) => {
       const ft = getFeatureTree();
       const feature = ft.addSphere(1.2, 12, 8);
