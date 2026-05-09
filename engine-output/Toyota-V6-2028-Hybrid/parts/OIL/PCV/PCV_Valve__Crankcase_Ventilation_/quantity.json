@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-OIL-PCV-0001",
-  "name": "PCV Valve (Crankcase Ventilation)",
-  "category": "OIL",
-  "subsystem": "PCV",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-HEAD-COV-0002",
-  "name": "Valve Cover Bank B",
-  "category": "HEAD",
-  "subsystem": "COV",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

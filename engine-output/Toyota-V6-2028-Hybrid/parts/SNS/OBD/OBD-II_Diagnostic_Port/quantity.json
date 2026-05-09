@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-OBD-0001",
-  "name": "OBD-II Diagnostic Port",
-  "category": "SNS",
-  "subsystem": "OBD",
-  "material": "ABS Plastic",
-  "classification": "Class 3",
-  "quantity": 1
-}

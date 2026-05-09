@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-FUEL-RDI-0001",
-  "name": "Fuel Rail DI (200 bar)",
-  "category": "FUEL",
-  "subsystem": "RDI",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

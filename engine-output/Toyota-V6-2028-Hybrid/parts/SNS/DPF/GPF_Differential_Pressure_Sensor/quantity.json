@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-DPF-0001",
-  "name": "GPF Differential Pressure Sensor",
-  "category": "SNS",
-  "subsystem": "DPF",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-HYB-M2S-0001",
-  "name": "MG2 Stator (80 kW cont, 180 kW peak)",
-  "category": "HYB",
-  "subsystem": "M2S",
-  "material": "Copper C11000",
-  "classification": "Class 3",
-  "quantity": 1
-}

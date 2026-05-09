@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-ECU-BMC-0001",
-  "name": "Battery Management Controller (BMC)",
-  "category": "ECU",
-  "subsystem": "BMC",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

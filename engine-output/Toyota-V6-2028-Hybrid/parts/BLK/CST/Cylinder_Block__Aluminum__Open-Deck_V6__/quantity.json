@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-BLK-CST-0001",
-  "name": "Cylinder Block (Aluminum, Open-Deck V6 60°)",
-  "category": "BLK",
-  "subsystem": "CST",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

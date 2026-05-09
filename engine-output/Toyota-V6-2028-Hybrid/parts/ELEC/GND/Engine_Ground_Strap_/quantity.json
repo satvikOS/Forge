@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-ELEC-GND-0008",
-  "name": "Engine Ground Strap 8",
-  "category": "ELEC",
-  "subsystem": "GND",
-  "material": "Copper C11000",
-  "classification": "Class 3",
-  "quantity": 1
-}

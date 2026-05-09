@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-ECU-PCM-0001",
-  "name": "Powertrain Control Module (PCM, AURIX TC399 dual-core)",
-  "category": "ECU",
-  "subsystem": "PCM",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

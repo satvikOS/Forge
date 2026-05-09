@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-MAP-0001",
-  "name": "Manifold Absolute Pressure (MAP) Sensor",
-  "category": "SNS",
-  "subsystem": "MAP",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

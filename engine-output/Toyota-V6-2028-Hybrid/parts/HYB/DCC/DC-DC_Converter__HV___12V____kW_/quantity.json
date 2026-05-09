@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-HYB-DCC-0001",
-  "name": "DC-DC Converter (HV → 12V, 2.5 kW)",
-  "category": "HYB",
-  "subsystem": "DCC",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,0 +1,36 @@
+{
+  "project": "Toyota V35X-LEV 2028 V6 Block",
+  "sessionStart": "2026-05-09T21:26:22.854Z",
+  "decisions": [
+    {
+      "question": "V-angle and bore × stroke?",
+      "chosen": "60° V6, 92.5 × 86.7 mm (Toyota V35A-FTS, 3.5L)",
+      "rationale": "Matches real production Toyota V35A. 60° gives natural primary balance."
+    },
+    {
+      "question": "Block construction & deck style?",
+      "chosen": "Aluminum HPDC die-cast, open-deck, with cast-iron press-fit liners",
+      "rationale": "A380, open-deck for cooling, gray-iron liners for serviceability."
+    },
+    {
+      "question": "Crankcase / main bearing architecture?",
+      "chosen": "Bedplate (aluminum) bolted to block — modern stiffness optimum",
+      "rationale": "Cross-bolted bedplate replaces individual main caps — stiffest crankcase."
+    },
+    {
+      "question": "Service/manufacturing approach?",
+      "chosen": [
+        "Reborable (0.25 + 0.50 mm oversize service liners)",
+        "Net-shape casting",
+        "0.5 mm machining stock on critical surfaces",
+        "Casting features explicit: drafts, fillets, parting line, gating, witness marks"
+      ],
+      "rationale": "Production-ready, reborable, manufacturable."
+    }
+  ],
+  "validation_summary": {
+    "mateability_constraints": 3,
+    "tolerance_stack_passes_RSS": true,
+    "print_readiness_passes_FDM": true
+  }
+}

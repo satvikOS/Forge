@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-MAF-0001",
-  "name": "Mass Air Flow Sensor (Hot-Wire)",
-  "category": "SNS",
-  "subsystem": "MAF",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

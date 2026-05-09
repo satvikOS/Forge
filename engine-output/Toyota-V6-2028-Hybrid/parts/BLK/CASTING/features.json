@@ -1,0 +1,435 @@
+{
+  "partID": "TYV6-BLK-CASTING-0001",
+  "partName": "V6 Cylinder Block (V35A-FTS)",
+  "project": "Toyota V35X-LEV 2028",
+  "classification": "Class 1 — Critical / Safety / Reborable LLP at 200,000 cycles",
+  "specs": {
+    "bore_mm": 92.5,
+    "stroke_mm": 86.7,
+    "boreSpacing_mm": 105.5,
+    "bankAngle_deg": 60,
+    "bankOffset_mm": 22,
+    "cylindersPerBank": 3,
+    "deckHeight_mm": 220,
+    "liner_OD_mm": 97,
+    "liner_ID_mm": 92.5,
+    "liner_wallThickness_mm": 2.25,
+    "waterJacket_outer_mm": 105,
+    "waterJacketDepth_mm": 150,
+    "liner_pressFit_inferenceum": 35,
+    "deckMachiningStock_mm": 0.5,
+    "boreMachiningStock_mm": 0.5,
+    "mainSaddleMachiningStock_mm": 0.5,
+    "serviceOversize_options_mm": [
+      0.25,
+      0.5
+    ],
+    "headBoltsPerCyl": 4,
+    "headBoltDia_mm": 11,
+    "headBoltDepth_mm": 115,
+    "headBoltClearance_mm": 12.5,
+    "mainBearingDia_mm": 60,
+    "mainBearings": 4,
+    "mainSaddleWidth_mm": 28,
+    "mainBoltDia_mm": 11,
+    "crossBoltDia_mm": 8,
+    "bedplateBolts": 8,
+    "bedplateBoltDia_mm": 10,
+    "bedplateThickness_mm": 30,
+    "mainGalleryDia_mm": 12,
+    "crossGalleryDia_mm": 8,
+    "outerDraftAngle_deg": 1,
+    "internalFilletRadius_mm": 3,
+    "partingLine": "crank-centerline",
+    "ingateLocations": [
+      "front-bank-A",
+      "rear-bank-B"
+    ],
+    "material": "A380 Aluminum (AMS 4715)",
+    "density_kg_m3": 2710,
+    "liner_material": "Gray Iron GG25 (DIN 1691)",
+    "liner_density_kg_m3": 7250,
+    "totalBores": 6,
+    "totalHeadBoltHoles": 24,
+    "totalBedplateBoltHoles": 8,
+    "totalCrossBolts": 16
+  },
+  "features": [
+    {
+      "id": "bedplate-parting-flange",
+      "type": "mating-surface"
+    },
+    {
+      "id": "outerWall_A",
+      "type": "cast-wall"
+    },
+    {
+      "id": "outerWall_B",
+      "type": "cast-wall"
+    },
+    {
+      "id": "endWall_F",
+      "type": "cast-wall"
+    },
+    {
+      "id": "endWall_R",
+      "type": "cast-wall"
+    },
+    {
+      "id": "liner_A_1",
+      "type": "cylinder-liner-pressfit",
+      "OD_mm": 97,
+      "ID_mm": 92.5,
+      "axis": {
+        "x": -0.029999999999999995,
+        "y": 110,
+        "z": -105.5
+      }
+    },
+    {
+      "id": "waterJacket_A_1",
+      "type": "water-jacket-annular"
+    },
+    {
+      "id": "liner_A_2",
+      "type": "cylinder-liner-pressfit",
+      "OD_mm": 97,
+      "ID_mm": 92.5,
+      "axis": {
+        "x": -0.029999999999999995,
+        "y": 110,
+        "z": 0
+      }
+    },
+    {
+      "id": "waterJacket_A_2",
+      "type": "water-jacket-annular"
+    },
+    {
+      "id": "liner_A_3",
+      "type": "cylinder-liner-pressfit",
+      "OD_mm": 97,
+      "ID_mm": 92.5,
+      "axis": {
+        "x": -0.029999999999999995,
+        "y": 110,
+        "z": 105.5
+      }
+    },
+    {
+      "id": "waterJacket_A_3",
+      "type": "water-jacket-annular"
+    },
+    {
+      "id": "liner_B_1",
+      "type": "cylinder-liner-pressfit",
+      "OD_mm": 97,
+      "ID_mm": 92.5,
+      "axis": {
+        "x": 0.029999999999999995,
+        "y": 110,
+        "z": -105.5
+      }
+    },
+    {
+      "id": "waterJacket_B_1",
+      "type": "water-jacket-annular"
+    },
+    {
+      "id": "liner_B_2",
+      "type": "cylinder-liner-pressfit",
+      "OD_mm": 97,
+      "ID_mm": 92.5,
+      "axis": {
+        "x": 0.029999999999999995,
+        "y": 110,
+        "z": 0
+      }
+    },
+    {
+      "id": "waterJacket_B_2",
+      "type": "water-jacket-annular"
+    },
+    {
+      "id": "liner_B_3",
+      "type": "cylinder-liner-pressfit",
+      "OD_mm": 97,
+      "ID_mm": 92.5,
+      "axis": {
+        "x": 0.029999999999999995,
+        "y": 110,
+        "z": 105.5
+      }
+    },
+    {
+      "id": "waterJacket_B_3",
+      "type": "water-jacket-annular"
+    },
+    {
+      "id": "deckRim_A_1",
+      "type": "deck-mating-surface"
+    },
+    {
+      "id": "deckRim_A_2",
+      "type": "deck-mating-surface"
+    },
+    {
+      "id": "deckRim_A_3",
+      "type": "deck-mating-surface"
+    },
+    {
+      "id": "deckRim_B_1",
+      "type": "deck-mating-surface"
+    },
+    {
+      "id": "deckRim_B_2",
+      "type": "deck-mating-surface"
+    },
+    {
+      "id": "deckRim_B_3",
+      "type": "deck-mating-surface"
+    },
+    {
+      "id": "headBoltBoss_A_1_1",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.04025000000000001,
+        "y": 162.5,
+        "z": -105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_A_1_2",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.029999999999999992,
+        "y": 162.5,
+        "z": -105.42975
+      }
+    },
+    {
+      "id": "headBoltBoss_A_1_3",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.10025,
+        "y": 162.5,
+        "z": -105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_A_1_4",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.03000000000000001,
+        "y": 162.5,
+        "z": -105.57025
+      }
+    },
+    {
+      "id": "headBoltBoss_A_2_1",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.04025000000000001,
+        "y": 162.5,
+        "z": 0
+      }
+    },
+    {
+      "id": "headBoltBoss_A_2_2",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.029999999999999992,
+        "y": 162.5,
+        "z": 0.07025
+      }
+    },
+    {
+      "id": "headBoltBoss_A_2_3",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.10025,
+        "y": 162.5,
+        "z": 8.603143764010157e-18
+      }
+    },
+    {
+      "id": "headBoltBoss_A_2_4",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.03000000000000001,
+        "y": 162.5,
+        "z": -0.07025
+      }
+    },
+    {
+      "id": "headBoltBoss_A_3_1",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.04025000000000001,
+        "y": 162.5,
+        "z": 105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_A_3_2",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.029999999999999992,
+        "y": 162.5,
+        "z": 105.57025
+      }
+    },
+    {
+      "id": "headBoltBoss_A_3_3",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.10025,
+        "y": 162.5,
+        "z": 105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_A_3_4",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.03000000000000001,
+        "y": 162.5,
+        "z": 105.42975
+      }
+    },
+    {
+      "id": "headBoltBoss_B_1_1",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.10025,
+        "y": 162.5,
+        "z": -105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_B_1_2",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.03,
+        "y": 162.5,
+        "z": -105.42975
+      }
+    },
+    {
+      "id": "headBoltBoss_B_1_3",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.04025000000000001,
+        "y": 162.5,
+        "z": -105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_B_1_4",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.02999999999999998,
+        "y": 162.5,
+        "z": -105.57025
+      }
+    },
+    {
+      "id": "headBoltBoss_B_2_1",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.10025,
+        "y": 162.5,
+        "z": 0
+      }
+    },
+    {
+      "id": "headBoltBoss_B_2_2",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.03,
+        "y": 162.5,
+        "z": 0.07025
+      }
+    },
+    {
+      "id": "headBoltBoss_B_2_3",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.04025000000000001,
+        "y": 162.5,
+        "z": 8.603143764010157e-18
+      }
+    },
+    {
+      "id": "headBoltBoss_B_2_4",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.02999999999999998,
+        "y": 162.5,
+        "z": -0.07025
+      }
+    },
+    {
+      "id": "headBoltBoss_B_3_1",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.10025,
+        "y": 162.5,
+        "z": 105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_B_3_2",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.03,
+        "y": 162.5,
+        "z": 105.57025
+      }
+    },
+    {
+      "id": "headBoltBoss_B_3_3",
+      "type": "threaded-boss",
+      "position": {
+        "x": -0.04025000000000001,
+        "y": 162.5,
+        "z": 105.5
+      }
+    },
+    {
+      "id": "headBoltBoss_B_3_4",
+      "type": "threaded-boss",
+      "position": {
+        "x": 0.02999999999999998,
+        "y": 162.5,
+        "z": 105.42975
+      }
+    },
+    {
+      "id": "mainSaddle_1",
+      "type": "main-bearing-saddle",
+      "position_z_mm": -168.25
+    },
+    {
+      "id": "mainSaddle_2",
+      "type": "main-bearing-saddle",
+      "position_z_mm": -36.08333333333334
+    },
+    {
+      "id": "mainSaddle_3",
+      "type": "main-bearing-saddle",
+      "position_z_mm": 96.08333333333331
+    },
+    {
+      "id": "mainSaddle_4",
+      "type": "main-bearing-saddle",
+      "position_z_mm": 228.25
+    },
+    {
+      "id": "mainOilGallery",
+      "type": "oil-gallery-longitudinal"
+    }
+  ],
+  "mass_kg": 38.4,
+  "generatedAt": "2026-05-09T21:26:22.852Z"
+}

@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-FPS-0002",
-  "name": "Fuel Pressure Sensor PI",
-  "category": "SNS",
-  "subsystem": "FPS",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-HYB-CAR-0001",
-  "name": "Planetary Carrier (Power-Split Input from ICE)",
-  "category": "HYB",
-  "subsystem": "CAR",
-  "material": "Steel AISI 4340",
-  "classification": "Class 3",
-  "quantity": 1
-}

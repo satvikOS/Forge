@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-ECU-HCU-0001",
-  "name": "Hybrid Control Unit (HCU)",
-  "category": "ECU",
-  "subsystem": "HCU",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

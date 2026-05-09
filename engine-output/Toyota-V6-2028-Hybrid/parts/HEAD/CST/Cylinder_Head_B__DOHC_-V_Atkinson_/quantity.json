@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-HEAD-CST-0002",
-  "name": "Cylinder Head B (DOHC 24-V Atkinson)",
-  "category": "HEAD",
-  "subsystem": "CST",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

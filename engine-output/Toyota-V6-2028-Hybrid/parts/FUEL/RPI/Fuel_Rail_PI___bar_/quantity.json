@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-FUEL-RPI-0001",
-  "name": "Fuel Rail PI (4 bar)",
-  "category": "FUEL",
-  "subsystem": "RPI",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

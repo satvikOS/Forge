@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-FTS-0001",
-  "name": "Fuel Temperature Sensor",
-  "category": "SNS",
-  "subsystem": "FTS",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

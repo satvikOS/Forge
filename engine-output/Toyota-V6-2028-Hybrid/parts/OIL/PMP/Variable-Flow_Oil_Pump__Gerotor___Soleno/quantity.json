@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-OIL-PMP-0001",
-  "name": "Variable-Flow Oil Pump (Gerotor + Solenoid Control)",
-  "category": "OIL",
-  "subsystem": "PMP",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

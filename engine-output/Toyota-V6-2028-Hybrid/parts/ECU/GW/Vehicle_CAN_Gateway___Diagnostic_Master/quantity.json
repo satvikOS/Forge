@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-ECU-GW-0001",
-  "name": "Vehicle CAN Gateway / Diagnostic Master",
-  "category": "ECU",
-  "subsystem": "GW",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,9 +1,0 @@
-{
-  "partID": "TYV6-SNS-OIT-0001",
-  "name": "Oil Temperature Sensor",
-  "category": "SNS",
-  "subsystem": "OIT",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}
