@@ -1,0 +1,42 @@
+{
+  "crank_mate": {
+    "totalChecks": 5,
+    "passed": 5,
+    "failed": 0,
+    "mainJournalAlignment": {
+      "aligned": 4,
+      "total": 4
+    },
+    "mateChecks": [
+      {
+        "check": "crank-mainJournal_1 ↔ mainSaddle_1 + bedplate-mainSaddle_1",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "crank-mainJournal_2 ↔ mainSaddle_2 + bedplate-mainSaddle_2",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "crank-mainJournal_3 ↔ mainSaddle_3 + bedplate-mainSaddle_3",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "crank-mainJournal_4 ↔ mainSaddle_4 + bedplate-mainSaddle_4",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "6 rod journals at stroke radius 43.35 mm",
+        "constraint": "120° throw angles (V6 even-fire), parametric position",
+        "status": "PASS"
+      }
+    ]
+  }
+}
