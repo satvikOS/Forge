@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-DRV-ENC-0001",
+  "name": "Motor Encoder L",
+  "category": "DRV",
+  "subsystem": "ENC",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

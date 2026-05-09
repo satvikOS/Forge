@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "STCL-DRV-MTR-0002",
+  "partTitle": "BLDC Hub Motor R",
+  "serialNumber": "SN-597842",
+  "drawingNumber": "STCL-DRV-MTR-0002-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-65961",
+  "manufacturingLot": "MFG-52351",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-65961",
+    "manufacturingProcess": "MFG-52351",
+    "inspectionRecord": "INSP-SN-597842",
+    "finalAcceptance": "2026-05-09"
+  }
+}

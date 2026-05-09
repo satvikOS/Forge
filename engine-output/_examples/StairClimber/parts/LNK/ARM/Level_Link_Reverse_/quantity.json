@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-LNK-ARM-0004",
+  "name": "Level Link Reverse 2",
+  "category": "LNK",
+  "subsystem": "ARM",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

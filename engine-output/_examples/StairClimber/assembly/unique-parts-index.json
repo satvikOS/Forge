@@ -1,0 +1,3622 @@
+[
+  {
+    "key": "STR|TUB|1|Frame Vertical Tube N",
+    "partID": "STCL-STR-TUB-0001",
+    "name": "Frame Vertical Tube 1",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|2|Frame Vertical Tube N",
+    "partID": "STCL-STR-TUB-0002",
+    "name": "Frame Vertical Tube 2",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|3|Frame Vertical Tube N",
+    "partID": "STCL-STR-TUB-0003",
+    "name": "Frame Vertical Tube 3",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|4|Frame Vertical Tube N",
+    "partID": "STCL-STR-TUB-0004",
+    "name": "Frame Vertical Tube 4",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|5|Frame Cross-Tube L1 Front",
+    "partID": "STCL-STR-TUB-0005",
+    "name": "Frame Cross-Tube L1 Front",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|6|Frame Cross-Tube L1 Rear",
+    "partID": "STCL-STR-TUB-0006",
+    "name": "Frame Cross-Tube L1 Rear",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|7|Frame Cross-Tube L2 Front",
+    "partID": "STCL-STR-TUB-0007",
+    "name": "Frame Cross-Tube L2 Front",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|8|Frame Cross-Tube L2 Rear",
+    "partID": "STCL-STR-TUB-0008",
+    "name": "Frame Cross-Tube L2 Rear",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|9|Frame Cross-Tube L3 Front",
+    "partID": "STCL-STR-TUB-0009",
+    "name": "Frame Cross-Tube L3 Front",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|TUB|10|Frame Cross-Tube L3 Rear",
+    "partID": "STCL-STR-TUB-0010",
+    "name": "Frame Cross-Tube L3 Rear",
+    "category": "STR",
+    "subsystem": "TUB",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|BRC|11|Frame Diagonal Brace N",
+    "partID": "STCL-STR-BRC-0001",
+    "name": "Frame Diagonal Brace 1",
+    "category": "STR",
+    "subsystem": "BRC",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|BRC|12|Frame Diagonal Brace N",
+    "partID": "STCL-STR-BRC-0002",
+    "name": "Frame Diagonal Brace 2",
+    "category": "STR",
+    "subsystem": "BRC",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|BRC|13|Frame Diagonal Brace N",
+    "partID": "STCL-STR-BRC-0003",
+    "name": "Frame Diagonal Brace 3",
+    "category": "STR",
+    "subsystem": "BRC",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STR|BRC|14|Frame Diagonal Brace N",
+    "partID": "STCL-STR-BRC-0004",
+    "name": "Frame Diagonal Brace 4",
+    "category": "STR",
+    "subsystem": "BRC",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|HUB|15|Tri-Star Hub L",
+    "partID": "STCL-WHL-HUB-0001",
+    "name": "Tri-Star Hub L",
+    "category": "WHL",
+    "subsystem": "HUB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|ARM|16|Tri-Star Spider Arm X",
+    "partID": "STCL-WHL-ARM-0001",
+    "name": "Tri-Star Spider Arm L-1",
+    "category": "WHL",
+    "subsystem": "ARM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|WHB|17|Wheel Hub X",
+    "partID": "STCL-WHL-WHB-0001",
+    "name": "Wheel Hub L-1",
+    "category": "WHL",
+    "subsystem": "WHB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|RIM|18|Wheel Rim X",
+    "partID": "STCL-WHL-RIM-0001",
+    "name": "Wheel Rim L-1",
+    "category": "WHL",
+    "subsystem": "RIM",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|TIR|19|Tire X",
+    "partID": "STCL-WHL-TIR-0001",
+    "name": "Tire L-1",
+    "category": "WHL",
+    "subsystem": "TIR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|20|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0001",
+    "name": "Wheel Bearing L-1-1",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|21|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0002",
+    "name": "Wheel Bearing L-1-2",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|ARM|22|Tri-Star Spider Arm X",
+    "partID": "STCL-WHL-ARM-0002",
+    "name": "Tri-Star Spider Arm L-2",
+    "category": "WHL",
+    "subsystem": "ARM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|WHB|23|Wheel Hub X",
+    "partID": "STCL-WHL-WHB-0002",
+    "name": "Wheel Hub L-2",
+    "category": "WHL",
+    "subsystem": "WHB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|RIM|24|Wheel Rim X",
+    "partID": "STCL-WHL-RIM-0002",
+    "name": "Wheel Rim L-2",
+    "category": "WHL",
+    "subsystem": "RIM",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|TIR|25|Tire X",
+    "partID": "STCL-WHL-TIR-0002",
+    "name": "Tire L-2",
+    "category": "WHL",
+    "subsystem": "TIR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|26|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0003",
+    "name": "Wheel Bearing L-2-1",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|27|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0004",
+    "name": "Wheel Bearing L-2-2",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|ARM|28|Tri-Star Spider Arm X",
+    "partID": "STCL-WHL-ARM-0003",
+    "name": "Tri-Star Spider Arm L-3",
+    "category": "WHL",
+    "subsystem": "ARM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|WHB|29|Wheel Hub X",
+    "partID": "STCL-WHL-WHB-0003",
+    "name": "Wheel Hub L-3",
+    "category": "WHL",
+    "subsystem": "WHB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|RIM|30|Wheel Rim X",
+    "partID": "STCL-WHL-RIM-0003",
+    "name": "Wheel Rim L-3",
+    "category": "WHL",
+    "subsystem": "RIM",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|TIR|31|Tire X",
+    "partID": "STCL-WHL-TIR-0003",
+    "name": "Tire L-3",
+    "category": "WHL",
+    "subsystem": "TIR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|32|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0005",
+    "name": "Wheel Bearing L-3-1",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|33|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0006",
+    "name": "Wheel Bearing L-3-2",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "AXL|MAI|34|Tri-Star Main Axle L",
+    "partID": "STCL-AXL-MAI-0001",
+    "name": "Tri-Star Main Axle L",
+    "category": "AXL",
+    "subsystem": "MAI",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|FRM|35|Frame-Axle Bearing L",
+    "partID": "STCL-BRG-FRM-0001",
+    "name": "Frame-Axle Bearing L",
+    "category": "BRG",
+    "subsystem": "FRM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|HUB|36|Tri-Star Hub R",
+    "partID": "STCL-WHL-HUB-0002",
+    "name": "Tri-Star Hub R",
+    "category": "WHL",
+    "subsystem": "HUB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|ARM|37|Tri-Star Spider Arm X",
+    "partID": "STCL-WHL-ARM-0004",
+    "name": "Tri-Star Spider Arm R-1",
+    "category": "WHL",
+    "subsystem": "ARM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|WHB|38|Wheel Hub X",
+    "partID": "STCL-WHL-WHB-0004",
+    "name": "Wheel Hub R-1",
+    "category": "WHL",
+    "subsystem": "WHB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|RIM|39|Wheel Rim X",
+    "partID": "STCL-WHL-RIM-0004",
+    "name": "Wheel Rim R-1",
+    "category": "WHL",
+    "subsystem": "RIM",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|TIR|40|Tire X",
+    "partID": "STCL-WHL-TIR-0004",
+    "name": "Tire R-1",
+    "category": "WHL",
+    "subsystem": "TIR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|41|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0007",
+    "name": "Wheel Bearing R-1-1",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|42|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0008",
+    "name": "Wheel Bearing R-1-2",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|ARM|43|Tri-Star Spider Arm X",
+    "partID": "STCL-WHL-ARM-0005",
+    "name": "Tri-Star Spider Arm R-2",
+    "category": "WHL",
+    "subsystem": "ARM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|WHB|44|Wheel Hub X",
+    "partID": "STCL-WHL-WHB-0005",
+    "name": "Wheel Hub R-2",
+    "category": "WHL",
+    "subsystem": "WHB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|RIM|45|Wheel Rim X",
+    "partID": "STCL-WHL-RIM-0005",
+    "name": "Wheel Rim R-2",
+    "category": "WHL",
+    "subsystem": "RIM",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|TIR|46|Tire X",
+    "partID": "STCL-WHL-TIR-0005",
+    "name": "Tire R-2",
+    "category": "WHL",
+    "subsystem": "TIR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|47|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0009",
+    "name": "Wheel Bearing R-2-1",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|48|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0010",
+    "name": "Wheel Bearing R-2-2",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|ARM|49|Tri-Star Spider Arm X",
+    "partID": "STCL-WHL-ARM-0006",
+    "name": "Tri-Star Spider Arm R-3",
+    "category": "WHL",
+    "subsystem": "ARM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|WHB|50|Wheel Hub X",
+    "partID": "STCL-WHL-WHB-0006",
+    "name": "Wheel Hub R-3",
+    "category": "WHL",
+    "subsystem": "WHB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|RIM|51|Wheel Rim X",
+    "partID": "STCL-WHL-RIM-0006",
+    "name": "Wheel Rim R-3",
+    "category": "WHL",
+    "subsystem": "RIM",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WHL|TIR|52|Tire X",
+    "partID": "STCL-WHL-TIR-0006",
+    "name": "Tire R-3",
+    "category": "WHL",
+    "subsystem": "TIR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|53|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0011",
+    "name": "Wheel Bearing R-3-1",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|WHB|54|Wheel Bearing X-N",
+    "partID": "STCL-BRG-WHB-0012",
+    "name": "Wheel Bearing R-3-2",
+    "category": "BRG",
+    "subsystem": "WHB",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "AXL|MAI|55|Tri-Star Main Axle R",
+    "partID": "STCL-AXL-MAI-0002",
+    "name": "Tri-Star Main Axle R",
+    "category": "AXL",
+    "subsystem": "MAI",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|FRM|56|Frame-Axle Bearing R",
+    "partID": "STCL-BRG-FRM-0002",
+    "name": "Frame-Axle Bearing R",
+    "category": "BRG",
+    "subsystem": "FRM",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CRGO|PLT|57|Cargo Platform",
+    "partID": "STCL-CRGO-PLT-0001",
+    "name": "Cargo Platform",
+    "category": "CRGO",
+    "subsystem": "PLT",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CRGO|RAI|58|Cargo Edge Railing N",
+    "partID": "STCL-CRGO-RAI-0001",
+    "name": "Cargo Edge Railing 1",
+    "category": "CRGO",
+    "subsystem": "RAI",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CRGO|RAI|59|Cargo Edge Railing N",
+    "partID": "STCL-CRGO-RAI-0002",
+    "name": "Cargo Edge Railing 2",
+    "category": "CRGO",
+    "subsystem": "RAI",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CRGO|RAI|60|Cargo Edge Railing N",
+    "partID": "STCL-CRGO-RAI-0003",
+    "name": "Cargo Edge Railing 3",
+    "category": "CRGO",
+    "subsystem": "RAI",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CRGO|RAI|61|Cargo Edge Railing N",
+    "partID": "STCL-CRGO-RAI-0004",
+    "name": "Cargo Edge Railing 4",
+    "category": "CRGO",
+    "subsystem": "RAI",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|ARM|62|Level Link Forward N",
+    "partID": "STCL-LNK-ARM-0001",
+    "name": "Level Link Forward 1",
+    "category": "LNK",
+    "subsystem": "ARM",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|ARM|63|Level Link Reverse N",
+    "partID": "STCL-LNK-ARM-0002",
+    "name": "Level Link Reverse 1",
+    "category": "LNK",
+    "subsystem": "ARM",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|64|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0001",
+    "name": "Linkage Pivot Pin 1-1",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|65|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0002",
+    "name": "Linkage Pivot Pin 1-2",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|66|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0003",
+    "name": "Linkage Pivot Pin 1-3",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|67|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0004",
+    "name": "Linkage Pivot Pin 1-4",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|ARM|68|Level Link Forward N",
+    "partID": "STCL-LNK-ARM-0003",
+    "name": "Level Link Forward 2",
+    "category": "LNK",
+    "subsystem": "ARM",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|ARM|69|Level Link Reverse N",
+    "partID": "STCL-LNK-ARM-0004",
+    "name": "Level Link Reverse 2",
+    "category": "LNK",
+    "subsystem": "ARM",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|70|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0005",
+    "name": "Linkage Pivot Pin 2-1",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|71|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0006",
+    "name": "Linkage Pivot Pin 2-2",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|72|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0007",
+    "name": "Linkage Pivot Pin 2-3",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "LNK|PIN|73|Linkage Pivot Pin N-N",
+    "partID": "STCL-LNK-PIN-0008",
+    "name": "Linkage Pivot Pin 2-4",
+    "category": "LNK",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HDL|EXT|74|Handle Vertical N",
+    "partID": "STCL-HDL-EXT-0001",
+    "name": "Handle Vertical 1",
+    "category": "HDL",
+    "subsystem": "EXT",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HDL|EXT|75|Handle Vertical N",
+    "partID": "STCL-HDL-EXT-0002",
+    "name": "Handle Vertical 2",
+    "category": "HDL",
+    "subsystem": "EXT",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HDL|GRP|76|Handle Grip",
+    "partID": "STCL-HDL-GRP-0001",
+    "name": "Handle Grip",
+    "category": "HDL",
+    "subsystem": "GRP",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HDL|CSH|77|Handle Cushion N",
+    "partID": "STCL-HDL-CSH-0001",
+    "name": "Handle Cushion 1",
+    "category": "HDL",
+    "subsystem": "CSH",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HDL|CSH|78|Handle Cushion N",
+    "partID": "STCL-HDL-CSH-0002",
+    "name": "Handle Cushion 2",
+    "category": "HDL",
+    "subsystem": "CSH",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|MTR|79|BLDC Hub Motor L",
+    "partID": "STCL-DRV-MTR-0001",
+    "name": "BLDC Hub Motor L",
+    "category": "DRV",
+    "subsystem": "MTR",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|ENC|80|Motor Encoder L",
+    "partID": "STCL-DRV-ENC-0001",
+    "name": "Motor Encoder L",
+    "category": "DRV",
+    "subsystem": "ENC",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|MTR|81|BLDC Hub Motor R",
+    "partID": "STCL-DRV-MTR-0002",
+    "name": "BLDC Hub Motor R",
+    "category": "DRV",
+    "subsystem": "MTR",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|ENC|82|Motor Encoder R",
+    "partID": "STCL-DRV-ENC-0002",
+    "name": "Motor Encoder R",
+    "category": "DRV",
+    "subsystem": "ENC",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|PLY|83|Drive Pulley N",
+    "partID": "STCL-DRV-PLY-0001",
+    "name": "Drive Pulley 1",
+    "category": "DRV",
+    "subsystem": "PLY",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|PLY|84|Drive Pulley N",
+    "partID": "STCL-DRV-PLY-0002",
+    "name": "Drive Pulley 2",
+    "category": "DRV",
+    "subsystem": "PLY",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|PLY|85|Drive Pulley N",
+    "partID": "STCL-DRV-PLY-0003",
+    "name": "Drive Pulley 3",
+    "category": "DRV",
+    "subsystem": "PLY",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "DRV|PLY|86|Drive Pulley N",
+    "partID": "STCL-DRV-PLY-0004",
+    "name": "Drive Pulley 4",
+    "category": "DRV",
+    "subsystem": "PLY",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|PCK|87|Li-Ion Battery Pack 24V 10Ah",
+    "partID": "STCL-BAT-PCK-0001",
+    "name": "Li-Ion Battery Pack 24V 10Ah",
+    "category": "BAT",
+    "subsystem": "PCK",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|CTL|88|Motor Controller (BLDC dual-channel)",
+    "partID": "STCL-BAT-CTL-0001",
+    "name": "Motor Controller (BLDC dual-channel)",
+    "category": "BAT",
+    "subsystem": "CTL",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|MCU|89|Microcontroller (control + safety logic)",
+    "partID": "STCL-BAT-MCU-0001",
+    "name": "Microcontroller (control + safety logic)",
+    "category": "BAT",
+    "subsystem": "MCU",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|IMU|90|IMU Sensor (level-keeping feedback)",
+    "partID": "STCL-BAT-IMU-0001",
+    "name": "IMU Sensor (level-keeping feedback)",
+    "category": "BAT",
+    "subsystem": "IMU",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|91|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0001",
+    "name": "Power/Signal Cable 1",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|92|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0002",
+    "name": "Power/Signal Cable 2",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|93|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0003",
+    "name": "Power/Signal Cable 3",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|94|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0004",
+    "name": "Power/Signal Cable 4",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|95|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0005",
+    "name": "Power/Signal Cable 5",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|96|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0006",
+    "name": "Power/Signal Cable 6",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|97|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0007",
+    "name": "Power/Signal Cable 7",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BAT|WIR|98|Power/Signal Cable N",
+    "partID": "STCL-BAT-WIR-0008",
+    "name": "Power/Signal Cable 8",
+    "category": "BAT",
+    "subsystem": "WIR",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|99|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0001",
+    "name": "M6 Bolt 1",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|100|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0001",
+    "name": "M6 Washer 1",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|101|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0001",
+    "name": "M6 Nut 1",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|102|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0002",
+    "name": "M6 Bolt 2",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|103|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0002",
+    "name": "M6 Washer 2",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|104|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0002",
+    "name": "M6 Nut 2",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|105|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0003",
+    "name": "M6 Bolt 3",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|106|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0003",
+    "name": "M6 Washer 3",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|107|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0003",
+    "name": "M6 Nut 3",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|108|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0004",
+    "name": "M6 Bolt 4",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|109|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0004",
+    "name": "M6 Washer 4",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|110|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0004",
+    "name": "M6 Nut 4",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|111|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0005",
+    "name": "M6 Bolt 5",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|112|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0005",
+    "name": "M6 Washer 5",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|113|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0005",
+    "name": "M6 Nut 5",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|114|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0006",
+    "name": "M6 Bolt 6",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|115|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0006",
+    "name": "M6 Washer 6",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|116|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0006",
+    "name": "M6 Nut 6",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|117|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0007",
+    "name": "M6 Bolt 7",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|118|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0007",
+    "name": "M6 Washer 7",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|119|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0007",
+    "name": "M6 Nut 7",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|120|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0008",
+    "name": "M6 Bolt 8",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|121|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0008",
+    "name": "M6 Washer 8",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|122|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0008",
+    "name": "M6 Nut 8",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|123|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0009",
+    "name": "M6 Bolt 9",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|124|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0009",
+    "name": "M6 Washer 9",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|125|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0009",
+    "name": "M6 Nut 9",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|126|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0010",
+    "name": "M6 Bolt 10",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|127|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0010",
+    "name": "M6 Washer 10",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|128|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0010",
+    "name": "M6 Nut 10",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|129|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0011",
+    "name": "M6 Bolt 11",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|130|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0011",
+    "name": "M6 Washer 11",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|131|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0011",
+    "name": "M6 Nut 11",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|132|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0012",
+    "name": "M6 Bolt 12",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|133|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0012",
+    "name": "M6 Washer 12",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|134|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0012",
+    "name": "M6 Nut 12",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|135|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0013",
+    "name": "M6 Bolt 13",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|136|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0013",
+    "name": "M6 Washer 13",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|137|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0013",
+    "name": "M6 Nut 13",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|138|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0014",
+    "name": "M6 Bolt 14",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|139|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0014",
+    "name": "M6 Washer 14",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|140|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0014",
+    "name": "M6 Nut 14",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|141|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0015",
+    "name": "M6 Bolt 15",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|142|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0015",
+    "name": "M6 Washer 15",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|143|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0015",
+    "name": "M6 Nut 15",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|144|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0016",
+    "name": "M6 Bolt 16",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|145|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0016",
+    "name": "M6 Washer 16",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|146|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0016",
+    "name": "M6 Nut 16",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|147|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0017",
+    "name": "M6 Bolt 17",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|148|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0017",
+    "name": "M6 Washer 17",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|149|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0017",
+    "name": "M6 Nut 17",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|150|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0018",
+    "name": "M6 Bolt 18",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|151|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0018",
+    "name": "M6 Washer 18",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|152|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0018",
+    "name": "M6 Nut 18",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|153|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0019",
+    "name": "M6 Bolt 19",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|154|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0019",
+    "name": "M6 Washer 19",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|155|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0019",
+    "name": "M6 Nut 19",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|156|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0020",
+    "name": "M6 Bolt 20",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|157|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0020",
+    "name": "M6 Washer 20",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|158|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0020",
+    "name": "M6 Nut 20",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|159|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0021",
+    "name": "M6 Bolt 21",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|160|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0021",
+    "name": "M6 Washer 21",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|161|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0021",
+    "name": "M6 Nut 21",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|162|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0022",
+    "name": "M6 Bolt 22",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|163|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0022",
+    "name": "M6 Washer 22",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|164|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0022",
+    "name": "M6 Nut 22",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|165|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0023",
+    "name": "M6 Bolt 23",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|166|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0023",
+    "name": "M6 Washer 23",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|167|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0023",
+    "name": "M6 Nut 23",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|168|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0024",
+    "name": "M6 Bolt 24",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|169|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0024",
+    "name": "M6 Washer 24",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|170|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0024",
+    "name": "M6 Nut 24",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|171|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0025",
+    "name": "M6 Bolt 25",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|172|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0025",
+    "name": "M6 Washer 25",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|173|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0025",
+    "name": "M6 Nut 25",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|174|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0026",
+    "name": "M6 Bolt 26",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|175|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0026",
+    "name": "M6 Washer 26",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|176|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0026",
+    "name": "M6 Nut 26",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|177|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0027",
+    "name": "M6 Bolt 27",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|178|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0027",
+    "name": "M6 Washer 27",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|179|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0027",
+    "name": "M6 Nut 27",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|180|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0028",
+    "name": "M6 Bolt 28",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|181|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0028",
+    "name": "M6 Washer 28",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|182|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0028",
+    "name": "M6 Nut 28",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|183|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0029",
+    "name": "M6 Bolt 29",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|184|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0029",
+    "name": "M6 Washer 29",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|185|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0029",
+    "name": "M6 Nut 29",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|186|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0030",
+    "name": "M6 Bolt 30",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|187|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0030",
+    "name": "M6 Washer 30",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|188|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0030",
+    "name": "M6 Nut 30",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|189|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0031",
+    "name": "M6 Bolt 31",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|190|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0031",
+    "name": "M6 Washer 31",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|191|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0031",
+    "name": "M6 Nut 31",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|192|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0032",
+    "name": "M6 Bolt 32",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|193|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0032",
+    "name": "M6 Washer 32",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|194|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0032",
+    "name": "M6 Nut 32",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|195|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0033",
+    "name": "M6 Bolt 33",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|196|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0033",
+    "name": "M6 Washer 33",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|197|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0033",
+    "name": "M6 Nut 33",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|198|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0034",
+    "name": "M6 Bolt 34",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|199|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0034",
+    "name": "M6 Washer 34",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|200|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0034",
+    "name": "M6 Nut 34",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|201|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0035",
+    "name": "M6 Bolt 35",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|202|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0035",
+    "name": "M6 Washer 35",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|203|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0035",
+    "name": "M6 Nut 35",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|204|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0036",
+    "name": "M6 Bolt 36",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|205|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0036",
+    "name": "M6 Washer 36",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|206|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0036",
+    "name": "M6 Nut 36",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|207|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0037",
+    "name": "M6 Bolt 37",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|208|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0037",
+    "name": "M6 Washer 37",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|209|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0037",
+    "name": "M6 Nut 37",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|210|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0038",
+    "name": "M6 Bolt 38",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|211|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0038",
+    "name": "M6 Washer 38",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|212|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0038",
+    "name": "M6 Nut 38",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|213|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0039",
+    "name": "M6 Bolt 39",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|214|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0039",
+    "name": "M6 Washer 39",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|215|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0039",
+    "name": "M6 Nut 39",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|216|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0040",
+    "name": "M6 Bolt 40",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|217|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0040",
+    "name": "M6 Washer 40",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|218|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0040",
+    "name": "M6 Nut 40",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|219|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0041",
+    "name": "M6 Bolt 41",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|220|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0041",
+    "name": "M6 Washer 41",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|221|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0041",
+    "name": "M6 Nut 41",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|222|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0042",
+    "name": "M6 Bolt 42",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|223|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0042",
+    "name": "M6 Washer 42",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|224|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0042",
+    "name": "M6 Nut 42",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|225|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0043",
+    "name": "M6 Bolt 43",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|226|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0043",
+    "name": "M6 Washer 43",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|227|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0043",
+    "name": "M6 Nut 43",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|228|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0044",
+    "name": "M6 Bolt 44",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|229|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0044",
+    "name": "M6 Washer 44",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|230|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0044",
+    "name": "M6 Nut 44",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|231|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0045",
+    "name": "M6 Bolt 45",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|232|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0045",
+    "name": "M6 Washer 45",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|233|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0045",
+    "name": "M6 Nut 45",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|234|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0046",
+    "name": "M6 Bolt 46",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|235|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0046",
+    "name": "M6 Washer 46",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|236|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0046",
+    "name": "M6 Nut 46",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|237|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0047",
+    "name": "M6 Bolt 47",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|238|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0047",
+    "name": "M6 Washer 47",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|239|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0047",
+    "name": "M6 Nut 47",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|240|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0048",
+    "name": "M6 Bolt 48",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|241|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0048",
+    "name": "M6 Washer 48",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|242|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0048",
+    "name": "M6 Nut 48",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|243|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0049",
+    "name": "M6 Bolt 49",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|244|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0049",
+    "name": "M6 Washer 49",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|245|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0049",
+    "name": "M6 Nut 49",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|246|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0050",
+    "name": "M6 Bolt 50",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|247|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0050",
+    "name": "M6 Washer 50",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|248|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0050",
+    "name": "M6 Nut 50",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|249|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0051",
+    "name": "M6 Bolt 51",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|250|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0051",
+    "name": "M6 Washer 51",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|251|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0051",
+    "name": "M6 Nut 51",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|252|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0052",
+    "name": "M6 Bolt 52",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|253|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0052",
+    "name": "M6 Washer 52",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|254|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0052",
+    "name": "M6 Nut 52",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|255|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0053",
+    "name": "M6 Bolt 53",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|256|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0053",
+    "name": "M6 Washer 53",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|257|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0053",
+    "name": "M6 Nut 53",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|258|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0054",
+    "name": "M6 Bolt 54",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|259|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0054",
+    "name": "M6 Washer 54",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|260|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0054",
+    "name": "M6 Nut 54",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|261|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0055",
+    "name": "M6 Bolt 55",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|262|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0055",
+    "name": "M6 Washer 55",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|263|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0055",
+    "name": "M6 Nut 55",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|264|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0056",
+    "name": "M6 Bolt 56",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|265|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0056",
+    "name": "M6 Washer 56",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|266|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0056",
+    "name": "M6 Nut 56",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|267|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0057",
+    "name": "M6 Bolt 57",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|268|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0057",
+    "name": "M6 Washer 57",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|269|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0057",
+    "name": "M6 Nut 57",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|270|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0058",
+    "name": "M6 Bolt 58",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|271|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0058",
+    "name": "M6 Washer 58",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|272|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0058",
+    "name": "M6 Nut 58",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|273|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0059",
+    "name": "M6 Bolt 59",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|274|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0059",
+    "name": "M6 Washer 59",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|275|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0059",
+    "name": "M6 Nut 59",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|276|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0060",
+    "name": "M6 Bolt 60",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|277|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0060",
+    "name": "M6 Washer 60",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|278|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0060",
+    "name": "M6 Nut 60",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|279|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0061",
+    "name": "M6 Bolt 61",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|280|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0061",
+    "name": "M6 Washer 61",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|281|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0061",
+    "name": "M6 Nut 61",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|282|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0062",
+    "name": "M6 Bolt 62",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|283|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0062",
+    "name": "M6 Washer 62",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|284|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0062",
+    "name": "M6 Nut 62",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|285|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0063",
+    "name": "M6 Bolt 63",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|286|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0063",
+    "name": "M6 Washer 63",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|287|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0063",
+    "name": "M6 Nut 63",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|288|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0064",
+    "name": "M6 Bolt 64",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|289|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0064",
+    "name": "M6 Washer 64",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|290|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0064",
+    "name": "M6 Nut 64",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|291|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0065",
+    "name": "M6 Bolt 65",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|292|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0065",
+    "name": "M6 Washer 65",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|293|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0065",
+    "name": "M6 Nut 65",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|294|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0066",
+    "name": "M6 Bolt 66",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|295|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0066",
+    "name": "M6 Washer 66",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|296|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0066",
+    "name": "M6 Nut 66",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|297|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0067",
+    "name": "M6 Bolt 67",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|298|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0067",
+    "name": "M6 Washer 67",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|299|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0067",
+    "name": "M6 Nut 67",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|300|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0068",
+    "name": "M6 Bolt 68",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|301|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0068",
+    "name": "M6 Washer 68",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|302|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0068",
+    "name": "M6 Nut 68",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|303|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0069",
+    "name": "M6 Bolt 69",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|304|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0069",
+    "name": "M6 Washer 69",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|305|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0069",
+    "name": "M6 Nut 69",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|306|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0070",
+    "name": "M6 Bolt 70",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|307|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0070",
+    "name": "M6 Washer 70",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|308|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0070",
+    "name": "M6 Nut 70",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|309|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0071",
+    "name": "M6 Bolt 71",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|310|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0071",
+    "name": "M6 Washer 71",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|311|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0071",
+    "name": "M6 Nut 71",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|312|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0072",
+    "name": "M6 Bolt 72",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|313|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0072",
+    "name": "M6 Washer 72",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|314|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0072",
+    "name": "M6 Nut 72",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|315|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0073",
+    "name": "M6 Bolt 73",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|316|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0073",
+    "name": "M6 Washer 73",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|317|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0073",
+    "name": "M6 Nut 73",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|318|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0074",
+    "name": "M6 Bolt 74",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|319|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0074",
+    "name": "M6 Washer 74",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|320|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0074",
+    "name": "M6 Nut 74",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|321|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0075",
+    "name": "M6 Bolt 75",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|322|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0075",
+    "name": "M6 Washer 75",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|323|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0075",
+    "name": "M6 Nut 75",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|324|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0076",
+    "name": "M6 Bolt 76",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|325|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0076",
+    "name": "M6 Washer 76",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|326|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0076",
+    "name": "M6 Nut 76",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|327|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0077",
+    "name": "M6 Bolt 77",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|328|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0077",
+    "name": "M6 Washer 77",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|329|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0077",
+    "name": "M6 Nut 77",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|330|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0078",
+    "name": "M6 Bolt 78",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|331|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0078",
+    "name": "M6 Washer 78",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|332|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0078",
+    "name": "M6 Nut 78",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|333|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0079",
+    "name": "M6 Bolt 79",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|334|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0079",
+    "name": "M6 Washer 79",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|335|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0079",
+    "name": "M6 Nut 79",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|336|M6 Bolt N",
+    "partID": "STCL-FAS-BLT-0080",
+    "name": "M6 Bolt 80",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|337|M6 Washer N",
+    "partID": "STCL-FAS-WSH-0080",
+    "name": "M6 Washer 80",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|NUT|338|M6 Nut N",
+    "partID": "STCL-FAS-NUT-0080",
+    "name": "M6 Nut 80",
+    "category": "FAS",
+    "subsystem": "NUT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|339|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0001",
+    "name": "M4 Self-Tap Screw 1",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|340|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0002",
+    "name": "M4 Self-Tap Screw 2",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|341|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0003",
+    "name": "M4 Self-Tap Screw 3",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|342|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0004",
+    "name": "M4 Self-Tap Screw 4",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|343|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0005",
+    "name": "M4 Self-Tap Screw 5",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|344|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0006",
+    "name": "M4 Self-Tap Screw 6",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|345|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0007",
+    "name": "M4 Self-Tap Screw 7",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|346|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0008",
+    "name": "M4 Self-Tap Screw 8",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|347|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0009",
+    "name": "M4 Self-Tap Screw 9",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|348|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0010",
+    "name": "M4 Self-Tap Screw 10",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|349|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0011",
+    "name": "M4 Self-Tap Screw 11",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|350|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0012",
+    "name": "M4 Self-Tap Screw 12",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|351|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0013",
+    "name": "M4 Self-Tap Screw 13",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|352|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0014",
+    "name": "M4 Self-Tap Screw 14",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|353|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0015",
+    "name": "M4 Self-Tap Screw 15",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|354|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0016",
+    "name": "M4 Self-Tap Screw 16",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|355|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0017",
+    "name": "M4 Self-Tap Screw 17",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|356|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0018",
+    "name": "M4 Self-Tap Screw 18",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|357|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0019",
+    "name": "M4 Self-Tap Screw 19",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|358|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0020",
+    "name": "M4 Self-Tap Screw 20",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|359|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0021",
+    "name": "M4 Self-Tap Screw 21",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|360|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0022",
+    "name": "M4 Self-Tap Screw 22",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|361|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0023",
+    "name": "M4 Self-Tap Screw 23",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|SCR|362|M4 Self-Tap Screw N",
+    "partID": "STCL-FAS-SCR-0024",
+    "name": "M4 Self-Tap Screw 24",
+    "category": "FAS",
+    "subsystem": "SCR",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  }
+]

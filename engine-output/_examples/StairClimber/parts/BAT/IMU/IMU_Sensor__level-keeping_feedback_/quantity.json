@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-BAT-IMU-0001",
+  "name": "IMU Sensor (level-keeping feedback)",
+  "category": "BAT",
+  "subsystem": "IMU",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

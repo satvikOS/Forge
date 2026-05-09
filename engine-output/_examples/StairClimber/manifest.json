@@ -1,0 +1,25 @@
+{
+  "project": "Automated Stair-Climbing Hand Truck",
+  "deliverable": "Bachelor's-Level Mechanical Engineering Senior Design Submission",
+  "generatedAt": "2026-05-09T19:30:56.255Z",
+  "cad": "ArchDisc v1.21+ proprietary B-Rep kernel",
+  "counts": {
+    "totalComponents": 362,
+    "uniquePartDefinitions": 362,
+    "productionPackagesGenerated": 362,
+    "filesInDelivery": 5068
+  },
+  "physical": {
+    "totalMass_kg": 53.79,
+    "manufacturingCost_USD": 348.09,
+    "target_mass_kg_empty": 18,
+    "target_payload_kg": 50
+  },
+  "folderLayout": [
+    "parts/<CAT>/<SUB>/<NAME>/   per-part packages (drawing + STEP + tolerance + inspection + cert + FMEA)",
+    "assembly/EBOM.csv",
+    "assembly/MBOM.csv + .json",
+    "assembly/master-assembly-drawing.svg",
+    "manifest.json"
+  ]
+}

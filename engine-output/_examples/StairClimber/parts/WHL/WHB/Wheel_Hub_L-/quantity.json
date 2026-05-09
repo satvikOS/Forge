@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-WHL-WHB-0003",
+  "name": "Wheel Hub L-3",
+  "category": "WHL",
+  "subsystem": "WHB",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

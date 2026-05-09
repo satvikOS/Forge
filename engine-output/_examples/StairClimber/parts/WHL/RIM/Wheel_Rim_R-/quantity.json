@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-WHL-RIM-0006",
+  "name": "Wheel Rim R-3",
+  "category": "WHL",
+  "subsystem": "RIM",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

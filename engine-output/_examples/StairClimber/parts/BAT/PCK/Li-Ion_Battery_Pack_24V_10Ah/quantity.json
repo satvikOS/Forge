@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-BAT-PCK-0001",
+  "name": "Li-Ion Battery Pack 24V 10Ah",
+  "category": "BAT",
+  "subsystem": "PCK",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

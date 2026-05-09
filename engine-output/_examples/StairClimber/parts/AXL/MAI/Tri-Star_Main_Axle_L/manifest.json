@@ -1,0 +1,29 @@
+{
+  "partID": "STCL-AXL-MAI-0001",
+  "partName": "Tri-Star Main Axle L",
+  "project": "STCL",
+  "classification": "Class 3",
+  "category": "AXL",
+  "subsystem": "MAI",
+  "material": "Steel AISI 4340",
+  "generatedAt": "2026-05-09T19:30:51.674Z",
+  "drawingNumber": "STCL-AXL-MAI-0001-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "STCL",
+  "certificationLevel": "Standard"
+}

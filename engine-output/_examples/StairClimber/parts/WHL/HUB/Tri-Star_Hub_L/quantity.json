@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-WHL-HUB-0001",
+  "name": "Tri-Star Hub L",
+  "category": "WHL",
+  "subsystem": "HUB",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

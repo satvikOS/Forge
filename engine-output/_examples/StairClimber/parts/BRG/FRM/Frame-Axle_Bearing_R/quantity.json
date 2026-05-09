@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-BRG-FRM-0002",
+  "name": "Frame-Axle Bearing R",
+  "category": "BRG",
+  "subsystem": "FRM",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-WHL-TIR-0003",
+  "name": "Tire L-3",
+  "category": "WHL",
+  "subsystem": "TIR",
+  "material": "Nylon 6/6",
+  "classification": "Class 3",
+  "quantity": 1
+}

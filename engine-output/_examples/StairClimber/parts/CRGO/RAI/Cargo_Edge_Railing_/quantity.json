@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-CRGO-RAI-0004",
+  "name": "Cargo Edge Railing 4",
+  "category": "CRGO",
+  "subsystem": "RAI",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

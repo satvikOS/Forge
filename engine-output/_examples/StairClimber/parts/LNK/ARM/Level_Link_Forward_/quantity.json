@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-LNK-ARM-0003",
+  "name": "Level Link Forward 2",
+  "category": "LNK",
+  "subsystem": "ARM",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,29 @@
+{
+  "partID": "STCL-BAT-IMU-0001",
+  "partName": "IMU Sensor (level-keeping feedback)",
+  "project": "STCL",
+  "classification": "Class 3",
+  "category": "BAT",
+  "subsystem": "IMU",
+  "material": "ABS Plastic",
+  "generatedAt": "2026-05-09T19:30:52.485Z",
+  "drawingNumber": "STCL-BAT-IMU-0001-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "STCL",
+  "certificationLevel": "Standard"
+}

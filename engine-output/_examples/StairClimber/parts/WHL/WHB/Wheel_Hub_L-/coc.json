@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "STCL-WHL-WHB-0003",
+  "partTitle": "Wheel Hub L-3",
+  "serialNumber": "SN-257904",
+  "drawingNumber": "STCL-WHL-WHB-0003-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-24579",
+  "manufacturingLot": "MFG-51603",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-24579",
+    "manufacturingProcess": "MFG-51603",
+    "inspectionRecord": "INSP-SN-257904",
+    "finalAcceptance": "2026-05-09"
+  }
+}

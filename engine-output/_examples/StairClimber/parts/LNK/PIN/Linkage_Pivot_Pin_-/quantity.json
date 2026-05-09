@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-LNK-PIN-0008",
+  "name": "Linkage Pivot Pin 2-4",
+  "category": "LNK",
+  "subsystem": "PIN",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

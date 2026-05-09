@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-STR-BRC-0004",
+  "name": "Frame Diagonal Brace 4",
+  "category": "STR",
+  "subsystem": "BRC",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "STCL-STR-TUB-0010",
+  "name": "Frame Cross-Tube L3 Rear",
+  "category": "STR",
+  "subsystem": "TUB",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -143,6 +143,7 @@ export { default as PartAnalysisRunner } from './production/PartAnalysisRunner.j
 export { default as ProductionPackage } from './production/ProductionPackage.js';
 export { default as BOM } from './production/BOM.js';
 export { default as AssemblyDrawing } from './production/AssemblyDrawing.js';
+export { default as SubmissionReport } from './production/SubmissionReport.js';
 
 // HTML Report Builder — self-contained interactive deliverable
 export { default as HTMLReportBuilder } from './export/HTMLReportBuilder.js';

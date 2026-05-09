@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "STCL-AXL-MAI-0001",
+  "partTitle": "Tri-Star Main Axle L",
+  "serialNumber": "SN-497259",
+  "drawingNumber": "STCL-AXL-MAI-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-80898",
+  "manufacturingLot": "MFG-51674",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-80898",
+    "manufacturingProcess": "MFG-51674",
+    "inspectionRecord": "INSP-SN-497259",
+    "finalAcceptance": "2026-05-09"
+  }
+}

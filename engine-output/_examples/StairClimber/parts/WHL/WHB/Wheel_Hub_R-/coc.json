@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "STCL-WHL-WHB-0006",
+  "partTitle": "Wheel Hub R-3",
+  "serialNumber": "SN-699563",
+  "drawingNumber": "STCL-WHL-WHB-0006-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-55997",
+  "manufacturingLot": "MFG-51914",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-55997",
+    "manufacturingProcess": "MFG-51914",
+    "inspectionRecord": "INSP-SN-699563",
+    "finalAcceptance": "2026-05-09"
+  }
+}

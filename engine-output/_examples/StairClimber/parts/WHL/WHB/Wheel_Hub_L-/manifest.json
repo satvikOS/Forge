@@ -1,0 +1,29 @@
+{
+  "partID": "STCL-WHL-WHB-0003",
+  "partName": "Wheel Hub L-3",
+  "project": "STCL",
+  "classification": "Class 3",
+  "category": "WHL",
+  "subsystem": "WHB",
+  "material": "Aluminum 6061-T6",
+  "generatedAt": "2026-05-09T19:30:51.603Z",
+  "drawingNumber": "STCL-WHL-WHB-0003-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "STCL",
+  "certificationLevel": "Standard"
+}

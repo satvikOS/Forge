@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "STCL-DRV-ENC-0001",
+  "partTitle": "Motor Encoder L",
+  "serialNumber": "SN-631620",
+  "drawingNumber": "STCL-DRV-ENC-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-60097",
+  "manufacturingLot": "MFG-52335",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-60097",
+    "manufacturingProcess": "MFG-52335",
+    "inspectionRecord": "INSP-SN-631620",
+    "finalAcceptance": "2026-05-09"
+  }
+}
