@@ -65,20 +65,36 @@ export default class MarketingCutaway {
 
     const restoreTasks = [];
 
-    // 1. Apply per-mesh visibility + color overrides
+    // 1. Apply per-mesh visibility + color overrides.
+    //    Includes LineSegments (edge wireframes) so accessory edge-lines
+    //    don't show as floating dark cubes when their meshes are hidden.
     scene.traverse(obj => {
-      if (!obj.isMesh && !obj.isInstancedMesh) return;
+      const isRenderable = obj.isMesh || obj.isInstancedMesh
+        || obj.isLine || obj.isLineSegments;
+      if (!isRenderable) return;
       if (!obj.material || obj.userData?.helper || obj.userData?.gizmo) return;
 
-      // Determine the partID's category. Accept first-instance category
-      // for InstancedMesh.
+      // Determine the partID's category. Look on the mesh itself, on
+      // its parent group (since AssemblyBridge sets partID on the
+      // group, not on internal meshes), and on InstancedMesh's array.
       let category = null;
-      if (obj.userData?.partID) {
-        const m = obj.userData.partID.match(/^[A-Z0-9]+-([A-Z]+)-/);
-        if (m) category = m[1];
+      const findID = () => {
+        if (obj.userData?.partID) return obj.userData.partID;
+        // Walk up parents
+        let p = obj.parent;
+        while (p) {
+          if (p.userData?.partID) return p.userData.partID;
+          p = p.parent;
+        }
+        return null;
+      };
+      const id = findID();
+      if (id) {
+        const mm = id.match(/^[A-Z0-9]+-([A-Z]+)-/);
+        if (mm) category = mm[1];
       } else if (Array.isArray(obj.userData?.partIDs) && obj.userData.partIDs.length) {
-        const m = obj.userData.partIDs[0].match(/^[A-Z0-9]+-([A-Z]+)-/);
-        if (m) category = m[1];
+        const mm = obj.userData.partIDs[0].match(/^[A-Z0-9]+-([A-Z]+)-/);
+        if (mm) category = mm[1];
       }
 
       const task = { object: obj, prevVisible: obj.visible };

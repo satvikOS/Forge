@@ -369,14 +369,16 @@ export default class GE9XBuilder {
   static buildHPCompressor(t) {
     const stages = GE9X_SPECS.hpcStages;
     let zCursor = 1.85;
-    const rHubBase = 0.24;
-    const rTipBase = 0.45;
+    // Real 60:1-OPR HPC: rTip drops from ~0.45m (stage 1) to ~0.24m (stage 11)
+    // and rHub climbs from ~0.20m to ~0.22m. Blade height shrinks 4×.
+    const rHubBase = 0.20, rHubExit = 0.22;
+    const rTipBase = 0.45, rTipExit = 0.24;
 
     for (let s = 1; s <= stages; s++) {
       const t01 = (s - 1) / (stages - 1);
-      const rHub = rHubBase + t01 * 0.040;
-      const rTip = rTipBase - t01 * 0.110;
-      const chord = 0.038 - t01 * 0.012;
+      const rHub = rHubBase + t01 * (rHubExit - rHubBase);
+      const rTip = rTipBase + t01 * (rTipExit - rTipBase);
+      const chord = 0.045 - t01 * 0.025;  // chord shrinks from 45mm to 20mm
 
       // Variable stator vanes (IGV + first 4 stages variable)
       const statorVane = _getOrBuildBlade(`hpc-stator-s${s}`,
@@ -983,23 +985,63 @@ export default class GE9XBuilder {
   }
 
   static buildCasings(t) {
-    // Inner core cowl — 4 axial segments along the core, with stagger so
-    // they don't visually overlap
-    for (let s = 0; s < 4; s++) {
-      const cowl = PrimitiveBuilder.cylinder(0.65, 0.50, 96);
-      t.addPart(cowl, `Core Cowl Segment ${s + 1}`, {
-        color: 0xa0a0b0, position: new Vec3(0, 0, 1.50 + s * 0.55),
-        material: 'Composite Carbon-Epoxy',
-        category: 'NAC', subsystem: 'COW',
-      });
-    }
-    // Fan cowl — 4 axial segments around fan
-    for (let s = 0; s < 4; s++) {
-      const cowl = PrimitiveBuilder.cylinder(GE9X_SPECS.fanRadius + 0.08, 0.32, 128);
+    // ---- Nacelle (bypass duct + outer cowl) ----
+    // Real GE9X nacelle is a continuous tube extending the full engine
+    // length, forming the bypass duct between core casing and fan cowl.
+    // We model it as 12 axial segments × 1 fan-cowl ring + 12 axial
+    // segments of the outer bypass tube. Inlet lip is up front.
+
+    const NACELLE_LEN = 5.4;  // total nacelle length, m
+    const NACELLE_Z_START = -0.30;  // forward of fan
+    const FAN_R = GE9X_SPECS.fanRadius;
+    const NUM_SEG = 12;
+    const segLen = NACELLE_LEN / NUM_SEG;
+
+    // Outer fan cowl (12 segments around bypass duct)
+    for (let s = 0; s < NUM_SEG; s++) {
+      const z = NACELLE_Z_START + s * segLen + segLen / 2;
+      // Slight contraction toward the rear (boat-tail)
+      const radius = FAN_R + 0.10 - (s / NUM_SEG) * 0.30;
+      const cowl = PrimitiveBuilder.cylinder(radius, segLen, 96);
       t.addPart(cowl, `Fan Cowl Segment ${s + 1}`, {
-        color: 0xeeeeee, position: new Vec3(0, 0, -0.10 + s * 0.34),
+        color: 0xeeeeee, position: new Vec3(0, 0, z),
         material: 'Composite Carbon-Epoxy',
         category: 'NAC', subsystem: 'FCW',
+      });
+    }
+
+    // Inlet lip (rounded leading edge of nacelle)
+    const inletLip = PrimitiveBuilder.torus(FAN_R + 0.05, 0.06, 96, 16);
+    t.addPart(inletLip, 'Nacelle Inlet Lip', {
+      color: 0xdddddd, position: new Vec3(0, 0, NACELLE_Z_START),
+      material: 'Aluminum 6061-T6',
+      category: 'NAC', subsystem: 'LIP',
+    });
+
+    // Acoustic liner — perforated panel inside the inlet, forward of fan
+    for (let s = 0; s < 4; s++) {
+      const liner = PrimitiveBuilder.cylinder(FAN_R + 0.005, 0.10, 64);
+      t.addPart(liner, `Acoustic Liner Panel ${s + 1}`, {
+        color: 0xc0a060, position: new Vec3(0, 0, NACELLE_Z_START + 0.05 + s * 0.10),
+        material: 'Aluminum 6061-T6',
+        category: 'NAC', subsystem: 'ACL',
+      });
+    }
+
+    // Inner core cowl — 8 axial segments along the core (between bypass
+    // duct and core engine). Real GE9X core cowl extends from fan
+    // exit to exhaust nozzle.
+    const CORE_COWL_START = 0.80;
+    const CORE_COWL_LEN = 4.20;
+    for (let s = 0; s < 8; s++) {
+      const z = CORE_COWL_START + (s + 0.5) * (CORE_COWL_LEN / 8);
+      // Core cowl tapers slightly inward toward exhaust
+      const radius = 0.78 - (s / 8) * 0.20;
+      const cowl = PrimitiveBuilder.cylinder(radius, CORE_COWL_LEN / 8, 96);
+      t.addPart(cowl, `Core Cowl Segment ${s + 1}`, {
+        color: 0xa0a0b0, position: new Vec3(0, 0, z),
+        material: 'Composite Carbon-Epoxy',
+        category: 'NAC', subsystem: 'COW',
       });
     }
   }

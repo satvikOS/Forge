@@ -63,18 +63,19 @@ test('GE9X marketing cutaway: GE-style color-coded poster render', async ({ page
       colorBySection: true,
     });
 
-    // Camera: side elevation (looking along -X at the engine).
-    // Engine is along Z (5.7m), need wide FOV to see whole length.
-    const dist = size.z * 1.4;
+    // Camera: stand on +X side looking back toward -X. The axial-half cut
+    // removes +X half, so the cut surface faces +X = camera. Camera high
+    // enough above to skim the top of the nacelle giving a 3/4 view.
+    const camDist = size.z * 0.6;
     window.__three_camera.position.set(
-      center.x - dist * 1.0,    // off to the side (away from cut surface)
-      center.y + dist * 0.05,
+      center.x + camDist,
+      center.y + camDist * 0.05,
       center.z
     );
-    window.__three_camera.lookAt(center);
+    window.__three_camera.lookAt(center.x, center.y, center.z);
     window.__three_camera.near = 0.01;
-    window.__three_camera.far = dist * 30;
-    window.__three_camera.fov = 35;
+    window.__three_camera.far = camDist * 50;
+    window.__three_camera.fov = 60;  // wider FOV for full engine length
     window.__three_camera.updateProjectionMatrix();
     window.__three_renderer.render(window.__three_scene, window.__three_camera);
 
