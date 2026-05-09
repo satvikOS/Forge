@@ -128,3 +128,9 @@ export { default as RealWorldTestRunner } from './realworld/RealWorldTestRunner.
 
 // Cutaway Renderer — section-view rendering for engine internals
 export { default as CutawayRenderer } from './rendering/CutawayRenderer.js';
+
+// Engine Materials — PBR mapping per material name (titanium, Inconel, CMC, ...)
+export { default as EngineMaterials, ENGINE_MATERIAL_PARAMS } from './materials/EngineMaterials.js';
+
+// Studio Lighting — 3-point + hemisphere for engineering renders
+export { default as StudioLighting } from './rendering/StudioLighting.js';

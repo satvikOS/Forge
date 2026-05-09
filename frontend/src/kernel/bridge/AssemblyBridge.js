@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import Tessellator from '../tessellation/Tessellator.js';
 import ThreeJSBridge from './ThreeJSBridge.js';
+import EngineMaterials from '../materials/EngineMaterials.js';
 
 export default class AssemblyBridge {
 
@@ -86,10 +87,11 @@ export default class AssemblyBridge {
     geometry.computeBoundingSphere();
     geometry.computeBoundingBox();
 
-    const material = new THREE.MeshStandardMaterial({
-      color: first.color || 0x4a90d9,
-      metalness: 0.4,
-      roughness: 0.35,
+    // Apply PBR material based on the part's material name (titanium glints,
+    // CMC reads as ceramic, composite has clearcoat, etc.). Color from the
+    // part overrides the library default if explicitly set.
+    const material = EngineMaterials.makeMaterial(THREE, first.material, {
+      color: first.color,
     });
 
     const inst = new THREE.InstancedMesh(geometry, material, parts.length);
@@ -155,6 +157,15 @@ export default class AssemblyBridge {
       group.userData.material = part.material;
       group.userData.pickable = true;
       group.userData.kernelSolid = part.solid;
+
+      // Apply real material PBR — replaces ThreeJSBridge's default
+      group.traverse(obj => {
+        if (obj.isMesh && obj.material) {
+          EngineMaterials.applyToMaterial(obj.material, part.material, {
+            color: part.color,
+          });
+        }
+      });
 
       group.position.set(part.position.x, part.position.y, part.position.z);
       group.rotation.set(part.rotation.x, part.rotation.y, part.rotation.z);
