@@ -1,0 +1,27 @@
+{
+  "project": "Toyota V35X-LEV 2028 V6 Hybrid",
+  "captureDate": "2026-05-09T20:36:09.886Z",
+  "archDiscApp": "localhost:3000 (live React app + Three.js viewport)",
+  "viewport": "1920×1080",
+  "components_rendered": 1457,
+  "build_time_sec": 0.14,
+  "cycle_thermal_eff_pct": 52.1,
+  "screenshots_saved": 14,
+  "screenshots": [
+    "00-archdisc-app-loaded.png       — proves the actual ArchDisc app is running",
+    "01-archdisc-iso-overview.png     — V6 engine in 3D viewport",
+    "02-side-elevation.png            — engineering side view",
+    "03-front-intake.png              — intake side",
+    "04-rear-exhaust.png              — exhaust side",
+    "05-top-down.png                  — top-down view",
+    "06-cutaway-half-side.png         — color-coded cutaway with section colors",
+    "07-cutaway-three-quarter.png     — cutaway 3/4",
+    "08-hot-mode-cutaway.png          — emissive heat-map mode",
+    "09-focus-crankshaft.png          — click-to-focus on crankshaft, others dimmed",
+    "10-final-overview.png            — restored full render",
+    "11-master-assembly-drawing.png   — engine assembly drawing (rendered from SVG)",
+    "12-sample-crankshaft-drawing.png — sample production drawing for one part",
+    "13-submission-report-top.png     — Submission HTML report (top)",
+    "14-submission-report-mid.png     — Submission HTML report (BOM + emissions)"
+  ]
+}
