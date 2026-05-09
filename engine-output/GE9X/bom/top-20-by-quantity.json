@@ -1,0 +1,58 @@
+[
+  {
+    "item": 1,
+    "name": "Cone",
+    "material": "Composite Carbon-Epoxy",
+    "qty": 32,
+    "mass": 273.87714109749044,
+    "volume": 0.10143597818425572
+  },
+  {
+    "item": 2,
+    "name": "Sphere",
+    "material": "Aluminum 6061-T6",
+    "qty": 33,
+    "mass": 0,
+    "volume": 0
+  },
+  {
+    "item": 3,
+    "name": "Hex Bolt M8×25",
+    "material": "Steel AISI 4340",
+    "qty": 16,
+    "mass": 0.0016300654909557123,
+    "volume": 6.037279596132268e-7
+  },
+  {
+    "item": 4,
+    "name": "Cylinder",
+    "material": "Titanium Ti-6Al-4V",
+    "qty": 24753,
+    "mass": 504.2348951729008,
+    "volume": 0.18675366487885214
+  },
+  {
+    "item": 5,
+    "name": "Loft",
+    "material": "Composite Carbon-Epoxy",
+    "qty": 3786,
+    "mass": 0,
+    "volume": 0
+  },
+  {
+    "item": 6,
+    "name": "Box",
+    "material": "Titanium Ti-6Al-4V",
+    "qty": 603,
+    "mass": 2.5059375,
+    "volume": 0.000928125
+  },
+  {
+    "item": 7,
+    "name": "Torus",
+    "material": "Titanium Ti-6Al-4V",
+    "qty": 446,
+    "mass": 0,
+    "volume": 0
+  }
+]
