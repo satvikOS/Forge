@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-NAC-COW-0008 — Core Cowl Segment 8
-**Serial No.:** SN-702854
+**Serial No.:** SN-100403
 **Drawing:** GE9X-NAC-COW-0008-DWG Rev A
-**Heat Lot:** HL-58575  ·  **Mfg Lot:** MFG-97596
+**Heat Lot:** HL-46795  ·  **Mfg Lot:** MFG-65044
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-58575
-- Manufacturing: MFG-97596
-- Inspection: INSP-SN-702854
+- Raw Material: HL-46795
+- Manufacturing: MFG-65044
+- Inspection: INSP-SN-100403
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

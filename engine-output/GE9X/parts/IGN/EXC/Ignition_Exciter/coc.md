@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-IGN-EXC-0002 — Ignition Exciter 2
-**Serial No.:** SN-666779
+**Serial No.:** SN-506439
 **Drawing:** GE9X-IGN-EXC-0002-DWG Rev A
-**Heat Lot:** HL-22812  ·  **Mfg Lot:** MFG-91233
+**Heat Lot:** HL-51330  ·  **Mfg Lot:** MFG-57088
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-22812
-- Manufacturing: MFG-91233
-- Inspection: INSP-SN-666779
+- Raw Material: HL-51330
+- Manufacturing: MFG-57088
+- Inspection: INSP-SN-506439
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

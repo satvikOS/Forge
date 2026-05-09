@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-DSK-0002",
     "partName": "HPT S2 Disk",
-    "serialNumber": "SN-732536",
+    "serialNumber": "SN-305778",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Single-Crystal Nickel CMSX-4",
-        "lot": "HL-92577"
+        "lot": "HL-39372"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-80973"
+        "certNo": "PROC-43644"
       }
     ]
   },

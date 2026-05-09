@@ -30,7 +30,7 @@
           "minSafetyFactor": 1
         },
         "diagnosis": "Burst risk — increase rim thickness or use stronger alloy.",
-        "timestamp": "2026-05-09T18:13:03.938Z"
+        "timestamp": "2026-05-09T19:02:27.288Z"
       },
       "fatigue_hcf": {
         "scenario": "fatigue_hcf",
@@ -46,7 +46,7 @@
           "minSafetyFactor": 1
         },
         "diagnosis": "HCF life insufficient — consider shot peening.",
-        "timestamp": "2026-05-09T18:13:03.938Z"
+        "timestamp": "2026-05-09T19:02:27.288Z"
       }
     }
   }

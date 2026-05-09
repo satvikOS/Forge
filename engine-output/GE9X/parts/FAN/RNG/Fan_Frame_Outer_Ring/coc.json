@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-RNG-0004",
   "partTitle": "Fan Frame Outer Ring",
-  "serialNumber": "SN-730606",
+  "serialNumber": "SN-423265",
   "drawingNumber": "GE9X-FAN-RNG-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-91526",
-  "manufacturingLot": "MFG-73787",
+  "heatLot": "HL-94334",
+  "manufacturingLot": "MFG-36235",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-91526",
-    "manufacturingProcess": "MFG-73787",
-    "inspectionRecord": "INSP-SN-730606",
+    "rawMaterial": "HL-94334",
+    "manufacturingProcess": "MFG-36235",
+    "inspectionRecord": "INSP-SN-423265",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-TUB-0030",
     "partName": "Fuel Transfer Tube 30",
-    "serialNumber": "SN-894681",
+    "serialNumber": "SN-063860",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-89708"
+        "lot": "HL-45339"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90646"
+        "certNo": "PROC-56056"
       }
     ]
   },

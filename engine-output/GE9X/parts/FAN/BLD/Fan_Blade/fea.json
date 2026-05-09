@@ -31,7 +31,7 @@
           "minSafetyFactor": 1
         },
         "diagnosis": "Component withstands large-bird ingestion within ultimate strength.",
-        "timestamp": "2026-05-09T18:12:50.626Z"
+        "timestamp": "2026-05-09T19:02:13.602Z"
       },
       "fod_ingestion": {
         "scenario": "fod_ingestion",
@@ -46,7 +46,7 @@
           "minSafetyFactor": 1
         },
         "diagnosis": "Component contains FOD damage within ultimate.",
-        "timestamp": "2026-05-09T18:12:50.628Z"
+        "timestamp": "2026-05-09T19:02:13.604Z"
       },
       "fatigue_hcf": {
         "scenario": "fatigue_hcf",
@@ -62,7 +62,7 @@
           "minSafetyFactor": 1
         },
         "diagnosis": "HCF life insufficient — consider shot peening.",
-        "timestamp": "2026-05-09T18:12:50.629Z"
+        "timestamp": "2026-05-09T19:02:13.604Z"
       }
     }
   }

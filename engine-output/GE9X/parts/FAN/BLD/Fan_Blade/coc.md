@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAN-BLD-0001 — Fan Blade 1
-**Serial No.:** SN-726003
+**Serial No.:** SN-436944
 **Drawing:** GE9X-FAN-BLD-0001-DWG Rev A
-**Heat Lot:** HL-29429  ·  **Mfg Lot:** MFG-70612
+**Heat Lot:** HL-83174  ·  **Mfg Lot:** MFG-33595
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-29429
-- Manufacturing: MFG-70612
-- Inspection: INSP-SN-726003
+- Raw Material: HL-83174
+- Manufacturing: MFG-33595
+- Inspection: INSP-SN-436944
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

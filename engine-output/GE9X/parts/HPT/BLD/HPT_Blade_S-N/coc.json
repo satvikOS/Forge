@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPT-BLD-0081",
   "partTitle": "HPT Blade S2-1",
-  "serialNumber": "SN-641763",
+  "serialNumber": "SN-335863",
   "drawingNumber": "GE9X-HPT-BLD-0081-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-22179",
-  "manufacturingLot": "MFG-81041",
+  "heatLot": "HL-00320",
+  "manufacturingLot": "MFG-43716",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-22179",
-    "manufacturingProcess": "MFG-81041",
-    "inspectionRecord": "INSP-SN-641763",
+    "rawMaterial": "HL-00320",
+    "manufacturingProcess": "MFG-43716",
+    "inspectionRecord": "INSP-SN-335863",
     "finalAcceptance": "2026-05-09"
   }
 }

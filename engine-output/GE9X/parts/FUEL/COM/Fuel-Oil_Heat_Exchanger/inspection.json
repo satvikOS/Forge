@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0006",
     "partName": "Fuel-Oil Heat Exchanger",
-    "serialNumber": "SN-430636",
+    "serialNumber": "SN-720529",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-45848"
+        "lot": "HL-79023"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90305"
+        "certNo": "PROC-55452"
       }
     ]
   },

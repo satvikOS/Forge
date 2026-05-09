@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-ELEC-CNN-0180  ·  **Title:** Electrical Connector 180
-**Serial:** SN-662754  ·  **Drawing Rev:** A
+**Serial:** SN-312409  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Aluminum 6061-T6 | HL-35893 |
-| 2 | Process | CNC 5-axis machining | PROC-25933 |
+| 1 | Material | Aluminum 6061-T6 | HL-74790 |
+| 2 | Process | CNC 5-axis machining | PROC-9369 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

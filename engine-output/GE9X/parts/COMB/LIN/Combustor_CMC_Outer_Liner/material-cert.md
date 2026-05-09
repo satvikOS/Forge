@@ -1,7 +1,7 @@
 # Material Certificate — CMC SiC/SiC
 
 **Cert Type:** EN 10204 Type 3.1 / ASTM A6 Material Certificate
-**Heat Lot:** HL-52109  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
+**Heat Lot:** HL-40307  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
 **Date:** 2026-05-09
 **Specification:** GE9X CMC technology / NASA proprietary
 

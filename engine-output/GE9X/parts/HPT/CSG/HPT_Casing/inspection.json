@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-CSG-0001",
     "partName": "HPT Casing",
-    "serialNumber": "SN-913112",
+    "serialNumber": "SN-517469",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-83045"
+        "lot": "HL-61317"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-82806"
+        "certNo": "PROC-45943"
       }
     ]
   },

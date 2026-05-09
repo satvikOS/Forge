@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-STR-BKT-0130 — Bracket 130
-**Serial No.:** SN-059101
+**Serial No.:** SN-114888
 **Drawing:** GE9X-STR-BKT-0130-DWG Rev A
-**Heat Lot:** HL-85394  ·  **Mfg Lot:** MFG-19929
+**Heat Lot:** HL-39276  ·  **Mfg Lot:** MFG-99410
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-85394
-- Manufacturing: MFG-19929
-- Inspection: INSP-SN-059101
+- Raw Material: HL-39276
+- Manufacturing: MFG-99410
+- Inspection: INSP-SN-114888
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

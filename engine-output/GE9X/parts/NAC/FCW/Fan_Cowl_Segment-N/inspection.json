@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-NAC-FCW-0012",
     "partName": "Fan Cowl Segment 12",
-    "serialNumber": "SN-831947",
+    "serialNumber": "SN-447185",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-01440"
+        "lot": "HL-05545"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-97025"
+        "certNo": "PROC-64360"
       }
     ]
   },

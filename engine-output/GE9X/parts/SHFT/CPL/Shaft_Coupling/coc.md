@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-SHFT-CPL-0004 — Shaft Coupling 4
-**Serial No.:** SN-335010
+**Serial No.:** SN-718674
 **Drawing:** GE9X-SHFT-CPL-0004-DWG Rev A
-**Heat Lot:** HL-69623  ·  **Mfg Lot:** MFG-89768
+**Heat Lot:** HL-48563  ·  **Mfg Lot:** MFG-54620
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-69623
-- Manufacturing: MFG-89768
-- Inspection: INSP-SN-335010
+- Raw Material: HL-48563
+- Manufacturing: MFG-54620
+- Inspection: INSP-SN-718674
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

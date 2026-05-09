@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-BRG-HSG-0003 — Bearing #HPC Front Ball Housing
-**Serial No.:** SN-853716
+**Serial No.:** SN-717357
 **Drawing:** GE9X-BRG-HSG-0003-DWG Rev A
-**Heat Lot:** HL-33388  ·  **Mfg Lot:** MFG-85569
+**Heat Lot:** HL-41268  ·  **Mfg Lot:** MFG-49462
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-33388
-- Manufacturing: MFG-85569
-- Inspection: INSP-SN-853716
+- Raw Material: HL-41268
+- Manufacturing: MFG-49462
+- Inspection: INSP-SN-717357
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

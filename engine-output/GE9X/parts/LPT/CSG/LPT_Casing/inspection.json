@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPT-CSG-0001",
     "partName": "LPT Casing",
-    "serialNumber": "SN-835800",
+    "serialNumber": "SN-898543",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-37094"
+        "lot": "HL-53733"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-84064"
+        "certNo": "PROC-47426"
       }
     ]
   },

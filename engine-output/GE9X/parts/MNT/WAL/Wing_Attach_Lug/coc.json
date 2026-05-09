@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-MNT-WAL-0004",
   "partTitle": "Wing Attach Lug 4",
-  "serialNumber": "SN-379171",
+  "serialNumber": "SN-017448",
   "drawingNumber": "GE9X-MNT-WAL-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-96286",
-  "manufacturingLot": "MFG-97672",
+  "heatLot": "HL-47630",
+  "manufacturingLot": "MFG-65143",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-96286",
-    "manufacturingProcess": "MFG-97672",
-    "inspectionRecord": "INSP-SN-379171",
+    "rawMaterial": "HL-47630",
+    "manufacturingProcess": "MFG-65143",
+    "inspectionRecord": "INSP-SN-017448",
     "finalAcceptance": "2026-05-09"
   }
 }

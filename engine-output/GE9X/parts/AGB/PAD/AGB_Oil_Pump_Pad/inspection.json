@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-PAD-0004",
     "partName": "AGB Oil Pump Pad",
-    "serialNumber": "SN-203263",
+    "serialNumber": "SN-471974",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-62740"
+        "lot": "HL-71930"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90196"
+        "certNo": "PROC-55276"
       }
     ]
   },

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-DSK-0010",
   "partTitle": "HPC S10 Disk",
-  "serialNumber": "SN-560341",
+  "serialNumber": "SN-960684",
   "drawingNumber": "GE9X-HPC-DSK-0010-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-30802",
-  "manufacturingLot": "MFG-76574",
+  "heatLot": "HL-57145",
+  "manufacturingLot": "MFG-38624",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-30802",
-    "manufacturingProcess": "MFG-76574",
-    "inspectionRecord": "INSP-SN-560341",
+    "rawMaterial": "HL-57145",
+    "manufacturingProcess": "MFG-38624",
+    "inspectionRecord": "INSP-SN-960684",
     "finalAcceptance": "2026-05-09"
   }
 }

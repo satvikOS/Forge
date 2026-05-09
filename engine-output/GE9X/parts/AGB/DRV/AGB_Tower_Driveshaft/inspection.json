@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-DRV-0001",
     "partName": "AGB Tower Driveshaft",
-    "serialNumber": "SN-711604",
+    "serialNumber": "SN-269768",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-18583"
+        "lot": "HL-67918"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-89809"
+        "certNo": "PROC-54673"
       }
     ]
   },

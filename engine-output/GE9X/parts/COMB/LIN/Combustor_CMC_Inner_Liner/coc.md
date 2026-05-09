@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-COMB-LIN-0001 — Combustor CMC Inner Liner
-**Serial No.:** SN-511853
+**Serial No.:** SN-529260
 **Drawing:** GE9X-COMB-LIN-0001-DWG Rev A
-**Heat Lot:** HL-81892  ·  **Mfg Lot:** MFG-77102
+**Heat Lot:** HL-25270  ·  **Mfg Lot:** MFG-39042
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-81892
-- Manufacturing: MFG-77102
-- Inspection: INSP-SN-511853
+- Raw Material: HL-25270
+- Manufacturing: MFG-39042
+- Inspection: INSP-SN-529260
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

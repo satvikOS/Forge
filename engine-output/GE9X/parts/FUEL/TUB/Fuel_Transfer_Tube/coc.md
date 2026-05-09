@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FUEL-TUB-0030 — Fuel Transfer Tube 30
-**Serial No.:** SN-996886
+**Serial No.:** SN-448885
 **Drawing:** GE9X-FUEL-TUB-0030-DWG Rev A
-**Heat Lot:** HL-71391  ·  **Mfg Lot:** MFG-90646
+**Heat Lot:** HL-73760  ·  **Mfg Lot:** MFG-56056
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-71391
-- Manufacturing: MFG-90646
-- Inspection: INSP-SN-996886
+- Raw Material: HL-73760
+- Manufacturing: MFG-56056
+- Inspection: INSP-SN-448885
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

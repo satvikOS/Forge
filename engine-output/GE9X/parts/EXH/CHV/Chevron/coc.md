@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-EXH-CHV-0012 — Chevron 12
-**Serial No.:** SN-894618
+**Serial No.:** SN-719209
 **Drawing:** GE9X-EXH-CHV-0012-DWG Rev A
-**Heat Lot:** HL-58346  ·  **Mfg Lot:** MFG-98156
+**Heat Lot:** HL-57213  ·  **Mfg Lot:** MFG-65799
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-58346
-- Manufacturing: MFG-98156
-- Inspection: INSP-SN-894618
+- Raw Material: HL-57213
+- Manufacturing: MFG-65799
+- Inspection: INSP-SN-719209
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

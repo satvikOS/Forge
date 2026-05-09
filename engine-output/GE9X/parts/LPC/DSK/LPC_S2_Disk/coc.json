@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-LPC-DSK-0002",
   "partTitle": "LPC S2 Disk",
-  "serialNumber": "SN-475788",
+  "serialNumber": "SN-497757",
   "drawingNumber": "GE9X-LPC-DSK-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-64320",
-  "manufacturingLot": "MFG-74479",
+  "heatLot": "HL-20467",
+  "manufacturingLot": "MFG-37046",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-64320",
-    "manufacturingProcess": "MFG-74479",
-    "inspectionRecord": "INSP-SN-475788",
+    "rawMaterial": "HL-20467",
+    "manufacturingProcess": "MFG-37046",
+    "inspectionRecord": "INSP-SN-497757",
     "finalAcceptance": "2026-05-09"
   }
 }

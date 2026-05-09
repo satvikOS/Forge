@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-OIL-TUB-0012  ·  **Title:** Oil Scavenge Tube Sump3-4
-**Serial:** SN-919316  ·  **Drawing Rev:** A
+**Serial:** SN-818376  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-42139 |
-| 2 | Process | CNC 5-axis machining | PROC-90876 |
+| 1 | Material | Stainless Steel 316 | HL-41052 |
+| 2 | Process | CNC 5-axis machining | PROC-56465 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

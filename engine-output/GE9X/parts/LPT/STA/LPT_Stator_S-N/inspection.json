@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPT-STA-0551",
     "partName": "LPT Stator S6-1",
-    "serialNumber": "SN-352337",
+    "serialNumber": "SN-395146",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-43400"
+        "lot": "HL-51447"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-83886"
+        "certNo": "PROC-47228"
       }
     ]
   },

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-RNG-0004",
     "partName": "Fan Frame Outer Ring",
-    "serialNumber": "SN-632981",
+    "serialNumber": "SN-633166",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-80672"
+        "lot": "HL-29478"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-73787"
+        "certNo": "PROC-36235"
       }
     ]
   },

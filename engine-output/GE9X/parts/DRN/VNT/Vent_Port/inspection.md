@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-DRN-VNT-0016  ·  **Title:** Vent Port 16
-**Serial:** SN-756194  ·  **Drawing Rev:** A
+**Serial:** SN-167287  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Aluminum 6061-T6 | HL-99015 |
-| 2 | Process | CNC 5-axis machining | PROC-26370 |
+| 1 | Material | Aluminum 6061-T6 | HL-00047 |
+| 2 | Process | CNC 5-axis machining | PROC-10131 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

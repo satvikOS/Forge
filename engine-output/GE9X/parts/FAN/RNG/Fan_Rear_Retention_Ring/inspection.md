@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FAN-RNG-0002  ·  **Title:** Fan Rear Retention Ring
-**Serial:** SN-811239  ·  **Drawing Rev:** A
+**Serial:** SN-980239  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Titanium Ti-6Al-4V | HL-88035 |
-| 2 | Process | CNC 5-axis machining | PROC-71682 |
+| 1 | Material | Titanium Ti-6Al-4V | HL-24470 |
+| 2 | Process | CNC 5-axis machining | PROC-34471 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FUEL-COM-0003",
   "partTitle": "Fuel Pump HP",
-  "serialNumber": "SN-712468",
+  "serialNumber": "SN-459083",
   "drawingNumber": "GE9X-FUEL-COM-0003-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-61769",
-  "manufacturingLot": "MFG-90264",
+  "heatLot": "HL-86942",
+  "manufacturingLot": "MFG-55387",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-61769",
-    "manufacturingProcess": "MFG-90264",
-    "inspectionRecord": "INSP-SN-712468",
+    "rawMaterial": "HL-86942",
+    "manufacturingProcess": "MFG-55387",
+    "inspectionRecord": "INSP-SN-459083",
     "finalAcceptance": "2026-05-09"
   }
 }

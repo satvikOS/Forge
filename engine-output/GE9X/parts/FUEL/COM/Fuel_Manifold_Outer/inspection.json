@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0007",
     "partName": "Fuel Manifold Outer",
-    "serialNumber": "SN-154963",
+    "serialNumber": "SN-499739",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-99443"
+        "lot": "HL-86066"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90318"
+        "certNo": "PROC-55473"
       }
     ]
   },

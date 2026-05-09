@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-LPT-DSK-0005",
   "partTitle": "LPT S5 Disk",
-  "serialNumber": "SN-089435",
+  "serialNumber": "SN-614082",
   "drawingNumber": "GE9X-LPT-DSK-0005-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-29476",
-  "manufacturingLot": "MFG-83751",
+  "heatLot": "HL-58634",
+  "manufacturingLot": "MFG-47074",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-29476",
-    "manufacturingProcess": "MFG-83751",
-    "inspectionRecord": "INSP-SN-089435",
+    "rawMaterial": "HL-58634",
+    "manufacturingProcess": "MFG-47074",
+    "inspectionRecord": "INSP-SN-614082",
     "finalAcceptance": "2026-05-09"
   }
 }

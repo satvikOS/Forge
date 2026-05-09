@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FUEL-COM-0006 — Fuel-Oil Heat Exchanger
-**Serial No.:** SN-671592
+**Serial No.:** SN-674996
 **Drawing:** GE9X-FUEL-COM-0006-DWG Rev A
-**Heat Lot:** HL-07543  ·  **Mfg Lot:** MFG-90305
+**Heat Lot:** HL-53303  ·  **Mfg Lot:** MFG-55452
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-07543
-- Manufacturing: MFG-90305
-- Inspection: INSP-SN-671592
+- Raw Material: HL-53303
+- Manufacturing: MFG-55452
+- Inspection: INSP-SN-674996
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

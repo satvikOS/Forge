@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPT-BLD-0643",
     "partName": "LPT Blade S6-1",
-    "serialNumber": "SN-217349",
+    "serialNumber": "SN-775319",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Investment casting + 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-75551"
+        "lot": "HL-10363"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Investment casting + 5-axis machining",
-        "certNo": "PROC-84004"
+        "certNo": "PROC-47357"
       }
     ]
   },

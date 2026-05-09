@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-PAD-0005",
     "partName": "AGB Hydraulic Pump Pad",
-    "serialNumber": "SN-762130",
+    "serialNumber": "SN-155629",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-20708"
+        "lot": "HL-83986"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90208"
+        "certNo": "PROC-55298"
       }
     ]
   },

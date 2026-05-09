@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-DVT-0016",
     "partName": "Fan Blade 16 Dovetail",
-    "serialNumber": "SN-279847",
+    "serialNumber": "SN-556256",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-67517"
+        "lot": "HL-16696"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-71230"
+        "certNo": "PROC-34121"
       }
     ]
   },

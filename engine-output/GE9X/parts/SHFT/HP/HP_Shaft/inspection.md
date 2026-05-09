@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-SHFT-HP-0001  ·  **Title:** HP Shaft
-**Serial:** SN-585872  ·  **Drawing Rev:** A
+**Serial:** SN-618486  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-17918 |
-| 2 | Process | CNC 5-axis machining | PROC-89647 |
+| 1 | Material | Steel AISI 4340 | HL-35600 |
+| 2 | Process | CNC 5-axis machining | PROC-54474 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

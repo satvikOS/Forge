@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPC-DSK-0002",
     "partName": "HPC S2 Disk",
-    "serialNumber": "SN-714222",
+    "serialNumber": "SN-048148",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-09176"
+        "lot": "HL-61143"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-75030"
+        "certNo": "PROC-37486"
       }
     ]
   },

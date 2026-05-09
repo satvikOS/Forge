@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPC-DSK-0001 — HPC S1 Disk
-**Serial No.:** SN-606129
+**Serial No.:** SN-205814
 **Drawing:** GE9X-HPC-DSK-0001-DWG Rev A
-**Heat Lot:** HL-18586  ·  **Mfg Lot:** MFG-74821
+**Heat Lot:** HL-24111  ·  **Mfg Lot:** MFG-37343
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-18586
-- Manufacturing: MFG-74821
-- Inspection: INSP-SN-606129
+- Raw Material: HL-24111
+- Manufacturing: MFG-37343
+- Inspection: INSP-SN-205814
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

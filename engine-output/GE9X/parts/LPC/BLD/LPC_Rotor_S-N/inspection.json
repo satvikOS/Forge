@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPC-BLD-0131",
     "partName": "LPC Rotor S3-1",
-    "serialNumber": "SN-578170",
+    "serialNumber": "SN-684440",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Investment casting + 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-23938"
+        "lot": "HL-81690"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Investment casting + 5-axis machining",
-        "certNo": "PROC-74676"
+        "certNo": "PROC-37220"
       }
     ]
   },

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-BLD-0081",
     "partName": "HPT Blade S2-1",
-    "serialNumber": "SN-288275",
+    "serialNumber": "SN-254569",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Investment casting + 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Single-Crystal Nickel CMSX-4 (TBC-coated)",
-        "lot": "HL-22382"
+        "lot": "HL-35748"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Investment casting + 5-axis machining",
-        "certNo": "PROC-81041"
+        "certNo": "PROC-43716"
       }
     ]
   },

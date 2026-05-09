@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-NAC-ACL-0004",
   "partTitle": "Acoustic Liner Panel 4",
-  "serialNumber": "SN-659837",
+  "serialNumber": "SN-223283",
   "drawingNumber": "GE9X-NAC-ACL-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-06739",
-  "manufacturingLot": "MFG-97364",
+  "heatLot": "HL-87366",
+  "manufacturingLot": "MFG-64756",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-06739",
-    "manufacturingProcess": "MFG-97364",
-    "inspectionRecord": "INSP-SN-659837",
+    "rawMaterial": "HL-87366",
+    "manufacturingProcess": "MFG-64756",
+    "inspectionRecord": "INSP-SN-223283",
     "finalAcceptance": "2026-05-09"
   }
 }

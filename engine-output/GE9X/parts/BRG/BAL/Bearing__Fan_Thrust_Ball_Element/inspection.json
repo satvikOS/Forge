@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-BAL-0016",
     "partName": "Bearing #Fan Thrust Ball Element 16",
-    "serialNumber": "SN-277320",
+    "serialNumber": "SN-778593",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-40707"
+        "lot": "HL-36152"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-85529"
+        "certNo": "PROC-49405"
       }
     ]
   },

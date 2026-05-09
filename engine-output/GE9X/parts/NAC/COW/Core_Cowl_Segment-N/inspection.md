@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-NAC-COW-0008  ·  **Title:** Core Cowl Segment 8
-**Serial:** SN-028318  ·  **Drawing Rev:** A
+**Serial:** SN-847516  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Composite Carbon-Epoxy | HL-10831 |
-| 2 | Process | CNC 5-axis machining | PROC-97596 |
+| 1 | Material | Composite Carbon-Epoxy | HL-91756 |
+| 2 | Process | CNC 5-axis machining | PROC-65044 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

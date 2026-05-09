@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-DSK-0001",
   "partTitle": "Fan Disk",
-  "serialNumber": "SN-345704",
+  "serialNumber": "SN-265124",
   "drawingNumber": "GE9X-FAN-DSK-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-70557",
-  "manufacturingLot": "MFG-70401",
+  "heatLot": "HL-97140",
+  "manufacturingLot": "MFG-33454",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-70557",
-    "manufacturingProcess": "MFG-70401",
-    "inspectionRecord": "INSP-SN-345704",
+    "rawMaterial": "HL-97140",
+    "manufacturingProcess": "MFG-33454",
+    "inspectionRecord": "INSP-SN-265124",
     "finalAcceptance": "2026-05-09"
   }
 }

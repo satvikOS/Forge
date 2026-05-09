@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-SHFT-CPL-0004  ·  **Title:** Shaft Coupling 4
-**Serial:** SN-727583  ·  **Drawing Rev:** A
+**Serial:** SN-552556  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-96396 |
-| 2 | Process | CNC 5-axis machining | PROC-89768 |
+| 1 | Material | Steel AISI 4340 | HL-48693 |
+| 2 | Process | CNC 5-axis machining | PROC-54620 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

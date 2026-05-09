@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-OIL-TUB-0020 — Oil Scavenge Tube Sump5-4
-**Serial No.:** SN-895699
+**Serial No.:** SN-456620
 **Drawing:** GE9X-OIL-TUB-0020-DWG Rev A
-**Heat Lot:** HL-97999  ·  **Mfg Lot:** MFG-90964
+**Heat Lot:** HL-58263  ·  **Mfg Lot:** MFG-56619
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-97999
-- Manufacturing: MFG-90964
-- Inspection: INSP-SN-895699
+- Raw Material: HL-58263
+- Manufacturing: MFG-56619
+- Inspection: INSP-SN-456620
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

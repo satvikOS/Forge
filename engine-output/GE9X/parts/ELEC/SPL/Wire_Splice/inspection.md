@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-ELEC-SPL-0200  ·  **Title:** Wire Splice 200
-**Serial:** SN-585871  ·  **Drawing Rev:** A
+**Serial:** SN-065906  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Copper C11000 | HL-10837 |
-| 2 | Process | CNC 5-axis machining | PROC-96075 |
+| 1 | Material | Copper C11000 | HL-86370 |
+| 2 | Process | CNC 5-axis machining | PROC-63293 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

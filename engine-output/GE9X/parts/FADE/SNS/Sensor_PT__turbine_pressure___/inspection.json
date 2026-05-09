@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0048",
     "partName": "Sensor PT (turbine pressure) #6",
-    "serialNumber": "SN-050054",
+    "serialNumber": "SN-669208",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-30666"
+        "lot": "HL-06414"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-91872"
+        "certNo": "PROC-58100"
       }
     ]
   },

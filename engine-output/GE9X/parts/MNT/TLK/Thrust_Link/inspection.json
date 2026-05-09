@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-MNT-TLK-0002",
     "partName": "Thrust Link 2",
-    "serialNumber": "SN-080752",
+    "serialNumber": "SN-281879",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-29362"
+        "lot": "HL-49134"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-97751"
+        "certNo": "PROC-65222"
       }
     ]
   },

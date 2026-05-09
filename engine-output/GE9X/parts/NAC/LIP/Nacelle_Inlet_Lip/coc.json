@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-NAC-LIP-0001",
   "partTitle": "Nacelle Inlet Lip",
-  "serialNumber": "SN-318680",
+  "serialNumber": "SN-115057",
   "drawingNumber": "GE9X-NAC-LIP-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-40178",
-  "manufacturingLot": "MFG-97177",
+  "heatLot": "HL-95007",
+  "manufacturingLot": "MFG-64519",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-40178",
-    "manufacturingProcess": "MFG-97177",
-    "inspectionRecord": "INSP-SN-318680",
+    "rawMaterial": "HL-95007",
+    "manufacturingProcess": "MFG-64519",
+    "inspectionRecord": "INSP-SN-115057",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-HSG-0005",
     "partName": "Bearing #LPT Aft Roller Housing",
-    "serialNumber": "SN-937496",
+    "serialNumber": "SN-492669",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-21496"
+        "lot": "HL-45879"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-87039"
+        "certNo": "PROC-51428"
       }
     ]
   },

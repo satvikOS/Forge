@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-RAC-0005  ·  **Title:** Bearing #LPT Aft Roller Inner Race
-**Serial:** SN-398352  ·  **Drawing Rev:** A
+**Serial:** SN-590770  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-60894 |
-| 2 | Process | CNC 5-axis machining | PROC-87067 |
+| 1 | Material | Steel AISI 4340 | HL-83183 |
+| 2 | Process | CNC 5-axis machining | PROC-51473 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

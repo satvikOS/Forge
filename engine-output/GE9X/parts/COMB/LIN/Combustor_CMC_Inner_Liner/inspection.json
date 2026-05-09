@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-LIN-0001",
     "partName": "Combustor CMC Inner Liner",
-    "serialNumber": "SN-188842",
+    "serialNumber": "SN-717056",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "CMC SiC/SiC",
-        "lot": "HL-15458"
+        "lot": "HL-36386"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-77102"
+        "certNo": "PROC-39042"
       }
     ]
   },

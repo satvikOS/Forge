@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-INLE-BLT-0001",
   "partTitle": "Spinner Aft Bolt 1",
-  "serialNumber": "SN-328473",
+  "serialNumber": "SN-719493",
   "drawingNumber": "GE9X-INLE-BLT-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-70764",
-  "manufacturingLot": "MFG-70365",
+  "heatLot": "HL-02011",
+  "manufacturingLot": "MFG-33418",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-70764",
-    "manufacturingProcess": "MFG-70365",
-    "inspectionRecord": "INSP-SN-328473",
+    "rawMaterial": "HL-02011",
+    "manufacturingProcess": "MFG-33418",
+    "inspectionRecord": "INSP-SN-719493",
     "finalAcceptance": "2026-05-09"
   }
 }

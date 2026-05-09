@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FIRE-DET-0060  ·  **Title:** Fire Detector Loop 2 #30
-**Serial:** SN-255363  ·  **Drawing Rev:** A
+**Serial:** SN-806924  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-56185 |
-| 2 | Process | CNC 5-axis machining | PROC-27021 |
+| 1 | Material | Stainless Steel 316 | HL-39644 |
+| 2 | Process | CNC 5-axis machining | PROC-11277 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

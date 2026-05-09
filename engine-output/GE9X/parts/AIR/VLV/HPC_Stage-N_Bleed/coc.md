@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-AIR-VLV-0003 — HPC Stage 11 Bleed
-**Serial No.:** SN-329169
+**Serial No.:** SN-475580
 **Drawing:** GE9X-AIR-VLV-0003-DWG Rev A
-**Heat Lot:** HL-70241  ·  **Mfg Lot:** MFG-91005
+**Heat Lot:** HL-04864  ·  **Mfg Lot:** MFG-56686
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-70241
-- Manufacturing: MFG-91005
-- Inspection: INSP-SN-329169
+- Raw Material: HL-04864
+- Manufacturing: MFG-56686
+- Inspection: INSP-SN-475580
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

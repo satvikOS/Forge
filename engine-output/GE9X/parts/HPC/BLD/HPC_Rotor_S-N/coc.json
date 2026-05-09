@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-BLD-0767",
   "partTitle": "HPC Rotor S11-1",
-  "serialNumber": "SN-330142",
+  "serialNumber": "SN-847240",
   "drawingNumber": "GE9X-HPC-BLD-0767-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-44791",
-  "manufacturingLot": "MFG-76836",
+  "heatLot": "HL-64964",
+  "manufacturingLot": "MFG-38821",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-44791",
-    "manufacturingProcess": "MFG-76836",
-    "inspectionRecord": "INSP-SN-330142",
+    "rawMaterial": "HL-64964",
+    "manufacturingProcess": "MFG-38821",
+    "inspectionRecord": "INSP-SN-847240",
     "finalAcceptance": "2026-05-09"
   }
 }

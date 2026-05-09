@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FADE-SNS-0066  ·  **Title:** Sensor Vibration LP #6
-**Serial:** SN-808984  ·  **Drawing Rev:** A
+**Serial:** SN-614680  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-89763 |
-| 2 | Process | CNC 5-axis machining | PROC-92101 |
+| 1 | Material | Stainless Steel 316 | HL-46925 |
+| 2 | Process | CNC 5-axis machining | PROC-58451 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

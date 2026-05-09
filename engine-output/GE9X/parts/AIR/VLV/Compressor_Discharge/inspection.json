@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AIR-VLV-0004",
     "partName": "Compressor Discharge",
-    "serialNumber": "SN-688567",
+    "serialNumber": "SN-439114",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-84718"
+        "lot": "HL-48153"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-91015"
+        "certNo": "PROC-56707"
       }
     ]
   },

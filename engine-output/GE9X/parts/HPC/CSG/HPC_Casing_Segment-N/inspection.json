@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPC-CSG-0004",
     "partName": "HPC Casing Segment 4",
-    "serialNumber": "SN-215139",
+    "serialNumber": "SN-739152",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-01688"
+        "lot": "HL-37222"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-77019"
+        "certNo": "PROC-38968"
       }
     ]
   },

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-ELEC-HRN-0024",
     "partName": "Wire Harness Segment 24",
-    "serialNumber": "SN-125194",
+    "serialNumber": "SN-070928",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Copper C11000",
-        "lot": "HL-51113"
+        "lot": "HL-28400"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-93001"
+        "certNo": "PROC-59698"
       }
     ]
   },

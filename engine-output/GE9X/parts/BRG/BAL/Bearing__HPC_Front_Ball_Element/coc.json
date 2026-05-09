@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-BAL-0032",
   "partTitle": "Bearing #HPC Front Ball Element 16",
-  "serialNumber": "SN-083647",
+  "serialNumber": "SN-965933",
   "drawingNumber": "GE9X-BRG-BAL-0032-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-99872",
-  "manufacturingLot": "MFG-86267",
+  "heatLot": "HL-86525",
+  "manufacturingLot": "MFG-50392",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-99872",
-    "manufacturingProcess": "MFG-86267",
-    "inspectionRecord": "INSP-SN-083647",
+    "rawMaterial": "HL-86525",
+    "manufacturingProcess": "MFG-50392",
+    "inspectionRecord": "INSP-SN-965933",
     "finalAcceptance": "2026-05-09"
   }
 }

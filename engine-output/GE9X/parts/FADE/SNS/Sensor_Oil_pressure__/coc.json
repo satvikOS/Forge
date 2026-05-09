@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0078",
   "partTitle": "Sensor Oil pressure #6",
-  "serialNumber": "SN-658885",
+  "serialNumber": "SN-925613",
   "drawingNumber": "GE9X-FADE-SNS-0078-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-82084",
-  "manufacturingLot": "MFG-92247",
+  "heatLot": "HL-69979",
+  "manufacturingLot": "MFG-58683",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-82084",
-    "manufacturingProcess": "MFG-92247",
-    "inspectionRecord": "INSP-SN-658885",
+    "rawMaterial": "HL-69979",
+    "manufacturingProcess": "MFG-58683",
+    "inspectionRecord": "INSP-SN-925613",
     "finalAcceptance": "2026-05-09"
   }
 }

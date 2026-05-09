@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-HSG-0001",
     "partName": "Bearing #Fan Forward Roller Housing",
-    "serialNumber": "SN-155691",
+    "serialNumber": "SN-021290",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-04875"
+        "lot": "HL-87909"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-84105"
+        "certNo": "PROC-47467"
       }
     ]
   },

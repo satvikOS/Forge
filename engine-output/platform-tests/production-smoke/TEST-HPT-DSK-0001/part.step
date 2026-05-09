@@ -1,7 +1,7 @@
 ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION(('ArchDisc Geometry Kernel Export'),'2;1');
-FILE_NAME('TEST-HPT-DSK-0001.step','20260509T174509',('ArchDisc'),('ArchDisc Inc'),'ArchDisc Kernel 1.0','ArchDisc','');
+FILE_NAME('TEST-HPT-DSK-0001.step','20260509T190121',('ArchDisc'),('ArchDisc Inc'),'ArchDisc Kernel 1.0','ArchDisc','');
 FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));
 ENDSEC;
 DATA;

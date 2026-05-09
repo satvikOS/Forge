@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0078",
     "partName": "Sensor Oil pressure #6",
-    "serialNumber": "SN-349809",
+    "serialNumber": "SN-784040",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-52239"
+        "lot": "HL-16542"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-92247"
+        "certNo": "PROC-58683"
       }
     ]
   },

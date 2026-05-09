@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-TRV-ACT-0004  ·  **Title:** Thrust Reverser Actuator 4
-**Serial:** SN-550418  ·  **Drawing Rev:** A
+**Serial:** SN-262039  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-90562 |
-| 2 | Process | CNC 5-axis machining | PROC-98017 |
+| 1 | Material | Steel AISI 4340 | HL-93636 |
+| 2 | Process | CNC 5-axis machining | PROC-65549 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

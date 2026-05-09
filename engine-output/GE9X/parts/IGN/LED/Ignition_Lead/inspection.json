@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-IGN-LED-0002",
     "partName": "Ignition Lead 2",
-    "serialNumber": "SN-574251",
+    "serialNumber": "SN-652861",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Copper C11000",
-        "lot": "HL-47022"
+        "lot": "HL-20093"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-91245"
+        "certNo": "PROC-57106"
       }
     ]
   },

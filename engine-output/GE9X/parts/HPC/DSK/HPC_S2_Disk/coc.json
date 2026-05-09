@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-DSK-0002",
   "partTitle": "HPC S2 Disk",
-  "serialNumber": "SN-177454",
+  "serialNumber": "SN-375026",
   "drawingNumber": "GE9X-HPC-DSK-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-50711",
-  "manufacturingLot": "MFG-75030",
+  "heatLot": "HL-27627",
+  "manufacturingLot": "MFG-37486",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-50711",
-    "manufacturingProcess": "MFG-75030",
-    "inspectionRecord": "INSP-SN-177454",
+    "rawMaterial": "HL-27627",
+    "manufacturingProcess": "MFG-37486",
+    "inspectionRecord": "INSP-SN-375026",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPC-BLD-0767",
     "partName": "HPC Rotor S11-1",
-    "serialNumber": "SN-067597",
+    "serialNumber": "SN-842112",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Investment casting + 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-58714"
+        "lot": "HL-14990"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Investment casting + 5-axis machining",
-        "certNo": "PROC-76836"
+        "certNo": "PROC-38821"
       }
     ]
   },

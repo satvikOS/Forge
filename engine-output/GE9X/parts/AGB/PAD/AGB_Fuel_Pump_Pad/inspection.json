@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-PAD-0003",
     "partName": "AGB Fuel Pump Pad",
-    "serialNumber": "SN-185736",
+    "serialNumber": "SN-996953",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-74083"
+        "lot": "HL-10696"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90184"
+        "certNo": "PROC-55256"
       }
     ]
   },

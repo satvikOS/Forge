@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-STR-BKT-0130",
   "partTitle": "Bracket 130",
-  "serialNumber": "SN-059101",
+  "serialNumber": "SN-114888",
   "drawingNumber": "GE9X-STR-BKT-0130-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-85394",
-  "manufacturingLot": "MFG-19929",
+  "heatLot": "HL-39276",
+  "manufacturingLot": "MFG-99410",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-85394",
-    "manufacturingProcess": "MFG-19929",
-    "inspectionRecord": "INSP-SN-059101",
+    "rawMaterial": "HL-39276",
+    "manufacturingProcess": "MFG-99410",
+    "inspectionRecord": "INSP-SN-114888",
     "finalAcceptance": "2026-05-09"
   }
 }

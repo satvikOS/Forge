@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAN-RNG-0004 — Fan Frame Outer Ring
-**Serial No.:** SN-730606
+**Serial No.:** SN-423265
 **Drawing:** GE9X-FAN-RNG-0004-DWG Rev A
-**Heat Lot:** HL-91526  ·  **Mfg Lot:** MFG-73787
+**Heat Lot:** HL-94334  ·  **Mfg Lot:** MFG-36235
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-91526
-- Manufacturing: MFG-73787
-- Inspection: INSP-SN-730606
+- Raw Material: HL-94334
+- Manufacturing: MFG-36235
+- Inspection: INSP-SN-423265
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

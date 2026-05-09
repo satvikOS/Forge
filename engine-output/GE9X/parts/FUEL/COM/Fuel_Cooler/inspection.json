@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0005",
     "partName": "Fuel Cooler",
-    "serialNumber": "SN-803965",
+    "serialNumber": "SN-961481",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-02078"
+        "lot": "HL-10351"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90291"
+        "certNo": "PROC-55431"
       }
     ]
   },

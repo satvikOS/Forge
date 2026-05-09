@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-LPT-DSK-0006 — LPT S6 Disk
-**Serial No.:** SN-938388
+**Serial No.:** SN-793621
 **Drawing:** GE9X-LPT-DSK-0006-DWG Rev A
-**Heat Lot:** HL-30761  ·  **Mfg Lot:** MFG-83938
+**Heat Lot:** HL-90536  ·  **Mfg Lot:** MFG-47288
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-30761
-- Manufacturing: MFG-83938
-- Inspection: INSP-SN-938388
+- Raw Material: HL-90536
+- Manufacturing: MFG-47288
+- Inspection: INSP-SN-793621
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-SEL-0012",
     "partName": "Carbon Seal 12",
-    "serialNumber": "SN-491483",
+    "serialNumber": "SN-015587",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Carbon Fiber Composite",
-        "lot": "HL-53866"
+        "lot": "HL-99963"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-89533"
+        "certNo": "PROC-54345"
       }
     ]
   },

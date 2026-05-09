@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-COMB-INJ-0030",
   "partTitle": "TAPS Injector Tip 30",
-  "serialNumber": "SN-688449",
+  "serialNumber": "SN-559524",
   "drawingNumber": "GE9X-COMB-INJ-0030-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-93918",
-  "manufacturingLot": "MFG-78762",
+  "heatLot": "HL-15355",
+  "manufacturingLot": "MFG-40632",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-93918",
-    "manufacturingProcess": "MFG-78762",
-    "inspectionRecord": "INSP-SN-688449",
+    "rawMaterial": "HL-15355",
+    "manufacturingProcess": "MFG-40632",
+    "inspectionRecord": "INSP-SN-559524",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0084",
     "partName": "Sensor Oil temp #6",
-    "serialNumber": "SN-267147",
+    "serialNumber": "SN-369695",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-41287"
+        "lot": "HL-46626"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-92325"
+        "certNo": "PROC-58799"
       }
     ]
   },

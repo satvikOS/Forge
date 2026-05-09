@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** TEST-FAS-BLT-0001  ·  **Title:** M10 Bolt
-**Serial:** SN-702020  ·  **Drawing Rev:** A
+**Serial:** SN-935163  ·  **Drawing Rev:** A
 **Process:** Cold-form + roll-thread
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-65238 |
-| 2 | Process | Cold-form + roll-thread | PROC-9673 |
+| 1 | Material | Steel AISI 4340 | HL-72166 |
+| 2 | Process | Cold-form + roll-thread | PROC-81817 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

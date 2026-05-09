@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-CTL-0002",
   "partTitle": "FADEC Channel B",
-  "serialNumber": "SN-132059",
+  "serialNumber": "SN-170222",
   "drawingNumber": "GE9X-FADE-CTL-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-64408",
-  "manufacturingLot": "MFG-91268",
+  "heatLot": "HL-18100",
+  "manufacturingLot": "MFG-57144",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-64408",
-    "manufacturingProcess": "MFG-91268",
-    "inspectionRecord": "INSP-SN-132059",
+    "rawMaterial": "HL-18100",
+    "manufacturingProcess": "MFG-57144",
+    "inspectionRecord": "INSP-SN-170222",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0006",
     "partName": "Sensor T2 (inlet temp) #6",
-    "serialNumber": "SN-677168",
+    "serialNumber": "SN-892052",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-48550"
+        "lot": "HL-87992"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-91340"
+        "certNo": "PROC-57261"
       }
     ]
   },

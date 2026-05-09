@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-BLD-0001",
     "partName": "Fan Blade 1",
-    "serialNumber": "SN-179012",
+    "serialNumber": "SN-211239",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Composite layup + autoclave"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-09332"
+        "lot": "HL-19889"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Composite layup + autoclave",
-        "certNo": "PROC-70612"
+        "certNo": "PROC-33595"
       }
     ]
   },

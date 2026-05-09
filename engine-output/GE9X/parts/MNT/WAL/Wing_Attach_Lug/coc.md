@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-MNT-WAL-0004 — Wing Attach Lug 4
-**Serial No.:** SN-379171
+**Serial No.:** SN-017448
 **Drawing:** GE9X-MNT-WAL-0004-DWG Rev A
-**Heat Lot:** HL-96286  ·  **Mfg Lot:** MFG-97672
+**Heat Lot:** HL-47630  ·  **Mfg Lot:** MFG-65143
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-96286
-- Manufacturing: MFG-97672
-- Inspection: INSP-SN-379171
+- Raw Material: HL-47630
+- Manufacturing: MFG-65143
+- Inspection: INSP-SN-017448
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

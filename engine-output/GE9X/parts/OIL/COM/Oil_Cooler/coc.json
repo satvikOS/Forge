@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-OIL-COM-0005",
   "partTitle": "Oil Cooler",
-  "serialNumber": "SN-640537",
+  "serialNumber": "SN-682468",
   "drawingNumber": "GE9X-OIL-COM-0005-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-24067",
-  "manufacturingLot": "MFG-90715",
+  "heatLot": "HL-11408",
+  "manufacturingLot": "MFG-56167",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-24067",
-    "manufacturingProcess": "MFG-90715",
-    "inspectionRecord": "INSP-SN-640537",
+    "rawMaterial": "HL-11408",
+    "manufacturingProcess": "MFG-56167",
+    "inspectionRecord": "INSP-SN-682468",
     "finalAcceptance": "2026-05-09"
   }
 }

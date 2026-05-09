@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAS-BLT-0432",
   "partTitle": "Flange 18 Bolt 24",
-  "serialNumber": "SN-882161",
+  "serialNumber": "SN-379625",
   "drawingNumber": "GE9X-FAS-BLT-0432-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-15259",
-  "manufacturingLot": "MFG-18634",
+  "heatLot": "HL-41040",
+  "manufacturingLot": "MFG-97086",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-15259",
-    "manufacturingProcess": "MFG-18634",
-    "inspectionRecord": "INSP-SN-882161",
+    "rawMaterial": "HL-41040",
+    "manufacturingProcess": "MFG-97086",
+    "inspectionRecord": "INSP-SN-379625",
     "finalAcceptance": "2026-05-09"
   }
 }

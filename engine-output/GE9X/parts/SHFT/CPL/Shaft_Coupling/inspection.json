@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-SHFT-CPL-0004",
     "partName": "Shaft Coupling 4",
-    "serialNumber": "SN-727583",
+    "serialNumber": "SN-552556",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-96396"
+        "lot": "HL-48693"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-89768"
+        "certNo": "PROC-54620"
       }
     ]
   },

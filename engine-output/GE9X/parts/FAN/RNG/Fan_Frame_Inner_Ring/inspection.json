@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-RNG-0003",
     "partName": "Fan Frame Inner Ring",
-    "serialNumber": "SN-049950",
+    "serialNumber": "SN-533100",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-44833"
+        "lot": "HL-45685"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-73742"
+        "certNo": "PROC-36195"
       }
     ]
   },

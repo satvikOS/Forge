@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAS-BLT-0432",
     "partName": "Flange 18 Bolt 24",
-    "serialNumber": "SN-627282",
+    "serialNumber": "SN-126663",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Cold-form + roll-thread"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-04970"
+        "lot": "HL-13220"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Cold-form + roll-thread",
-        "certNo": "PROC-18634"
+        "certNo": "PROC-97086"
       }
     ]
   },

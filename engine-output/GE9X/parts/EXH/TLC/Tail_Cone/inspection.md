@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-EXH-TLC-0001  ·  **Title:** Tail Cone
-**Serial:** SN-020307  ·  **Drawing Rev:** A
+**Serial:** SN-269213  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-90958 |
-| 2 | Process | CNC 5-axis machining | PROC-98168 |
+| 1 | Material | Inconel 718 | HL-69794 |
+| 2 | Process | CNC 5-axis machining | PROC-65818 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-OIL-COM-0004",
   "partTitle": "Oil Filter",
-  "serialNumber": "SN-142585",
+  "serialNumber": "SN-641035",
   "drawingNumber": "GE9X-OIL-COM-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-41335",
-  "manufacturingLot": "MFG-90701",
+  "heatLot": "HL-59495",
+  "manufacturingLot": "MFG-56145",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-41335",
-    "manufacturingProcess": "MFG-90701",
-    "inspectionRecord": "INSP-SN-142585",
+    "rawMaterial": "HL-59495",
+    "manufacturingProcess": "MFG-56145",
+    "inspectionRecord": "INSP-SN-641035",
     "finalAcceptance": "2026-05-09"
   }
 }

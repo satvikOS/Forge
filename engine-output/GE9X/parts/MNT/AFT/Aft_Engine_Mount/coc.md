@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-MNT-AFT-0001 — Aft Engine Mount
-**Serial No.:** SN-195896
+**Serial No.:** SN-220693
 **Drawing:** GE9X-MNT-AFT-0001-DWG Rev A
-**Heat Lot:** HL-95638  ·  **Mfg Lot:** MFG-97712
+**Heat Lot:** HL-12808  ·  **Mfg Lot:** MFG-65178
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-95638
-- Manufacturing: MFG-97712
-- Inspection: INSP-SN-195896
+- Raw Material: HL-12808
+- Manufacturing: MFG-65178
+- Inspection: INSP-SN-220693
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

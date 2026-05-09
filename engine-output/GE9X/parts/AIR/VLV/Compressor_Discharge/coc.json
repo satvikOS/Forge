@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AIR-VLV-0004",
   "partTitle": "Compressor Discharge",
-  "serialNumber": "SN-304313",
+  "serialNumber": "SN-336110",
   "drawingNumber": "GE9X-AIR-VLV-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-88804",
-  "manufacturingLot": "MFG-91016",
+  "heatLot": "HL-03647",
+  "manufacturingLot": "MFG-56707",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-88804",
-    "manufacturingProcess": "MFG-91016",
-    "inspectionRecord": "INSP-SN-304313",
+    "rawMaterial": "HL-03647",
+    "manufacturingProcess": "MFG-56707",
+    "inspectionRecord": "INSP-SN-336110",
     "finalAcceptance": "2026-05-09"
   }
 }

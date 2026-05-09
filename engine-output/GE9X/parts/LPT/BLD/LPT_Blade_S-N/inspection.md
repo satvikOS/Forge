@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-LPT-BLD-0643  ·  **Title:** LPT Blade S6-1
-**Serial:** SN-217349  ·  **Drawing Rev:** A
+**Serial:** SN-775319  ·  **Drawing Rev:** A
 **Process:** Investment casting + 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-75551 |
-| 2 | Process | Investment casting + 5-axis machining | PROC-84004 |
+| 1 | Material | Inconel 718 | HL-10363 |
+| 2 | Process | Investment casting + 5-axis machining | PROC-47357 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

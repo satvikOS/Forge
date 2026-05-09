@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-NGV-0037",
     "partName": "HPT NGV S2-1",
-    "serialNumber": "SN-475145",
+    "serialNumber": "SN-326187",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Single-Crystal Nickel CMSX-4 (TBC-coated)",
-        "lot": "HL-65710"
+        "lot": "HL-30205"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-80939"
+        "certNo": "PROC-43588"
       }
     ]
   },

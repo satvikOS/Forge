@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPC-DSK-0003",
     "partName": "LPC S3 Disk",
-    "serialNumber": "SN-054839",
+    "serialNumber": "SN-920692",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-01074"
+        "lot": "HL-39798"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-74626"
+        "certNo": "PROC-37178"
       }
     ]
   },

@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FADE-SNS-0048  ·  **Title:** Sensor PT (turbine pressure) #6
-**Serial:** SN-050054  ·  **Drawing Rev:** A
+**Serial:** SN-669208  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-30666 |
-| 2 | Process | CNC 5-axis machining | PROC-91872 |
+| 1 | Material | Stainless Steel 316 | HL-06414 |
+| 2 | Process | CNC 5-axis machining | PROC-58100 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

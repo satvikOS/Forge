@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-RNG-0003",
   "partTitle": "Fan Frame Inner Ring",
-  "serialNumber": "SN-257469",
+  "serialNumber": "SN-185760",
   "drawingNumber": "GE9X-FAN-RNG-0003-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-93441",
-  "manufacturingLot": "MFG-73742",
+  "heatLot": "HL-23452",
+  "manufacturingLot": "MFG-36195",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-93441",
-    "manufacturingProcess": "MFG-73742",
-    "inspectionRecord": "INSP-SN-257469",
+    "rawMaterial": "HL-23452",
+    "manufacturingProcess": "MFG-36195",
+    "inspectionRecord": "INSP-SN-185760",
     "finalAcceptance": "2026-05-09"
   }
 }

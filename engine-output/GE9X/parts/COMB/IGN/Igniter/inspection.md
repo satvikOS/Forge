@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-COMB-IGN-0002  ·  **Title:** Igniter 2
-**Serial:** SN-451548  ·  **Drawing Rev:** A
+**Serial:** SN-337992  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-52160 |
-| 2 | Process | CNC 5-axis machining | PROC-78797 |
+| 1 | Material | Inconel 718 | HL-49796 |
+| 2 | Process | CNC 5-axis machining | PROC-40688 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

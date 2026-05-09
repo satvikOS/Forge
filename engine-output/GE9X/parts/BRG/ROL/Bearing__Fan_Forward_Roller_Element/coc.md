@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-BRG-ROL-0024 — Bearing #Fan Forward Roller Element 24
-**Serial No.:** SN-703641
+**Serial No.:** SN-699297
 **Drawing:** GE9X-BRG-ROL-0024-DWG Rev A
-**Heat Lot:** HL-35466  ·  **Mfg Lot:** MFG-84869
+**Heat Lot:** HL-68851  ·  **Mfg Lot:** MFG-48470
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-35466
-- Manufacturing: MFG-84869
-- Inspection: INSP-SN-703641
+- Raw Material: HL-68851
+- Manufacturing: MFG-48470
+- Inspection: INSP-SN-699297
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

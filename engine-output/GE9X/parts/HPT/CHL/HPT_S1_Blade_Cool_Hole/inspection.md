@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-HPT-CHL-0001  ·  **Title:** HPT S1 Blade 1 Cool Hole 1
-**Serial:** SN-935340  ·  **Drawing Rev:** A
+**Serial:** SN-653006  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Air | HL-02727 |
-| 2 | Process | CNC 5-axis machining | PROC-27082 |
+| 1 | Material | Air | HL-22564 |
+| 2 | Process | CNC 5-axis machining | PROC-11359 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FUEL-COM-0007 — Fuel Manifold Outer
-**Serial No.:** SN-234372
+**Serial No.:** SN-819976
 **Drawing:** GE9X-FUEL-COM-0007-DWG Rev A
-**Heat Lot:** HL-35219  ·  **Mfg Lot:** MFG-90318
+**Heat Lot:** HL-69046  ·  **Mfg Lot:** MFG-55473
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-35219
-- Manufacturing: MFG-90318
-- Inspection: INSP-SN-234372
+- Raw Material: HL-69046
+- Manufacturing: MFG-55473
+- Inspection: INSP-SN-819976
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

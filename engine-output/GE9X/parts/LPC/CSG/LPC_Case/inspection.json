@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPC-CSG-0001",
     "partName": "LPC Case",
-    "serialNumber": "SN-212401",
+    "serialNumber": "SN-475627",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-45649"
+        "lot": "HL-51446"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-74727"
+        "certNo": "PROC-37265"
       }
     ]
   },

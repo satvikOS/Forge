@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAS-NUT-0432",
   "partTitle": "Flange 18 Nut 24",
-  "serialNumber": "SN-033274",
+  "serialNumber": "SN-574735",
   "drawingNumber": "GE9X-FAS-NUT-0432-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-34272",
-  "manufacturingLot": "MFG-18671",
+  "heatLot": "HL-71508",
+  "manufacturingLot": "MFG-97144",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-34272",
-    "manufacturingProcess": "MFG-18671",
-    "inspectionRecord": "INSP-SN-033274",
+    "rawMaterial": "HL-71508",
+    "manufacturingProcess": "MFG-97144",
+    "inspectionRecord": "INSP-SN-574735",
     "finalAcceptance": "2026-05-09"
   }
 }

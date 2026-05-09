@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0042",
     "partName": "Sensor P3 (HPC discharge) #6",
-    "serialNumber": "SN-329569",
+    "serialNumber": "SN-384142",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-38945"
+        "lot": "HL-18982"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-91797"
+        "certNo": "PROC-57983"
       }
     ]
   },

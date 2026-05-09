@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-INLE-BLT-0001",
     "partName": "Spinner Aft Bolt 1",
-    "serialNumber": "SN-722765",
+    "serialNumber": "SN-854496",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Cold-form + roll-thread"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-26679"
+        "lot": "HL-08682"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Cold-form + roll-thread",
-        "certNo": "PROC-70365"
+        "certNo": "PROC-33418"
       }
     ]
   },

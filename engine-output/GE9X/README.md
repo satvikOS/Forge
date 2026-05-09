@@ -1,6 +1,6 @@
 # GE9X v2 — Production-Article Submission Package
 
-**Generated:** 2026-05-09T18:13:57.262Z
+**Generated:** 2026-05-09T19:03:46.087Z
 **Engine:** GE Aviation GE9X-105B1A
 **Submission type:** FAA Part 21 Production Approval — Aircraft Engine
 **CAD system:** ArchDisc v1.21+ proprietary B-Rep kernel (no external CAD dependencies)

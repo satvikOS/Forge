@@ -1,7 +1,7 @@
 # Material Certificate — Copper C11000
 
 **Cert Type:** EN 10204 Type 3.1 / ASTM A6 Material Certificate
-**Heat Lot:** HL-06329  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
+**Heat Lot:** HL-14624  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
 **Date:** 2026-05-09
 **Specification:** ASTM B187 ETP copper
 

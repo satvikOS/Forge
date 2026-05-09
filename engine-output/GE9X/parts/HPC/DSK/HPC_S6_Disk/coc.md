@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPC-DSK-0006 — HPC S6 Disk
-**Serial No.:** SN-360618
+**Serial No.:** SN-867326
 **Drawing:** GE9X-HPC-DSK-0006-DWG Rev A
-**Heat Lot:** HL-81093  ·  **Mfg Lot:** MFG-75801
+**Heat Lot:** HL-82438  ·  **Mfg Lot:** MFG-38033
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-81093
-- Manufacturing: MFG-75801
-- Inspection: INSP-SN-360618
+- Raw Material: HL-82438
+- Manufacturing: MFG-38033
+- Inspection: INSP-SN-867326
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

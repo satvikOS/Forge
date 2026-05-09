@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPC-DSK-0007",
     "partName": "HPC S7 Disk",
-    "serialNumber": "SN-042426",
+    "serialNumber": "SN-957295",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-43922"
+        "lot": "HL-67087"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-76002"
+        "certNo": "PROC-38175"
       }
     ]
   },

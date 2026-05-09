@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-CSG-0004",
   "partTitle": "HPC Casing Segment 4",
-  "serialNumber": "SN-556344",
+  "serialNumber": "SN-281759",
   "drawingNumber": "GE9X-HPC-CSG-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-43657",
-  "manufacturingLot": "MFG-77020",
+  "heatLot": "HL-00435",
+  "manufacturingLot": "MFG-38968",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-43657",
-    "manufacturingProcess": "MFG-77020",
-    "inspectionRecord": "INSP-SN-556344",
+    "rawMaterial": "HL-00435",
+    "manufacturingProcess": "MFG-38968",
+    "inspectionRecord": "INSP-SN-281759",
     "finalAcceptance": "2026-05-09"
   }
 }

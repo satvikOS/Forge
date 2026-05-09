@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAS-WSH-0432",
   "partTitle": "Flange 18 Washer 24",
-  "serialNumber": "SN-698234",
+  "serialNumber": "SN-755311",
   "drawingNumber": "GE9X-FAS-WSH-0432-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-64428",
-  "manufacturingLot": "MFG-18653",
+  "heatLot": "HL-71934",
+  "manufacturingLot": "MFG-97119",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-64428",
-    "manufacturingProcess": "MFG-18653",
-    "inspectionRecord": "INSP-SN-698234",
+    "rawMaterial": "HL-71934",
+    "manufacturingProcess": "MFG-97119",
+    "inspectionRecord": "INSP-SN-755311",
     "finalAcceptance": "2026-05-09"
   }
 }

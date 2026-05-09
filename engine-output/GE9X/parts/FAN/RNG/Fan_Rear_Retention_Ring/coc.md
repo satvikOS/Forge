@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAN-RNG-0002 — Fan Rear Retention Ring
-**Serial No.:** SN-472440
+**Serial No.:** SN-572665
 **Drawing:** GE9X-FAN-RNG-0002-DWG Rev A
-**Heat Lot:** HL-46644  ·  **Mfg Lot:** MFG-71682
+**Heat Lot:** HL-16353  ·  **Mfg Lot:** MFG-34471
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-46644
-- Manufacturing: MFG-71682
-- Inspection: INSP-SN-472440
+- Raw Material: HL-16353
+- Manufacturing: MFG-34471
+- Inspection: INSP-SN-572665
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

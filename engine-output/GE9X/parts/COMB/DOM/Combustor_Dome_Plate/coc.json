@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-COMB-DOM-0001",
   "partTitle": "Combustor Dome Plate",
-  "serialNumber": "SN-384384",
+  "serialNumber": "SN-560291",
   "drawingNumber": "GE9X-COMB-DOM-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-01991",
-  "manufacturingLot": "MFG-77189",
+  "heatLot": "HL-57651",
+  "manufacturingLot": "MFG-39106",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-01991",
-    "manufacturingProcess": "MFG-77189",
-    "inspectionRecord": "INSP-SN-384384",
+    "rawMaterial": "HL-57651",
+    "manufacturingProcess": "MFG-39106",
+    "inspectionRecord": "INSP-SN-560291",
     "finalAcceptance": "2026-05-09"
   }
 }

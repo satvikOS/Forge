@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-INJ-0030",
     "partName": "TAPS Injector Tip 30",
-    "serialNumber": "SN-059010",
+    "serialNumber": "SN-572339",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Single-Crystal Nickel CMSX-4",
-        "lot": "HL-24370"
+        "lot": "HL-18572"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-78762"
+        "certNo": "PROC-40632"
       }
     ]
   },

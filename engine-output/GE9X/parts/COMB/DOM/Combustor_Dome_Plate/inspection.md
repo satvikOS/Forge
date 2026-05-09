@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-COMB-DOM-0001  ·  **Title:** Combustor Dome Plate
-**Serial:** SN-249934  ·  **Drawing Rev:** A
+**Serial:** SN-746063  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | CMC SiC/SiC | HL-31408 |
-| 2 | Process | CNC 5-axis machining | PROC-77188 |
+| 1 | Material | CMC SiC/SiC | HL-94034 |
+| 2 | Process | CNC 5-axis machining | PROC-39106 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

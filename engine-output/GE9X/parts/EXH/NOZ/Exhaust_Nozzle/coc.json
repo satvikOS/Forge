@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-EXH-NOZ-0001",
   "partTitle": "Exhaust Nozzle",
-  "serialNumber": "SN-634937",
+  "serialNumber": "SN-024960",
   "drawingNumber": "GE9X-EXH-NOZ-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-57521",
-  "manufacturingLot": "MFG-98035",
+  "heatLot": "HL-96749",
+  "manufacturingLot": "MFG-65577",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-57521",
-    "manufacturingProcess": "MFG-98035",
-    "inspectionRecord": "INSP-SN-634937",
+    "rawMaterial": "HL-96749",
+    "manufacturingProcess": "MFG-65577",
+    "inspectionRecord": "INSP-SN-024960",
     "finalAcceptance": "2026-05-09"
   }
 }

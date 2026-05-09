@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-HSG-0002  ·  **Title:** Bearing #Fan Thrust Ball Housing
-**Serial:** SN-423441  ·  **Drawing Rev:** A
+**Serial:** SN-989697  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-24481 |
-| 2 | Process | CNC 5-axis machining | PROC-84894 |
+| 1 | Material | Steel AISI 4340 | HL-85714 |
+| 2 | Process | CNC 5-axis machining | PROC-48511 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

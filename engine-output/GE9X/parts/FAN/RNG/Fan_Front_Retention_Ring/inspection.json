@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-RNG-0001",
     "partName": "Fan Front Retention Ring",
-    "serialNumber": "SN-107808",
+    "serialNumber": "SN-608944",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-67859"
+        "lot": "HL-43874"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-71427"
+        "certNo": "PROC-34249"
       }
     ]
   },

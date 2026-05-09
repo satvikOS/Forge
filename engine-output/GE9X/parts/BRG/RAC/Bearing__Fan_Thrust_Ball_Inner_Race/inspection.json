@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-RAC-0002",
     "partName": "Bearing #Fan Thrust Ball Inner Race",
-    "serialNumber": "SN-667532",
+    "serialNumber": "SN-420447",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-88844"
+        "lot": "HL-81555"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-84914"
+        "certNo": "PROC-48554"
       }
     ]
   },

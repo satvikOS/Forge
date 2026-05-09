@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-NAC-LIP-0001 — Nacelle Inlet Lip
-**Serial No.:** SN-318680
+**Serial No.:** SN-115057
 **Drawing:** GE9X-NAC-LIP-0001-DWG Rev A
-**Heat Lot:** HL-40178  ·  **Mfg Lot:** MFG-97177
+**Heat Lot:** HL-95007  ·  **Mfg Lot:** MFG-64519
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-40178
-- Manufacturing: MFG-97177
-- Inspection: INSP-SN-318680
+- Raw Material: HL-95007
+- Manufacturing: MFG-64519
+- Inspection: INSP-SN-115057
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

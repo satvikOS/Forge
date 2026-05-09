@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-EXH-CHV-0012",
   "partTitle": "Chevron 12",
-  "serialNumber": "SN-894618",
+  "serialNumber": "SN-719209",
   "drawingNumber": "GE9X-EXH-CHV-0012-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-58346",
-  "manufacturingLot": "MFG-98156",
+  "heatLot": "HL-57213",
+  "manufacturingLot": "MFG-65799",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-58346",
-    "manufacturingProcess": "MFG-98156",
-    "inspectionRecord": "INSP-SN-894618",
+    "rawMaterial": "HL-57213",
+    "manufacturingProcess": "MFG-65799",
+    "inspectionRecord": "INSP-SN-719209",
     "finalAcceptance": "2026-05-09"
   }
 }

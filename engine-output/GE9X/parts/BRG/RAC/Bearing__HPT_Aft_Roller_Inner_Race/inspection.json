@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-RAC-0004",
     "partName": "Bearing #HPT Aft Roller Inner Race",
-    "serialNumber": "SN-681964",
+    "serialNumber": "SN-636702",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-78983"
+        "lot": "HL-38465"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-86343"
+        "certNo": "PROC-50487"
       }
     ]
   },

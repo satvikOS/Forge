@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-SEL-0012  ·  **Title:** Carbon Seal 12
-**Serial:** SN-491483  ·  **Drawing Rev:** A
+**Serial:** SN-015587  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Carbon Fiber Composite | HL-53866 |
-| 2 | Process | CNC 5-axis machining | PROC-89533 |
+| 1 | Material | Carbon Fiber Composite | HL-99963 |
+| 2 | Process | CNC 5-axis machining | PROC-54345 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

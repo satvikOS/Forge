@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-CHL-0001",
     "partName": "Combustor Cooling Hole 1",
-    "serialNumber": "SN-176579",
+    "serialNumber": "SN-104267",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Air",
-        "lot": "HL-27308"
+        "lot": "HL-30128"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-78815"
+        "certNo": "PROC-40715"
       }
     ]
   },

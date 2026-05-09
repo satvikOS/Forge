@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-OIL-TUB-0016 — Oil Scavenge Tube Sump4-4
-**Serial No.:** SN-126230
+**Serial No.:** SN-409427
 **Drawing:** GE9X-OIL-TUB-0016-DWG Rev A
-**Heat Lot:** HL-47897  ·  **Mfg Lot:** MFG-90921
+**Heat Lot:** HL-32478  ·  **Mfg Lot:** MFG-56542
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-47897
-- Manufacturing: MFG-90921
-- Inspection: INSP-SN-126230
+- Raw Material: HL-32478
+- Manufacturing: MFG-56542
+- Inspection: INSP-SN-409427
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

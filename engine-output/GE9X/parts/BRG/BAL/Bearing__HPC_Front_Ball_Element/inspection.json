@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-BAL-0032",
     "partName": "Bearing #HPC Front Ball Element 16",
-    "serialNumber": "SN-597933",
+    "serialNumber": "SN-126419",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-89117"
+        "lot": "HL-56869"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-86267"
+        "certNo": "PROC-50392"
       }
     ]
   },

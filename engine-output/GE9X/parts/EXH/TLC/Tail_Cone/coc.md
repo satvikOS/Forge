@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-EXH-TLC-0001 — Tail Cone
-**Serial No.:** SN-401728
+**Serial No.:** SN-499479
 **Drawing:** GE9X-EXH-TLC-0001-DWG Rev A
-**Heat Lot:** HL-93587  ·  **Mfg Lot:** MFG-98168
+**Heat Lot:** HL-66483  ·  **Mfg Lot:** MFG-65818
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-93587
-- Manufacturing: MFG-98168
-- Inspection: INSP-SN-401728
+- Raw Material: HL-66483
+- Manufacturing: MFG-65818
+- Inspection: INSP-SN-499479
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

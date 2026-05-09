@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-SHFT-LP-0001",
     "partName": "LP Shaft",
-    "serialNumber": "SN-131634",
+    "serialNumber": "SN-875314",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-34021"
+        "lot": "HL-71613"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-89612"
+        "certNo": "PROC-54440"
       }
     ]
   },

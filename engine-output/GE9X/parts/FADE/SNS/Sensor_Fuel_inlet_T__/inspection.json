@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0102",
     "partName": "Sensor Fuel inlet T #6",
-    "serialNumber": "SN-323138",
+    "serialNumber": "SN-375120",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-87238"
+        "lot": "HL-41075"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-92576"
+        "certNo": "PROC-59149"
       }
     ]
   },

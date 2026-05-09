@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPT-CSG-0001 — HPT Casing
-**Serial No.:** SN-427949
+**Serial No.:** SN-870937
 **Drawing:** GE9X-HPT-CSG-0001-DWG Rev A
-**Heat Lot:** HL-51155  ·  **Mfg Lot:** MFG-82806
+**Heat Lot:** HL-24159  ·  **Mfg Lot:** MFG-45943
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-51155
-- Manufacturing: MFG-82806
-- Inspection: INSP-SN-427949
+- Raw Material: HL-24159
+- Manufacturing: MFG-45943
+- Inspection: INSP-SN-870937
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-OIL-TUB-0016",
     "partName": "Oil Scavenge Tube Sump4-4",
-    "serialNumber": "SN-463061",
+    "serialNumber": "SN-896275",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-04979"
+        "lot": "HL-69818"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90921"
+        "certNo": "PROC-56542"
       }
     ]
   },

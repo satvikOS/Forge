@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-DRN-VNT-0016",
     "partName": "Vent Port 16",
-    "serialNumber": "SN-756194",
+    "serialNumber": "SN-167287",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-99015"
+        "lot": "HL-00047"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-26370"
+        "certNo": "PROC-10131"
       }
     ]
   },

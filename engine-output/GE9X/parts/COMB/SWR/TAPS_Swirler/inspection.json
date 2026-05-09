@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-SWR-0030",
     "partName": "TAPS Swirler 30",
-    "serialNumber": "SN-232937",
+    "serialNumber": "SN-391885",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-06779"
+        "lot": "HL-75859"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-78744"
+        "certNo": "PROC-40607"
       }
     ]
   },

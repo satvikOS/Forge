@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-IGN-0002",
     "partName": "Igniter 2",
-    "serialNumber": "SN-451548",
+    "serialNumber": "SN-337992",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-52160"
+        "lot": "HL-49796"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-78797"
+        "certNo": "PROC-40688"
       }
     ]
   },

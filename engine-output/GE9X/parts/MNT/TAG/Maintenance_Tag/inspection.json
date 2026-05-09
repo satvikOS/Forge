@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-MNT-TAG-0200",
     "partName": "Maintenance Tag 200",
-    "serialNumber": "SN-093883",
+    "serialNumber": "SN-110170",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-67382"
+        "lot": "HL-74764"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-29097"
+        "certNo": "PROC-14883"
       }
     ]
   },

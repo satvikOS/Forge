@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-DRN-TUB-0024",
     "partName": "Drain Tube 24",
-    "serialNumber": "SN-356407",
+    "serialNumber": "SN-235870",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-66913"
+        "lot": "HL-96823"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-26189"
+        "certNo": "PROC-9846"
       }
     ]
   },

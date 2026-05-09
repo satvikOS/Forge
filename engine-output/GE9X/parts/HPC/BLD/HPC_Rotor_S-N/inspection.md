@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-HPC-BLD-0767  ·  **Title:** HPC Rotor S11-1
-**Serial:** SN-067597  ·  **Drawing Rev:** A
+**Serial:** SN-842112  ·  **Drawing Rev:** A
 **Process:** Investment casting + 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-58714 |
-| 2 | Process | Investment casting + 5-axis machining | PROC-76836 |
+| 1 | Material | Inconel 718 | HL-14990 |
+| 2 | Process | Investment casting + 5-axis machining | PROC-38821 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

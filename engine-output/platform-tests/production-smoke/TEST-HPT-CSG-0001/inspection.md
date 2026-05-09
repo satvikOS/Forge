@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** TEST-HPT-CSG-0001  ·  **Title:** HPT Casing
-**Serial:** SN-082249  ·  **Drawing Rev:** A
+**Serial:** SN-018399  ·  **Drawing Rev:** A
 **Process:** Sheet form + weld + machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-00246 |
-| 2 | Process | Sheet form + weld + machining | PROC-9680 |
+| 1 | Material | Inconel 718 | HL-70211 |
+| 2 | Process | Sheet form + weld + machining | PROC-81822 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-ABR-0001",
     "partName": "Fan Case Abradable Strip",
-    "serialNumber": "SN-959373",
+    "serialNumber": "SN-579789",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "ABS Plastic",
-        "lot": "HL-09830"
+        "lot": "HL-02476"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-71855"
+        "certNo": "PROC-34648"
       }
     ]
   },

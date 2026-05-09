@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-SHFT-LP-0001",
   "partTitle": "LP Shaft",
-  "serialNumber": "SN-185701",
+  "serialNumber": "SN-469992",
   "drawingNumber": "GE9X-SHFT-LP-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-62091",
-  "manufacturingLot": "MFG-89612",
+  "heatLot": "HL-72502",
+  "manufacturingLot": "MFG-54440",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-62091",
-    "manufacturingProcess": "MFG-89612",
-    "inspectionRecord": "INSP-SN-185701",
+    "rawMaterial": "HL-72502",
+    "manufacturingProcess": "MFG-54440",
+    "inspectionRecord": "INSP-SN-469992",
     "finalAcceptance": "2026-05-09"
   }
 }

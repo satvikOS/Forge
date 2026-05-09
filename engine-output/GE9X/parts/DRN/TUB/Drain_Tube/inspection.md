@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-DRN-TUB-0024  ·  **Title:** Drain Tube 24
-**Serial:** SN-356407  ·  **Drawing Rev:** A
+**Serial:** SN-235870  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-66913 |
-| 2 | Process | CNC 5-axis machining | PROC-26189 |
+| 1 | Material | Stainless Steel 316 | HL-96823 |
+| 2 | Process | CNC 5-axis machining | PROC-9846 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

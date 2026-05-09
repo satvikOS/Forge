@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-PAD-0005",
   "partTitle": "AGB Hydraulic Pump Pad",
-  "serialNumber": "SN-280281",
+  "serialNumber": "SN-018499",
   "drawingNumber": "GE9X-AGB-PAD-0005-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-80848",
-  "manufacturingLot": "MFG-90208",
+  "heatLot": "HL-57554",
+  "manufacturingLot": "MFG-55298",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-80848",
-    "manufacturingProcess": "MFG-90208",
-    "inspectionRecord": "INSP-SN-280281",
+    "rawMaterial": "HL-57554",
+    "manufacturingProcess": "MFG-55298",
+    "inspectionRecord": "INSP-SN-018499",
     "finalAcceptance": "2026-05-09"
   }
 }

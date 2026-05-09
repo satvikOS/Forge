@@ -2,17 +2,17 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-ABR-0001",
   "partTitle": "Fan Case Abradable Strip",
-  "serialNumber": "SN-389590",
+  "serialNumber": "SN-185254",
   "drawingNumber": "GE9X-FAN-ABR-0001-DWG",
   "drawingRev": "A",
-  "manufacturingLot": "MFG-71855",
+  "manufacturingLot": "MFG-34648",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "manufacturingProcess": "MFG-71855",
-    "inspectionRecord": "INSP-SN-389590",
+    "manufacturingProcess": "MFG-34648",
+    "inspectionRecord": "INSP-SN-185254",
     "finalAcceptance": "2026-05-09"
   }
 }

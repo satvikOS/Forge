@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0054",
     "partName": "Sensor N1 (fan speed) #6",
-    "serialNumber": "SN-444143",
+    "serialNumber": "SN-515216",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-30814"
+        "lot": "HL-47060"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-91949"
+        "certNo": "PROC-58223"
       }
     ]
   },

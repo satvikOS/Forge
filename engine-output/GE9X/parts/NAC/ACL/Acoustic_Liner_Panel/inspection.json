@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-NAC-ACL-0004",
     "partName": "Acoustic Liner Panel 4",
-    "serialNumber": "SN-875860",
+    "serialNumber": "SN-340053",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-47491"
+        "lot": "HL-58944"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-97364"
+        "certNo": "PROC-64755"
       }
     ]
   },

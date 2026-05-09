@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FIRE-DET-0060",
   "partTitle": "Fire Detector Loop 2 #30",
-  "serialNumber": "SN-919786",
+  "serialNumber": "SN-630072",
   "drawingNumber": "GE9X-FIRE-DET-0060-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-76697",
-  "manufacturingLot": "MFG-27021",
+  "heatLot": "HL-27519",
+  "manufacturingLot": "MFG-11277",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-76697",
-    "manufacturingProcess": "MFG-27021",
-    "inspectionRecord": "INSP-SN-919786",
+    "rawMaterial": "HL-27519",
+    "manufacturingProcess": "MFG-11277",
+    "inspectionRecord": "INSP-SN-630072",
     "finalAcceptance": "2026-05-09"
   }
 }

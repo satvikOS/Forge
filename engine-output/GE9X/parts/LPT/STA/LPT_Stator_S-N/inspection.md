@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-LPT-STA-0551  ·  **Title:** LPT Stator S6-1
-**Serial:** SN-352337  ·  **Drawing Rev:** A
+**Serial:** SN-395146  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-43400 |
-| 2 | Process | CNC 5-axis machining | PROC-83886 |
+| 1 | Material | Inconel 718 | HL-51447 |
+| 2 | Process | CNC 5-axis machining | PROC-47228 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

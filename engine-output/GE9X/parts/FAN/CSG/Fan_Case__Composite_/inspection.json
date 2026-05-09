@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-CSG-0001",
     "partName": "Fan Case (Composite)",
-    "serialNumber": "SN-908175",
+    "serialNumber": "SN-792552",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-80509"
+        "lot": "HL-04731"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-71806"
+        "certNo": "PROC-34606"
       }
     ]
   },

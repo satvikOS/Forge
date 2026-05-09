@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FUEL-COM-0004",
   "partTitle": "Fuel Filter",
-  "serialNumber": "SN-727610",
+  "serialNumber": "SN-899433",
   "drawingNumber": "GE9X-FUEL-COM-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-91040",
-  "manufacturingLot": "MFG-90279",
+  "heatLot": "HL-90346",
+  "manufacturingLot": "MFG-55408",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-91040",
-    "manufacturingProcess": "MFG-90279",
-    "inspectionRecord": "INSP-SN-727610",
+    "rawMaterial": "HL-90346",
+    "manufacturingProcess": "MFG-55408",
+    "inspectionRecord": "INSP-SN-899433",
     "finalAcceptance": "2026-05-09"
   }
 }

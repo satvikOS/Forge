@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPC-STA-0701",
     "partName": "HPC Stator S11-1",
-    "serialNumber": "SN-977619",
+    "serialNumber": "SN-995236",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-15466"
+        "lot": "HL-11282"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-76728"
+        "certNo": "PROC-38732"
       }
     ]
   },

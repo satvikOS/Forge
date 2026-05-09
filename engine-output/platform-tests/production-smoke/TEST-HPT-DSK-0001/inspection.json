@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "TEST-HPT-DSK-0001",
     "partName": "HPT Stage-1 Disk",
-    "serialNumber": "SN-452797",
+    "serialNumber": "SN-108526",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Single-Crystal Nickel CMSX-4",
-        "lot": "HL-26768"
+        "lot": "HL-06847"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-9666"
+        "certNo": "PROC-81814"
       }
     ]
   },

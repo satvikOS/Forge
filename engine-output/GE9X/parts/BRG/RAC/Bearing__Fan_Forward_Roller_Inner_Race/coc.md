@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-BRG-RAC-0001 — Bearing #Fan Forward Roller Inner Race
-**Serial No.:** SN-148070
+**Serial No.:** SN-337869
 **Drawing:** GE9X-BRG-RAC-0001-DWG Rev A
-**Heat Lot:** HL-75328  ·  **Mfg Lot:** MFG-84148
+**Heat Lot:** HL-19931  ·  **Mfg Lot:** MFG-47517
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-75328
-- Manufacturing: MFG-84148
-- Inspection: INSP-SN-148070
+- Raw Material: HL-19931
+- Manufacturing: MFG-47517
+- Inspection: INSP-SN-337869
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

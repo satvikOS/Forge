@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-SHFT-LP-0001 — LP Shaft
-**Serial No.:** SN-185701
+**Serial No.:** SN-469992
 **Drawing:** GE9X-SHFT-LP-0001-DWG Rev A
-**Heat Lot:** HL-62091  ·  **Mfg Lot:** MFG-89612
+**Heat Lot:** HL-72502  ·  **Mfg Lot:** MFG-54440
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-62091
-- Manufacturing: MFG-89612
-- Inspection: INSP-SN-185701
+- Raw Material: HL-72502
+- Manufacturing: MFG-54440
+- Inspection: INSP-SN-469992
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAS-NUT-0432",
     "partName": "Flange 18 Nut 24",
-    "serialNumber": "SN-334045",
+    "serialNumber": "SN-844401",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-73950"
+        "lot": "HL-24887"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-18671"
+        "certNo": "PROC-97143"
       }
     ]
   },

@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FADE-SNS-0030  ·  **Title:** Sensor T5 (LPT exit) #6
-**Serial:** SN-619694  ·  **Drawing Rev:** A
+**Serial:** SN-523555  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-92164 |
-| 2 | Process | CNC 5-axis machining | PROC-91644 |
+| 1 | Material | Stainless Steel 316 | HL-47392 |
+| 2 | Process | CNC 5-axis machining | PROC-57748 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

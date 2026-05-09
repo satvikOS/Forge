@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-INLE-CAP-0001",
   "partTitle": "Spinner Tip Cap",
-  "serialNumber": "SN-843837",
+  "serialNumber": "SN-535546",
   "drawingNumber": "GE9X-INLE-CAP-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-55610",
-  "manufacturingLot": "MFG-70294",
+  "heatLot": "HL-37288",
+  "manufacturingLot": "MFG-33357",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-55610",
-    "manufacturingProcess": "MFG-70294",
-    "inspectionRecord": "INSP-SN-843837",
+    "rawMaterial": "HL-37288",
+    "manufacturingProcess": "MFG-33357",
+    "inspectionRecord": "INSP-SN-535546",
     "finalAcceptance": "2026-05-09"
   }
 }

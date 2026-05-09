@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-OGV-0060",
     "partName": "OGV 60",
-    "serialNumber": "SN-931383",
+    "serialNumber": "SN-944789",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-94180"
+        "lot": "HL-38310"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-73522"
+        "certNo": "PROC-35928"
       }
     ]
   },

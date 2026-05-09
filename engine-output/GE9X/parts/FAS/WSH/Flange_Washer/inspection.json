@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAS-WSH-0432",
     "partName": "Flange 18 Washer 24",
-    "serialNumber": "SN-101143",
+    "serialNumber": "SN-032235",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-24977"
+        "lot": "HL-30613"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-18652"
+        "certNo": "PROC-97119"
       }
     ]
   },

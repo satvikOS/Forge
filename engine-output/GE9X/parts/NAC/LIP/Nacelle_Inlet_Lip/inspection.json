@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-NAC-LIP-0001",
     "partName": "Nacelle Inlet Lip",
-    "serialNumber": "SN-414139",
+    "serialNumber": "SN-071405",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-87107"
+        "lot": "HL-25766"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-97177"
+        "certNo": "PROC-64519"
       }
     ]
   },

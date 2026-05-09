@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AIR-TUB-0016",
   "partTitle": "Cooling Air Tube 16",
-  "serialNumber": "SN-699991",
+  "serialNumber": "SN-797178",
   "drawingNumber": "GE9X-AIR-TUB-0016-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-63411",
-  "manufacturingLot": "MFG-91199",
+  "heatLot": "HL-89849",
+  "manufacturingLot": "MFG-57027",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-63411",
-    "manufacturingProcess": "MFG-91199",
-    "inspectionRecord": "INSP-SN-699991",
+    "rawMaterial": "HL-89849",
+    "manufacturingProcess": "MFG-57027",
+    "inspectionRecord": "INSP-SN-797178",
     "finalAcceptance": "2026-05-09"
   }
 }

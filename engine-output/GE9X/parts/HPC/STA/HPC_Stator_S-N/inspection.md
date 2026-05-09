@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-HPC-STA-0701  ·  **Title:** HPC Stator S11-1
-**Serial:** SN-977619  ·  **Drawing Rev:** A
+**Serial:** SN-995236  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Titanium Ti-6Al-4V | HL-15466 |
-| 2 | Process | CNC 5-axis machining | PROC-76728 |
+| 1 | Material | Titanium Ti-6Al-4V | HL-11282 |
+| 2 | Process | CNC 5-axis machining | PROC-38732 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

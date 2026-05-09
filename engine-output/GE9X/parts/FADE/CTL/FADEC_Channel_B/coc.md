@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-CTL-0002 — FADEC Channel B
-**Serial No.:** SN-132059
+**Serial No.:** SN-170222
 **Drawing:** GE9X-FADE-CTL-0002-DWG Rev A
-**Heat Lot:** HL-64408  ·  **Mfg Lot:** MFG-91268
+**Heat Lot:** HL-18100  ·  **Mfg Lot:** MFG-57144
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-64408
-- Manufacturing: MFG-91268
-- Inspection: INSP-SN-132059
+- Raw Material: HL-18100
+- Manufacturing: MFG-57144
+- Inspection: INSP-SN-170222
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

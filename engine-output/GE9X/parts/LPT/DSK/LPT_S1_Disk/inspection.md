@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-LPT-DSK-0001  ·  **Title:** LPT S1 Disk
-**Serial:** SN-576701  ·  **Drawing Rev:** A
+**Serial:** SN-644059  ·  **Drawing Rev:** A
 **Process:** Forge + machining + shot peen
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-82331 |
-| 2 | Process | Forge + machining + shot peen | PROC-82888 |
+| 1 | Material | Inconel 718 | HL-82257 |
+| 2 | Process | Forge + machining + shot peen | PROC-46074 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

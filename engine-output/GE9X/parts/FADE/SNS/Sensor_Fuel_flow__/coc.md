@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-SNS-0096 — Sensor Fuel flow #6
-**Serial No.:** SN-534021
+**Serial No.:** SN-483285
 **Drawing:** GE9X-FADE-SNS-0096-DWG Rev A
-**Heat Lot:** HL-65597  ·  **Mfg Lot:** MFG-92502
+**Heat Lot:** HL-61525  ·  **Mfg Lot:** MFG-59032
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-65597
-- Manufacturing: MFG-92502
-- Inspection: INSP-SN-534021
+- Raw Material: HL-61525
+- Manufacturing: MFG-59032
+- Inspection: INSP-SN-483285
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

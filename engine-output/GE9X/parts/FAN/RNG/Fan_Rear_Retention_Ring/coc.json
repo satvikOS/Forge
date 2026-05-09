@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-RNG-0002",
   "partTitle": "Fan Rear Retention Ring",
-  "serialNumber": "SN-472440",
+  "serialNumber": "SN-572665",
   "drawingNumber": "GE9X-FAN-RNG-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-46644",
-  "manufacturingLot": "MFG-71682",
+  "heatLot": "HL-16353",
+  "manufacturingLot": "MFG-34471",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-46644",
-    "manufacturingProcess": "MFG-71682",
-    "inspectionRecord": "INSP-SN-472440",
+    "rawMaterial": "HL-16353",
+    "manufacturingProcess": "MFG-34471",
+    "inspectionRecord": "INSP-SN-572665",
     "finalAcceptance": "2026-05-09"
   }
 }

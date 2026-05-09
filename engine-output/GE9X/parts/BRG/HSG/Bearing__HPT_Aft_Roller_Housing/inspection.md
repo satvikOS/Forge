@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-HSG-0004  ·  **Title:** Bearing #HPT Aft Roller Housing
-**Serial:** SN-093083  ·  **Drawing Rev:** A
+**Serial:** SN-522236  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-00938 |
-| 2 | Process | CNC 5-axis machining | PROC-86305 |
+| 1 | Material | Steel AISI 4340 | HL-84899 |
+| 2 | Process | CNC 5-axis machining | PROC-50437 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

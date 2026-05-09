@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-RAC-0001",
     "partName": "Bearing #Fan Forward Roller Inner Race",
-    "serialNumber": "SN-844649",
+    "serialNumber": "SN-591916",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-86000"
+        "lot": "HL-67900"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-84148"
+        "certNo": "PROC-47516"
       }
     ]
   },

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-PIP-FTG-0320",
   "partTitle": "Pipe Fitting 320",
-  "serialNumber": "SN-209895",
+  "serialNumber": "SN-672105",
   "drawingNumber": "GE9X-PIP-FTG-0320-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-70365",
-  "manufacturingLot": "MFG-23667",
+  "heatLot": "HL-23044",
+  "manufacturingLot": "MFG-5722",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-70365",
-    "manufacturingProcess": "MFG-23667",
-    "inspectionRecord": "INSP-SN-209895",
+    "rawMaterial": "HL-23044",
+    "manufacturingProcess": "MFG-5722",
+    "inspectionRecord": "INSP-SN-672105",
     "finalAcceptance": "2026-05-09"
   }
 }

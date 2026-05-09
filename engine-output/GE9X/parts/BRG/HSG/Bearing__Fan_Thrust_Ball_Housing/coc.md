@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-BRG-HSG-0002 — Bearing #Fan Thrust Ball Housing
-**Serial No.:** SN-181552
+**Serial No.:** SN-019370
 **Drawing:** GE9X-BRG-HSG-0002-DWG Rev A
-**Heat Lot:** HL-05082  ·  **Mfg Lot:** MFG-84894
+**Heat Lot:** HL-39802  ·  **Mfg Lot:** MFG-48511
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-05082
-- Manufacturing: MFG-84894
-- Inspection: INSP-SN-181552
+- Raw Material: HL-39802
+- Manufacturing: MFG-48511
+- Inspection: INSP-SN-019370
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

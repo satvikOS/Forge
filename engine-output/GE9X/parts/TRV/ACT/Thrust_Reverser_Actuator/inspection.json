@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-TRV-ACT-0004",
     "partName": "Thrust Reverser Actuator 4",
-    "serialNumber": "SN-550418",
+    "serialNumber": "SN-262039",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-90562"
+        "lot": "HL-93636"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-98017"
+        "certNo": "PROC-65549"
       }
     ]
   },

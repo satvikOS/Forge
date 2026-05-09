@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-DSK-0005",
   "partTitle": "HPC S5 Disk",
-  "serialNumber": "SN-849028",
+  "serialNumber": "SN-377943",
   "drawingNumber": "GE9X-HPC-DSK-0005-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-50410",
-  "manufacturingLot": "MFG-75619",
+  "heatLot": "HL-06521",
+  "manufacturingLot": "MFG-37896",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-50410",
-    "manufacturingProcess": "MFG-75619",
-    "inspectionRecord": "INSP-SN-849028",
+    "rawMaterial": "HL-06521",
+    "manufacturingProcess": "MFG-37896",
+    "inspectionRecord": "INSP-SN-377943",
     "finalAcceptance": "2026-05-09"
   }
 }

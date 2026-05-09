@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-MNT-AFT-0001",
   "partTitle": "Aft Engine Mount",
-  "serialNumber": "SN-195896",
+  "serialNumber": "SN-220693",
   "drawingNumber": "GE9X-MNT-AFT-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-95638",
-  "manufacturingLot": "MFG-97712",
+  "heatLot": "HL-12808",
+  "manufacturingLot": "MFG-65178",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-95638",
-    "manufacturingProcess": "MFG-97712",
-    "inspectionRecord": "INSP-SN-195896",
+    "rawMaterial": "HL-12808",
+    "manufacturingProcess": "MFG-65178",
+    "inspectionRecord": "INSP-SN-220693",
     "finalAcceptance": "2026-05-09"
   }
 }

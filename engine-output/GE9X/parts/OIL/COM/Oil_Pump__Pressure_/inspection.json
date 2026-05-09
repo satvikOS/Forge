@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-OIL-COM-0002",
     "partName": "Oil Pump (Pressure)",
-    "serialNumber": "SN-787680",
+    "serialNumber": "SN-575019",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-07811"
+        "lot": "HL-04358"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-90672"
+        "certNo": "PROC-56100"
       }
     ]
   },

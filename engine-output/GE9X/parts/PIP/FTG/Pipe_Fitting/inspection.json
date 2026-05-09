@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-PIP-FTG-0320",
     "partName": "Pipe Fitting 320",
-    "serialNumber": "SN-063632",
+    "serialNumber": "SN-524740",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-06539"
+        "lot": "HL-72891"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-23666"
+        "certNo": "PROC-5722"
       }
     ]
   },

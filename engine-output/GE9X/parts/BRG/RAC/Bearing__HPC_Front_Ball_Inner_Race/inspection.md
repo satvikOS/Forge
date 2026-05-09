@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-RAC-0003  ·  **Title:** Bearing #HPC Front Ball Inner Race
-**Serial:** SN-245276  ·  **Drawing Rev:** A
+**Serial:** SN-031163  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-68069 |
-| 2 | Process | CNC 5-axis machining | PROC-85611 |
+| 1 | Material | Steel AISI 4340 | HL-13051 |
+| 2 | Process | CNC 5-axis machining | PROC-49510 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

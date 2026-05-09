@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-HPT-DSK-0002  ·  **Title:** HPT S2 Disk
-**Serial:** SN-732536  ·  **Drawing Rev:** A
+**Serial:** SN-305778  ·  **Drawing Rev:** A
 **Process:** Forge + machining + shot peen
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Single-Crystal Nickel CMSX-4 | HL-92577 |
-| 2 | Process | Forge + machining + shot peen | PROC-80973 |
+| 1 | Material | Single-Crystal Nickel CMSX-4 | HL-39372 |
+| 2 | Process | Forge + machining + shot peen | PROC-43644 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

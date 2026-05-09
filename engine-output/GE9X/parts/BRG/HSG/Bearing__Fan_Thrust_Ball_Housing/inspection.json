@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-HSG-0002",
     "partName": "Bearing #Fan Thrust Ball Housing",
-    "serialNumber": "SN-423441",
+    "serialNumber": "SN-989697",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-24481"
+        "lot": "HL-85714"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-84894"
+        "certNo": "PROC-48511"
       }
     ]
   },

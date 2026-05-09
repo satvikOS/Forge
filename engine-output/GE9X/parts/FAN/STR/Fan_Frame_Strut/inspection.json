@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-STR-0012",
     "partName": "Fan Frame Strut 12",
-    "serialNumber": "SN-318476",
+    "serialNumber": "SN-997468",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-41107"
+        "lot": "HL-13208"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-73716"
+        "certNo": "PROC-36171"
       }
     ]
   },

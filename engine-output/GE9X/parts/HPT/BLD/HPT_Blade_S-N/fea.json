@@ -37,7 +37,7 @@
           "minCycles": 1000
         },
         "diagnosis": "Requires TBC coating and cooling channels for adequate life.",
-        "timestamp": "2026-05-09T18:13:01.044Z"
+        "timestamp": "2026-05-09T19:02:23.719Z"
       },
       "fatigue_hcf": {
         "scenario": "fatigue_hcf",
@@ -53,7 +53,7 @@
           "minSafetyFactor": 1
         },
         "diagnosis": "HCF life insufficient — consider shot peening.",
-        "timestamp": "2026-05-09T18:13:01.044Z"
+        "timestamp": "2026-05-09T19:02:23.719Z"
       }
     }
   }

@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPT-CHL-0001 — HPT S1 Blade 1 Cool Hole 1
-**Serial No.:** SN-800921
+**Serial No.:** SN-534438
 **Drawing:** GE9X-HPT-CHL-0001-DWG Rev A
-**Heat Lot:** undefined  ·  **Mfg Lot:** MFG-27082
+**Heat Lot:** undefined  ·  **Mfg Lot:** MFG-11359
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -13,8 +13,8 @@ This part has been manufactured, inspected, and tested in accordance with the re
 ## Traceability Chain
 
 - Raw Material: undefined
-- Manufacturing: MFG-27082
-- Inspection: INSP-SN-800921
+- Manufacturing: MFG-11359
+- Inspection: INSP-SN-534438
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

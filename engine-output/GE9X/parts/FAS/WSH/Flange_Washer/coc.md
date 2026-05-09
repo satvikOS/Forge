@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAS-WSH-0432 — Flange 18 Washer 24
-**Serial No.:** SN-698234
+**Serial No.:** SN-755311
 **Drawing:** GE9X-FAS-WSH-0432-DWG Rev A
-**Heat Lot:** HL-64428  ·  **Mfg Lot:** MFG-18653
+**Heat Lot:** HL-71934  ·  **Mfg Lot:** MFG-97119
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-64428
-- Manufacturing: MFG-18653
-- Inspection: INSP-SN-698234
+- Raw Material: HL-71934
+- Manufacturing: MFG-97119
+- Inspection: INSP-SN-755311
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-CTL-0001",
   "partTitle": "FADEC Channel A",
-  "serialNumber": "SN-326508",
+  "serialNumber": "SN-396087",
   "drawingNumber": "GE9X-FADE-CTL-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-63108",
-  "manufacturingLot": "MFG-91257",
+  "heatLot": "HL-44164",
+  "manufacturingLot": "MFG-57124",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-63108",
-    "manufacturingProcess": "MFG-91257",
-    "inspectionRecord": "INSP-SN-326508",
+    "rawMaterial": "HL-44164",
+    "manufacturingProcess": "MFG-57124",
+    "inspectionRecord": "INSP-SN-396087",
     "finalAcceptance": "2026-05-09"
   }
 }

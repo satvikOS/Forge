@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-MNT-PYL-0001",
     "partName": "Pylon Stub Fairing",
-    "serialNumber": "SN-405549",
+    "serialNumber": "SN-765845",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-86568"
+        "lot": "HL-34764"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-97615"
+        "certNo": "PROC-65068"
       }
     ]
   },

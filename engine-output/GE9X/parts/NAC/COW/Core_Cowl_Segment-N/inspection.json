@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-NAC-COW-0008",
     "partName": "Core Cowl Segment 8",
-    "serialNumber": "SN-028318",
+    "serialNumber": "SN-847516",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-10831"
+        "lot": "HL-91756"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-97596"
+        "certNo": "PROC-65044"
       }
     ]
   },

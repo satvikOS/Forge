@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FAN-ABR-0001  ·  **Title:** Fan Case Abradable Strip
-**Serial:** SN-959373  ·  **Drawing Rev:** A
+**Serial:** SN-579789  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | ABS Plastic | HL-09830 |
-| 2 | Process | CNC 5-axis machining | PROC-71855 |
+| 1 | Material | ABS Plastic | HL-02476 |
+| 2 | Process | CNC 5-axis machining | PROC-34648 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

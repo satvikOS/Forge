@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FUEL-COM-0001",
   "partTitle": "HMU (Hydromechanical Unit)",
-  "serialNumber": "SN-399367",
+  "serialNumber": "SN-744910",
   "drawingNumber": "GE9X-FUEL-COM-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-22485",
-  "manufacturingLot": "MFG-90235",
+  "heatLot": "HL-16994",
+  "manufacturingLot": "MFG-55339",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-22485",
-    "manufacturingProcess": "MFG-90235",
-    "inspectionRecord": "INSP-SN-399367",
+    "rawMaterial": "HL-16994",
+    "manufacturingProcess": "MFG-55339",
+    "inspectionRecord": "INSP-SN-744910",
     "finalAcceptance": "2026-05-09"
   }
 }

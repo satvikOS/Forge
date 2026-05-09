@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPC-STA-0119",
     "partName": "LPC Stator S3-1",
-    "serialNumber": "SN-600271",
+    "serialNumber": "SN-418418",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-53549"
+        "lot": "HL-04725"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-74591"
+        "certNo": "PROC-37145"
       }
     ]
   },

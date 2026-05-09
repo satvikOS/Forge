@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FUEL-COM-0008 — Fuel Manifold Inner
-**Serial No.:** SN-336407
+**Serial No.:** SN-297130
 **Drawing:** GE9X-FUEL-COM-0008-DWG Rev A
-**Heat Lot:** HL-70175  ·  **Mfg Lot:** MFG-90332
+**Heat Lot:** HL-01018  ·  **Mfg Lot:** MFG-55497
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-70175
-- Manufacturing: MFG-90332
-- Inspection: INSP-SN-336407
+- Raw Material: HL-01018
+- Manufacturing: MFG-55497
+- Inspection: INSP-SN-297130
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)
