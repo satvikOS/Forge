@@ -99,6 +99,13 @@ export { default as AgentBridge } from './agents/AgentBridge.js';
 // Spatial — BVH for fast picking in large scenes
 export { default as BVH } from './spatial/BVH.js';
 
+// Airfoil & Turbomachinery (real engine geometry)
+export { default as NACA } from './airfoil/NACA.js';
+export { default as TurbomachineryBlade } from './turbomachinery/TurbomachineryBlade.js';
+
+// LOD for large assemblies
+export { default as LODManager } from './lod/LODManager.js';
+
 // Drawing — 2D engineering drawings from 3D solids
 export { default as DrawingEngine, VIEW_DIRECTIONS } from './drawing/DrawingEngine.js';
 export { default as Annotations } from './drawing/Annotations.js';
