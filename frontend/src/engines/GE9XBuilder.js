@@ -271,18 +271,47 @@ export default class GE9XBuilder {
       });
     }
 
-    // 12 case struts
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * 2 * PI;
-      const strut = PrimitiveBuilder.box(0.045, 0.85, 0.090);
-      t.addPart(strut, `Fan Case Strut ${i + 1}`, {
+    // ---- Fan Frame: 12 radial struts spanning bypass duct from core
+    // to nacelle, plus a structural ring at the OGV exit station.
+    // This is a key structural element of the engine and was missing
+    // from the cutaway — without it the core appears to float.
+
+    const STRUT_COUNT = 12;
+    const STRUT_Z = 0.95;             // just downstream of fan exit
+    const STRUT_R_INNER = 0.55;       // inner radius (core casing OD)
+    const STRUT_R_OUTER = rTip - 0.05; // outer radius (just inside nacelle)
+    const STRUT_LEN = STRUT_R_OUTER - STRUT_R_INNER;
+
+    for (let i = 0; i < STRUT_COUNT; i++) {
+      const angle = (i / STRUT_COUNT) * 2 * PI;
+      // Strut is a box oriented radially: thickness × span × chord
+      const strut = PrimitiveBuilder.box(0.030, STRUT_LEN, 0.18);
+      const rMid = (STRUT_R_INNER + STRUT_R_OUTER) / 2;
+      t.addPart(strut, `Fan Frame Strut ${i + 1}`, {
         color: 0x999999,
-        position: new Vec3(Math.cos(angle) * (rHub + 0.62), Math.sin(angle) * (rHub + 0.62), 0.85),
+        position: new Vec3(Math.cos(angle) * rMid, Math.sin(angle) * rMid, STRUT_Z),
         rotation: new Vec3(0, 0, angle + PI / 2),
         material: 'Titanium Ti-6Al-4V',
         category: 'FAN', subsystem: 'STR',
+        metadata: { type: 'fan-frame-radial-strut', spans: 'core-to-nacelle' },
       });
     }
+
+    // Inner structural ring (mounts struts to core casing)
+    const innerRing = PrimitiveBuilder.cylinderShell(STRUT_R_INNER + 0.008, STRUT_R_INNER, 0.20, 96);
+    t.addPart(innerRing, 'Fan Frame Inner Ring', {
+      color: 0x808080, position: new Vec3(0, 0, STRUT_Z),
+      material: 'Titanium Ti-6Al-4V',
+      category: 'FAN', subsystem: 'RNG',
+    });
+
+    // Outer structural ring (mounts struts to nacelle)
+    const outerRing = PrimitiveBuilder.cylinderShell(STRUT_R_OUTER, STRUT_R_OUTER - 0.010, 0.20, 96);
+    t.addPart(outerRing, 'Fan Frame Outer Ring', {
+      color: 0x808080, position: new Vec3(0, 0, STRUT_Z),
+      material: 'Titanium Ti-6Al-4V',
+      category: 'FAN', subsystem: 'RNG',
+    });
 
     // Fan blade attach pins (2 per blade)
     for (let i = 0; i < N; i++) {
@@ -1046,27 +1075,73 @@ export default class GE9XBuilder {
   }
 
   static buildPylonMounts(t) {
-    // Forward + aft mount
-    const fwdMount = PrimitiveBuilder.box(0.30, 0.20, 0.50);
+    // ---- Pylon stub (the structure that connects engine to wing) ----
+    const PYLON_TOP_Y = 1.85;
+    const PYLON_LEN = 4.0;
+    const PYLON_WIDTH = 0.40;
+    const PYLON_HEIGHT = 1.0;
+    const PYLON_Z_CENTER = 2.5;
+
+    // Pylon body (the swept fairing visible above the engine)
+    const pylonBody = PrimitiveBuilder.box(PYLON_WIDTH, PYLON_HEIGHT, PYLON_LEN);
+    t.addPart(pylonBody, 'Pylon Stub Fairing', {
+      color: 0xeeeeee,
+      position: new Vec3(0, PYLON_TOP_Y - PYLON_HEIGHT / 2, PYLON_Z_CENTER),
+      material: 'Composite Carbon-Epoxy',
+      category: 'MNT', subsystem: 'PYL',
+    });
+
+    // Wing attach lugs (top of pylon — connects to wing structure)
+    for (let i = 0; i < 4; i++) {
+      const lug = PrimitiveBuilder.box(0.20, 0.15, 0.20);
+      t.addPart(lug, `Wing Attach Lug ${i + 1}`, {
+        color: 0x606060,
+        position: new Vec3(-0.15 + (i % 2) * 0.30, PYLON_TOP_Y + 0.12, 0.8 + Math.floor(i / 2) * 2.4),
+        material: 'Titanium Ti-6Al-4V',
+        category: 'MNT', subsystem: 'WAL',
+      });
+    }
+
+    // Forward engine mount — attaches engine to pylon at fan frame
+    const fwdMount = PrimitiveBuilder.box(0.45, 0.30, 0.30);
     t.addPart(fwdMount, 'Forward Engine Mount', {
-      color: 0x707070, position: new Vec3(0, 0.85, 1.0),
+      color: 0x707070,
+      position: new Vec3(0, 1.05, 0.95),
       material: 'Titanium Ti-6Al-4V',
       category: 'MNT', subsystem: 'FWD',
     });
-    const aftMount = PrimitiveBuilder.box(0.40, 0.25, 0.55);
+
+    // Aft engine mount — attaches engine to pylon at HPT casing
+    const aftMount = PrimitiveBuilder.box(0.50, 0.30, 0.35);
     t.addPart(aftMount, 'Aft Engine Mount', {
-      color: 0x707070, position: new Vec3(0, 0.85, 4.5),
+      color: 0x707070,
+      position: new Vec3(0, 1.05, 4.05),
       material: 'Titanium Ti-6Al-4V',
       category: 'MNT', subsystem: 'AFT',
     });
-    // Thrust struts (4) — connect mounts to engine
-    for (let i = 0; i < 4; i++) {
-      const strut = PrimitiveBuilder.box(0.04, 0.04, 0.80);
-      t.addPart(strut, `Thrust Strut ${i + 1}`, {
-        color: 0x808080,
-        position: new Vec3(0.10 + i * 0.05, 0.6, 1.5 + i * 0.8),
-        material: 'Titanium Ti-6Al-4V',
-        category: 'MNT', subsystem: 'STR',
+
+    // Thrust links (2 V-shape) — transfer engine thrust to airframe
+    for (let i = 0; i < 2; i++) {
+      const sign = i === 0 ? -1 : 1;
+      const link = PrimitiveBuilder.cylinder(0.025, 1.20, 16);
+      t.addPart(link, `Thrust Link ${i + 1}`, {
+        color: 0x666666,
+        position: new Vec3(sign * 0.15, 0.95, 2.5),
+        rotation: new Vec3(sign * 0.2, 0, 0),
+        material: 'Steel AISI 4340',
+        category: 'MNT', subsystem: 'TLK',
+      });
+    }
+
+    // Side links (lateral stability)
+    for (let i = 0; i < 2; i++) {
+      const link = PrimitiveBuilder.cylinder(0.020, 0.50, 16);
+      t.addPart(link, `Side Link ${i + 1}`, {
+        color: 0x707070,
+        position: new Vec3(0, 1.0, 1.0 + i * 3.0),
+        rotation: new Vec3(0, 0, PI / 2),
+        material: 'Steel AISI 4340',
+        category: 'MNT', subsystem: 'SLK',
       });
     }
   }

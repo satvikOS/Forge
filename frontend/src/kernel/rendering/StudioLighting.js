@@ -44,37 +44,50 @@ export default class StudioLighting {
     const dist = targetSize * 1.5;
     const lights = [];
 
-    // Hemisphere — sky/ground gradient ambient
-    const hemi = new THREE.HemisphereLight(0xddeeff, 0x1a1a22, 0.5 * intensity);
+    // Hemisphere — sky/ground gradient ambient (substitute for HDR IBL)
+    const hemi = new THREE.HemisphereLight(0xddeeff, 0x1a1a22, 0.7 * intensity);
     hemi.position.set(0, dist, 0);
     hemi.userData.studio = true;
     scene.add(hemi);
     lights.push(hemi);
 
-    // Key light — warm, from upper-front-right
-    const key = new THREE.DirectionalLight(keyColor, 1.6 * intensity);
+    // Key light — warm, from upper-front-right. Casts shadows.
+    const key = new THREE.DirectionalLight(keyColor, 2.2 * intensity);
     key.position.copy(center).add(new THREE.Vector3(dist * 0.7, dist * 0.5, dist * 0.6));
-    key.castShadow = false;  // disable for performance on 30K parts
+    key.target.position.copy(center);
+    key.castShadow = options.shadows !== false;
+    if (key.castShadow) {
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.camera.near = 0.01;
+      key.shadow.camera.far = dist * 6;
+      key.shadow.camera.left = -dist * 1.2;
+      key.shadow.camera.right = dist * 1.2;
+      key.shadow.camera.top = dist * 1.2;
+      key.shadow.camera.bottom = -dist * 1.2;
+      key.shadow.bias = -0.0005;
+      key.shadow.normalBias = 0.02;
+    }
     key.userData.studio = true;
     scene.add(key);
-    lights.push(key);
+    scene.add(key.target);
+    lights.push(key, key.target);
 
-    // Fill light — cool, from lower-front-left, half intensity
-    const fill = new THREE.DirectionalLight(fillColor, 0.6 * intensity);
+    // Fill — cool, opposite side, no shadow
+    const fill = new THREE.DirectionalLight(fillColor, 0.8 * intensity);
     fill.position.copy(center).add(new THREE.Vector3(-dist * 0.6, dist * 0.2, dist * 0.4));
     fill.userData.studio = true;
     scene.add(fill);
     lights.push(fill);
 
-    // Rim light — from behind to highlight silhouettes (engine outline)
-    const rim = new THREE.DirectionalLight(rimColor, 0.9 * intensity);
+    // Rim — from behind for silhouette
+    const rim = new THREE.DirectionalLight(rimColor, 1.2 * intensity);
     rim.position.copy(center).add(new THREE.Vector3(0, dist * 0.4, -dist * 0.8));
     rim.userData.studio = true;
     scene.add(rim);
     lights.push(rim);
 
-    // Subtle ground reflector
-    const ground = new THREE.DirectionalLight(0x404060, 0.25 * intensity);
+    // Subtle ground bounce
+    const ground = new THREE.DirectionalLight(0x404060, 0.35 * intensity);
     ground.position.copy(center).add(new THREE.Vector3(0, -dist * 0.5, 0));
     ground.userData.studio = true;
     scene.add(ground);

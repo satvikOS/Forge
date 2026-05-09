@@ -123,6 +123,9 @@ export { default as InteractionRecorder } from './recording/InteractionRecorder.
 // Project Exporter — emit every component as a file (geometry + metadata + tests)
 export { default as ProjectExporter } from './export/ProjectExporter.js';
 
+// Brayton thermodynamic cycle — real engine performance
+export { default as BraytonCycle } from './thermodynamics/BraytonCycle.js';
+
 // HTML Report Builder — self-contained interactive deliverable
 export { default as HTMLReportBuilder } from './export/HTMLReportBuilder.js';
 

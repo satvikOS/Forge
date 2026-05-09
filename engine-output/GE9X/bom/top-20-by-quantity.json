@@ -27,7 +27,7 @@
     "item": 4,
     "name": "Cylinder",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 24753,
+    "qty": 24734,
     "mass": 504.2348951729008,
     "volume": 0.18675366487885214
   },
@@ -43,7 +43,7 @@
     "item": 6,
     "name": "Box",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 603,
+    "qty": 604,
     "mass": 2.5059375,
     "volume": 0.000928125
   },
@@ -51,8 +51,16 @@
     "item": 7,
     "name": "Torus",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 446,
+    "qty": 447,
     "mass": 0,
     "volume": 0
+  },
+  {
+    "item": 8,
+    "name": "CylinderShell",
+    "material": "Composite Carbon-Epoxy",
+    "qty": 41,
+    "mass": 871.5563419221467,
+    "volume": 0.3227986451563506
   }
 ]

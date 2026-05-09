@@ -1,10 +1,10 @@
 {
   "engine": "GE Aviation GE9X-105B1A",
-  "generated": "2026-05-09T08:43:44.310Z",
-  "totalComponents": 29669,
-  "totalRegistered": 29669,
-  "buildTimeSec": 0.599,
-  "totalMassKg": 210509.9,
+  "generated": "2026-05-09T16:27:20.458Z",
+  "totalComponents": 29693,
+  "totalRegistered": 29693,
+  "buildTimeSec": 1.306,
+  "totalMassKg": 12852.6,
   "sections": [
     {
       "name": "Inlet & Spinner",
@@ -13,151 +13,151 @@
     },
     {
       "name": "Fan Module",
-      "added": 141,
-      "total": 159
+      "added": 143,
+      "total": 161
     },
     {
       "name": "LP Compressor (Booster)",
       "added": 394,
-      "total": 553
+      "total": 555
     },
     {
       "name": "HP Compressor",
       "added": 1677,
-      "total": 2230
+      "total": 2232
     },
     {
       "name": "Combustor (TAPS III)",
       "added": 12066,
-      "total": 14296
+      "total": 14298
     },
     {
       "name": "HP Turbine (CMC)",
       "added": 389,
-      "total": 14685
+      "total": 14687
     },
     {
       "name": "LP Turbine",
       "added": 1489,
-      "total": 16174
+      "total": 16176
     },
     {
       "name": "Bearings & Seals",
       "added": 126,
-      "total": 16300
+      "total": 16302
     },
     {
       "name": "Shafts & Couplings",
       "added": 6,
-      "total": 16306
+      "total": 16308
     },
     {
       "name": "Accessory Gearbox",
       "added": 32,
-      "total": 16338
+      "total": 16340
     },
     {
       "name": "Fuel System",
       "added": 38,
-      "total": 16376
+      "total": 16378
     },
     {
       "name": "Oil System",
       "added": 27,
-      "total": 16403
+      "total": 16405
     },
     {
       "name": "Air Bleed System",
       "added": 20,
-      "total": 16423
+      "total": 16425
     },
     {
       "name": "Ignition",
       "added": 4,
-      "total": 16427
+      "total": 16429
     },
     {
       "name": "FADEC & Sensors",
       "added": 110,
-      "total": 16537
+      "total": 16539
     },
     {
       "name": "Wire Harnesses",
       "added": 224,
-      "total": 16761
+      "total": 16763
     },
     {
       "name": "Hydraulic Lines",
       "added": 36,
-      "total": 16797
+      "total": 16799
     },
     {
       "name": "Casings & Cowlings",
-      "added": 8,
-      "total": 16805
+      "added": 25,
+      "total": 16824
     },
     {
       "name": "Pylon & Mounts",
-      "added": 6,
-      "total": 16811
+      "added": 11,
+      "total": 16835
     },
     {
       "name": "Thrust Reverser",
       "added": 16,
-      "total": 16827
+      "total": 16851
     },
     {
       "name": "Exhaust Section",
       "added": 14,
-      "total": 16841
+      "total": 16865
     },
     {
       "name": "Fasteners",
       "added": 1296,
-      "total": 18137
+      "total": 18161
     },
     {
       "name": "Brackets",
       "added": 130,
-      "total": 18267
+      "total": 18291
     },
     {
       "name": "Pipe Fittings",
       "added": 320,
-      "total": 18587
+      "total": 18611
     },
     {
       "name": "Electrical Connectors",
       "added": 180,
-      "total": 18767
+      "total": 18791
     },
     {
       "name": "Drains & Vents",
       "added": 40,
-      "total": 18807
+      "total": 18831
     },
     {
       "name": "Fire Detection",
       "added": 62,
-      "total": 18869
+      "total": 18893
     },
     {
       "name": "Blade Cooling Holes",
       "added": 10600,
-      "total": 29469
+      "total": 29493
     },
     {
       "name": "Maintenance Tags",
       "added": 200,
-      "total": 29669
+      "total": 29693
     }
   ],
   "stats": {
-    "total": 29669,
+    "total": 29693,
     "project": "GE9X",
     "byCategory": {
       "INLE": 18,
-      "FAN": 141,
+      "FAN": 143,
       "LPC": 394,
       "HPC": 1677,
       "COMB": 12066,
@@ -173,8 +173,8 @@
       "FADE": 110,
       "ELEC": 404,
       "HYD": 36,
-      "NAC": 8,
-      "MNT": 206,
+      "NAC": 25,
+      "MNT": 211,
       "TRV": 16,
       "EXH": 14,
       "FAS": 1296,
@@ -190,11 +190,11 @@
       "DSK": 23,
       "BLD": 2028,
       "DVT": 16,
-      "RNG": 2,
+      "RNG": 4,
       "CSG": 9,
       "ABR": 1,
       "OGV": 60,
-      "STR": 16,
+      "STR": 12,
       "PIN": 32,
       "STA": 1672,
       "LIN": 38,
@@ -225,10 +225,16 @@
       "SNS": 108,
       "HRN": 24,
       "SPL": 200,
-      "COW": 4,
-      "FCW": 4,
+      "FCW": 12,
+      "LIP": 1,
+      "ACL": 4,
+      "COW": 8,
+      "PYL": 1,
+      "WAL": 4,
       "FWD": 1,
       "AFT": 1,
+      "TLK": 2,
+      "SLK": 2,
       "CAS": 12,
       "ACT": 4,
       "NOZ": 1,
@@ -245,15 +251,16 @@
       "TAG": 200
     },
     "byMaterial": {
-      "Composite Carbon-Epoxy": 86,
-      "Aluminum 6061-T6": 553,
-      "Steel AISI 4340": 1495,
-      "Titanium Ti-6Al-4V": 1651,
+      "Composite Carbon-Epoxy": 99,
+      "Aluminum 6061-T6": 558,
+      "Steel AISI 4340": 1499,
+      "Titanium Ti-6Al-4V": 1653,
       "ABS Plastic": 1,
       "Inconel 718": 2026,
       "CMC SiC/SiC": 119,
-      "Single-Crystal Nickel CMSX-4": 302,
+      "Single-Crystal Nickel CMSX-4": 182,
       "Air": 22600,
+      "Single-Crystal Nickel CMSX-4 (TBC-coated)": 120,
       "Carbon Fiber Composite": 12,
       "Stainless Steel 316": 598,
       "Copper C11000": 226
@@ -328,5 +335,5 @@
     },
     "totalMassKg": 10012
   },
-  "bomEntries": 7
+  "bomEntries": 8
 }
