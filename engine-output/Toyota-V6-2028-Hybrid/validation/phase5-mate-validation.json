@@ -1,0 +1,360 @@
+{
+  "headA": {
+    "bank": "A",
+    "totalChecks": 14,
+    "passed": 14,
+    "failed": 0,
+    "headBoltAlignment": {
+      "aligned": 12,
+      "total": 12
+    },
+    "mateChecks": [
+      {
+        "check": "head bolt headBoltHole_A_1_1 ↔ headBoltBoss_A_1_1",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_1_2 ↔ headBoltBoss_A_1_2",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_1_3 ↔ headBoltBoss_A_1_3",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_1_4 ↔ headBoltBoss_A_1_4",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_2_1 ↔ headBoltBoss_A_2_1",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_2_2 ↔ headBoltBoss_A_2_2",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_2_3 ↔ headBoltBoss_A_2_3",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_2_4 ↔ headBoltBoss_A_2_4",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_3_1 ↔ headBoltBoss_A_3_1",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_3_2 ↔ headBoltBoss_A_3_2",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_3_3 ↔ headBoltBoss_A_3_3",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_A_3_4 ↔ headBoltBoss_A_3_4",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "deck plane coplanarity",
+        "block_deck_y_mm": 220,
+        "head_bottom_y_mm": 220,
+        "gap_mm": 0,
+        "status": "PASS — coplanar by construction"
+      },
+      {
+        "check": "3 combustion chambers concentric with bores",
+        "tolerance_mm": 0.05,
+        "status": "PASS — chamber centerlines computed from same bank-axis math as block bores"
+      }
+    ]
+  },
+  "headB": {
+    "bank": "B",
+    "totalChecks": 14,
+    "passed": 14,
+    "failed": 0,
+    "headBoltAlignment": {
+      "aligned": 12,
+      "total": 12
+    },
+    "mateChecks": [
+      {
+        "check": "head bolt headBoltHole_B_1_1 ↔ headBoltBoss_B_1_1",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_1_2 ↔ headBoltBoss_B_1_2",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_1_3 ↔ headBoltBoss_B_1_3",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_1_4 ↔ headBoltBoss_B_1_4",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_2_1 ↔ headBoltBoss_B_2_1",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_2_2 ↔ headBoltBoss_B_2_2",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_2_3 ↔ headBoltBoss_B_2_3",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_2_4 ↔ headBoltBoss_B_2_4",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_3_1 ↔ headBoltBoss_B_3_1",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_3_2 ↔ headBoltBoss_B_3_2",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_3_3 ↔ headBoltBoss_B_3_3",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "head bolt headBoltHole_B_3_4 ↔ headBoltBoss_B_3_4",
+        "constraint": "concentric, ±0.10 mm by parametric construction",
+        "status": "PASS"
+      },
+      {
+        "check": "deck plane coplanarity",
+        "block_deck_y_mm": 220,
+        "head_bottom_y_mm": 220,
+        "gap_mm": 0,
+        "status": "PASS — coplanar by construction"
+      },
+      {
+        "check": "3 combustion chambers concentric with bores",
+        "tolerance_mm": 0.05,
+        "status": "PASS — chamber centerlines computed from same bank-axis math as block bores"
+      }
+    ]
+  },
+  "bedplate": {
+    "totalChecks": 6,
+    "passed": 6,
+    "failed": 0,
+    "mainSaddleAlignment": {
+      "aligned": 4,
+      "total": 4
+    },
+    "perimeterBoltAlignment": {
+      "aligned": 8,
+      "total": 8
+    },
+    "mateChecks": [
+      {
+        "check": "main saddle bedplate-mainSaddle_1 ↔ mainSaddle_1",
+        "constraint": "concentric ⌀60 H7, line-bored on assembly",
+        "status": "PASS"
+      },
+      {
+        "check": "main saddle bedplate-mainSaddle_2 ↔ mainSaddle_2",
+        "constraint": "concentric ⌀60 H7, line-bored on assembly",
+        "status": "PASS"
+      },
+      {
+        "check": "main saddle bedplate-mainSaddle_3 ↔ mainSaddle_3",
+        "constraint": "concentric ⌀60 H7, line-bored on assembly",
+        "status": "PASS"
+      },
+      {
+        "check": "main saddle bedplate-mainSaddle_4 ↔ mainSaddle_4",
+        "constraint": "concentric ⌀60 H7, line-bored on assembly",
+        "status": "PASS"
+      },
+      {
+        "check": "8 bedplate perimeter bolts ↔ block parting flange",
+        "constraint": "8 × M10 × 1.5, ±0.15 mm true position around flange perimeter",
+        "status": "PASS"
+      },
+      {
+        "check": "parting plane Y=0 (crank centerline)",
+        "block_face_y_mm": 0,
+        "bedplate_top_y_mm": 0,
+        "flatness_spec_mm": 0.05,
+        "status": "PASS — coplanar by construction; flatness specified for both surfaces"
+      }
+    ]
+  },
+  "crank": {
+    "totalChecks": 5,
+    "passed": 5,
+    "failed": 0,
+    "mainJournalAlignment": {
+      "aligned": 4,
+      "total": 4
+    },
+    "mateChecks": [
+      {
+        "check": "crank-mainJournal_1 ↔ mainSaddle_1 + bedplate-mainSaddle_1",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "crank-mainJournal_2 ↔ mainSaddle_2 + bedplate-mainSaddle_2",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "crank-mainJournal_3 ↔ mainSaddle_3 + bedplate-mainSaddle_3",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "crank-mainJournal_4 ↔ mainSaddle_4 + bedplate-mainSaddle_4",
+        "constraint": "concentric ⌀60 H7 (block upper + bedplate lower line-bored on assembly)",
+        "clearance_um": "25-60",
+        "status": "PASS"
+      },
+      {
+        "check": "6 rod journals at stroke radius 43.35 mm",
+        "constraint": "120° throw angles (V6 even-fire), parametric position",
+        "status": "PASS"
+      }
+    ]
+  },
+  "pistonRod": {
+    "totalChecks": 18,
+    "passed": 18,
+    "failed": 0,
+    "pistonsAligned": 6,
+    "totalPistons": 6,
+    "rodsAligned": 6,
+    "totalRods": 6,
+    "pinsAligned": 6,
+    "totalPins": 6,
+    "mateChecks": [
+      {
+        "check": "piston_A1 ↔ liner_A_1",
+        "constraint": "clearance 50 µm (Ø92.45 piston in Ø92.5 liner)",
+        "status": "PASS"
+      },
+      {
+        "check": "piston_A2 ↔ liner_A_2",
+        "constraint": "clearance 50 µm (Ø92.45 piston in Ø92.5 liner)",
+        "status": "PASS"
+      },
+      {
+        "check": "piston_A3 ↔ liner_A_3",
+        "constraint": "clearance 50 µm (Ø92.45 piston in Ø92.5 liner)",
+        "status": "PASS"
+      },
+      {
+        "check": "piston_B1 ↔ liner_B_1",
+        "constraint": "clearance 50 µm (Ø92.45 piston in Ø92.5 liner)",
+        "status": "PASS"
+      },
+      {
+        "check": "piston_B2 ↔ liner_B_2",
+        "constraint": "clearance 50 µm (Ø92.45 piston in Ø92.5 liner)",
+        "status": "PASS"
+      },
+      {
+        "check": "piston_B3 ↔ liner_B_3",
+        "constraint": "clearance 50 µm (Ø92.45 piston in Ø92.5 liner)",
+        "status": "PASS"
+      },
+      {
+        "check": "rod_A1 big-end ↔ crank-rodJournal_A_1",
+        "constraint": "concentric ⌀50 H7, clearance 25-60 µm with rod bearing",
+        "status": "PASS"
+      },
+      {
+        "check": "rod_A2 big-end ↔ crank-rodJournal_A_2",
+        "constraint": "concentric ⌀50 H7, clearance 25-60 µm with rod bearing",
+        "status": "PASS"
+      },
+      {
+        "check": "rod_A3 big-end ↔ crank-rodJournal_A_3",
+        "constraint": "concentric ⌀50 H7, clearance 25-60 µm with rod bearing",
+        "status": "PASS"
+      },
+      {
+        "check": "rod_B1 big-end ↔ crank-rodJournal_B_1",
+        "constraint": "concentric ⌀50 H7, clearance 25-60 µm with rod bearing",
+        "status": "PASS"
+      },
+      {
+        "check": "rod_B2 big-end ↔ crank-rodJournal_B_2",
+        "constraint": "concentric ⌀50 H7, clearance 25-60 µm with rod bearing",
+        "status": "PASS"
+      },
+      {
+        "check": "rod_B3 big-end ↔ crank-rodJournal_B_3",
+        "constraint": "concentric ⌀50 H7, clearance 25-60 µm with rod bearing",
+        "status": "PASS"
+      },
+      {
+        "check": "wristPin_A1 ↔ piston pin bore + rod small-end",
+        "constraint": "fully-floating Ø24 h6, retained by 2 circlips",
+        "status": "PASS"
+      },
+      {
+        "check": "wristPin_A2 ↔ piston pin bore + rod small-end",
+        "constraint": "fully-floating Ø24 h6, retained by 2 circlips",
+        "status": "PASS"
+      },
+      {
+        "check": "wristPin_A3 ↔ piston pin bore + rod small-end",
+        "constraint": "fully-floating Ø24 h6, retained by 2 circlips",
+        "status": "PASS"
+      },
+      {
+        "check": "wristPin_B1 ↔ piston pin bore + rod small-end",
+        "constraint": "fully-floating Ø24 h6, retained by 2 circlips",
+        "status": "PASS"
+      },
+      {
+        "check": "wristPin_B2 ↔ piston pin bore + rod small-end",
+        "constraint": "fully-floating Ø24 h6, retained by 2 circlips",
+        "status": "PASS"
+      },
+      {
+        "check": "wristPin_B3 ↔ piston pin bore + rod small-end",
+        "constraint": "fully-floating Ø24 h6, retained by 2 circlips",
+        "status": "PASS"
+      }
+    ]
+  }
+}
