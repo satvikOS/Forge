@@ -27,7 +27,7 @@
     "item": 4,
     "name": "Cylinder",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 5381,
+    "qty": 19253,
     "mass": 282.10640433607574,
     "volume": 0.10448385345780584
   },
@@ -35,7 +35,7 @@
     "item": 5,
     "name": "Box",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 6684,
+    "qty": 6710,
     "mass": 9.782268750000002,
     "volume": 0.003623062500000001
   },
@@ -43,7 +43,7 @@
     "item": 6,
     "name": "Torus",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 27,
+    "qty": 127,
     "mass": 0,
     "volume": 0
   },

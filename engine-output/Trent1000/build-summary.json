@@ -1,9 +1,9 @@
 {
   "engine": "Rolls-Royce Trent 1000",
-  "totalComponents": 16126,
-  "buildTimeSec": 0.603,
-  "totalMassKg": 129434.92,
-  "bomEntries": 34,
+  "totalComponents": 30224,
+  "buildTimeSec": 1.055,
+  "totalMassKg": 129471.51,
+  "bomEntries": 35,
   "sections": [
     {
       "name": "Inlet & Spinner",
@@ -27,106 +27,136 @@
     },
     {
       "name": "Combustor",
-      "added": 5428,
-      "total": 8992
+      "added": 12428,
+      "total": 15992
     },
     {
       "name": "HP Turbine",
       "added": 466,
-      "total": 9458
+      "total": 16458
     },
     {
       "name": "IP Turbine",
       "added": 289,
-      "total": 9747
+      "total": 16747
     },
     {
       "name": "LP Turbine",
       "added": 2346,
-      "total": 12093
+      "total": 19093
     },
     {
       "name": "Bearings & Seals",
       "added": 93,
-      "total": 12186
+      "total": 19186
     },
     {
       "name": "Shafts & Couplings",
       "added": 12,
-      "total": 12198
+      "total": 19198
     },
     {
       "name": "Accessory Gearbox",
       "added": 146,
-      "total": 12344
+      "total": 19344
     },
     {
       "name": "Fuel System",
       "added": 18,
-      "total": 12362
+      "total": 19362
     },
     {
       "name": "Oil System",
       "added": 33,
-      "total": 12395
+      "total": 19395
     },
     {
       "name": "Air System",
       "added": 18,
-      "total": 12413
+      "total": 19413
     },
     {
       "name": "Ignition System",
       "added": 8,
-      "total": 12421
+      "total": 19421
     },
     {
       "name": "FADEC & Sensors",
       "added": 32,
-      "total": 12453
+      "total": 19453
     },
     {
       "name": "Wire Harnesses",
       "added": 60,
-      "total": 12513
+      "total": 19513
     },
     {
       "name": "Hydraulic Lines",
       "added": 16,
-      "total": 12529
+      "total": 19529
     },
     {
       "name": "Casings & Cowlings",
       "added": 13,
-      "total": 12542
+      "total": 19542
     },
     {
       "name": "Pylon & Mounts",
       "added": 44,
-      "total": 12586
+      "total": 19586
     },
     {
       "name": "Thrust Reverser",
       "added": 37,
-      "total": 12623
+      "total": 19623
     },
     {
       "name": "Exhaust Section",
       "added": 23,
-      "total": 12646
+      "total": 19646
     },
     {
       "name": "Fasteners",
       "added": 3456,
-      "total": 16102
+      "total": 23102
+    },
+    {
+      "name": "Brackets",
+      "added": 125,
+      "total": 23227
+    },
+    {
+      "name": "Pipe Fittings",
+      "added": 300,
+      "total": 23527
+    },
+    {
+      "name": "Electrical Connectors",
+      "added": 160,
+      "total": 23687
+    },
+    {
+      "name": "Drains & Vents",
+      "added": 17,
+      "total": 23704
+    },
+    {
+      "name": "Fire Detection & Suppression",
+      "added": 56,
+      "total": 23760
+    },
+    {
+      "name": "Blade Cooling Holes",
+      "added": 6440,
+      "total": 30200
     },
     {
       "name": "Maintenance Tags",
       "added": 24,
-      "total": 16126
+      "total": 30224
     }
   ],
-  "buildDate": "2026-05-09T07:18:51.424Z",
+  "buildDate": "2026-05-09T07:22:00.846Z",
   "builderVersion": "Trent1000Builder v2",
   "kernelVersion": "1.21.0"
 }

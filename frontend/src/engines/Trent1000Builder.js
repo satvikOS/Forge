@@ -84,6 +84,12 @@ export default class Trent1000Builder {
       { name: 'Thrust Reverser', fn: 'buildThrustReverser' },
       { name: 'Exhaust Section', fn: 'buildExhaust' },
       { name: 'Fasteners', fn: 'buildFasteners' },
+      { name: 'Brackets', fn: 'buildBrackets' },
+      { name: 'Pipe Fittings', fn: 'buildPipeFittings' },
+      { name: 'Electrical Connectors', fn: 'buildElectricalConnectors' },
+      { name: 'Drains & Vents', fn: 'buildDrainsAndVents' },
+      { name: 'Fire Detection & Suppression', fn: 'buildFireSystem' },
+      { name: 'Blade Cooling Holes', fn: 'buildBladeCoolingHoles' },
       { name: 'Maintenance Tags', fn: 'buildMaintenanceTags' },
     ];
 
@@ -586,22 +592,22 @@ export default class Trent1000Builder {
       }
     }
 
-    // 5000 effusion cooling holes — distributed across outer + inner liners
-    // (real Trent 1000 has ~10,000+ cooling holes)
-    const N_COOLING_HOLES = 5000;
+    // 12,000 effusion cooling holes — Trent 1000 lean-burn has ~10-15k holes
+    const N_COOLING_HOLES = 12000;
     const HOLE_DIA = 0.0008;
+    // Distribute across outer + inner liners with realistic patterns
+    // 60 axial rows × 100 circumferential × 2 liners = 12,000
     for (let i = 0; i < N_COOLING_HOLES; i++) {
-      // Distribute as 50 axial × 100 circumferential rings on each liner
-      const ring = i % 50;        // 0-49
-      const idx = Math.floor(i / 50) % 100; // 0-99
-      const liner = Math.floor(i / (50 * 100)); // 0=outer, 1=inner
+      const ring = i % 60;
+      const idx = Math.floor(i / 60) % 100;
+      const liner = Math.floor(i / (60 * 100));
 
       const radius = liner === 0 ? 0.345 : 0.255;
       const angle = (idx / 100) * 2 * PI;
-      const z = Z_CENTER - 0.225 + ring * 0.009;
+      const z = Z_CENTER - 0.225 + ring * 0.0075;
 
-      const hole = PrimitiveBuilder.cylinder(HOLE_DIA, 0.005, 6);
-      t.addPart(hole, `Cooling Hole ${liner === 0 ? 'O' : 'I'}${ring}-${idx}`, {
+      const hole = PrimitiveBuilder.cylinder(HOLE_DIA, 0.005, 4);
+      t.addPart(hole, `Comb ${liner === 0 ? 'Outer' : 'Inner'} Cool Hole R${ring}-${idx}`, {
         color: 0x111111,
         position: new Vec3(Math.cos(angle) * radius, Math.sin(angle) * radius, z),
         material: 'Inconel 718',
@@ -1626,6 +1632,235 @@ export default class Trent1000Builder {
         });
         totalBolts += 3;
       }
+    }
+  }
+
+  // ==========================================================================
+  // ENGINE COOLING HOLES on turbine blades — each HPT/IPT/LPT blade has
+  // internal cooling channels exiting through ~30 surface holes
+  // ==========================================================================
+  static buildBladeCoolingHoles(t) {
+    // HPT blades: 30 holes each × 76 blades = 2,280
+    for (let bi = 0; bi < 76; bi++) {
+      const angle = (bi / 76) * 2 * PI;
+      for (let h = 0; h < 30; h++) {
+        const hr = 0.450 + Math.sin(h * 0.5) * 0.005;
+        const hz = 2.78 + (h - 15) * 0.0025;
+        const hole = PrimitiveBuilder.cylinder(0.0006, 0.003, 4);
+        t.addPart(hole, `HPT B${bi + 1} Cool Hole ${h + 1}`, {
+          color: 0x111111,
+          position: new Vec3(Math.cos(angle) * hr, Math.sin(angle) * hr, hz),
+          material: 'Inconel 718',
+        });
+      }
+    }
+    // IPT blades: 20 holes each × 80 blades = 1,600
+    for (let bi = 0; bi < 80; bi++) {
+      const angle = (bi / 80) * 2 * PI;
+      for (let h = 0; h < 20; h++) {
+        const hole = PrimitiveBuilder.cylinder(0.0006, 0.003, 4);
+        t.addPart(hole, `IPT B${bi + 1} Cool Hole ${h + 1}`, {
+          color: 0x111111,
+          position: new Vec3(
+            Math.cos(angle) * 0.555,
+            Math.sin(angle) * 0.555,
+            2.95 + (h - 10) * 0.003
+          ),
+          material: 'Inconel 718',
+        });
+      }
+    }
+    // NGV cooling holes: 40 holes per NGV × 64 NGVs (HPT) = 2,560
+    for (let v = 0; v < 64; v++) {
+      const angle = (v / 64) * 2 * PI;
+      for (let h = 0; h < 40; h++) {
+        const hole = PrimitiveBuilder.cylinder(0.0006, 0.003, 4);
+        t.addPart(hole, `HPT NGV${v + 1} Cool Hole ${h + 1}`, {
+          color: 0x111111,
+          position: new Vec3(
+            Math.cos(angle) * 0.450,
+            Math.sin(angle) * 0.450,
+            2.72 + (h - 20) * 0.002
+          ),
+          material: 'Inconel 718',
+        });
+      }
+    }
+  }
+
+  // ==========================================================================
+  // BRACKETS — accessory mounting brackets, support brackets
+  // ==========================================================================
+  static buildBrackets(t) {
+    const bracketLocations = [
+      { name: 'IDG Mount Bracket', pos: [0.55, -0.50, 1.30] },
+      { name: 'Hyd Pump Mount Bracket', pos: [0.55, -0.40, 1.30] },
+      { name: 'Fuel Pump Mount Bracket', pos: [0.55, -0.30, 1.30] },
+      { name: 'Oil Pump Mount Bracket', pos: [0.55, -0.20, 1.30] },
+      { name: 'Starter Mount Bracket', pos: [0.55, -0.10, 1.30] },
+      { name: 'PMA Mount Bracket', pos: [0.55, 0.00, 1.30] },
+      { name: 'FADEC A Mount Bracket', pos: [0.65, 0.30, 1.10] },
+      { name: 'FADEC B Mount Bracket', pos: [0.65, 0.45, 1.10] },
+      { name: 'Oil Tank Mount Bracket', pos: [0.55, 0.40, 1.30] },
+      { name: 'Fuel Filter Mount Bracket', pos: [0.45, -0.20, 1.85] },
+      { name: 'Wire Harness Clamp Bracket Fwd', pos: [0.45, 0.0, 1.0] },
+      { name: 'Wire Harness Clamp Bracket Mid', pos: [0.45, 0.0, 2.0] },
+      { name: 'Wire Harness Clamp Bracket Aft', pos: [0.45, 0.0, 3.5] },
+      { name: 'Hyd Manifold Bracket', pos: [0.50, 0.30, 1.5] },
+      { name: 'Bleed Air Duct Bracket Fwd', pos: [0.55, 0, 1.50] },
+      { name: 'Bleed Air Duct Bracket Mid', pos: [0.55, 0, 2.20] },
+      { name: 'Bleed Air Duct Bracket Aft', pos: [0.55, 0, 2.90] },
+      { name: 'Anti-Ice Valve Bracket', pos: [0.50, -0.40, 0.80] },
+      { name: 'Fire Detection Loop Bracket Fwd', pos: [0.40, 0.40, 0.80] },
+      { name: 'Fire Detection Loop Bracket Mid', pos: [0.40, 0.40, 2.00] },
+      { name: 'Fire Detection Loop Bracket Aft', pos: [0.40, 0.40, 3.50] },
+      { name: 'Drain Mast Bracket', pos: [0.0, -0.65, 2.50] },
+      { name: 'External Speed Pickup Bracket LP', pos: [0.20, 0, 0.20] },
+      { name: 'External Speed Pickup Bracket IP', pos: [0.20, 0, 0.50] },
+      { name: 'External Speed Pickup Bracket HP', pos: [0.20, 0, 0.80] },
+    ];
+    for (const b of bracketLocations) {
+      const bracket = PrimitiveBuilder.box(0.080, 0.040, 0.060);
+      t.addPart(bracket, b.name, {
+        color: 0x666666, position: new Vec3(b.pos[0], b.pos[1], b.pos[2]),
+        material: 'Aluminum 6061-T6',
+      });
+      // Each bracket has 4 mounting bolts
+      for (let i = 0; i < 4; i++) {
+        const bolt = FastenerLibrary.hexBolt('M8', 0.020);
+        t.addPart(bolt.head, `${b.name} Bolt ${i + 1}`, {
+          color: 0x444444,
+          position: new Vec3(
+            b.pos[0] + (i % 2) * 0.060 - 0.030,
+            b.pos[1] + Math.floor(i / 2) * 0.030 - 0.015,
+            b.pos[2] - 0.030
+          ),
+          material: 'Steel AISI 4340',
+        });
+      }
+    }
+  }
+
+  // ==========================================================================
+  // FIRE DETECTION + SUPPRESSION SYSTEM
+  // ==========================================================================
+  static buildFireSystem(t) {
+    // Fire detection loops (2 around engine, redundant)
+    for (let loop = 0; loop < 2; loop++) {
+      for (let seg = 0; seg < 24; seg++) {
+        const angle = (seg / 24) * 2 * PI;
+        const segLine = PrimitiveBuilder.cylinder(0.005, 0.150, 8);
+        t.addPart(segLine, `Fire Detection Loop ${loop + 1} Seg ${seg + 1}`, {
+          color: 0xff0000,
+          position: new Vec3(
+            Math.cos(angle) * (0.55 + loop * 0.02),
+            Math.sin(angle) * (0.55 + loop * 0.02),
+            0.5 + (seg % 6) * 0.7
+          ),
+          material: 'Stainless Steel 316',
+        });
+      }
+    }
+    // Fire suppression nozzles (8 around core)
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * 2 * PI;
+      const nozzle = PrimitiveBuilder.cylinder(0.012, 0.040, 12);
+      t.addPart(nozzle, `Fire Suppression Nozzle ${i + 1}`, {
+        color: 0xff6600,
+        position: new Vec3(Math.cos(angle) * 0.50, Math.sin(angle) * 0.50, 1.5 + (i % 4) * 0.5),
+        material: 'Stainless Steel 316',
+      });
+    }
+  }
+
+  // ==========================================================================
+  // MORE FUEL SYSTEM DETAIL — pipe fittings, T-junctions, elbows
+  // ==========================================================================
+  static buildPipeFittings(t) {
+    // 200 pipe elbow/T fittings throughout fuel/oil/hyd systems
+    for (let i = 0; i < 200; i++) {
+      const fitting = PrimitiveBuilder.cylinder(0.015, 0.030, 16);
+      t.addPart(fitting, `Pipe Fitting ${i + 1}`, {
+        color: 0x666666,
+        position: new Vec3(
+          0.40 + (i % 10) * 0.025,
+          -0.45 + Math.floor((i % 100) / 10) * 0.030,
+          1.0 + Math.floor(i / 100) * 0.30
+        ),
+        material: 'Stainless Steel 316',
+      });
+    }
+
+    // 100 hose clamps
+    for (let i = 0; i < 100; i++) {
+      const clamp = PrimitiveBuilder.torus(0.012, 0.003, 16, 8);
+      t.addPart(clamp, `Hose Clamp ${i + 1}`, {
+        color: 0x888888,
+        position: new Vec3(
+          0.40 + (i % 10) * 0.030,
+          -0.40 + Math.floor((i % 50) / 10) * 0.040,
+          1.5 + Math.floor(i / 50) * 0.50
+        ),
+        material: 'Stainless Steel 316',
+      });
+    }
+  }
+
+  // ==========================================================================
+  // ENGINE ELECTRICAL CONNECTORS — all standard MIL-DTL connectors
+  // ==========================================================================
+  static buildElectricalConnectors(t) {
+    const connectorTypes = [
+      'M12 Circular',
+      'MIL-DTL-38999',
+      'MIL-DTL-26482',
+      'Backshell',
+      'Strain Relief',
+      'Self-Locking',
+    ];
+    // 160 connectors throughout engine
+    for (let i = 0; i < 160; i++) {
+      const type = connectorTypes[i % connectorTypes.length];
+      const conn = PrimitiveBuilder.cylinder(0.015, 0.030, 12);
+      t.addPart(conn, `Connector ${i + 1} (${type})`, {
+        color: 0x224488,
+        position: new Vec3(
+          0.30 + (i % 20) * 0.020,
+          -0.50 + Math.floor((i % 80) / 20) * 0.030,
+          0.5 + Math.floor(i / 80) * 1.5
+        ),
+        material: 'Aluminum 6061-T6',
+      });
+    }
+  }
+
+  // ==========================================================================
+  // DRAINS, BREATHERS, VENTS
+  // ==========================================================================
+  static buildDrainsAndVents(t) {
+    // Drain mast (collects fluid drains, dumps overboard)
+    const drainMast = PrimitiveBuilder.box(0.050, 0.300, 0.080);
+    t.addPart(drainMast, 'Drain Mast (Overboard)', {
+      color: 0x444444, position: new Vec3(0, -0.65, 2.50),
+      material: 'Aluminum 6061-T6',
+    });
+
+    // Drain lines from various locations
+    const drains = [
+      'Compressor Case Drain', 'Combustor Drain', 'Turbine Section Drain',
+      'Oil Tank Drain', 'Fuel Manifold Drain Primary', 'Fuel Manifold Drain Secondary',
+      'IDG Oil Drain', 'Hyd Pump Case Drain', 'Fuel Filter Drain',
+      'Oil Filter Drain', 'Starter Drain', 'Bearing Compartment Drain 1',
+      'Bearing Compartment Drain 2', 'Bearing Compartment Drain 3',
+      'Bearing Compartment Drain 4', 'Bearing Compartment Drain 5',
+    ];
+    for (let i = 0; i < drains.length; i++) {
+      const line = PrimitiveBuilder.cylinder(0.008, 0.300, 12);
+      t.addPart(line, drains[i], {
+        color: 0x555555,
+        position: new Vec3(0.05 + (i % 4) * 0.04, -0.55 + Math.floor(i / 4) * 0.05, 1.0 + (i % 4) * 0.5),
+        material: 'Stainless Steel 316',
+      });
     }
   }
 
