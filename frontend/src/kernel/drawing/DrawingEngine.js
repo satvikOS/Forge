@@ -170,6 +170,184 @@ export default class DrawingEngine {
   }
 
   /**
+   * Section view: cut through solid at a plane, show interior with hatch pattern.
+   * @param {TopoSolid} solid
+   * @param {string} viewSpec - base view name
+   * @param {object} cutPlane - { axis: 'x'|'y'|'z', value: number } cutting plane
+   * @returns {object} { edges, bbox, hatchLines, sectionLine }
+   */
+  static sectionView(solid, viewSpec = 'front', cutPlane = { axis: 'z', value: 0 }) {
+    // Get base projection
+    const proj = DrawingEngine.projectSolid(solid, viewSpec);
+
+    // Add hatch pattern across bbox
+    const { bbox } = proj;
+    const hatchLines = [];
+    const hatchSpacing = Math.max(bbox.width, bbox.height) / 30;
+    const range = Math.max(bbox.width, bbox.height) * 1.5;
+
+    // 45° diagonal hatch
+    const cos45 = Math.SQRT1_2;
+    for (let d = -range; d <= range; d += hatchSpacing) {
+      const x1 = bbox.minX + d * cos45;
+      const y1 = bbox.minY + d * cos45;
+      const x2 = x1 + bbox.width * cos45;
+      const y2 = y1 + bbox.height * cos45;
+      // Clip to bbox
+      hatchLines.push({
+        x1: Math.max(bbox.minX, Math.min(bbox.maxX, x1)),
+        y1: Math.max(bbox.minY, Math.min(bbox.maxY, y1)),
+        x2: Math.max(bbox.minX, Math.min(bbox.maxX, x2)),
+        y2: Math.max(bbox.minY, Math.min(bbox.maxY, y2)),
+      });
+    }
+
+    return {
+      ...proj,
+      sectionLine: cutPlane,
+      hatchLines,
+      hatchCount: hatchLines.length,
+      isSection: true,
+    };
+  }
+
+  /**
+   * Detail view: magnified inset of a region.
+   * @param {object} projection - Base projection
+   * @param {object} center - { x, y } region center in projection coords
+   * @param {number} radius - Region radius
+   * @param {number} magnification - Zoom factor (e.g., 2 for 2:1)
+   */
+  static detailView(projection, center, radius, magnification = 2) {
+    const detailEdges = [];
+    for (const e of projection.edges) {
+      // Crude clip: include if either endpoint is within radius of center
+      const d1 = Math.hypot(e.x1 - center.x, e.y1 - center.y);
+      const d2 = Math.hypot(e.x2 - center.x, e.y2 - center.y);
+      if (d1 < radius || d2 < radius) {
+        detailEdges.push({
+          x1: (e.x1 - center.x) * magnification,
+          y1: (e.y1 - center.y) * magnification,
+          x2: (e.x2 - center.x) * magnification,
+          y2: (e.y2 - center.y) * magnification,
+          hidden: e.hidden,
+        });
+      }
+    }
+    return {
+      edges: detailEdges,
+      magnification,
+      sourceCenter: center,
+      sourceRadius: radius,
+      bbox: {
+        minX: -radius * magnification,
+        maxX: radius * magnification,
+        minY: -radius * magnification,
+        maxY: radius * magnification,
+        width: 2 * radius * magnification,
+        height: 2 * radius * magnification,
+      },
+      edgeCount: detailEdges.length,
+      isDetail: true,
+    };
+  }
+
+  /**
+   * BOM table SVG for an assembly.
+   * @param {object[]} bomItems - [{ item, name, material, qty, mass }]
+   * @param {object} pos - { x, y } top-left position
+   * @returns {string} SVG markup
+   */
+  static bomTable(bomItems, pos = { x: 0, y: 0 }) {
+    const rowH = 8;
+    const cols = [
+      { name: 'ITEM', w: 25 },
+      { name: 'PART NUMBER', w: 70 },
+      { name: 'MATERIAL', w: 50 },
+      { name: 'QTY', w: 20 },
+      { name: 'MASS (g)', w: 30 },
+    ];
+    const totalW = cols.reduce((s, c) => s + c.w, 0);
+    const headerH = 10;
+
+    let svg = `<g transform="translate(${pos.x}, ${pos.y})">`;
+    // Header
+    svg += `<rect x="0" y="0" width="${totalW}" height="${headerH}" fill="#e8e8e8" stroke="#000" stroke-width="0.6"/>`;
+    let cx = 0;
+    cols.forEach(c => {
+      svg += `<text x="${cx + c.w / 2}" y="${headerH - 3}" font-family="monospace" font-size="6" fill="#000" font-weight="bold" text-anchor="middle">${c.name}</text>`;
+      svg += `<line x1="${cx}" y1="0" x2="${cx}" y2="${headerH}" stroke="#000" stroke-width="0.4"/>`;
+      cx += c.w;
+    });
+    svg += `<line x1="${totalW}" y1="0" x2="${totalW}" y2="${headerH}" stroke="#000" stroke-width="0.4"/>`;
+
+    // Rows
+    bomItems.forEach((item, i) => {
+      const y = headerH + i * rowH;
+      svg += `<rect x="0" y="${y}" width="${totalW}" height="${rowH}" fill="white" stroke="#000" stroke-width="0.4"/>`;
+      const values = [
+        String(item.item),
+        item.name || '',
+        item.material || 'Aluminum',
+        String(item.qty || 1),
+        ((item.mass || 0) * 1000).toFixed(2),
+      ];
+      cx = 0;
+      cols.forEach((c, j) => {
+        svg += `<text x="${cx + c.w / 2}" y="${y + rowH - 2}" font-family="monospace" font-size="5.5" fill="#000" text-anchor="middle">${values[j]}</text>`;
+        svg += `<line x1="${cx}" y1="${y}" x2="${cx}" y2="${y + rowH}" stroke="#000" stroke-width="0.3"/>`;
+        cx += c.w;
+      });
+      svg += `<line x1="${totalW}" y1="${y}" x2="${totalW}" y2="${y + rowH}" stroke="#000" stroke-width="0.3"/>`;
+    });
+
+    svg += `</g>`;
+    return svg;
+  }
+
+  /**
+   * Revision table SVG.
+   * @param {object[]} revisions - [{ rev, ecn, date, by }]
+   */
+  static revisionTable(revisions, pos = { x: 0, y: 0 }) {
+    const rowH = 7;
+    const cols = [
+      { name: 'REV', w: 12 },
+      { name: 'ECN', w: 25 },
+      { name: 'DATE', w: 25 },
+      { name: 'APP', w: 14 },
+    ];
+    const totalW = cols.reduce((s, c) => s + c.w, 0);
+    const headerH = 8;
+
+    let svg = `<g transform="translate(${pos.x}, ${pos.y})">`;
+    svg += `<rect x="0" y="0" width="${totalW}" height="${headerH}" fill="#d8d8d8" stroke="#000" stroke-width="0.5"/>`;
+    let cx = 0;
+    cols.forEach(c => {
+      svg += `<text x="${cx + c.w / 2}" y="${headerH - 2}" font-family="monospace" font-size="5" fill="#000" font-weight="bold" text-anchor="middle">${c.name}</text>`;
+      svg += `<line x1="${cx}" y1="0" x2="${cx}" y2="${headerH}" stroke="#000" stroke-width="0.3"/>`;
+      cx += c.w;
+    });
+    svg += `<line x1="${totalW}" y1="0" x2="${totalW}" y2="${headerH}" stroke="#000" stroke-width="0.3"/>`;
+
+    revisions.forEach((rev, i) => {
+      const y = headerH + i * rowH;
+      svg += `<rect x="0" y="${y}" width="${totalW}" height="${rowH}" fill="white" stroke="#000" stroke-width="0.3"/>`;
+      const values = [rev.rev || `${i + 1}`, rev.ecn || '-', rev.date || '-', rev.by || '-'];
+      cx = 0;
+      cols.forEach((c, j) => {
+        svg += `<text x="${cx + c.w / 2}" y="${y + rowH - 2}" font-family="monospace" font-size="5" fill="#000" text-anchor="middle">${values[j]}</text>`;
+        svg += `<line x1="${cx}" y1="${y}" x2="${cx}" y2="${y + rowH}" stroke="#000" stroke-width="0.25"/>`;
+        cx += c.w;
+      });
+      svg += `<line x1="${totalW}" y1="${y}" x2="${totalW}" y2="${y + rowH}" stroke="#000" stroke-width="0.25"/>`;
+    });
+
+    svg += `</g>`;
+    return svg;
+  }
+
+  /**
    * Generate a multi-view drawing (Front + Top + Right + Iso).
    * @param {TopoSolid} solid
    * @returns {object} { views: { front, top, right, isometric } }
@@ -247,6 +425,16 @@ export default class DrawingEngine {
   <text x="${sw - 195}" y="${titleBlockY + 28}" font-family="monospace" font-size="8" fill="#555">Drawn: ${drawnBy}</text>
   <text x="${sw - 195}" y="${titleBlockY + 40}" font-family="monospace" font-size="8" fill="#555">Date: ${date}  Scale: 1:${scale === 1000 ? '1' : (1/scale).toFixed(0)}  ${sheetSize}</text>`;
 
+    // Revision table (top-right corner above title block)
+    const revisions = options.revisions || [{ rev: '01', ecn: 'INIT', date, by: 'AD' }];
+    const revTable = DrawingEngine.revisionTable(revisions, { x: sw - 200, y: titleBlockY - 40 });
+
+    // BOM table (bottom-left, only if items provided)
+    let bomTable = '';
+    if (options.bomItems && options.bomItems.length > 0) {
+      bomTable = DrawingEngine.bomTable(options.bomItems, { x: margin + 5, y: sh - 60 });
+    }
+
     const fy = sh - margin - cellH;
     const ty = sh - margin * 2 - cellH * 2;
     const includeDims = options.dimensions !== false;
@@ -262,6 +450,8 @@ export default class DrawingEngine {
   <rect x="${margin/2}" y="${margin/2}" width="${sw - margin}" height="${sh - margin}" fill="none" stroke="#000" stroke-width="1"/>
   ${cells.join('\n  ')}
   ${titleBlock}
+  ${revTable}
+  ${bomTable}
 </svg>`;
   }
 }

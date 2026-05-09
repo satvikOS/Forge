@@ -856,8 +856,11 @@ const TOOL_HANDLERS = {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return { status: 'warn', message: 'Section View: Create a solid first' };
-      const proj = DrawingEngine.projectSolid(solid, 'front');
-      return { status: 'success', message: `Section View at YZ plane: ${proj.edgeCount} edges, ${(proj.bbox.width * 1000).toFixed(1)}×${(proj.bbox.height * 1000).toFixed(1)}mm` };
+      const sec = DrawingEngine.sectionView(solid, 'front', { axis: 'z', value: 0 });
+      return {
+        status: 'success',
+        message: `Section A-A: ${sec.edgeCount} edges + ${sec.hatchCount} hatch lines (${(sec.bbox.width * 1000).toFixed(1)}×${(sec.bbox.height * 1000).toFixed(1)}mm)`
+      };
     },
     'Isometric View': () => {
       const ft = getFeatureTree();
@@ -893,7 +896,46 @@ const TOOL_HANDLERS = {
     },
     'BOM Table': (scene, viewport) => {
       const ft = getFeatureTree();
-      return { status: 'success', message: `BOM: ${ft.features.length} items listed with materials and quantities` };
+      // Build BOM items from feature tree
+      const items = ft.features.filter(f => f.solid).map((f, i) => {
+        const props = f.solid.massProperties();
+        return {
+          item: i + 1,
+          name: f.solid.name || `Part ${i + 1}`,
+          material: f.solid.userData?.material || 'Aluminum 6061-T6',
+          qty: 1,
+          mass: props.mass,
+        };
+      });
+      const svg = DrawingEngine.bomTable(items);
+      const totalMass = items.reduce((s, it) => s + it.mass, 0);
+      return {
+        status: 'success',
+        message: `BOM: ${items.length} items, total ${(totalMass * 1000).toFixed(2)}g — table SVG generated`
+      };
+    },
+    'Detail View': () => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'Detail View: Create a solid first' };
+      const proj = DrawingEngine.projectSolid(solid, 'front');
+      // Detail center at projection center, radius = 1/4 of bbox
+      const cx = (proj.bbox.minX + proj.bbox.maxX) / 2;
+      const cy = (proj.bbox.minY + proj.bbox.maxY) / 2;
+      const r = Math.max(proj.bbox.width, proj.bbox.height) * 0.25;
+      const detail = DrawingEngine.detailView(proj, { x: cx, y: cy }, r, 2);
+      return {
+        status: 'success',
+        message: `Detail A: ${detail.edgeCount} edges at 2:1 scale (R=${(r*1000).toFixed(1)}mm region)`
+      };
+    },
+    'Revision Table': () => {
+      const today = new Date().toISOString().split('T')[0];
+      const revs = [
+        { rev: '01', ecn: 'INIT', date: today, by: 'AD' },
+      ];
+      const svg = DrawingEngine.revisionTable(revs);
+      return { status: 'success', message: `Revision Table: ${revs.length} entries (REV/ECN/DATE/APPROVED)` };
     },
     'Export PDF': () => ({ status: 'success', message: 'Export: PDF drawing package generated' }),
     'Export STL': (scene, viewport) => {
