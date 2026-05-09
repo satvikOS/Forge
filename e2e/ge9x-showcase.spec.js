@@ -96,36 +96,36 @@ test('GE9X showcase: PBR materials + studio lighting + multi-angle renders', asy
 
   const c = setup.bbox.center;
   const sx = setup.bbox.size[0], sy = setup.bbox.size[1], sz = setup.bbox.size[2];
-  const dist = Math.max(sx, sy, sz);
+  const dist = Math.max(sx, sy, sz) * 2.5;  // pull back further
 
   // 1. ISOMETRIC overview — material aware
   await applyViewAndRender('01-iso-overview', {
-    cameraPos: [c[0] + dist * 1.4, c[1] + dist * 0.5, c[2] + dist * 0.3],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 35,
+    cameraPos: [c[0] + dist * 1.0, c[1] + dist * 0.5, c[2] + dist * 0.6],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 50,
   });
 
   // 2. SIDE profile (engineering elevation)
   await applyViewAndRender('02-side-profile', {
-    cameraPos: [c[0] + dist * 1.5, c[1] + dist * 0.05, c[2] + dist * 0.0],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 30,
+    cameraPos: [c[0] + dist * 1.2, c[1] + dist * 0.05, c[2] + dist * 0.0],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 45,
   });
 
   // 3. FRONT (intake) — see fan
   await applyViewAndRender('03-front-intake', {
-    cameraPos: [c[0] + dist * 0.05, c[1] + dist * 0.05, c[2] - dist * 1.6],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 35,
+    cameraPos: [c[0] + dist * 0.05, c[1] + dist * 0.05, c[2] - dist * 1.2],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 45,
   });
 
   // 4. REAR (exhaust)
   await applyViewAndRender('04-rear-exhaust', {
-    cameraPos: [c[0] + dist * 0.05, c[1] + dist * 0.05, c[2] + dist * 1.6],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 35,
+    cameraPos: [c[0] + dist * 0.05, c[1] + dist * 0.05, c[2] + dist * 1.2],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 45,
   });
 
   // 5. TOP-DOWN
   await applyViewAndRender('05-top-down', {
-    cameraPos: [c[0], c[1] + dist * 1.6, c[2]],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 30,
+    cameraPos: [c[0], c[1] + dist * 1.2, c[2]],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 45,
   });
 
   // 6. CUTAWAY HALF — show internals
@@ -141,14 +141,14 @@ test('GE9X showcase: PBR materials + studio lighting + multi-angle renders', asy
     window.__three_renderer.render(window.__three_scene, window.__three_camera);
   }, c);
   await applyViewAndRender('06-cutaway-half-side', {
-    cameraPos: [c[0] + dist * 1.3, c[1] + dist * 0.15, c[2] + dist * 0.1],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 28,
+    cameraPos: [c[0] + dist * 1.0, c[1] + dist * 0.15, c[2] + dist * 0.1],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 42,
   });
 
   // 7. CUTAWAY HALF — closer to compressor stages
   await applyViewAndRender('07-cutaway-compressor', {
-    cameraPos: [c[0] + dist * 0.7, c[1] + dist * 0.2, c[2] + dist * 0.0],
-    lookAt: [c[0], c[1], c[2] - 0.3], near: 0.001, far: dist * 30, fov: 32,
+    cameraPos: [c[0] + dist * 0.55, c[1] + dist * 0.20, c[2] - dist * 0.10],
+    lookAt: [c[0], c[1], c[2] - 1.0], near: 0.001, far: dist * 30, fov: 38,
   });
 
   // 8. QUADRANT cutaway
@@ -166,8 +166,8 @@ test('GE9X showcase: PBR materials + studio lighting + multi-angle renders', asy
     window.__three_renderer.render(window.__three_scene, window.__three_camera);
   }, c);
   await applyViewAndRender('08-quadrant-iso', {
-    cameraPos: [c[0] + dist * 1.0, c[1] + dist * 0.7, c[2] + dist * 0.3],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 32,
+    cameraPos: [c[0] + dist * 0.8, c[1] + dist * 0.6, c[2] + dist * 0.5],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 45,
   });
 
   // 9. HOT MODE — engine glowing at temperature
@@ -188,8 +188,8 @@ test('GE9X showcase: PBR materials + studio lighting + multi-angle renders', asy
     window.__three_renderer.render(window.__three_scene, window.__three_camera);
   }, c);
   await applyViewAndRender('09-hot-mode-cutaway', {
-    cameraPos: [c[0] + dist * 1.2, c[1] + dist * 0.2, c[2] + dist * 0.1],
-    lookAt: c, near: 0.001, far: dist * 30, fov: 30,
+    cameraPos: [c[0] + dist * 0.9, c[1] + dist * 0.2, c[2] + dist * 0.1],
+    lookAt: c, near: 0.001, far: dist * 30, fov: 42,
   });
 
   // Restore for final

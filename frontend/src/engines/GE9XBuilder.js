@@ -54,6 +54,22 @@ function _getOrBuildBlade(key, builderFn) {
 
 const PI = Math.PI;
 
+/** Distribute N items around the engine outside surface — perimeter mounting. */
+function _perimeterPos(i, N, zMin, zMax, radius) {
+  const t01 = N > 1 ? i / (N - 1) : 0;
+  const z = zMin + t01 * (zMax - zMin);
+  const angle = (i / Math.max(N, 1)) * 2 * PI * 1.7;  // slight spiral
+  return new Vec3(Math.cos(angle) * radius, Math.sin(angle) * radius, z);
+}
+
+/** Random-ish but deterministic position along engine bottom (for accessories). */
+function _bottomPos(i, N, zMin, zMax, yOffset = -0.85, xRange = 0.50) {
+  const t01 = N > 1 ? i / (N - 1) : 0;
+  const z = zMin + t01 * (zMax - zMin);
+  const x = (((i * 7919) % 100) / 100 - 0.5) * xRange;
+  return new Vec3(x, yOffset, z);
+}
+
 const GE9X_SPECS = {
   length: 5.69,
   fanDia: 3.40,
@@ -270,10 +286,12 @@ export default class GE9XBuilder {
 
     // Fan blade attach pins (2 per blade)
     for (let i = 0; i < N; i++) {
+      const angle = (i / N) * 2 * PI;
       for (let p = 0; p < 2; p++) {
         const pin = PrimitiveBuilder.cylinder(0.008, 0.080, 16);
         t.addPart(pin, `Fan Blade ${i+1} Pin ${p+1}`, {
           color: 0x444444,
+          position: new Vec3(Math.cos(angle) * rHub, Math.sin(angle) * rHub, p === 0 ? -0.08 : 0.08),
           material: 'Steel AISI 4340',
           category: 'FAN', subsystem: 'PIN',
         });
@@ -488,18 +506,19 @@ export default class GE9XBuilder {
     }
 
     // 12,000 effusion cooling holes (CMC liner cooling)
+    const holeKey = `cool-hole`;
+    let hole = _bladeCache.get(holeKey);
+    if (!hole) {
+      hole = PrimitiveBuilder.cylinder(0.0005, 0.005, 8);
+      _bladeCache.set(holeKey, hole);
+    }
     for (let i = 0; i < 12000; i++) {
       const a = (i / 12000) * 2 * PI * 50;
-      const z = (i % 200) / 200 * 0.40;
-      // Reuse a tiny cylinder solid via cache
-      const holeKey = `cool-hole`;
-      let hole = _bladeCache.get(holeKey);
-      if (!hole) {
-        hole = PrimitiveBuilder.cylinder(0.0005, 0.005, 8);
-        _bladeCache.set(holeKey, hole);
-      }
+      const z = zCursor - 0.20 + (i % 200) / 200 * 0.40;
+      const r = 0.32 + (i % 7 === 0 ? 0.06 : 0);
       t.addPart(hole, `Combustor Cooling Hole ${i + 1}`, {
         color: 0x000000,
+        position: new Vec3(Math.cos(a) * r, Math.sin(a) * r, z),
         material: 'Air',
         category: 'COMB', subsystem: 'CHL',
       });
@@ -739,26 +758,31 @@ export default class GE9XBuilder {
     const drive = PrimitiveBuilder.cylinder(0.025, 0.6, 16);
     t.addPart(drive, 'AGB Tower Driveshaft', {
       color: 0x808080, material: 'Steel AISI 4340',
+      position: new Vec3(0, -0.4, 2.0),
+      rotation: new Vec3(PI / 2, 0, 0),
       category: 'AGB', subsystem: 'DRV',
     });
     // Internal gears (24)
     for (let i = 0; i < 24; i++) {
       const gear = PrimitiveBuilder.cylinder(0.06, 0.020, 32);
+      const col = i % 6, row = Math.floor(i / 6);
       t.addPart(gear, `AGB Gear ${i + 1}`, {
         color: 0x888888,
+        position: new Vec3(-0.20 + col * 0.08, -0.85, 1.85 + row * 0.08),
         material: 'Steel AISI 4340',
         category: 'AGB', subsystem: 'GER',
       });
     }
     // Accessory pads (6: starter, generator, fuel pump, oil pump, hyd pump, PMG)
     const pads = ['Starter', 'IDG', 'Fuel Pump', 'Oil Pump', 'Hydraulic Pump', 'PMG'];
-    for (const p of pads) {
+    pads.forEach((p, i) => {
       const padHousing = PrimitiveBuilder.cylinder(0.07, 0.10, 16);
       t.addPart(padHousing, `AGB ${p} Pad`, {
         color: 0x999999, material: 'Aluminum 6061-T6',
+        position: new Vec3(-0.25 + i * 0.10, -0.95, 2.0),
         category: 'AGB', subsystem: 'PAD',
       });
-    }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -770,19 +794,22 @@ export default class GE9XBuilder {
       'Fuel Filter', 'Fuel Cooler', 'Fuel-Oil Heat Exchanger',
       'Fuel Manifold Outer', 'Fuel Manifold Inner',
     ];
-    for (const item of items) {
+    items.forEach((item, i) => {
       const housing = PrimitiveBuilder.cylinder(0.08, 0.18, 16);
       t.addPart(housing, item, {
         color: 0x60a0c0,
+        position: _bottomPos(i, items.length, 1.5, 3.5, -0.78, 0.40),
         material: 'Aluminum 6061-T6',
         category: 'FUEL', subsystem: 'COM',
       });
-    }
-    // 30 fuel transfer tubes (one per nozzle)
+    });
+    // 30 fuel transfer tubes ringing the combustor (one per nozzle)
     for (let i = 0; i < GE9X_SPECS.fuelNozzles; i++) {
+      const a = (i / GE9X_SPECS.fuelNozzles) * 2 * PI;
       const tube = PrimitiveBuilder.cylinder(0.006, 0.40, 8);
       t.addPart(tube, `Fuel Transfer Tube ${i + 1}`, {
         color: 0x80a0c0,
+        position: new Vec3(Math.cos(a) * 0.40, Math.sin(a) * 0.40, 3.20),
         material: 'Stainless Steel 316',
         category: 'FUEL', subsystem: 'TUB',
       });
@@ -794,20 +821,24 @@ export default class GE9XBuilder {
       'Oil Tank', 'Oil Pump (Pressure)', 'Oil Pump (Scavenge × 5)',
       'Oil Filter', 'Oil Cooler', 'Oil-Air Cooler', 'Anti-cavitation Boost',
     ];
-    for (const item of items) {
+    items.forEach((item, i) => {
       const housing = PrimitiveBuilder.cylinder(0.10, 0.20, 16);
       t.addPart(housing, item, {
         color: 0xb09060,
+        position: _bottomPos(i, items.length, 0.8, 2.4, -0.92, 0.50),
         material: 'Aluminum 6061-T6',
         category: 'OIL', subsystem: 'COM',
       });
-    }
+    });
     // Scavenge tubes (5 sumps × 4 tubes)
+    const sumpZ = [0, 1.5, 2.8, 4.0, 5.0];
     for (let s = 0; s < 5; s++) {
       for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * 2 * PI;
         const tube = PrimitiveBuilder.cylinder(0.008, 0.35, 8);
         t.addPart(tube, `Oil Scavenge Tube Sump${s + 1}-${i + 1}`, {
           color: 0x806040,
+          position: new Vec3(Math.cos(a) * 0.30, Math.sin(a) * 0.30, sumpZ[s]),
           material: 'Stainless Steel 316',
           category: 'OIL', subsystem: 'TUB',
         });
@@ -816,21 +847,24 @@ export default class GE9XBuilder {
   }
 
   static buildAirSystem(t) {
-    // Bleed valves (4)
     const items = ['HPC Stage 5 Bleed', 'HPC Stage 8 Bleed', 'HPC Stage 11 Bleed', 'Compressor Discharge'];
-    for (const item of items) {
+    items.forEach((item, i) => {
+      const a = (i / items.length) * 2 * PI;
       const valve = PrimitiveBuilder.cylinder(0.07, 0.12, 16);
       t.addPart(valve, item, {
         color: 0xa0c0c0,
+        position: new Vec3(Math.cos(a) * 0.55, Math.sin(a) * 0.55, 2.5 + i * 0.15),
         material: 'Inconel 718',
         category: 'AIR', subsystem: 'VLV',
       });
-    }
-    // 16 cooling air tubes
+    });
+    // 16 cooling air tubes around HP turbine area
     for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * 2 * PI;
       const tube = PrimitiveBuilder.cylinder(0.012, 0.45, 8);
       t.addPart(tube, `Cooling Air Tube ${i + 1}`, {
         color: 0xa0a0c0,
+        position: new Vec3(Math.cos(a) * 0.50, Math.sin(a) * 0.50, 3.5 + (i % 4) * 0.20),
         material: 'Inconel 718',
         category: 'AIR', subsystem: 'TUB',
       });
@@ -838,31 +872,37 @@ export default class GE9XBuilder {
   }
 
   static buildIgnition(t) {
-    // 2 exciters, 2 igniter plugs, 2 leads
     for (let i = 0; i < 2; i++) {
+      const a = i === 0 ? PI * 0.25 : PI * 0.75;
       const exciter = PrimitiveBuilder.box(0.10, 0.06, 0.15);
       t.addPart(exciter, `Ignition Exciter ${i + 1}`, {
-        color: 0x303030, material: 'Aluminum 6061-T6',
+        color: 0x303030,
+        position: new Vec3(Math.cos(a) * 0.55, Math.sin(a) * 0.55, 1.8),
+        material: 'Aluminum 6061-T6',
         category: 'IGN', subsystem: 'EXC',
       });
       const lead = PrimitiveBuilder.cylinder(0.012, 0.50, 8);
       t.addPart(lead, `Ignition Lead ${i + 1}`, {
-        color: 0x202020, material: 'Copper C11000',
+        color: 0x202020,
+        position: new Vec3(Math.cos(a) * 0.45, Math.sin(a) * 0.45, 2.5),
+        material: 'Copper C11000',
         category: 'IGN', subsystem: 'LED',
       });
     }
   }
 
   static buildFADECSensors(t) {
-    // FADEC channels A and B
+    // FADEC channels A and B mounted on fan case
     for (let ch = 0; ch < 2; ch++) {
+      const a = ch === 0 ? PI * 1.3 : PI * 1.7;
       const fadec = PrimitiveBuilder.box(0.20, 0.10, 0.25);
       t.addPart(fadec, `FADEC Channel ${String.fromCharCode(65 + ch)}`, {
-        color: 0x202020, material: 'Aluminum 6061-T6',
+        color: 0x202020,
+        position: new Vec3(Math.cos(a) * 1.85, Math.sin(a) * 1.85, 0.6),
+        material: 'Aluminum 6061-T6',
         category: 'FADEC', subsystem: 'CTL',
       });
     }
-    // ~120 sensors throughout the engine: T2.5, T3, T4.95, T5, P0, P3, vibration, oil temp, fuel flow, ...
     const sensorTypes = [
       'T2 (inlet temp)', 'T2.5 (LPC exit)', 'T3 (HPC exit)',
       'T4.95 (HPT exit)', 'T5 (LPT exit)', 'P0 (ambient)',
@@ -872,36 +912,56 @@ export default class GE9XBuilder {
       'Oil pressure', 'Oil temp', 'Oil quantity',
       'Fuel flow', 'Fuel inlet T', 'Fuel inlet P',
     ];
-    let idx = 0;
-    for (const type of sensorTypes) {
-      // 6 sensors per type (redundancy + multiple stations)
+    // Map each sensor type to a typical engine station z-position
+    const stationZ = {
+      'T2': 0.0, 'T2.5': 1.4, 'T3': 3.1, 'T4.95': 4.1, 'T5': 5.1,
+      'P0': 0.1, 'P3': 3.05, 'PT': 4.0, 'N1': 0.3, 'N2': 2.8,
+      'Vibration': 1.5, 'Oil': -0.85, 'Fuel': 1.8,
+    };
+    sensorTypes.forEach((type, ti) => {
+      let z = 2.0;
+      for (const k of Object.keys(stationZ)) {
+        if (type.includes(k)) { z = stationZ[k]; break; }
+      }
       for (let n = 0; n < 6; n++) {
+        const a = ((ti * 6 + n) / (sensorTypes.length * 6)) * 2 * PI;
+        const r = z < 0 ? 0.0 : 0.55;
         const sensor = PrimitiveBuilder.cylinder(0.012, 0.060, 12);
         t.addPart(sensor, `Sensor ${type} #${n + 1}`, {
           color: 0x404040,
+          position: z < 0
+            ? new Vec3((n - 3) * 0.05, z, 2.0)
+            : new Vec3(Math.cos(a) * r, Math.sin(a) * r, z + (n - 3) * 0.02),
           material: 'Stainless Steel 316',
           category: 'FADEC', subsystem: 'SNS',
         });
-        idx++;
       }
-    }
+    });
   }
 
   static buildWireHarnesses(t) {
-    // 24 harness segments (forward + aft × 12 zones)
+    // 24 harness segments along the engine outside, two rings (lower/upper)
     for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * 2 * PI * 0.9;
+      const z = 0.5 + (i / 24) * 4.5;
       const harness = PrimitiveBuilder.cylinder(0.018, 0.50, 12);
       t.addPart(harness, `Wire Harness Segment ${i + 1}`, {
         color: 0x303030,
+        position: new Vec3(Math.cos(a) * 0.62, Math.sin(a) * 0.62, z),
+        rotation: new Vec3(0, 0, a),
         material: 'Copper C11000',
         category: 'ELEC', subsystem: 'HRN',
       });
     }
-    // 200 wire splices/connectors
+    // 200 wire splices/connectors distributed
     for (let i = 0; i < 200; i++) {
+      const a = (i / 200) * 2 * PI * 4;
+      const z = 0.4 + (i / 200) * 4.8;
       const splice = PrimitiveBuilder.cylinder(0.012, 0.025, 12);
       t.addPart(splice, `Wire Splice ${i + 1}`, {
-        color: 0x404040, material: 'Copper C11000',
+        color: 0x404040,
+        position: new Vec3(Math.cos(a) * 0.65, Math.sin(a) * 0.65, z),
+        material: 'Copper C11000',
         category: 'ELEC', subsystem: 'SPL',
       });
     }
@@ -909,9 +969,13 @@ export default class GE9XBuilder {
 
   static buildHydraulicLines(t) {
     for (let i = 0; i < 36; i++) {
+      const a = (i / 36) * 2 * PI * 1.2;
+      const z = 0.5 + (i / 36) * 4.5;
       const line = PrimitiveBuilder.cylinder(0.010, 0.40, 8);
       t.addPart(line, `Hydraulic Line ${i + 1}`, {
         color: 0x404060,
+        position: new Vec3(Math.cos(a) * 0.60, Math.sin(a) * 0.60, z),
+        rotation: new Vec3(0, 0, a),
         material: 'Stainless Steel 316',
         category: 'HYD', subsystem: 'LIN',
       });
@@ -919,20 +983,21 @@ export default class GE9XBuilder {
   }
 
   static buildCasings(t) {
-    // Inner core cowl (split)
+    // Inner core cowl — 4 axial segments along the core, with stagger so
+    // they don't visually overlap
     for (let s = 0; s < 4; s++) {
-      const cowl = PrimitiveBuilder.cylinder(0.55, 1.50, 96);
+      const cowl = PrimitiveBuilder.cylinder(0.65, 0.50, 96);
       t.addPart(cowl, `Core Cowl Segment ${s + 1}`, {
-        color: 0xa0a0b0, position: new Vec3(0, 0, 2.5),
+        color: 0xa0a0b0, position: new Vec3(0, 0, 1.50 + s * 0.55),
         material: 'Composite Carbon-Epoxy',
         category: 'NAC', subsystem: 'COW',
       });
     }
-    // Fan cowl (composite)
+    // Fan cowl — 4 axial segments around fan
     for (let s = 0; s < 4; s++) {
-      const cowl = PrimitiveBuilder.cylinder(GE9X_SPECS.fanRadius + 0.08, 1.30, 128);
+      const cowl = PrimitiveBuilder.cylinder(GE9X_SPECS.fanRadius + 0.08, 0.32, 128);
       t.addPart(cowl, `Fan Cowl Segment ${s + 1}`, {
-        color: 0xeeeeee, position: new Vec3(0, 0, 0.50),
+        color: 0xeeeeee, position: new Vec3(0, 0, -0.10 + s * 0.34),
         material: 'Composite Carbon-Epoxy',
         category: 'NAC', subsystem: 'FCW',
       });
@@ -953,11 +1018,13 @@ export default class GE9XBuilder {
       material: 'Titanium Ti-6Al-4V',
       category: 'MNT', subsystem: 'AFT',
     });
-    // Thrust struts (4)
+    // Thrust struts (4) — connect mounts to engine
     for (let i = 0; i < 4; i++) {
       const strut = PrimitiveBuilder.box(0.04, 0.04, 0.80);
       t.addPart(strut, `Thrust Strut ${i + 1}`, {
-        color: 0x808080, material: 'Titanium Ti-6Al-4V',
+        color: 0x808080,
+        position: new Vec3(0.10 + i * 0.05, 0.6, 1.5 + i * 0.8),
+        material: 'Titanium Ti-6Al-4V',
         category: 'MNT', subsystem: 'STR',
       });
     }
@@ -975,11 +1042,14 @@ export default class GE9XBuilder {
         category: 'TRV', subsystem: 'CAS',
       });
     }
-    // 4 actuators
+    // 4 actuators around fan cowl
     for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * 2 * PI;
       const actuator = PrimitiveBuilder.cylinder(0.030, 0.40, 16);
       t.addPart(actuator, `Thrust Reverser Actuator ${i + 1}`, {
-        color: 0x505050, material: 'Steel AISI 4340',
+        color: 0x505050,
+        position: new Vec3(Math.cos(a) * 1.65, Math.sin(a) * 1.65, 1.2),
+        material: 'Steel AISI 4340',
         category: 'TRV', subsystem: 'ACT',
       });
     }
@@ -1032,12 +1102,14 @@ export default class GE9XBuilder {
         const washer = PrimitiveBuilder.torus(0.008, 0.0015, 16, 8);
         t.addPart(washer, `Flange ${ring + 1} Washer ${i + 1}`, {
           color: 0x888888,
+          position: new Vec3(Math.cos(a) * radius, Math.sin(a) * radius, z + 0.015),
           material: 'Steel AISI 4340',
           category: 'FAS', subsystem: 'WSH',
         });
         const nut = PrimitiveBuilder.cylinder(0.008, 0.006, 6);
         t.addPart(nut, `Flange ${ring + 1} Nut ${i + 1}`, {
           color: 0x555555,
+          position: new Vec3(Math.cos(a) * radius, Math.sin(a) * radius, z + 0.025),
           material: 'Steel AISI 4340',
           category: 'FAS', subsystem: 'NUT',
         });
@@ -1049,7 +1121,9 @@ export default class GE9XBuilder {
     for (let i = 0; i < 130; i++) {
       const bracket = PrimitiveBuilder.box(0.08, 0.05, 0.04);
       t.addPart(bracket, `Bracket ${i + 1}`, {
-        color: 0x707070, material: 'Aluminum 6061-T6',
+        color: 0x707070,
+        position: _perimeterPos(i, 130, 0.5, 5.0, 0.62),
+        material: 'Aluminum 6061-T6',
         category: 'STR', subsystem: 'BKT',
       });
     }
@@ -1059,7 +1133,9 @@ export default class GE9XBuilder {
     for (let i = 0; i < 320; i++) {
       const fitting = PrimitiveBuilder.cylinder(0.012, 0.025, 12);
       t.addPart(fitting, `Pipe Fitting ${i + 1}`, {
-        color: 0x808080, material: 'Stainless Steel 316',
+        color: 0x808080,
+        position: _perimeterPos(i, 320, 0.5, 5.0, 0.66),
+        material: 'Stainless Steel 316',
         category: 'PIP', subsystem: 'FTG',
       });
     }
@@ -1069,7 +1145,9 @@ export default class GE9XBuilder {
     for (let i = 0; i < 180; i++) {
       const conn = PrimitiveBuilder.cylinder(0.018, 0.030, 12);
       t.addPart(conn, `Electrical Connector ${i + 1}`, {
-        color: 0x303030, material: 'Aluminum 6061-T6',
+        color: 0x303030,
+        position: _perimeterPos(i, 180, 0.5, 5.0, 0.68),
+        material: 'Aluminum 6061-T6',
         category: 'ELEC', subsystem: 'CNN',
       });
     }
@@ -1077,37 +1155,49 @@ export default class GE9XBuilder {
 
   static buildDrainsAndVents(t) {
     for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * 2 * PI;
       const drain = PrimitiveBuilder.cylinder(0.008, 0.10, 8);
       t.addPart(drain, `Drain Tube ${i + 1}`, {
-        color: 0x808080, material: 'Stainless Steel 316',
+        color: 0x808080,
+        position: new Vec3(Math.cos(a) * 0.55, Math.sin(a) * 0.55 - 0.1, 1.0 + i * 0.15),
+        material: 'Stainless Steel 316',
         category: 'DRN', subsystem: 'TUB',
       });
     }
     for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * 2 * PI;
       const vent = PrimitiveBuilder.cylinder(0.012, 0.08, 8);
       t.addPart(vent, `Vent Port ${i + 1}`, {
-        color: 0x707070, material: 'Aluminum 6061-T6',
+        color: 0x707070,
+        position: new Vec3(Math.cos(a) * 0.66, Math.sin(a) * 0.66, 2.5 + i * 0.10),
+        material: 'Aluminum 6061-T6',
         category: 'DRN', subsystem: 'VNT',
       });
     }
   }
 
   static buildFireSystem(t) {
-    // 2 detector loops (30 sensors each)
+    // 2 detector loops snake around engine (30 sensors each)
     for (let loop = 0; loop < 2; loop++) {
       for (let i = 0; i < 30; i++) {
+        const t01 = i / 29;
+        const a = (loop * PI) + (i / 30) * 2 * PI;
         const sensor = PrimitiveBuilder.cylinder(0.008, 0.020, 8);
         t.addPart(sensor, `Fire Detector Loop ${loop + 1} #${i + 1}`, {
-          color: 0xc04040, material: 'Stainless Steel 316',
+          color: 0xc04040,
+          position: new Vec3(Math.cos(a) * 0.70, Math.sin(a) * 0.70, 0.5 + t01 * 4.5),
+          material: 'Stainless Steel 316',
           category: 'FIRE', subsystem: 'DET',
         });
       }
     }
-    // 2 extinguisher bottles
+    // 2 extinguisher bottles on the bottom
     for (let i = 0; i < 2; i++) {
       const bottle = PrimitiveBuilder.cylinder(0.10, 0.40, 32);
       t.addPart(bottle, `Fire Bottle ${i + 1}`, {
-        color: 0xc04040, material: 'Steel AISI 4340',
+        color: 0xc04040,
+        position: new Vec3(0.20 + i * 0.35, -0.95, 1.4),
+        material: 'Steel AISI 4340',
         category: 'FIRE', subsystem: 'BTL',
       });
     }
@@ -1117,20 +1207,30 @@ export default class GE9XBuilder {
   // Blade Cooling Holes — bulk count for high-fidelity tree
   // ---------------------------------------------------------------------------
   static buildBladeCoolingHoles(t) {
-    // HPT stage 1: 80 blades × 80 holes = 6400 holes
+    // HPT stage 1+2 cooling holes — distributed on each blade surface
     let holeKey = 'cool-hole-tiny';
     let hole = _bladeCache.get(holeKey);
     if (!hole) {
       hole = PrimitiveBuilder.cylinder(0.0003, 0.0040, 6);
       _bladeCache.set(holeKey, hole);
     }
+    const stageZ = { 1: 3.92, 2: 4.10 };
     for (let s = 1; s <= 2; s++) {
       const N = GE9X_SPECS.hptBlades[s];
       const perBlade = s === 1 ? 80 : 60;
+      const r = 0.25;
       for (let b = 0; b < N; b++) {
+        const bAng = (b / N) * 2 * PI;
         for (let h = 0; h < perBlade; h++) {
+          const t01 = h / perBlade;
           t.addPart(hole, `HPT S${s} Blade ${b + 1} Cool Hole ${h + 1}`, {
-            color: 0x000000, material: 'Air',
+            color: 0x000000,
+            position: new Vec3(
+              Math.cos(bAng) * r,
+              Math.sin(bAng) * r,
+              stageZ[s] + (t01 - 0.5) * 0.05
+            ),
+            material: 'Air',
             category: 'HPT', subsystem: 'CHL',
           });
         }
@@ -1139,11 +1239,16 @@ export default class GE9XBuilder {
   }
 
   static buildMaintenanceTags(t) {
-    // 200 part-history tags / serial-number etches
+    // 200 part-history tags / serial-number etches around the casings
     for (let i = 0; i < 200; i++) {
+      const a = (i / 200) * 2 * PI * 1.5;
+      const z = 0.4 + (i / 200) * 4.6;
       const tag = PrimitiveBuilder.box(0.025, 0.015, 0.001);
       t.addPart(tag, `Maintenance Tag ${i + 1}`, {
-        color: 0xeeeeaa, material: 'Aluminum 6061-T6',
+        color: 0xeeeeaa,
+        position: new Vec3(Math.cos(a) * 0.70, Math.sin(a) * 0.70, z),
+        rotation: new Vec3(0, 0, a),
+        material: 'Aluminum 6061-T6',
         category: 'MNT', subsystem: 'TAG',
       });
     }
