@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-INSL-JKT-0001",
+  "name": "Vacuum Insulation Jacket",
+  "category": "INSL",
+  "subsystem": "JKT",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

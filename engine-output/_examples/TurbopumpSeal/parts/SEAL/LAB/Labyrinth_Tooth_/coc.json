@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-SEAL-LAB-0012",
+  "partTitle": "Labyrinth Tooth 12",
+  "serialNumber": "SN-365108",
+  "drawingNumber": "TPSL-SEAL-LAB-0012-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-02866",
+  "manufacturingLot": "MFG-30927",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-02866",
+    "manufacturingProcess": "MFG-30927",
+    "inspectionRecord": "INSP-SN-365108",
+    "finalAcceptance": "2026-05-09"
+  }
+}

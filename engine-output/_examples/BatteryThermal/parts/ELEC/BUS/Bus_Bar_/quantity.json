@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-ELEC-BUS-0010",
+  "name": "Bus Bar 10",
+  "category": "ELEC",
+  "subsystem": "BUS",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1
+}

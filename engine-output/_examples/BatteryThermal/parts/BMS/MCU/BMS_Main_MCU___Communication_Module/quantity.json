@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-BMS-MCU-0001",
+  "name": "BMS Main MCU + Communication Module",
+  "category": "BMS",
+  "subsystem": "MCU",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

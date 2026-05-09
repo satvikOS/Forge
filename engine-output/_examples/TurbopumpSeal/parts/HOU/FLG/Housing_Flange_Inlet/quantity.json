@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-HOU-FLG-0001",
+  "name": "Housing Flange Inlet",
+  "category": "HOU",
+  "subsystem": "FLG",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1
+}

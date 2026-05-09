@@ -1,0 +1,142 @@
+Item,Name,Category,Subsystem,Material,Class,Qty,Unit_Mass_kg,Unit_Cost_USD,Ext_Mass_kg,Ext_Cost_USD,Supplier,Lead_Weeks,Sample_PartID
+1,"Turbopump Main Shaft (Inconel 718)",SHFT,MAI,"Inconel 718",Class 1,1,4.793,455.37,4.793,455.37,"Special Metals (PCC)",18,TPSL-SHFT-MAI-0001
+2,"Shaft Sleeve (Stellite hardfaced)",SHFT,SLV,"Stainless Steel 316",Class 1,1,0.32,3.84,0.32,3.84,"Carpenter Technology",18,TPSL-SHFT-SLV-0001
+3,"Labyrinth Tooth 1",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0001
+4,"Labyrinth Tooth 2",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0002
+5,"Labyrinth Tooth 3",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0003
+6,"Labyrinth Tooth 4",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0004
+7,"Labyrinth Tooth 5",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0005
+8,"Labyrinth Tooth 6",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0006
+9,"Labyrinth Tooth 7",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0007
+10,"Labyrinth Tooth 8",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0008
+11,"Labyrinth Tooth 9",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0009
+12,"Labyrinth Tooth 10",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0010
+13,"Labyrinth Tooth 11",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0011
+14,"Labyrinth Tooth 12",SEAL,LAB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-LAB-0012
+15,"Labyrinth Stator Ring",SEAL,LSR,"Inconel 718",Class 3,1,1.345,127.74,1.345,127.74,"Special Metals (PCC)",4,TPSL-SEAL-LSR-0001
+16,"Primary Carbon-Graphite Seal Ring",SEAL,CFS,"Carbon Fiber Composite",Class 3,1,0.067,13.44,0.067,13.44,"Hexcel",4,TPSL-SEAL-CFS-0001
+17,"Mating Ring (Stellite-coated Inconel)",SEAL,MTR,"Inconel 718",Class 3,1,0.136,12.91,0.136,12.91,"Special Metals (PCC)",4,TPSL-SEAL-MTR-0001
+18,"Face-Load Wave Spring 1",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0001
+19,"Face-Load Wave Spring 2",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0002
+20,"Face-Load Wave Spring 3",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0003
+21,"Face-Load Wave Spring 4",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0004
+22,"Face-Load Wave Spring 5",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0005
+23,"Face-Load Wave Spring 6",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0006
+24,"Face-Load Wave Spring 7",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0007
+25,"Face-Load Wave Spring 8",SEAL,SPR,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SPR-0008
+26,"Energizer O-Ring (Spring-Loaded PTFE)",SEAL,EOR,"Nylon 6/6",Class 3,1,0,0,0,0,"TBD",4,TPSL-SEAL-EOR-0001
+27,"Secondary Labyrinth Tooth 1",SEAL,SLB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SLB-0001
+28,"Secondary Labyrinth Tooth 2",SEAL,SLB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SLB-0002
+29,"Secondary Labyrinth Tooth 3",SEAL,SLB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SLB-0003
+30,"Secondary Labyrinth Tooth 4",SEAL,SLB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SLB-0004
+31,"Secondary Labyrinth Tooth 5",SEAL,SLB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SLB-0005
+32,"Secondary Labyrinth Tooth 6",SEAL,SLB,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-SLB-0006
+33,"Thrust Bearing Inner Race",BRG,IRC,"Inconel 718",Class 3,1,0.085,8.07,0.085,8.07,"Special Metals (PCC)",4,TPSL-BRG-IRC-0001
+34,"Thrust Bearing Outer Race",BRG,ORC,"Inconel 718",Class 3,1,0.116,11,0.116,11,"Special Metals (PCC)",4,TPSL-BRG-ORC-0001
+35,"Si3N4 Bearing Ball 1",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0001
+36,"Si3N4 Bearing Ball 2",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0002
+37,"Si3N4 Bearing Ball 3",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0003
+38,"Si3N4 Bearing Ball 4",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0004
+39,"Si3N4 Bearing Ball 5",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0005
+40,"Si3N4 Bearing Ball 6",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0006
+41,"Si3N4 Bearing Ball 7",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0007
+42,"Si3N4 Bearing Ball 8",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0008
+43,"Si3N4 Bearing Ball 9",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0009
+44,"Si3N4 Bearing Ball 10",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0010
+45,"Si3N4 Bearing Ball 11",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0011
+46,"Si3N4 Bearing Ball 12",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0012
+47,"Si3N4 Bearing Ball 13",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0013
+48,"Si3N4 Bearing Ball 14",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0014
+49,"Si3N4 Bearing Ball 15",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0015
+50,"Si3N4 Bearing Ball 16",BRG,BAL,"CMC SiC/SiC",Class 2,1,0,0,0,0,"GE Aviation (proprietary)",8,TPSL-BRG-BAL-0016
+51,"Bearing Cage (PEEK retainer)",BRG,CAG,"Nylon 6/6",Class 3,1,0.011,0.05,0.011,0.05,"TBD",4,TPSL-BRG-CAG-0001
+52,"MLI Layer 1 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.016,0.08,0.016,0.08,"TBD",4,TPSL-INSL-MLI-0001
+53,"MLI Layer 2 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.016,0.08,0.016,0.08,"TBD",4,TPSL-INSL-MLI-0002
+54,"MLI Layer 3 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.08,0.017,0.08,"TBD",4,TPSL-INSL-MLI-0003
+55,"MLI Layer 4 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.08,0.017,0.08,"TBD",4,TPSL-INSL-MLI-0004
+56,"MLI Layer 5 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.08,0.017,0.08,"TBD",4,TPSL-INSL-MLI-0005
+57,"MLI Layer 6 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.08,0.017,0.08,"TBD",4,TPSL-INSL-MLI-0006
+58,"MLI Layer 7 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.09,0.017,0.09,"TBD",4,TPSL-INSL-MLI-0007
+59,"MLI Layer 8 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.09,0.017,0.09,"TBD",4,TPSL-INSL-MLI-0008
+60,"MLI Layer 9 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.09,0.017,0.09,"TBD",4,TPSL-INSL-MLI-0009
+61,"MLI Layer 10 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.017,0.09,0.017,0.09,"TBD",4,TPSL-INSL-MLI-0010
+62,"MLI Layer 11 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.018,0.09,0.018,0.09,"TBD",4,TPSL-INSL-MLI-0011
+63,"MLI Layer 12 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,1,0.018,0.09,0.018,0.09,"TBD",4,TPSL-INSL-MLI-0012
+64,"Vacuum Insulation Jacket",INSL,JKT,"Stainless Steel 316",Class 3,1,1.065,12.78,1.065,12.78,"Carpenter Technology",4,TPSL-INSL-JKT-0001
+65,"Helium Purge Manifold",BUF,MAN,"Stainless Steel 316",Class 3,1,0.066,0.8,0.066,0.8,"Carpenter Technology",4,TPSL-BUF-MAN-0001
+66,"Helium Check Valve 1",BUF,CHV,"Stainless Steel 316",Class 3,1,0.031,0.38,0.031,0.38,"Carpenter Technology",4,TPSL-BUF-CHV-0001
+67,"Helium Check Valve 2",BUF,CHV,"Stainless Steel 316",Class 3,1,0.031,0.38,0.031,0.38,"Carpenter Technology",4,TPSL-BUF-CHV-0002
+68,"Helium Check Valve 3",BUF,CHV,"Stainless Steel 316",Class 3,1,0.031,0.38,0.031,0.38,"Carpenter Technology",4,TPSL-BUF-CHV-0003
+69,"Helium Check Valve 4",BUF,CHV,"Stainless Steel 316",Class 3,1,0.031,0.38,0.031,0.38,"Carpenter Technology",4,TPSL-BUF-CHV-0004
+70,"Helium Pressure Regulator",BUF,REG,"Stainless Steel 316",Class 3,1,0.398,4.77,0.398,4.77,"Carpenter Technology",4,TPSL-BUF-REG-0001
+71,"Cryogenic Pressure Transducer (Kulite XCS)",INST,PT,"Inconel 718",Class 3,1,0.108,10.29,0.108,10.29,"Special Metals (PCC)",4,TPSL-INST-PT-0001
+72,"Cryogenic PRT Temperature Sensor (Lake Shore Cernox)",INST,PRT,"Stainless Steel 316",Class 3,1,0.002,0.02,0.002,0.02,"Carpenter Technology",4,TPSL-INST-PRT-0001
+73,"Cryogenic Accelerometer",INST,ACL,"Stainless Steel 316",Class 3,1,0.007,0.08,0.007,0.08,"Carpenter Technology",4,TPSL-INST-ACL-0001
+74,"Speed Encoder Ring (60-tooth)",INST,ENC,"Inconel 718",Class 3,1,0.018,1.72,0.018,1.72,"Special Metals (PCC)",4,TPSL-INST-ENC-0001
+75,"Hall-Effect Speed Pickup",INST,HAL,"ABS Plastic",Class 3,1,0,0,0,0,"TBD",4,TPSL-INST-HAL-0001
+76,"Helium Leak-Detection Port (KF-16)",INST,LDP,"Stainless Steel 316",Class 3,1,0.039,0.47,0.039,0.47,"Carpenter Technology",4,TPSL-INST-LDP-0001
+77,"Outer Housing (Inconel 718 forging)",HOU,OUT,"Inconel 718",Class 3,1,4.245,403.31,4.245,403.31,"Special Metals (PCC)",4,TPSL-HOU-OUT-0001
+78,"Housing Flange Inlet",HOU,FLG,"Inconel 718",Class 3,1,3.73,354.34,3.73,354.34,"Special Metals (PCC)",4,TPSL-HOU-FLG-0001
+79,"Housing Flange Outlet",HOU,FLG,"Inconel 718",Class 3,1,3.73,354.34,3.73,354.34,"Special Metals (PCC)",4,TPSL-HOU-FLG-0002
+80,"Metal C-Ring Gasket 1 (Inconel)",SEAL,CRG,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-CRG-0001
+81,"Metal C-Ring Gasket 2 (Inconel)",SEAL,CRG,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",4,TPSL-SEAL-CRG-0002
+82,"Inconel Flange Bolt 1 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0001
+83,"Inconel Washer 1",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0001
+84,"Inconel Flange Bolt 2 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0002
+85,"Inconel Washer 2",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0002
+86,"Inconel Flange Bolt 3 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0003
+87,"Inconel Washer 3",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0003
+88,"Inconel Flange Bolt 4 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0004
+89,"Inconel Washer 4",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0004
+90,"Inconel Flange Bolt 5 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0005
+91,"Inconel Washer 5",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0005
+92,"Inconel Flange Bolt 6 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0006
+93,"Inconel Washer 6",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0006
+94,"Inconel Flange Bolt 7 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0007
+95,"Inconel Washer 7",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0007
+96,"Inconel Flange Bolt 8 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0008
+97,"Inconel Washer 8",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0008
+98,"Inconel Flange Bolt 9 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0009
+99,"Inconel Washer 9",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0009
+100,"Inconel Flange Bolt 10 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0010
+101,"Inconel Washer 10",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0010
+102,"Inconel Flange Bolt 11 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0011
+103,"Inconel Washer 11",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0011
+104,"Inconel Flange Bolt 12 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0012
+105,"Inconel Washer 12",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0012
+106,"Inconel Flange Bolt 13 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0013
+107,"Inconel Washer 13",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0013
+108,"Inconel Flange Bolt 14 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0014
+109,"Inconel Washer 14",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0014
+110,"Inconel Flange Bolt 15 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0015
+111,"Inconel Washer 15",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0015
+112,"Inconel Flange Bolt 16 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0016
+113,"Inconel Washer 16",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0016
+114,"Inconel Flange Bolt 17 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0017
+115,"Inconel Washer 17",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0017
+116,"Inconel Flange Bolt 18 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0018
+117,"Inconel Washer 18",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0018
+118,"Inconel Flange Bolt 19 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0019
+119,"Inconel Washer 19",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0019
+120,"Inconel Flange Bolt 20 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0020
+121,"Inconel Washer 20",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0020
+122,"Inconel Flange Bolt 21 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0021
+123,"Inconel Washer 21",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0021
+124,"Inconel Flange Bolt 22 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0022
+125,"Inconel Washer 22",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0022
+126,"Inconel Flange Bolt 23 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0023
+127,"Inconel Washer 23",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0023
+128,"Inconel Flange Bolt 24 (M10)",FAS,BLT,"Inconel 718",Class 3,1,0.018,1.75,0.018,1.75,"Special Metals (PCC)",2,TPSL-FAS-BLT-0024
+129,"Inconel Washer 24",FAS,WSH,"Inconel 718",Class 3,1,0,0,0,0,"Special Metals (PCC)",2,TPSL-FAS-WSH-0024
+130,"Safety Lockwire 1 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0001
+131,"Safety Lockwire 2 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0002
+132,"Safety Lockwire 3 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0003
+133,"Safety Lockwire 4 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0004
+134,"Safety Lockwire 5 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0005
+135,"Safety Lockwire 6 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0006
+136,"Safety Lockwire 7 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0007
+137,"Safety Lockwire 8 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0008
+138,"Safety Lockwire 9 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0009
+139,"Safety Lockwire 10 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0010
+140,"Safety Lockwire 11 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0011
+141,"Safety Lockwire 12 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,1,0,0,0,0,"Carpenter Technology",4,TPSL-FAS-LWR-0012

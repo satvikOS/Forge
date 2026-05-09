@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-HOU-FLG-0001",
+  "partTitle": "Housing Flange Inlet",
+  "serialNumber": "SN-919474",
+  "drawingNumber": "TPSL-HOU-FLG-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-22365",
+  "manufacturingLot": "MFG-32607",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-22365",
+    "manufacturingProcess": "MFG-32607",
+    "inspectionRecord": "INSP-SN-919474",
+    "finalAcceptance": "2026-05-09"
+  }
+}

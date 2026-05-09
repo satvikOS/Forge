@@ -1,0 +1,43 @@
+{
+  "partID": "BTRM-BMS-SNS-0004",
+  "drawingNumber": "BTRM-BMS-SNS-0004-DWG",
+  "revision": "A",
+  "title": "Coolant Flow Sensor 4",
+  "scale": "1:2",
+  "units": "mm",
+  "datums": [
+    {
+      "id": "A",
+      "feature": "face",
+      "description": "primary mounting face"
+    },
+    {
+      "id": "B",
+      "feature": "axis",
+      "description": "centerline axis"
+    }
+  ],
+  "dimensional": [
+    {
+      "feature": "OD",
+      "nominal": 0.02,
+      "upper": 0.021,
+      "lower": 0.019,
+      "tolerance": 0.002,
+      "bilateral": true,
+      "checkMethod": "micrometer"
+    }
+  ],
+  "gdtCallouts": [],
+  "surfaceFinishes": [
+    {
+      "feature": "OD",
+      "Ra_um": 3.2,
+      "lay": "multi",
+      "direction": null,
+      "method": "profilometer"
+    }
+  ],
+  "processCallouts": [],
+  "notes": []
+}

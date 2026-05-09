@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-INST-PT-0001",
+  "partTitle": "Cryogenic Pressure Transducer (Kulite XCS)",
+  "serialNumber": "SN-102326",
+  "drawingNumber": "TPSL-INST-PT-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-30187",
+  "manufacturingLot": "MFG-32447",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-30187",
+    "manufacturingProcess": "MFG-32447",
+    "inspectionRecord": "INSP-SN-102326",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-COOL-RAD-0001",
+  "name": "Radiator Core",
+  "category": "COOL",
+  "subsystem": "RAD",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

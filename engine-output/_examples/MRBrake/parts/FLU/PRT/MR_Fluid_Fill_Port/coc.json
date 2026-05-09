@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "MRBR-FLU-PRT-0001",
+  "partTitle": "MR Fluid Fill Port",
+  "serialNumber": "SN-528189",
+  "drawingNumber": "MRBR-FLU-PRT-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-83602",
+  "manufacturingLot": "MFG-27324",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-83602",
+    "manufacturingProcess": "MFG-27324",
+    "inspectionRecord": "INSP-SN-528189",
+    "finalAcceptance": "2026-05-09"
+  }
+}

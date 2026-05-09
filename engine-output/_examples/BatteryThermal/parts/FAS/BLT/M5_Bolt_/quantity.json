@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-FAS-BLT-0060",
+  "name": "M5 Bolt 60",
+  "category": "FAS",
+  "subsystem": "BLT",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

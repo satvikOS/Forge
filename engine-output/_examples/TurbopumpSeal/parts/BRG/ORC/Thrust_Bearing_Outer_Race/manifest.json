@@ -1,0 +1,29 @@
+{
+  "partID": "TPSL-BRG-ORC-0001",
+  "partName": "Thrust Bearing Outer Race",
+  "project": "TPSL",
+  "classification": "Class 3",
+  "category": "BRG",
+  "subsystem": "ORC",
+  "material": "Inconel 718",
+  "generatedAt": "2026-05-09T19:38:51.583Z",
+  "drawingNumber": "TPSL-BRG-ORC-0001-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TPSL",
+  "certificationLevel": "Standard"
+}

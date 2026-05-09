@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "MRBR-WIR-LED-0006",
+  "partTitle": "Wire Lead 6",
+  "serialNumber": "SN-106351",
+  "drawingNumber": "MRBR-WIR-LED-0006-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-13864",
+  "manufacturingLot": "MFG-27626",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-13864",
+    "manufacturingProcess": "MFG-27626",
+    "inspectionRecord": "INSP-SN-106351",
+    "finalAcceptance": "2026-05-09"
+  }
+}

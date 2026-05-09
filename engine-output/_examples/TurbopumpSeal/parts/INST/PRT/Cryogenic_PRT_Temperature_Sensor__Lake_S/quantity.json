@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-INST-PRT-0001",
+  "name": "Cryogenic PRT Temperature Sensor (Lake Shore Cernox)",
+  "category": "INST",
+  "subsystem": "PRT",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

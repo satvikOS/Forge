@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "MRBR-COIL-WIN-0001",
+  "partTitle": "Electromagnetic Coil (1200 turns × 0.5mm enamelled Cu)",
+  "serialNumber": "SN-073155",
+  "drawingNumber": "MRBR-COIL-WIN-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-52816",
+  "manufacturingLot": "MFG-27231",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-52816",
+    "manufacturingProcess": "MFG-27231",
+    "inspectionRecord": "INSP-SN-073155",
+    "finalAcceptance": "2026-05-09"
+  }
+}

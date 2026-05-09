@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-BRG-ORC-0001",
+  "name": "Thrust Bearing Outer Race",
+  "category": "BRG",
+  "subsystem": "ORC",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1
+}

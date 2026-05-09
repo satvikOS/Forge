@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-FLU-PRT-0002",
+  "name": "MR Fluid Drain Port",
+  "category": "FLU",
+  "subsystem": "PRT",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,1412 @@
+[
+  {
+    "key": "SHFT|MAI|1|Turbopump Main Shaft (Inconel N)",
+    "partID": "TPSL-SHFT-MAI-0001",
+    "name": "Turbopump Main Shaft (Inconel 718)",
+    "category": "SHFT",
+    "subsystem": "MAI",
+    "material": "Inconel 718",
+    "classification": "Class 1",
+    "quantity": 1
+  },
+  {
+    "key": "SHFT|SLV|2|Shaft Sleeve (Stellite hardfaced)",
+    "partID": "TPSL-SHFT-SLV-0001",
+    "name": "Shaft Sleeve (Stellite hardfaced)",
+    "category": "SHFT",
+    "subsystem": "SLV",
+    "material": "Stainless Steel 316",
+    "classification": "Class 1",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|3|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0001",
+    "name": "Labyrinth Tooth 1",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|4|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0002",
+    "name": "Labyrinth Tooth 2",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|5|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0003",
+    "name": "Labyrinth Tooth 3",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|6|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0004",
+    "name": "Labyrinth Tooth 4",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|7|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0005",
+    "name": "Labyrinth Tooth 5",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|8|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0006",
+    "name": "Labyrinth Tooth 6",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|9|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0007",
+    "name": "Labyrinth Tooth 7",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|10|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0008",
+    "name": "Labyrinth Tooth 8",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|11|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0009",
+    "name": "Labyrinth Tooth 9",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|12|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0010",
+    "name": "Labyrinth Tooth 10",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|13|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0011",
+    "name": "Labyrinth Tooth 11",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LAB|14|Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-LAB-0012",
+    "name": "Labyrinth Tooth 12",
+    "category": "SEAL",
+    "subsystem": "LAB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|LSR|15|Labyrinth Stator Ring",
+    "partID": "TPSL-SEAL-LSR-0001",
+    "name": "Labyrinth Stator Ring",
+    "category": "SEAL",
+    "subsystem": "LSR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|CFS|16|Primary Carbon-Graphite Seal Ring",
+    "partID": "TPSL-SEAL-CFS-0001",
+    "name": "Primary Carbon-Graphite Seal Ring",
+    "category": "SEAL",
+    "subsystem": "CFS",
+    "material": "Carbon Fiber Composite",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|MTR|17|Mating Ring (Stellite-coated Inconel)",
+    "partID": "TPSL-SEAL-MTR-0001",
+    "name": "Mating Ring (Stellite-coated Inconel)",
+    "category": "SEAL",
+    "subsystem": "MTR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|18|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0001",
+    "name": "Face-Load Wave Spring 1",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|19|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0002",
+    "name": "Face-Load Wave Spring 2",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|20|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0003",
+    "name": "Face-Load Wave Spring 3",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|21|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0004",
+    "name": "Face-Load Wave Spring 4",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|22|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0005",
+    "name": "Face-Load Wave Spring 5",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|23|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0006",
+    "name": "Face-Load Wave Spring 6",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|24|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0007",
+    "name": "Face-Load Wave Spring 7",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SPR|25|Face-Load Wave Spring N",
+    "partID": "TPSL-SEAL-SPR-0008",
+    "name": "Face-Load Wave Spring 8",
+    "category": "SEAL",
+    "subsystem": "SPR",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|EOR|26|Energizer O-Ring (Spring-Loaded PTFE)",
+    "partID": "TPSL-SEAL-EOR-0001",
+    "name": "Energizer O-Ring (Spring-Loaded PTFE)",
+    "category": "SEAL",
+    "subsystem": "EOR",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SLB|27|Secondary Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-SLB-0001",
+    "name": "Secondary Labyrinth Tooth 1",
+    "category": "SEAL",
+    "subsystem": "SLB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SLB|28|Secondary Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-SLB-0002",
+    "name": "Secondary Labyrinth Tooth 2",
+    "category": "SEAL",
+    "subsystem": "SLB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SLB|29|Secondary Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-SLB-0003",
+    "name": "Secondary Labyrinth Tooth 3",
+    "category": "SEAL",
+    "subsystem": "SLB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SLB|30|Secondary Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-SLB-0004",
+    "name": "Secondary Labyrinth Tooth 4",
+    "category": "SEAL",
+    "subsystem": "SLB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SLB|31|Secondary Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-SLB-0005",
+    "name": "Secondary Labyrinth Tooth 5",
+    "category": "SEAL",
+    "subsystem": "SLB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|SLB|32|Secondary Labyrinth Tooth N",
+    "partID": "TPSL-SEAL-SLB-0006",
+    "name": "Secondary Labyrinth Tooth 6",
+    "category": "SEAL",
+    "subsystem": "SLB",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|IRC|33|Thrust Bearing Inner Race",
+    "partID": "TPSL-BRG-IRC-0001",
+    "name": "Thrust Bearing Inner Race",
+    "category": "BRG",
+    "subsystem": "IRC",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|ORC|34|Thrust Bearing Outer Race",
+    "partID": "TPSL-BRG-ORC-0001",
+    "name": "Thrust Bearing Outer Race",
+    "category": "BRG",
+    "subsystem": "ORC",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|35|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0001",
+    "name": "Si3N4 Bearing Ball 1",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|36|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0002",
+    "name": "Si3N4 Bearing Ball 2",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|37|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0003",
+    "name": "Si3N4 Bearing Ball 3",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|38|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0004",
+    "name": "Si3N4 Bearing Ball 4",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|39|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0005",
+    "name": "Si3N4 Bearing Ball 5",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|40|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0006",
+    "name": "Si3N4 Bearing Ball 6",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|41|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0007",
+    "name": "Si3N4 Bearing Ball 7",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|42|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0008",
+    "name": "Si3N4 Bearing Ball 8",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|43|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0009",
+    "name": "Si3N4 Bearing Ball 9",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|44|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0010",
+    "name": "Si3N4 Bearing Ball 10",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|45|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0011",
+    "name": "Si3N4 Bearing Ball 11",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|46|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0012",
+    "name": "Si3N4 Bearing Ball 12",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|47|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0013",
+    "name": "Si3N4 Bearing Ball 13",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|48|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0014",
+    "name": "Si3N4 Bearing Ball 14",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|49|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0015",
+    "name": "Si3N4 Bearing Ball 15",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|BAL|50|Si3N4 Bearing Ball N",
+    "partID": "TPSL-BRG-BAL-0016",
+    "name": "Si3N4 Bearing Ball 16",
+    "category": "BRG",
+    "subsystem": "BAL",
+    "material": "CMC SiC/SiC",
+    "classification": "Class 2",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|CAG|51|Bearing Cage (PEEK retainer)",
+    "partID": "TPSL-BRG-CAG-0001",
+    "name": "Bearing Cage (PEEK retainer)",
+    "category": "BRG",
+    "subsystem": "CAG",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|52|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0001",
+    "name": "MLI Layer 1 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|53|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0002",
+    "name": "MLI Layer 2 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|54|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0003",
+    "name": "MLI Layer 3 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|55|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0004",
+    "name": "MLI Layer 4 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|56|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0005",
+    "name": "MLI Layer 5 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|57|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0006",
+    "name": "MLI Layer 6 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|58|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0007",
+    "name": "MLI Layer 7 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|59|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0008",
+    "name": "MLI Layer 8 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|60|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0009",
+    "name": "MLI Layer 9 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|61|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0010",
+    "name": "MLI Layer 10 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|62|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0011",
+    "name": "MLI Layer 11 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|MLI|63|MLI Layer N (Mylar / scrim)",
+    "partID": "TPSL-INSL-MLI-0012",
+    "name": "MLI Layer 12 (Mylar / scrim)",
+    "category": "INSL",
+    "subsystem": "MLI",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INSL|JKT|64|Vacuum Insulation Jacket",
+    "partID": "TPSL-INSL-JKT-0001",
+    "name": "Vacuum Insulation Jacket",
+    "category": "INSL",
+    "subsystem": "JKT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BUF|MAN|65|Helium Purge Manifold",
+    "partID": "TPSL-BUF-MAN-0001",
+    "name": "Helium Purge Manifold",
+    "category": "BUF",
+    "subsystem": "MAN",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BUF|CHV|66|Helium Check Valve N",
+    "partID": "TPSL-BUF-CHV-0001",
+    "name": "Helium Check Valve 1",
+    "category": "BUF",
+    "subsystem": "CHV",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BUF|CHV|67|Helium Check Valve N",
+    "partID": "TPSL-BUF-CHV-0002",
+    "name": "Helium Check Valve 2",
+    "category": "BUF",
+    "subsystem": "CHV",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BUF|CHV|68|Helium Check Valve N",
+    "partID": "TPSL-BUF-CHV-0003",
+    "name": "Helium Check Valve 3",
+    "category": "BUF",
+    "subsystem": "CHV",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BUF|CHV|69|Helium Check Valve N",
+    "partID": "TPSL-BUF-CHV-0004",
+    "name": "Helium Check Valve 4",
+    "category": "BUF",
+    "subsystem": "CHV",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BUF|REG|70|Helium Pressure Regulator",
+    "partID": "TPSL-BUF-REG-0001",
+    "name": "Helium Pressure Regulator",
+    "category": "BUF",
+    "subsystem": "REG",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INST|PT|71|Cryogenic Pressure Transducer (Kulite XCS)",
+    "partID": "TPSL-INST-PT-0001",
+    "name": "Cryogenic Pressure Transducer (Kulite XCS)",
+    "category": "INST",
+    "subsystem": "PT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INST|PRT|72|Cryogenic PRT Temperature Sensor (Lake Shore Cernox)",
+    "partID": "TPSL-INST-PRT-0001",
+    "name": "Cryogenic PRT Temperature Sensor (Lake Shore Cernox)",
+    "category": "INST",
+    "subsystem": "PRT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INST|ACL|73|Cryogenic Accelerometer",
+    "partID": "TPSL-INST-ACL-0001",
+    "name": "Cryogenic Accelerometer",
+    "category": "INST",
+    "subsystem": "ACL",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INST|ENC|74|Speed Encoder Ring (N-tooth)",
+    "partID": "TPSL-INST-ENC-0001",
+    "name": "Speed Encoder Ring (60-tooth)",
+    "category": "INST",
+    "subsystem": "ENC",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INST|HAL|75|Hall-Effect Speed Pickup",
+    "partID": "TPSL-INST-HAL-0001",
+    "name": "Hall-Effect Speed Pickup",
+    "category": "INST",
+    "subsystem": "HAL",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "INST|LDP|76|Helium Leak-Detection Port (KF-N)",
+    "partID": "TPSL-INST-LDP-0001",
+    "name": "Helium Leak-Detection Port (KF-16)",
+    "category": "INST",
+    "subsystem": "LDP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HOU|OUT|77|Outer Housing (Inconel N forging)",
+    "partID": "TPSL-HOU-OUT-0001",
+    "name": "Outer Housing (Inconel 718 forging)",
+    "category": "HOU",
+    "subsystem": "OUT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HOU|FLG|78|Housing Flange Inlet",
+    "partID": "TPSL-HOU-FLG-0001",
+    "name": "Housing Flange Inlet",
+    "category": "HOU",
+    "subsystem": "FLG",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HOU|FLG|79|Housing Flange Outlet",
+    "partID": "TPSL-HOU-FLG-0002",
+    "name": "Housing Flange Outlet",
+    "category": "HOU",
+    "subsystem": "FLG",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|CRG|80|Metal C-Ring Gasket N (Inconel)",
+    "partID": "TPSL-SEAL-CRG-0001",
+    "name": "Metal C-Ring Gasket 1 (Inconel)",
+    "category": "SEAL",
+    "subsystem": "CRG",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|CRG|81|Metal C-Ring Gasket N (Inconel)",
+    "partID": "TPSL-SEAL-CRG-0002",
+    "name": "Metal C-Ring Gasket 2 (Inconel)",
+    "category": "SEAL",
+    "subsystem": "CRG",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|82|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0001",
+    "name": "Inconel Flange Bolt 1 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|83|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0001",
+    "name": "Inconel Washer 1",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|84|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0002",
+    "name": "Inconel Flange Bolt 2 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|85|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0002",
+    "name": "Inconel Washer 2",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|86|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0003",
+    "name": "Inconel Flange Bolt 3 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|87|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0003",
+    "name": "Inconel Washer 3",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|88|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0004",
+    "name": "Inconel Flange Bolt 4 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|89|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0004",
+    "name": "Inconel Washer 4",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|90|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0005",
+    "name": "Inconel Flange Bolt 5 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|91|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0005",
+    "name": "Inconel Washer 5",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|92|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0006",
+    "name": "Inconel Flange Bolt 6 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|93|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0006",
+    "name": "Inconel Washer 6",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|94|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0007",
+    "name": "Inconel Flange Bolt 7 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|95|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0007",
+    "name": "Inconel Washer 7",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|96|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0008",
+    "name": "Inconel Flange Bolt 8 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|97|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0008",
+    "name": "Inconel Washer 8",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|98|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0009",
+    "name": "Inconel Flange Bolt 9 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|99|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0009",
+    "name": "Inconel Washer 9",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|100|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0010",
+    "name": "Inconel Flange Bolt 10 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|101|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0010",
+    "name": "Inconel Washer 10",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|102|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0011",
+    "name": "Inconel Flange Bolt 11 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|103|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0011",
+    "name": "Inconel Washer 11",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|104|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0012",
+    "name": "Inconel Flange Bolt 12 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|105|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0012",
+    "name": "Inconel Washer 12",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|106|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0013",
+    "name": "Inconel Flange Bolt 13 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|107|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0013",
+    "name": "Inconel Washer 13",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|108|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0014",
+    "name": "Inconel Flange Bolt 14 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|109|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0014",
+    "name": "Inconel Washer 14",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|110|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0015",
+    "name": "Inconel Flange Bolt 15 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|111|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0015",
+    "name": "Inconel Washer 15",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|112|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0016",
+    "name": "Inconel Flange Bolt 16 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|113|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0016",
+    "name": "Inconel Washer 16",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|114|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0017",
+    "name": "Inconel Flange Bolt 17 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|115|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0017",
+    "name": "Inconel Washer 17",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|116|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0018",
+    "name": "Inconel Flange Bolt 18 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|117|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0018",
+    "name": "Inconel Washer 18",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|118|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0019",
+    "name": "Inconel Flange Bolt 19 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|119|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0019",
+    "name": "Inconel Washer 19",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|120|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0020",
+    "name": "Inconel Flange Bolt 20 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|121|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0020",
+    "name": "Inconel Washer 20",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|122|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0021",
+    "name": "Inconel Flange Bolt 21 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|123|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0021",
+    "name": "Inconel Washer 21",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|124|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0022",
+    "name": "Inconel Flange Bolt 22 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|125|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0022",
+    "name": "Inconel Washer 22",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|126|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0023",
+    "name": "Inconel Flange Bolt 23 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|127|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0023",
+    "name": "Inconel Washer 23",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|128|Inconel Flange Bolt N (M10)",
+    "partID": "TPSL-FAS-BLT-0024",
+    "name": "Inconel Flange Bolt 24 (M10)",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|129|Inconel Washer N",
+    "partID": "TPSL-FAS-WSH-0024",
+    "name": "Inconel Washer 24",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Inconel 718",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|130|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0001",
+    "name": "Safety Lockwire 1 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|131|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0002",
+    "name": "Safety Lockwire 2 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|132|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0003",
+    "name": "Safety Lockwire 3 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|133|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0004",
+    "name": "Safety Lockwire 4 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|134|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0005",
+    "name": "Safety Lockwire 5 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|135|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0006",
+    "name": "Safety Lockwire 6 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|136|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0007",
+    "name": "Safety Lockwire 7 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|137|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0008",
+    "name": "Safety Lockwire 8 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|138|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0009",
+    "name": "Safety Lockwire 9 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|139|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0010",
+    "name": "Safety Lockwire 10 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|140|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0011",
+    "name": "Safety Lockwire 11 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|LWR|141|Safety Lockwire N (N.N\" stainless)",
+    "partID": "TPSL-FAS-LWR-0012",
+    "name": "Safety Lockwire 12 (0.032\" stainless)",
+    "category": "FAS",
+    "subsystem": "LWR",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-SNS-CUR-0001",
+  "name": "Coil Current Sensor (LEM CASR-15)",
+  "category": "SNS",
+  "subsystem": "CUR",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

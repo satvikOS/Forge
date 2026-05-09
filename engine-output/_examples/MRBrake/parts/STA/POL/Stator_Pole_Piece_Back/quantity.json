@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-STA-POL-0002",
+  "name": "Stator Pole Piece Back",
+  "category": "STA",
+  "subsystem": "POL",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "MRBR-FLU-CHM-0001",
+  "partTitle": "MR Fluid Chamber (annular gap, 0.5mm)",
+  "serialNumber": "SN-970513",
+  "drawingNumber": "MRBR-FLU-CHM-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-72962",
+  "manufacturingLot": "MFG-27305",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-72962",
+    "manufacturingProcess": "MFG-27305",
+    "inspectionRecord": "INSP-SN-970513",
+    "finalAcceptance": "2026-05-09"
+  }
+}

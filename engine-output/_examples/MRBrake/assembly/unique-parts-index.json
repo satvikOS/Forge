@@ -1,0 +1,502 @@
+[
+  {
+    "key": "HOU|OUT|1|Brake Housing — Outer Cylinder (Flux Return)",
+    "partID": "MRBR-HOU-OUT-0001",
+    "name": "Brake Housing — Outer Cylinder (Flux Return)",
+    "category": "HOU",
+    "subsystem": "OUT",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HOU|FRT|2|Housing Front Cover",
+    "partID": "MRBR-HOU-FRT-0001",
+    "name": "Housing Front Cover",
+    "category": "HOU",
+    "subsystem": "FRT",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "HOU|BCK|3|Housing Back Cover",
+    "partID": "MRBR-HOU-BCK-0001",
+    "name": "Housing Back Cover",
+    "category": "HOU",
+    "subsystem": "BCK",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ROT|DSK|4|MR Brake Rotor Disk",
+    "partID": "MRBR-ROT-DSK-0001",
+    "name": "MR Brake Rotor Disk",
+    "category": "ROT",
+    "subsystem": "DSK",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ROT|SFT|5|Rotor Shaft",
+    "partID": "MRBR-ROT-SFT-0001",
+    "name": "Rotor Shaft",
+    "category": "ROT",
+    "subsystem": "SFT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|AC|6|Shaft Bearing N (Angular Contact)",
+    "partID": "MRBR-BRG-AC-0001",
+    "name": "Shaft Bearing 1 (Angular Contact)",
+    "category": "BRG",
+    "subsystem": "AC",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BRG|AC|7|Shaft Bearing N (Angular Contact)",
+    "partID": "MRBR-BRG-AC-0002",
+    "name": "Shaft Bearing 2 (Angular Contact)",
+    "category": "BRG",
+    "subsystem": "AC",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|DYN|8|Shaft Dynamic Seal N (PTFE lip seal)",
+    "partID": "MRBR-SEAL-DYN-0001",
+    "name": "Shaft Dynamic Seal 1 (PTFE lip seal)",
+    "category": "SEAL",
+    "subsystem": "DYN",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|DYN|9|Shaft Dynamic Seal N (PTFE lip seal)",
+    "partID": "MRBR-SEAL-DYN-0002",
+    "name": "Shaft Dynamic Seal 2 (PTFE lip seal)",
+    "category": "SEAL",
+    "subsystem": "DYN",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COIL|WIN|10|Electromagnetic Coil (N turns × N.5mm enamelled Cu)",
+    "partID": "MRBR-COIL-WIN-0001",
+    "name": "Electromagnetic Coil (1200 turns × 0.5mm enamelled Cu)",
+    "category": "COIL",
+    "subsystem": "WIN",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COIL|BOB|11|Coil Bobbin (PEEK insulator)",
+    "partID": "MRBR-COIL-BOB-0001",
+    "name": "Coil Bobbin (PEEK insulator)",
+    "category": "COIL",
+    "subsystem": "BOB",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STA|POL|12|Stator Pole Piece Front",
+    "partID": "MRBR-STA-POL-0001",
+    "name": "Stator Pole Piece Front",
+    "category": "STA",
+    "subsystem": "POL",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "STA|POL|13|Stator Pole Piece Back",
+    "partID": "MRBR-STA-POL-0002",
+    "name": "Stator Pole Piece Back",
+    "category": "STA",
+    "subsystem": "POL",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FLU|CHM|14|MR Fluid Chamber (annular gap, N.5mm)",
+    "partID": "MRBR-FLU-CHM-0001",
+    "name": "MR Fluid Chamber (annular gap, 0.5mm)",
+    "category": "FLU",
+    "subsystem": "CHM",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FLU|PRT|15|MR Fluid Fill Port",
+    "partID": "MRBR-FLU-PRT-0001",
+    "name": "MR Fluid Fill Port",
+    "category": "FLU",
+    "subsystem": "PRT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FLU|PRT|16|MR Fluid Drain Port",
+    "partID": "MRBR-FLU-PRT-0002",
+    "name": "MR Fluid Drain Port",
+    "category": "FLU",
+    "subsystem": "PRT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FLU|ACC|17|MR Fluid Accumulator",
+    "partID": "MRBR-FLU-ACC-0001",
+    "name": "MR Fluid Accumulator",
+    "category": "FLU",
+    "subsystem": "ACC",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|ORI|18|Chamber O-Ring Seal N (Viton)",
+    "partID": "MRBR-SEAL-ORI-0001",
+    "name": "Chamber O-Ring Seal 1 (Viton)",
+    "category": "SEAL",
+    "subsystem": "ORI",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|ORI|19|Chamber O-Ring Seal N (Viton)",
+    "partID": "MRBR-SEAL-ORI-0002",
+    "name": "Chamber O-Ring Seal 2 (Viton)",
+    "category": "SEAL",
+    "subsystem": "ORI",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|ORI|20|Chamber O-Ring Seal N (Viton)",
+    "partID": "MRBR-SEAL-ORI-0003",
+    "name": "Chamber O-Ring Seal 3 (Viton)",
+    "category": "SEAL",
+    "subsystem": "ORI",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SEAL|ORI|21|Chamber O-Ring Seal N (Viton)",
+    "partID": "MRBR-SEAL-ORI-0004",
+    "name": "Chamber O-Ring Seal 4 (Viton)",
+    "category": "SEAL",
+    "subsystem": "ORI",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SNS|POS|22|Hall-Effect Position Sensor N",
+    "partID": "MRBR-SNS-POS-0001",
+    "name": "Hall-Effect Position Sensor 1",
+    "category": "SNS",
+    "subsystem": "POS",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SNS|POS|23|Hall-Effect Position Sensor N",
+    "partID": "MRBR-SNS-POS-0002",
+    "name": "Hall-Effect Position Sensor 2",
+    "category": "SNS",
+    "subsystem": "POS",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SNS|POS|24|Hall-Effect Position Sensor N",
+    "partID": "MRBR-SNS-POS-0003",
+    "name": "Hall-Effect Position Sensor 3",
+    "category": "SNS",
+    "subsystem": "POS",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SNS|CUR|25|Coil Current Sensor (LEM CASR-N)",
+    "partID": "MRBR-SNS-CUR-0001",
+    "name": "Coil Current Sensor (LEM CASR-15)",
+    "category": "SNS",
+    "subsystem": "CUR",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SNS|RTD|26|PT100 RTD Temperature Sensor",
+    "partID": "MRBR-SNS-RTD-0001",
+    "name": "PT100 RTD Temperature Sensor",
+    "category": "SNS",
+    "subsystem": "RTD",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "SNS|TRQ|27|Reaction Torque Sensor (strain gauge)",
+    "partID": "MRBR-SNS-TRQ-0001",
+    "name": "Reaction Torque Sensor (strain gauge)",
+    "category": "SNS",
+    "subsystem": "TRQ",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|LED|28|Wire Lead N",
+    "partID": "MRBR-WIR-LED-0001",
+    "name": "Wire Lead 1",
+    "category": "WIR",
+    "subsystem": "LED",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|LED|29|Wire Lead N",
+    "partID": "MRBR-WIR-LED-0002",
+    "name": "Wire Lead 2",
+    "category": "WIR",
+    "subsystem": "LED",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|LED|30|Wire Lead N",
+    "partID": "MRBR-WIR-LED-0003",
+    "name": "Wire Lead 3",
+    "category": "WIR",
+    "subsystem": "LED",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|LED|31|Wire Lead N",
+    "partID": "MRBR-WIR-LED-0004",
+    "name": "Wire Lead 4",
+    "category": "WIR",
+    "subsystem": "LED",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|LED|32|Wire Lead N",
+    "partID": "MRBR-WIR-LED-0005",
+    "name": "Wire Lead 5",
+    "category": "WIR",
+    "subsystem": "LED",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|LED|33|Wire Lead N",
+    "partID": "MRBR-WIR-LED-0006",
+    "name": "Wire Lead 6",
+    "category": "WIR",
+    "subsystem": "LED",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "WIR|CNN|34|M12 Connector (N-pin)",
+    "partID": "MRBR-WIR-CNN-0001",
+    "name": "M12 Connector (8-pin)",
+    "category": "WIR",
+    "subsystem": "CNN",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|35|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0001",
+    "name": "M4 Socket-Head Cap Screw 1",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|36|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0002",
+    "name": "M4 Socket-Head Cap Screw 2",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|37|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0003",
+    "name": "M4 Socket-Head Cap Screw 3",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|38|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0004",
+    "name": "M4 Socket-Head Cap Screw 4",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|39|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0005",
+    "name": "M4 Socket-Head Cap Screw 5",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|40|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0006",
+    "name": "M4 Socket-Head Cap Screw 6",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|41|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0007",
+    "name": "M4 Socket-Head Cap Screw 7",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|42|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0008",
+    "name": "M4 Socket-Head Cap Screw 8",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|43|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0009",
+    "name": "M4 Socket-Head Cap Screw 9",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|44|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0010",
+    "name": "M4 Socket-Head Cap Screw 10",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|45|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0011",
+    "name": "M4 Socket-Head Cap Screw 11",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|46|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0012",
+    "name": "M4 Socket-Head Cap Screw 12",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|47|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0013",
+    "name": "M4 Socket-Head Cap Screw 13",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|48|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0014",
+    "name": "M4 Socket-Head Cap Screw 14",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|49|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0015",
+    "name": "M4 Socket-Head Cap Screw 15",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|50|M4 Socket-Head Cap Screw N",
+    "partID": "MRBR-FAS-BLT-0016",
+    "name": "M4 Socket-Head Cap Screw 16",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  }
+]

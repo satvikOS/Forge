@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-WIR-LED-0006",
+  "name": "Wire Lead 6",
+  "category": "WIR",
+  "subsystem": "LED",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1
+}

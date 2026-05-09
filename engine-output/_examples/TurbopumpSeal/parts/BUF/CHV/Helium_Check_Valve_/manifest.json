@@ -1,0 +1,29 @@
+{
+  "partID": "TPSL-BUF-CHV-0004",
+  "partName": "Helium Check Valve 4",
+  "project": "TPSL",
+  "classification": "Class 3",
+  "category": "BUF",
+  "subsystem": "CHV",
+  "material": "Stainless Steel 316",
+  "generatedAt": "2026-05-09T19:38:52.413Z",
+  "drawingNumber": "TPSL-BUF-CHV-0004-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TPSL",
+  "certificationLevel": "Standard"
+}

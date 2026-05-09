@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-COOL-MAN-0001",
+  "name": "Coolant Manifold IN",
+  "category": "COOL",
+  "subsystem": "MAN",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

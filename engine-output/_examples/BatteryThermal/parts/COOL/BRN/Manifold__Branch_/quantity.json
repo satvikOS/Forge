@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-COOL-BRN-0008",
+  "name": "Manifold 2 Branch 4",
+  "category": "COOL",
+  "subsystem": "BRN",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

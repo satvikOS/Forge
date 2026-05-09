@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-BUF-MAN-0001",
+  "name": "Helium Purge Manifold",
+  "category": "BUF",
+  "subsystem": "MAN",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

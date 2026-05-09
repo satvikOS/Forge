@@ -1,0 +1,142 @@
+Depth,PartID,Name,Category,Subsystem,Material,Class,Mass_kg,Unit_Cost_USD
+0,TPSL-SHFT-MAI-0001,"Turbopump Main Shaft (Inconel 718)",SHFT,MAI,"Inconel 718",Class 1,4.793,455.37
+0,TPSL-SHFT-SLV-0001,"Shaft Sleeve (Stellite hardfaced)",SHFT,SLV,"Stainless Steel 316",Class 1,0.32,3.84
+0,TPSL-SEAL-LAB-0001,"Labyrinth Tooth 1",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0002,"Labyrinth Tooth 2",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0003,"Labyrinth Tooth 3",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0004,"Labyrinth Tooth 4",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0005,"Labyrinth Tooth 5",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0006,"Labyrinth Tooth 6",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0007,"Labyrinth Tooth 7",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0008,"Labyrinth Tooth 8",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0009,"Labyrinth Tooth 9",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0010,"Labyrinth Tooth 10",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0011,"Labyrinth Tooth 11",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LAB-0012,"Labyrinth Tooth 12",SEAL,LAB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-LSR-0001,"Labyrinth Stator Ring",SEAL,LSR,"Inconel 718",Class 3,1.345,127.74
+0,TPSL-SEAL-CFS-0001,"Primary Carbon-Graphite Seal Ring",SEAL,CFS,"Carbon Fiber Composite",Class 3,0.067,13.44
+0,TPSL-SEAL-MTR-0001,"Mating Ring (Stellite-coated Inconel)",SEAL,MTR,"Inconel 718",Class 3,0.136,12.91
+0,TPSL-SEAL-SPR-0001,"Face-Load Wave Spring 1",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0002,"Face-Load Wave Spring 2",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0003,"Face-Load Wave Spring 3",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0004,"Face-Load Wave Spring 4",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0005,"Face-Load Wave Spring 5",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0006,"Face-Load Wave Spring 6",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0007,"Face-Load Wave Spring 7",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SPR-0008,"Face-Load Wave Spring 8",SEAL,SPR,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-EOR-0001,"Energizer O-Ring (Spring-Loaded PTFE)",SEAL,EOR,"Nylon 6/6",Class 3,0,0
+0,TPSL-SEAL-SLB-0001,"Secondary Labyrinth Tooth 1",SEAL,SLB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SLB-0002,"Secondary Labyrinth Tooth 2",SEAL,SLB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SLB-0003,"Secondary Labyrinth Tooth 3",SEAL,SLB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SLB-0004,"Secondary Labyrinth Tooth 4",SEAL,SLB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SLB-0005,"Secondary Labyrinth Tooth 5",SEAL,SLB,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-SLB-0006,"Secondary Labyrinth Tooth 6",SEAL,SLB,"Inconel 718",Class 3,0,0
+0,TPSL-BRG-IRC-0001,"Thrust Bearing Inner Race",BRG,IRC,"Inconel 718",Class 3,0.085,8.07
+0,TPSL-BRG-ORC-0001,"Thrust Bearing Outer Race",BRG,ORC,"Inconel 718",Class 3,0.116,11
+0,TPSL-BRG-BAL-0001,"Si3N4 Bearing Ball 1",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0002,"Si3N4 Bearing Ball 2",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0003,"Si3N4 Bearing Ball 3",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0004,"Si3N4 Bearing Ball 4",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0005,"Si3N4 Bearing Ball 5",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0006,"Si3N4 Bearing Ball 6",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0007,"Si3N4 Bearing Ball 7",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0008,"Si3N4 Bearing Ball 8",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0009,"Si3N4 Bearing Ball 9",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0010,"Si3N4 Bearing Ball 10",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0011,"Si3N4 Bearing Ball 11",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0012,"Si3N4 Bearing Ball 12",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0013,"Si3N4 Bearing Ball 13",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0014,"Si3N4 Bearing Ball 14",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0015,"Si3N4 Bearing Ball 15",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-BAL-0016,"Si3N4 Bearing Ball 16",BRG,BAL,"CMC SiC/SiC",Class 2,0,0
+0,TPSL-BRG-CAG-0001,"Bearing Cage (PEEK retainer)",BRG,CAG,"Nylon 6/6",Class 3,0.011,0.05
+0,TPSL-INSL-MLI-0001,"MLI Layer 1 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.016,0.08
+0,TPSL-INSL-MLI-0002,"MLI Layer 2 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.016,0.08
+0,TPSL-INSL-MLI-0003,"MLI Layer 3 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.08
+0,TPSL-INSL-MLI-0004,"MLI Layer 4 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.08
+0,TPSL-INSL-MLI-0005,"MLI Layer 5 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.08
+0,TPSL-INSL-MLI-0006,"MLI Layer 6 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.08
+0,TPSL-INSL-MLI-0007,"MLI Layer 7 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.09
+0,TPSL-INSL-MLI-0008,"MLI Layer 8 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.09
+0,TPSL-INSL-MLI-0009,"MLI Layer 9 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.09
+0,TPSL-INSL-MLI-0010,"MLI Layer 10 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.017,0.09
+0,TPSL-INSL-MLI-0011,"MLI Layer 11 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.018,0.09
+0,TPSL-INSL-MLI-0012,"MLI Layer 12 (Mylar / scrim)",INSL,MLI,"ABS Plastic",Class 3,0.018,0.09
+0,TPSL-INSL-JKT-0001,"Vacuum Insulation Jacket",INSL,JKT,"Stainless Steel 316",Class 3,1.065,12.78
+0,TPSL-BUF-MAN-0001,"Helium Purge Manifold",BUF,MAN,"Stainless Steel 316",Class 3,0.066,0.8
+0,TPSL-BUF-CHV-0001,"Helium Check Valve 1",BUF,CHV,"Stainless Steel 316",Class 3,0.031,0.38
+0,TPSL-BUF-CHV-0002,"Helium Check Valve 2",BUF,CHV,"Stainless Steel 316",Class 3,0.031,0.38
+0,TPSL-BUF-CHV-0003,"Helium Check Valve 3",BUF,CHV,"Stainless Steel 316",Class 3,0.031,0.38
+0,TPSL-BUF-CHV-0004,"Helium Check Valve 4",BUF,CHV,"Stainless Steel 316",Class 3,0.031,0.38
+0,TPSL-BUF-REG-0001,"Helium Pressure Regulator",BUF,REG,"Stainless Steel 316",Class 3,0.398,4.77
+0,TPSL-INST-PT-0001,"Cryogenic Pressure Transducer (Kulite XCS)",INST,PT,"Inconel 718",Class 3,0.108,10.29
+0,TPSL-INST-PRT-0001,"Cryogenic PRT Temperature Sensor (Lake Shore Cernox)",INST,PRT,"Stainless Steel 316",Class 3,0.002,0.02
+0,TPSL-INST-ACL-0001,"Cryogenic Accelerometer",INST,ACL,"Stainless Steel 316",Class 3,0.007,0.08
+0,TPSL-INST-ENC-0001,"Speed Encoder Ring (60-tooth)",INST,ENC,"Inconel 718",Class 3,0.018,1.72
+0,TPSL-INST-HAL-0001,"Hall-Effect Speed Pickup",INST,HAL,"ABS Plastic",Class 3,0,0
+0,TPSL-INST-LDP-0001,"Helium Leak-Detection Port (KF-16)",INST,LDP,"Stainless Steel 316",Class 3,0.039,0.47
+0,TPSL-HOU-OUT-0001,"Outer Housing (Inconel 718 forging)",HOU,OUT,"Inconel 718",Class 3,4.245,403.31
+0,TPSL-HOU-FLG-0001,"Housing Flange Inlet",HOU,FLG,"Inconel 718",Class 3,3.73,354.34
+0,TPSL-HOU-FLG-0002,"Housing Flange Outlet",HOU,FLG,"Inconel 718",Class 3,3.73,354.34
+0,TPSL-SEAL-CRG-0001,"Metal C-Ring Gasket 1 (Inconel)",SEAL,CRG,"Inconel 718",Class 3,0,0
+0,TPSL-SEAL-CRG-0002,"Metal C-Ring Gasket 2 (Inconel)",SEAL,CRG,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0001,"Inconel Flange Bolt 1 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0001,"Inconel Washer 1",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0002,"Inconel Flange Bolt 2 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0002,"Inconel Washer 2",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0003,"Inconel Flange Bolt 3 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0003,"Inconel Washer 3",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0004,"Inconel Flange Bolt 4 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0004,"Inconel Washer 4",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0005,"Inconel Flange Bolt 5 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0005,"Inconel Washer 5",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0006,"Inconel Flange Bolt 6 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0006,"Inconel Washer 6",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0007,"Inconel Flange Bolt 7 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0007,"Inconel Washer 7",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0008,"Inconel Flange Bolt 8 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0008,"Inconel Washer 8",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0009,"Inconel Flange Bolt 9 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0009,"Inconel Washer 9",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0010,"Inconel Flange Bolt 10 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0010,"Inconel Washer 10",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0011,"Inconel Flange Bolt 11 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0011,"Inconel Washer 11",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0012,"Inconel Flange Bolt 12 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0012,"Inconel Washer 12",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0013,"Inconel Flange Bolt 13 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0013,"Inconel Washer 13",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0014,"Inconel Flange Bolt 14 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0014,"Inconel Washer 14",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0015,"Inconel Flange Bolt 15 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0015,"Inconel Washer 15",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0016,"Inconel Flange Bolt 16 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0016,"Inconel Washer 16",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0017,"Inconel Flange Bolt 17 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0017,"Inconel Washer 17",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0018,"Inconel Flange Bolt 18 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0018,"Inconel Washer 18",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0019,"Inconel Flange Bolt 19 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0019,"Inconel Washer 19",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0020,"Inconel Flange Bolt 20 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0020,"Inconel Washer 20",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0021,"Inconel Flange Bolt 21 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0021,"Inconel Washer 21",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0022,"Inconel Flange Bolt 22 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0022,"Inconel Washer 22",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0023,"Inconel Flange Bolt 23 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0023,"Inconel Washer 23",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-BLT-0024,"Inconel Flange Bolt 24 (M10)",FAS,BLT,"Inconel 718",Class 3,0.018,1.75
+0,TPSL-FAS-WSH-0024,"Inconel Washer 24",FAS,WSH,"Inconel 718",Class 3,0,0
+0,TPSL-FAS-LWR-0001,"Safety Lockwire 1 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0002,"Safety Lockwire 2 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0003,"Safety Lockwire 3 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0004,"Safety Lockwire 4 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0005,"Safety Lockwire 5 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0006,"Safety Lockwire 6 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0007,"Safety Lockwire 7 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0008,"Safety Lockwire 8 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0009,"Safety Lockwire 9 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0010,"Safety Lockwire 10 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0011,"Safety Lockwire 11 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0
+0,TPSL-FAS-LWR-0012,"Safety Lockwire 12 (0.032" stainless)",FAS,LWR,"Stainless Steel 316",Class 3,0,0

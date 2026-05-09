@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "BTRM-ELEC-BUS-0010",
+  "partTitle": "Bus Bar 10",
+  "serialNumber": "SN-446659",
+  "drawingNumber": "BTRM-ELEC-BUS-0010-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-24182",
+  "manufacturingLot": "MFG-21230",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-24182",
+    "manufacturingProcess": "MFG-21230",
+    "inspectionRecord": "INSP-SN-446659",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-SNS-TRQ-0001",
+  "name": "Reaction Torque Sensor (strain gauge)",
+  "category": "SNS",
+  "subsystem": "TRQ",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

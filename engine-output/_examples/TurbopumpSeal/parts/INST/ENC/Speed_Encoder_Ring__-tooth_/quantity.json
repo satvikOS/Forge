@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-INST-ENC-0001",
+  "name": "Speed Encoder Ring (60-tooth)",
+  "category": "INST",
+  "subsystem": "ENC",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1
+}

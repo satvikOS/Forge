@@ -1,0 +1,4132 @@
+[
+  {
+    "key": "COOL|PLT|1|Cold Plate (Aluminum, Serpentine)",
+    "partID": "BTRM-COOL-PLT-0001",
+    "name": "Cold Plate (Aluminum, Serpentine)",
+    "category": "COOL",
+    "subsystem": "PLT",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|PRT|2|Cold Plate Port IN",
+    "partID": "BTRM-COOL-PRT-0001",
+    "name": "Cold Plate Port IN",
+    "category": "COOL",
+    "subsystem": "PRT",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|PRT|3|Cold Plate Port OUT",
+    "partID": "BTRM-COOL-PRT-0002",
+    "name": "Cold Plate Port OUT",
+    "category": "COOL",
+    "subsystem": "PRT",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|4|N Cell N",
+    "partID": "BTRM-CELL-468-0001",
+    "name": "4680 Cell 1",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|5|N Cell N",
+    "partID": "BTRM-CELL-468-0002",
+    "name": "4680 Cell 2",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|6|N Cell N",
+    "partID": "BTRM-CELL-468-0003",
+    "name": "4680 Cell 3",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|7|N Cell N",
+    "partID": "BTRM-CELL-468-0004",
+    "name": "4680 Cell 4",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|8|N Cell N",
+    "partID": "BTRM-CELL-468-0005",
+    "name": "4680 Cell 5",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|9|N Cell N",
+    "partID": "BTRM-CELL-468-0006",
+    "name": "4680 Cell 6",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|10|N Cell N",
+    "partID": "BTRM-CELL-468-0007",
+    "name": "4680 Cell 7",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|11|N Cell N",
+    "partID": "BTRM-CELL-468-0008",
+    "name": "4680 Cell 8",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|12|N Cell N",
+    "partID": "BTRM-CELL-468-0009",
+    "name": "4680 Cell 9",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|13|N Cell N",
+    "partID": "BTRM-CELL-468-0010",
+    "name": "4680 Cell 10",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|14|N Cell N",
+    "partID": "BTRM-CELL-468-0011",
+    "name": "4680 Cell 11",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|15|N Cell N",
+    "partID": "BTRM-CELL-468-0012",
+    "name": "4680 Cell 12",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|16|N Cell N",
+    "partID": "BTRM-CELL-468-0013",
+    "name": "4680 Cell 13",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|17|N Cell N",
+    "partID": "BTRM-CELL-468-0014",
+    "name": "4680 Cell 14",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|18|N Cell N",
+    "partID": "BTRM-CELL-468-0015",
+    "name": "4680 Cell 15",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|19|N Cell N",
+    "partID": "BTRM-CELL-468-0016",
+    "name": "4680 Cell 16",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|20|N Cell N",
+    "partID": "BTRM-CELL-468-0017",
+    "name": "4680 Cell 17",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|21|N Cell N",
+    "partID": "BTRM-CELL-468-0018",
+    "name": "4680 Cell 18",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|22|N Cell N",
+    "partID": "BTRM-CELL-468-0019",
+    "name": "4680 Cell 19",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|23|N Cell N",
+    "partID": "BTRM-CELL-468-0020",
+    "name": "4680 Cell 20",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|24|N Cell N",
+    "partID": "BTRM-CELL-468-0021",
+    "name": "4680 Cell 21",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|25|N Cell N",
+    "partID": "BTRM-CELL-468-0022",
+    "name": "4680 Cell 22",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|26|N Cell N",
+    "partID": "BTRM-CELL-468-0023",
+    "name": "4680 Cell 23",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|27|N Cell N",
+    "partID": "BTRM-CELL-468-0024",
+    "name": "4680 Cell 24",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|28|N Cell N",
+    "partID": "BTRM-CELL-468-0025",
+    "name": "4680 Cell 25",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|29|N Cell N",
+    "partID": "BTRM-CELL-468-0026",
+    "name": "4680 Cell 26",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|30|N Cell N",
+    "partID": "BTRM-CELL-468-0027",
+    "name": "4680 Cell 27",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|31|N Cell N",
+    "partID": "BTRM-CELL-468-0028",
+    "name": "4680 Cell 28",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|32|N Cell N",
+    "partID": "BTRM-CELL-468-0029",
+    "name": "4680 Cell 29",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|33|N Cell N",
+    "partID": "BTRM-CELL-468-0030",
+    "name": "4680 Cell 30",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|34|N Cell N",
+    "partID": "BTRM-CELL-468-0031",
+    "name": "4680 Cell 31",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|35|N Cell N",
+    "partID": "BTRM-CELL-468-0032",
+    "name": "4680 Cell 32",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|36|N Cell N",
+    "partID": "BTRM-CELL-468-0033",
+    "name": "4680 Cell 33",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|37|N Cell N",
+    "partID": "BTRM-CELL-468-0034",
+    "name": "4680 Cell 34",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|38|N Cell N",
+    "partID": "BTRM-CELL-468-0035",
+    "name": "4680 Cell 35",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|39|N Cell N",
+    "partID": "BTRM-CELL-468-0036",
+    "name": "4680 Cell 36",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|40|N Cell N",
+    "partID": "BTRM-CELL-468-0037",
+    "name": "4680 Cell 37",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|41|N Cell N",
+    "partID": "BTRM-CELL-468-0038",
+    "name": "4680 Cell 38",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|42|N Cell N",
+    "partID": "BTRM-CELL-468-0039",
+    "name": "4680 Cell 39",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|43|N Cell N",
+    "partID": "BTRM-CELL-468-0040",
+    "name": "4680 Cell 40",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|44|N Cell N",
+    "partID": "BTRM-CELL-468-0041",
+    "name": "4680 Cell 41",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|45|N Cell N",
+    "partID": "BTRM-CELL-468-0042",
+    "name": "4680 Cell 42",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|46|N Cell N",
+    "partID": "BTRM-CELL-468-0043",
+    "name": "4680 Cell 43",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|47|N Cell N",
+    "partID": "BTRM-CELL-468-0044",
+    "name": "4680 Cell 44",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|48|N Cell N",
+    "partID": "BTRM-CELL-468-0045",
+    "name": "4680 Cell 45",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|49|N Cell N",
+    "partID": "BTRM-CELL-468-0046",
+    "name": "4680 Cell 46",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|50|N Cell N",
+    "partID": "BTRM-CELL-468-0047",
+    "name": "4680 Cell 47",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|51|N Cell N",
+    "partID": "BTRM-CELL-468-0048",
+    "name": "4680 Cell 48",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|52|N Cell N",
+    "partID": "BTRM-CELL-468-0049",
+    "name": "4680 Cell 49",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|53|N Cell N",
+    "partID": "BTRM-CELL-468-0050",
+    "name": "4680 Cell 50",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|54|N Cell N",
+    "partID": "BTRM-CELL-468-0051",
+    "name": "4680 Cell 51",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|55|N Cell N",
+    "partID": "BTRM-CELL-468-0052",
+    "name": "4680 Cell 52",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|56|N Cell N",
+    "partID": "BTRM-CELL-468-0053",
+    "name": "4680 Cell 53",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|57|N Cell N",
+    "partID": "BTRM-CELL-468-0054",
+    "name": "4680 Cell 54",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|58|N Cell N",
+    "partID": "BTRM-CELL-468-0055",
+    "name": "4680 Cell 55",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|59|N Cell N",
+    "partID": "BTRM-CELL-468-0056",
+    "name": "4680 Cell 56",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|60|N Cell N",
+    "partID": "BTRM-CELL-468-0057",
+    "name": "4680 Cell 57",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|61|N Cell N",
+    "partID": "BTRM-CELL-468-0058",
+    "name": "4680 Cell 58",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|62|N Cell N",
+    "partID": "BTRM-CELL-468-0059",
+    "name": "4680 Cell 59",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|63|N Cell N",
+    "partID": "BTRM-CELL-468-0060",
+    "name": "4680 Cell 60",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|64|N Cell N",
+    "partID": "BTRM-CELL-468-0061",
+    "name": "4680 Cell 61",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|65|N Cell N",
+    "partID": "BTRM-CELL-468-0062",
+    "name": "4680 Cell 62",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|66|N Cell N",
+    "partID": "BTRM-CELL-468-0063",
+    "name": "4680 Cell 63",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|67|N Cell N",
+    "partID": "BTRM-CELL-468-0064",
+    "name": "4680 Cell 64",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|68|N Cell N",
+    "partID": "BTRM-CELL-468-0065",
+    "name": "4680 Cell 65",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|69|N Cell N",
+    "partID": "BTRM-CELL-468-0066",
+    "name": "4680 Cell 66",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|70|N Cell N",
+    "partID": "BTRM-CELL-468-0067",
+    "name": "4680 Cell 67",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|71|N Cell N",
+    "partID": "BTRM-CELL-468-0068",
+    "name": "4680 Cell 68",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|72|N Cell N",
+    "partID": "BTRM-CELL-468-0069",
+    "name": "4680 Cell 69",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|73|N Cell N",
+    "partID": "BTRM-CELL-468-0070",
+    "name": "4680 Cell 70",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|74|N Cell N",
+    "partID": "BTRM-CELL-468-0071",
+    "name": "4680 Cell 71",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|75|N Cell N",
+    "partID": "BTRM-CELL-468-0072",
+    "name": "4680 Cell 72",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|76|N Cell N",
+    "partID": "BTRM-CELL-468-0073",
+    "name": "4680 Cell 73",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|77|N Cell N",
+    "partID": "BTRM-CELL-468-0074",
+    "name": "4680 Cell 74",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|78|N Cell N",
+    "partID": "BTRM-CELL-468-0075",
+    "name": "4680 Cell 75",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|79|N Cell N",
+    "partID": "BTRM-CELL-468-0076",
+    "name": "4680 Cell 76",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|80|N Cell N",
+    "partID": "BTRM-CELL-468-0077",
+    "name": "4680 Cell 77",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|81|N Cell N",
+    "partID": "BTRM-CELL-468-0078",
+    "name": "4680 Cell 78",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|82|N Cell N",
+    "partID": "BTRM-CELL-468-0079",
+    "name": "4680 Cell 79",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|83|N Cell N",
+    "partID": "BTRM-CELL-468-0080",
+    "name": "4680 Cell 80",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|84|N Cell N",
+    "partID": "BTRM-CELL-468-0081",
+    "name": "4680 Cell 81",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|85|N Cell N",
+    "partID": "BTRM-CELL-468-0082",
+    "name": "4680 Cell 82",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|86|N Cell N",
+    "partID": "BTRM-CELL-468-0083",
+    "name": "4680 Cell 83",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|87|N Cell N",
+    "partID": "BTRM-CELL-468-0084",
+    "name": "4680 Cell 84",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|88|N Cell N",
+    "partID": "BTRM-CELL-468-0085",
+    "name": "4680 Cell 85",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|89|N Cell N",
+    "partID": "BTRM-CELL-468-0086",
+    "name": "4680 Cell 86",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|90|N Cell N",
+    "partID": "BTRM-CELL-468-0087",
+    "name": "4680 Cell 87",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|91|N Cell N",
+    "partID": "BTRM-CELL-468-0088",
+    "name": "4680 Cell 88",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|92|N Cell N",
+    "partID": "BTRM-CELL-468-0089",
+    "name": "4680 Cell 89",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|93|N Cell N",
+    "partID": "BTRM-CELL-468-0090",
+    "name": "4680 Cell 90",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|94|N Cell N",
+    "partID": "BTRM-CELL-468-0091",
+    "name": "4680 Cell 91",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|95|N Cell N",
+    "partID": "BTRM-CELL-468-0092",
+    "name": "4680 Cell 92",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|96|N Cell N",
+    "partID": "BTRM-CELL-468-0093",
+    "name": "4680 Cell 93",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|97|N Cell N",
+    "partID": "BTRM-CELL-468-0094",
+    "name": "4680 Cell 94",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|98|N Cell N",
+    "partID": "BTRM-CELL-468-0095",
+    "name": "4680 Cell 95",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "CELL|468|99|N Cell N",
+    "partID": "BTRM-CELL-468-0096",
+    "name": "4680 Cell 96",
+    "category": "CELL",
+    "subsystem": "468",
+    "material": "Steel AISI 1020",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|MAN|100|Coolant Manifold IN",
+    "partID": "BTRM-COOL-MAN-0001",
+    "name": "Coolant Manifold IN",
+    "category": "COOL",
+    "subsystem": "MAN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|101|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0001",
+    "name": "Manifold 1 Branch 1",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|102|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0002",
+    "name": "Manifold 1 Branch 2",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|103|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0003",
+    "name": "Manifold 1 Branch 3",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|104|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0004",
+    "name": "Manifold 1 Branch 4",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|MAN|105|Coolant Manifold OUT",
+    "partID": "BTRM-COOL-MAN-0002",
+    "name": "Coolant Manifold OUT",
+    "category": "COOL",
+    "subsystem": "MAN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|106|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0005",
+    "name": "Manifold 2 Branch 1",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|107|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0006",
+    "name": "Manifold 2 Branch 2",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|108|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0007",
+    "name": "Manifold 2 Branch 3",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BRN|109|Manifold N Branch N",
+    "partID": "BTRM-COOL-BRN-0008",
+    "name": "Manifold 2 Branch 4",
+    "category": "COOL",
+    "subsystem": "BRN",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|110|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0001",
+    "name": "Coolant Hose 1",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|111|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0002",
+    "name": "Coolant Hose 2",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|112|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0003",
+    "name": "Coolant Hose 3",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|113|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0004",
+    "name": "Coolant Hose 4",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|114|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0005",
+    "name": "Coolant Hose 5",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|115|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0006",
+    "name": "Coolant Hose 6",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|116|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0007",
+    "name": "Coolant Hose 7",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|HOS|117|Coolant Hose N",
+    "partID": "BTRM-COOL-HOS-0008",
+    "name": "Coolant Hose 8",
+    "category": "COOL",
+    "subsystem": "HOS",
+    "material": "Nylon 6/6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|118|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0001",
+    "name": "Quick-Disconnect Fitting 1",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|119|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0002",
+    "name": "Quick-Disconnect Fitting 2",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|120|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0003",
+    "name": "Quick-Disconnect Fitting 3",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|121|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0004",
+    "name": "Quick-Disconnect Fitting 4",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|122|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0005",
+    "name": "Quick-Disconnect Fitting 5",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|123|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0006",
+    "name": "Quick-Disconnect Fitting 6",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|124|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0007",
+    "name": "Quick-Disconnect Fitting 7",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|125|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0008",
+    "name": "Quick-Disconnect Fitting 8",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|126|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0009",
+    "name": "Quick-Disconnect Fitting 9",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|127|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0010",
+    "name": "Quick-Disconnect Fitting 10",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|128|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0011",
+    "name": "Quick-Disconnect Fitting 11",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|129|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0012",
+    "name": "Quick-Disconnect Fitting 12",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|130|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0013",
+    "name": "Quick-Disconnect Fitting 13",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|131|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0014",
+    "name": "Quick-Disconnect Fitting 14",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|132|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0015",
+    "name": "Quick-Disconnect Fitting 15",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FIT|133|Quick-Disconnect Fitting N",
+    "partID": "BTRM-COOL-FIT-0016",
+    "name": "Quick-Disconnect Fitting 16",
+    "category": "COOL",
+    "subsystem": "FIT",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|PMP|134|Coolant Pump (BLDC, 50W, N L/min)",
+    "partID": "BTRM-COOL-PMP-0001",
+    "name": "Coolant Pump (BLDC, 50W, 8 L/min)",
+    "category": "COOL",
+    "subsystem": "PMP",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|RES|135|Coolant Reservoir (N.N L)",
+    "partID": "BTRM-COOL-RES-0001",
+    "name": "Coolant Reservoir (1.5 L)",
+    "category": "COOL",
+    "subsystem": "RES",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|RAD|136|Radiator Core",
+    "partID": "BTRM-COOL-RAD-0001",
+    "name": "Radiator Core",
+    "category": "COOL",
+    "subsystem": "RAD",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|FAN|137|Radiator Fan Housing",
+    "partID": "BTRM-COOL-FAN-0001",
+    "name": "Radiator Fan Housing",
+    "category": "COOL",
+    "subsystem": "FAN",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BLD|138|Radiator Fan Blade N",
+    "partID": "BTRM-COOL-BLD-0001",
+    "name": "Radiator Fan Blade 1",
+    "category": "COOL",
+    "subsystem": "BLD",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BLD|139|Radiator Fan Blade N",
+    "partID": "BTRM-COOL-BLD-0002",
+    "name": "Radiator Fan Blade 2",
+    "category": "COOL",
+    "subsystem": "BLD",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BLD|140|Radiator Fan Blade N",
+    "partID": "BTRM-COOL-BLD-0003",
+    "name": "Radiator Fan Blade 3",
+    "category": "COOL",
+    "subsystem": "BLD",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BLD|141|Radiator Fan Blade N",
+    "partID": "BTRM-COOL-BLD-0004",
+    "name": "Radiator Fan Blade 4",
+    "category": "COOL",
+    "subsystem": "BLD",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BLD|142|Radiator Fan Blade N",
+    "partID": "BTRM-COOL-BLD-0005",
+    "name": "Radiator Fan Blade 5",
+    "category": "COOL",
+    "subsystem": "BLD",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "COOL|BLD|143|Radiator Fan Blade N",
+    "partID": "BTRM-COOL-BLD-0006",
+    "name": "Radiator Fan Blade 6",
+    "category": "COOL",
+    "subsystem": "BLD",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|PCB|144|BMS PCB N",
+    "partID": "BTRM-BMS-PCB-0001",
+    "name": "BMS PCB 1",
+    "category": "BMS",
+    "subsystem": "PCB",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|PCB|145|BMS PCB N",
+    "partID": "BTRM-BMS-PCB-0002",
+    "name": "BMS PCB 2",
+    "category": "BMS",
+    "subsystem": "PCB",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|PCB|146|BMS PCB N",
+    "partID": "BTRM-BMS-PCB-0003",
+    "name": "BMS PCB 3",
+    "category": "BMS",
+    "subsystem": "PCB",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|147|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0001",
+    "name": "Cell Monitor IC 1",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|148|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0002",
+    "name": "Cell Monitor IC 2",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|149|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0003",
+    "name": "Cell Monitor IC 3",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|150|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0004",
+    "name": "Cell Monitor IC 4",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|151|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0005",
+    "name": "Cell Monitor IC 5",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|152|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0006",
+    "name": "Cell Monitor IC 6",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|153|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0007",
+    "name": "Cell Monitor IC 7",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|154|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0008",
+    "name": "Cell Monitor IC 8",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|155|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0009",
+    "name": "Cell Monitor IC 9",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|156|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0010",
+    "name": "Cell Monitor IC 10",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|157|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0011",
+    "name": "Cell Monitor IC 11",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|IC|158|Cell Monitor IC N",
+    "partID": "BTRM-BMS-IC-0012",
+    "name": "Cell Monitor IC 12",
+    "category": "BMS",
+    "subsystem": "IC",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|159|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0001",
+    "name": "Temperature Sensor 1 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|160|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0002",
+    "name": "Temperature Sensor 2 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|161|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0003",
+    "name": "Temperature Sensor 3 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|162|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0004",
+    "name": "Temperature Sensor 4 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|163|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0005",
+    "name": "Temperature Sensor 5 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|164|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0006",
+    "name": "Temperature Sensor 6 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|165|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0007",
+    "name": "Temperature Sensor 7 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|166|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0008",
+    "name": "Temperature Sensor 8 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|167|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0009",
+    "name": "Temperature Sensor 9 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|168|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0010",
+    "name": "Temperature Sensor 10 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|169|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0011",
+    "name": "Temperature Sensor 11 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|170|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0012",
+    "name": "Temperature Sensor 12 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|171|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0013",
+    "name": "Temperature Sensor 13 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|172|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0014",
+    "name": "Temperature Sensor 14 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|173|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0015",
+    "name": "Temperature Sensor 15 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|TMP|174|Temperature Sensor N (NTC 10k)",
+    "partID": "BTRM-BMS-TMP-0016",
+    "name": "Temperature Sensor 16 (NTC 10k)",
+    "category": "BMS",
+    "subsystem": "TMP",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|SNS|175|Coolant Pressure Sensor N",
+    "partID": "BTRM-BMS-SNS-0001",
+    "name": "Coolant Pressure Sensor 1",
+    "category": "BMS",
+    "subsystem": "SNS",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|SNS|176|Coolant Pressure Sensor N",
+    "partID": "BTRM-BMS-SNS-0002",
+    "name": "Coolant Pressure Sensor 2",
+    "category": "BMS",
+    "subsystem": "SNS",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|SNS|177|Coolant Flow Sensor N",
+    "partID": "BTRM-BMS-SNS-0003",
+    "name": "Coolant Flow Sensor 3",
+    "category": "BMS",
+    "subsystem": "SNS",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|SNS|178|Coolant Flow Sensor N",
+    "partID": "BTRM-BMS-SNS-0004",
+    "name": "Coolant Flow Sensor 4",
+    "category": "BMS",
+    "subsystem": "SNS",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "BMS|MCU|179|BMS Main MCU + Communication Module",
+    "partID": "BTRM-BMS-MCU-0001",
+    "name": "BMS Main MCU + Communication Module",
+    "category": "BMS",
+    "subsystem": "MCU",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|180|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0001",
+    "name": "Bus Bar 1",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|181|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0002",
+    "name": "Bus Bar 2",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|182|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0003",
+    "name": "Bus Bar 3",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|183|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0004",
+    "name": "Bus Bar 4",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|184|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0005",
+    "name": "Bus Bar 5",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|185|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0006",
+    "name": "Bus Bar 6",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|186|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0007",
+    "name": "Bus Bar 7",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|187|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0008",
+    "name": "Bus Bar 8",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|188|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0009",
+    "name": "Bus Bar 9",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|BUS|189|Bus Bar N",
+    "partID": "BTRM-ELEC-BUS-0010",
+    "name": "Bus Bar 10",
+    "category": "ELEC",
+    "subsystem": "BUS",
+    "material": "Copper C11000",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|190|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0001",
+    "name": "Cell Tab 1",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|191|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0002",
+    "name": "Cell Tab 2",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|192|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0003",
+    "name": "Cell Tab 3",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|193|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0004",
+    "name": "Cell Tab 4",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|194|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0005",
+    "name": "Cell Tab 5",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|195|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0006",
+    "name": "Cell Tab 6",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|196|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0007",
+    "name": "Cell Tab 7",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|197|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0008",
+    "name": "Cell Tab 8",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|198|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0009",
+    "name": "Cell Tab 9",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|199|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0010",
+    "name": "Cell Tab 10",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|200|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0011",
+    "name": "Cell Tab 11",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|201|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0012",
+    "name": "Cell Tab 12",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|202|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0013",
+    "name": "Cell Tab 13",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|203|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0014",
+    "name": "Cell Tab 14",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|204|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0015",
+    "name": "Cell Tab 15",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|205|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0016",
+    "name": "Cell Tab 16",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|206|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0017",
+    "name": "Cell Tab 17",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|207|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0018",
+    "name": "Cell Tab 18",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|208|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0019",
+    "name": "Cell Tab 19",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|209|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0020",
+    "name": "Cell Tab 20",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|210|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0021",
+    "name": "Cell Tab 21",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|211|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0022",
+    "name": "Cell Tab 22",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|212|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0023",
+    "name": "Cell Tab 23",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|213|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0024",
+    "name": "Cell Tab 24",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|214|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0025",
+    "name": "Cell Tab 25",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|215|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0026",
+    "name": "Cell Tab 26",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|216|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0027",
+    "name": "Cell Tab 27",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|217|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0028",
+    "name": "Cell Tab 28",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|218|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0029",
+    "name": "Cell Tab 29",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|219|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0030",
+    "name": "Cell Tab 30",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|220|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0031",
+    "name": "Cell Tab 31",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|221|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0032",
+    "name": "Cell Tab 32",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|222|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0033",
+    "name": "Cell Tab 33",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|223|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0034",
+    "name": "Cell Tab 34",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|224|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0035",
+    "name": "Cell Tab 35",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|225|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0036",
+    "name": "Cell Tab 36",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|226|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0037",
+    "name": "Cell Tab 37",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|227|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0038",
+    "name": "Cell Tab 38",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|228|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0039",
+    "name": "Cell Tab 39",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|229|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0040",
+    "name": "Cell Tab 40",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|230|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0041",
+    "name": "Cell Tab 41",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|231|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0042",
+    "name": "Cell Tab 42",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|232|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0043",
+    "name": "Cell Tab 43",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|233|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0044",
+    "name": "Cell Tab 44",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|234|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0045",
+    "name": "Cell Tab 45",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|235|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0046",
+    "name": "Cell Tab 46",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|236|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0047",
+    "name": "Cell Tab 47",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|237|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0048",
+    "name": "Cell Tab 48",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|238|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0049",
+    "name": "Cell Tab 49",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|239|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0050",
+    "name": "Cell Tab 50",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|240|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0051",
+    "name": "Cell Tab 51",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|241|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0052",
+    "name": "Cell Tab 52",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|242|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0053",
+    "name": "Cell Tab 53",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|243|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0054",
+    "name": "Cell Tab 54",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|244|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0055",
+    "name": "Cell Tab 55",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|245|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0056",
+    "name": "Cell Tab 56",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|246|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0057",
+    "name": "Cell Tab 57",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|247|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0058",
+    "name": "Cell Tab 58",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|248|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0059",
+    "name": "Cell Tab 59",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|249|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0060",
+    "name": "Cell Tab 60",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|250|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0061",
+    "name": "Cell Tab 61",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|251|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0062",
+    "name": "Cell Tab 62",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|252|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0063",
+    "name": "Cell Tab 63",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|253|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0064",
+    "name": "Cell Tab 64",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|254|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0065",
+    "name": "Cell Tab 65",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|255|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0066",
+    "name": "Cell Tab 66",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|256|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0067",
+    "name": "Cell Tab 67",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|257|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0068",
+    "name": "Cell Tab 68",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|258|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0069",
+    "name": "Cell Tab 69",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|259|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0070",
+    "name": "Cell Tab 70",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|260|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0071",
+    "name": "Cell Tab 71",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|261|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0072",
+    "name": "Cell Tab 72",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|262|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0073",
+    "name": "Cell Tab 73",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|263|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0074",
+    "name": "Cell Tab 74",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|264|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0075",
+    "name": "Cell Tab 75",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|265|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0076",
+    "name": "Cell Tab 76",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|266|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0077",
+    "name": "Cell Tab 77",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|267|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0078",
+    "name": "Cell Tab 78",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|268|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0079",
+    "name": "Cell Tab 79",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|269|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0080",
+    "name": "Cell Tab 80",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|270|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0081",
+    "name": "Cell Tab 81",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|271|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0082",
+    "name": "Cell Tab 82",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|272|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0083",
+    "name": "Cell Tab 83",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|273|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0084",
+    "name": "Cell Tab 84",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|274|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0085",
+    "name": "Cell Tab 85",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|275|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0086",
+    "name": "Cell Tab 86",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|276|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0087",
+    "name": "Cell Tab 87",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|277|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0088",
+    "name": "Cell Tab 88",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|278|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0089",
+    "name": "Cell Tab 89",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|279|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0090",
+    "name": "Cell Tab 90",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|280|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0091",
+    "name": "Cell Tab 91",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|281|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0092",
+    "name": "Cell Tab 92",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|282|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0093",
+    "name": "Cell Tab 93",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|283|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0094",
+    "name": "Cell Tab 94",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|284|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0095",
+    "name": "Cell Tab 95",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|TAB|285|Cell Tab N",
+    "partID": "BTRM-ELEC-TAB-0096",
+    "name": "Cell Tab 96",
+    "category": "ELEC",
+    "subsystem": "TAB",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ELEC|CON|286|Main Pack Contactor 400A",
+    "partID": "BTRM-ELEC-CON-0001",
+    "name": "Main Pack Contactor 400A",
+    "category": "ELEC",
+    "subsystem": "CON",
+    "material": "ABS Plastic",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|LID|287|Pack Enclosure Lid",
+    "partID": "BTRM-ENC-LID-0001",
+    "name": "Pack Enclosure Lid",
+    "category": "ENC",
+    "subsystem": "LID",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|FLR|288|Pack Enclosure Floor",
+    "partID": "BTRM-ENC-FLR-0001",
+    "name": "Pack Enclosure Floor",
+    "category": "ENC",
+    "subsystem": "FLR",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|WAL|289|Pack Enclosure Wall N",
+    "partID": "BTRM-ENC-WAL-0001",
+    "name": "Pack Enclosure Wall 1",
+    "category": "ENC",
+    "subsystem": "WAL",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|WAL|290|Pack Enclosure Wall N",
+    "partID": "BTRM-ENC-WAL-0002",
+    "name": "Pack Enclosure Wall 2",
+    "category": "ENC",
+    "subsystem": "WAL",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|WAL|291|Pack Enclosure Wall N",
+    "partID": "BTRM-ENC-WAL-0003",
+    "name": "Pack Enclosure Wall 3",
+    "category": "ENC",
+    "subsystem": "WAL",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|WAL|292|Pack Enclosure Wall N",
+    "partID": "BTRM-ENC-WAL-0004",
+    "name": "Pack Enclosure Wall 4",
+    "category": "ENC",
+    "subsystem": "WAL",
+    "material": "Aluminum 6061-T6",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "ENC|PRV|293|Pressure-Relief Valve (thermal runaway vent)",
+    "partID": "BTRM-ENC-PRV-0001",
+    "name": "Pressure-Relief Valve (thermal runaway vent)",
+    "category": "ENC",
+    "subsystem": "PRV",
+    "material": "Stainless Steel 316",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|294|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0001",
+    "name": "M5 Bolt 1",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|295|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0001",
+    "name": "M5 Washer 1",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|296|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0002",
+    "name": "M5 Bolt 2",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|297|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0002",
+    "name": "M5 Washer 2",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|298|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0003",
+    "name": "M5 Bolt 3",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|299|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0003",
+    "name": "M5 Washer 3",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|300|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0004",
+    "name": "M5 Bolt 4",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|301|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0004",
+    "name": "M5 Washer 4",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|302|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0005",
+    "name": "M5 Bolt 5",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|303|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0005",
+    "name": "M5 Washer 5",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|304|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0006",
+    "name": "M5 Bolt 6",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|305|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0006",
+    "name": "M5 Washer 6",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|306|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0007",
+    "name": "M5 Bolt 7",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|307|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0007",
+    "name": "M5 Washer 7",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|308|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0008",
+    "name": "M5 Bolt 8",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|309|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0008",
+    "name": "M5 Washer 8",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|310|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0009",
+    "name": "M5 Bolt 9",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|311|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0009",
+    "name": "M5 Washer 9",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|312|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0010",
+    "name": "M5 Bolt 10",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|313|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0010",
+    "name": "M5 Washer 10",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|314|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0011",
+    "name": "M5 Bolt 11",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|315|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0011",
+    "name": "M5 Washer 11",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|316|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0012",
+    "name": "M5 Bolt 12",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|317|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0012",
+    "name": "M5 Washer 12",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|318|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0013",
+    "name": "M5 Bolt 13",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|319|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0013",
+    "name": "M5 Washer 13",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|320|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0014",
+    "name": "M5 Bolt 14",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|321|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0014",
+    "name": "M5 Washer 14",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|322|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0015",
+    "name": "M5 Bolt 15",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|323|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0015",
+    "name": "M5 Washer 15",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|324|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0016",
+    "name": "M5 Bolt 16",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|325|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0016",
+    "name": "M5 Washer 16",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|326|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0017",
+    "name": "M5 Bolt 17",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|327|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0017",
+    "name": "M5 Washer 17",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|328|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0018",
+    "name": "M5 Bolt 18",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|329|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0018",
+    "name": "M5 Washer 18",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|330|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0019",
+    "name": "M5 Bolt 19",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|331|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0019",
+    "name": "M5 Washer 19",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|332|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0020",
+    "name": "M5 Bolt 20",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|333|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0020",
+    "name": "M5 Washer 20",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|334|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0021",
+    "name": "M5 Bolt 21",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|335|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0021",
+    "name": "M5 Washer 21",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|336|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0022",
+    "name": "M5 Bolt 22",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|337|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0022",
+    "name": "M5 Washer 22",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|338|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0023",
+    "name": "M5 Bolt 23",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|339|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0023",
+    "name": "M5 Washer 23",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|340|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0024",
+    "name": "M5 Bolt 24",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|341|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0024",
+    "name": "M5 Washer 24",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|342|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0025",
+    "name": "M5 Bolt 25",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|343|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0025",
+    "name": "M5 Washer 25",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|344|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0026",
+    "name": "M5 Bolt 26",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|345|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0026",
+    "name": "M5 Washer 26",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|346|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0027",
+    "name": "M5 Bolt 27",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|347|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0027",
+    "name": "M5 Washer 27",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|348|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0028",
+    "name": "M5 Bolt 28",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|349|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0028",
+    "name": "M5 Washer 28",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|350|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0029",
+    "name": "M5 Bolt 29",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|351|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0029",
+    "name": "M5 Washer 29",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|352|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0030",
+    "name": "M5 Bolt 30",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|353|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0030",
+    "name": "M5 Washer 30",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|354|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0031",
+    "name": "M5 Bolt 31",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|355|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0031",
+    "name": "M5 Washer 31",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|356|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0032",
+    "name": "M5 Bolt 32",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|357|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0032",
+    "name": "M5 Washer 32",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|358|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0033",
+    "name": "M5 Bolt 33",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|359|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0033",
+    "name": "M5 Washer 33",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|360|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0034",
+    "name": "M5 Bolt 34",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|361|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0034",
+    "name": "M5 Washer 34",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|362|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0035",
+    "name": "M5 Bolt 35",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|363|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0035",
+    "name": "M5 Washer 35",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|364|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0036",
+    "name": "M5 Bolt 36",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|365|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0036",
+    "name": "M5 Washer 36",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|366|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0037",
+    "name": "M5 Bolt 37",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|367|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0037",
+    "name": "M5 Washer 37",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|368|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0038",
+    "name": "M5 Bolt 38",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|369|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0038",
+    "name": "M5 Washer 38",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|370|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0039",
+    "name": "M5 Bolt 39",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|371|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0039",
+    "name": "M5 Washer 39",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|372|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0040",
+    "name": "M5 Bolt 40",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|373|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0040",
+    "name": "M5 Washer 40",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|374|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0041",
+    "name": "M5 Bolt 41",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|375|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0041",
+    "name": "M5 Washer 41",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|376|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0042",
+    "name": "M5 Bolt 42",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|377|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0042",
+    "name": "M5 Washer 42",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|378|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0043",
+    "name": "M5 Bolt 43",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|379|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0043",
+    "name": "M5 Washer 43",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|380|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0044",
+    "name": "M5 Bolt 44",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|381|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0044",
+    "name": "M5 Washer 44",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|382|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0045",
+    "name": "M5 Bolt 45",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|383|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0045",
+    "name": "M5 Washer 45",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|384|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0046",
+    "name": "M5 Bolt 46",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|385|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0046",
+    "name": "M5 Washer 46",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|386|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0047",
+    "name": "M5 Bolt 47",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|387|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0047",
+    "name": "M5 Washer 47",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|388|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0048",
+    "name": "M5 Bolt 48",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|389|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0048",
+    "name": "M5 Washer 48",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|390|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0049",
+    "name": "M5 Bolt 49",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|391|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0049",
+    "name": "M5 Washer 49",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|392|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0050",
+    "name": "M5 Bolt 50",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|393|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0050",
+    "name": "M5 Washer 50",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|394|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0051",
+    "name": "M5 Bolt 51",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|395|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0051",
+    "name": "M5 Washer 51",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|396|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0052",
+    "name": "M5 Bolt 52",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|397|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0052",
+    "name": "M5 Washer 52",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|398|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0053",
+    "name": "M5 Bolt 53",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|399|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0053",
+    "name": "M5 Washer 53",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|400|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0054",
+    "name": "M5 Bolt 54",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|401|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0054",
+    "name": "M5 Washer 54",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|402|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0055",
+    "name": "M5 Bolt 55",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|403|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0055",
+    "name": "M5 Washer 55",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|404|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0056",
+    "name": "M5 Bolt 56",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|405|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0056",
+    "name": "M5 Washer 56",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|406|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0057",
+    "name": "M5 Bolt 57",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|407|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0057",
+    "name": "M5 Washer 57",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|408|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0058",
+    "name": "M5 Bolt 58",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|409|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0058",
+    "name": "M5 Washer 58",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|410|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0059",
+    "name": "M5 Bolt 59",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|411|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0059",
+    "name": "M5 Washer 59",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|BLT|412|M5 Bolt N",
+    "partID": "BTRM-FAS-BLT-0060",
+    "name": "M5 Bolt 60",
+    "category": "FAS",
+    "subsystem": "BLT",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  },
+  {
+    "key": "FAS|WSH|413|M5 Washer N",
+    "partID": "BTRM-FAS-WSH-0060",
+    "name": "M5 Washer 60",
+    "category": "FAS",
+    "subsystem": "WSH",
+    "material": "Steel AISI 4340",
+    "classification": "Class 3",
+    "quantity": 1
+  }
+]

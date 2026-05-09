@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-BMS-SNS-0004",
+  "name": "Coolant Flow Sensor 4",
+  "category": "BMS",
+  "subsystem": "SNS",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,29 @@
+{
+  "partID": "BTRM-BMS-MCU-0001",
+  "partName": "BMS Main MCU + Communication Module",
+  "project": "BTRM",
+  "classification": "Class 3",
+  "category": "BMS",
+  "subsystem": "MCU",
+  "material": "ABS Plastic",
+  "generatedAt": "2026-05-09T19:38:41.116Z",
+  "drawingNumber": "BTRM-BMS-MCU-0001-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "BTRM",
+  "certificationLevel": "Standard"
+}

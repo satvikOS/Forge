@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-BRG-BAL-0016",
+  "partTitle": "Si3N4 Bearing Ball 16",
+  "serialNumber": "SN-373957",
+  "drawingNumber": "TPSL-BRG-BAL-0016-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-32858",
+  "manufacturingLot": "MFG-32025",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-32858",
+    "manufacturingProcess": "MFG-32025",
+    "inspectionRecord": "INSP-SN-373957",
+    "finalAcceptance": "2026-05-09"
+  }
+}

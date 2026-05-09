@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-BMS-PCB-0003",
+  "name": "BMS PCB 3",
+  "category": "BMS",
+  "subsystem": "PCB",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

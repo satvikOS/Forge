@@ -1,0 +1,17 @@
+{
+  "project": "Cryogenic Turbopump Dynamic Seal",
+  "deliverable": "Professional aerospace production-article submission",
+  "generatedAt": "2026-05-09T19:38:54.161Z",
+  "cad": "ArchDisc v1.21+ proprietary B-Rep kernel",
+  "counts": {
+    "totalComponents": 141,
+    "uniquePartDefinitions": 141,
+    "productionPackagesGenerated": 141,
+    "filesInDelivery": 1992
+  },
+  "physical": {
+    "totalMass_kg": 21.04,
+    "manufacturingCost_USD": 1819.88,
+    "target_mass_kg": 8
+  }
+}

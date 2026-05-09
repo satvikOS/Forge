@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-HOU-BCK-0001",
+  "name": "Housing Back Cover",
+  "category": "HOU",
+  "subsystem": "BCK",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

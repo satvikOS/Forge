@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-ELEC-TAB-0096",
+  "name": "Cell Tab 96",
+  "category": "ELEC",
+  "subsystem": "TAB",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

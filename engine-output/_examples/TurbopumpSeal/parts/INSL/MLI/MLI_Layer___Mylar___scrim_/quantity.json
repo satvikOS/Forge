@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-INSL-MLI-0012",
+  "name": "MLI Layer 12 (Mylar / scrim)",
+  "category": "INSL",
+  "subsystem": "MLI",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

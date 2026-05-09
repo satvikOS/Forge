@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-SEAL-SLB-0006",
+  "partTitle": "Secondary Labyrinth Tooth 6",
+  "serialNumber": "SN-678375",
+  "drawingNumber": "TPSL-SEAL-SLB-0006-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-34610",
+  "manufacturingLot": "MFG-31527",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-34610",
+    "manufacturingProcess": "MFG-31527",
+    "inspectionRecord": "INSP-SN-678375",
+    "finalAcceptance": "2026-05-09"
+  }
+}

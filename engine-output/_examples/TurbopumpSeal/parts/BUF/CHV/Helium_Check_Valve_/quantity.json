@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-BUF-CHV-0004",
+  "name": "Helium Check Valve 4",
+  "category": "BUF",
+  "subsystem": "CHV",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

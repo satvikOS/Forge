@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-BMS-SNS-0002",
+  "name": "Coolant Pressure Sensor 2",
+  "category": "BMS",
+  "subsystem": "SNS",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

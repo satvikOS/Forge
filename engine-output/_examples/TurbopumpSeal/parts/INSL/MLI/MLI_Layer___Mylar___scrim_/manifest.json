@@ -1,0 +1,29 @@
+{
+  "partID": "TPSL-INSL-MLI-0012",
+  "partName": "MLI Layer 12 (Mylar / scrim)",
+  "project": "TPSL",
+  "classification": "Class 3",
+  "category": "INSL",
+  "subsystem": "MLI",
+  "material": "ABS Plastic",
+  "generatedAt": "2026-05-09T19:38:52.293Z",
+  "drawingNumber": "TPSL-INSL-MLI-0012-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TPSL",
+  "certificationLevel": "Standard"
+}

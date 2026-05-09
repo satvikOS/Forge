@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-SEAL-MTR-0001",
+  "partTitle": "Mating Ring (Stellite-coated Inconel)",
+  "serialNumber": "SN-752675",
+  "drawingNumber": "TPSL-SEAL-MTR-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-34401",
+  "manufacturingLot": "MFG-31014",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-34401",
+    "manufacturingProcess": "MFG-31014",
+    "inspectionRecord": "INSP-SN-752675",
+    "finalAcceptance": "2026-05-09"
+  }
+}

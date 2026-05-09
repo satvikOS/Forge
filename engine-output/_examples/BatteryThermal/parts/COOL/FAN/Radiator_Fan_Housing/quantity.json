@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-COOL-FAN-0001",
+  "name": "Radiator Fan Housing",
+  "category": "COOL",
+  "subsystem": "FAN",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

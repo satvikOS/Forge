@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-FLU-ACC-0001",
+  "name": "MR Fluid Accumulator",
+  "category": "FLU",
+  "subsystem": "ACC",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

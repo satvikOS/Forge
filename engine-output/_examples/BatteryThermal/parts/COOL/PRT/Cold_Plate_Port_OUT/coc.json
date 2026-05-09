@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "BTRM-COOL-PRT-0002",
+  "partTitle": "Cold Plate Port OUT",
+  "serialNumber": "SN-274830",
+  "drawingNumber": "BTRM-COOL-PRT-0002-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-43784",
+  "manufacturingLot": "MFG-18639",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-43784",
+    "manufacturingProcess": "MFG-18639",
+    "inspectionRecord": "INSP-SN-274830",
+    "finalAcceptance": "2026-05-09"
+  }
+}

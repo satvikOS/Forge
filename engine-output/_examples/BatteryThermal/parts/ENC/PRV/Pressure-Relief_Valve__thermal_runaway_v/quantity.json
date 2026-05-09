@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-ENC-PRV-0001",
+  "name": "Pressure-Relief Valve (thermal runaway vent)",
+  "category": "ENC",
+  "subsystem": "PRV",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

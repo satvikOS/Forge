@@ -1,0 +1,9 @@
+{
+  "partID": "BTRM-ENC-LID-0001",
+  "name": "Pack Enclosure Lid",
+  "category": "ENC",
+  "subsystem": "LID",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

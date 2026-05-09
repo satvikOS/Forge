@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-INST-HAL-0001",
+  "name": "Hall-Effect Speed Pickup",
+  "category": "INST",
+  "subsystem": "HAL",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

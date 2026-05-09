@@ -1,0 +1,29 @@
+{
+  "partID": "MRBR-HOU-OUT-0001",
+  "partName": "Brake Housing — Outer Cylinder (Flux Return)",
+  "project": "MRBR",
+  "classification": "Class 3",
+  "category": "HOU",
+  "subsystem": "OUT",
+  "material": "Steel AISI 1020",
+  "generatedAt": "2026-05-09T19:38:47.043Z",
+  "drawingNumber": "MRBR-HOU-OUT-0001-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "MRBR",
+  "certificationLevel": "Standard"
+}

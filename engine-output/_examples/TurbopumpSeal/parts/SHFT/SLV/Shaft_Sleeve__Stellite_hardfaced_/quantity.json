@@ -1,0 +1,9 @@
+{
+  "partID": "TPSL-SHFT-SLV-0001",
+  "name": "Shaft Sleeve (Stellite hardfaced)",
+  "category": "SHFT",
+  "subsystem": "SLV",
+  "material": "Stainless Steel 316",
+  "classification": "Class 1",
+  "quantity": 1
+}

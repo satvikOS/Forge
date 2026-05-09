@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 297" width="420mm" height="297mm" font-family="Helvetica, Arial, sans-serif">
+<rect width="420" height="297" fill="#fff"/>
+<rect x="12" y="12" width="396" height="273" fill="none" stroke="#000" stroke-width="0.6"/>
+<rect x="12" y="12" width="396" height="22" fill="#1a1a2e"/>
+<text x="16" y="25" font-size="5" fill="#fff" font-weight="700">TPSL — ASSEMBLY DRAWING</text>
+<text x="210" y="25.5" text-anchor="middle" font-size="6" fill="#fff" font-weight="700">CRYOGENIC TURBOPUMP DYNAMIC SEAL</text>
+<rect x="373" y="15" width="33" height="16" fill="#d94a4a"/>
+<text x="389.5" y="25" text-anchor="middle" font-size="3.5" fill="#000" font-weight="700">Class 1 ASSY</text>
+<rect x="24" y="118.04100000000001" width="7.68" height="10.36800000000001" fill="#4a90d9" fill-opacity="0.55" stroke="#222" stroke-width="0.3"/>
+<text x="27.84" y="123.72500000000001" text-anchor="middle" font-size="3" fill="#000" font-weight="700">Inlet Flange + Bearing</text>
+<rect x="31.68" y="118.04100000000001" width="7.68" height="10.36800000000001" fill="#4ed99d" fill-opacity="0.55" stroke="#222" stroke-width="0.3"/>
+<text x="35.519999999999996" y="123.72500000000001" text-anchor="middle" font-size="3" fill="#000" font-weight="700">Labyrinth Stack</text>
+<rect x="39.36" y="118.04100000000001" width="7.68" height="10.36800000000001" fill="#d9a04a" fill-opacity="0.55" stroke="#222" stroke-width="0.3"/>
+<text x="43.2" y="123.72500000000001" text-anchor="middle" font-size="3" fill="#000" font-weight="700">Carbon-Face Seal</text>
+<rect x="47.04" y="118.04100000000001" width="5.119999999999997" height="10.36800000000001" fill="#d94a4a" fill-opacity="0.55" stroke="#222" stroke-width="0.3"/>
+<text x="49.599999999999994" y="123.72500000000001" text-anchor="middle" font-size="3" fill="#000" font-weight="700">Backup Seal</text>
+<rect x="52.16" y="118.04100000000001" width="7.680000000000007" height="10.36800000000001" fill="#4ad9c8" fill-opacity="0.55" stroke="#222" stroke-width="0.3"/>
+<text x="56" y="123.72500000000001" text-anchor="middle" font-size="3" fill="#000" font-weight="700">Buffer System</text>
+<rect x="59.84" y="118.04100000000001" width="2.559999999999995" height="10.36800000000001" fill="#707080" fill-opacity="0.55" stroke="#222" stroke-width="0.3"/>
+<text x="61.120000000000005" y="123.72500000000001" text-anchor="middle" font-size="3" fill="#000" font-weight="700">Outlet Flange</text>
+<line x1="24" y1="105.94500000000001" x2="177.6" y2="105.94500000000001" stroke="#000" stroke-width="0.6"/>
+<line x1="24" y1="140.505" x2="177.6" y2="140.505" stroke="#000" stroke-width="0.6"/>
+<line x1="177.6" y1="105.94500000000001" x2="177.6" y2="118.04100000000001" stroke="#000" stroke-width="0.4"/>
+<line x1="177.6" y1="140.505" x2="177.6" y2="128.40900000000002" stroke="#000" stroke-width="0.4"/>
+<line x1="177.6" y1="118.04100000000001" x2="152" y2="118.04100000000001" stroke="#000" stroke-width="0.6"/>
+<line x1="177.6" y1="128.40900000000002" x2="152" y2="128.40900000000002" stroke="#000" stroke-width="0.6"/>
+<line x1="152" y1="118.04100000000001" x2="152" y2="128.40900000000002" stroke="#000" stroke-width="0.6"/>
+<line x1="24" y1="105.94500000000001" x2="24" y2="140.505" stroke="#000" stroke-width="0.6"/>
+<line x1="20" y1="123.22500000000001" x2="156" y2="123.22500000000001" stroke="#000" stroke-width="0.3" stroke-dasharray="2,1.5,0.4,1.5"/>
+<line x1="24" y1="70.2" x2="24" y2="105.94500000000001" stroke="#888" stroke-width="0.2" stroke-dasharray="1,1"/>
+<text x="24" y="69.2" text-anchor="middle" font-size="2.4" fill="#000" font-weight="700">A</text>
+<text x="24" y="66.2" text-anchor="middle" font-size="2" fill="#666">Inlet Flange + Bearing</text>
+<line x1="31.68" y1="70.2" x2="31.68" y2="105.94500000000001" stroke="#888" stroke-width="0.2" stroke-dasharray="1,1"/>
+<text x="31.68" y="69.2" text-anchor="middle" font-size="2.4" fill="#000" font-weight="700">B</text>
+<text x="31.68" y="66.2" text-anchor="middle" font-size="2" fill="#666">Labyrinth Stack</text>
+<line x1="39.36" y1="70.2" x2="39.36" y2="105.94500000000001" stroke="#888" stroke-width="0.2" stroke-dasharray="1,1"/>
+<text x="39.36" y="69.2" text-anchor="middle" font-size="2.4" fill="#000" font-weight="700">C</text>
+<text x="39.36" y="66.2" text-anchor="middle" font-size="2" fill="#666">Carbon-Face Seal</text>
+<line x1="47.04" y1="70.2" x2="47.04" y2="105.94500000000001" stroke="#888" stroke-width="0.2" stroke-dasharray="1,1"/>
+<text x="47.04" y="69.2" text-anchor="middle" font-size="2.4" fill="#000" font-weight="700">D</text>
+<text x="47.04" y="66.2" text-anchor="middle" font-size="2" fill="#666">Backup Seal</text>
+<line x1="52.16" y1="70.2" x2="52.16" y2="105.94500000000001" stroke="#888" stroke-width="0.2" stroke-dasharray="1,1"/>
+<text x="52.16" y="69.2" text-anchor="middle" font-size="2.4" fill="#000" font-weight="700">E</text>
+<text x="52.16" y="66.2" text-anchor="middle" font-size="2" fill="#666">Buffer System</text>
+<line x1="59.84" y1="70.2" x2="59.84" y2="105.94500000000001" stroke="#888" stroke-width="0.2" stroke-dasharray="1,1"/>
+<text x="59.84" y="69.2" text-anchor="middle" font-size="2.4" fill="#000" font-weight="700">F</text>
+<text x="59.84" y="66.2" text-anchor="middle" font-size="2" fill="#666">Outlet Flange</text>
+<line x1="24" y1="152.505" x2="152" y2="152.505" stroke="#000" stroke-width="0.4"/>
+<line x1="24" y1="150.505" x2="24" y2="154.505" stroke="#000" stroke-width="0.4"/>
+<line x1="152" y1="150.505" x2="152" y2="154.505" stroke="#000" stroke-width="0.4"/>
+<text x="88" y="156.505" text-anchor="middle" font-size="3" fill="#000" font-weight="700">1000 mm  /  1.00 m</text>
+<line x1="16" y1="105.94500000000001" x2="16" y2="140.505" stroke="#000" stroke-width="0.4"/>
+<line x1="14" y1="105.94500000000001" x2="18" y2="105.94500000000001" stroke="#000" stroke-width="0.4"/>
+<line x1="14" y1="140.505" x2="18" y2="140.505" stroke="#000" stroke-width="0.4"/>
+<text x="12" y="123.22500000000001" text-anchor="end" font-size="2.6" fill="#000" font-weight="700">Ø300 mm</text>
+<rect x="168" y="40" width="240" height="149" fill="#fff" stroke="#000" stroke-width="0.4"/>
+<rect x="168" y="40" width="240" height="5" fill="#1a1a2e"/>
+<text x="170" y="43.6" font-size="2.5" fill="#fff" font-weight="700">BILL OF MATERIALS (top by qty)</text>
+<text x="170" y="49" font-size="2.2" fill="#666" font-weight="700">#</text>
+<text x="176" y="49" font-size="2.2" fill="#666" font-weight="700">PART</text>
+<text x="288" y="49" font-size="2.2" fill="#666" font-weight="700">CAT</text>
+<text x="316.8" y="49" font-size="2.2" fill="#666" font-weight="700">MAT</text>
+<text x="374.4" y="49" font-size="2.2" fill="#666" font-weight="700">QTY</text>
+<line x1="169" y1="50" x2="407" y2="50" stroke="#888" stroke-width="0.2"/>
+<text x="170" y="54" font-size="2.2" fill="#000">1</text>
+<text x="176" y="54" font-size="2.2" fill="#000">Turbopump Main Shaft (Inconel 718)</text>
+<text x="288" y="54" font-size="2.2" fill="#000">SHFT</text>
+<text x="316.8" y="54" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="54" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="57.5" font-size="2.2" fill="#000">2</text>
+<text x="176" y="57.5" font-size="2.2" fill="#000">Shaft Sleeve (Stellite hardfaced)</text>
+<text x="288" y="57.5" font-size="2.2" fill="#000">SHFT</text>
+<text x="316.8" y="57.5" font-size="2.2" fill="#000">Stainless Steel 316</text>
+<text x="374.4" y="57.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="61" font-size="2.2" fill="#000">3</text>
+<text x="176" y="61" font-size="2.2" fill="#000">Labyrinth Tooth 1</text>
+<text x="288" y="61" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="61" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="61" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="64.5" font-size="2.2" fill="#000">4</text>
+<text x="176" y="64.5" font-size="2.2" fill="#000">Labyrinth Tooth 2</text>
+<text x="288" y="64.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="64.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="64.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="68" font-size="2.2" fill="#000">5</text>
+<text x="176" y="68" font-size="2.2" fill="#000">Labyrinth Tooth 3</text>
+<text x="288" y="68" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="68" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="68" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="71.5" font-size="2.2" fill="#000">6</text>
+<text x="176" y="71.5" font-size="2.2" fill="#000">Labyrinth Tooth 4</text>
+<text x="288" y="71.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="71.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="71.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="75" font-size="2.2" fill="#000">7</text>
+<text x="176" y="75" font-size="2.2" fill="#000">Labyrinth Tooth 5</text>
+<text x="288" y="75" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="75" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="75" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="78.5" font-size="2.2" fill="#000">8</text>
+<text x="176" y="78.5" font-size="2.2" fill="#000">Labyrinth Tooth 6</text>
+<text x="288" y="78.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="78.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="78.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="82" font-size="2.2" fill="#000">9</text>
+<text x="176" y="82" font-size="2.2" fill="#000">Labyrinth Tooth 7</text>
+<text x="288" y="82" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="82" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="82" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="85.5" font-size="2.2" fill="#000">10</text>
+<text x="176" y="85.5" font-size="2.2" fill="#000">Labyrinth Tooth 8</text>
+<text x="288" y="85.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="85.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="85.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="89" font-size="2.2" fill="#000">11</text>
+<text x="176" y="89" font-size="2.2" fill="#000">Labyrinth Tooth 9</text>
+<text x="288" y="89" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="89" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="89" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="92.5" font-size="2.2" fill="#000">12</text>
+<text x="176" y="92.5" font-size="2.2" fill="#000">Labyrinth Tooth 10</text>
+<text x="288" y="92.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="92.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="92.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="96" font-size="2.2" fill="#000">13</text>
+<text x="176" y="96" font-size="2.2" fill="#000">Labyrinth Tooth 11</text>
+<text x="288" y="96" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="96" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="96" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="99.5" font-size="2.2" fill="#000">14</text>
+<text x="176" y="99.5" font-size="2.2" fill="#000">Labyrinth Tooth 12</text>
+<text x="288" y="99.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="99.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="99.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="103" font-size="2.2" fill="#000">15</text>
+<text x="176" y="103" font-size="2.2" fill="#000">Labyrinth Stator Ring</text>
+<text x="288" y="103" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="103" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="103" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="106.5" font-size="2.2" fill="#000">16</text>
+<text x="176" y="106.5" font-size="2.2" fill="#000">Primary Carbon-Graphite Seal Ring</text>
+<text x="288" y="106.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="106.5" font-size="2.2" fill="#000">Carbon Fiber Composite</text>
+<text x="374.4" y="106.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="110" font-size="2.2" fill="#000">17</text>
+<text x="176" y="110" font-size="2.2" fill="#000">Mating Ring (Stellite-coated Inconel)</text>
+<text x="288" y="110" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="110" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="110" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="113.5" font-size="2.2" fill="#000">18</text>
+<text x="176" y="113.5" font-size="2.2" fill="#000">Face-Load Wave Spring 1</text>
+<text x="288" y="113.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="113.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="113.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="117" font-size="2.2" fill="#000">19</text>
+<text x="176" y="117" font-size="2.2" fill="#000">Face-Load Wave Spring 2</text>
+<text x="288" y="117" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="117" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="117" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="120.5" font-size="2.2" fill="#000">20</text>
+<text x="176" y="120.5" font-size="2.2" fill="#000">Face-Load Wave Spring 3</text>
+<text x="288" y="120.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="120.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="120.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="124" font-size="2.2" fill="#000">21</text>
+<text x="176" y="124" font-size="2.2" fill="#000">Face-Load Wave Spring 4</text>
+<text x="288" y="124" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="124" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="124" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="127.5" font-size="2.2" fill="#000">22</text>
+<text x="176" y="127.5" font-size="2.2" fill="#000">Face-Load Wave Spring 5</text>
+<text x="288" y="127.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="127.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="127.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="131" font-size="2.2" fill="#000">23</text>
+<text x="176" y="131" font-size="2.2" fill="#000">Face-Load Wave Spring 6</text>
+<text x="288" y="131" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="131" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="131" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="134.5" font-size="2.2" fill="#000">24</text>
+<text x="176" y="134.5" font-size="2.2" fill="#000">Face-Load Wave Spring 7</text>
+<text x="288" y="134.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="134.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="134.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="138" font-size="2.2" fill="#000">25</text>
+<text x="176" y="138" font-size="2.2" fill="#000">Face-Load Wave Spring 8</text>
+<text x="288" y="138" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="138" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="138" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="141.5" font-size="2.2" fill="#000">26</text>
+<text x="176" y="141.5" font-size="2.2" fill="#000">Energizer O-Ring (Spring-Loaded PTFE)</text>
+<text x="288" y="141.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="141.5" font-size="2.2" fill="#000">Nylon 6/6</text>
+<text x="374.4" y="141.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="145" font-size="2.2" fill="#000">27</text>
+<text x="176" y="145" font-size="2.2" fill="#000">Secondary Labyrinth Tooth 1</text>
+<text x="288" y="145" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="145" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="145" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="148.5" font-size="2.2" fill="#000">28</text>
+<text x="176" y="148.5" font-size="2.2" fill="#000">Secondary Labyrinth Tooth 2</text>
+<text x="288" y="148.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="148.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="148.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="152" font-size="2.2" fill="#000">29</text>
+<text x="176" y="152" font-size="2.2" fill="#000">Secondary Labyrinth Tooth 3</text>
+<text x="288" y="152" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="152" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="152" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="155.5" font-size="2.2" fill="#000">30</text>
+<text x="176" y="155.5" font-size="2.2" fill="#000">Secondary Labyrinth Tooth 4</text>
+<text x="288" y="155.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="155.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="155.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="159" font-size="2.2" fill="#000">31</text>
+<text x="176" y="159" font-size="2.2" fill="#000">Secondary Labyrinth Tooth 5</text>
+<text x="288" y="159" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="159" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="159" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="162.5" font-size="2.2" fill="#000">32</text>
+<text x="176" y="162.5" font-size="2.2" fill="#000">Secondary Labyrinth Tooth 6</text>
+<text x="288" y="162.5" font-size="2.2" fill="#000">SEAL</text>
+<text x="316.8" y="162.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="162.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="166" font-size="2.2" fill="#000">33</text>
+<text x="176" y="166" font-size="2.2" fill="#000">Thrust Bearing Inner Race</text>
+<text x="288" y="166" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="166" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="166" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="169.5" font-size="2.2" fill="#000">34</text>
+<text x="176" y="169.5" font-size="2.2" fill="#000">Thrust Bearing Outer Race</text>
+<text x="288" y="169.5" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="169.5" font-size="2.2" fill="#000">Inconel 718</text>
+<text x="374.4" y="169.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="173" font-size="2.2" fill="#000">35</text>
+<text x="176" y="173" font-size="2.2" fill="#000">Si3N4 Bearing Ball 1</text>
+<text x="288" y="173" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="173" font-size="2.2" fill="#000">CMC SiC/SiC</text>
+<text x="374.4" y="173" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="176.5" font-size="2.2" fill="#000">36</text>
+<text x="176" y="176.5" font-size="2.2" fill="#000">Si3N4 Bearing Ball 2</text>
+<text x="288" y="176.5" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="176.5" font-size="2.2" fill="#000">CMC SiC/SiC</text>
+<text x="374.4" y="176.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="180" font-size="2.2" fill="#000">37</text>
+<text x="176" y="180" font-size="2.2" fill="#000">Si3N4 Bearing Ball 3</text>
+<text x="288" y="180" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="180" font-size="2.2" fill="#000">CMC SiC/SiC</text>
+<text x="374.4" y="180" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="183.5" font-size="2.2" fill="#000">38</text>
+<text x="176" y="183.5" font-size="2.2" fill="#000">Si3N4 Bearing Ball 4</text>
+<text x="288" y="183.5" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="183.5" font-size="2.2" fill="#000">CMC SiC/SiC</text>
+<text x="374.4" y="183.5" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="187" font-size="2.2" fill="#000">39</text>
+<text x="176" y="187" font-size="2.2" fill="#000">Si3N4 Bearing Ball 5</text>
+<text x="288" y="187" font-size="2.2" fill="#000">BRG</text>
+<text x="316.8" y="187" font-size="2.2" fill="#000">CMC SiC/SiC</text>
+<text x="374.4" y="187" font-size="2.2" fill="#000" font-weight="700">1</text>
+<text x="170" y="187" font-size="2" fill="#888">… +11 more entries — see MBOM.csv for full list</text>
+<g class="title-block"><rect x="168" y="195" width="240" height="90" fill="#fff" stroke="#000" stroke-width="0.6"/>
+<line x1="168" y1="210" x2="408" y2="210" stroke="#000" stroke-width="0.3"/>
+<line x1="168" y1="225" x2="408" y2="225" stroke="#000" stroke-width="0.3"/>
+<line x1="168" y1="240" x2="408" y2="240" stroke="#000" stroke-width="0.3"/>
+<line x1="168" y1="255" x2="408" y2="255" stroke="#000" stroke-width="0.3"/>
+<line x1="168" y1="270" x2="408" y2="270" stroke="#000" stroke-width="0.3"/>
+<line x1="288" y1="195" x2="288" y2="210" stroke="#000" stroke-width="0.3"/>
+<line x1="288" y1="210" x2="288" y2="225" stroke="#000" stroke-width="0.3"/>
+<line x1="288" y1="225" x2="288" y2="240" stroke="#000" stroke-width="0.3"/>
+<line x1="288" y1="240" x2="288" y2="255" stroke="#000" stroke-width="0.3"/>
+<line x1="288" y1="255" x2="288" y2="270" stroke="#000" stroke-width="0.3"/>
+<text x="170" y="198.5" font-size="2" fill="#666"  >PROJECT</text>
+<text x="170" y="208.5" font-size="3" fill="#000" font-weight="700" >TPSL</text>
+<text x="290" y="198.5" font-size="2" fill="#666"  >DRAWING NO.</text>
+<text x="290" y="208.5" font-size="3" fill="#000" font-weight="700" >TPSL-ASM-001</text>
+<text x="170" y="213.5" font-size="2" fill="#666"  >TITLE</text>
+<text x="170" y="223.5" font-size="4" fill="#000"  >Cryogenic Turbopump Dynamic Seal</text>
+<text x="290" y="213.5" font-size="2" fill="#666"  >REV</text>
+<text x="290" y="223.5" font-size="4" fill="#000" font-weight="700" >A</text>
+<text x="170" y="228.5" font-size="2" fill="#666"  >SCALE</text>
+<text x="170" y="238.5" font-size="3" fill="#000"  >NTS</text>
+<text x="290" y="228.5" font-size="2" fill="#666"  >SHEET / SIZE</text>
+<text x="290" y="238.5" font-size="3" fill="#000"  >1 of 1 / A3</text>
+<text x="170" y="243.5" font-size="2" fill="#666"  >DRAWN BY</text>
+<text x="170" y="253.5" font-size="3" fill="#000"  >ArchDisc Auto-Drawing</text>
+<text x="290" y="243.5" font-size="2" fill="#666"  >DATE</text>
+<text x="290" y="253.5" font-size="3" fill="#000"  >2026-05-09</text>
+<text x="170" y="258.5" font-size="2" fill="#666"  >APPROVED BY</text>
+<text x="170" y="268.5" font-size="3" fill="#000"  >— pending QA review —</text>
+<text x="290" y="258.5" font-size="2" fill="#666"  >CLASS</text>
+<text x="290" y="268.5" font-size="3" fill="#000"  >Top-Level ASSY</text>
+<text x="288" y="277.5" font-size="2" fill="#666"  text-anchor="middle">PROPRIETARY — REPRODUCTION FORBIDDEN</text>
+<text x="288" y="282.75" font-size="2" fill="#666"  text-anchor="middle">Per ASME Y14.5-2018 / ISO 1101</text></g>
+<rect x="16" y="225" width="144" height="56" fill="#fafafc" stroke="#000" stroke-width="0.3"/>
+<text x="19" y="230" font-size="2.5" fill="#666" font-weight="700">ASSEMBLY NOTES</text>
+<text x="19" y="236" font-size="2.4" fill="#000">1. Assembly sequence per AS 5180 modular build (LP module, HP core, accessories, nacelle, pylon).</text>
+<text x="19" y="240" font-size="2.4" fill="#000">2. Match-balance fan rotor + LPT rotor as a coupled assembly per EM 72-30-00-700.</text>
+<text x="19" y="244" font-size="2.4" fill="#000">3. Inspect all flange bolt-circle parallelism within 0.05 mm before final torque.</text>
+<text x="19" y="248" font-size="2.4" fill="#000">4. Borescope ports per drawing must remain accessible after pylon-mate.</text>
+<text x="19" y="252" font-size="2.4" fill="#000">5. Engine envelope dimensions are critical — verify against airframe interface drawing IFD-9X-001.</text>
+<text x="19" y="256" font-size="2.4" fill="#000">6. All cycle-life-limited parts (LLP) are identified in the LLP table — track installation cycles per FAR 33.70.</text>
+<text x="19" y="260" font-size="2.4" fill="#000">7. Match-mark all flanges before disassembly during MRO; drawing shows nominal phasing only.</text>
+<rect x="12" y="267" width="148" height="14" fill="#1a1a2e"/>
+<text x="19" y="274" font-size="3.2" fill="#fff" font-weight="700">ENGINE ENVELOPE</text>
+<text x="19" y="279" font-size="2.6" fill="#fff">Length: 1.00 m   ·   Fan Ø: 0.30 m   ·   Mass (dry): per published spec   ·   Application: Boeing 777X</text>
+</svg>

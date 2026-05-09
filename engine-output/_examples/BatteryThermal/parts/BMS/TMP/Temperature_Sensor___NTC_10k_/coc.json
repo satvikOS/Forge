@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "BTRM-BMS-TMP-0016",
+  "partTitle": "Temperature Sensor 16 (NTC 10k)",
+  "serialNumber": "SN-815196",
+  "drawingNumber": "BTRM-BMS-TMP-0016-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-32130",
+  "manufacturingLot": "MFG-21041",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-32130",
+    "manufacturingProcess": "MFG-21041",
+    "inspectionRecord": "INSP-SN-815196",
+    "finalAcceptance": "2026-05-09"
+  }
+}

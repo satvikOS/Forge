@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-SEAL-DYN-0002",
+  "name": "Shaft Dynamic Seal 2 (PTFE lip seal)",
+  "category": "SEAL",
+  "subsystem": "DYN",
+  "material": "Nylon 6/6",
+  "classification": "Class 3",
+  "quantity": 1
+}

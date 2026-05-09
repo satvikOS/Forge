@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-ROT-SFT-0001",
+  "name": "Rotor Shaft",
+  "category": "ROT",
+  "subsystem": "SFT",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

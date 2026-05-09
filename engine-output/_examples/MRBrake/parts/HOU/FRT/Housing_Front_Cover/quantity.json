@@ -1,0 +1,9 @@
+{
+  "partID": "MRBR-HOU-FRT-0001",
+  "name": "Housing Front Cover",
+  "category": "HOU",
+  "subsystem": "FRT",
+  "material": "Steel AISI 1020",
+  "classification": "Class 3",
+  "quantity": 1
+}

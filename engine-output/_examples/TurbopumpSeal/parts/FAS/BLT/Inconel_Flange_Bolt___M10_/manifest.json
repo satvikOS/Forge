@@ -1,0 +1,29 @@
+{
+  "partID": "TPSL-FAS-BLT-0024",
+  "partName": "Inconel Flange Bolt 24 (M10)",
+  "project": "TPSL",
+  "classification": "Class 3",
+  "category": "FAS",
+  "subsystem": "BLT",
+  "material": "Inconel 718",
+  "generatedAt": "2026-05-09T19:38:53.870Z",
+  "drawingNumber": "TPSL-FAS-BLT-0024-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TPSL",
+  "certificationLevel": "Standard"
+}

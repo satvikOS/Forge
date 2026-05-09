@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TPSL-INST-ENC-0001",
+  "partTitle": "Speed Encoder Ring (60-tooth)",
+  "serialNumber": "SN-179581",
+  "drawingNumber": "TPSL-INST-ENC-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-58274",
+  "manufacturingLot": "MFG-32513",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-58274",
+    "manufacturingProcess": "MFG-32513",
+    "inspectionRecord": "INSP-SN-179581",
+    "finalAcceptance": "2026-05-09"
+  }
+}
