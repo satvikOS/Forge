@@ -36,6 +36,7 @@ export function registerSelectedEdgesProvider(fn) { _selectedEdgesProvider = fn;
 
 // Active assembly
 let _currentAssembly = null;
+export function getCurrentAssembly() { return _currentAssembly; }
 let _currentAssemblyRoot = null;
 let _assemblyIndex = -1;
 let _lastGCode = null;

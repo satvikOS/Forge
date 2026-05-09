@@ -6,15 +6,17 @@ import ProjectLibrary from '../../components/ProjectLibrary';
 import ComponentInfoPanel from '../../components/ComponentInfoPanel';
 import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
-import { executeTool } from './ToolExecutionEngine';
+import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
+import AssemblyTree from '../../components/AssemblyTree';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
 import '../../components/PropertyManager.css';
+import '../../components/AssemblyTree.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
@@ -831,7 +833,13 @@ function WorkbenchMechanical() {
                 {/* Feature Tree at top */}
                 <FeatureTreePanel onSelectFeature={(id) => console.log('Selected feature:', id)} />
 
-                {/* New PropertyManager \u2014 context-aware properties */}
+                {/* Assembly Tree \u2014 expand/collapse + instance counts */}
+                <AssemblyTree
+                    assembly={getCurrentAssembly()}
+                    onPartClick={(part) => setSelection({ type: 'object', name: part.name, solidId: part.solid?.id, solid: part.solid })}
+                />
+
+                {/* PropertyManager \u2014 context-aware properties */}
                 <PropertyManager selection={selection} lastFeature={null} />
             </aside>
 
