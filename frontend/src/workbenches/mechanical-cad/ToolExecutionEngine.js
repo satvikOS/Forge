@@ -673,19 +673,26 @@ const TOOL_HANDLERS = {
       const result = FEAEngine.linearStatic(solid, { material: 'Aluminum 6061-T6', loads: [{ type: 'force', magnitude: 1000, direction: new Vec3(0, -1, 0) }] });
       _lastFEAResult = result;
 
-      // Apply real stress field coloring to all rendered solids
+      // Clear any previous FEA visualization
+      FEAVisualizer.clearVisualization(scene);
+
+      // Apply real stress field coloring + contours + markers
       let coloredGroups = 0;
       scene.traverse(obj => {
         if (obj.isGroup && obj.userData?.kernelSolid && obj.userData.kernelSolid.id === solid.id) {
           FEAVisualizer.applyStressField(obj, result);
+          FEAVisualizer.addStressContours(scene, obj, result, 8);
           coloredGroups++;
         }
       });
 
+      // Min/max markers
+      FEAVisualizer.addMinMaxMarkers(scene, result);
+
       const s = result.summary;
       return {
         status: s.pass ? 'success' : 'warn',
-        message: `FEA: Max ${s.maxStressMPa} MPa (yield ${s.yieldStrengthMPa}) | SF ${s.safetyFactor} | Deflect ${s.maxDeflectionMm}mm | Mass ${s.massKg}kg | ${s.pass ? 'PASS' : 'FAIL'} | Mesh ${result.mesh.elementCount} elem | ${coloredGroups} mesh${coloredGroups !== 1 ? 'es' : ''} colored`
+        message: `FEA: Max ${s.maxStressMPa} MPa (yield ${s.yieldStrengthMPa}) | SF ${s.safetyFactor} | Deflect ${s.maxDeflectionMm}mm | Mass ${s.massKg}kg | ${s.pass ? 'PASS' : 'FAIL'} | ${result.mesh.elementCount} elements | 8 contours + min/max markers`
       };
     },
     'Steady-State Thermal': (scene, viewport) => {
