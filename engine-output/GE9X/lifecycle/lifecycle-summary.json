@@ -1,0 +1,428 @@
+{
+  "totalComponents": 29669,
+  "totalMassKg": 3475.7,
+  "totalCostUSD": 413450,
+  "totalCO2Kg": 62296,
+  "totalEnergyKWh": 229910,
+  "recyclablePercent": 89.9,
+  "byCategory": {
+    "INLE": {
+      "count": 18,
+      "mass": 12.9,
+      "cost": 442,
+      "co2": 170,
+      "energy": 593
+    },
+    "FAN": {
+      "count": 141,
+      "mass": 492.2,
+      "cost": 25424,
+      "co2": 8817,
+      "energy": 31455
+    },
+    "LPC": {
+      "count": 394,
+      "mass": 283.8,
+      "cost": 41608,
+      "co2": 10401,
+      "energy": 37974
+    },
+    "HPC": {
+      "count": 1677,
+      "mass": 537.4,
+      "cost": 75007,
+      "co2": 14330,
+      "energy": 53756
+    },
+    "COMB": {
+      "count": 12066,
+      "mass": 74.5,
+      "cost": 63849,
+      "co2": 1120,
+      "energy": 4183
+    },
+    "HPT": {
+      "count": 10989,
+      "mass": 256,
+      "cost": 60592,
+      "co2": 3409,
+      "energy": 12247
+    },
+    "LPT": {
+      "count": 1489,
+      "mass": 690.9,
+      "cost": 81340,
+      "co2": 10984,
+      "energy": 44100
+    },
+    "BRG": {
+      "count": 126,
+      "mass": 44.7,
+      "cost": 1694,
+      "co2": 216,
+      "energy": 585
+    },
+    "SHFT": {
+      "count": 6,
+      "mass": 306,
+      "cost": 8367,
+      "co2": 1270,
+      "energy": 3206
+    },
+    "AGB": {
+      "count": 32,
+      "mass": 114.2,
+      "cost": 3160,
+      "co2": 1213,
+      "energy": 4152
+    },
+    "FUEL": {
+      "count": 38,
+      "mass": 68.5,
+      "cost": 2186,
+      "co2": 891,
+      "energy": 3109
+    },
+    "OIL": {
+      "count": 27,
+      "mass": 44,
+      "cost": 1429,
+      "co2": 578,
+      "energy": 2018
+    },
+    "AIR": {
+      "count": 20,
+      "mass": 8.8,
+      "cost": 1029,
+      "co2": 138,
+      "energy": 558
+    },
+    "IGN": {
+      "count": 4,
+      "mass": 3.5,
+      "cost": 86,
+      "co2": 41,
+      "energy": 146
+    },
+    "FADE": {
+      "count": 110,
+      "mass": 11,
+      "cost": 652,
+      "co2": 82,
+      "energy": 260
+    },
+    "ELEC": {
+      "count": 404,
+      "mass": 39.4,
+      "cost": 2618,
+      "co2": 311,
+      "energy": 1082
+    },
+    "HYD": {
+      "count": 36,
+      "mass": 6.5,
+      "cost": 246,
+      "co2": 47,
+      "energy": 150
+    },
+    "NAC": {
+      "count": 8,
+      "mass": 220,
+      "cost": 6364,
+      "co2": 2949,
+      "energy": 10328
+    },
+    "MNT": {
+      "count": 206,
+      "mass": 29,
+      "cost": 5048,
+      "co2": 1042,
+      "energy": 3798
+    },
+    "TRV": {
+      "count": 16,
+      "mass": 53.6,
+      "cost": 6785,
+      "co2": 1758,
+      "energy": 6431
+    },
+    "EXH": {
+      "count": 14,
+      "mass": 133.4,
+      "cost": 16143,
+      "co2": 2189,
+      "energy": 8658
+    },
+    "FAS": {
+      "count": 1296,
+      "mass": 7.8,
+      "cost": 6278,
+      "co2": 27,
+      "energy": 73
+    },
+    "STR": {
+      "count": 130,
+      "mass": 13,
+      "cost": 737,
+      "co2": 165,
+      "energy": 590
+    },
+    "PIP": {
+      "count": 320,
+      "mass": 12.8,
+      "cost": 1683,
+      "co2": 94,
+      "energy": 298
+    },
+    "DRN": {
+      "count": 40,
+      "mass": 1.4,
+      "cost": 206,
+      "co2": 13,
+      "energy": 46
+    },
+    "FIRE": {
+      "count": 62,
+      "mass": 10.5,
+      "cost": 476,
+      "co2": 42,
+      "energy": 116
+    }
+  },
+  "samplePerCat": {
+    "INLE": {
+      "partID": "GE9X-INLE-SPN-0001",
+      "name": "Fan Spinner Cone",
+      "material": "Composite Carbon-Epoxy",
+      "massKg": 12,
+      "costUSD": "348.39",
+      "co2Kg": "160.839",
+      "sustainabilityScore": 0
+    },
+    "FAN": {
+      "partID": "GE9X-FAN-DSK-0001",
+      "name": "Fan Disk",
+      "material": "Titanium Ti-6Al-4V",
+      "massKg": 60,
+      "costUSD": "8874.49",
+      "co2Kg": "2217.193",
+      "sustainabilityScore": 0
+    },
+    "LPC": {
+      "partID": "GE9X-LPC-STA-0001",
+      "name": "LPC Stator S1-1",
+      "material": "Titanium Ti-6Al-4V",
+      "massKg": 0.2,
+      "costUSD": "29.94",
+      "co2Kg": "7.245",
+      "sustainabilityScore": 23
+    },
+    "HPC": {
+      "partID": "GE9X-HPC-STA-0001",
+      "name": "HPC Stator S1-1",
+      "material": "Titanium Ti-6Al-4V",
+      "massKg": 0.12,
+      "costUSD": "19.89",
+      "co2Kg": "4.347",
+      "sustainabilityScore": 54
+    },
+    "COMB": {
+      "partID": "GE9X-COMB-CSG-0001",
+      "name": "Combustor Outer Case",
+      "material": "Inconel 718",
+      "massKg": 35,
+      "costUSD": "4251.97",
+      "co2Kg": "575.863",
+      "sustainabilityScore": 0
+    },
+    "HPT": {
+      "partID": "GE9X-HPT-NGV-0001",
+      "name": "HPT NGV S1-1",
+      "material": "CMC SiC/SiC",
+      "massKg": 0.4,
+      "costUSD": "9.41",
+      "co2Kg": "5.071",
+      "sustainabilityScore": 46
+    },
+    "LPT": {
+      "partID": "GE9X-LPT-STA-0001",
+      "name": "LPT Stator S1-1",
+      "material": "Inconel 718",
+      "massKg": 0.25,
+      "costUSD": "29.61",
+      "co2Kg": "3.932",
+      "sustainabilityScore": 58
+    },
+    "BRG": {
+      "partID": "GE9X-BRG-HSG-0001",
+      "name": "Bearing #Fan Forward Roller Housing",
+      "material": "Steel AISI 4340",
+      "massKg": 6,
+      "costUSD": "168.97",
+      "co2Kg": "25.129",
+      "sustainabilityScore": 0
+    },
+    "SHFT": {
+      "partID": "GE9X-SHFT-LP-0001",
+      "name": "LP Shaft",
+      "material": "Steel AISI 4340",
+      "massKg": 200,
+      "costUSD": "5559.81",
+      "co2Kg": "837.644",
+      "sustainabilityScore": 0
+    },
+    "AGB": {
+      "partID": "GE9X-AGB-HSG-0001",
+      "name": "AGB Main Housing",
+      "material": "Aluminum 6061-T6",
+      "massKg": 80,
+      "costUSD": "2468.61",
+      "co2Kg": "1072.258",
+      "sustainabilityScore": 0
+    },
+    "FUEL": {
+      "partID": "GE9X-FUEL-COM-0001",
+      "name": "HMU (Hydromechanical Unit)",
+      "material": "Aluminum 6061-T6",
+      "massKg": 8,
+      "costUSD": "248.88",
+      "co2Kg": "107.226",
+      "sustainabilityScore": 0
+    },
+    "OIL": {
+      "partID": "GE9X-OIL-COM-0001",
+      "name": "Oil Tank",
+      "material": "Aluminum 6061-T6",
+      "massKg": 6,
+      "costUSD": "187.22",
+      "co2Kg": "80.419",
+      "sustainabilityScore": 0
+    },
+    "AIR": {
+      "partID": "GE9X-AIR-VLV-0001",
+      "name": "HPC Stage 5 Bleed",
+      "material": "Inconel 718",
+      "massKg": 1.4,
+      "costUSD": "158.66",
+      "co2Kg": "22.018",
+      "sustainabilityScore": 0
+    },
+    "IGN": {
+      "partID": "GE9X-IGN-EXC-0001",
+      "name": "Ignition Exciter 1",
+      "material": "Aluminum 6061-T6",
+      "massKg": 1.5,
+      "costUSD": "34.00",
+      "co2Kg": "19.016",
+      "sustainabilityScore": 0
+    },
+    "FADE": {
+      "partID": "GE9X-FADE-CTL-0001",
+      "name": "FADEC Channel A",
+      "material": "Aluminum 6061-T6",
+      "massKg": 0.1,
+      "costUSD": "5.67",
+      "co2Kg": "1.268",
+      "sustainabilityScore": 87
+    },
+    "ELEC": {
+      "partID": "GE9X-ELEC-HRN-0001",
+      "name": "Wire Harness Segment 1",
+      "material": "Copper C11000",
+      "massKg": 0.7,
+      "costUSD": "21.78",
+      "co2Kg": "3.964",
+      "sustainabilityScore": 58
+    },
+    "HYD": {
+      "partID": "GE9X-HYD-LIN-0001",
+      "name": "Hydraulic Line 1",
+      "material": "Stainless Steel 316",
+      "massKg": 0.18,
+      "costUSD": "6.83",
+      "co2Kg": "1.319",
+      "sustainabilityScore": 86
+    },
+    "NAC": {
+      "partID": "GE9X-NAC-COW-0001",
+      "name": "Core Cowl Segment 1",
+      "material": "Composite Carbon-Epoxy",
+      "massKg": 25,
+      "costUSD": "723.39",
+      "co2Kg": "335.081",
+      "sustainabilityScore": 0
+    },
+    "MNT": {
+      "partID": "GE9X-MNT-FWD-0001",
+      "name": "Forward Engine Mount",
+      "material": "Titanium Ti-6Al-4V",
+      "massKg": 8,
+      "costUSD": "1185.21",
+      "co2Kg": "295.626",
+      "sustainabilityScore": 0
+    },
+    "TRV": {
+      "partID": "GE9X-TRV-CAS-0001",
+      "name": "Thrust Reverser Cascade 1",
+      "material": "Titanium Ti-6Al-4V",
+      "massKg": 4,
+      "costUSD": "556.24",
+      "co2Kg": "144.910",
+      "sustainabilityScore": 0
+    },
+    "EXH": {
+      "partID": "GE9X-EXH-NOZ-0001",
+      "name": "Exhaust Nozzle",
+      "material": "Inconel 718",
+      "massKg": 90,
+      "costUSD": "10930.12",
+      "co2Kg": "1480.790",
+      "sustainabilityScore": 0
+    },
+    "FAS": {
+      "partID": "GE9X-FAS-BLT-0001",
+      "name": "Flange 1 Bolt 1",
+      "material": "Steel AISI 4340",
+      "massKg": 0.012,
+      "costUSD": "4.88",
+      "co2Kg": "0.042",
+      "sustainabilityScore": 100
+    },
+    "STR": {
+      "partID": "GE9X-STR-BKT-0001",
+      "name": "Bracket 1",
+      "material": "Aluminum 6061-T6",
+      "massKg": 0.1,
+      "costUSD": "5.67",
+      "co2Kg": "1.268",
+      "sustainabilityScore": 87
+    },
+    "PIP": {
+      "partID": "GE9X-PIP-FTG-0001",
+      "name": "Pipe Fitting 1",
+      "material": "Stainless Steel 316",
+      "massKg": 0.04,
+      "costUSD": "5.26",
+      "co2Kg": "0.293",
+      "sustainabilityScore": 97
+    },
+    "DRN": {
+      "partID": "GE9X-DRN-TUB-0001",
+      "name": "Drain Tube 1",
+      "material": "Stainless Steel 316",
+      "massKg": 0.03,
+      "costUSD": "5.15",
+      "co2Kg": "0.220",
+      "sustainabilityScore": 98
+    },
+    "FIRE": {
+      "partID": "GE9X-FIRE-DET-0001",
+      "name": "Fire Detector Loop 1 #1",
+      "material": "Stainless Steel 316",
+      "massKg": 0.025,
+      "costUSD": "5.09",
+      "co2Kg": "0.183",
+      "sustainabilityScore": 98
+    }
+  }
+}

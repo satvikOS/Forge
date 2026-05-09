@@ -130,8 +130,14 @@ export { default as HTMLReportBuilder } from './export/HTMLReportBuilder.js';
 export { default as TestScenarios, SCENARIO_LIBRARY } from './realworld/TestScenarios.js';
 export { default as RealWorldTestRunner } from './realworld/RealWorldTestRunner.js';
 
+// FAR Part 33 / CS-E Compliance Matrix
+export { default as ComplianceMatrix, COMPLIANCE_ITEMS } from './realworld/ComplianceMatrix.js';
+
 // Cutaway Renderer — section-view rendering for engine internals
 export { default as CutawayRenderer } from './rendering/CutawayRenderer.js';
+
+// Marketing Cutaway — color-coded section view matching reference imagery
+export { default as MarketingCutaway, SECTION_COLORS } from './rendering/MarketingCutaway.js';
 
 // Engine Materials — PBR mapping per material name (titanium, Inconel, CMC, ...)
 export { default as EngineMaterials, ENGINE_MATERIAL_PARAMS } from './materials/EngineMaterials.js';
