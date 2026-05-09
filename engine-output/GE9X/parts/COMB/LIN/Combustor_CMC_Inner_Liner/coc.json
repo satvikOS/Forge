@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-COMB-LIN-0001",
   "partTitle": "Combustor CMC Inner Liner",
-  "serialNumber": "SN-529260",
+  "serialNumber": "SN-717038",
   "drawingNumber": "GE9X-COMB-LIN-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-25270",
-  "manufacturingLot": "MFG-39042",
+  "heatLot": "HL-12140",
+  "manufacturingLot": "MFG-73104",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-25270",
-    "manufacturingProcess": "MFG-39042",
-    "inspectionRecord": "INSP-SN-529260",
+    "rawMaterial": "HL-12140",
+    "manufacturingProcess": "MFG-73104",
+    "inspectionRecord": "INSP-SN-717038",
     "finalAcceptance": "2026-05-09"
   }
 }

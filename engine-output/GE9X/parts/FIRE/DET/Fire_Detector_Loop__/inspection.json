@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FIRE-DET-0060",
     "partName": "Fire Detector Loop 2 #30",
-    "serialNumber": "SN-806924",
+    "serialNumber": "SN-911192",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-39644"
+        "lot": "HL-39888"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-11277"
+        "certNo": "PROC-41447"
       }
     ]
   },

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AIR-TUB-0016",
     "partName": "Cooling Air Tube 16",
-    "serialNumber": "SN-234154",
+    "serialNumber": "SN-963834",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-17891"
+        "lot": "HL-47398"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-57027"
+        "certNo": "PROC-90597"
       }
     ]
   },

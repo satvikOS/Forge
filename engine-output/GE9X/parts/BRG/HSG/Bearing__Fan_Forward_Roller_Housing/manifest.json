@@ -2,11 +2,11 @@
   "partID": "GE9X-BRG-HSG-0001",
   "partName": "Bearing #Fan Forward Roller Housing",
   "project": "GE9X",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "category": "BRG",
   "subsystem": "HSG",
   "material": "Steel AISI 4340",
-  "generatedAt": "2026-05-09T19:02:27.467Z",
+  "generatedAt": "2026-05-09T19:17:58.919Z",
   "drawingNumber": "GE9X-BRG-HSG-0001-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -21,10 +21,9 @@
     "coc.json",
     "fmea.md",
     "fmea.json",
-    "fea.json",
     "process-specs.md"
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Important"
+  "certificationLevel": "Standard"
 }

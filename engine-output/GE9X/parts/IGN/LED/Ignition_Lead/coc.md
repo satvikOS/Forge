@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-IGN-LED-0002 — Ignition Lead 2
-**Serial No.:** SN-649413
+**Serial No.:** SN-962142
 **Drawing:** GE9X-IGN-LED-0002-DWG Rev A
-**Heat Lot:** HL-33501  ·  **Mfg Lot:** MFG-57106
+**Heat Lot:** HL-28461  ·  **Mfg Lot:** MFG-90686
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-33501
-- Manufacturing: MFG-57106
-- Inspection: INSP-SN-649413
+- Raw Material: HL-28461
+- Manufacturing: MFG-90686
+- Inspection: INSP-SN-962142
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

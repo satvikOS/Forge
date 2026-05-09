@@ -60,7 +60,7 @@
     "category": "FAN",
     "subsystem": "BLD",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 16,
     "instanceIDs": [
       "GE9X-FAN-BLD-0001",
@@ -75,7 +75,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0001"
@@ -88,7 +88,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0002"
@@ -101,7 +101,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0003"
@@ -114,7 +114,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0004"
@@ -127,7 +127,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0005"
@@ -140,7 +140,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0006"
@@ -153,7 +153,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0007"
@@ -166,7 +166,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0008"
@@ -179,7 +179,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0009"
@@ -192,7 +192,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0010"
@@ -205,7 +205,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0011"
@@ -218,7 +218,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0012"
@@ -231,7 +231,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0013"
@@ -244,7 +244,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0014"
@@ -257,7 +257,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0015"
@@ -270,7 +270,7 @@
     "category": "FAN",
     "subsystem": "DVT",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-DVT-0016"
@@ -283,7 +283,7 @@
     "category": "FAN",
     "subsystem": "RNG",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-RNG-0001"
@@ -296,7 +296,7 @@
     "category": "FAN",
     "subsystem": "RNG",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-RNG-0002"
@@ -322,7 +322,7 @@
     "category": "FAN",
     "subsystem": "ABR",
     "material": "ABS Plastic",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-ABR-0001"
@@ -335,7 +335,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0001"
@@ -348,7 +348,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0002"
@@ -361,7 +361,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0003"
@@ -374,7 +374,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0004"
@@ -387,7 +387,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0005"
@@ -400,7 +400,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0006"
@@ -413,7 +413,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0007"
@@ -426,7 +426,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0008"
@@ -439,7 +439,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0009"
@@ -452,7 +452,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0010"
@@ -465,7 +465,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0011"
@@ -478,7 +478,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0012"
@@ -491,7 +491,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0013"
@@ -504,7 +504,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0014"
@@ -517,7 +517,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0015"
@@ -530,7 +530,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0016"
@@ -543,7 +543,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0017"
@@ -556,7 +556,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0018"
@@ -569,7 +569,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0019"
@@ -582,7 +582,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0020"
@@ -595,7 +595,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0021"
@@ -608,7 +608,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0022"
@@ -621,7 +621,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0023"
@@ -634,7 +634,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0024"
@@ -647,7 +647,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0025"
@@ -660,7 +660,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0026"
@@ -673,7 +673,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0027"
@@ -686,7 +686,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0028"
@@ -699,7 +699,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0029"
@@ -712,7 +712,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0030"
@@ -725,7 +725,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0031"
@@ -738,7 +738,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0032"
@@ -751,7 +751,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0033"
@@ -764,7 +764,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0034"
@@ -777,7 +777,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0035"
@@ -790,7 +790,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0036"
@@ -803,7 +803,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0037"
@@ -816,7 +816,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0038"
@@ -829,7 +829,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0039"
@@ -842,7 +842,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0040"
@@ -855,7 +855,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0041"
@@ -868,7 +868,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0042"
@@ -881,7 +881,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0043"
@@ -894,7 +894,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0044"
@@ -907,7 +907,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0045"
@@ -920,7 +920,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0046"
@@ -933,7 +933,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0047"
@@ -946,7 +946,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0048"
@@ -959,7 +959,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0049"
@@ -972,7 +972,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0050"
@@ -985,7 +985,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0051"
@@ -998,7 +998,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0052"
@@ -1011,7 +1011,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0053"
@@ -1024,7 +1024,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0054"
@@ -1037,7 +1037,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0055"
@@ -1050,7 +1050,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0056"
@@ -1063,7 +1063,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0057"
@@ -1076,7 +1076,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0058"
@@ -1089,7 +1089,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0059"
@@ -1102,7 +1102,7 @@
     "category": "FAN",
     "subsystem": "OGV",
     "material": "Composite Carbon-Epoxy",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-OGV-0060"
@@ -1115,7 +1115,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0001"
@@ -1128,7 +1128,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0002"
@@ -1141,7 +1141,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0003"
@@ -1154,7 +1154,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0004"
@@ -1167,7 +1167,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0005"
@@ -1180,7 +1180,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0006"
@@ -1193,7 +1193,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0007"
@@ -1206,7 +1206,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0008"
@@ -1219,7 +1219,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0009"
@@ -1232,7 +1232,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0010"
@@ -1245,7 +1245,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0011"
@@ -1258,7 +1258,7 @@
     "category": "FAN",
     "subsystem": "STR",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-STR-0012"
@@ -1271,7 +1271,7 @@
     "category": "FAN",
     "subsystem": "RNG",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-RNG-0003"
@@ -1284,7 +1284,7 @@
     "category": "FAN",
     "subsystem": "RNG",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-FAN-RNG-0004"
@@ -1728,7 +1728,7 @@
     "category": "LPC",
     "subsystem": "DSK",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-LPC-DSK-0001"
@@ -1741,7 +1741,7 @@
     "category": "LPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 2",
     "quantity": 62,
     "instanceIDs": [
       "GE9X-LPC-BLD-0001",
@@ -1771,7 +1771,7 @@
     "category": "LPC",
     "subsystem": "DSK",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-LPC-DSK-0002"
@@ -1784,7 +1784,7 @@
     "category": "LPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 2",
     "quantity": 68,
     "instanceIDs": [
       "GE9X-LPC-BLD-0063",
@@ -1814,7 +1814,7 @@
     "category": "LPC",
     "subsystem": "DSK",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-LPC-DSK-0003"
@@ -1827,7 +1827,7 @@
     "category": "LPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 2",
     "quantity": 74,
     "instanceIDs": [
       "GE9X-LPC-BLD-0131",
@@ -1842,7 +1842,7 @@
     "category": "LPC",
     "subsystem": "CSG",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 3",
+    "classification": "Class 2",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-LPC-CSG-0001"
@@ -1855,7 +1855,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 40,
     "instanceIDs": [
       "GE9X-HPC-STA-0001",
@@ -1883,7 +1883,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 56,
     "instanceIDs": [
       "GE9X-HPC-BLD-0001",
@@ -1898,7 +1898,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 50,
     "instanceIDs": [
       "GE9X-HPC-STA-0041",
@@ -1926,7 +1926,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 60,
     "instanceIDs": [
       "GE9X-HPC-BLD-0057",
@@ -1941,7 +1941,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 56,
     "instanceIDs": [
       "GE9X-HPC-STA-0091",
@@ -1969,7 +1969,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 64,
     "instanceIDs": [
       "GE9X-HPC-BLD-0117",
@@ -1984,7 +1984,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 64,
     "instanceIDs": [
       "GE9X-HPC-STA-0147",
@@ -2012,7 +2012,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 70,
     "instanceIDs": [
       "GE9X-HPC-BLD-0181",
@@ -2027,7 +2027,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 70,
     "instanceIDs": [
       "GE9X-HPC-STA-0211",
@@ -2055,7 +2055,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 76,
     "instanceIDs": [
       "GE9X-HPC-BLD-0251",
@@ -2070,7 +2070,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 76,
     "instanceIDs": [
       "GE9X-HPC-STA-0281",
@@ -2098,7 +2098,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 80,
     "instanceIDs": [
       "GE9X-HPC-BLD-0327",
@@ -2113,7 +2113,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 80,
     "instanceIDs": [
       "GE9X-HPC-STA-0357",
@@ -2141,7 +2141,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 84,
     "instanceIDs": [
       "GE9X-HPC-BLD-0407",
@@ -2156,7 +2156,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 84,
     "instanceIDs": [
       "GE9X-HPC-STA-0437",
@@ -2184,7 +2184,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 88,
     "instanceIDs": [
       "GE9X-HPC-BLD-0491",
@@ -2199,7 +2199,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 88,
     "instanceIDs": [
       "GE9X-HPC-STA-0521",
@@ -2227,7 +2227,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 92,
     "instanceIDs": [
       "GE9X-HPC-BLD-0579",
@@ -2242,7 +2242,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 92,
     "instanceIDs": [
       "GE9X-HPC-STA-0609",
@@ -2270,7 +2270,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 96,
     "instanceIDs": [
       "GE9X-HPC-BLD-0671",
@@ -2285,7 +2285,7 @@
     "category": "HPC",
     "subsystem": "STA",
     "material": "Titanium Ti-6Al-4V",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 96,
     "instanceIDs": [
       "GE9X-HPC-STA-0701",
@@ -2313,7 +2313,7 @@
     "category": "HPC",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 100,
     "instanceIDs": [
       "GE9X-HPC-BLD-0767",
@@ -2432,7 +2432,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0001"
@@ -2445,7 +2445,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0001"
@@ -2458,7 +2458,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0002"
@@ -2471,7 +2471,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0002"
@@ -2484,7 +2484,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0003"
@@ -2497,7 +2497,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0003"
@@ -2510,7 +2510,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0004"
@@ -2523,7 +2523,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0004"
@@ -2536,7 +2536,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0005"
@@ -2549,7 +2549,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0005"
@@ -2562,7 +2562,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0006"
@@ -2575,7 +2575,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0006"
@@ -2588,7 +2588,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0007"
@@ -2601,7 +2601,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0007"
@@ -2614,7 +2614,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0008"
@@ -2627,7 +2627,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0008"
@@ -2640,7 +2640,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0009"
@@ -2653,7 +2653,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0009"
@@ -2666,7 +2666,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0010"
@@ -2679,7 +2679,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0010"
@@ -2692,7 +2692,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0011"
@@ -2705,7 +2705,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0011"
@@ -2718,7 +2718,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0012"
@@ -2731,7 +2731,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0012"
@@ -2744,7 +2744,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0013"
@@ -2757,7 +2757,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0013"
@@ -2770,7 +2770,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0014"
@@ -2783,7 +2783,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0014"
@@ -2796,7 +2796,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0015"
@@ -2809,7 +2809,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0015"
@@ -2822,7 +2822,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0016"
@@ -2835,7 +2835,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0016"
@@ -2848,7 +2848,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0017"
@@ -2861,7 +2861,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0017"
@@ -2874,7 +2874,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0018"
@@ -2887,7 +2887,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0018"
@@ -2900,7 +2900,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0019"
@@ -2913,7 +2913,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0019"
@@ -2926,7 +2926,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0020"
@@ -2939,7 +2939,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0020"
@@ -2952,7 +2952,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0021"
@@ -2965,7 +2965,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0021"
@@ -2978,7 +2978,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0022"
@@ -2991,7 +2991,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0022"
@@ -3004,7 +3004,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0023"
@@ -3017,7 +3017,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0023"
@@ -3030,7 +3030,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0024"
@@ -3043,7 +3043,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0024"
@@ -3056,7 +3056,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0025"
@@ -3069,7 +3069,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0025"
@@ -3082,7 +3082,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0026"
@@ -3095,7 +3095,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0026"
@@ -3108,7 +3108,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0027"
@@ -3121,7 +3121,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0027"
@@ -3134,7 +3134,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0028"
@@ -3147,7 +3147,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0028"
@@ -3160,7 +3160,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0029"
@@ -3173,7 +3173,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0029"
@@ -3186,7 +3186,7 @@
     "category": "COMB",
     "subsystem": "SWR",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-SWR-0030"
@@ -3199,7 +3199,7 @@
     "category": "COMB",
     "subsystem": "INJ",
     "material": "Single-Crystal Nickel CMSX-4",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-INJ-0030"
@@ -3212,7 +3212,7 @@
     "category": "COMB",
     "subsystem": "IGN",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-IGN-0001"
@@ -3225,7 +3225,7 @@
     "category": "COMB",
     "subsystem": "IGN",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-COMB-IGN-0002"
@@ -3253,7 +3253,7 @@
     "category": "HPT",
     "subsystem": "NGV",
     "material": "CMC SiC/SiC",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 36,
     "instanceIDs": [
       "GE9X-HPT-NGV-0001",
@@ -3281,7 +3281,7 @@
     "category": "HPT",
     "subsystem": "BLD",
     "material": "CMC SiC/SiC",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 80,
     "instanceIDs": [
       "GE9X-HPT-BLD-0001",
@@ -4336,7 +4336,7 @@
     "category": "HPT",
     "subsystem": "NGV",
     "material": "Single-Crystal Nickel CMSX-4 (TBC-coated)",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 50,
     "instanceIDs": [
       "GE9X-HPT-NGV-0037",
@@ -4364,7 +4364,7 @@
     "category": "HPT",
     "subsystem": "BLD",
     "material": "Single-Crystal Nickel CMSX-4 (TBC-coated)",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 70,
     "instanceIDs": [
       "GE9X-HPT-BLD-0081",
@@ -5302,7 +5302,7 @@
     "category": "LPT",
     "subsystem": "STA",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 90,
     "instanceIDs": [
       "GE9X-LPT-STA-0001",
@@ -5330,7 +5330,7 @@
     "category": "LPT",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 110,
     "instanceIDs": [
       "GE9X-LPT-BLD-0001",
@@ -5345,7 +5345,7 @@
     "category": "LPT",
     "subsystem": "STA",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 100,
     "instanceIDs": [
       "GE9X-LPT-STA-0091",
@@ -5373,7 +5373,7 @@
     "category": "LPT",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 120,
     "instanceIDs": [
       "GE9X-LPT-BLD-0111",
@@ -5388,7 +5388,7 @@
     "category": "LPT",
     "subsystem": "STA",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 110,
     "instanceIDs": [
       "GE9X-LPT-STA-0191",
@@ -5416,7 +5416,7 @@
     "category": "LPT",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 130,
     "instanceIDs": [
       "GE9X-LPT-BLD-0231",
@@ -5431,7 +5431,7 @@
     "category": "LPT",
     "subsystem": "STA",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 120,
     "instanceIDs": [
       "GE9X-LPT-STA-0301",
@@ -5459,7 +5459,7 @@
     "category": "LPT",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 138,
     "instanceIDs": [
       "GE9X-LPT-BLD-0361",
@@ -5474,7 +5474,7 @@
     "category": "LPT",
     "subsystem": "STA",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 130,
     "instanceIDs": [
       "GE9X-LPT-STA-0421",
@@ -5502,7 +5502,7 @@
     "category": "LPT",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 144,
     "instanceIDs": [
       "GE9X-LPT-BLD-0499",
@@ -5517,7 +5517,7 @@
     "category": "LPT",
     "subsystem": "STA",
     "material": "Inconel 718",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 140,
     "instanceIDs": [
       "GE9X-LPT-STA-0551",
@@ -5545,7 +5545,7 @@
     "category": "LPT",
     "subsystem": "BLD",
     "material": "Inconel 718",
-    "classification": "Class 1",
+    "classification": "Class 2",
     "quantity": 150,
     "instanceIDs": [
       "GE9X-LPT-BLD-0643",
@@ -5573,7 +5573,7 @@
     "category": "BRG",
     "subsystem": "HSG",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-HSG-0001"
@@ -5911,7 +5911,7 @@
     "category": "BRG",
     "subsystem": "HSG",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-HSG-0002"
@@ -6145,7 +6145,7 @@
     "category": "BRG",
     "subsystem": "HSG",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-HSG-0003"
@@ -6379,7 +6379,7 @@
     "category": "BRG",
     "subsystem": "HSG",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-HSG-0004"
@@ -6717,7 +6717,7 @@
     "category": "BRG",
     "subsystem": "HSG",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-HSG-0005"
@@ -7055,7 +7055,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0001"
@@ -7068,7 +7068,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0002"
@@ -7081,7 +7081,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0003"
@@ -7094,7 +7094,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0004"
@@ -7107,7 +7107,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0005"
@@ -7120,7 +7120,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0006"
@@ -7133,7 +7133,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0007"
@@ -7146,7 +7146,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0008"
@@ -7159,7 +7159,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0009"
@@ -7172,7 +7172,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0010"
@@ -7185,7 +7185,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0011"
@@ -7198,7 +7198,7 @@
     "category": "BRG",
     "subsystem": "SEL",
     "material": "Carbon Fiber Composite",
-    "classification": "Class 2",
+    "classification": "Class 3",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-BRG-SEL-0012"
@@ -7211,7 +7211,7 @@
     "category": "SHFT",
     "subsystem": "LP",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-SHFT-LP-0001"
@@ -7224,7 +7224,7 @@
     "category": "SHFT",
     "subsystem": "HP",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-SHFT-HP-0001"
@@ -7237,7 +7237,7 @@
     "category": "SHFT",
     "subsystem": "CPL",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-SHFT-CPL-0001"
@@ -7250,7 +7250,7 @@
     "category": "SHFT",
     "subsystem": "CPL",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-SHFT-CPL-0002"
@@ -7263,7 +7263,7 @@
     "category": "SHFT",
     "subsystem": "CPL",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-SHFT-CPL-0003"
@@ -7276,7 +7276,7 @@
     "category": "SHFT",
     "subsystem": "CPL",
     "material": "Steel AISI 4340",
-    "classification": "Class 2",
+    "classification": "Class 1",
     "quantity": 1,
     "instanceIDs": [
       "GE9X-SHFT-CPL-0004"

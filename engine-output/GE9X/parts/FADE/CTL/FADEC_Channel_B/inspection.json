@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-CTL-0002",
     "partName": "FADEC Channel B",
-    "serialNumber": "SN-566188",
+    "serialNumber": "SN-133028",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-33007"
+        "lot": "HL-62033"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-57144"
+        "certNo": "PROC-90731"
       }
     ]
   },

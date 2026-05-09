@@ -4,7 +4,7 @@
   "category": "FAN",
   "subsystem": "DVT",
   "material": "Titanium Ti-6Al-4V",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "quantity": 1,
   "sampleInstanceIDs": [
     "GE9X-FAN-DVT-0016"

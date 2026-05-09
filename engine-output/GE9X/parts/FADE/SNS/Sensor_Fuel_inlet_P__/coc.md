@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-SNS-0108 — Sensor Fuel inlet P #6
-**Serial No.:** SN-577268
+**Serial No.:** SN-785147
 **Drawing:** GE9X-FADE-SNS-0108-DWG Rev A
-**Heat Lot:** HL-95154  ·  **Mfg Lot:** MFG-59261
+**Heat Lot:** HL-83201  ·  **Mfg Lot:** MFG-93194
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-95154
-- Manufacturing: MFG-59261
-- Inspection: INSP-SN-577268
+- Raw Material: HL-83201
+- Manufacturing: MFG-93194
+- Inspection: INSP-SN-785147
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

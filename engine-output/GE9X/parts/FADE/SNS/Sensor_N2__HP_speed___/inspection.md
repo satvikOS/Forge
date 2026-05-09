@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FADE-SNS-0060  ·  **Title:** Sensor N2 (HP speed) #6
-**Serial:** SN-802611  ·  **Drawing Rev:** A
+**Serial:** SN-175200  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-42317 |
-| 2 | Process | CNC 5-axis machining | PROC-58338 |
+| 1 | Material | Stainless Steel 316 | HL-34371 |
+| 2 | Process | CNC 5-axis machining | PROC-92136 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

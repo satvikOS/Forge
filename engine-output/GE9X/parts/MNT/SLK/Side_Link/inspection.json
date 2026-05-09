@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-MNT-SLK-0002",
     "partName": "Side Link 2",
-    "serialNumber": "SN-993291",
+    "serialNumber": "SN-559585",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-65287"
+        "lot": "HL-45008"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-65266"
+        "certNo": "PROC-99946"
       }
     ]
   },

@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-ELEC-HRN-0024  ·  **Title:** Wire Harness Segment 24
-**Serial:** SN-070928  ·  **Drawing Rev:** A
+**Serial:** SN-291569  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Copper C11000 | HL-28400 |
-| 2 | Process | CNC 5-axis machining | PROC-59698 |
+| 1 | Material | Copper C11000 | HL-02465 |
+| 2 | Process | CNC 5-axis machining | PROC-93718 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

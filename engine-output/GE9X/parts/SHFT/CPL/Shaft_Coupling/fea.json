@@ -1,5 +1,5 @@
 {
-  "class": "Class 2",
+  "class": "Class 1",
   "results": {
     "fea": {
       "maxStress_MPa": null,
@@ -9,6 +9,11 @@
     "modal": {
       "frequencies_Hz": [],
       "firstMode_Hz": null
-    }
+    },
+    "fatigue": {
+      "life_cycles": 0,
+      "margin": null
+    },
+    "scenarios": {}
   }
 }

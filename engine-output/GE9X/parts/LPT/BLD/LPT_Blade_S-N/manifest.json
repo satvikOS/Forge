@@ -2,11 +2,11 @@
   "partID": "GE9X-LPT-BLD-0643",
   "partName": "LPT Blade S6-1",
   "project": "GE9X",
-  "classification": "Class 1",
+  "classification": "Class 2",
   "category": "LPT",
   "subsystem": "BLD",
   "material": "Inconel 718",
-  "generatedAt": "2026-05-09T19:02:27.359Z",
+  "generatedAt": "2026-05-09T19:17:58.825Z",
   "drawingNumber": "GE9X-LPT-BLD-0643-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -26,5 +26,5 @@
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Critical Part"
+  "certificationLevel": "FAA Part 21 Important"
 }

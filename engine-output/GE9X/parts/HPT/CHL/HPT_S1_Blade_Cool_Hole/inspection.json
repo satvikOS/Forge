@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-CHL-0001",
     "partName": "HPT S1 Blade 1 Cool Hole 1",
-    "serialNumber": "SN-653006",
+    "serialNumber": "SN-588695",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Air",
-        "lot": "HL-22564"
+        "lot": "HL-24919"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-11359"
+        "certNo": "PROC-41511"
       }
     ]
   },

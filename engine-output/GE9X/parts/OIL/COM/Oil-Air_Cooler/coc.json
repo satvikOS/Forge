@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-OIL-COM-0006",
   "partTitle": "Oil-Air Cooler",
-  "serialNumber": "SN-833939",
+  "serialNumber": "SN-160696",
   "drawingNumber": "GE9X-OIL-COM-0006-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-86468",
-  "manufacturingLot": "MFG-56193",
+  "heatLot": "HL-81517",
+  "manufacturingLot": "MFG-89674",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-86468",
-    "manufacturingProcess": "MFG-56193",
-    "inspectionRecord": "INSP-SN-833939",
+    "rawMaterial": "HL-81517",
+    "manufacturingProcess": "MFG-89674",
+    "inspectionRecord": "INSP-SN-160696",
     "finalAcceptance": "2026-05-09"
   }
 }

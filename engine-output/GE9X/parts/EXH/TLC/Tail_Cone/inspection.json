@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-EXH-TLC-0001",
     "partName": "Tail Cone",
-    "serialNumber": "SN-269213",
+    "serialNumber": "SN-417787",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-69794"
+        "lot": "HL-96981"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-65818"
+        "certNo": "PROC-552"
       }
     ]
   },

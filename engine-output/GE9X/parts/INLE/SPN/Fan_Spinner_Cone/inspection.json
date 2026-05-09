@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-INLE-SPN-0001",
     "partName": "Fan Spinner Cone",
-    "serialNumber": "SN-854863",
+    "serialNumber": "SN-069127",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Composite Carbon-Epoxy",
-        "lot": "HL-60753"
+        "lot": "HL-05177"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-33281"
+        "certNo": "PROC-68056"
       }
     ]
   },

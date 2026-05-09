@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-LPT-STA-0551",
   "partTitle": "LPT Stator S6-1",
-  "serialNumber": "SN-986535",
+  "serialNumber": "SN-877874",
   "drawingNumber": "GE9X-LPT-STA-0551-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-48087",
-  "manufacturingLot": "MFG-47228",
+  "heatLot": "HL-42032",
+  "manufacturingLot": "MFG-78705",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-48087",
-    "manufacturingProcess": "MFG-47228",
-    "inspectionRecord": "INSP-SN-986535",
+    "rawMaterial": "HL-42032",
+    "manufacturingProcess": "MFG-78705",
+    "inspectionRecord": "INSP-SN-877874",
     "finalAcceptance": "2026-05-09"
   }
 }

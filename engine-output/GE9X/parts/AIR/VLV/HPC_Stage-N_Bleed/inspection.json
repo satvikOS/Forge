@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AIR-VLV-0003",
     "partName": "HPC Stage 11 Bleed",
-    "serialNumber": "SN-393331",
+    "serialNumber": "SN-408537",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-17128"
+        "lot": "HL-41735"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-56686"
+        "certNo": "PROC-90229"
       }
     ]
   },

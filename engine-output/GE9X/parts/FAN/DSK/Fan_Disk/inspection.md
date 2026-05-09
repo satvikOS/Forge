@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FAN-DSK-0001  ·  **Title:** Fan Disk
-**Serial:** SN-567806  ·  **Drawing Rev:** A
+**Serial:** SN-677408  ·  **Drawing Rev:** A
 **Process:** Forge + machining + shot peen
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Titanium Ti-6Al-4V | HL-74237 |
-| 2 | Process | Forge + machining + shot peen | PROC-33454 |
+| 1 | Material | Titanium Ti-6Al-4V | HL-67525 |
+| 2 | Process | Forge + machining + shot peen | PROC-68172 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

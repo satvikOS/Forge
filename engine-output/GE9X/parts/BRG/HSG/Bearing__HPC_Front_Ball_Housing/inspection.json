@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-HSG-0003",
     "partName": "Bearing #HPC Front Ball Housing",
-    "serialNumber": "SN-597090",
+    "serialNumber": "SN-311425",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-75256"
+        "lot": "HL-06633"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-49462"
+        "certNo": "PROC-81191"
       }
     ]
   },
@@ -34,96 +34,37 @@
           "kind": "dimensional",
           "feature": "OD",
           "nominal": 0.02,
-          "upper": 0.020300000000000002,
-          "lower": 0.0197,
-          "tolerance": 0.0006,
+          "upper": 0.021,
+          "lower": 0.019,
+          "tolerance": 0.002,
           "unit": "mm",
           "method": "micrometer"
         },
         "nominal": 0.02,
-        "actual": 0.019934,
+        "actual": 0.019829,
         "status": "PASS",
         "method": "micrometer"
       },
       {
         "seq": 2,
-        "kind": "dimensional",
-        "feature": "axis-tilt",
-        "spec": {
-          "kind": "dimensional",
-          "feature": "axis-tilt",
-          "nominal": 0,
-          "upper": 0.1,
-          "lower": -0.1,
-          "tolerance": 0.2,
-          "unit": "degree",
-          "method": "protractor / CMM"
-        },
-        "nominal": 0,
-        "actual": -0.008,
-        "status": "PASS",
-        "method": "protractor / CMM"
-      },
-      {
-        "seq": 3,
-        "kind": "gdt",
-        "feature": "face-A",
-        "spec": {
-          "kind": "gdt",
-          "feature": "face-A",
-          "type": "flatness",
-          "symbol": "⏥",
-          "tolerance": 0.5,
-          "datums": [],
-          "modifier": null,
-          "method": "CMM"
-        },
-        "nominal": 0.5,
-        "actual": 0.37,
-        "status": "PASS",
-        "method": "CMM"
-      },
-      {
-        "seq": 4,
-        "kind": "gdt",
-        "feature": "B",
-        "spec": {
-          "kind": "gdt",
-          "feature": "B",
-          "type": "perpendicularity",
-          "symbol": "⊥",
-          "tolerance": 1,
-          "datums": [
-            "A"
-          ],
-          "modifier": null,
-          "method": "CMM"
-        },
-        "nominal": 1,
-        "actual": 0.71,
-        "status": "PASS",
-        "method": "CMM"
-      },
-      {
-        "seq": 5,
         "kind": "surface",
         "feature": "OD",
         "spec": {
           "kind": "surface",
           "feature": "OD",
-          "Ra_um": 1.6,
+          "Ra_um": 3.2,
           "lay": "multi",
           "method": "profilometer"
         },
-        "nominal": 1.6,
-        "actual": 1.312,
+        "nominal": 3.2,
+        "actual": 2.656,
         "status": "PASS",
         "method": "profilometer"
       }
     ],
     "summary": {
-      "total": 5,
-      "pass": 5,
+      "total": 2,
+      "pass": 2,
       "fail": 0
     }
   },

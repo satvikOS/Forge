@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-RAC-0003",
     "partName": "Bearing #HPC Front Ball Inner Race",
-    "serialNumber": "SN-031163",
+    "serialNumber": "SN-487734",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-13051"
+        "lot": "HL-72079"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-49510"
+        "certNo": "PROC-81222"
       }
     ]
   },

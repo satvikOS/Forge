@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-HPC-DSK-0010  ·  **Title:** HPC S10 Disk
-**Serial:** SN-636494  ·  **Drawing Rev:** A
+**Serial:** SN-586889  ·  **Drawing Rev:** A
 **Process:** Forge + machining + shot peen
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-94694 |
-| 2 | Process | Forge + machining + shot peen | PROC-38624 |
+| 1 | Material | Inconel 718 | HL-35854 |
+| 2 | Process | Forge + machining + shot peen | PROC-72653 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

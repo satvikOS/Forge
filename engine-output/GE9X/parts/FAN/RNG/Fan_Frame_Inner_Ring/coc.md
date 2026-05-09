@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAN-RNG-0003 — Fan Frame Inner Ring
-**Serial No.:** SN-185760
+**Serial No.:** SN-566188
 **Drawing:** GE9X-FAN-RNG-0003-DWG Rev A
-**Heat Lot:** HL-23452  ·  **Mfg Lot:** MFG-36195
+**Heat Lot:** HL-74626  ·  **Mfg Lot:** MFG-70001
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-23452
-- Manufacturing: MFG-36195
-- Inspection: INSP-SN-185760
+- Raw Material: HL-74626
+- Manufacturing: MFG-70001
+- Inspection: INSP-SN-566188
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

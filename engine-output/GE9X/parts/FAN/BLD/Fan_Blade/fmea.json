@@ -1,7 +1,7 @@
 {
   "partID": "GE9X-FAN-BLD-0001",
   "partTitle": "Fan Blade 1",
-  "classification": "Class 1",
+  "classification": "Class 2",
   "ferraName": "ArchDisc",
   "preparedBy": "Design Engineer",
   "date": "2026-05-09",
@@ -16,10 +16,10 @@
       "failureMode": "High-cycle fatigue (HCF) crack",
       "effect": "Blade liberation; FOD downstream; engine shutdown",
       "severity": 10,
-      "occurrence": 2,
-      "detection": 2,
-      "RPN": 40,
-      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 90,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
       "actionRequired": "No"
     },
     {
@@ -27,10 +27,10 @@
       "failureMode": "Low-cycle fatigue (LCF) crack at root",
       "effect": "Disk-blade interface failure",
       "severity": 10,
-      "occurrence": 2,
-      "detection": 2,
-      "RPN": 40,
-      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 90,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
       "actionRequired": "No"
     },
     {
@@ -38,10 +38,10 @@
       "failureMode": "Foreign object damage (FOD) leading-edge",
       "effect": "Reduced efficiency; blade replacement",
       "severity": 5,
-      "occurrence": 2,
-      "detection": 2,
-      "RPN": 20,
-      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 45,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
       "actionRequired": "No"
     },
     {
@@ -49,10 +49,10 @@
       "failureMode": "Tip rub against casing",
       "effect": "Performance loss; possible tip cracking",
       "severity": 6,
-      "occurrence": 2,
-      "detection": 2,
-      "RPN": 24,
-      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 54,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
       "actionRequired": "No"
     },
     {
@@ -60,17 +60,17 @@
       "failureMode": "Coating spallation (TBC)",
       "effect": "Substrate overheat; blade life shortened",
       "severity": 7,
-      "occurrence": 2,
-      "detection": 2,
-      "RPN": 28,
-      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 63,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
       "actionRequired": "No"
     }
   ],
   "summary": {
     "total": 5,
-    "maxRPN": 40,
-    "avgRPN": 30.4,
+    "maxRPN": 90,
+    "avgRPN": 68.4,
     "criticalCount": 0
   }
 }

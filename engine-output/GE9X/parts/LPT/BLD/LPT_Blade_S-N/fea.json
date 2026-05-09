@@ -1,5 +1,5 @@
 {
-  "class": "Class 1",
+  "class": "Class 2",
   "results": {
     "fea": {
       "maxStress_MPa": null,
@@ -9,48 +9,6 @@
     "modal": {
       "frequencies_Hz": [],
       "firstMode_Hz": null
-    },
-    "fatigue": {
-      "life_cycles": 0,
-      "margin": null
-    },
-    "scenarios": {
-      "thermal_cycle": {
-        "scenario": "thermal_cycle",
-        "standard": "thermal cycle",
-        "result": "FAIL",
-        "metrics": {
-          "peakTemp_C": 1500,
-          "deltaT_C": 1475,
-          "thermalStress_MPa": 3834.9999999999995,
-          "maxStress_MPa": null,
-          "safetyFactor": 0.2698826597131682,
-          "estimatedLife_cycles": 1957735880,
-          "requestedCycles": 1000
-        },
-        "limits": {
-          "minSafetyFactor": 1,
-          "minCycles": 1000
-        },
-        "diagnosis": "Requires TBC coating and cooling channels for adequate life.",
-        "timestamp": "2026-05-09T19:02:27.359Z"
-      },
-      "fatigue_hcf": {
-        "scenario": "fatigue_hcf",
-        "standard": "HCF 5e7",
-        "result": "FAIL",
-        "metrics": {
-          "stressAmplitude_MPa": 200,
-          "allowable_MPa": 116.58272410165539,
-          "cycles": 50000000,
-          "safetyFactor": 0.582913620508277
-        },
-        "limits": {
-          "minSafetyFactor": 1
-        },
-        "diagnosis": "HCF life insufficient — consider shot peening.",
-        "timestamp": "2026-05-09T19:02:27.359Z"
-      }
     }
   }
 }

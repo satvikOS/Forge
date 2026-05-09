@@ -1,24 +1,24 @@
 # Design FMEA — GE9X-LPC-DSK-0002
 
 **Part:** LPC S2 Disk
-**Risk Classification:** **Class 3** 
+**Risk Classification:** **Class 1** (LLP — life-limited critical per FAR 33.70)
 **Material:** Titanium Ti-6Al-4V  ·  **Category:** LPC  ·  **Subsystem:** DSK
 **Prepared By:** Design Engineer  ·  **Date:** 2026-05-09
 
 ## Failure-Mode Analysis Items
 | # | Failure Mode | Effect | S | O | D | RPN | Action? |
 |---|--------------|--------|---|---|---|-----|---------|
-| 1 | Burst at LCF limit (centrifugal) | Catastrophic uncontained failure | 10 | 4 | 5 | **200** | Yes |
-| 2 | Bore crack from cyclic stress | Eventual rim release; engine destruction | 10 | 4 | 5 | **200** | Yes |
-| 3 | Slot cracking at blade root | Blade liberation | 9 | 4 | 5 | **180** | Yes |
+| 1 | Burst at LCF limit (centrifugal) | Catastrophic uncontained failure | 10 | 2 | 2 | **40** | No |
+| 2 | Bore crack from cyclic stress | Eventual rim release; engine destruction | 10 | 2 | 2 | **40** | No |
+| 3 | Slot cracking at blade root | Blade liberation | 9 | 2 | 2 | **36** | No |
 
 ## Summary
 - Total items: 3
-- Max RPN: 200
-- Avg RPN: 193
-- Items requiring action (RPN > 100): 3
+- Max RPN: 40
+- Avg RPN: 39
+- Items requiring action (RPN > 100): 0
 
 ## Current Controls (per item)
-- **#1 Burst at LCF limit (centrifugal)** — Visual inspection per receiving QC
-- **#2 Bore crack from cyclic stress** — Visual inspection per receiving QC
-- **#3 Slot cracking at blade root** — Visual inspection per receiving QC
+- **#1 Burst at LCF limit (centrifugal)** — Borescope inspection per EM 72-DSK, NDT 100%, LCF cycle tracking
+- **#2 Bore crack from cyclic stress** — Borescope inspection per EM 72-DSK, NDT 100%, LCF cycle tracking
+- **#3 Slot cracking at blade root** — Borescope inspection per EM 72-DSK, NDT 100%, LCF cycle tracking

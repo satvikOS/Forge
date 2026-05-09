@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-BAL-0016",
   "partTitle": "Bearing #Fan Thrust Ball Element 16",
-  "serialNumber": "SN-645772",
+  "serialNumber": "SN-627289",
   "drawingNumber": "GE9X-BRG-BAL-0016-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-45140",
-  "manufacturingLot": "MFG-49405",
+  "heatLot": "HL-76273",
+  "manufacturingLot": "MFG-81136",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-45140",
-    "manufacturingProcess": "MFG-49405",
-    "inspectionRecord": "INSP-SN-645772",
+    "rawMaterial": "HL-76273",
+    "manufacturingProcess": "MFG-81136",
+    "inspectionRecord": "INSP-SN-627289",
     "finalAcceptance": "2026-05-09"
   }
 }

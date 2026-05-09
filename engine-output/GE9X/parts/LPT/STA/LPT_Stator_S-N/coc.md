@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-LPT-STA-0551 — LPT Stator S6-1
-**Serial No.:** SN-986535
+**Serial No.:** SN-877874
 **Drawing:** GE9X-LPT-STA-0551-DWG Rev A
-**Heat Lot:** HL-48087  ·  **Mfg Lot:** MFG-47228
+**Heat Lot:** HL-42032  ·  **Mfg Lot:** MFG-78705
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-48087
-- Manufacturing: MFG-47228
-- Inspection: INSP-SN-986535
+- Raw Material: HL-42032
+- Manufacturing: MFG-78705
+- Inspection: INSP-SN-877874
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

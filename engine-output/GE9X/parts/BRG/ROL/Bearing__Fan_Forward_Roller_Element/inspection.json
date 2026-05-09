@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-ROL-0024",
     "partName": "Bearing #Fan Forward Roller Element 24",
-    "serialNumber": "SN-532186",
+    "serialNumber": "SN-593771",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-78376"
+        "lot": "HL-24013"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-48469"
+        "certNo": "PROC-79979"
       }
     ]
   },

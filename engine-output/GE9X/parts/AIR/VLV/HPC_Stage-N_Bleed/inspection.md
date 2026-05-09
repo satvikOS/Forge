@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-AIR-VLV-0003  ·  **Title:** HPC Stage 11 Bleed
-**Serial:** SN-393331  ·  **Drawing Rev:** A
+**Serial:** SN-408537  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-17128 |
-| 2 | Process | CNC 5-axis machining | PROC-56686 |
+| 1 | Material | Inconel 718 | HL-41735 |
+| 2 | Process | CNC 5-axis machining | PROC-90229 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

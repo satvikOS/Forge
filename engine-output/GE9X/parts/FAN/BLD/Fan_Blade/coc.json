@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-BLD-0001",
   "partTitle": "Fan Blade 1",
-  "serialNumber": "SN-436944",
+  "serialNumber": "SN-761347",
   "drawingNumber": "GE9X-FAN-BLD-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-83174",
-  "manufacturingLot": "MFG-33595",
+  "heatLot": "HL-82070",
+  "manufacturingLot": "MFG-68261",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-83174",
-    "manufacturingProcess": "MFG-33595",
-    "inspectionRecord": "INSP-SN-436944",
+    "rawMaterial": "HL-82070",
+    "manufacturingProcess": "MFG-68261",
+    "inspectionRecord": "INSP-SN-761347",
     "finalAcceptance": "2026-05-09"
   }
 }

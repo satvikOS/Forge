@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0096",
   "partTitle": "Sensor Fuel flow #6",
-  "serialNumber": "SN-483285",
+  "serialNumber": "SN-605183",
   "drawingNumber": "GE9X-FADE-SNS-0096-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-61525",
-  "manufacturingLot": "MFG-59032",
+  "heatLot": "HL-96723",
+  "manufacturingLot": "MFG-92925",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-61525",
-    "manufacturingProcess": "MFG-59032",
-    "inspectionRecord": "INSP-SN-483285",
+    "rawMaterial": "HL-96723",
+    "manufacturingProcess": "MFG-92925",
+    "inspectionRecord": "INSP-SN-605183",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-EXH-TLC-0001",
   "partTitle": "Tail Cone",
-  "serialNumber": "SN-499479",
+  "serialNumber": "SN-112845",
   "drawingNumber": "GE9X-EXH-TLC-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-66483",
-  "manufacturingLot": "MFG-65818",
+  "heatLot": "HL-83862",
+  "manufacturingLot": "MFG-552",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-66483",
-    "manufacturingProcess": "MFG-65818",
-    "inspectionRecord": "INSP-SN-499479",
+    "rawMaterial": "HL-83862",
+    "manufacturingProcess": "MFG-552",
+    "inspectionRecord": "INSP-SN-112845",
     "finalAcceptance": "2026-05-09"
   }
 }

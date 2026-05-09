@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-COMB-INJ-0030 — TAPS Injector Tip 30
-**Serial No.:** SN-559524
+**Serial No.:** SN-848100
 **Drawing:** GE9X-COMB-INJ-0030-DWG Rev A
-**Heat Lot:** HL-15355  ·  **Mfg Lot:** MFG-40632
+**Heat Lot:** HL-87833  ·  **Mfg Lot:** MFG-74208
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-15355
-- Manufacturing: MFG-40632
-- Inspection: INSP-SN-559524
+- Raw Material: HL-87833
+- Manufacturing: MFG-74208
+- Inspection: INSP-SN-848100
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

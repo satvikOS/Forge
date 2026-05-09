@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0018",
     "partName": "Sensor T3 (HPC exit) #6",
-    "serialNumber": "SN-182268",
+    "serialNumber": "SN-332937",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-85412"
+        "lot": "HL-84735"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-57495"
+        "certNo": "PROC-91144"
       }
     ]
   },

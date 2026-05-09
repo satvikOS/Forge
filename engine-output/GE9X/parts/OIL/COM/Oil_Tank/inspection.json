@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-OIL-COM-0001",
     "partName": "Oil Tank",
-    "serialNumber": "SN-737145",
+    "serialNumber": "SN-436673",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-63183"
+        "lot": "HL-35767"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-56075"
+        "certNo": "PROC-89541"
       }
     ]
   },

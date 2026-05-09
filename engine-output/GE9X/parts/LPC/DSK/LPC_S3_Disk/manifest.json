@@ -2,11 +2,11 @@
   "partID": "GE9X-LPC-DSK-0003",
   "partName": "LPC S3 Disk",
   "project": "GE9X",
-  "classification": "Class 3",
+  "classification": "Class 1",
   "category": "LPC",
   "subsystem": "DSK",
   "material": "Titanium Ti-6Al-4V",
-  "generatedAt": "2026-05-09T19:02:17.178Z",
+  "generatedAt": "2026-05-09T19:17:50.998Z",
   "drawingNumber": "GE9X-LPC-DSK-0003-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -21,9 +21,10 @@
     "coc.json",
     "fmea.md",
     "fmea.json",
+    "fea.json",
     "process-specs.md"
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "Standard"
+  "certificationLevel": "FAA Part 21 Critical Part"
 }

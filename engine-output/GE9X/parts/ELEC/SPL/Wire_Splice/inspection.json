@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-ELEC-SPL-0200",
     "partName": "Wire Splice 200",
-    "serialNumber": "SN-065906",
+    "serialNumber": "SN-528848",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Copper C11000",
-        "lot": "HL-86370"
+        "lot": "HL-88341"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-63293"
+        "certNo": "PROC-97766"
       }
     ]
   },

@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-ELEC-HRN-0024 — Wire Harness Segment 24
-**Serial No.:** SN-564376
+**Serial No.:** SN-249583
 **Drawing:** GE9X-ELEC-HRN-0024-DWG Rev A
-**Heat Lot:** HL-94983  ·  **Mfg Lot:** MFG-59698
+**Heat Lot:** HL-07219  ·  **Mfg Lot:** MFG-93718
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-94983
-- Manufacturing: MFG-59698
-- Inspection: INSP-SN-564376
+- Raw Material: HL-07219
+- Manufacturing: MFG-93718
+- Inspection: INSP-SN-249583
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

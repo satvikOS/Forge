@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-HPC-DSK-0001  ·  **Title:** HPC S1 Disk
-**Serial:** SN-577452  ·  **Drawing Rev:** A
+**Serial:** SN-024712  ·  **Drawing Rev:** A
 **Process:** Forge + machining + shot peen
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Titanium Ti-6Al-4V | HL-57173 |
-| 2 | Process | Forge + machining + shot peen | PROC-37343 |
+| 1 | Material | Titanium Ti-6Al-4V | HL-17778 |
+| 2 | Process | Forge + machining + shot peen | PROC-71197 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

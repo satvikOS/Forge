@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AIR-VLV-0003",
   "partTitle": "HPC Stage 11 Bleed",
-  "serialNumber": "SN-475580",
+  "serialNumber": "SN-236208",
   "drawingNumber": "GE9X-AIR-VLV-0003-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-04864",
-  "manufacturingLot": "MFG-56686",
+  "heatLot": "HL-29518",
+  "manufacturingLot": "MFG-90229",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-04864",
-    "manufacturingProcess": "MFG-56686",
-    "inspectionRecord": "INSP-SN-475580",
+    "rawMaterial": "HL-29518",
+    "manufacturingProcess": "MFG-90229",
+    "inspectionRecord": "INSP-SN-236208",
     "finalAcceptance": "2026-05-09"
   }
 }

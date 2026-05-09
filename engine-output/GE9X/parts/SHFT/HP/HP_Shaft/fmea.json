@@ -1,7 +1,7 @@
 {
   "partID": "GE9X-SHFT-HP-0001",
   "partTitle": "HP Shaft",
-  "classification": "Class 2",
+  "classification": "Class 1",
   "ferraName": "ArchDisc",
   "preparedBy": "Design Engineer",
   "date": "2026-05-09",
@@ -16,10 +16,10 @@
       "failureMode": "Torsional fatigue at coupling",
       "effect": "Shaft separation",
       "severity": 10,
-      "occurrence": 3,
-      "detection": 3,
-      "RPN": 90,
-      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 40,
+      "currentControls": "Borescope inspection per EM 72-HP, NDT 100%, LCF cycle tracking",
       "actionRequired": "No"
     },
     {
@@ -27,17 +27,17 @@
       "failureMode": "Bearing-journal wear",
       "effect": "Vibration, eventual seizure",
       "severity": 8,
-      "occurrence": 3,
-      "detection": 3,
-      "RPN": 72,
-      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 32,
+      "currentControls": "Borescope inspection per EM 72-HP, NDT 100%, LCF cycle tracking",
       "actionRequired": "No"
     }
   ],
   "summary": {
     "total": 2,
-    "maxRPN": 90,
-    "avgRPN": 81,
+    "maxRPN": 40,
+    "avgRPN": 36,
     "criticalCount": 0
   }
 }

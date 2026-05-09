@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-MNT-TAG-0200",
   "partTitle": "Maintenance Tag 200",
-  "serialNumber": "SN-191043",
+  "serialNumber": "SN-360275",
   "drawingNumber": "GE9X-MNT-TAG-0200-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-48026",
-  "manufacturingLot": "MFG-14883",
+  "heatLot": "HL-86405",
+  "manufacturingLot": "MFG-44510",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-48026",
-    "manufacturingProcess": "MFG-14883",
-    "inspectionRecord": "INSP-SN-191043",
+    "rawMaterial": "HL-86405",
+    "manufacturingProcess": "MFG-44510",
+    "inspectionRecord": "INSP-SN-360275",
     "finalAcceptance": "2026-05-09"
   }
 }

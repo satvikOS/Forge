@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-DSK-0001",
     "partName": "Fan Disk",
-    "serialNumber": "SN-567806",
+    "serialNumber": "SN-677408",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-74237"
+        "lot": "HL-67525"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-33454"
+        "certNo": "PROC-68172"
       }
     ]
   },

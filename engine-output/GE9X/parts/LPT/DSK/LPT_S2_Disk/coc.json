@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-LPT-DSK-0002",
   "partTitle": "LPT S2 Disk",
-  "serialNumber": "SN-255958",
+  "serialNumber": "SN-185541",
   "drawingNumber": "GE9X-LPT-DSK-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-30897",
-  "manufacturingLot": "MFG-46323",
+  "heatLot": "HL-66652",
+  "manufacturingLot": "MFG-77985",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-30897",
-    "manufacturingProcess": "MFG-46323",
-    "inspectionRecord": "INSP-SN-255958",
+    "rawMaterial": "HL-66652",
+    "manufacturingProcess": "MFG-77985",
+    "inspectionRecord": "INSP-SN-185541",
     "finalAcceptance": "2026-05-09"
   }
 }

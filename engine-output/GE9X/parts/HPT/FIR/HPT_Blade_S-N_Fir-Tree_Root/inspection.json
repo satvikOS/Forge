@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-FIR-0150",
     "partName": "HPT Blade S2-70 Fir-Tree Root",
-    "serialNumber": "SN-067315",
+    "serialNumber": "SN-562786",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Single-Crystal Nickel CMSX-4",
-        "lot": "HL-27733"
+        "lot": "HL-38052"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-45914"
+        "certNo": "PROC-77639"
       }
     ]
   },

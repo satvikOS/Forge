@@ -1,5 +1,5 @@
 {
-  "class": "Class 1",
+  "class": "Class 2",
   "results": {
     "fea": {
       "maxStress_MPa": null,
@@ -9,61 +9,6 @@
     "modal": {
       "frequencies_Hz": [],
       "firstMode_Hz": null
-    },
-    "fatigue": {
-      "life_cycles": 0,
-      "margin": null
-    },
-    "scenarios": {
-      "bird_strike": {
-        "scenario": "bird_strike",
-        "standard": "FAR 33.76",
-        "result": "PASS",
-        "metrics": {
-          "impactForce_N": 450000,
-          "impactPressure_MPa": 90,
-          "maxStress_MPa": null,
-          "maxDisplacement_mm": null,
-          "safetyFactor": null,
-          "ultimateStrength_MPa": 1500
-        },
-        "limits": {
-          "minSafetyFactor": 1
-        },
-        "diagnosis": "Component withstands large-bird ingestion within ultimate strength.",
-        "timestamp": "2026-05-09T19:02:13.602Z"
-      },
-      "fod_ingestion": {
-        "scenario": "fod_ingestion",
-        "standard": "FAA AC 33.76",
-        "result": "PASS",
-        "metrics": {
-          "kineticEnergy_J": 9000,
-          "maxStress_MPa": null,
-          "safetyFactor": null
-        },
-        "limits": {
-          "minSafetyFactor": 1
-        },
-        "diagnosis": "Component contains FOD damage within ultimate.",
-        "timestamp": "2026-05-09T19:02:13.604Z"
-      },
-      "fatigue_hcf": {
-        "scenario": "fatigue_hcf",
-        "standard": "HCF 5e7",
-        "result": "FAIL",
-        "metrics": {
-          "stressAmplitude_MPa": 200,
-          "allowable_MPa": 141.02748883264766,
-          "cycles": 50000000,
-          "safetyFactor": 0.7051374441632382
-        },
-        "limits": {
-          "minSafetyFactor": 1
-        },
-        "diagnosis": "HCF life insufficient — consider shot peening.",
-        "timestamp": "2026-05-09T19:02:13.604Z"
-      }
     }
   }
 }

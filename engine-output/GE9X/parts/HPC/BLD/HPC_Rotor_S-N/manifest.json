@@ -2,11 +2,11 @@
   "partID": "GE9X-HPC-BLD-0767",
   "partName": "HPC Rotor S11-1",
   "project": "GE9X",
-  "classification": "Class 1",
+  "classification": "Class 2",
   "category": "HPC",
   "subsystem": "BLD",
   "material": "Inconel 718",
-  "generatedAt": "2026-05-09T19:02:18.822Z",
+  "generatedAt": "2026-05-09T19:17:52.865Z",
   "drawingNumber": "GE9X-HPC-BLD-0767-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -26,5 +26,5 @@
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Critical Part"
+  "certificationLevel": "FAA Part 21 Important"
 }

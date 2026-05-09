@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-IGN-EXC-0002",
   "partTitle": "Ignition Exciter 2",
-  "serialNumber": "SN-506439",
+  "serialNumber": "SN-122685",
   "drawingNumber": "GE9X-IGN-EXC-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-51330",
-  "manufacturingLot": "MFG-57088",
+  "heatLot": "HL-70235",
+  "manufacturingLot": "MFG-90664",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-51330",
-    "manufacturingProcess": "MFG-57088",
-    "inspectionRecord": "INSP-SN-506439",
+    "rawMaterial": "HL-70235",
+    "manufacturingProcess": "MFG-90664",
+    "inspectionRecord": "INSP-SN-122685",
     "finalAcceptance": "2026-05-09"
   }
 }

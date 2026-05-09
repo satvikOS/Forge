@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-PAD-0001",
   "partTitle": "AGB Starter Pad",
-  "serialNumber": "SN-802233",
+  "serialNumber": "SN-284109",
   "drawingNumber": "GE9X-AGB-PAD-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-37954",
-  "manufacturingLot": "MFG-55211",
+  "heatLot": "HL-50383",
+  "manufacturingLot": "MFG-88510",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-37954",
-    "manufacturingProcess": "MFG-55211",
-    "inspectionRecord": "INSP-SN-802233",
+    "rawMaterial": "HL-50383",
+    "manufacturingProcess": "MFG-88510",
+    "inspectionRecord": "INSP-SN-284109",
     "finalAcceptance": "2026-05-09"
   }
 }

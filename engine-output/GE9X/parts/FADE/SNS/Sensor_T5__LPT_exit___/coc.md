@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-SNS-0030 — Sensor T5 (LPT exit) #6
-**Serial No.:** SN-355409
+**Serial No.:** SN-086906
 **Drawing:** GE9X-FADE-SNS-0030-DWG Rev A
-**Heat Lot:** HL-12198  ·  **Mfg Lot:** MFG-57748
+**Heat Lot:** HL-16412  ·  **Mfg Lot:** MFG-91420
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-12198
-- Manufacturing: MFG-57748
-- Inspection: INSP-SN-355409
+- Raw Material: HL-16412
+- Manufacturing: MFG-91420
+- Inspection: INSP-SN-086906
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

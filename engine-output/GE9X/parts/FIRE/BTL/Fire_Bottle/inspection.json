@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FIRE-BTL-0002",
     "partName": "Fire Bottle 2",
-    "serialNumber": "SN-257107",
+    "serialNumber": "SN-375746",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-42176"
+        "lot": "HL-86873"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-11336"
+        "certNo": "PROC-41494"
       }
     ]
   },

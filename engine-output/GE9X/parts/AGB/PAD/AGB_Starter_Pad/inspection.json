@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-PAD-0001",
     "partName": "AGB Starter Pad",
-    "serialNumber": "SN-041290",
+    "serialNumber": "SN-946982",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-39309"
+        "lot": "HL-56937"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55211"
+        "certNo": "PROC-88510"
       }
     ]
   },

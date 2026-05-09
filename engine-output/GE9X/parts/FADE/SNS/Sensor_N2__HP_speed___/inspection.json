@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0060",
     "partName": "Sensor N2 (HP speed) #6",
-    "serialNumber": "SN-802611",
+    "serialNumber": "SN-175200",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-42317"
+        "lot": "HL-34371"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-58338"
+        "certNo": "PROC-92136"
       }
     ]
   },

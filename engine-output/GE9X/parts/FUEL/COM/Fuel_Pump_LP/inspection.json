@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0002",
     "partName": "Fuel Pump LP",
-    "serialNumber": "SN-406065",
+    "serialNumber": "SN-874699",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-97195"
+        "lot": "HL-42285"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55365"
+        "certNo": "PROC-88693"
       }
     ]
   },

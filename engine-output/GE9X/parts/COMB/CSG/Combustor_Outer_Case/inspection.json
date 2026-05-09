@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-CSG-0001",
     "partName": "Combustor Outer Case",
-    "serialNumber": "SN-414124",
+    "serialNumber": "SN-010082",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Sheet form + weld + machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-50304"
+        "lot": "HL-78763"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Sheet form + weld + machining",
-        "certNo": "PROC-39006"
+        "certNo": "PROC-73069"
       }
     ]
   },

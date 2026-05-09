@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-GER-0024",
     "partName": "AGB Gear 24",
-    "serialNumber": "SN-795680",
+    "serialNumber": "SN-662449",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-19248"
+        "lot": "HL-90567"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55191"
+        "certNo": "PROC-88487"
       }
     ]
   },

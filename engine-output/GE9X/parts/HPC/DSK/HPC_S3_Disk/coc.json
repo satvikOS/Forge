@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-DSK-0003",
   "partTitle": "HPC S3 Disk",
-  "serialNumber": "SN-793667",
+  "serialNumber": "SN-607882",
   "drawingNumber": "GE9X-HPC-DSK-0003-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-94639",
-  "manufacturingLot": "MFG-37627",
+  "heatLot": "HL-28672",
+  "manufacturingLot": "MFG-71512",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-94639",
-    "manufacturingProcess": "MFG-37627",
-    "inspectionRecord": "INSP-SN-793667",
+    "rawMaterial": "HL-28672",
+    "manufacturingProcess": "MFG-71512",
+    "inspectionRecord": "INSP-SN-607882",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0008",
     "partName": "Fuel Manifold Inner",
-    "serialNumber": "SN-035459",
+    "serialNumber": "SN-529244",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-52911"
+        "lot": "HL-63261"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55497"
+        "certNo": "PROC-88864"
       }
     ]
   },

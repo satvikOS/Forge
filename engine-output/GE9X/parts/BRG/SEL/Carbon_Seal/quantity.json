@@ -4,7 +4,7 @@
   "category": "BRG",
   "subsystem": "SEL",
   "material": "Carbon Fiber Composite",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "quantity": 1,
   "sampleInstanceIDs": [
     "GE9X-BRG-SEL-0012"

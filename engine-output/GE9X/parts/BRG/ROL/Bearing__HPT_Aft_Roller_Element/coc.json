@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-ROL-0048",
   "partTitle": "Bearing #HPT Aft Roller Element 24",
-  "serialNumber": "SN-699821",
+  "serialNumber": "SN-048329",
   "drawingNumber": "GE9X-BRG-ROL-0048-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-48040",
-  "manufacturingLot": "MFG-51390",
+  "heatLot": "HL-78673",
+  "manufacturingLot": "MFG-83554",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-48040",
-    "manufacturingProcess": "MFG-51390",
-    "inspectionRecord": "INSP-SN-699821",
+    "rawMaterial": "HL-78673",
+    "manufacturingProcess": "MFG-83554",
+    "inspectionRecord": "INSP-SN-048329",
     "finalAcceptance": "2026-05-09"
   }
 }

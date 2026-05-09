@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-ELEC-HRN-0024",
   "partTitle": "Wire Harness Segment 24",
-  "serialNumber": "SN-564376",
+  "serialNumber": "SN-249583",
   "drawingNumber": "GE9X-ELEC-HRN-0024-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-94983",
-  "manufacturingLot": "MFG-59698",
+  "heatLot": "HL-07219",
+  "manufacturingLot": "MFG-93718",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-94983",
-    "manufacturingProcess": "MFG-59698",
-    "inspectionRecord": "INSP-SN-564376",
+    "rawMaterial": "HL-07219",
+    "manufacturingProcess": "MFG-93718",
+    "inspectionRecord": "INSP-SN-249583",
     "finalAcceptance": "2026-05-09"
   }
 }

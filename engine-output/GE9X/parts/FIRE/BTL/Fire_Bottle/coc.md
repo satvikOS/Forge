@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FIRE-BTL-0002 — Fire Bottle 2
-**Serial No.:** SN-824496
+**Serial No.:** SN-710001
 **Drawing:** GE9X-FIRE-BTL-0002-DWG Rev A
-**Heat Lot:** HL-51283  ·  **Mfg Lot:** MFG-11337
+**Heat Lot:** HL-52800  ·  **Mfg Lot:** MFG-41494
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-51283
-- Manufacturing: MFG-11337
-- Inspection: INSP-SN-824496
+- Raw Material: HL-52800
+- Manufacturing: MFG-41494
+- Inspection: INSP-SN-710001
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

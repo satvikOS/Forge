@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-COMB-LIN-0001  ·  **Title:** Combustor CMC Inner Liner
-**Serial:** SN-717056  ·  **Drawing Rev:** A
+**Serial:** SN-056963  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | CMC SiC/SiC | HL-36386 |
-| 2 | Process | CNC 5-axis machining | PROC-39042 |
+| 1 | Material | CMC SiC/SiC | HL-33825 |
+| 2 | Process | CNC 5-axis machining | PROC-73104 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

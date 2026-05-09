@@ -261,6 +261,25 @@ test('GE9X v2: full Part-21 production-article delivery folder', async ({ page }
   fs.writeFileSync(path.join(ROOT, 'assembly', 'MBOM.csv'), stage3.mbom.csv);
   fs.writeFileSync(path.join(ROOT, 'assembly', 'MBOM.json'), JSON.stringify(stage3.mbom.json, null, 2));
 
+  // Master assembly drawing
+  const assemblySVG = await page.evaluate(async (mbomLines) => {
+    const m = await import('/src/kernel/index.js');
+    const { AssemblyDrawing } = m;
+    return AssemblyDrawing.build({
+      project: 'GE9X',
+      title: 'GE Aviation GE9X-105B1A Engine Assembly',
+      drawingNumber: 'GE9X-ASM-001',
+      revision: 'A',
+      length_m: 5.69, fanDia_m: 3.40,
+      sheetSize: 'A2',
+      classification: 'Class 1 ASSY',
+      drawnBy: 'ArchDisc Auto-Drawing',
+      approvedBy: '— pending QA review —',
+      bom: mbomLines.slice(0, 60),
+    });
+  }, stage3.mbom.json);
+  fs.writeFileSync(path.join(ROOT, 'assembly', 'master-assembly-drawing.svg'), assemblySVG);
+
   fs.writeFileSync(path.join(ROOT, 'performance', 'brayton-takeoff.json'), JSON.stringify(stage3.takeoff, null, 2));
   fs.writeFileSync(path.join(ROOT, 'performance', 'brayton-cruise.json'), JSON.stringify(stage3.cruise, null, 2));
   fs.writeFileSync(path.join(ROOT, 'performance', 'stations-takeoff.json'), JSON.stringify(stage3.stations_takeoff, null, 2));

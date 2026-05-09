@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-MNT-PYL-0001 — Pylon Stub Fairing
-**Serial No.:** SN-078953
+**Serial No.:** SN-576788
 **Drawing:** GE9X-MNT-PYL-0001-DWG Rev A
-**Heat Lot:** HL-56439  ·  **Mfg Lot:** MFG-65068
+**Heat Lot:** HL-96103  ·  **Mfg Lot:** MFG-99715
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-56439
-- Manufacturing: MFG-65068
-- Inspection: INSP-SN-078953
+- Raw Material: HL-96103
+- Manufacturing: MFG-99715
+- Inspection: INSP-SN-576788
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

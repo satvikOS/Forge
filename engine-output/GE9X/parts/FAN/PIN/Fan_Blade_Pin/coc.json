@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FAN-PIN-0032",
   "partTitle": "Fan Blade 16 Pin 2",
-  "serialNumber": "SN-762485",
+  "serialNumber": "SN-240087",
   "drawingNumber": "GE9X-FAN-PIN-0032-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-78276",
-  "manufacturingLot": "MFG-36839",
+  "heatLot": "HL-99187",
+  "manufacturingLot": "MFG-70625",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-78276",
-    "manufacturingProcess": "MFG-36839",
-    "inspectionRecord": "INSP-SN-762485",
+    "rawMaterial": "HL-99187",
+    "manufacturingProcess": "MFG-70625",
+    "inspectionRecord": "INSP-SN-240087",
     "finalAcceptance": "2026-05-09"
   }
 }

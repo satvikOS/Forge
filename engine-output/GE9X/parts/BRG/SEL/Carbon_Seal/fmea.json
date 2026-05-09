@@ -1,7 +1,7 @@
 {
   "partID": "GE9X-BRG-SEL-0012",
   "partTitle": "Carbon Seal 12",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "ferraName": "ArchDisc",
   "preparedBy": "Design Engineer",
   "date": "2026-05-09",
@@ -16,28 +16,28 @@
       "failureMode": "Material defect",
       "effect": "Premature failure",
       "severity": 6,
-      "occurrence": 3,
-      "detection": 3,
-      "RPN": 54,
-      "currentControls": "Sample inspection (10%), magnetic particle test",
-      "actionRequired": "No"
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 120,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
     },
     {
       "seq": 2,
       "failureMode": "Manufacturing defect",
       "effect": "Out-of-tolerance assembly",
       "severity": 5,
-      "occurrence": 3,
-      "detection": 3,
-      "RPN": 45,
-      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 100,
+      "currentControls": "Visual inspection per receiving QC",
       "actionRequired": "No"
     }
   ],
   "summary": {
     "total": 2,
-    "maxRPN": 54,
-    "avgRPN": 49.5,
-    "criticalCount": 0
+    "maxRPN": 120,
+    "avgRPN": 110,
+    "criticalCount": 1
   }
 }

@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FUEL-COM-0002 — Fuel Pump LP
-**Serial No.:** SN-915777
+**Serial No.:** SN-319867
 **Drawing:** GE9X-FUEL-COM-0002-DWG Rev A
-**Heat Lot:** HL-80169  ·  **Mfg Lot:** MFG-55365
+**Heat Lot:** HL-37327  ·  **Mfg Lot:** MFG-88693
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-80169
-- Manufacturing: MFG-55365
-- Inspection: INSP-SN-915777
+- Raw Material: HL-37327
+- Manufacturing: MFG-88693
+- Inspection: INSP-SN-319867
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

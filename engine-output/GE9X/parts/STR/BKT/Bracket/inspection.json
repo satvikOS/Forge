@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-STR-BKT-0130",
     "partName": "Bracket 130",
-    "serialNumber": "SN-394118",
+    "serialNumber": "SN-989037",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-87150"
+        "lot": "HL-10798"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-99410"
+        "certNo": "PROC-31688"
       }
     ]
   },

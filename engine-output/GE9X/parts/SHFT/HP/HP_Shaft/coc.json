@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-SHFT-HP-0001",
   "partTitle": "HP Shaft",
-  "serialNumber": "SN-468360",
+  "serialNumber": "SN-931018",
   "drawingNumber": "GE9X-SHFT-HP-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-19458",
-  "manufacturingLot": "MFG-54474",
+  "heatLot": "HL-75398",
+  "manufacturingLot": "MFG-87565",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-19458",
-    "manufacturingProcess": "MFG-54474",
-    "inspectionRecord": "INSP-SN-468360",
+    "rawMaterial": "HL-75398",
+    "manufacturingProcess": "MFG-87565",
+    "inspectionRecord": "INSP-SN-931018",
     "finalAcceptance": "2026-05-09"
   }
 }

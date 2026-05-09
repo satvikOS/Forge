@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-BRG-RAC-0002 — Bearing #Fan Thrust Ball Inner Race
-**Serial No.:** SN-066440
+**Serial No.:** SN-110674
 **Drawing:** GE9X-BRG-RAC-0002-DWG Rev A
-**Heat Lot:** HL-35696  ·  **Mfg Lot:** MFG-48554
+**Heat Lot:** HL-44928  ·  **Mfg Lot:** MFG-80067
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-35696
-- Manufacturing: MFG-48554
-- Inspection: INSP-SN-066440
+- Raw Material: HL-44928
+- Manufacturing: MFG-80067
+- Inspection: INSP-SN-110674
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

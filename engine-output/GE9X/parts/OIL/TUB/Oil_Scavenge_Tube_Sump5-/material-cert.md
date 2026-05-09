@@ -1,7 +1,7 @@
 # Material Certificate — Stainless Steel 316
 
 **Cert Type:** EN 10204 Type 3.1 / ASTM A6 Material Certificate
-**Heat Lot:** HL-58263  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
+**Heat Lot:** HL-56578  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
 **Date:** 2026-05-09
 **Specification:** ASTM A276 / AMS 5648
 

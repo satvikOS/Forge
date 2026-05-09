@@ -709,13 +709,15 @@ export default class GE9XBuilder {
       { name: 'LPT Aft Roller', z: 5.30, dia: 0.40, type: 'roller' },
     ];
     for (const b of positions) {
-      const housing = PrimitiveBuilder.cylinder(b.dia + 0.02, 0.060, 48);
+      // Bearing housing — annular wall ~12mm
+      const housing = PrimitiveBuilder.cylinderShell(b.dia + 0.02, b.dia + 0.008, 0.060, 48);
       t.addPart(housing, `Bearing #${b.name} Housing`, {
         color: 0x707070, position: new Vec3(0, 0, b.z),
         material: 'Steel AISI 4340',
         category: 'BRG', subsystem: 'HSG',
       });
-      const inner = PrimitiveBuilder.cylinder(b.dia, 0.040, 48);
+      // Inner race — thin annular ring
+      const inner = PrimitiveBuilder.cylinderShell(b.dia, b.dia - 0.005, 0.040, 48);
       t.addPart(inner, `Bearing #${b.name} Inner Race`, {
         color: 0x808080, position: new Vec3(0, 0, b.z),
         material: 'Steel AISI 4340',
@@ -782,7 +784,14 @@ export default class GE9XBuilder {
   // Accessory Gearbox
   // ---------------------------------------------------------------------------
   static buildAccessoryGearbox(t) {
-    const housing = PrimitiveBuilder.box(0.55, 0.30, 0.40);
+    // AGB housing — die-cast aluminum, hollow with internal ribs.
+    // 8mm wall thickness on a 0.55×0.30×0.40 m box.
+    const agbW = 0.55, agbH = 0.30, agbD = 0.40, agbWall = 0.008;
+    const housing = PrimitiveBuilder.box(agbW, agbH, agbD);
+    const agbArea = 2 * (agbW * agbH + agbH * agbD + agbW * agbD);
+    const agbVol = agbArea * agbWall;
+    housing.volume = () => agbVol;
+    housing._isShell = true;
     t.addPart(housing, 'AGB Main Housing', {
       color: 0x6a6a7a, position: new Vec3(0, -0.85, 2.0),
       material: 'Aluminum 6061-T6',
@@ -1082,8 +1091,18 @@ export default class GE9XBuilder {
     const PYLON_HEIGHT = 1.0;
     const PYLON_Z_CENTER = 2.5;
 
-    // Pylon body (the swept fairing visible above the engine)
+    // Pylon body (the swept fairing visible above the engine).
+    // Real pylon is a hollow weldment with internal ribs — model as
+    // a thin-walled box (10mm composite skin), volume = ~30L of material
+    // not 1.6m³ of solid composite.
     const pylonBody = PrimitiveBuilder.box(PYLON_WIDTH, PYLON_HEIGHT, PYLON_LEN);
+    // Override volume to thin-shell area × wall thickness
+    const wallT = 0.010;  // 10mm composite skin
+    const surfaceArea = 2 * (PYLON_WIDTH * PYLON_HEIGHT
+      + PYLON_HEIGHT * PYLON_LEN + PYLON_WIDTH * PYLON_LEN);
+    const shellVol = surfaceArea * wallT;
+    pylonBody.volume = () => shellVol;
+    pylonBody._isShell = true;
     t.addPart(pylonBody, 'Pylon Stub Fairing', {
       color: 0xeeeeee,
       position: new Vec3(0, PYLON_TOP_Y - PYLON_HEIGHT / 2, PYLON_Z_CENTER),

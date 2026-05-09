@@ -2,11 +2,11 @@
   "partID": "GE9X-SHFT-HP-0001",
   "partName": "HP Shaft",
   "project": "GE9X",
-  "classification": "Class 2",
+  "classification": "Class 1",
   "category": "SHFT",
   "subsystem": "HP",
   "material": "Steel AISI 4340",
-  "generatedAt": "2026-05-09T19:02:34.474Z",
+  "generatedAt": "2026-05-09T19:18:07.565Z",
   "drawingNumber": "GE9X-SHFT-HP-0001-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -26,5 +26,5 @@
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Important"
+  "certificationLevel": "FAA Part 21 Critical Part"
 }

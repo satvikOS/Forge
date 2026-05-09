@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-HSG-0002",
   "partTitle": "Bearing #Fan Thrust Ball Housing",
-  "serialNumber": "SN-019370",
+  "serialNumber": "SN-134085",
   "drawingNumber": "GE9X-BRG-HSG-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-39802",
-  "manufacturingLot": "MFG-48511",
+  "heatLot": "HL-94089",
+  "manufacturingLot": "MFG-80033",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-39802",
-    "manufacturingProcess": "MFG-48511",
-    "inspectionRecord": "INSP-SN-019370",
+    "rawMaterial": "HL-94089",
+    "manufacturingProcess": "MFG-80033",
+    "inspectionRecord": "INSP-SN-134085",
     "finalAcceptance": "2026-05-09"
   }
 }

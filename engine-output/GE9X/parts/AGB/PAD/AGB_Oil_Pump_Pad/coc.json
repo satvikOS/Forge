@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-PAD-0004",
   "partTitle": "AGB Oil Pump Pad",
-  "serialNumber": "SN-754155",
+  "serialNumber": "SN-618998",
   "drawingNumber": "GE9X-AGB-PAD-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-93093",
-  "manufacturingLot": "MFG-55276",
+  "heatLot": "HL-77796",
+  "manufacturingLot": "MFG-88583",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-93093",
-    "manufacturingProcess": "MFG-55276",
-    "inspectionRecord": "INSP-SN-754155",
+    "rawMaterial": "HL-77796",
+    "manufacturingProcess": "MFG-88583",
+    "inspectionRecord": "INSP-SN-618998",
     "finalAcceptance": "2026-05-09"
   }
 }

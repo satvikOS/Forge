@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-INLE-BLT-0001  ·  **Title:** Spinner Aft Bolt 1
-**Serial:** SN-854496  ·  **Drawing Rev:** A
+**Serial:** SN-654345  ·  **Drawing Rev:** A
 **Process:** Cold-form + roll-thread
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-08682 |
-| 2 | Process | Cold-form + roll-thread | PROC-33418 |
+| 1 | Material | Steel AISI 4340 | HL-89446 |
+| 2 | Process | Cold-form + roll-thread | PROC-68149 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

@@ -1,21 +1,21 @@
 {
   "deliverable": "GE9X v2 Production-Article Submission Package",
   "project": "GE Aviation GE9X-105B1A",
-  "generatedAt": "2026-05-09T19:03:46.087Z",
+  "generatedAt": "2026-05-09T19:19:19.663Z",
   "submissionType": "FAA Part 21 Production Approval — Aircraft Engine",
   "cad": "ArchDisc v1.21+ proprietary B-Rep kernel (no external CAD dependencies)",
   "counts": {
     "totalComponents": 29693,
     "uniquePartDefinitions": 3340,
-    "class1_LLP": 1930,
-    "class2_Important": 1934,
-    "class3_Standard": 25829,
+    "class1_LLP": 29,
+    "class2_Important": 2385,
+    "class3_Standard": 27279,
     "productionPackagesGenerated": 3340,
-    "filesInDelivery": 47267
+    "filesInDelivery": 47085
   },
   "physical": {
-    "totalMass_kg": 12892.3,
-    "manufacturingCost_USD": 1901080.2900000876
+    "totalMass_kg": 9919.5,
+    "manufacturingCost_USD": 1513227.5800000876
   },
   "performance": {
     "thrust_takeoff_kN": 394.5,

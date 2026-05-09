@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FAN-PIN-0032",
     "partName": "Fan Blade 16 Pin 2",
-    "serialNumber": "SN-875950",
+    "serialNumber": "SN-407463",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-36839"
+        "lot": "HL-70758"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-36839"
+        "certNo": "PROC-70625"
       }
     ]
   },

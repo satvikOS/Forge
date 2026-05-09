@@ -1,7 +1,7 @@
 # Material Certificate — Single-Crystal Nickel CMSX-4
 
 **Cert Type:** EN 10204 Type 3.1 / ASTM A6 Material Certificate
-**Heat Lot:** HL-66562  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
+**Heat Lot:** HL-94400  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
 **Date:** 2026-05-09
 **Specification:** CMSX-4 (Cannon-Muskegon)
 

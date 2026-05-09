@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-ROL-0024  ·  **Title:** Bearing #Fan Forward Roller Element 24
-**Serial:** SN-532186  ·  **Drawing Rev:** A
+**Serial:** SN-593771  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-78376 |
-| 2 | Process | CNC 5-axis machining | PROC-48469 |
+| 1 | Material | Steel AISI 4340 | HL-24013 |
+| 2 | Process | CNC 5-axis machining | PROC-79979 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

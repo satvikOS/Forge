@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-PAD-0002",
     "partName": "AGB IDG Pad",
-    "serialNumber": "SN-644294",
+    "serialNumber": "SN-846023",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-29303"
+        "lot": "HL-97791"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55232"
+        "certNo": "PROC-88537"
       }
     ]
   },

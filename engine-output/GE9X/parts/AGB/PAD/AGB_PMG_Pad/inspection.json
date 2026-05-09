@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-PAD-0006",
     "partName": "AGB PMG Pad",
-    "serialNumber": "SN-391553",
+    "serialNumber": "SN-558867",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-64282"
+        "lot": "HL-41767"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55318"
+        "certNo": "PROC-88636"
       }
     ]
   },

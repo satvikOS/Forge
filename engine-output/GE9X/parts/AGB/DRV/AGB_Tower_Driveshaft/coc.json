@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-DRV-0001",
   "partTitle": "AGB Tower Driveshaft",
-  "serialNumber": "SN-915478",
+  "serialNumber": "SN-001883",
   "drawingNumber": "GE9X-AGB-DRV-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-64937",
-  "manufacturingLot": "MFG-54673",
+  "heatLot": "HL-55818",
+  "manufacturingLot": "MFG-87828",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-64937",
-    "manufacturingProcess": "MFG-54673",
-    "inspectionRecord": "INSP-SN-915478",
+    "rawMaterial": "HL-55818",
+    "manufacturingProcess": "MFG-87828",
+    "inspectionRecord": "INSP-SN-001883",
     "finalAcceptance": "2026-05-09"
   }
 }

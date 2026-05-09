@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPC-DSK-0003 — HPC S3 Disk
-**Serial No.:** SN-793667
+**Serial No.:** SN-607882
 **Drawing:** GE9X-HPC-DSK-0003-DWG Rev A
-**Heat Lot:** HL-94639  ·  **Mfg Lot:** MFG-37627
+**Heat Lot:** HL-28672  ·  **Mfg Lot:** MFG-71512
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-94639
-- Manufacturing: MFG-37627
-- Inspection: INSP-SN-793667
+- Raw Material: HL-28672
+- Manufacturing: MFG-71512
+- Inspection: INSP-SN-607882
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

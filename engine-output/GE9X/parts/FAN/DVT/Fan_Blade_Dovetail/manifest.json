@@ -2,11 +2,11 @@
   "partID": "GE9X-FAN-DVT-0016",
   "partName": "Fan Blade 16 Dovetail",
   "project": "GE9X",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "category": "FAN",
   "subsystem": "DVT",
   "material": "Titanium Ti-6Al-4V",
-  "generatedAt": "2026-05-09T19:02:14.121Z",
+  "generatedAt": "2026-05-09T19:17:48.542Z",
   "drawingNumber": "GE9X-FAN-DVT-0016-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -21,10 +21,9 @@
     "coc.json",
     "fmea.md",
     "fmea.json",
-    "fea.json",
     "process-specs.md"
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Important"
+  "certificationLevel": "Standard"
 }

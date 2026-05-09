@@ -4,7 +4,7 @@
   "category": "SHFT",
   "subsystem": "LP",
   "material": "Steel AISI 4340",
-  "classification": "Class 2",
+  "classification": "Class 1",
   "quantity": 1,
   "sampleInstanceIDs": [
     "GE9X-SHFT-LP-0001"

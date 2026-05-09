@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-OIL-COM-0005",
     "partName": "Oil Cooler",
-    "serialNumber": "SN-141424",
+    "serialNumber": "SN-939130",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-40330"
+        "lot": "HL-63792"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-56167"
+        "certNo": "PROC-89650"
       }
     ]
   },

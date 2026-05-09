@@ -4,7 +4,7 @@
   "category": "FAN",
   "subsystem": "BLD",
   "material": "Composite Carbon-Epoxy",
-  "classification": "Class 1",
+  "classification": "Class 2",
   "quantity": 16,
   "sampleInstanceIDs": [
     "GE9X-FAN-BLD-0001",

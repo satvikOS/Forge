@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-DOM-0001",
     "partName": "Combustor Dome Plate",
-    "serialNumber": "SN-746063",
+    "serialNumber": "SN-543790",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "CMC SiC/SiC",
-        "lot": "HL-94034"
+        "lot": "HL-80324"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-39106"
+        "certNo": "PROC-73178"
       }
     ]
   },

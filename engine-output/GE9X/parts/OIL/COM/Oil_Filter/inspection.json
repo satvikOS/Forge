@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-OIL-COM-0004",
     "partName": "Oil Filter",
-    "serialNumber": "SN-179681",
+    "serialNumber": "SN-333051",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-75715"
+        "lot": "HL-87022"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-56145"
+        "certNo": "PROC-89626"
       }
     ]
   },

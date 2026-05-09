@@ -51,17 +51,37 @@ const TYPICAL_FAILURE_MODES = {
   ],
 };
 
-/** Classify a part. */
+/**
+ * Classify a part per FAR 33.70 Critical Part rules.
+ *
+ * Class 1 (LLP — Life-Limited Part):
+ *   ROTATING parts whose primary failure mode is uncontained release.
+ *   Per real engine cert practice this is essentially the rotor disks
+ *   and main shafts. Real GE9X has ~30-50 LLP parts.
+ *     - Rotor disks: FAN/DSK, LPC/DSK, HPC/DSK, HPT/DSK, LPT/DSK
+ *     - Shafts: SHFT/* (LP, HP)
+ *     - Hubs: FAN/HUB
+ *     - Spools (rotor drums): if any
+ *
+ * Class 2 (Important — affects engine integrity but not life-limited):
+ *   Blades, vanes, casings, combustor liner, bearings, fasteners on
+ *   load-critical paths. These are inspected/replaced on-condition.
+ *
+ * Class 3 (Standard — replaceable per condition):
+ *   Cooling holes, gaskets, sensors, wire harnesses, brackets,
+ *   tags, fittings, fasteners on non-critical paths.
+ */
 function _classifyPart(category, subsystem) {
-  // Class 1: LLP — life-limited critical (FAR 33.70)
-  // Class 2: important to engine integrity
-  // Class 3: standard
-  const llpSubsystems = ['DSK', 'BLD', 'NGV', 'SHFT'];
-  const importantCats = ['FAN', 'HPC', 'COMB', 'HPT', 'LPT', 'SHFT', 'BRG'];
-  const standardSubs = ['BLT', 'NUT', 'WSH', 'TAG', 'BKT', 'PIN', 'SPL', 'CHL'];
+  const llpSubsystems = ['DSK', 'HUB'];   // rotor disks + hubs
+  const llpCategories = ['FAN', 'LPC', 'HPC', 'HPT', 'LPT'];
+  const llpAlways = ['SHFT'];              // any shaft is LLP regardless of subsystem
+  const importantSubs = ['BLD', 'NGV', 'CSG', 'LIN', 'DOM', 'FIR'];
+  const importantCats = ['FAN', 'LPC', 'HPC', 'COMB', 'HPT', 'LPT', 'BRG'];
 
-  if (llpSubsystems.includes(subsystem) && importantCats.includes(category)) return 'Class 1';
-  if (importantCats.includes(category) && !standardSubs.includes(subsystem)) return 'Class 2';
+  if (llpAlways.includes(category)) return 'Class 1';
+  if (llpSubsystems.includes(subsystem) && llpCategories.includes(category)) return 'Class 1';
+  if (importantSubs.includes(subsystem) && importantCats.includes(category)) return 'Class 2';
+  if (subsystem === 'BAL' || subsystem === 'ROL' || subsystem === 'RAC') return 'Class 2';  // bearings
   return 'Class 3';
 }
 

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-HSG-0001",
   "partTitle": "AGB Main Housing",
-  "serialNumber": "SN-759901",
+  "serialNumber": "SN-063051",
   "drawingNumber": "GE9X-AGB-HSG-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-29581",
-  "manufacturingLot": "MFG-54654",
+  "heatLot": "HL-84032",
+  "manufacturingLot": "MFG-87800",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-29581",
-    "manufacturingProcess": "MFG-54654",
-    "inspectionRecord": "INSP-SN-759901",
+    "rawMaterial": "HL-84032",
+    "manufacturingProcess": "MFG-87800",
+    "inspectionRecord": "INSP-SN-063051",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-ROL-0072  ·  **Title:** Bearing #LPT Aft Roller Element 24
-**Serial:** SN-160857  ·  **Drawing Rev:** A
+**Serial:** SN-456345  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-96755 |
-| 2 | Process | CNC 5-axis machining | PROC-52315 |
+| 1 | Material | Steel AISI 4340 | HL-74377 |
+| 2 | Process | CNC 5-axis machining | PROC-84688 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

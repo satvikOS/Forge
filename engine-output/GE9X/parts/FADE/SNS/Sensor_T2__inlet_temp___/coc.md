@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-SNS-0006 — Sensor T2 (inlet temp) #6
-**Serial No.:** SN-468186
+**Serial No.:** SN-804212
 **Drawing:** GE9X-FADE-SNS-0006-DWG Rev A
-**Heat Lot:** HL-47322  ·  **Mfg Lot:** MFG-57261
+**Heat Lot:** HL-76808  ·  **Mfg Lot:** MFG-90873
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-47322
-- Manufacturing: MFG-57261
-- Inspection: INSP-SN-468186
+- Raw Material: HL-76808
+- Manufacturing: MFG-90873
+- Inspection: INSP-SN-804212
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

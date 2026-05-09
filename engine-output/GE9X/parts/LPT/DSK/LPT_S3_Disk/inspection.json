@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPT-DSK-0003",
     "partName": "LPT S3 Disk",
-    "serialNumber": "SN-486139",
+    "serialNumber": "SN-038816",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-04012"
+        "lot": "HL-71135"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-46576"
+        "certNo": "PROC-78224"
       }
     ]
   },

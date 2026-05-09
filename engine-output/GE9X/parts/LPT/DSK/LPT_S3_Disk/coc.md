@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-LPT-DSK-0003 — LPT S3 Disk
-**Serial No.:** SN-335937
+**Serial No.:** SN-787156
 **Drawing:** GE9X-LPT-DSK-0003-DWG Rev A
-**Heat Lot:** HL-25701  ·  **Mfg Lot:** MFG-46576
+**Heat Lot:** HL-40426  ·  **Mfg Lot:** MFG-78224
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-25701
-- Manufacturing: MFG-46576
-- Inspection: INSP-SN-335937
+- Raw Material: HL-40426
+- Manufacturing: MFG-78224
+- Inspection: INSP-SN-787156
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

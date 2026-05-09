@@ -2,11 +2,11 @@
   "partID": "GE9X-FAN-ABR-0001",
   "partName": "Fan Case Abradable Strip",
   "project": "GE9X",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "category": "FAN",
   "subsystem": "ABR",
   "material": "ABS Plastic",
-  "generatedAt": "2026-05-09T19:02:14.648Z",
+  "generatedAt": "2026-05-09T19:17:48.945Z",
   "drawingNumber": "GE9X-FAN-ABR-0001-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -21,10 +21,9 @@
     "coc.json",
     "fmea.md",
     "fmea.json",
-    "fea.json",
     "process-specs.md"
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Important"
+  "certificationLevel": "Standard"
 }

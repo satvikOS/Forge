@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPT-CHL-6401",
     "partName": "HPT S2 Blade 1 Cool Hole 1",
-    "serialNumber": "SN-384829",
+    "serialNumber": "SN-339968",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Air",
-        "lot": "HL-91413"
+        "lot": "HL-80317"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-11380"
+        "certNo": "PROC-41531"
       }
     ]
   },

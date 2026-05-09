@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0108",
   "partTitle": "Sensor Fuel inlet P #6",
-  "serialNumber": "SN-577268",
+  "serialNumber": "SN-785147",
   "drawingNumber": "GE9X-FADE-SNS-0108-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-95154",
-  "manufacturingLot": "MFG-59261",
+  "heatLot": "HL-83201",
+  "manufacturingLot": "MFG-93194",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-95154",
-    "manufacturingProcess": "MFG-59261",
-    "inspectionRecord": "INSP-SN-577268",
+    "rawMaterial": "HL-83201",
+    "manufacturingProcess": "MFG-93194",
+    "inspectionRecord": "INSP-SN-785147",
     "finalAcceptance": "2026-05-09"
   }
 }

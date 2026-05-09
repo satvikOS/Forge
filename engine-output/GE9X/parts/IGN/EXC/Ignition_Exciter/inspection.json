@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-IGN-EXC-0002",
     "partName": "Ignition Exciter 2",
-    "serialNumber": "SN-653013",
+    "serialNumber": "SN-746722",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-91449"
+        "lot": "HL-84045"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-57088"
+        "certNo": "PROC-90664"
       }
     ]
   },

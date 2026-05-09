@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0042",
   "partTitle": "Sensor P3 (HPC discharge) #6",
-  "serialNumber": "SN-343671",
+  "serialNumber": "SN-164170",
   "drawingNumber": "GE9X-FADE-SNS-0042-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-63503",
-  "manufacturingLot": "MFG-57983",
+  "heatLot": "HL-50085",
+  "manufacturingLot": "MFG-91705",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-63503",
-    "manufacturingProcess": "MFG-57983",
-    "inspectionRecord": "INSP-SN-343671",
+    "rawMaterial": "HL-50085",
+    "manufacturingProcess": "MFG-91705",
+    "inspectionRecord": "INSP-SN-164170",
     "finalAcceptance": "2026-05-09"
   }
 }

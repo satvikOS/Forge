@@ -4,7 +4,7 @@
   "category": "HPC",
   "subsystem": "BLD",
   "material": "Inconel 718",
-  "classification": "Class 1",
+  "classification": "Class 2",
   "quantity": 100,
   "sampleInstanceIDs": [
     "GE9X-HPC-BLD-0767",

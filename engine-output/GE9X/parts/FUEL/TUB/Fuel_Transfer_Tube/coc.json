@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FUEL-TUB-0030",
   "partTitle": "Fuel Transfer Tube 30",
-  "serialNumber": "SN-448885",
+  "serialNumber": "SN-464219",
   "drawingNumber": "GE9X-FUEL-TUB-0030-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-73760",
-  "manufacturingLot": "MFG-56056",
+  "heatLot": "HL-32365",
+  "manufacturingLot": "MFG-89520",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-73760",
-    "manufacturingProcess": "MFG-56056",
-    "inspectionRecord": "INSP-SN-448885",
+    "rawMaterial": "HL-32365",
+    "manufacturingProcess": "MFG-89520",
+    "inspectionRecord": "INSP-SN-464219",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-GER-0024",
   "partTitle": "AGB Gear 24",
-  "serialNumber": "SN-638462",
+  "serialNumber": "SN-709374",
   "drawingNumber": "GE9X-AGB-GER-0024-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-96627",
-  "manufacturingLot": "MFG-55191",
+  "heatLot": "HL-21403",
+  "manufacturingLot": "MFG-88487",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-96627",
-    "manufacturingProcess": "MFG-55191",
-    "inspectionRecord": "INSP-SN-638462",
+    "rawMaterial": "HL-21403",
+    "manufacturingProcess": "MFG-88487",
+    "inspectionRecord": "INSP-SN-709374",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-BRG-ROL-0048 — Bearing #HPT Aft Roller Element 24
-**Serial No.:** SN-699821
+**Serial No.:** SN-048329
 **Drawing:** GE9X-BRG-ROL-0048-DWG Rev A
-**Heat Lot:** HL-48040  ·  **Mfg Lot:** MFG-51390
+**Heat Lot:** HL-78673  ·  **Mfg Lot:** MFG-83554
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-48040
-- Manufacturing: MFG-51390
-- Inspection: INSP-SN-699821
+- Raw Material: HL-78673
+- Manufacturing: MFG-83554
+- Inspection: INSP-SN-048329
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0001",
     "partName": "HMU (Hydromechanical Unit)",
-    "serialNumber": "SN-256837",
+    "serialNumber": "SN-182482",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-93673"
+        "lot": "HL-51979"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55339"
+        "certNo": "PROC-88665"
       }
     ]
   },

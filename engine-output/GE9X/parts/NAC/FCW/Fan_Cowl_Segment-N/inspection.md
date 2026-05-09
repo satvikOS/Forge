@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-NAC-FCW-0012  ·  **Title:** Fan Cowl Segment 12
-**Serial:** SN-447185  ·  **Drawing Rev:** A
+**Serial:** SN-192994  ·  **Drawing Rev:** A
 **Process:** Sheet form + weld + machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Composite Carbon-Epoxy | HL-05545 |
-| 2 | Process | Sheet form + weld + machining | PROC-64360 |
+| 1 | Material | Composite Carbon-Epoxy | HL-92721 |
+| 2 | Process | Sheet form + weld + machining | PROC-98913 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

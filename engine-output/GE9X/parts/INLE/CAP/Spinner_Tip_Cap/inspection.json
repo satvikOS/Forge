@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-INLE-CAP-0001",
     "partName": "Spinner Tip Cap",
-    "serialNumber": "SN-259561",
+    "serialNumber": "SN-042632",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-10692"
+        "lot": "HL-07053"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-33357"
+        "certNo": "PROC-68108"
       }
     ]
   },

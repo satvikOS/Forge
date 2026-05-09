@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-LPT-DSK-0004",
   "partTitle": "LPT S4 Disk",
-  "serialNumber": "SN-541872",
+  "serialNumber": "SN-150220",
   "drawingNumber": "GE9X-LPT-DSK-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-59470",
-  "manufacturingLot": "MFG-46815",
+  "heatLot": "HL-43833",
+  "manufacturingLot": "MFG-78404",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-59470",
-    "manufacturingProcess": "MFG-46815",
-    "inspectionRecord": "INSP-SN-541872",
+    "rawMaterial": "HL-43833",
+    "manufacturingProcess": "MFG-78404",
+    "inspectionRecord": "INSP-SN-150220",
     "finalAcceptance": "2026-05-09"
   }
 }

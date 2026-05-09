@@ -4,7 +4,7 @@
   "category": "BRG",
   "subsystem": "HSG",
   "material": "Steel AISI 4340",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "quantity": 1,
   "sampleInstanceIDs": [
     "GE9X-BRG-HSG-0004"

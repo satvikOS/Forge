@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-OIL-COM-0007",
     "partName": "Anti-cavitation Boost",
-    "serialNumber": "SN-036343",
+    "serialNumber": "SN-243946",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-33804"
+        "lot": "HL-46910"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-56227"
+        "certNo": "PROC-89700"
       }
     ]
   },

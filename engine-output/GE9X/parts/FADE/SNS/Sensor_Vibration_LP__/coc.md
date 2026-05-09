@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-SNS-0066 — Sensor Vibration LP #6
-**Serial No.:** SN-550705
+**Serial No.:** SN-251914
 **Drawing:** GE9X-FADE-SNS-0066-DWG Rev A
-**Heat Lot:** HL-90829  ·  **Mfg Lot:** MFG-58451
+**Heat Lot:** HL-54886  ·  **Mfg Lot:** MFG-92267
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-90829
-- Manufacturing: MFG-58451
-- Inspection: INSP-SN-550705
+- Raw Material: HL-54886
+- Manufacturing: MFG-92267
+- Inspection: INSP-SN-251914
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

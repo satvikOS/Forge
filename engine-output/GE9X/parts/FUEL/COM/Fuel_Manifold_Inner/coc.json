@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FUEL-COM-0008",
   "partTitle": "Fuel Manifold Inner",
-  "serialNumber": "SN-297130",
+  "serialNumber": "SN-398018",
   "drawingNumber": "GE9X-FUEL-COM-0008-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-01018",
-  "manufacturingLot": "MFG-55497",
+  "heatLot": "HL-48980",
+  "manufacturingLot": "MFG-88864",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-01018",
-    "manufacturingProcess": "MFG-55497",
-    "inspectionRecord": "INSP-SN-297130",
+    "rawMaterial": "HL-48980",
+    "manufacturingProcess": "MFG-88864",
+    "inspectionRecord": "INSP-SN-398018",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPC-DSK-0003",
     "partName": "LPC S3 Disk",
-    "serialNumber": "SN-920692",
+    "serialNumber": "SN-041405",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-39798"
+        "lot": "HL-42255"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-37178"
+        "certNo": "PROC-70998"
       }
     ]
   },
@@ -34,37 +34,153 @@
           "kind": "dimensional",
           "feature": "OD",
           "nominal": 0.02,
-          "upper": 0.021,
-          "lower": 0.019,
-          "tolerance": 0.002,
+          "upper": 0.0201,
+          "lower": 0.0199,
+          "tolerance": 0.0002,
           "unit": "mm",
           "method": "micrometer"
         },
         "nominal": 0.02,
-        "actual": 0.019829,
+        "actual": 0.019977,
         "status": "PASS",
         "method": "micrometer"
       },
       {
         "seq": 2,
+        "kind": "dimensional",
+        "feature": "thickness",
+        "spec": {
+          "kind": "dimensional",
+          "feature": "thickness",
+          "nominal": 0.005,
+          "upper": 0.00505,
+          "lower": 0.00495,
+          "tolerance": 0.0001,
+          "unit": "mm",
+          "method": "micrometer"
+        },
+        "nominal": 0.005,
+        "actual": 0.00501,
+        "status": "PASS",
+        "method": "micrometer"
+      },
+      {
+        "seq": 3,
+        "kind": "dimensional",
+        "feature": "axis-tilt",
+        "spec": {
+          "kind": "dimensional",
+          "feature": "axis-tilt",
+          "nominal": 0,
+          "upper": 0.05,
+          "lower": -0.05,
+          "tolerance": 0.1,
+          "unit": "degree",
+          "method": "protractor / CMM"
+        },
+        "nominal": 0,
+        "actual": 0.023,
+        "status": "PASS",
+        "method": "protractor / CMM"
+      },
+      {
+        "seq": 4,
+        "kind": "gdt",
+        "feature": "face-A",
+        "spec": {
+          "kind": "gdt",
+          "feature": "face-A",
+          "type": "flatness",
+          "symbol": "⏥",
+          "tolerance": 0.1,
+          "datums": [],
+          "modifier": null,
+          "method": "CMM"
+        },
+        "nominal": 0.1,
+        "actual": 0.071,
+        "status": "PASS",
+        "method": "CMM"
+      },
+      {
+        "seq": 5,
+        "kind": "gdt",
+        "feature": "B",
+        "spec": {
+          "kind": "gdt",
+          "feature": "B",
+          "type": "perpendicularity",
+          "symbol": "⊥",
+          "tolerance": 0.2,
+          "datums": [
+            "A"
+          ],
+          "modifier": null,
+          "method": "CMM"
+        },
+        "nominal": 0.2,
+        "actual": 0.136,
+        "status": "PASS",
+        "method": "CMM"
+      },
+      {
+        "seq": 6,
+        "kind": "gdt",
+        "feature": "OD",
+        "spec": {
+          "kind": "gdt",
+          "feature": "OD",
+          "type": "totalRunout",
+          "symbol": "↗↗",
+          "tolerance": 0.15,
+          "datums": [
+            "A",
+            "B"
+          ],
+          "modifier": "RFS",
+          "method": "CMM"
+        },
+        "nominal": 0.15,
+        "actual": 0.0975,
+        "status": "PASS",
+        "method": "CMM"
+      },
+      {
+        "seq": 7,
         "kind": "surface",
         "feature": "OD",
         "spec": {
           "kind": "surface",
           "feature": "OD",
-          "Ra_um": 3.2,
+          "Ra_um": 0.8,
           "lay": "multi",
           "method": "profilometer"
         },
-        "nominal": 3.2,
-        "actual": 2.656,
+        "nominal": 0.8,
+        "actual": 0.704,
+        "status": "PASS",
+        "method": "profilometer"
+      },
+      {
+        "seq": 8,
+        "kind": "surface",
+        "feature": "face-A",
+        "spec": {
+          "kind": "surface",
+          "feature": "face-A",
+          "Ra_um": 0.4,
+          "lay": "multi",
+          "method": "profilometer"
+        },
+        "nominal": 0.4,
+        "actual": 0.324,
         "status": "PASS",
         "method": "profilometer"
       }
     ],
     "summary": {
-      "total": 2,
-      "pass": 2,
+      "total": 8,
+      "pass": 8,
       "fail": 0
     }
   },

@@ -4,7 +4,7 @@
   "category": "LPC",
   "subsystem": "BLD",
   "material": "Titanium Ti-6Al-4V",
-  "classification": "Class 3",
+  "classification": "Class 2",
   "quantity": 74,
   "sampleInstanceIDs": [
     "GE9X-LPC-BLD-0131",

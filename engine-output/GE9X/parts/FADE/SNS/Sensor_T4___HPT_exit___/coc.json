@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0024",
   "partTitle": "Sensor T4.95 (HPT exit) #6",
-  "serialNumber": "SN-573398",
+  "serialNumber": "SN-374007",
   "drawingNumber": "GE9X-FADE-SNS-0024-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-42162",
-  "manufacturingLot": "MFG-57633",
+  "heatLot": "HL-12496",
+  "manufacturingLot": "MFG-91278",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-42162",
-    "manufacturingProcess": "MFG-57633",
-    "inspectionRecord": "INSP-SN-573398",
+    "rawMaterial": "HL-12496",
+    "manufacturingProcess": "MFG-91278",
+    "inspectionRecord": "INSP-SN-374007",
     "finalAcceptance": "2026-05-09"
   }
 }

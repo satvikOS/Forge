@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-LPT-DSK-0002 — LPT S2 Disk
-**Serial No.:** SN-255958
+**Serial No.:** SN-185541
 **Drawing:** GE9X-LPT-DSK-0002-DWG Rev A
-**Heat Lot:** HL-30897  ·  **Mfg Lot:** MFG-46323
+**Heat Lot:** HL-66652  ·  **Mfg Lot:** MFG-77985
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-30897
-- Manufacturing: MFG-46323
-- Inspection: INSP-SN-255958
+- Raw Material: HL-66652
+- Manufacturing: MFG-77985
+- Inspection: INSP-SN-185541
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

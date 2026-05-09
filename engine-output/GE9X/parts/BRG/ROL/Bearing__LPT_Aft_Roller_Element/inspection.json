@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-BRG-ROL-0072",
     "partName": "Bearing #LPT Aft Roller Element 24",
-    "serialNumber": "SN-160857",
+    "serialNumber": "SN-456345",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Steel AISI 4340",
-        "lot": "HL-96755"
+        "lot": "HL-74377"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-52315"
+        "certNo": "PROC-84688"
       }
     ]
   },

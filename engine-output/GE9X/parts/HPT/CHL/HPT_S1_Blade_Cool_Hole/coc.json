@@ -2,17 +2,17 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPT-CHL-0001",
   "partTitle": "HPT S1 Blade 1 Cool Hole 1",
-  "serialNumber": "SN-534438",
+  "serialNumber": "SN-990682",
   "drawingNumber": "GE9X-HPT-CHL-0001-DWG",
   "drawingRev": "A",
-  "manufacturingLot": "MFG-11359",
+  "manufacturingLot": "MFG-41511",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "manufacturingProcess": "MFG-11359",
-    "inspectionRecord": "INSP-SN-534438",
+    "manufacturingProcess": "MFG-41511",
+    "inspectionRecord": "INSP-SN-990682",
     "finalAcceptance": "2026-05-09"
   }
 }

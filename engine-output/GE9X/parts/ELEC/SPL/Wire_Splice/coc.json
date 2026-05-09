@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-ELEC-SPL-0200",
   "partTitle": "Wire Splice 200",
-  "serialNumber": "SN-919210",
+  "serialNumber": "SN-758113",
   "drawingNumber": "GE9X-ELEC-SPL-0200-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-14624",
-  "manufacturingLot": "MFG-63293",
+  "heatLot": "HL-73189",
+  "manufacturingLot": "MFG-97766",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-14624",
-    "manufacturingProcess": "MFG-63293",
-    "inspectionRecord": "INSP-SN-919210",
+    "rawMaterial": "HL-73189",
+    "manufacturingProcess": "MFG-97766",
+    "inspectionRecord": "INSP-SN-758113",
     "finalAcceptance": "2026-05-09"
   }
 }

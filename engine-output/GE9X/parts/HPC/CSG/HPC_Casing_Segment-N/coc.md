@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPC-CSG-0004 — HPC Casing Segment 4
-**Serial No.:** SN-281759
+**Serial No.:** SN-566711
 **Drawing:** GE9X-HPC-CSG-0004-DWG Rev A
-**Heat Lot:** HL-00435  ·  **Mfg Lot:** MFG-38968
+**Heat Lot:** HL-47469  ·  **Mfg Lot:** MFG-73037
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-00435
-- Manufacturing: MFG-38968
-- Inspection: INSP-SN-281759
+- Raw Material: HL-47469
+- Manufacturing: MFG-73037
+- Inspection: INSP-SN-566711
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

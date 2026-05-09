@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0036",
   "partTitle": "Sensor P0 (ambient) #6",
-  "serialNumber": "SN-552764",
+  "serialNumber": "SN-446613",
   "drawingNumber": "GE9X-FADE-SNS-0036-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-15522",
-  "manufacturingLot": "MFG-57866",
+  "heatLot": "HL-31342",
+  "manufacturingLot": "MFG-91571",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-15522",
-    "manufacturingProcess": "MFG-57866",
-    "inspectionRecord": "INSP-SN-552764",
+    "rawMaterial": "HL-31342",
+    "manufacturingProcess": "MFG-91571",
+    "inspectionRecord": "INSP-SN-446613",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-BRG-RAC-0001  ·  **Title:** Bearing #Fan Forward Roller Inner Race
-**Serial:** SN-591916  ·  **Drawing Rev:** A
+**Serial:** SN-503749  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-67900 |
-| 2 | Process | CNC 5-axis machining | PROC-47516 |
+| 1 | Material | Steel AISI 4340 | HL-07733 |
+| 2 | Process | CNC 5-axis machining | PROC-78951 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

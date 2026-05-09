@@ -5,8 +5,8 @@
 <rect x="10" y="10" width="400" height="18" fill="#1a1a2e"/>
 <text x="14" y="20.5" font-size="4" fill="#ffffff" font-weight="700">GE9X</text>
 <text x="210" y="21" text-anchor="middle" font-size="5" fill="#ffffff" font-weight="700">FAN CASE ABRADABLE STRIP</text>
-<rect x="380" y="12" width="28" height="14" fill="#d9c84a"/>
-<text x="394" y="20.5" text-anchor="middle" font-size="3.5" fill="#000" font-weight="700">Class 2</text>
+<rect x="380" y="12" width="28" height="14" fill="#4ed99d"/>
+<text x="394" y="20.5" text-anchor="middle" font-size="3.5" fill="#000" font-weight="700">Class 3</text>
 <g class="view-front">
         <rect x="14" y="38" width="81" height="92.5" fill="none" stroke="#ccc" stroke-width="0.3"/>
         <text x="17" y="44" font-size="3.5" fill="#444" font-weight="700">FRONT</text>
@@ -58,8 +58,7 @@
 <rect x="190" y="116" width="220" height="25" fill="#fff" stroke="#000" stroke-width="0.3"/>
 <rect x="190" y="116" width="220" height="5" fill="#1a1a2e"/>
 <text x="192" y="119.6" font-size="2.5" fill="#fff" font-weight="700">GD&amp;T CALLOUTS</text>
-<text x="192" y="124.00" font-size="2.4" fill="#000">⏥ 0.500  → face-A</text>
-<text x="192" y="128.00" font-size="2.4" fill="#000">⊥ 1.000 A → B</text>
+<text x="192" y="124.00" font-size="2.4" fill="#888">— none specified —</text>
 <g class="title-block"><rect x="190" y="147" width="220" height="84" fill="#fff" stroke="#000" stroke-width="0.6"/>
 <line x1="190" y1="161" x2="410" y2="161" stroke="#000" stroke-width="0.3"/>
 <line x1="190" y1="175" x2="410" y2="175" stroke="#000" stroke-width="0.3"/>
@@ -103,5 +102,5 @@
 <text x="312" y="241" font-size="2.2" fill="#666" font-weight="700">COATING</text>
 <text x="312" y="277" font-size="2.6" fill="#000">No coating</text>
 <line x1="10" y1="279" x2="410" y2="279" stroke="#000" stroke-width="0.3"/>
-<text x="12" y="284.5" font-size="2.4" fill="#444">Default tol: linear ±0.1 mm   angular ±0.5°   Ra ≤ 1.6 μm</text>
+<text x="12" y="284.5" font-size="2.4" fill="#444">Default tol: linear ±0.1 mm   angular ±0.5°   Ra ≤ 3.2 μm</text>
 </svg>

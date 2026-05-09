@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-AIR-TUB-0016  ·  **Title:** Cooling Air Tube 16
-**Serial:** SN-234154  ·  **Drawing Rev:** A
+**Serial:** SN-963834  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-17891 |
-| 2 | Process | CNC 5-axis machining | PROC-57027 |
+| 1 | Material | Inconel 718 | HL-47398 |
+| 2 | Process | CNC 5-axis machining | PROC-90597 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

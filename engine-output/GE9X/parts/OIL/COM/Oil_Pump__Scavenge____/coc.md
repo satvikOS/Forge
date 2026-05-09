@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-OIL-COM-0003 — Oil Pump (Scavenge × 5)
-**Serial No.:** SN-888088
+**Serial No.:** SN-131005
 **Drawing:** GE9X-OIL-COM-0003-DWG Rev A
-**Heat Lot:** HL-04845  ·  **Mfg Lot:** MFG-56123
+**Heat Lot:** HL-10476  ·  **Mfg Lot:** MFG-89597
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-04845
-- Manufacturing: MFG-56123
-- Inspection: INSP-SN-888088
+- Raw Material: HL-10476
+- Manufacturing: MFG-89597
+- Inspection: INSP-SN-131005
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

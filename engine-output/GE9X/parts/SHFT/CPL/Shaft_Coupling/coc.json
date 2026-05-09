@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-SHFT-CPL-0004",
   "partTitle": "Shaft Coupling 4",
-  "serialNumber": "SN-718674",
+  "serialNumber": "SN-995489",
   "drawingNumber": "GE9X-SHFT-CPL-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-48563",
-  "manufacturingLot": "MFG-54620",
+  "heatLot": "HL-49159",
+  "manufacturingLot": "MFG-87760",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-48563",
-    "manufacturingProcess": "MFG-54620",
-    "inspectionRecord": "INSP-SN-718674",
+    "rawMaterial": "HL-49159",
+    "manufacturingProcess": "MFG-87760",
+    "inspectionRecord": "INSP-SN-995489",
     "finalAcceptance": "2026-05-09"
   }
 }

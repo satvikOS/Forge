@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-LPT-DSK-0005",
     "partName": "LPT S5 Disk",
-    "serialNumber": "SN-824076",
+    "serialNumber": "SN-300151",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-83339"
+        "lot": "HL-82089"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-47074"
+        "certNo": "PROC-78578"
       }
     ]
   },

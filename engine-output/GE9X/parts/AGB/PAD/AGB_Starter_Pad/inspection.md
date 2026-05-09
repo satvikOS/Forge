@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-AGB-PAD-0001  ·  **Title:** AGB Starter Pad
-**Serial:** SN-041290  ·  **Drawing Rev:** A
+**Serial:** SN-946982  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Aluminum 6061-T6 | HL-39309 |
-| 2 | Process | CNC 5-axis machining | PROC-55211 |
+| 1 | Material | Aluminum 6061-T6 | HL-56937 |
+| 2 | Process | CNC 5-axis machining | PROC-88510 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

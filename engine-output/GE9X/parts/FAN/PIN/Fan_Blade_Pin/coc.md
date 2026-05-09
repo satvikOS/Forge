@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAN-PIN-0032 — Fan Blade 16 Pin 2
-**Serial No.:** SN-762485
+**Serial No.:** SN-240087
 **Drawing:** GE9X-FAN-PIN-0032-DWG Rev A
-**Heat Lot:** HL-78276  ·  **Mfg Lot:** MFG-36839
+**Heat Lot:** HL-99187  ·  **Mfg Lot:** MFG-70625
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-78276
-- Manufacturing: MFG-36839
-- Inspection: INSP-SN-762485
+- Raw Material: HL-99187
+- Manufacturing: MFG-70625
+- Inspection: INSP-SN-240087
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

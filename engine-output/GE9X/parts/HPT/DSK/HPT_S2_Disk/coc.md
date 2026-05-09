@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-HPT-DSK-0002 — HPT S2 Disk
-**Serial No.:** SN-920919
+**Serial No.:** SN-651468
 **Drawing:** GE9X-HPT-DSK-0002-DWG Rev A
-**Heat Lot:** HL-06602  ·  **Mfg Lot:** MFG-43644
+**Heat Lot:** HL-54988  ·  **Mfg Lot:** MFG-76156
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-06602
-- Manufacturing: MFG-43644
-- Inspection: INSP-SN-920919
+- Raw Material: HL-54988
+- Manufacturing: MFG-76156
+- Inspection: INSP-SN-651468
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

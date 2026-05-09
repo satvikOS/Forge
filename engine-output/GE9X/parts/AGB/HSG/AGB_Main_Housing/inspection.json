@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-AGB-HSG-0001",
     "partName": "AGB Main Housing",
-    "serialNumber": "SN-703968",
+    "serialNumber": "SN-402790",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-02523"
+        "lot": "HL-08373"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-54654"
+        "certNo": "PROC-87800"
       }
     ]
   },

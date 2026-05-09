@@ -1,7 +1,7 @@
 {
   "partID": "GE9X-SHFT-CPL-0004",
   "partTitle": "Shaft Coupling 4",
-  "classification": "Class 2",
+  "classification": "Class 1",
   "ferraName": "ArchDisc",
   "preparedBy": "Design Engineer",
   "date": "2026-05-09",
@@ -16,10 +16,10 @@
       "failureMode": "Material defect",
       "effect": "Premature failure",
       "severity": 6,
-      "occurrence": 3,
-      "detection": 3,
-      "RPN": 54,
-      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 24,
+      "currentControls": "Borescope inspection per EM 72-CPL, NDT 100%, LCF cycle tracking",
       "actionRequired": "No"
     },
     {
@@ -27,17 +27,17 @@
       "failureMode": "Manufacturing defect",
       "effect": "Out-of-tolerance assembly",
       "severity": 5,
-      "occurrence": 3,
-      "detection": 3,
-      "RPN": 45,
-      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 20,
+      "currentControls": "Borescope inspection per EM 72-CPL, NDT 100%, LCF cycle tracking",
       "actionRequired": "No"
     }
   ],
   "summary": {
     "total": 2,
-    "maxRPN": 54,
-    "avgRPN": 49.5,
+    "maxRPN": 24,
+    "avgRPN": 22,
     "criticalCount": 0
   }
 }

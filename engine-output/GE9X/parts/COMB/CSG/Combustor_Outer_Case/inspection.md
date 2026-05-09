@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-COMB-CSG-0001  ·  **Title:** Combustor Outer Case
-**Serial:** SN-414124  ·  **Drawing Rev:** A
+**Serial:** SN-010082  ·  **Drawing Rev:** A
 **Process:** Sheet form + weld + machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Inconel 718 | HL-50304 |
-| 2 | Process | Sheet form + weld + machining | PROC-39006 |
+| 1 | Material | Inconel 718 | HL-78763 |
+| 2 | Process | Sheet form + weld + machining | PROC-73069 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

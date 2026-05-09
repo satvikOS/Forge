@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-OIL-TUB-0020",
   "partTitle": "Oil Scavenge Tube Sump5-4",
-  "serialNumber": "SN-456620",
+  "serialNumber": "SN-478686",
   "drawingNumber": "GE9X-OIL-TUB-0020-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-58263",
-  "manufacturingLot": "MFG-56619",
+  "heatLot": "HL-56578",
+  "manufacturingLot": "MFG-90156",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-58263",
-    "manufacturingProcess": "MFG-56619",
-    "inspectionRecord": "INSP-SN-456620",
+    "rawMaterial": "HL-56578",
+    "manufacturingProcess": "MFG-90156",
+    "inspectionRecord": "INSP-SN-478686",
     "finalAcceptance": "2026-05-09"
   }
 }

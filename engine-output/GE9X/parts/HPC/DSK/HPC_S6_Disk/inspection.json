@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-HPC-DSK-0006",
     "partName": "HPC S6 Disk",
-    "serialNumber": "SN-545103",
+    "serialNumber": "SN-863648",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "Forge + machining + shot peen"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-56637"
+        "lot": "HL-09984"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "Forge + machining + shot peen",
-        "certNo": "PROC-38033"
+        "certNo": "PROC-71993"
       }
     ]
   },

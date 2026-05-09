@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-RAC-0004",
   "partTitle": "Bearing #HPT Aft Roller Inner Race",
-  "serialNumber": "SN-864527",
+  "serialNumber": "SN-834055",
   "drawingNumber": "GE9X-BRG-RAC-0004-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-84451",
-  "manufacturingLot": "MFG-50487",
+  "heatLot": "HL-67911",
+  "manufacturingLot": "MFG-82397",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-84451",
-    "manufacturingProcess": "MFG-50487",
-    "inspectionRecord": "INSP-SN-864527",
+    "rawMaterial": "HL-67911",
+    "manufacturingProcess": "MFG-82397",
+    "inspectionRecord": "INSP-SN-834055",
     "finalAcceptance": "2026-05-09"
   }
 }

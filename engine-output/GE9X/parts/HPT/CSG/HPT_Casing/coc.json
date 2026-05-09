@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPT-CSG-0001",
   "partTitle": "HPT Casing",
-  "serialNumber": "SN-870937",
+  "serialNumber": "SN-937505",
   "drawingNumber": "GE9X-HPT-CSG-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-24159",
-  "manufacturingLot": "MFG-45943",
+  "heatLot": "HL-47427",
+  "manufacturingLot": "MFG-77675",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-24159",
-    "manufacturingProcess": "MFG-45943",
-    "inspectionRecord": "INSP-SN-870937",
+    "rawMaterial": "HL-47427",
+    "manufacturingProcess": "MFG-77675",
+    "inspectionRecord": "INSP-SN-937505",
     "finalAcceptance": "2026-05-09"
   }
 }

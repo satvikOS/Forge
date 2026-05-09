@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-COMB-IGN-0002",
   "partTitle": "Igniter 2",
-  "serialNumber": "SN-969827",
+  "serialNumber": "SN-868489",
   "drawingNumber": "GE9X-COMB-IGN-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-32513",
-  "manufacturingLot": "MFG-40688",
+  "heatLot": "HL-05853",
+  "manufacturingLot": "MFG-74250",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-32513",
-    "manufacturingProcess": "MFG-40688",
-    "inspectionRecord": "INSP-SN-969827",
+    "rawMaterial": "HL-05853",
+    "manufacturingProcess": "MFG-74250",
+    "inspectionRecord": "INSP-SN-868489",
     "finalAcceptance": "2026-05-09"
   }
 }

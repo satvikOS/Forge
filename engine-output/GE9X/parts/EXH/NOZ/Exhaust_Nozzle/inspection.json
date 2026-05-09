@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-EXH-NOZ-0001",
     "partName": "Exhaust Nozzle",
-    "serialNumber": "SN-971195",
+    "serialNumber": "SN-224961",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Inconel 718",
-        "lot": "HL-66659"
+        "lot": "HL-93049"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-65577"
+        "certNo": "PROC-298"
       }
     ]
   },

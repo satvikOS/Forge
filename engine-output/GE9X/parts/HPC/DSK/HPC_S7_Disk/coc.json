@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-HPC-DSK-0007",
   "partTitle": "HPC S7 Disk",
-  "serialNumber": "SN-882148",
+  "serialNumber": "SN-294208",
   "drawingNumber": "GE9X-HPC-DSK-0007-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-95648",
-  "manufacturingLot": "MFG-38175",
+  "heatLot": "HL-76779",
+  "manufacturingLot": "MFG-72166",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-95648",
-    "manufacturingProcess": "MFG-38175",
-    "inspectionRecord": "INSP-SN-882148",
+    "rawMaterial": "HL-76779",
+    "manufacturingProcess": "MFG-72166",
+    "inspectionRecord": "INSP-SN-294208",
     "finalAcceptance": "2026-05-09"
   }
 }

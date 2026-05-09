@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FAS-BLT-0432  ·  **Title:** Flange 18 Bolt 24
-**Serial:** SN-126663  ·  **Drawing Rev:** A
+**Serial:** SN-790499  ·  **Drawing Rev:** A
 **Process:** Cold-form + roll-thread
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-13220 |
-| 2 | Process | Cold-form + roll-thread | PROC-97086 |
+| 1 | Material | Steel AISI 4340 | HL-82721 |
+| 2 | Process | Cold-form + roll-thread | PROC-29738 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-OIL-COM-0003",
   "partTitle": "Oil Pump (Scavenge × 5)",
-  "serialNumber": "SN-888088",
+  "serialNumber": "SN-131005",
   "drawingNumber": "GE9X-OIL-COM-0003-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-04845",
-  "manufacturingLot": "MFG-56123",
+  "heatLot": "HL-10476",
+  "manufacturingLot": "MFG-89597",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-04845",
-    "manufacturingProcess": "MFG-56123",
-    "inspectionRecord": "INSP-SN-888088",
+    "rawMaterial": "HL-10476",
+    "manufacturingProcess": "MFG-89597",
+    "inspectionRecord": "INSP-SN-131005",
     "finalAcceptance": "2026-05-09"
   }
 }

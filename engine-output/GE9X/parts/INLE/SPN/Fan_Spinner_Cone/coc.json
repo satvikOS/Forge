@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-INLE-SPN-0001",
   "partTitle": "Fan Spinner Cone",
-  "serialNumber": "SN-831785",
+  "serialNumber": "SN-644102",
   "drawingNumber": "GE9X-INLE-SPN-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-22108",
-  "manufacturingLot": "MFG-33282",
+  "heatLot": "HL-08529",
+  "manufacturingLot": "MFG-68056",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-22108",
-    "manufacturingProcess": "MFG-33282",
-    "inspectionRecord": "INSP-SN-831785",
+    "rawMaterial": "HL-08529",
+    "manufacturingProcess": "MFG-68056",
+    "inspectionRecord": "INSP-SN-644102",
     "finalAcceptance": "2026-05-09"
   }
 }

@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-TRV-CAS-0012 — Thrust Reverser Cascade 12
-**Serial No.:** SN-894072
+**Serial No.:** SN-789003
 **Drawing:** GE9X-TRV-CAS-0012-DWG Rev A
-**Heat Lot:** HL-49352  ·  **Mfg Lot:** MFG-65467
+**Heat Lot:** HL-76866  ·  **Mfg Lot:** MFG-176
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-49352
-- Manufacturing: MFG-65467
-- Inspection: INSP-SN-894072
+- Raw Material: HL-76866
+- Manufacturing: MFG-176
+- Inspection: INSP-SN-789003
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

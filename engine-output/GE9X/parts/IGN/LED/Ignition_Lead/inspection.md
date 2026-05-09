@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-IGN-LED-0002  ·  **Title:** Ignition Lead 2
-**Serial:** SN-652861  ·  **Drawing Rev:** A
+**Serial:** SN-540801  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Copper C11000 | HL-20093 |
-| 2 | Process | CNC 5-axis machining | PROC-57106 |
+| 1 | Material | Copper C11000 | HL-40516 |
+| 2 | Process | CNC 5-axis machining | PROC-90686 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

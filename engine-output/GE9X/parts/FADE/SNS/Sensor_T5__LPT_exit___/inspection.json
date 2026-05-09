@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0030",
     "partName": "Sensor T5 (LPT exit) #6",
-    "serialNumber": "SN-523555",
+    "serialNumber": "SN-613628",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-47392"
+        "lot": "HL-13854"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-57748"
+        "certNo": "PROC-91419"
       }
     ]
   },

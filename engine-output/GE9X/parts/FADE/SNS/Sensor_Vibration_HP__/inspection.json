@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FADE-SNS-0072",
     "partName": "Sensor Vibration HP #6",
-    "serialNumber": "SN-789084",
+    "serialNumber": "SN-450128",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Stainless Steel 316",
-        "lot": "HL-18711"
+        "lot": "HL-73411"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-58565"
+        "certNo": "PROC-92398"
       }
     ]
   },

@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-COMB-LIN-0002",
     "partName": "Combustor CMC Outer Liner",
-    "serialNumber": "SN-317606",
+    "serialNumber": "SN-014639",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "CMC SiC/SiC",
-        "lot": "HL-13660"
+        "lot": "HL-56827"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-39076"
+        "certNo": "PROC-73143"
       }
     ]
   },

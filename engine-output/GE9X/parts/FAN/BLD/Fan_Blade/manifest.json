@@ -2,11 +2,11 @@
   "partID": "GE9X-FAN-BLD-0001",
   "partName": "Fan Blade 1",
   "project": "GE9X",
-  "classification": "Class 1",
+  "classification": "Class 2",
   "category": "FAN",
   "subsystem": "BLD",
   "material": "Composite Carbon-Epoxy",
-  "generatedAt": "2026-05-09T19:02:13.604Z",
+  "generatedAt": "2026-05-09T19:17:48.264Z",
   "drawingNumber": "GE9X-FAN-BLD-0001-DWG",
   "revision": "A",
   "filesIncluded": [
@@ -26,5 +26,5 @@
   ],
   "packageVersion": "1.0",
   "partOfProject": "GE9X",
-  "certificationLevel": "FAA Part 21 Critical Part"
+  "certificationLevel": "FAA Part 21 Important"
 }

@@ -1,7 +1,7 @@
 # Material Certificate — Aluminum 6061-T6
 
 **Cert Type:** EN 10204 Type 3.1 / ASTM A6 Material Certificate
-**Heat Lot:** HL-86942  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
+**Heat Lot:** HL-73902  ·  **Supplier:** Acme Mill Co.  ·  **PO:** PO-2026-ARCHDISC-001
 **Date:** 2026-05-09
 **Specification:** AMS 4027 / ASTM B221
 

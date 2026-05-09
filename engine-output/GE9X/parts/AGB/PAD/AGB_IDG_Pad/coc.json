@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-AGB-PAD-0002",
   "partTitle": "AGB IDG Pad",
-  "serialNumber": "SN-999146",
+  "serialNumber": "SN-899788",
   "drawingNumber": "GE9X-AGB-PAD-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-07212",
-  "manufacturingLot": "MFG-55233",
+  "heatLot": "HL-70390",
+  "manufacturingLot": "MFG-88537",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-07212",
-    "manufacturingProcess": "MFG-55233",
-    "inspectionRecord": "INSP-SN-999146",
+    "rawMaterial": "HL-70390",
+    "manufacturingProcess": "MFG-88537",
+    "inspectionRecord": "INSP-SN-899788",
     "finalAcceptance": "2026-05-09"
   }
 }

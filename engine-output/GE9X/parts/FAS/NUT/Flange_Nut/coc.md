@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FAS-NUT-0432 — Flange 18 Nut 24
-**Serial No.:** SN-574735
+**Serial No.:** SN-487452
 **Drawing:** GE9X-FAS-NUT-0432-DWG Rev A
-**Heat Lot:** HL-71508  ·  **Mfg Lot:** MFG-97144
+**Heat Lot:** HL-01032  ·  **Mfg Lot:** MFG-29785
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-71508
-- Manufacturing: MFG-97144
-- Inspection: INSP-SN-574735
+- Raw Material: HL-01032
+- Manufacturing: MFG-29785
+- Inspection: INSP-SN-487452
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

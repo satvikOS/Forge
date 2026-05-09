@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-AGB-HSG-0001  ·  **Title:** AGB Main Housing
-**Serial:** SN-703968  ·  **Drawing Rev:** A
+**Serial:** SN-402790  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Aluminum 6061-T6 | HL-02523 |
-| 2 | Process | CNC 5-axis machining | PROC-54654 |
+| 1 | Material | Aluminum 6061-T6 | HL-08373 |
+| 2 | Process | CNC 5-axis machining | PROC-87800 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

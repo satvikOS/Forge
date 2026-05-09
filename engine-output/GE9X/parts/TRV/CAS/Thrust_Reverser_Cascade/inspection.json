@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-TRV-CAS-0012",
     "partName": "Thrust Reverser Cascade 12",
-    "serialNumber": "SN-972247",
+    "serialNumber": "SN-252246",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-10273"
+        "lot": "HL-00655"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-65467"
+        "certNo": "PROC-176"
       }
     ]
   },

@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-FADE-SNS-0048",
   "partTitle": "Sensor PT (turbine pressure) #6",
-  "serialNumber": "SN-445181",
+  "serialNumber": "SN-930473",
   "drawingNumber": "GE9X-FADE-SNS-0048-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-88635",
-  "manufacturingLot": "MFG-58100",
+  "heatLot": "HL-46780",
+  "manufacturingLot": "MFG-91850",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-88635",
-    "manufacturingProcess": "MFG-58100",
-    "inspectionRecord": "INSP-SN-445181",
+    "rawMaterial": "HL-46780",
+    "manufacturingProcess": "MFG-91850",
+    "inspectionRecord": "INSP-SN-930473",
     "finalAcceptance": "2026-05-09"
   }
 }

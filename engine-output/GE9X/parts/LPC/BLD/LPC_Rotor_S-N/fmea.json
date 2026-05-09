@@ -1,7 +1,7 @@
 {
   "partID": "GE9X-LPC-BLD-0131",
   "partTitle": "LPC Rotor S3-1",
-  "classification": "Class 3",
+  "classification": "Class 2",
   "ferraName": "ArchDisc",
   "preparedBy": "Design Engineer",
   "date": "2026-05-09",
@@ -16,32 +16,32 @@
       "failureMode": "High-cycle fatigue (HCF) crack",
       "effect": "Blade liberation; FOD downstream; engine shutdown",
       "severity": 10,
-      "occurrence": 4,
-      "detection": 5,
-      "RPN": 200,
-      "currentControls": "Visual inspection per receiving QC",
-      "actionRequired": "Yes"
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 90,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
     },
     {
       "seq": 2,
       "failureMode": "Low-cycle fatigue (LCF) crack at root",
       "effect": "Disk-blade interface failure",
       "severity": 10,
-      "occurrence": 4,
-      "detection": 5,
-      "RPN": 200,
-      "currentControls": "Visual inspection per receiving QC",
-      "actionRequired": "Yes"
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 90,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
     },
     {
       "seq": 3,
       "failureMode": "Foreign object damage (FOD) leading-edge",
       "effect": "Reduced efficiency; blade replacement",
       "severity": 5,
-      "occurrence": 4,
-      "detection": 5,
-      "RPN": 100,
-      "currentControls": "Visual inspection per receiving QC",
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 45,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
       "actionRequired": "No"
     },
     {
@@ -49,28 +49,28 @@
       "failureMode": "Tip rub against casing",
       "effect": "Performance loss; possible tip cracking",
       "severity": 6,
-      "occurrence": 4,
-      "detection": 5,
-      "RPN": 120,
-      "currentControls": "Visual inspection per receiving QC",
-      "actionRequired": "Yes"
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 54,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
     },
     {
       "seq": 5,
       "failureMode": "Coating spallation (TBC)",
       "effect": "Substrate overheat; blade life shortened",
       "severity": 7,
-      "occurrence": 4,
-      "detection": 5,
-      "RPN": 140,
-      "currentControls": "Visual inspection per receiving QC",
-      "actionRequired": "Yes"
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 63,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
     }
   ],
   "summary": {
     "total": 5,
-    "maxRPN": 200,
-    "avgRPN": 152,
-    "criticalCount": 4
+    "maxRPN": 90,
+    "avgRPN": 68.4,
+    "criticalCount": 0
   }
 }

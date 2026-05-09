@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-MNT-FWD-0001",
   "partTitle": "Forward Engine Mount",
-  "serialNumber": "SN-898364",
+  "serialNumber": "SN-754427",
   "drawingNumber": "GE9X-MNT-FWD-0001-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-49745",
-  "manufacturingLot": "MFG-65159",
+  "heatLot": "HL-46820",
+  "manufacturingLot": "MFG-99823",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-49745",
-    "manufacturingProcess": "MFG-65159",
-    "inspectionRecord": "INSP-SN-898364",
+    "rawMaterial": "HL-46820",
+    "manufacturingProcess": "MFG-99823",
+    "inspectionRecord": "INSP-SN-754427",
     "finalAcceptance": "2026-05-09"
   }
 }

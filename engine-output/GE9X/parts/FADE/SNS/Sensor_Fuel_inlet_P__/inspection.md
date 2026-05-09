@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FADE-SNS-0108  ·  **Title:** Sensor Fuel inlet P #6
-**Serial:** SN-014543  ·  **Drawing Rev:** A
+**Serial:** SN-191151  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Stainless Steel 316 | HL-94642 |
-| 2 | Process | CNC 5-axis machining | PROC-59261 |
+| 1 | Material | Stainless Steel 316 | HL-59833 |
+| 2 | Process | CNC 5-axis machining | PROC-93194 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

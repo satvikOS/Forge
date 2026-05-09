@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-RAC-0002",
   "partTitle": "Bearing #Fan Thrust Ball Inner Race",
-  "serialNumber": "SN-066440",
+  "serialNumber": "SN-110674",
   "drawingNumber": "GE9X-BRG-RAC-0002-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-35696",
-  "manufacturingLot": "MFG-48554",
+  "heatLot": "HL-44928",
+  "manufacturingLot": "MFG-80067",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-35696",
-    "manufacturingProcess": "MFG-48554",
-    "inspectionRecord": "INSP-SN-066440",
+    "rawMaterial": "HL-44928",
+    "manufacturingProcess": "MFG-80067",
+    "inspectionRecord": "INSP-SN-110674",
     "finalAcceptance": "2026-05-09"
   }
 }

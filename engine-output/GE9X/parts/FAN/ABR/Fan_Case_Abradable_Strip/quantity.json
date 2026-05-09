@@ -4,7 +4,7 @@
   "category": "FAN",
   "subsystem": "ABR",
   "material": "ABS Plastic",
-  "classification": "Class 2",
+  "classification": "Class 3",
   "quantity": 1,
   "sampleInstanceIDs": [
     "GE9X-FAN-ABR-0001"

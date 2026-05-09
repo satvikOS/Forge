@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-FUEL-COM-0004",
     "partName": "Fuel Filter",
-    "serialNumber": "SN-891317",
+    "serialNumber": "SN-106605",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Aluminum 6061-T6",
-        "lot": "HL-40371"
+        "lot": "HL-74071"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-55408"
+        "certNo": "PROC-88752"
       }
     ]
   },

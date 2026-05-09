@@ -1,6 +1,6 @@
 # GE9X v2 — Production-Article Submission Package
 
-**Generated:** 2026-05-09T19:03:46.087Z
+**Generated:** 2026-05-09T19:19:19.663Z
 **Engine:** GE Aviation GE9X-105B1A
 **Submission type:** FAA Part 21 Production Approval — Aircraft Engine
 **CAD system:** ArchDisc v1.21+ proprietary B-Rep kernel (no external CAD dependencies)
@@ -13,13 +13,13 @@
 |--------|-------|
 | Total components | **29,693** |
 | Unique part definitions | **3340** |
-| Class 1 (LLP — life-limited critical) | 1,930 |
-| Class 2 (Important) | 1,934 |
-| Class 3 (Standard) | 25,829 |
+| Class 1 (LLP — life-limited critical) | 29 |
+| Class 2 (Important) | 2,385 |
+| Class 3 (Standard) | 27,279 |
 | Production packages generated | 3340 |
-| Files in delivery | 47,267 |
-| Total mass | 12,892.3 kg (spec: 10,012 kg) |
-| Manufacturing cost (per engine) | $1,901,080.29 |
+| Files in delivery | 47,085 |
+| Total mass | 9,919.5 kg (spec: 10,012 kg) |
+| Manufacturing cost (per engine) | $1,513,227.58 |
 
 ## Performance
 

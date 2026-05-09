@@ -3,7 +3,7 @@
   "form1": {
     "partNumber": "GE9X-MNT-WAL-0004",
     "partName": "Wing Attach Lug 4",
-    "serialNumber": "SN-247821",
+    "serialNumber": "SN-524591",
     "ferraName": "ArchDisc",
     "revLevel": "A",
     "process": "CNC 5-axis machining"
@@ -14,13 +14,13 @@
         "item": 1,
         "type": "Material",
         "spec": "Titanium Ti-6Al-4V",
-        "lot": "HL-41424"
+        "lot": "HL-41972"
       },
       {
         "item": 2,
         "type": "Process",
         "spec": "CNC 5-axis machining",
-        "certNo": "PROC-65143"
+        "certNo": "PROC-99801"
       }
     ]
   },

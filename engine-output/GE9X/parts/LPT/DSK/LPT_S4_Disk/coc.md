@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-LPT-DSK-0004 — LPT S4 Disk
-**Serial No.:** SN-541872
+**Serial No.:** SN-150220
 **Drawing:** GE9X-LPT-DSK-0004-DWG Rev A
-**Heat Lot:** HL-59470  ·  **Mfg Lot:** MFG-46815
+**Heat Lot:** HL-43833  ·  **Mfg Lot:** MFG-78404
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-59470
-- Manufacturing: MFG-46815
-- Inspection: INSP-SN-541872
+- Raw Material: HL-43833
+- Manufacturing: MFG-78404
+- Inspection: INSP-SN-150220
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)

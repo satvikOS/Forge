@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-ROL-0024",
   "partTitle": "Bearing #Fan Forward Roller Element 24",
-  "serialNumber": "SN-699297",
+  "serialNumber": "SN-860573",
   "drawingNumber": "GE9X-BRG-ROL-0024-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-68851",
-  "manufacturingLot": "MFG-48470",
+  "heatLot": "HL-08107",
+  "manufacturingLot": "MFG-79979",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-68851",
-    "manufacturingProcess": "MFG-48470",
-    "inspectionRecord": "INSP-SN-699297",
+    "rawMaterial": "HL-08107",
+    "manufacturingProcess": "MFG-79979",
+    "inspectionRecord": "INSP-SN-860573",
     "finalAcceptance": "2026-05-09"
   }
 }

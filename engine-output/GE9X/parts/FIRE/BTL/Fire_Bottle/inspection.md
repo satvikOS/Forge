@@ -1,7 +1,7 @@
 # AS9102 First Article Inspection Report
 
 **Part Number:** GE9X-FIRE-BTL-0002  ·  **Title:** Fire Bottle 2
-**Serial:** SN-257107  ·  **Drawing Rev:** A
+**Serial:** SN-375746  ·  **Drawing Rev:** A
 **Process:** CNC 5-axis machining
 **Date:** 2026-05-09  ·  **Inspector:** A. Inspector (QA-1)
 **Overall Status: ACCEPT**
@@ -9,8 +9,8 @@
 ## Form 2 — Product Accountability
 | Item | Type | Spec | Lot/Cert |
 |------|------|------|----------|
-| 1 | Material | Steel AISI 4340 | HL-42176 |
-| 2 | Process | CNC 5-axis machining | PROC-11336 |
+| 1 | Material | Steel AISI 4340 | HL-86873 |
+| 2 | Process | CNC 5-axis machining | PROC-41494 |
 
 ## Form 3 — Characteristic Accountability
 | # | Feature | Kind | Nominal | Actual | Method | Status |

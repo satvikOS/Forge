@@ -2,19 +2,19 @@
   "certType": "Certificate of Conformance",
   "partID": "GE9X-BRG-HSG-0003",
   "partTitle": "Bearing #HPC Front Ball Housing",
-  "serialNumber": "SN-717357",
+  "serialNumber": "SN-109049",
   "drawingNumber": "GE9X-BRG-HSG-0003-DWG",
   "drawingRev": "A",
-  "heatLot": "HL-41268",
-  "manufacturingLot": "MFG-49462",
+  "heatLot": "HL-48081",
+  "manufacturingLot": "MFG-81191",
   "facilityCode": "AD-001",
   "certDate": "2026-05-09",
   "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
   "qualityManager": "Q. Manager (QM-1)",
   "traceability": {
-    "rawMaterial": "HL-41268",
-    "manufacturingProcess": "MFG-49462",
-    "inspectionRecord": "INSP-SN-717357",
+    "rawMaterial": "HL-48081",
+    "manufacturingProcess": "MFG-81191",
+    "inspectionRecord": "INSP-SN-109049",
     "finalAcceptance": "2026-05-09"
   }
 }

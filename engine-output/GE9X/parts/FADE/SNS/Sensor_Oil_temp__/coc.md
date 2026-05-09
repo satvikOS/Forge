@@ -1,9 +1,9 @@
 # Certificate of Conformance
 
 **Part:** GE9X-FADE-SNS-0084 — Sensor Oil temp #6
-**Serial No.:** SN-223199
+**Serial No.:** SN-338122
 **Drawing:** GE9X-FADE-SNS-0084-DWG Rev A
-**Heat Lot:** HL-57988  ·  **Mfg Lot:** MFG-58799
+**Heat Lot:** HL-22905  ·  **Mfg Lot:** MFG-92668
 **Facility:** AD-001  ·  **Cert Date:** 2026-05-09
 
 ## Attestation
@@ -12,9 +12,9 @@ This part has been manufactured, inspected, and tested in accordance with the re
 
 ## Traceability Chain
 
-- Raw Material: HL-57988
-- Manufacturing: MFG-58799
-- Inspection: INSP-SN-223199
+- Raw Material: HL-22905
+- Manufacturing: MFG-92668
+- Inspection: INSP-SN-338122
 - Final Acceptance: 2026-05-09
 
 Quality Manager: Q. Manager (QM-1)
