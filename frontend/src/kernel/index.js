@@ -91,3 +91,4 @@ export { default as BVH } from './spatial/BVH.js';
 
 // Drawing — 2D engineering drawings from 3D solids
 export { default as DrawingEngine, VIEW_DIRECTIONS } from './drawing/DrawingEngine.js';
+export { default as Annotations } from './drawing/Annotations.js';

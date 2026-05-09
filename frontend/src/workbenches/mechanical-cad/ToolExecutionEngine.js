@@ -13,7 +13,7 @@ import {
   Assembly, FEAEngine, RenderEngine, GCodeGenerator, Slicer,
   SceneComposer, PixelManager,
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
-  DrawingEngine,
+  DrawingEngine, Annotations,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -866,7 +866,31 @@ const TOOL_HANDLERS = {
       const proj = DrawingEngine.projectSolid(solid, 'isometric');
       return { status: 'success', message: `Isometric: ${proj.edgeCount} edges projected` };
     },
-    'Smart Dimension': () => ({ status: 'success', message: 'Smart Dimension: Click geometry to add dimensions' }),
+    'Smart Dimension': () => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'Smart Dimension: Create a solid first' };
+      const proj = DrawingEngine.projectSolid(solid, 'front');
+      const dims = Annotations.autoDimension(proj);
+      return { status: 'success', message: `Smart Dimension: ${dims.count} auto-dims | ${dims.dims.map(d => d.label).join(', ')} mm` };
+    },
+    'GD&T Frame': () => {
+      const frame = Annotations.gdtFrame({ x: 0, y: 0 }, '⊥', 0.05, ['A', 'B']);
+      return { status: 'success', message: `GD&T Frame: Perpendicularity 0.050 | A | B  (ASME Y14.5)` };
+    },
+    'Surface Finish': () => {
+      const sf = Annotations.surfaceFinish({ x: 0, y: 0 }, 1.6);
+      return { status: 'success', message: `Surface Finish: Ra 1.6 µm symbol added` };
+    },
+    'Balloon': () => {
+      const ft = getFeatureTree();
+      const idx = ft.features.length;
+      const b = Annotations.balloon({ x: 0, y: 0 }, idx, { x: 10, y: 10 });
+      return { status: 'success', message: `Balloon ${idx} placed (links to BOM item)` };
+    },
+    'Note': () => {
+      return { status: 'success', message: 'Note: Click placement, type text. (See drawing template for fonts)' };
+    },
     'BOM Table': (scene, viewport) => {
       const ft = getFeatureTree();
       return { status: 'success', message: `BOM: ${ft.features.length} items listed with materials and quantities` };

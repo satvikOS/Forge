@@ -12,6 +12,7 @@
 
 import Vec3 from '../math/Vec3.js';
 import Mat4 from '../math/Mat4.js';
+import Annotations from './Annotations.js';
 
 const VIEW_DIRECTIONS = {
   front:    { dir: new Vec3(0, 0, -1),  up: new Vec3(0, 1, 0) },
@@ -205,11 +206,10 @@ export default class DrawingEngine {
     const cellW = (sw - margin * 3) / 2;
     const cellH = (sh - margin * 3 - 60) / 2; // 60 for title block
 
-    const renderView = (view, x, y, label) => {
+    const renderView = (view, x, y, label, includeDims = false) => {
       const { bbox } = view;
       const vw = bbox.width * scale;
       const vh = bbox.height * scale;
-      // Center within cell
       const cx = x + (cellW - vw) / 2 - bbox.minX * scale;
       const cy = y + (cellH - vh) / 2 - bbox.minY * scale;
 
@@ -223,8 +223,21 @@ export default class DrawingEngine {
         return `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="${stroke}" stroke-width="0.6" ${dash}/>`;
       }).join('\n  ');
 
+      let dimsSVG = '';
+      if (includeDims) {
+        // Auto-dimension this view's bbox (overall W and H)
+        const wmm = bbox.width * scale;
+        const hmm = bbox.height * scale;
+        const bl = { x: bbox.minX * scale + cx, y: sh - (bbox.minY * scale + cy) };
+        const br = { x: bbox.maxX * scale + cx, y: sh - (bbox.minY * scale + cy) };
+        const tl = { x: bbox.minX * scale + cx, y: sh - (bbox.maxY * scale + cy) };
+        const wDim = Annotations.linearDim(bl, br, 12, `${wmm.toFixed(1)}`);
+        const hDim = Annotations.linearDim(tl, bl, 12, `${hmm.toFixed(1)}`);
+        dimsSVG = wDim.svg + hDim.svg;
+      }
+
       const labelY = sh - y - 5;
-      return `${lines}\n  <text x="${x + 4}" y="${labelY.toFixed(0)}" font-family="monospace" font-size="10" fill="#333">${label}</text>`;
+      return `${lines}\n  ${dimsSVG}\n  <text x="${x + 4}" y="${labelY.toFixed(0)}" font-family="monospace" font-size="10" fill="#333">${label}</text>`;
     };
 
     const titleBlockY = margin;
@@ -236,11 +249,12 @@ export default class DrawingEngine {
 
     const fy = sh - margin - cellH;
     const ty = sh - margin * 2 - cellH * 2;
+    const includeDims = options.dimensions !== false;
     const cells = [
-      renderView(views.front, margin, fy, 'FRONT'),
-      renderView(views.top, margin, ty, 'TOP'),
-      renderView(views.right, margin + cellW + margin, fy, 'RIGHT'),
-      renderView(views.isometric, margin + cellW + margin, ty, 'ISO'),
+      renderView(views.front, margin, fy, 'FRONT', includeDims),
+      renderView(views.top, margin, ty, 'TOP', includeDims),
+      renderView(views.right, margin + cellW + margin, fy, 'RIGHT', includeDims),
+      renderView(views.isometric, margin + cellW + margin, ty, 'ISO', false),
     ];
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}">
