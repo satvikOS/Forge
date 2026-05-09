@@ -123,6 +123,9 @@ export { default as InteractionRecorder } from './recording/InteractionRecorder.
 // Project Exporter — emit every component as a file (geometry + metadata + tests)
 export { default as ProjectExporter } from './export/ProjectExporter.js';
 
+// HTML Report Builder — self-contained interactive deliverable
+export { default as HTMLReportBuilder } from './export/HTMLReportBuilder.js';
+
 // Real-World Test Scenarios + Runner — bird strike, rotor overspeed, etc.
 export { default as TestScenarios, SCENARIO_LIBRARY } from './realworld/TestScenarios.js';
 export { default as RealWorldTestRunner } from './realworld/RealWorldTestRunner.js';
