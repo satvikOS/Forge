@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-MNT-TAG-0200",
+  "name": "Maintenance Tag 200",
+  "category": "MNT",
+  "subsystem": "TAG",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-MNT-TAG-0200"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-HPC-DSK-0009",
+  "name": "HPC S9 Disk",
+  "category": "HPC",
+  "subsystem": "DSK",
+  "material": "Inconel 718",
+  "classification": "Class 1",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-HPC-DSK-0009"
+  ]
+}

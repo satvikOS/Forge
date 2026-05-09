@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-MNT-AFT-0001",
+  "name": "Aft Engine Mount",
+  "category": "MNT",
+  "subsystem": "AFT",
+  "material": "Titanium Ti-6Al-4V",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-MNT-AFT-0001"
+  ]
+}

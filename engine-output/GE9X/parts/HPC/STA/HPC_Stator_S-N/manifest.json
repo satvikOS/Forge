@@ -1,0 +1,30 @@
+{
+  "partID": "GE9X-HPC-STA-0701",
+  "partName": "HPC Stator S11-1",
+  "project": "GE9X",
+  "classification": "Class 2",
+  "category": "HPC",
+  "subsystem": "STA",
+  "material": "Titanium Ti-6Al-4V",
+  "generatedAt": "2026-05-09T18:12:56.729Z",
+  "drawingNumber": "GE9X-HPC-STA-0701-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "fea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "GE9X",
+  "certificationLevel": "FAA Part 21 Important"
+}

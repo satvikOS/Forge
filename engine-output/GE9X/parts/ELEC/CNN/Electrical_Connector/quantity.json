@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-ELEC-CNN-0180",
+  "name": "Electrical Connector 180",
+  "category": "ELEC",
+  "subsystem": "CNN",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-ELEC-CNN-0180"
+  ]
+}

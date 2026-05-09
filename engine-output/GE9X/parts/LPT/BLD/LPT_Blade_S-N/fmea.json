@@ -1,0 +1,76 @@
+{
+  "partID": "GE9X-LPT-BLD-0643",
+  "partTitle": "LPT Blade S6-1",
+  "classification": "Class 1",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "LPT",
+    "subsystem": "BLD",
+    "material": "Inconel 718"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "High-cycle fatigue (HCF) crack",
+      "effect": "Blade liberation; FOD downstream; engine shutdown",
+      "severity": 10,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 40,
+      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Low-cycle fatigue (LCF) crack at root",
+      "effect": "Disk-blade interface failure",
+      "severity": 10,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 40,
+      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 3,
+      "failureMode": "Foreign object damage (FOD) leading-edge",
+      "effect": "Reduced efficiency; blade replacement",
+      "severity": 5,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 20,
+      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 4,
+      "failureMode": "Tip rub against casing",
+      "effect": "Performance loss; possible tip cracking",
+      "severity": 6,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 24,
+      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 5,
+      "failureMode": "Coating spallation (TBC)",
+      "effect": "Substrate overheat; blade life shortened",
+      "severity": 7,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 28,
+      "currentControls": "Borescope inspection per EM 72-BLD, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "maxRPN": 40,
+    "avgRPN": 30.4,
+    "criticalCount": 0
+  }
+}

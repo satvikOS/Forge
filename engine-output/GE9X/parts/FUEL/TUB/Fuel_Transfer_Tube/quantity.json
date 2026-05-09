@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FUEL-TUB-0030",
+  "name": "Fuel Transfer Tube 30",
+  "category": "FUEL",
+  "subsystem": "TUB",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FUEL-TUB-0030"
+  ]
+}

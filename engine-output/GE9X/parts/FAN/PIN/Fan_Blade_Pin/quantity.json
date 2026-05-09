@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FAN-PIN-0032",
+  "name": "Fan Blade 16 Pin 2",
+  "category": "FAN",
+  "subsystem": "PIN",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FAN-PIN-0032"
+  ]
+}

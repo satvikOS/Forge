@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FAN-OGV-0060",
+  "name": "OGV 60",
+  "category": "FAN",
+  "subsystem": "OGV",
+  "material": "Composite Carbon-Epoxy",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FAN-OGV-0060"
+  ]
+}

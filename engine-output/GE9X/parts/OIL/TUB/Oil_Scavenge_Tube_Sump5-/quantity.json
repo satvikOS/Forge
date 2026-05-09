@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-OIL-TUB-0020",
+  "name": "Oil Scavenge Tube Sump5-4",
+  "category": "OIL",
+  "subsystem": "TUB",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-OIL-TUB-0020"
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "partID": "GE9X-FAN-ABR-0001",
+  "drawingNumber": "GE9X-FAN-ABR-0001-DWG",
+  "revision": "A",
+  "title": "Fan Case Abradable Strip",
+  "scale": "1:2",
+  "units": "mm",
+  "datums": [
+    {
+      "id": "A",
+      "feature": "face",
+      "description": "primary mounting face"
+    },
+    {
+      "id": "B",
+      "feature": "axis",
+      "description": "centerline axis"
+    }
+  ],
+  "dimensional": [
+    {
+      "feature": "OD",
+      "nominal": 0.02,
+      "upper": 0.020300000000000002,
+      "lower": 0.0197,
+      "tolerance": 0.0006,
+      "bilateral": true,
+      "checkMethod": "micrometer"
+    },
+    {
+      "feature": "axis-tilt",
+      "nominal": 0,
+      "upper": 0.1,
+      "lower": -0.1,
+      "tolerance": 0.2,
+      "kind": "angular",
+      "unit": "degree",
+      "checkMethod": "protractor / CMM"
+    }
+  ],
+  "gdtCallouts": [
+    {
+      "type": "flatness",
+      "symbol": "⏥",
+      "category": "form",
+      "tolerance": 0.0005,
+      "toleranceMm": 0.5,
+      "datumRefs": [],
+      "modifier": null,
+      "frameText": "⏥ 0.500",
+      "feature": "face-A"
+    },
+    {
+      "type": "perpendicularity",
+      "symbol": "⊥",
+      "category": "orientation",
+      "tolerance": 0.001,
+      "toleranceMm": 1,
+      "datumRefs": [
+        "A"
+      ],
+      "modifier": null,
+      "frameText": "⊥ 1.000 | A",
+      "feature": "B"
+    }
+  ],
+  "surfaceFinishes": [
+    {
+      "feature": "OD",
+      "Ra_um": 1.6,
+      "lay": "multi",
+      "direction": null,
+      "method": "profilometer"
+    }
+  ],
+  "processCallouts": [],
+  "notes": []
+}

@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FADE-CTL-0001",
+  "name": "FADEC Channel A",
+  "category": "FADE",
+  "subsystem": "CTL",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FADE-CTL-0001"
+  ]
+}

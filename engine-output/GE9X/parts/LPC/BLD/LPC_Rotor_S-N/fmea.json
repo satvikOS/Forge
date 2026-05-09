@@ -1,0 +1,76 @@
+{
+  "partID": "GE9X-LPC-BLD-0131",
+  "partTitle": "LPC Rotor S3-1",
+  "classification": "Class 3",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "LPC",
+    "subsystem": "BLD",
+    "material": "Titanium Ti-6Al-4V"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "High-cycle fatigue (HCF) crack",
+      "effect": "Blade liberation; FOD downstream; engine shutdown",
+      "severity": 10,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 200,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Low-cycle fatigue (LCF) crack at root",
+      "effect": "Disk-blade interface failure",
+      "severity": 10,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 200,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 3,
+      "failureMode": "Foreign object damage (FOD) leading-edge",
+      "effect": "Reduced efficiency; blade replacement",
+      "severity": 5,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 100,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 4,
+      "failureMode": "Tip rub against casing",
+      "effect": "Performance loss; possible tip cracking",
+      "severity": 6,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 120,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 5,
+      "failureMode": "Coating spallation (TBC)",
+      "effect": "Substrate overheat; blade life shortened",
+      "severity": 7,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 140,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "maxRPN": 200,
+    "avgRPN": 152,
+    "criticalCount": 4
+  }
+}

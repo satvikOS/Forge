@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FAN-ABR-0001",
+  "name": "Fan Case Abradable Strip",
+  "category": "FAN",
+  "subsystem": "ABR",
+  "material": "ABS Plastic",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FAN-ABR-0001"
+  ]
+}

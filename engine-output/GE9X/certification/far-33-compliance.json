@@ -1,0 +1,620 @@
+{
+  "generatedAt": "2026-05-09T18:13:53.922Z",
+  "regulation": "14 CFR Part 33 / EASA CS-E",
+  "totalItems": 13,
+  "verified": 3,
+  "partial": 3,
+  "unverified": 7,
+  "coveragePercent": "23.1",
+  "items": [
+    {
+      "code": "33.15",
+      "title": "Materials",
+      "description": "Suitability and durability of materials used in the engine must be established.",
+      "scenarios": [
+        "fatigue_hcf",
+        "thermal_cycle"
+      ],
+      "targetSubsystems": [
+        "BLD",
+        "DSK",
+        "CSG",
+        "NGV",
+        "LIN"
+      ],
+      "passCriteria": "Materials demonstrated to withstand HCF + thermal cycling per service life.",
+      "status": "MIXED",
+      "evidenceCount": 32,
+      "passes": 15,
+      "fails": 17,
+      "evidence": [
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        }
+      ]
+    },
+    {
+      "code": "33.27",
+      "title": "Turbine, compressor, fan, and turbosupercharger rotor overspeed",
+      "description": "Rotors must be capable of withstanding overspeed conditions for 5 minutes without burst.",
+      "scenarios": [
+        "rotor_overspeed"
+      ],
+      "targetSubsystems": [
+        "BLD",
+        "DSK"
+      ],
+      "passCriteria": "No rotor burst at 115% red-line for 5 minutes.",
+      "status": "MIXED",
+      "evidenceCount": 16,
+      "passes": 15,
+      "fails": 1,
+      "evidence": [
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0006",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0007",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0008",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0009",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0010",
+          "scenario": "rotor_overspeed",
+          "result": "PASS",
+          "standard": "FAR 33.27"
+        }
+      ]
+    },
+    {
+      "code": "33.62",
+      "title": "Stress analysis",
+      "description": "Engine must be subject to stress analysis showing margin of safety on each critical part.",
+      "scenarios": [
+        "load_static"
+      ],
+      "targetSubsystems": [
+        "BLD",
+        "DSK",
+        "CSG",
+        "NGV",
+        "HUB",
+        "LIN"
+      ],
+      "passCriteria": "All critical parts show SF ≥ 1.0 at limit and ultimate loads.",
+      "status": "VERIFIED",
+      "evidenceCount": 16,
+      "passes": 16,
+      "fails": 0,
+      "evidence": [
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0006",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0007",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0008",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0009",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0010",
+          "scenario": "load_static",
+          "result": "PASS",
+          "standard": "FAR 25.305"
+        }
+      ]
+    },
+    {
+      "code": "33.63",
+      "title": "Vibration",
+      "description": "Engine must be designed to function under vibration over the operating range.",
+      "scenarios": [
+        "vibration_random"
+      ],
+      "targetSubsystems": [
+        "BLD",
+        "DSK",
+        "CSG"
+      ],
+      "passCriteria": "No first-mode resonance in the 20-2000 Hz operating band.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    },
+    {
+      "code": "33.74",
+      "title": "Continued rotation",
+      "description": "After shutdown by any cause, engine must continue to rotate or sustain damage limited to that not endangering aircraft.",
+      "scenarios": [
+        "rotor_overspeed"
+      ],
+      "targetSubsystems": [
+        "BRG",
+        "SHFT"
+      ],
+      "passCriteria": "Bearings and shaft accommodate rundown without seizure failure mode.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    },
+    {
+      "code": "33.76",
+      "title": "Bird ingestion",
+      "description": "Engine must be capable of ingesting one large bird and one medium bird without unsafe condition.",
+      "scenarios": [
+        "bird_strike"
+      ],
+      "targetSubsystems": [
+        "BLD"
+      ],
+      "passCriteria": "Fan blade SF ≥ 1.0 under 1.8 kg bird @ 250 m/s impact.",
+      "status": "VERIFIED",
+      "evidenceCount": 15,
+      "passes": 15,
+      "fails": 0,
+      "evidence": [
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0006",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0007",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0008",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0009",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0010",
+          "scenario": "bird_strike",
+          "result": "PASS",
+          "standard": "FAR 33.76"
+        }
+      ]
+    },
+    {
+      "code": "33.77",
+      "title": "Foreign object ingestion — FOD",
+      "description": "Engine must withstand ingestion of medium FOD.",
+      "scenarios": [
+        "fod_ingestion"
+      ],
+      "targetSubsystems": [
+        "BLD"
+      ],
+      "passCriteria": "Fan and compressor blades SF ≥ 1.0 under 0.45 kg @ 200 m/s FOD.",
+      "status": "VERIFIED",
+      "evidenceCount": 15,
+      "passes": 15,
+      "fails": 0,
+      "evidence": [
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0006",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0007",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0008",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0009",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0010",
+          "scenario": "fod_ingestion",
+          "result": "PASS",
+          "standard": "FAA AC 33.76"
+        }
+      ]
+    },
+    {
+      "code": "33.78",
+      "title": "Rain and hail ingestion",
+      "description": "Engine must operate during ingestion of rain and hail.",
+      "scenarios": [
+        "hail_ingestion"
+      ],
+      "targetSubsystems": [
+        "BLD"
+      ],
+      "passCriteria": "No blade yielding from 25 mm hailstone ingestion.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    },
+    {
+      "code": "33.83",
+      "title": "Vibration test (engine-level)",
+      "description": "Endurance vibration test demonstrating no resonance amplification damage.",
+      "scenarios": [
+        "vibration_random"
+      ],
+      "targetSubsystems": [
+        "BLD",
+        "DSK",
+        "CSG"
+      ],
+      "passCriteria": "No resonant amplification > 4× across operating speed range.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    },
+    {
+      "code": "33.87",
+      "title": "Endurance test",
+      "description": "150-hour endurance test simulating typical operating cycles.",
+      "scenarios": [
+        "fatigue_hcf",
+        "thermal_cycle"
+      ],
+      "targetSubsystems": [
+        "BLD",
+        "DSK",
+        "CSG",
+        "LIN"
+      ],
+      "passCriteria": "Components survive 150 hr equivalent cycles without crack initiation.",
+      "status": "MIXED",
+      "evidenceCount": 32,
+      "passes": 15,
+      "fails": 17,
+      "evidence": [
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0001",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0002",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0003",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0004",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "fatigue_hcf",
+          "result": "FAIL",
+          "standard": "HCF 5e7"
+        },
+        {
+          "partID": "GE9X-FAN-BLD-0005",
+          "scenario": "thermal_cycle",
+          "result": "PASS",
+          "standard": "thermal cycle"
+        }
+      ]
+    },
+    {
+      "code": "33.94",
+      "title": "Blade containment and rotor unbalance tests",
+      "description": "Engine casing must contain a liberated fan blade (blade-off).",
+      "scenarios": [
+        "blade_off"
+      ],
+      "targetSubsystems": [
+        "CSG"
+      ],
+      "passCriteria": "Fan case SF ≥ 1.0 against blade liberation kinetic energy.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    },
+    {
+      "code": "33.97",
+      "title": "Thrust reverser system",
+      "description": "Thrust reverser must operate reliably and not pose hazard if it fails.",
+      "scenarios": [
+        "load_static"
+      ],
+      "targetSubsystems": [
+        "CAS",
+        "ACT"
+      ],
+      "passCriteria": "Reverser cascades withstand limit + ultimate loads.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    },
+    {
+      "code": "33.B-1",
+      "title": "Lightning strike (CS-E 800 / DO-160 §22)",
+      "description": "Engine must operate after lightning strike per certification spec.",
+      "scenarios": [
+        "lightning_strike"
+      ],
+      "targetSubsystems": [
+        "CSG",
+        "NAC"
+      ],
+      "passCriteria": "No through-burn from 200 kA Zone 1A strike.",
+      "status": "UNVERIFIED",
+      "evidenceCount": 0,
+      "passes": 0,
+      "fails": 0,
+      "evidence": []
+    }
+  ]
+}

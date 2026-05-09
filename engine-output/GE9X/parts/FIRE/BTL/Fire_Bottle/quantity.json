@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FIRE-BTL-0002",
+  "name": "Fire Bottle 2",
+  "category": "FIRE",
+  "subsystem": "BTL",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FIRE-BTL-0002"
+  ]
+}

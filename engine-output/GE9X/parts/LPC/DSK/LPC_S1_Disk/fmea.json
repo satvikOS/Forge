@@ -1,0 +1,54 @@
+{
+  "partID": "GE9X-LPC-DSK-0001",
+  "partTitle": "LPC S1 Disk",
+  "classification": "Class 3",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "LPC",
+    "subsystem": "DSK",
+    "material": "Titanium Ti-6Al-4V"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Burst at LCF limit (centrifugal)",
+      "effect": "Catastrophic uncontained failure",
+      "severity": 10,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 200,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Bore crack from cyclic stress",
+      "effect": "Eventual rim release; engine destruction",
+      "severity": 10,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 200,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 3,
+      "failureMode": "Slot cracking at blade root",
+      "effect": "Blade liberation",
+      "severity": 9,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 180,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "maxRPN": 200,
+    "avgRPN": 193.33333333333334,
+    "criticalCount": 3
+  }
+}

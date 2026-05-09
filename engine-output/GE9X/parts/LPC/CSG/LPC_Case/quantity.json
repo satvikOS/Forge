@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-LPC-CSG-0001",
+  "name": "LPC Case",
+  "category": "LPC",
+  "subsystem": "CSG",
+  "material": "Titanium Ti-6Al-4V",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-LPC-CSG-0001"
+  ]
+}

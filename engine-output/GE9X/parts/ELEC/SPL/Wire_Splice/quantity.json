@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-ELEC-SPL-0200",
+  "name": "Wire Splice 200",
+  "category": "ELEC",
+  "subsystem": "SPL",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-ELEC-SPL-0200"
+  ]
+}

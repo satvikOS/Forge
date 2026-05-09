@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-INLE-CAP-0001",
+  "name": "Spinner Tip Cap",
+  "category": "INLE",
+  "subsystem": "CAP",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-INLE-CAP-0001"
+  ]
+}

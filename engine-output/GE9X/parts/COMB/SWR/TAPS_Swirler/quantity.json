@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-COMB-SWR-0030",
+  "name": "TAPS Swirler 30",
+  "category": "COMB",
+  "subsystem": "SWR",
+  "material": "Inconel 718",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-COMB-SWR-0030"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-COMB-LIN-0002",
+  "name": "Combustor CMC Outer Liner",
+  "category": "COMB",
+  "subsystem": "LIN",
+  "material": "CMC SiC/SiC",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-COMB-LIN-0002"
+  ]
+}

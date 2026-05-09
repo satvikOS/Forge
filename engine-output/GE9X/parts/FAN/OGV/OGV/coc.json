@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-FAN-OGV-0060",
+  "partTitle": "OGV 60",
+  "serialNumber": "SN-607924",
+  "drawingNumber": "GE9X-FAN-OGV-0060-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-19493",
+  "manufacturingLot": "MFG-73522",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-19493",
+    "manufacturingProcess": "MFG-73522",
+    "inspectionRecord": "INSP-SN-607924",
+    "finalAcceptance": "2026-05-09"
+  }
+}

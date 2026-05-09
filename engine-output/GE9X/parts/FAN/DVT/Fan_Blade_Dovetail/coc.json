@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-FAN-DVT-0016",
+  "partTitle": "Fan Blade 16 Dovetail",
+  "serialNumber": "SN-723618",
+  "drawingNumber": "GE9X-FAN-DVT-0016-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-08371",
+  "manufacturingLot": "MFG-71230",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-08371",
+    "manufacturingProcess": "MFG-71230",
+    "inspectionRecord": "INSP-SN-723618",
+    "finalAcceptance": "2026-05-09"
+  }
+}

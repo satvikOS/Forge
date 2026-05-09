@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-HYD-LIN-0036",
+  "name": "Hydraulic Line 36",
+  "category": "HYD",
+  "subsystem": "LIN",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-HYD-LIN-0036"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "certType": "EN 10204 Type 3.1 / ASTM A6 Material Certificate",
+  "heatLot": "HL-01991",
+  "supplier": "Acme Mill Co.",
+  "poNumber": "PO-2026-ARCHDISC-001",
+  "certDate": "2026-05-09",
+  "material": "CMC SiC/SiC",
+  "specification": "GE9X CMC technology / NASA proprietary",
+  "chemistry": {
+    "SiC_fiber": "Hi-Nicalon Type S",
+    "matrix": "CVI SiC + MI Si",
+    "volume_fraction": "40-45%"
+  },
+  "mechanicalProperties": {
+    "UTS_MPa": 400,
+    "YS_MPa": 350,
+    "elongation_pct": 0.5,
+    "hardness_HRC": "N/A — ceramic",
+    "density_kg_m3": 2700
+  },
+  "heatTreatment": "Pyrolysis 1200°C / N2 + melt-infiltration 1450°C / Ar",
+  "certifiedBy": "Mill Metallurgist (signature on file)"
+}

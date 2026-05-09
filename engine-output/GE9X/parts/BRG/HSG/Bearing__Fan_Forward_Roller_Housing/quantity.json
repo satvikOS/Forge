@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-BRG-HSG-0001",
+  "name": "Bearing #Fan Forward Roller Housing",
+  "category": "BRG",
+  "subsystem": "HSG",
+  "material": "Steel AISI 4340",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-BRG-HSG-0001"
+  ]
+}

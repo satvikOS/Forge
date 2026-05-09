@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-BRG-RAC-0003",
+  "partTitle": "Bearing #HPC Front Ball Inner Race",
+  "serialNumber": "SN-020552",
+  "drawingNumber": "GE9X-BRG-RAC-0003-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-71171",
+  "manufacturingLot": "MFG-85611",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-71171",
+    "manufacturingProcess": "MFG-85611",
+    "inspectionRecord": "INSP-SN-020552",
+    "finalAcceptance": "2026-05-09"
+  }
+}

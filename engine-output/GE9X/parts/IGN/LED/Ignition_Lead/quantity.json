@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-IGN-LED-0002",
+  "name": "Ignition Lead 2",
+  "category": "IGN",
+  "subsystem": "LED",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-IGN-LED-0002"
+  ]
+}

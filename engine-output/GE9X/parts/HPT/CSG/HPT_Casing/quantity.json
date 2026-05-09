@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-HPT-CSG-0001",
+  "name": "HPT Casing",
+  "category": "HPT",
+  "subsystem": "CSG",
+  "material": "Inconel 718",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-HPT-CSG-0001"
+  ]
+}

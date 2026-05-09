@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-NAC-COW-0008",
+  "name": "Core Cowl Segment 8",
+  "category": "NAC",
+  "subsystem": "COW",
+  "material": "Composite Carbon-Epoxy",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-NAC-COW-0008"
+  ]
+}

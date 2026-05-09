@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-OIL-COM-0003",
+  "name": "Oil Pump (Scavenge × 5)",
+  "category": "OIL",
+  "subsystem": "COM",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-OIL-COM-0003"
+  ]
+}

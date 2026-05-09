@@ -1,0 +1,30 @@
+{
+  "partID": "GE9X-HPT-FIR-0150",
+  "partName": "HPT Blade S2-70 Fir-Tree Root",
+  "project": "GE9X",
+  "classification": "Class 2",
+  "category": "HPT",
+  "subsystem": "FIR",
+  "material": "Single-Crystal Nickel CMSX-4",
+  "generatedAt": "2026-05-09T18:13:02.787Z",
+  "drawingNumber": "GE9X-HPT-FIR-0150-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "fea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "GE9X",
+  "certificationLevel": "FAA Part 21 Important"
+}

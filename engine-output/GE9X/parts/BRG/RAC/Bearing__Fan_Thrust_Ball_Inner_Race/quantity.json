@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-BRG-RAC-0002",
+  "name": "Bearing #Fan Thrust Ball Inner Race",
+  "category": "BRG",
+  "subsystem": "RAC",
+  "material": "Steel AISI 4340",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-BRG-RAC-0002"
+  ]
+}

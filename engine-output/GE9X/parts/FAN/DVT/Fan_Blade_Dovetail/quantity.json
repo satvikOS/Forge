@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FAN-DVT-0016",
+  "name": "Fan Blade 16 Dovetail",
+  "category": "FAN",
+  "subsystem": "DVT",
+  "material": "Titanium Ti-6Al-4V",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FAN-DVT-0016"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-DRN-VNT-0016",
+  "name": "Vent Port 16",
+  "category": "DRN",
+  "subsystem": "VNT",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-DRN-VNT-0016"
+  ]
+}

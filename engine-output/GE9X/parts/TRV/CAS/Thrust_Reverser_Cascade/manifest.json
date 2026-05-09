@@ -1,0 +1,29 @@
+{
+  "partID": "GE9X-TRV-CAS-0012",
+  "partName": "Thrust Reverser Cascade 12",
+  "project": "GE9X",
+  "classification": "Class 3",
+  "category": "TRV",
+  "subsystem": "CAS",
+  "material": "Titanium Ti-6Al-4V",
+  "generatedAt": "2026-05-09T18:13:17.969Z",
+  "drawingNumber": "GE9X-TRV-CAS-0012-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "GE9X",
+  "certificationLevel": "Standard"
+}

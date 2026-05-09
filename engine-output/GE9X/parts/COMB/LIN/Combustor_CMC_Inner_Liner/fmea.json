@@ -1,0 +1,54 @@
+{
+  "partID": "GE9X-COMB-LIN-0001",
+  "partTitle": "Combustor CMC Inner Liner",
+  "classification": "Class 2",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "COMB",
+    "subsystem": "LIN",
+    "material": "CMC SiC/SiC"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Hoop crack from over-pressure",
+      "effect": "Loss of containment",
+      "severity": 9,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 81,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Bolt-hole fatigue",
+      "effect": "Flange separation",
+      "severity": 8,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 72,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 3,
+      "failureMode": "Heat-affected zone (HAZ) creep",
+      "effect": "Distortion, leak path",
+      "severity": 6,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 54,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "maxRPN": 81,
+    "avgRPN": 69,
+    "criticalCount": 0
+  }
+}

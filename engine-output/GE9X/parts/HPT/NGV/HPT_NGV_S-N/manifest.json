@@ -1,0 +1,30 @@
+{
+  "partID": "GE9X-HPT-NGV-0037",
+  "partName": "HPT NGV S2-1",
+  "project": "GE9X",
+  "classification": "Class 1",
+  "category": "HPT",
+  "subsystem": "NGV",
+  "material": "Single-Crystal Nickel CMSX-4 (TBC-coated)",
+  "generatedAt": "2026-05-09T18:13:00.940Z",
+  "drawingNumber": "GE9X-HPT-NGV-0037-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "fea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "GE9X",
+  "certificationLevel": "FAA Part 21 Critical Part"
+}

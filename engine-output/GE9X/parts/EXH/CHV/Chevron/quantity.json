@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-EXH-CHV-0012",
+  "name": "Chevron 12",
+  "category": "EXH",
+  "subsystem": "CHV",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-EXH-CHV-0012"
+  ]
+}

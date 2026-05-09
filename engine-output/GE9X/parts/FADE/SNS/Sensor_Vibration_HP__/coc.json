@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-FADE-SNS-0072",
+  "partTitle": "Sensor Vibration HP #6",
+  "serialNumber": "SN-619390",
+  "drawingNumber": "GE9X-FADE-SNS-0072-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-23962",
+  "manufacturingLot": "MFG-92174",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-23962",
+    "manufacturingProcess": "MFG-92174",
+    "inspectionRecord": "INSP-SN-619390",
+    "finalAcceptance": "2026-05-09"
+  }
+}

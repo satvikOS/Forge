@@ -1,0 +1,43 @@
+{
+  "partID": "GE9X-FAN-PIN-0032",
+  "partTitle": "Fan Blade 16 Pin 2",
+  "classification": "Class 3",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "FAN",
+    "subsystem": "PIN",
+    "material": "Steel AISI 4340"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Thread stripping",
+      "effect": "Joint loosening",
+      "severity": 5,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 100,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Fatigue at thread root",
+      "effect": "Bolt separation",
+      "severity": 7,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 140,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 140,
+    "avgRPN": 120,
+    "criticalCount": 1
+  }
+}

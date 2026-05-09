@@ -1,0 +1,14 @@
+{
+  "partID": "GE9X-HPT-CHL-0001",
+  "name": "HPT S1 Blade 1 Cool Hole 1",
+  "category": "HPT",
+  "subsystem": "CHL",
+  "material": "Air",
+  "classification": "Class 3",
+  "quantity": 6400,
+  "sampleInstanceIDs": [
+    "GE9X-HPT-CHL-0001",
+    "GE9X-HPT-CHL-0002",
+    "GE9X-HPT-CHL-0003"
+  ]
+}

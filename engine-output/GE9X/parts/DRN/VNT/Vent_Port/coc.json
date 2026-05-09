@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-DRN-VNT-0016",
+  "partTitle": "Vent Port 16",
+  "serialNumber": "SN-534806",
+  "drawingNumber": "GE9X-DRN-VNT-0016-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-45353",
+  "manufacturingLot": "MFG-26370",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-45353",
+    "manufacturingProcess": "MFG-26370",
+    "inspectionRecord": "INSP-SN-534806",
+    "finalAcceptance": "2026-05-09"
+  }
+}

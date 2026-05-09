@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-LPT-DSK-0005",
+  "name": "LPT S5 Disk",
+  "category": "LPT",
+  "subsystem": "DSK",
+  "material": "Inconel 718",
+  "classification": "Class 1",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-LPT-DSK-0005"
+  ]
+}

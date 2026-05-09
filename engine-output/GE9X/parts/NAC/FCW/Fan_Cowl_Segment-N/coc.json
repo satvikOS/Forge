@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-NAC-FCW-0012",
+  "partTitle": "Fan Cowl Segment 12",
+  "serialNumber": "SN-245941",
+  "drawingNumber": "GE9X-NAC-FCW-0012-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-48235",
+  "manufacturingLot": "MFG-97025",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-48235",
+    "manufacturingProcess": "MFG-97025",
+    "inspectionRecord": "INSP-SN-245941",
+    "finalAcceptance": "2026-05-09"
+  }
+}

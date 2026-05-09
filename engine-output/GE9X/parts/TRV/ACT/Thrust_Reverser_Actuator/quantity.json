@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-TRV-ACT-0004",
+  "name": "Thrust Reverser Actuator 4",
+  "category": "TRV",
+  "subsystem": "ACT",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-TRV-ACT-0004"
+  ]
+}

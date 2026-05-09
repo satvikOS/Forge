@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-FADE-SNS-0084",
+  "partTitle": "Sensor Oil temp #6",
+  "serialNumber": "SN-948566",
+  "drawingNumber": "GE9X-FADE-SNS-0084-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-27499",
+  "manufacturingLot": "MFG-92325",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-27499",
+    "manufacturingProcess": "MFG-92325",
+    "inspectionRecord": "INSP-SN-948566",
+    "finalAcceptance": "2026-05-09"
+  }
+}

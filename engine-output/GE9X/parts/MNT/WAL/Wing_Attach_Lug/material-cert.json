@@ -1,0 +1,29 @@
+{
+  "certType": "EN 10204 Type 3.1 / ASTM A6 Material Certificate",
+  "heatLot": "HL-96286",
+  "supplier": "Acme Mill Co.",
+  "poNumber": "PO-2026-ARCHDISC-001",
+  "certDate": "2026-05-09",
+  "material": "Titanium Ti-6Al-4V",
+  "specification": "AMS 4928 / ASTM B348 Grade 5",
+  "chemistry": {
+    "Ti": "bal",
+    "Al": "5.5-6.75",
+    "V": "3.5-4.5",
+    "Fe": "≤0.30",
+    "O": "≤0.20",
+    "C": "≤0.08",
+    "N": "≤0.05",
+    "H": "≤0.015"
+  },
+  "mechanicalProperties": {
+    "UTS_MPa": 950,
+    "YS_MPa": 880,
+    "elongation_pct": 14,
+    "RA_pct": 36,
+    "hardness_HRC": 36,
+    "density_kg_m3": 4430
+  },
+  "heatTreatment": "Annealed: 705°C/1hr, AC",
+  "certifiedBy": "Mill Metallurgist (signature on file)"
+}

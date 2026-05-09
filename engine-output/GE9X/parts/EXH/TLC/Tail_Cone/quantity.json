@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-EXH-TLC-0001",
+  "name": "Tail Cone",
+  "category": "EXH",
+  "subsystem": "TLC",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-EXH-TLC-0001"
+  ]
+}

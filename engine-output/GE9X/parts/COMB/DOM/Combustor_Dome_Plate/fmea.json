@@ -1,0 +1,43 @@
+{
+  "partID": "GE9X-COMB-DOM-0001",
+  "partTitle": "Combustor Dome Plate",
+  "classification": "Class 2",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "COMB",
+    "subsystem": "DOM",
+    "material": "CMC SiC/SiC"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Material defect",
+      "effect": "Premature failure",
+      "severity": 6,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 54,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Manufacturing defect",
+      "effect": "Out-of-tolerance assembly",
+      "severity": 5,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 45,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 54,
+    "avgRPN": 49.5,
+    "criticalCount": 0
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "partID": "GE9X-HPT-NGV-0037",
+  "partTitle": "HPT NGV S2-1",
+  "classification": "Class 1",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "HPT",
+    "subsystem": "NGV",
+    "material": "Single-Crystal Nickel CMSX-4 (TBC-coated)"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Material defect",
+      "effect": "Premature failure",
+      "severity": 6,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 24,
+      "currentControls": "Borescope inspection per EM 72-NGV, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Manufacturing defect",
+      "effect": "Out-of-tolerance assembly",
+      "severity": 5,
+      "occurrence": 2,
+      "detection": 2,
+      "RPN": 20,
+      "currentControls": "Borescope inspection per EM 72-NGV, NDT 100%, LCF cycle tracking",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 24,
+    "avgRPN": 22,
+    "criticalCount": 0
+  }
+}

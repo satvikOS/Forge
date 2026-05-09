@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-LPC-BLD-0131",
+  "partTitle": "LPC Rotor S3-1",
+  "serialNumber": "SN-753536",
+  "drawingNumber": "GE9X-LPC-BLD-0131-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-28885",
+  "manufacturingLot": "MFG-74676",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-28885",
+    "manufacturingProcess": "MFG-74676",
+    "inspectionRecord": "INSP-SN-753536",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-MNT-TLK-0002",
+  "name": "Thrust Link 2",
+  "category": "MNT",
+  "subsystem": "TLK",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-MNT-TLK-0002"
+  ]
+}

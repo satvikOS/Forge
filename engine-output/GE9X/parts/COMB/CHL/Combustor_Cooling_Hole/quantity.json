@@ -1,0 +1,14 @@
+{
+  "partID": "GE9X-COMB-CHL-0001",
+  "name": "Combustor Cooling Hole 1",
+  "category": "COMB",
+  "subsystem": "CHL",
+  "material": "Air",
+  "classification": "Class 3",
+  "quantity": 12000,
+  "sampleInstanceIDs": [
+    "GE9X-COMB-CHL-0001",
+    "GE9X-COMB-CHL-0002",
+    "GE9X-COMB-CHL-0003"
+  ]
+}

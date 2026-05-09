@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-BRG-SEL-0012",
+  "name": "Carbon Seal 12",
+  "category": "BRG",
+  "subsystem": "SEL",
+  "material": "Carbon Fiber Composite",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-BRG-SEL-0012"
+  ]
+}

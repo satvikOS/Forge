@@ -1,0 +1,57 @@
+{
+  "class": "Class 1",
+  "results": {
+    "fea": {
+      "maxStress_MPa": null,
+      "maxDisplacement_mm": null,
+      "safetyFactor": 0
+    },
+    "modal": {
+      "frequencies_Hz": [],
+      "firstMode_Hz": null
+    },
+    "thermal": {
+      "maxTemp_C": 0,
+      "maxThermalStress_MPa": 0
+    },
+    "fatigue": {
+      "life_cycles": 0,
+      "margin": null
+    },
+    "scenarios": {
+      "rotor_overspeed": {
+        "scenario": "rotor_overspeed",
+        "standard": "FAR 33.27",
+        "result": "FAIL",
+        "metrics": {
+          "rpm": 13224.999999999998,
+          "omega_rad_s": 1384.9187614575,
+          "hoopStress_MPa": 4171.649947445423,
+          "ultimate_MPa": 1100,
+          "safetyFactor": 0.26368463650062557
+        },
+        "limits": {
+          "minSafetyFactor": 1
+        },
+        "diagnosis": "Burst risk — increase rim thickness or use stronger alloy.",
+        "timestamp": "2026-05-09T18:13:00.973Z"
+      },
+      "fatigue_hcf": {
+        "scenario": "fatigue_hcf",
+        "standard": "HCF 5e7",
+        "result": "FAIL",
+        "metrics": {
+          "stressAmplitude_MPa": 200,
+          "allowable_MPa": 103.42015847727494,
+          "cycles": 50000000,
+          "safetyFactor": 0.5171007923863747
+        },
+        "limits": {
+          "minSafetyFactor": 1
+        },
+        "diagnosis": "HCF life insufficient — consider shot peening.",
+        "timestamp": "2026-05-09T18:13:00.973Z"
+      }
+    }
+  }
+}

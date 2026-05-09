@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-TRV-ACT-0004",
+  "partTitle": "Thrust Reverser Actuator 4",
+  "serialNumber": "SN-696412",
+  "drawingNumber": "GE9X-TRV-ACT-0004-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-09835",
+  "manufacturingLot": "MFG-98017",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-09835",
+    "manufacturingProcess": "MFG-98017",
+    "inspectionRecord": "INSP-SN-696412",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "deliverable": "GE9X v2 Production-Article Submission Package",
+  "project": "GE Aviation GE9X-105B1A",
+  "generatedAt": "2026-05-09T18:13:57.262Z",
+  "submissionType": "FAA Part 21 Production Approval — Aircraft Engine",
+  "cad": "ArchDisc v1.21+ proprietary B-Rep kernel (no external CAD dependencies)",
+  "counts": {
+    "totalComponents": 29693,
+    "uniquePartDefinitions": 3340,
+    "class1_LLP": 1930,
+    "class2_Important": 1934,
+    "class3_Standard": 25829,
+    "productionPackagesGenerated": 3340,
+    "filesInDelivery": 47267
+  },
+  "physical": {
+    "totalMass_kg": 12892.3,
+    "manufacturingCost_USD": 1901080.2900000876
+  },
+  "performance": {
+    "thrust_takeoff_kN": 394.5,
+    "thrust_cruise_kN": 59.7,
+    "OPR": 59.9,
+    "BPR": 9.9,
+    "TIT_C": 1652,
+    "EGT_takeoff_C": 701,
+    "SFC_takeoff_lbm_lbfhr": 0.319,
+    "SFC_cruise_lbm_lbfhr": 0.675
+  },
+  "noise": {
+    "lateral_EPNdB": 90.4,
+    "flyover_EPNdB": 83.5,
+    "approach_EPNdB": 95.9,
+    "cumulativeMargin_EPNdB": 37.2,
+    "ch14Compliant": true
+  },
+  "maintenance": {
+    "taskCardsTotal": 23,
+    "LLP_count": 9,
+    "laborOver24kCycleLife": 7422
+  },
+  "certification": {
+    "regulation": "FAR Part 33 / EASA CS-E",
+    "requirementsTotal": 13,
+    "verified": 3,
+    "partial": 3,
+    "coveragePercent": "23.1"
+  },
+  "folderLayout": [
+    "parts/<CAT>/<SUB>/<NAME>/   per-part packages (STEP + drawing + tolerance + inspection + cert + CoC + FMEA + FEA + process specs + manifest)",
+    "assembly/EBOM.csv             engineering BOM (every instance)",
+    "assembly/MBOM.csv             manufacturing BOM (unique parts × qty)",
+    "assembly/MBOM.json",
+    "assembly/unique-parts-index.json",
+    "certification/far-33-compliance.json",
+    "performance/brayton-{takeoff,cruise}.json",
+    "performance/stations-takeoff.json",
+    "acoustics/noise-cert.json",
+    "maintenance/tasks.json",
+    "maintenance/llp-table.json",
+    "manifest.json",
+    "README.md"
+  ]
+}

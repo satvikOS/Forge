@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-FADE-SNS-0060",
+  "name": "Sensor N2 (HP speed) #6",
+  "category": "FADE",
+  "subsystem": "SNS",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-FADE-SNS-0060"
+  ]
+}

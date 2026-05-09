@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-FADE-SNS-0030",
+  "partTitle": "Sensor T5 (LPT exit) #6",
+  "serialNumber": "SN-487452",
+  "drawingNumber": "GE9X-FADE-SNS-0030-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-02186",
+  "manufacturingLot": "MFG-91645",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-02186",
+    "manufacturingProcess": "MFG-91645",
+    "inspectionRecord": "INSP-SN-487452",
+    "finalAcceptance": "2026-05-09"
+  }
+}

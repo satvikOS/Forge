@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-LPC-DSK-0001",
+  "name": "LPC S1 Disk",
+  "category": "LPC",
+  "subsystem": "DSK",
+  "material": "Titanium Ti-6Al-4V",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-LPC-DSK-0001"
+  ]
+}

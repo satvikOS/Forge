@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-COMB-CSG-0001",
+  "name": "Combustor Outer Case",
+  "category": "COMB",
+  "subsystem": "CSG",
+  "material": "Inconel 718",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-COMB-CSG-0001"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-BRG-HSG-0005",
+  "partTitle": "Bearing #LPT Aft Roller Housing",
+  "serialNumber": "SN-780051",
+  "drawingNumber": "GE9X-BRG-HSG-0005-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-58340",
+  "manufacturingLot": "MFG-87039",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-58340",
+    "manufacturingProcess": "MFG-87039",
+    "inspectionRecord": "INSP-SN-780051",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "thrust_total_kN": 59.671131226107434,
+  "thrust_total_lbf": 13415.27230802775,
+  "thrust_core_kN": 26.179915752545686,
+  "thrust_bypass_kN": 33.491215473561745,
+  "thrust_split_pct": {
+    "core": 43.87367092697481,
+    "bypass": 56.12632907302518
+  },
+  "SFC_kg_N_hr": 0.06885053580269601,
+  "TSFC_lbm_lbf_hr": 0.6751931069295088,
+  "OPR": 52.026,
+  "BPR": 9.9,
+  "FPR": 1.38,
+  "TIT_K": 1700,
+  "TIT_C": 1426.85,
+  "EGT_K": 944.4660532985399,
+  "EGT_C": 671.3160532985399,
+  "propulsiveEfficiency": 0.6185168726132073,
+  "thermalEfficiency": 0.5455125427142279,
+  "overallEfficiency": 0.3374087118908829,
+  "nozzleChoked": {
+    "core": true,
+    "bypass": true
+  },
+  "exitVelocity_core_m_s": 556.2845299729249,
+  "exitVelocity_bypass_m_s": 303.79841320397196
+}

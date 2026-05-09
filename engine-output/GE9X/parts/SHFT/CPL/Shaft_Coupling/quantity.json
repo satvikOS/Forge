@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-SHFT-CPL-0004",
+  "name": "Shaft Coupling 4",
+  "category": "SHFT",
+  "subsystem": "CPL",
+  "material": "Steel AISI 4340",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-SHFT-CPL-0004"
+  ]
+}

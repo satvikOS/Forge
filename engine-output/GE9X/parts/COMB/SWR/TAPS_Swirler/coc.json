@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-COMB-SWR-0030",
+  "partTitle": "TAPS Swirler 30",
+  "serialNumber": "SN-829409",
+  "drawingNumber": "GE9X-COMB-SWR-0030-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-21220",
+  "manufacturingLot": "MFG-78744",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-21220",
+    "manufacturingProcess": "MFG-78744",
+    "inspectionRecord": "INSP-SN-829409",
+    "finalAcceptance": "2026-05-09"
+  }
+}

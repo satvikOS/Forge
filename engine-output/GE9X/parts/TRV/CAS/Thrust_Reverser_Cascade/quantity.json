@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-TRV-CAS-0012",
+  "name": "Thrust Reverser Cascade 12",
+  "category": "TRV",
+  "subsystem": "CAS",
+  "material": "Titanium Ti-6Al-4V",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-TRV-CAS-0012"
+  ]
+}

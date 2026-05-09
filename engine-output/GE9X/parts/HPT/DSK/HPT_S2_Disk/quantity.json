@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-HPT-DSK-0002",
+  "name": "HPT S2 Disk",
+  "category": "HPT",
+  "subsystem": "DSK",
+  "material": "Single-Crystal Nickel CMSX-4",
+  "classification": "Class 1",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-HPT-DSK-0002"
+  ]
+}

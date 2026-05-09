@@ -1,0 +1,43 @@
+{
+  "partID": "GE9X-SHFT-LP-0001",
+  "partTitle": "LP Shaft",
+  "classification": "Class 2",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "SHFT",
+    "subsystem": "LP",
+    "material": "Steel AISI 4340"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Torsional fatigue at coupling",
+      "effect": "Shaft separation",
+      "severity": 10,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 90,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Bearing-journal wear",
+      "effect": "Vibration, eventual seizure",
+      "severity": 8,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 72,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 90,
+    "avgRPN": 81,
+    "criticalCount": 0
+  }
+}

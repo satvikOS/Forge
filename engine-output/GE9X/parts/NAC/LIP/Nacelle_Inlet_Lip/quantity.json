@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-NAC-LIP-0001",
+  "name": "Nacelle Inlet Lip",
+  "category": "NAC",
+  "subsystem": "LIP",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-NAC-LIP-0001"
+  ]
+}

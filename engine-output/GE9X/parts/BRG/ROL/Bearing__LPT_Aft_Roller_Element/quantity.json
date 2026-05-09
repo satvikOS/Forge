@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-BRG-ROL-0072",
+  "name": "Bearing #LPT Aft Roller Element 24",
+  "category": "BRG",
+  "subsystem": "ROL",
+  "material": "Steel AISI 4340",
+  "classification": "Class 2",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-BRG-ROL-0072"
+  ]
+}

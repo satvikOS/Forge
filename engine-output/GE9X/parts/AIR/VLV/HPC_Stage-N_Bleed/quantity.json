@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-AIR-VLV-0003",
+  "name": "HPC Stage 11 Bleed",
+  "category": "AIR",
+  "subsystem": "VLV",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-AIR-VLV-0003"
+  ]
+}

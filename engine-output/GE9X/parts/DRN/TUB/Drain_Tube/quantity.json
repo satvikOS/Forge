@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-DRN-TUB-0024",
+  "name": "Drain Tube 24",
+  "category": "DRN",
+  "subsystem": "TUB",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-DRN-TUB-0024"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "partID": "GE9X-FUEL-COM-0003",
+  "partTitle": "Fuel Pump HP",
+  "classification": "Class 3",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "FUEL",
+    "subsystem": "COM",
+    "material": "Aluminum 6061-T6"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Material defect",
+      "effect": "Premature failure",
+      "severity": 6,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 120,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Manufacturing defect",
+      "effect": "Out-of-tolerance assembly",
+      "severity": 5,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 100,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 120,
+    "avgRPN": 110,
+    "criticalCount": 1
+  }
+}

@@ -1,0 +1,10 @@
+# GE9X v2 production-article output — STEP files are large, kept locally
+# but excluded from git to stay under repo size limits.
+#
+# Reproduce STEP files by running:
+#   npx playwright test e2e/ge9x-build-production.spec.js
+#
+# All other files (drawings, manifests, reports, certificates, FMEA, FEA,
+# inspection records) are committed.
+
+parts/**/part.step

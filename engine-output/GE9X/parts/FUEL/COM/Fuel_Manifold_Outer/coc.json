@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "GE9X-FUEL-COM-0007",
+  "partTitle": "Fuel Manifold Outer",
+  "serialNumber": "SN-234372",
+  "drawingNumber": "GE9X-FUEL-COM-0007-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-35219",
+  "manufacturingLot": "MFG-90318",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-35219",
+    "manufacturingProcess": "MFG-90318",
+    "inspectionRecord": "INSP-SN-234372",
+    "finalAcceptance": "2026-05-09"
+  }
+}

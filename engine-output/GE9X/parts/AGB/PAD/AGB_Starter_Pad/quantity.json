@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-AGB-PAD-0001",
+  "name": "AGB Starter Pad",
+  "category": "AGB",
+  "subsystem": "PAD",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-AGB-PAD-0001"
+  ]
+}

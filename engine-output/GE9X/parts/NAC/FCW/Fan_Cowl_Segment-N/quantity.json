@@ -1,0 +1,12 @@
+{
+  "partID": "GE9X-NAC-FCW-0012",
+  "name": "Fan Cowl Segment 12",
+  "category": "NAC",
+  "subsystem": "FCW",
+  "material": "Composite Carbon-Epoxy",
+  "classification": "Class 3",
+  "quantity": 1,
+  "sampleInstanceIDs": [
+    "GE9X-NAC-FCW-0012"
+  ]
+}

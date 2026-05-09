@@ -1,0 +1,43 @@
+{
+  "partID": "GE9X-BRG-ROL-0024",
+  "partTitle": "Bearing #Fan Forward Roller Element 24",
+  "classification": "Class 2",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "BRG",
+    "subsystem": "ROL",
+    "material": "Steel AISI 4340"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Spalling on race",
+      "effect": "Vibration, lubrication contamination",
+      "severity": 7,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 63,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Cage failure",
+      "effect": "Sudden seizure",
+      "severity": 9,
+      "occurrence": 3,
+      "detection": 3,
+      "RPN": 81,
+      "currentControls": "Sample inspection (10%), magnetic particle test",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 81,
+    "avgRPN": 72,
+    "criticalCount": 0
+  }
+}
