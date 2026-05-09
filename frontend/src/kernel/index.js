@@ -132,6 +132,17 @@ export { default as NoisePrediction } from './acoustics/NoisePrediction.js';
 // Maintenance schedule — task cards + intervals + LLP
 export { default as MaintenanceSchedule, TASK_LIBRARY as MAINTENANCE_TASKS } from './maintenance/MaintenanceSchedule.js';
 
+// Production-article package: per-part FAA Part 21 deliverables
+export { default as ProductionTolerance } from './production/ProductionTolerance.js';
+export { default as ProductionDrawing } from './production/ProductionDrawing.js';
+export { default as InspectionReport } from './production/InspectionReport.js';
+export { default as MaterialCert, MATERIAL_DATA } from './production/MaterialCert.js';
+export { default as FMEA } from './production/FMEA.js';
+export { default as ProcessSpecs } from './production/ProcessSpecs.js';
+export { default as PartAnalysisRunner } from './production/PartAnalysisRunner.js';
+export { default as ProductionPackage } from './production/ProductionPackage.js';
+export { default as BOM } from './production/BOM.js';
+
 // HTML Report Builder — self-contained interactive deliverable
 export { default as HTMLReportBuilder } from './export/HTMLReportBuilder.js';
 
