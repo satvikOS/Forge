@@ -14,7 +14,7 @@ import {
   SceneComposer, PixelManager,
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
   DrawingEngine, Annotations,
-  FEAVisualizer, TopologyOptimizer,
+  FEAVisualizer, TopologyOptimizer, CFDEngine,
   ToolLibrary, CAMVisualizer, StockSimulator, MoldFlow,
   PartNumbering, CostingEngine, Sustainability,
 } from '../../kernel/index.js';
@@ -707,7 +707,39 @@ const TOOL_HANDLERS = {
       const s = result.summary;
       return { status: s.safeForMaterial ? 'success' : 'warn', message: `Thermal: Max ${s.maxTempC}°C, Min ${s.minTempC}°C, Flux ${s.heatFluxWm2} W/m², Thermal stress ${s.thermalStressMPa} MPa` };
     },
-    'CFD': () => ({ status: 'success', message: 'CFD: Max velocity 4.2 m/s, Pressure drop 340 Pa, Converged in 847 iterations' }),
+    'CFD': (scene, viewport) => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return needSolid('CFD');
+
+      const result = CFDEngine.analyze({ solid, fluid: 'air', inletVelocity: 10, flowDirection: '+x' });
+
+      // Trace streamlines around obstacle
+      const bbox = solid.boundingBox();
+      const margin = 0.05;
+      const flowBbox = {
+        min: { x: bbox.min.x - margin, y: bbox.min.y - margin, z: bbox.min.z - margin },
+        max: { x: bbox.max.x + margin, y: bbox.max.y + margin, z: bbox.max.z + margin },
+      };
+      const obsCenter = bbox.center();
+      const obsRadius = bbox.size().length() / 2;
+
+      const lines = CFDEngine.streamlines({
+        bbox: flowBbox,
+        inletVelocity: 10,
+        flowDirection: '+x',
+        seedCount: 25,
+        obstacleCenter: { x: obsCenter.x, y: obsCenter.y, z: obsCenter.z },
+        obstacleRadius: obsRadius,
+      });
+      const renderResult = CFDEngine.renderStreamlines(scene, lines);
+
+      return {
+        status: 'success',
+        message: `CFD: ${result.fluid} @ ${result.inletVelocity}m/s | Re ${result.reynoldsExp} (${result.regime}) | Cd ${result.dragCoefficient} | Drag ${result.dragForceMilliN}mN | ΔP ${result.pressureDropPa}Pa | Flow ${result.volumetricFlowLs} L/s | ${renderResult?.count || 0} streamlines (${renderResult?.minV || 0}-${renderResult?.maxV || 0} m/s)`
+      };
+    },
+    'CFD Flow Simulation': (scene, viewport) => TOOL_HANDLERS.simulate.CFD(scene, viewport),
     'Modal': (scene) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();

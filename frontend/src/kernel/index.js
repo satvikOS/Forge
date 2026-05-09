@@ -66,6 +66,7 @@ export { default as FEAEngine, MATERIALS } from './simulation/FEAEngine.js';
 export { default as RenderEngine, PBR_PRESETS, LIGHTING_PRESETS } from './simulation/RenderEngine.js';
 export { default as FEAVisualizer } from './simulation/FEAVisualizer.js';
 export { default as TopologyOptimizer } from './simulation/TopologyOptimizer.js';
+export { default as CFDEngine, FLUIDS } from './simulation/CFDEngine.js';
 
 // Manufacturing
 export { default as GCodeGenerator } from './manufacturing/GCodeGenerator.js';
