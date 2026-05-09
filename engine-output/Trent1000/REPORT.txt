@@ -1,0 +1,126 @@
+ROLLS-ROYCE TRENT 1000 — ARCHDISC ENGINEERING REPORT
+=====================================================
+Generated: 2026-05-09T06:01:03.201Z
+Platform: ArchDisc (Mechanical CAD)
+
+STRUCTURAL ANALYSIS
+-------------------
+1. FAN BLADE (Titanium Ti-6Al-4V)
+   - 50 kN bird strike load case
+   - Max stress: 933.33 MPa
+   - Yield strength: 880.00 MPa
+   - Safety factor: 0.943
+   - Mass: 20.9318 kg
+   - Mesh: 216 tetrahedral elements
+
+2. HP TURBINE BLADE (Inconel 718)
+   - 12 kN centrifugal load (takeoff)
+   - Max stress: 214.65 MPa
+   - Safety factor: 4.822
+   - Mass per blade: 0.2068 kg
+
+3. HPT MODAL ANALYSIS (vibration check)
+   Mode 1: 1904.11 Hz (bending)
+   Mode 2: 11930.47 Hz (bending)
+   Mode 3: 33413.97 Hz (torsional)
+   Mode 4: 85522.44 Hz (torsional)
+   Mode 5: 133628.81 Hz (axial)
+
+4. HPT THERMAL ANALYSIS (1400K gas inlet)
+   - Max temp: 1555.50°C
+   - Min temp: 1400.00°C
+   - Thermal stress: 404.29 MPa
+   - Material safe: true
+
+5. FAN FATIGUE
+   - Life: Infinite life
+   - Safety factor: 198.516
+   - Status: PASS
+
+FLUID DYNAMICS
+--------------
+6. BYPASS DUCT CFD (Mach 0.75 air)
+   - Reynolds: 69076887
+   - Flow regime: turbulent (very high)
+   - Drag coefficient: 0.500
+   - Drag force: 35458.0078 N
+   - Mass flow rate: 567.3281 kg/s
+   - Volumetric flow: 1667250.00 m³/h
+
+OPTIMIZATION
+------------
+7. ENGINE MOUNT TOPOLOGY OPTIMIZATION
+   - Mass reduction: 100.00%
+   - Voxels: 360 total, 0 kept
+   - Original volume: 87890625.00 mm³
+   - Optimized volume: 0.00 mm³
+
+MANUFACTURING
+-------------
+8. FAN COWLING MOLD FLOW
+   0: 3
+   1:  
+   2: i
+   3: s
+   4: s
+   5: u
+   6: e
+   7: (
+   8: s
+   9: )
+
+9. FAN BLADE 5-AXIS G-CODE
+   - Tool: Ball Nose Endmill Ø6.000mm × 4 flute
+   - Spindle: 1617 RPM
+   - Feed: 194 mm/min
+   - G-code lines: 1817
+   - Cycle time: 493.3 min
+   - Total moves: 1700
+
+COSTING
+-------
+10. FAN BLADE PER-PART COST (Ti-6Al-4V, 5-axis CNC, polish, batch 18)
+    - Material:    $1393.7569
+    - Machining:   $1160.0000
+    - Setup:       $32.2222
+    - Tooling:     $2777.7778
+    - Finishing:   $8.00
+    - Overhead:    $805.7635
+    - Total cost:  $6177.5204
+    - Sell price:  $8339.65
+
+11. ENGINE COST (blade machining contribution)
+    Fan Blade               18 × $ 2955.2843 = $53195.12
+    HPT Blade               76 × $ 2012.3961 = $152942.10
+    IPT Blade               80 × $ 1345.2878 = $107623.03
+    LPT Blade              732 × $  676.4338 = $495149.51
+    Compressor Blade       832 × $  259.5273 = $215926.72
+    --------------------------------------------------------
+    TOTAL BLADE MACHINING: $1,024,836.48
+
+SUSTAINABILITY
+--------------
+12. CARBON FOOTPRINT (cradle-to-gate + transport + EOL)
+    - Engine mass: 1221.7 kg
+    - Total CO₂e: 19624.5346 kg
+    - Total energy: 79413.64 kWh
+    - Score: 0/100 (Rating: E)
+    - Recyclable: 85%
+    - Recycled content: 40%
+    Breakdown:
+      Material       : 17715349.36 g CO₂e (90.3%)
+      Manufacturing  : 1211567.00 g CO₂e (6.2%)
+      Transport      : 605987.12 g CO₂e (3.1%)
+      End-of-Life    : 91631.12 g CO₂e (0.5%)
+
+ARTIFACTS
+---------
+- drawings/Fan-Blade-A3.svg
+- drawings/HPT-Blade-A3.svg
+- analysis/Fan-Blade-Toolpath.nc (G-code)
+- analysis/full-results.json
+- construction-log.json
+- engine-summary.json
+
+=====================================================
+END OF REPORT

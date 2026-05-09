@@ -1,0 +1,184 @@
+{
+  "fanBladeFEA": {
+    "pass": false,
+    "maxStressMPa": "933.33",
+    "yieldStrengthMPa": "880.00",
+    "safetyFactor": "0.943",
+    "maxDeflectionMm": "107.1666",
+    "massKg": "20.9318",
+    "meshElements": 216
+  },
+  "hptBladeFEA": {
+    "pass": true,
+    "maxStressMPa": "214.65",
+    "yieldStrengthMPa": "1035.00",
+    "safetyFactor": "4.822",
+    "maxDeflectionMm": "0.0718",
+    "massKg": "0.2068",
+    "meshElements": 216
+  },
+  "hptBladeModal": {
+    "modes": [
+      {
+        "mode": 1,
+        "freq": "1904.11",
+        "type": "bending"
+      },
+      {
+        "mode": 2,
+        "freq": "11930.47",
+        "type": "bending"
+      },
+      {
+        "mode": 3,
+        "freq": "33413.97",
+        "type": "torsional"
+      },
+      {
+        "mode": 4,
+        "freq": "85522.44",
+        "type": "torsional"
+      },
+      {
+        "mode": 5,
+        "freq": "133628.81",
+        "type": "axial"
+      }
+    ],
+    "firstFreq": "1904.11"
+  },
+  "hptThermal": {
+    "maxTempC": "1555.50",
+    "minTempC": "1400.00",
+    "heatFluxWm2": "777484.06",
+    "thermalStressMPa": "404.29",
+    "safeForMaterial": true
+  },
+  "fanFatigue": {
+    "pass": true,
+    "life": "Infinite life",
+    "safetyFactor": "198.516"
+  },
+  "bypassCFD": {
+    "reynolds": "69076887",
+    "regime": "turbulent (very high)",
+    "Cd": "0.500",
+    "dragForceN": "35458.0078",
+    "stagnationPressurePa": "38281.25",
+    "massFlowRateKgS": "567.3281",
+    "volumetricFlowM3h": "1667250.00"
+  },
+  "mountTopology": {
+    "totalCells": 360,
+    "keptCells": 0,
+    "removedCells": 360,
+    "massReductionPercent": "100.00",
+    "originalVolumeMm3": "87890625.00",
+    "optimizedVolumeMm3": "0.00",
+    "volumeFractionTarget": "35.0",
+    "actualVolumeFraction": "0.0",
+    "iterations": 25,
+    "penalty": 3
+  },
+  "cowlingMoldFlow": "3 issue(s)",
+  "fanBladeCost": {
+    "materialCost": "1393.7569",
+    "machiningCost": "1160.0000",
+    "setupCost": "32.2222",
+    "toolingCost": "2777.7778",
+    "finishingCost": "8.00",
+    "overhead": "805.7635",
+    "totalCost": "6177.5204",
+    "sellPrice": "8339.65"
+  },
+  "engineCost": {
+    "breakdown": [
+      {
+        "section": "Fan Blade",
+        "count": 18,
+        "unitCost": "2955.2843",
+        "sectionCost": "53195.12"
+      },
+      {
+        "section": "HPT Blade",
+        "count": 76,
+        "unitCost": "2012.3961",
+        "sectionCost": "152942.10"
+      },
+      {
+        "section": "IPT Blade",
+        "count": 80,
+        "unitCost": "1345.2878",
+        "sectionCost": "107623.03"
+      },
+      {
+        "section": "LPT Blade",
+        "count": 732,
+        "unitCost": "676.4338",
+        "sectionCost": "495149.51"
+      },
+      {
+        "section": "Compressor Blade",
+        "count": 832,
+        "unitCost": "259.5273",
+        "sectionCost": "215926.72"
+      }
+    ],
+    "totalUSD": "1024836.48"
+  },
+  "sustainability": {
+    "totalEngineMassKg": "1221.7",
+    "co2eKg": "19624.5346",
+    "co2eGrams": "19624534.60",
+    "energyMJ": "285889.09",
+    "energyKWh": "79413.64",
+    "score": "0",
+    "rating": "E",
+    "breakdown": [
+      {
+        "label": "Material",
+        "co2eGrams": "17715349.36",
+        "percent": "90.3"
+      },
+      {
+        "label": "Manufacturing",
+        "co2eGrams": "1211567.00",
+        "percent": "6.2"
+      },
+      {
+        "label": "Transport",
+        "co2eGrams": "605987.12",
+        "percent": "3.1"
+      },
+      {
+        "label": "End-of-Life",
+        "co2eGrams": "91631.12",
+        "percent": "0.5"
+      }
+    ],
+    "recyclability": {
+      "material": "Inconel 718",
+      "recyclablePercent": "85",
+      "currentRecycledContent": "40",
+      "recyclableMassKg": "1038.4860",
+      "wasteMassKg": "183.2622",
+      "biobased": false
+    }
+  },
+  "fanBladeGCode": {
+    "tool": "Ball Nose Endmill",
+    "diameterMm": "6.000",
+    "flutes": 4,
+    "rpm": 1617,
+    "feedRate": 194,
+    "lines": 1817,
+    "moves": 1700,
+    "passes": 50,
+    "totalLengthMm": "95700.0",
+    "cycleTimeMin": "493.3",
+    "toolDiameterMm": 6,
+    "depthOfCutMm": 0.6000000000000001,
+    "material": "Aluminum 6061-T6"
+  },
+  "fanBladeDrawingBytes": 10889
+}
