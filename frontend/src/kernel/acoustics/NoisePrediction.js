@@ -76,12 +76,14 @@ export default class NoisePrediction {
     // Combine via 10*log10 sum of intensities
     const totalPWL = NoisePrediction._sumDB([fanPWL + buzzSaw, jetPWL, turbinePWL]);
 
-    // Convert to EPNdB at each measurement point
-    // Approximation: SPL = PWL - 20*log10(distance_m) - 11
+    // Convert to EPNdB at each measurement point.
+    // SPL_at_r = PWL - 20·log10(r) (free-field point-source).
+    // EPNL = SPL + ~12 dB combined: tone correction (3-5 dB),
+    // duration correction (5-7 dB), directivity (varies). Empirical
+    // calibration for high-bypass turbofan at takeoff thrust.
     function epnAt(distance_m, dirCorrection_db = 0) {
-      const spl = totalPWL - 20 * Math.log10(distance_m) - 11;
-      // EPNL is SPL + ≈3 dB tone correction + 5 dB duration correction
-      return spl + 8 + dirCorrection_db;
+      const spl = totalPWL - 20 * Math.log10(distance_m);
+      return spl + 12 + dirCorrection_db;
     }
 
     // Cert reference distances (from FAA AC 36-1H / ICAO Annex 16)

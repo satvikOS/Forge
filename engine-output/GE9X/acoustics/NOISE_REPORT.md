@@ -1,6 +1,6 @@
 # GE9X Acoustic Noise Certification (FAR Part 36 / ICAO Annex 16 Ch.14)
 
-Generated: 2026-05-09T16:59:08.309Z
+Generated: 2026-05-09T17:06:09.445Z
 
 ## Source Levels (PWL, dB re 1pW)
 
@@ -24,13 +24,13 @@ Generated: 2026-05-09T16:59:08.309Z
 
 | Point | EPNdB | Distance | Limit (Ch.14) | Margin | Status |
 |-------|-------|----------|---------------|--------|--------|
-| Lateral (sideline) | 75.4 | 450 m | 103 | +27.6 | ✓ |
-| Flyover (cutback) | 68.5 | 700 m | 99 | +30.5 | ✓ |
-| Approach | 80.9 | 120 m | 105 | +24.1 | ✓ |
+| Lateral (sideline) | 90.4 | 450 m | 103 | +12.6 | ✓ |
+| Flyover (cutback) | 83.5 | 700 m | 99 | +15.5 | ✓ |
+| Approach | 95.9 | 120 m | 105 | +9.1 | ✓ |
 
 ## Cumulative margin
 
-**82.2 EPNdB** (Chapter 14 requires ≥ 17 EPNdB)
+**37.2 EPNdB** (Chapter 14 requires ≥ 17 EPNdB)
 
 Chapter 14 compliant: **YES**
 
