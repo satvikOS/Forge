@@ -16,6 +16,7 @@ import {
   DrawingEngine, Annotations,
   FEAVisualizer,
   ToolLibrary, CAMVisualizer, StockSimulator, MoldFlow,
+  PartNumbering, CostingEngine, Sustainability,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -927,11 +928,22 @@ const TOOL_HANDLERS = {
       const solid = ft.getSolid();
       if (!solid) return { status: 'warn', message: 'No solid to estimate.' };
       const props = solid.massProperties();
-      const materialCost = props.mass * 3.5; // ~$3.50/kg aluminum
-      const machiningCost = props.surfaceArea * 12; // ~$12/m²
+      const cycleTimeMin = parseFloat(_lastGCode?.stats?.cycleTimeMin) || 8;
+
+      const result = CostingEngine.analyze({
+        massKg: props.mass,
+        material: 'Aluminum 6061-T6',
+        machineTimeMin: cycleTimeMin,
+        process: 'cnc_3axis',
+        setupTimeMin: 30,
+        finishing: 'deburr',
+        batchSize: 100,
+        marginPercent: 25,
+      });
+
       return {
         status: 'success',
-        message: `Cost estimate: Material $${materialCost.toFixed(2)} + Machining $${machiningCost.toFixed(2)} = Total $${(materialCost + machiningCost).toFixed(2)}`
+        message: `Cost: Material $${result.perPart.materialCost} + Machining $${result.perPart.machiningCost} + Setup $${result.perPart.setupCost} + Finish $${result.perPart.finishingCost} + Overhead $${result.perPart.overhead} = $${result.perPart.totalCost}/part | Sell $${result.perPart.sellPrice} | Batch 100: $${result.batch.totalRevenue}`
       };
     },
   },
@@ -1775,7 +1787,23 @@ function runManufacturing(nameLower, toolName, scene, viewport, ft) {
   if (nameLower.includes('dfm') || nameLower.includes('dfa')) {
     return { status: 'success', message: `${toolName}: DFM Check — 2 warnings: (1) Wall thickness 0.8mm < min 1.0mm, (2) Draft angle 0.5° < recommended 1°` };
   }
-  if (nameLower.includes('sustainability') || nameLower.includes('weight')) {
+  if (nameLower.includes('sustainability') || nameLower.includes('carbon') || nameLower.includes('environmental')) {
+    const solid = ft.getSolid();
+    if (!solid) return needSolid(toolName);
+    const props = solid.massProperties();
+    const sus = Sustainability.analyze({
+      massKg: props.mass,
+      material: 'Aluminum 6061-T6',
+      process: 'cnc_3axis',
+      transportKm: 500,
+      region: 'global_avg',
+    });
+    return {
+      status: 'success',
+      message: `${toolName}: ${sus.total.co2eGrams}g CO₂e | ${sus.total.energyKWh} kWh | Score ${sus.total.score}/100 (${sus.total.rating}) | Recyclable ${sus.recyclability.recyclablePercent}% | Dominant: ${sus.dominant} (${sus.breakdown[0].percent}%)`
+    };
+  }
+  if (nameLower.includes('weight')) {
     const solid = ft.getSolid();
     if (!solid) return needSolid(toolName);
     const p = solid.massProperties();

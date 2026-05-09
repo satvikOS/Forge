@@ -5,16 +5,54 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # Cache electron-builder binaries (NSIS, winCodeSign, etc) — these
+      # are the resources that fail with 502 from GitHub releases.
+      - name: Cache electron-builder binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ runner.os }}-electron-builder-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-builder-
+
       - run: cd frontend && npm install
       - run: cd frontend && npx vite build
       - run: npm install -D electron electron-builder
-      - run: npx electron-builder --win --x64 --publish never --config.win.icon=null --config.nsis.installerIcon=null --config.nsis.uninstallerIcon=null --config.nsis.installerHeaderIcon=null
+
+      # Build with retry — electron-builder downloads from github.com which
+      # occasionally returns 502. Retry up to 3 times with exponential backoff.
+      - name: Build Windows installer (with retry)
+        shell: pwsh
+        run: |
+          $maxAttempts = 3
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+            Write-Host "Build attempt $i of $maxAttempts"
+            npx electron-builder --win --x64 --publish never --config.win.icon=null --config.nsis.installerIcon=null --config.nsis.uninstallerIcon=null --config.nsis.installerHeaderIcon=null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Build succeeded on attempt $i"
+              break
+            }
+            if ($i -lt $maxAttempts) {
+              $wait = [Math]::Pow(2, $i) * 10
+              Write-Host "Build failed, waiting $wait seconds before retry..."
+              Start-Sleep -Seconds $wait
+            } else {
+              Write-Host "Build failed after $maxAttempts attempts"
+              exit 1
+            }
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: ArchDisc-Setup
           path: dist-electron/ArchDisc-Setup-*.exe
+          retention-days: 30

@@ -87,6 +87,9 @@ export { default as BearingLibrary, BEARING_CATALOG } from './standards/BearingL
 
 // PDM / Version Control
 export { default as VersionControl } from './pdm/VersionControl.js';
+export { default as PartNumbering, SCHEMES as PART_NUMBERING_SCHEMES } from './pdm/PartNumbering.js';
+export { default as CostingEngine, MATERIAL_COSTS_PER_KG, MACHINE_RATES, FINISHING_COSTS } from './pdm/CostingEngine.js';
+export { default as Sustainability, MATERIAL_FOOTPRINTS, GRID_INTENSITY } from './pdm/Sustainability.js';
 
 // AI Agent Bridge
 export { default as AgentBridge } from './agents/AgentBridge.js';
