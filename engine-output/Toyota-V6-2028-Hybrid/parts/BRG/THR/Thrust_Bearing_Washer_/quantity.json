@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-BRG-THR-0002",
+  "name": "Thrust Bearing Washer 2",
+  "category": "BRG",
+  "subsystem": "THR",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-OIL-JET-0006",
+  "name": "Piston Cooling Jet 6",
+  "category": "OIL",
+  "subsystem": "JET",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-BLK-CST-0001",
+  "partTitle": "Cylinder Block (Aluminum, Open-Deck V6 60°)",
+  "serialNumber": "SN-294729",
+  "drawingNumber": "TYV6-BLK-CST-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-84875",
+  "manufacturingLot": "MFG-16570",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-84875",
+    "manufacturingProcess": "MFG-16570",
+    "inspectionRecord": "INSP-SN-294729",
+    "finalAcceptance": "2026-05-09"
+  }
+}

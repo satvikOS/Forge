@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-HYB-RES-0001",
+  "name": "Resolver MG1 (Position Feedback)",
+  "category": "HYB",
+  "subsystem": "RES",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

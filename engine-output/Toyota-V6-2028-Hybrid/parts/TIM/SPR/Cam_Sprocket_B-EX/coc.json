@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-TIM-SPR-0005",
+  "partTitle": "Cam Sprocket B-EX",
+  "serialNumber": "SN-306751",
+  "drawingNumber": "TYV6-TIM-SPR-0005-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-05385",
+  "manufacturingLot": "MFG-27547",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-05385",
+    "manufacturingProcess": "MFG-27547",
+    "inspectionRecord": "INSP-SN-306751",
+    "finalAcceptance": "2026-05-09"
+  }
+}

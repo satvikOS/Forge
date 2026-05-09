@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-EMIS-GPF-0001",
+  "name": "Gasoline Particulate Filter (GPF, Coated Wall-Flow)",
+  "category": "EMIS",
+  "subsystem": "GPF",
+  "material": "CMC SiC/SiC",
+  "classification": "Class 3",
+  "quantity": 1
+}

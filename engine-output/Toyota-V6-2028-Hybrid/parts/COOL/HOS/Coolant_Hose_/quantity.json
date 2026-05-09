@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-COOL-HOS-0008",
+  "name": "Coolant Hose 8",
+  "category": "COOL",
+  "subsystem": "HOS",
+  "material": "Nylon 6/6",
+  "classification": "Class 3",
+  "quantity": 1
+}

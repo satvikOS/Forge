@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-VVT-MTR-0002",
+  "name": "VVT-iE Motor Bank B",
+  "category": "VVT",
+  "subsystem": "MTR",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

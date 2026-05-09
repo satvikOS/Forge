@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-EGT-0001",
+  "name": "EGT Sensor 1 (pre-CC)",
+  "category": "SNS",
+  "subsystem": "EGT",
+  "material": "Inconel 718",
+  "classification": "Class 3",
+  "quantity": 1
+}

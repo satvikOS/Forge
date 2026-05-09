@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-TIM-CHN-0001",
+  "partTitle": "Primary Timing Chain (silent, 1/4-inch pitch)",
+  "serialNumber": "SN-607202",
+  "drawingNumber": "TYV6-TIM-CHN-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-40397",
+  "manufacturingLot": "MFG-27193",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-40397",
+    "manufacturingProcess": "MFG-27193",
+    "inspectionRecord": "INSP-SN-607202",
+    "finalAcceptance": "2026-05-09"
+  }
+}

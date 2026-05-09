@@ -1,0 +1,18 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-HVB-BMS-0001",
+  "partTitle": "Battery Management System (BMS) PCB",
+  "serialNumber": "SN-707371",
+  "drawingNumber": "TYV6-HVB-BMS-0001-DWG",
+  "drawingRev": "A",
+  "manufacturingLot": "MFG-38718",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "manufacturingProcess": "MFG-38718",
+    "inspectionRecord": "INSP-SN-707371",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-COOL-THR-0001",
+  "name": "Electronic Thermostat (Variable Open Temp)",
+  "category": "COOL",
+  "subsystem": "THR",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

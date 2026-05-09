@@ -1,0 +1,29 @@
+{
+  "partID": "TYV6-BLK-MBC-0004",
+  "partName": "Main Bearing Cap 4 (Cross-Bolted)",
+  "project": "TYV6",
+  "classification": "Class 3",
+  "category": "BLK",
+  "subsystem": "MBC",
+  "material": "Steel AISI 4340",
+  "generatedAt": "2026-05-09T20:23:36.923Z",
+  "drawingNumber": "TYV6-BLK-MBC-0004-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TYV6",
+  "certificationLevel": "Standard"
+}

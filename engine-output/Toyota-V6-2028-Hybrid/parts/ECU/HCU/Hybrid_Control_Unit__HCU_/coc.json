@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-ECU-HCU-0001",
+  "partTitle": "Hybrid Control Unit (HCU)",
+  "serialNumber": "SN-603878",
+  "drawingNumber": "TYV6-ECU-HCU-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-36899",
+  "manufacturingLot": "MFG-39181",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-36899",
+    "manufacturingProcess": "MFG-39181",
+    "inspectionRecord": "INSP-SN-603878",
+    "finalAcceptance": "2026-05-09"
+  }
+}

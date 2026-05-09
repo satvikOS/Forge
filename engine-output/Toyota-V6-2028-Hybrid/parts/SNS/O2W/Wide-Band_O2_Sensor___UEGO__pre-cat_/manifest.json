@@ -1,0 +1,29 @@
+{
+  "partID": "TYV6-SNS-O2W-0002",
+  "partName": "Wide-Band O2 Sensor 2 (UEGO, pre-cat)",
+  "project": "TYV6",
+  "classification": "Class 3",
+  "category": "SNS",
+  "subsystem": "O2W",
+  "material": "Inconel 718",
+  "generatedAt": "2026-05-09T20:23:49.027Z",
+  "drawingNumber": "TYV6-SNS-O2W-0002-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TYV6",
+  "certificationLevel": "Standard"
+}

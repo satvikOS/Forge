@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-KNK-0002",
+  "name": "Knock Sensor Bank B",
+  "category": "SNS",
+  "subsystem": "KNK",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

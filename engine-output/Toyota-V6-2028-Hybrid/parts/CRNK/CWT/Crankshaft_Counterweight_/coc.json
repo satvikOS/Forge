@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-CRNK-CWT-0008",
+  "partTitle": "Crankshaft Counterweight 8",
+  "serialNumber": "SN-586992",
+  "drawingNumber": "TYV6-CRNK-CWT-0008-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-62201",
+  "manufacturingLot": "MFG-17378",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-62201",
+    "manufacturingProcess": "MFG-17378",
+    "inspectionRecord": "INSP-SN-586992",
+    "finalAcceptance": "2026-05-09"
+  }
+}

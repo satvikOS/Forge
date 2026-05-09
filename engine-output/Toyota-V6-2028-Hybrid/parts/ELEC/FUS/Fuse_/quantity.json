@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-ELEC-FUS-0012",
+  "name": "Fuse 4",
+  "category": "ELEC",
+  "subsystem": "FUS",
+  "material": "ABS Plastic",
+  "classification": "Class 3",
+  "quantity": 1
+}

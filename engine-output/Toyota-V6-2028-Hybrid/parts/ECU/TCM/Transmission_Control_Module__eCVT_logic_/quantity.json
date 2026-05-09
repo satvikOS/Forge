@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-ECU-TCM-0001",
+  "name": "Transmission Control Module (eCVT logic)",
+  "category": "ECU",
+  "subsystem": "TCM",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

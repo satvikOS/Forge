@@ -1,0 +1,66 @@
+{
+  "deliverable": "Toyota V35X-LEV 2028 V6 Hybrid Engine — Final-Approval Submission Package",
+  "project": "Toyota V35X-LEV",
+  "application": "2028 Toyota mid-size SUV (segment-leading low-emissions hybrid)",
+  "submissionType": "EPA Tier 4 / CARB SULEV30 / Euro 7 / China 6c emissions certification",
+  "cad": "ArchDisc v1.21+ proprietary B-Rep kernel — STEP / SVG / JSON deliverables",
+  "generatedAt": "2026-05-09T20:24:10.864Z",
+  "counts": {
+    "totalComponents": 1457,
+    "uniquePartDefinitions": 1457,
+    "productionPackagesGenerated": 1457,
+    "filesInDelivery": 20398,
+    "class1_LLP": 0,
+    "class2_Important": 0,
+    "class3_Standard": 1457
+  },
+  "physical": {
+    "totalMass_kg": 539.1,
+    "target_dry_mass_kg": 175,
+    "manufacturingCost_USD_per_unit": 55661,
+    "displacement_cc": 3456,
+    "bore_mm": 92.5,
+    "stroke_mm": 86.7
+  },
+  "performance": {
+    "peak_power_kW": 304.78,
+    "peak_power_hp": 408.7,
+    "peak_torque_Nm": 446.3,
+    "peak_torque_lbft": 329.2,
+    "BSFC_min_g_kWh": 157.2,
+    "thermal_eff_cruise_pct": 52.1,
+    "hybrid_total_kW": 280,
+    "hybrid_total_hp": 375
+  },
+  "emissions": {
+    "CO2_g_per_km": 116.1,
+    "NOx_g_per_mile": 0.0001,
+    "HC_g_per_mile": 0.0008,
+    "CO_g_per_mile": 0,
+    "PM_g_per_mile": 0.00001,
+    "NMHCNOx_g_per_mile": 0.0009,
+    "compliance_status": "PASS — segment-leading low emissions"
+  },
+  "certification": {
+    "checks_passed": 5,
+    "checks_total": 5,
+    "regulations": [
+      "EPA Tier 4",
+      "CARB SULEV30",
+      "Euro 7",
+      "China 6c"
+    ]
+  },
+  "folderLayout": [
+    "parts/<CAT>/<SUB>/<NAME>/   per-part Part-21 package (drawing + STEP + tolerance + inspection + cert + CoC + FMEA + FEA + process specs)",
+    "assembly/EBOM.csv",
+    "assembly/MBOM.csv + .json",
+    "assembly/unique-parts-index.json",
+    "assembly/master-assembly-drawing.svg",
+    "performance/otto-{peak-power,peak-torque,cruise,idle}.json",
+    "emissions/combined-cycle.json",
+    "certification/tier4-sulev30-compliance.json",
+    "maintenance/tasks.json + llp-table.json",
+    "manifest.json + README.md + Toyota-V6-Submission-Report.html"
+  ]
+}

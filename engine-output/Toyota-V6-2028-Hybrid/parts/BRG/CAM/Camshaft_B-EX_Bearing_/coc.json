@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-BRG-CAM-0020",
+  "partTitle": "Camshaft B-EX Bearing 5",
+  "serialNumber": "SN-748948",
+  "drawingNumber": "TYV6-BRG-CAM-0020-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-75993",
+  "manufacturingLot": "MFG-22167",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-75993",
+    "manufacturingProcess": "MFG-22167",
+    "inspectionRecord": "INSP-SN-748948",
+    "finalAcceptance": "2026-05-09"
+  }
+}

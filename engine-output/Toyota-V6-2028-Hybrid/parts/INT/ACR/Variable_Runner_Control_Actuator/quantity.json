@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-INT-ACR-0001",
+  "name": "Variable Runner Control Actuator",
+  "category": "INT",
+  "subsystem": "ACR",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

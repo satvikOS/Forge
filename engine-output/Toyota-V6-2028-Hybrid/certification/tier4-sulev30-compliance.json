@@ -1,0 +1,45 @@
+{
+  "regulation": "EPA Tier 4 / CARB SULEV30 / Euro 7 / China 6c",
+  "checks": [
+    {
+      "code": "40 CFR 86.1811-17",
+      "name": "Light-duty Tier 4 SULEV30 NMHC+NOx",
+      "limit": 0.03,
+      "actual": 0.0009,
+      "unit": "g/mi",
+      "status": "PASS"
+    },
+    {
+      "code": "40 CFR 86.1811-17",
+      "name": "Light-duty Tier 4 CO",
+      "limit": 1,
+      "actual": 0,
+      "unit": "g/mi",
+      "status": "PASS"
+    },
+    {
+      "code": "40 CFR 86.1811-17",
+      "name": "Light-duty Tier 4 PM",
+      "limit": 0.003,
+      "actual": 0.00001,
+      "unit": "g/mi",
+      "status": "PASS"
+    },
+    {
+      "code": "EU 2026/1175 Euro 7",
+      "name": "Euro 7 NOx (passenger car gasoline)",
+      "limit": 0.06,
+      "actual": 0.0001,
+      "unit": "g/mi",
+      "status": "PASS"
+    },
+    {
+      "code": "CARB ZEV (2035)",
+      "name": "CO2 fleet target",
+      "limit": 165,
+      "actual": 116.1,
+      "unit": "g/km",
+      "status": "PASS"
+    }
+  ]
+}

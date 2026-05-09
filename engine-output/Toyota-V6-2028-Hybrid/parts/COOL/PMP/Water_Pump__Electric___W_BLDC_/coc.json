@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-COOL-PMP-0001",
+  "partTitle": "Water Pump (Electric, 250 W BLDC)",
+  "serialNumber": "SN-810321",
+  "drawingNumber": "TYV6-COOL-PMP-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-29397",
+  "manufacturingLot": "MFG-28121",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-29397",
+    "manufacturingProcess": "MFG-28121",
+    "inspectionRecord": "INSP-SN-810321",
+    "finalAcceptance": "2026-05-09"
+  }
+}

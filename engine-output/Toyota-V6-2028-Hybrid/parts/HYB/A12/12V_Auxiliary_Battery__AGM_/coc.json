@@ -1,0 +1,18 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-HYB-A12-0001",
+  "partTitle": "12V Auxiliary Battery (AGM)",
+  "serialNumber": "SN-106341",
+  "drawingNumber": "TYV6-HYB-A12-0001-DWG",
+  "drawingRev": "A",
+  "manufacturingLot": "MFG-31159",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "manufacturingProcess": "MFG-31159",
+    "inspectionRecord": "INSP-SN-106341",
+    "finalAcceptance": "2026-05-09"
+  }
+}

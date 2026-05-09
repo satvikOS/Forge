@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-PIST-BDY-0006",
+  "name": "Piston 3-B (forged AlSi)",
+  "category": "PIST",
+  "subsystem": "BDY",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

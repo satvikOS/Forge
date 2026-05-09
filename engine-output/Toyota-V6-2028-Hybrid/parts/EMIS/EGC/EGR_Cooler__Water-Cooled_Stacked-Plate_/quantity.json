@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-EMIS-EGC-0001",
+  "name": "EGR Cooler (Water-Cooled Stacked-Plate)",
+  "category": "EMIS",
+  "subsystem": "EGC",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

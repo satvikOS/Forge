@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-ECU-PCM-0001",
+  "partTitle": "Powertrain Control Module (PCM, AURIX TC399 dual-core)",
+  "serialNumber": "SN-402732",
+  "drawingNumber": "TYV6-ECU-PCM-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-95406",
+  "manufacturingLot": "MFG-39158",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-95406",
+    "manufacturingProcess": "MFG-39158",
+    "inspectionRecord": "INSP-SN-402732",
+    "finalAcceptance": "2026-05-09"
+  }
+}

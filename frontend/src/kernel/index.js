@@ -126,6 +126,9 @@ export { default as ProjectExporter } from './export/ProjectExporter.js';
 // Brayton thermodynamic cycle — real engine performance
 export { default as BraytonCycle } from './thermodynamics/BraytonCycle.js';
 
+// Otto / Atkinson IC-engine cycle — performance + BSFC + emissions
+export { default as OttoCycle } from './thermodynamics/OttoCycle.js';
+
 // Acoustic noise prediction — FAR Part 36 / ICAO Annex 16 cert margins
 export { default as NoisePrediction } from './acoustics/NoisePrediction.js';
 

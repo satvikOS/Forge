@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-HVB-MOD-0006",
+  "name": "Battery Module 6",
+  "category": "HVB",
+  "subsystem": "MOD",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

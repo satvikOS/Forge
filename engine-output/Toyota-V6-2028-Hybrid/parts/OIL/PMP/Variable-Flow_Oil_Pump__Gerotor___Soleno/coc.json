@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-OIL-PMP-0001",
+  "partTitle": "Variable-Flow Oil Pump (Gerotor + Solenoid Control)",
+  "serialNumber": "SN-262436",
+  "drawingNumber": "TYV6-OIL-PMP-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-69501",
+  "manufacturingLot": "MFG-27792",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-69501",
+    "manufacturingProcess": "MFG-27792",
+    "inspectionRecord": "INSP-SN-262436",
+    "finalAcceptance": "2026-05-09"
+  }
+}

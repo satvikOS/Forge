@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-CKP-0001",
+  "name": "Crank Position Sensor (Hall, 36-1)",
+  "category": "SNS",
+  "subsystem": "CKP",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

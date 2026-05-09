@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-ELEC-PHS-0006",
+  "name": "MG Phase Cable 6 (Orange HV Shielded)",
+  "category": "ELEC",
+  "subsystem": "PHS",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1
+}

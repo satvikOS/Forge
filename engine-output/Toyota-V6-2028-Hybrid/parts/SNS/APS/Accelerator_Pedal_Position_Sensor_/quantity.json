@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-APS-0002",
+  "name": "Accelerator Pedal Position Sensor 2",
+  "category": "SNS",
+  "subsystem": "APS",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-FUEL-DI-0006",
+  "partTitle": "D-4S DI Injector 6",
+  "serialNumber": "SN-523671",
+  "drawingNumber": "TYV6-FUEL-DI-0006-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-17720",
+  "manufacturingLot": "MFG-29882",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-17720",
+    "manufacturingProcess": "MFG-29882",
+    "inspectionRecord": "INSP-SN-523671",
+    "finalAcceptance": "2026-05-09"
+  }
+}

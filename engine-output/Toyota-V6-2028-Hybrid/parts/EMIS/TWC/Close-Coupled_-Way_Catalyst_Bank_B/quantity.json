@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-EMIS-TWC-0002",
+  "name": "Close-Coupled 3-Way Catalyst Bank B",
+  "category": "EMIS",
+  "subsystem": "TWC",
+  "material": "CMC SiC/SiC",
+  "classification": "Class 3",
+  "quantity": 1
+}

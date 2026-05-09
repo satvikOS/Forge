@@ -1,0 +1,18 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-ELEC-CNN-0120",
+  "partTitle": "Electrical Connector 120",
+  "serialNumber": "SN-144150",
+  "drawingNumber": "TYV6-ELEC-CNN-0120-DWG",
+  "drawingRev": "A",
+  "manufacturingLot": "MFG-41902",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "manufacturingProcess": "MFG-41902",
+    "inspectionRecord": "INSP-SN-144150",
+    "finalAcceptance": "2026-05-09"
+  }
+}

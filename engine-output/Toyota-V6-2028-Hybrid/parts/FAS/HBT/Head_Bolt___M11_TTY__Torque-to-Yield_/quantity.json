@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-FAS-HBT-0024",
+  "name": "Head Bolt 24 (M11 TTY, Torque-to-Yield)",
+  "category": "FAS",
+  "subsystem": "HBT",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

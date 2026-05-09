@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-EMIS-EPI-0003",
+  "name": "EGR Pipe 3",
+  "category": "EMIS",
+  "subsystem": "EPI",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

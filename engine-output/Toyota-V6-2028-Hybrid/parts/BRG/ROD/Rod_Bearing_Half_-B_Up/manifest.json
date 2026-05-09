@@ -1,0 +1,29 @@
+{
+  "partID": "TYV6-BRG-ROD-0011",
+  "partName": "Rod Bearing Half 3-B Up",
+  "project": "TYV6",
+  "classification": "Class 3",
+  "category": "BRG",
+  "subsystem": "ROD",
+  "material": "Copper C11000",
+  "generatedAt": "2026-05-09T20:23:38.565Z",
+  "drawingNumber": "TYV6-BRG-ROD-0011-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TYV6",
+  "certificationLevel": "Standard"
+}

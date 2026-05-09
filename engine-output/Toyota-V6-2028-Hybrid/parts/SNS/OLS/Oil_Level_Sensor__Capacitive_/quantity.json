@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-OLS-0001",
+  "name": "Oil Level Sensor (Capacitive)",
+  "category": "SNS",
+  "subsystem": "OLS",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

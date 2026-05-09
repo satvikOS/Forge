@@ -1,0 +1,47 @@
+{
+  "input": {
+    "engine": {
+      "bore_mm": 92.5,
+      "stroke_mm": 86.7,
+      "cylinders": 6,
+      "compRatio": 11.8,
+      "atkinsonRatio": 1.4,
+      "lambda": 1,
+      "EGR_pct": 18
+    },
+    "hybrid": {
+      "city_engineOnPct": 0.4,
+      "hwy_engineOnPct": 0.85,
+      "city_avgKW": 12,
+      "hwy_avgKW": 35
+    }
+  },
+  "duty": {
+    "city": {
+      "engineOnPct": 0.4,
+      "avgKW": 12,
+      "distance_km": 17.7,
+      "energy_kWh": 2.4274285714285715
+    },
+    "hwy": {
+      "engineOnPct": 0.85,
+      "avgKW": 35,
+      "distance_km": 26.4,
+      "energy_kWh": 7.854000000000001
+    },
+    "totalEngineEnergy_kWh": 10.281428571428572
+  },
+  "tailpipe": {
+    "CO2_g_per_km": 116.1,
+    "NOx_g_per_mile": 0.0001,
+    "HC_g_per_mile": 0.0008,
+    "CO_g_per_mile": 0,
+    "PM_g_per_mile": 0.00001,
+    "NMHCNOx_g_per_mile": 0.0009
+  },
+  "compliance": {
+    "SULEV30_NMHCNOx_g_mi": 0.03,
+    "SULEV30_CO_g_mi": 1,
+    "SULEV30_PM_g_mi": 0.003
+  }
+}

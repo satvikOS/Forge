@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-VVT-GER-0001",
+  "name": "VVT-iE Reduction Gear Bank A",
+  "category": "VVT",
+  "subsystem": "GER",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

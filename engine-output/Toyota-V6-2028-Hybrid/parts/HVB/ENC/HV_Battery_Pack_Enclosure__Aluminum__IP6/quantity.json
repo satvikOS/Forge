@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-HVB-ENC-0001",
+  "name": "HV Battery Pack Enclosure (Aluminum, IP67)",
+  "category": "HVB",
+  "subsystem": "ENC",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

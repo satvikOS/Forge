@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-FUEL-PI-0006",
+  "name": "D-4S Port Injector 6",
+  "category": "FUEL",
+  "subsystem": "PI",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

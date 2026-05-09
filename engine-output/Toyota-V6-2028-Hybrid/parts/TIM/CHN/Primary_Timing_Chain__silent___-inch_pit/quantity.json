@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-TIM-CHN-0001",
+  "name": "Primary Timing Chain (silent, 1/4-inch pitch)",
+  "category": "TIM",
+  "subsystem": "CHN",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

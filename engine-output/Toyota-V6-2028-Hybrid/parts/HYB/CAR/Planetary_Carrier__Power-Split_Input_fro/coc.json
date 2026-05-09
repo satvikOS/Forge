@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-HYB-CAR-0001",
+  "partTitle": "Planetary Carrier (Power-Split Input from ICE)",
+  "serialNumber": "SN-757383",
+  "drawingNumber": "TYV6-HYB-CAR-0001-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-65056",
+  "manufacturingLot": "MFG-30683",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-65056",
+    "manufacturingProcess": "MFG-30683",
+    "inspectionRecord": "INSP-SN-757383",
+    "finalAcceptance": "2026-05-09"
+  }
+}

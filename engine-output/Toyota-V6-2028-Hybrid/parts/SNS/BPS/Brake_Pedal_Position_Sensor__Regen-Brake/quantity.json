@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-BPS-0001",
+  "name": "Brake Pedal Position Sensor (Regen-Brake Blending)",
+  "category": "SNS",
+  "subsystem": "BPS",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

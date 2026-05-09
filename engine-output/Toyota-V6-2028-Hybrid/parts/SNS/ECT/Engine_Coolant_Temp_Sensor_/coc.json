@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-SNS-ECT-0002",
+  "partTitle": "Engine Coolant Temp Sensor 2",
+  "serialNumber": "SN-359595",
+  "drawingNumber": "TYV6-SNS-ECT-0002-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-84823",
+  "manufacturingLot": "MFG-28259",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-84823",
+    "manufacturingProcess": "MFG-28259",
+    "inspectionRecord": "INSP-SN-359595",
+    "finalAcceptance": "2026-05-09"
+  }
+}

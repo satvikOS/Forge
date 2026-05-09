@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-TIM-CHN-0003",
+  "name": "Secondary Timing Chain Bank B",
+  "category": "TIM",
+  "subsystem": "CHN",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}

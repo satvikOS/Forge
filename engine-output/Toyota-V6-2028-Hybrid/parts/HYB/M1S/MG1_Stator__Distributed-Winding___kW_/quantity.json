@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-HYB-M1S-0001",
+  "name": "MG1 Stator (Distributed-Winding, 30 kW)",
+  "category": "HYB",
+  "subsystem": "M1S",
+  "material": "Copper C11000",
+  "classification": "Class 3",
+  "quantity": 1
+}

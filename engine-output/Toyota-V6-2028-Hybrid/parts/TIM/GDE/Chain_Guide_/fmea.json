@@ -1,0 +1,43 @@
+{
+  "partID": "TYV6-TIM-GDE-0006",
+  "partTitle": "Chain Guide 6",
+  "classification": "Class 3",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "TIM",
+    "subsystem": "GDE",
+    "material": "Nylon 6/6"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Material defect",
+      "effect": "Premature failure",
+      "severity": 6,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 120,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Manufacturing defect",
+      "effect": "Out-of-tolerance assembly",
+      "severity": 5,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 100,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 120,
+    "avgRPN": 110,
+    "criticalCount": 1
+  }
+}

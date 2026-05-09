@@ -1,0 +1,43 @@
+{
+  "partID": "TYV6-BRG-ROD-0012",
+  "partTitle": "Rod Bearing Half 3-B Lo",
+  "classification": "Class 3",
+  "ferraName": "ArchDisc",
+  "preparedBy": "Design Engineer",
+  "date": "2026-05-09",
+  "part": {
+    "category": "BRG",
+    "subsystem": "ROD",
+    "material": "Copper C11000"
+  },
+  "analysisItems": [
+    {
+      "seq": 1,
+      "failureMode": "Material defect",
+      "effect": "Premature failure",
+      "severity": 6,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 120,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "Yes"
+    },
+    {
+      "seq": 2,
+      "failureMode": "Manufacturing defect",
+      "effect": "Out-of-tolerance assembly",
+      "severity": 5,
+      "occurrence": 4,
+      "detection": 5,
+      "RPN": 100,
+      "currentControls": "Visual inspection per receiving QC",
+      "actionRequired": "No"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "maxRPN": 120,
+    "avgRPN": 110,
+    "criticalCount": 1
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "partID": "TYV6-ELEC-HRN-0016",
+  "partName": "Engine Harness Segment 16",
+  "project": "TYV6",
+  "classification": "Class 3",
+  "category": "ELEC",
+  "subsystem": "HRN",
+  "material": "Copper C11000",
+  "generatedAt": "2026-05-09T20:23:59.543Z",
+  "drawingNumber": "TYV6-ELEC-HRN-0016-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TYV6",
+  "certificationLevel": "Standard"
+}

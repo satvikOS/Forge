@@ -1,0 +1,29 @@
+{
+  "partID": "TYV6-ROD-CAP-0003",
+  "partName": "Rod Big-End Cap 3-A",
+  "project": "TYV6",
+  "classification": "Class 3",
+  "category": "ROD",
+  "subsystem": "CAP",
+  "material": "Steel AISI 4340",
+  "generatedAt": "2026-05-09T20:23:38.092Z",
+  "drawingNumber": "TYV6-ROD-CAP-0003-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TYV6",
+  "certificationLevel": "Standard"
+}

@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-VLV-IN-0006",
+  "partTitle": "Valve 3-A-IN-2",
+  "serialNumber": "SN-618046",
+  "drawingNumber": "TYV6-VLV-IN-0006-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-42030",
+  "manufacturingLot": "MFG-23953",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-42030",
+    "manufacturingProcess": "MFG-23953",
+    "inspectionRecord": "INSP-SN-618046",
+    "finalAcceptance": "2026-05-09"
+  }
+}

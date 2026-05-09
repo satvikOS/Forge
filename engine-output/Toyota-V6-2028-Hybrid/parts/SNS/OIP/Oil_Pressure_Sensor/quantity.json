@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-OIP-0001",
+  "name": "Oil Pressure Sensor",
+  "category": "SNS",
+  "subsystem": "OIP",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

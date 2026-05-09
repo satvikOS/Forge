@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-OIL-COL-0001",
+  "name": "Oil Cooler (Water-Cooled Stacked-Plate)",
+  "category": "OIL",
+  "subsystem": "COL",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

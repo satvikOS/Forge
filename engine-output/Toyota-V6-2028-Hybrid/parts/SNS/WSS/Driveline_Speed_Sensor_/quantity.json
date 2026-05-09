@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-SNS-WSS-0002",
+  "name": "Driveline Speed Sensor 2",
+  "category": "SNS",
+  "subsystem": "WSS",
+  "material": "Stainless Steel 316",
+  "classification": "Class 3",
+  "quantity": 1
+}

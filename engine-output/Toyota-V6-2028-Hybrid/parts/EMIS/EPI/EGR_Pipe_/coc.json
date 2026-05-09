@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-EMIS-EPI-0003",
+  "partTitle": "EGR Pipe 3",
+  "serialNumber": "SN-011722",
+  "drawingNumber": "TYV6-EMIS-EPI-0003-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-56005",
+  "manufacturingLot": "MFG-29700",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-56005",
+    "manufacturingProcess": "MFG-29700",
+    "inspectionRecord": "INSP-SN-011722",
+    "finalAcceptance": "2026-05-09"
+  }
+}

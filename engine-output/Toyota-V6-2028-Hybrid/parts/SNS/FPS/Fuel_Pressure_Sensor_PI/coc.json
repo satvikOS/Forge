@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-SNS-FPS-0002",
+  "partTitle": "Fuel Pressure Sensor PI",
+  "serialNumber": "SN-497412",
+  "drawingNumber": "TYV6-SNS-FPS-0002-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-87605",
+  "manufacturingLot": "MFG-30192",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-87605",
+    "manufacturingProcess": "MFG-30192",
+    "inspectionRecord": "INSP-SN-497412",
+    "finalAcceptance": "2026-05-09"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "certType": "Certificate of Conformance",
+  "partID": "TYV6-SNS-KNK-0002",
+  "partTitle": "Knock Sensor Bank B",
+  "serialNumber": "SN-839720",
+  "drawingNumber": "TYV6-SNS-KNK-0002-DWG",
+  "drawingRev": "A",
+  "heatLot": "HL-91380",
+  "manufacturingLot": "MFG-30531",
+  "facilityCode": "AD-001",
+  "certDate": "2026-05-09",
+  "attestation": "This part has been manufactured, inspected, and tested in accordance with the referenced drawing revision and conforms in all aspects to its specified requirements.",
+  "qualityManager": "Q. Manager (QM-1)",
+  "traceability": {
+    "rawMaterial": "HL-91380",
+    "manufacturingProcess": "MFG-30531",
+    "inspectionRecord": "INSP-SN-839720",
+    "finalAcceptance": "2026-05-09"
+  }
+}

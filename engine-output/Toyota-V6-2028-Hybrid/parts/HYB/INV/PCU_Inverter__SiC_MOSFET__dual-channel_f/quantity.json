@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-HYB-INV-0001",
+  "name": "PCU Inverter (SiC MOSFET, dual-channel for MG1 + MG2)",
+  "category": "HYB",
+  "subsystem": "INV",
+  "material": "Aluminum 6061-T6",
+  "classification": "Class 3",
+  "quantity": 1
+}

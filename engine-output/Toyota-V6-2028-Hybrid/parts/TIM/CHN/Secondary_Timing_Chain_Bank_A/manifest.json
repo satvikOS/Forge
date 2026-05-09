@@ -1,0 +1,29 @@
+{
+  "partID": "TYV6-TIM-CHN-0002",
+  "partName": "Secondary Timing Chain Bank A",
+  "project": "TYV6",
+  "classification": "Class 3",
+  "category": "TIM",
+  "subsystem": "CHN",
+  "material": "Steel AISI 4340",
+  "generatedAt": "2026-05-09T20:23:47.287Z",
+  "drawingNumber": "TYV6-TIM-CHN-0002-DWG",
+  "revision": "A",
+  "filesIncluded": [
+    "part.step",
+    "drawing.svg",
+    "tolerance.json",
+    "inspection.md",
+    "inspection.json",
+    "material-cert.md",
+    "material-cert.json",
+    "coc.md",
+    "coc.json",
+    "fmea.md",
+    "fmea.json",
+    "process-specs.md"
+  ],
+  "packageVersion": "1.0",
+  "partOfProject": "TYV6",
+  "certificationLevel": "Standard"
+}

@@ -1,0 +1,9 @@
+{
+  "partID": "TYV6-ROD-PIN-0003",
+  "name": "Wrist Pin 3-A",
+  "category": "ROD",
+  "subsystem": "PIN",
+  "material": "Steel AISI 4340",
+  "classification": "Class 3",
+  "quantity": 1
+}
