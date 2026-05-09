@@ -550,7 +550,7 @@ export default class GE9XBuilder {
           color: isCMC ? 0xdcc890 : 0x8090a0,
           position: new Vec3(0, 0, zCursor),
           rotation: new Vec3(0, 0, a),
-          material: isCMC ? 'CMC SiC/SiC' : 'Single-Crystal Nickel CMSX-4',
+          material: isCMC ? 'CMC SiC/SiC' : 'Single-Crystal Nickel CMSX-4 (TBC-coated)',
           category: 'HPT', subsystem: 'NGV',
           metadata: { stage: s, cmc: isCMC, position: i },
         });
@@ -574,7 +574,7 @@ export default class GE9XBuilder {
           color: isCMC ? 0xdcc890 : 0x9a9aaa,
           position: new Vec3(0, 0, zCursor + 0.07),
           rotation: new Vec3(0, 0, a),
-          material: isCMC ? 'CMC SiC/SiC' : 'Single-Crystal Nickel CMSX-4',
+          material: isCMC ? 'CMC SiC/SiC' : 'Single-Crystal Nickel CMSX-4 (TBC-coated)',
           category: 'HPT', subsystem: 'BLD',
           metadata: { stage: s, cmc: isCMC, position: i, coating: 'TBC' },
         });

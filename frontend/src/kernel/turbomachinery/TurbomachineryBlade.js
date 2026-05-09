@@ -58,16 +58,18 @@ export default class TurbomachineryBlade {
       const thickness = rootThicknessPct + t * (tipThicknessPct - rootThicknessPct);
       const stagger = rootStagger + t * (tipStagger - rootStagger);
 
-      // Generate 2D airfoil profile
+      // Generate 2D airfoil profile. Higher resolution (100 points) for
+      // fan blades which are large and viewed at any zoom level.
       let pts2D;
+      const resolution = bladeType === 'fan' ? 100 : 60;
       if (bladeType === 'turbine') {
-        pts2D = NACA.turbineAirfoil(camber, thickness, chord, 60);
+        pts2D = NACA.turbineAirfoil(camber, thickness, chord, resolution);
       } else if (bladeType === 'fan') {
         const c = Math.max(0, Math.min(9, Math.round(camber)));
         const t = Math.max(1, Math.min(99, Math.round(thickness)));
-        pts2D = NACA.fourDigit(`${c}5${t.toString().padStart(2, '0')}`, chord, 60);
+        pts2D = NACA.fourDigit(`${c}5${t.toString().padStart(2, '0')}`, chord, resolution);
       } else {
-        pts2D = NACA.compressorAirfoil(camber, thickness, chord, 60);
+        pts2D = NACA.compressorAirfoil(camber, thickness, chord, resolution);
       }
 
       // Place at radius r along Y axis (blade extends in Y, airfoil in XZ)
@@ -89,15 +91,17 @@ export default class TurbomachineryBlade {
 
   /**
    * Build a fan blade — wide chord, low aspect ratio, high twist.
+   * Uses 13 stations and high airfoil resolution so the curved surfaces
+   * tessellate cleanly even at engine-overview scale.
    */
   static fanBlade(rHub, rTip, rootChord = 0.15) {
     return TurbomachineryBlade.build({
       rHub, rTip,
-      rootChord, tipChord: rootChord * 1.4,  // tip wider than root for fan
+      rootChord, tipChord: rootChord * 1.4,
       rootCamberPct: 8, tipCamberPct: 2,
       rootThicknessPct: 12, tipThicknessPct: 4,
       rootStagger: 65, tipStagger: 20,
-      numStations: 9,
+      numStations: 13,  // was 9
       bladeType: 'fan',
     });
   }

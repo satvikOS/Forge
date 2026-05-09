@@ -66,6 +66,11 @@ const MATERIALS = {
     // Yttria-stabilized zirconia thermal barrier coating — pale beige
     color: 0xeae0c4, metalness: 0.0, roughness: 0.85,
   },
+  'Single-Crystal Nickel CMSX-4 (TBC-coated)': {
+    // CMSX-4 substrate + YSZ TBC topcoat — looks like ceramic with metal warmth
+    color: 0xddc88a, metalness: 0.2, roughness: 0.65,
+    // emissive set in hot-mode; default cool
+  },
 
   // --- Composites ---
   'Composite Carbon-Epoxy': {
@@ -170,23 +175,49 @@ export default class EngineMaterials {
 
   /**
    * Set "hot mode" — turbine blades glow yellow/orange.
-   * Applies emissive parameters to materials that are turbine alloys.
+   * Applies emissive to materials in HPT/COMB/LPT regions of any registered
+   * part. Walks up the parent chain since AssemblyBridge sets partID on
+   * the group, not on internal meshes.
    */
   static setHotMode(THREE, scene, intensity = 1.0) {
+    const findPartID = (obj) => {
+      if (obj.userData?.partID) return obj.userData.partID;
+      if (Array.isArray(obj.userData?.partIDs) && obj.userData.partIDs.length) {
+        return obj.userData.partIDs[0];
+      }
+      let p = obj.parent;
+      while (p) {
+        if (p.userData?.partID) return p.userData.partID;
+        p = p.parent;
+      }
+      return null;
+    };
+
+    // Color ramp by section (combustor=brightest, HPT=yellow-orange, LPT=cherry)
+    const HOT_COLORS = {
+      COMB: 0xff6622,
+      HPT:  0xffaa44,
+      LPT:  0xcc4400,
+    };
+
     scene.traverse(obj => {
       if (!obj.material) return;
-      const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
-      // Heuristic: parts in HPT/COMB get the glow
-      const partID = obj.userData?.partID || (obj.userData?.partIDs?.[0]);
+      const partID = findPartID(obj);
       if (!partID) return;
-      if (partID.includes('HPT') || partID.includes('COMB')) {
-        if (mat.emissive) {
-          // Cherry-orange glow
-          mat.emissive.setHex(0xcc4400);
-          mat.emissiveIntensity = intensity;
-          mat.needsUpdate = true;
-        }
-      }
+      const m = partID.match(/^[A-Z0-9]+-([A-Z]+)-/);
+      if (!m) return;
+      const section = m[1];
+      const hex = HOT_COLORS[section];
+      if (hex == null) return;
+
+      const apply = (mat) => {
+        if (!mat.emissive) return;
+        mat.emissive.setHex(hex);
+        mat.emissiveIntensity = intensity * (section === 'COMB' ? 1.2 : 1.0);
+        mat.needsUpdate = true;
+      };
+      if (Array.isArray(obj.material)) obj.material.forEach(apply);
+      else apply(obj.material);
     });
   }
 

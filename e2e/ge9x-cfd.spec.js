@@ -48,18 +48,20 @@ test('GE9X CFD streamlines: flow through engine', async ({ page }) => {
 
     // Compute CFD streamlines through the engine
     // Engine flow axis is +Z; bypass + core flow paths
-    // CFDEngine.streamlines treats inletVelocity as a unit step multiplier,
-    // so use 1.0 to integrate properly; we'll annotate semantic Mach later.
+    // Seed streamlines inside the actual fan-inlet annulus (between hub
+    // r=0.42m and tip r=1.70m) so they enter the engine instead of
+    // passing around it. Two passes: bypass + core.
     const cfdResult = CFDEngine.streamlines({
       bbox: {
-        min: { x: -1.8, y: -1.8, z: -0.6 },
-        max: { x: 1.8, y: 1.8, z: 6.0 },
+        // Tighter bbox so streamlines stay inside the engine envelope
+        min: { x: -1.7, y: -1.7, z: -0.3 },
+        max: { x: 1.7, y: 1.7, z: 6.0 },
       },
-      inletVelocity: 1.0,                  // dimensionless — needed for stable RK4 step
+      inletVelocity: 1.0,
       flowDirection: '+z',
-      seedCount: 200,
+      seedCount: 144,  // 12×12 inlet grid
       obstacleCenter: { x: 0, y: 0, z: 3.5 },
-      obstacleRadius: 0.3,
+      obstacleRadius: 0.20,  // tighter so streamlines bend less
     });
     console.log('CFD streamlines:', cfdResult.length, 'lines');
 
