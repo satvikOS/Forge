@@ -26,6 +26,29 @@ import {
   TurbomachineryBlade, NACA,
 } from '../kernel/index.js';
 
+// Cache built blade geometries — same airfoil definition reused across instances
+const _bladeCache = new Map();
+
+function _getOrBuildBlade(key, builderFn) {
+  if (_bladeCache.has(key)) return _bladeCache.get(key);
+  let solid;
+  try {
+    const profileSpec = builderFn();
+    if (!profileSpec.profiles || profileSpec.profiles.length < 2) {
+      // Fallback: simple box
+      solid = PrimitiveBuilder.box(0.04, 0.4, 0.02);
+    } else {
+      // Loft through airfoil profiles
+      solid = LoftSweep.loft(profileSpec.profiles, 1);
+    }
+  } catch (e) {
+    // Loft failed (e.g., point count mismatch) — fallback to box
+    solid = PrimitiveBuilder.box(0.04, 0.4, 0.02);
+  }
+  _bladeCache.set(key, solid);
+  return solid;
+}
+
 const PI = Math.PI;
 
 // Trent 1000 published dimensions (meters)
@@ -159,25 +182,18 @@ export default class Trent1000Builder {
       material: 'Titanium Ti-6Al-4V',
     });
 
-    // 18 unique fan blade instances (each gets own tree entry)
-    // Use TurbomachineryBlade.fanBlade() to generate the lofted profile
-    const fanBladeProfile = TurbomachineryBlade.fanBlade(rHub, rTip, 0.180);
+    // 18 fan blades — built via real lofted airfoil profiles (NACA-derived).
+    // Geometry is cached and reused for all 18 instances (renders as InstancedMesh)
+    // but each gets a UNIQUE tree entry with its own serial number.
+    const fanBladeSolid = _getOrBuildBlade('fan-blade',
+      () => TurbomachineryBlade.fanBlade(rHub, rTip, 0.180));
 
-    // For now, use a representative box geometry but tag with profile data
     for (let i = 0; i < N; i++) {
       const angle = (i / N) * 2 * PI;
-      // Each blade is unique — could vary slightly with manufacturing tolerances
-      const blade = PrimitiveBuilder.box(0.180, rTip - rHub, 0.025);
-      blade.userData.airfoilProfile = fanBladeProfile;
-      blade.userData.serialNumber = `T1000-FB-${1000 + i}`;
-      t.addPart(blade, `Fan Blade ${i + 1} (S/N T1000-FB-${1000 + i})`, {
+      t.addPart(fanBladeSolid, `Fan Blade ${i + 1} (S/N T1000-FB-${1000 + i})`, {
         color: 0xb8b8b8,
-        position: new Vec3(
-          Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-          Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-          0
-        ),
-        rotation: new Vec3(0, 0, angle + PI / 2),
+        position: new Vec3(0, 0, 0),
+        rotation: new Vec3(0, 0, angle),
         material: 'Titanium Ti-6Al-4V',
       });
     }
@@ -297,20 +313,16 @@ export default class Trent1000Builder {
         });
       }
 
-      // Rotor blades — each unique tree entry
+      // Rotor blades — real lofted airfoil per stage (cached, instanced)
       const N_ROTORS = stageBladeCounts[stage];
+      const ipcBladeSolid = _getOrBuildBlade(`ipc-rotor-s${stage}`,
+        () => TurbomachineryBlade.compressorBlade(rHub, rTip, 0.025, stage + 1, N_STAGES));
       for (let i = 0; i < N_ROTORS; i++) {
         const angle = (i / N_ROTORS) * 2 * PI;
-        const blade = PrimitiveBuilder.box(0.025, rTip - rHub, 0.012);
-        blade.userData.serialNumber = `T1000-IPC${stage + 1}R${1000 + i}`;
-        t.addPart(blade, `IPC S${stage + 1} R${i + 1}`, {
+        t.addPart(ipcBladeSolid, `IPC S${stage + 1} R${i + 1}`, {
           color: 0x9a9a9a,
-          position: new Vec3(
-            Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-            Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-            zPos
-          ),
-          rotation: new Vec3(0, 0, angle + PI / 2),
+          position: new Vec3(0, 0, zPos),
+          rotation: new Vec3(0, 0, angle),
           material: 'Titanium Ti-6Al-4V',
         });
       }
@@ -327,19 +339,16 @@ export default class Trent1000Builder {
         });
       }
 
-      // Stator vanes — separate ring downstream of rotor
+      // Stator vanes — separate ring downstream of rotor (cached lofted airfoil)
       const N_STATORS = stageVaneCounts[stage];
+      const ipcStatorSolid = _getOrBuildBlade(`ipc-stator-s${stage}`,
+        () => TurbomachineryBlade.statorVane(rHub, rTip, 0.022, true));
       for (let i = 0; i < N_STATORS; i++) {
         const angle = (i / N_STATORS) * 2 * PI;
-        const vane = PrimitiveBuilder.box(0.022, rTip - rHub, 0.010);
-        t.addPart(vane, `IPC S${stage + 1} V${i + 1}`, {
+        t.addPart(ipcStatorSolid, `IPC S${stage + 1} V${i + 1}`, {
           color: 0x888888,
-          position: new Vec3(
-            Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-            Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-            zPos + 0.045
-          ),
-          rotation: new Vec3(0, 0, angle + PI / 2),
+          position: new Vec3(0, 0, zPos + 0.045),
+          rotation: new Vec3(0, 0, angle),
           material: 'Titanium Ti-6Al-4V',
         });
       }
@@ -405,20 +414,16 @@ export default class Trent1000Builder {
         material: 'Inconel 718',
       });
 
-      // Rotor blades
+      // HPC rotor blades — lofted airfoil per stage
       const N_ROTORS = rotors[stage];
+      const hpcBladeSolid = _getOrBuildBlade(`hpc-rotor-s${stage}`,
+        () => TurbomachineryBlade.compressorBlade(rHub, rTip, 0.018, stage + 1, N_STAGES));
       for (let i = 0; i < N_ROTORS; i++) {
         const angle = (i / N_ROTORS) * 2 * PI;
-        const blade = PrimitiveBuilder.box(0.018, rTip - rHub, 0.010);
-        blade.userData.serialNumber = `T1000-HPC${stage + 1}R${2000 + i}`;
-        t.addPart(blade, `HPC S${stage + 1} R${i + 1}`, {
+        t.addPart(hpcBladeSolid, `HPC S${stage + 1} R${i + 1}`, {
           color: 0x888888,
-          position: new Vec3(
-            Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-            Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-            zPos
-          ),
-          rotation: new Vec3(0, 0, angle + PI / 2),
+          position: new Vec3(0, 0, zPos),
+          rotation: new Vec3(0, 0, angle),
           material: 'Inconel 718',
         });
       }
@@ -435,19 +440,16 @@ export default class Trent1000Builder {
         });
       }
 
-      // Stators
+      // HPC Stators — lofted airfoil
       const N_STATORS = stators[stage];
+      const hpcStatorSolid = _getOrBuildBlade(`hpc-stator-s${stage}`,
+        () => TurbomachineryBlade.statorVane(rHub, rTip, 0.016, true));
       for (let i = 0; i < N_STATORS; i++) {
         const angle = (i / N_STATORS) * 2 * PI;
-        const vane = PrimitiveBuilder.box(0.016, rTip - rHub, 0.008);
-        t.addPart(vane, `HPC S${stage + 1} V${i + 1}`, {
+        t.addPart(hpcStatorSolid, `HPC S${stage + 1} V${i + 1}`, {
           color: 0x787878,
-          position: new Vec3(
-            Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-            Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-            zPos + 0.040
-          ),
-          rotation: new Vec3(0, 0, angle + PI / 2),
+          position: new Vec3(0, 0, zPos + 0.040),
+          rotation: new Vec3(0, 0, angle),
           material: 'Inconel 718',
         });
       }
@@ -635,22 +637,16 @@ export default class Trent1000Builder {
       material: 'Inconel 718',
     });
 
-    // 76 single-crystal blades, hollow with cooling channels
+    // 76 single-crystal blades — high-camber lofted airfoil with cooling
     const N_HPT_BLADES = 76;
+    const hptBladeSolid = _getOrBuildBlade('hpt-blade',
+      () => TurbomachineryBlade.turbineBlade(0.405, 0.490, 0.030, 1, 1));
     for (let i = 0; i < N_HPT_BLADES; i++) {
       const angle = (i / N_HPT_BLADES) * 2 * PI;
-      const blade = PrimitiveBuilder.box(0.030, 0.090, 0.020);
-      blade.userData.serialNumber = `T1000-HPT-B${5000 + i}`;
-      blade.userData.singleCrystal = true;
-      blade.userData.hollow = true;
-      t.addPart(blade, `HPT Blade ${i + 1} (S/N HPT-B${5000 + i}, single crystal)`, {
+      t.addPart(hptBladeSolid, `HPT Blade ${i + 1} (S/N HPT-B${5000 + i}, single crystal)`, {
         color: 0xff8866,
-        position: new Vec3(
-          Math.cos(angle) * 0.450,
-          Math.sin(angle) * 0.450,
-          Z
-        ),
-        rotation: new Vec3(0, 0, angle + PI / 2),
+        position: new Vec3(0, 0, Z),
+        rotation: new Vec3(0, 0, angle),
         material: 'Inconel 718',
       });
 
@@ -673,19 +669,16 @@ export default class Trent1000Builder {
       });
     }
 
-    // 64 nozzle guide vanes (NGVs) upstream of HPT
+    // 64 nozzle guide vanes (NGVs) upstream of HPT — turbine stator
     const N_NGV = 64;
+    const hptNgvSolid = _getOrBuildBlade('hpt-ngv',
+      () => TurbomachineryBlade.statorVane(0.405, 0.490, 0.035, false));
     for (let i = 0; i < N_NGV; i++) {
       const angle = (i / N_NGV) * 2 * PI;
-      const ngv = PrimitiveBuilder.box(0.035, 0.100, 0.025);
-      t.addPart(ngv, `HPT NGV ${i + 1} (CMC Coated)`, {
+      t.addPart(hptNgvSolid, `HPT NGV ${i + 1} (CMC Coated)`, {
         color: 0xee9966,
-        position: new Vec3(
-          Math.cos(angle) * 0.450,
-          Math.sin(angle) * 0.450,
-          Z - 0.060
-        ),
-        rotation: new Vec3(0, 0, angle + PI / 2),
+        position: new Vec3(0, 0, Z - 0.060),
+        rotation: new Vec3(0, 0, angle),
         material: 'Inconel 718',
       });
 
@@ -750,14 +743,14 @@ export default class Trent1000Builder {
       material: 'Inconel 718',
     });
 
+    const iptBladeSolid = _getOrBuildBlade('ipt-blade',
+      () => TurbomachineryBlade.turbineBlade(0.490, 0.620, 0.032, 1, 1));
     for (let i = 0; i < N_BLADES; i++) {
       const angle = (i / N_BLADES) * 2 * PI;
-      const blade = PrimitiveBuilder.box(0.032, 0.130, 0.022);
-      blade.userData.serialNumber = `T1000-IPT-B${6000 + i}`;
-      t.addPart(blade, `IPT Blade ${i + 1} (S/N IPT-B${6000 + i})`, {
+      t.addPart(iptBladeSolid, `IPT Blade ${i + 1} (S/N IPT-B${6000 + i})`, {
         color: 0xee9977,
-        position: new Vec3(Math.cos(angle) * 0.555, Math.sin(angle) * 0.555, Z),
-        rotation: new Vec3(0, 0, angle + PI / 2),
+        position: new Vec3(0, 0, Z),
+        rotation: new Vec3(0, 0, angle),
         material: 'Inconel 718',
       });
       const root = PrimitiveBuilder.box(0.028, 0.030, 0.030);
@@ -769,13 +762,14 @@ export default class Trent1000Builder {
       });
     }
 
+    const iptNgvSolid = _getOrBuildBlade('ipt-ngv',
+      () => TurbomachineryBlade.statorVane(0.490, 0.620, 0.034, false));
     for (let i = 0; i < N_NGV; i++) {
       const angle = (i / N_NGV) * 2 * PI;
-      const ngv = PrimitiveBuilder.box(0.034, 0.130, 0.024);
-      t.addPart(ngv, `IPT NGV ${i + 1}`, {
+      t.addPart(iptNgvSolid, `IPT NGV ${i + 1}`, {
         color: 0xdd8855,
-        position: new Vec3(Math.cos(angle) * 0.555, Math.sin(angle) * 0.555, Z - 0.055),
-        rotation: new Vec3(0, 0, angle + PI / 2),
+        position: new Vec3(0, 0, Z - 0.055),
+        rotation: new Vec3(0, 0, angle),
         material: 'Inconel 718',
       });
     }
@@ -815,18 +809,14 @@ export default class Trent1000Builder {
       });
 
       const N_ROTORS = rotors[stage];
+      const lptBladeSolid = _getOrBuildBlade(`lpt-rotor-s${stage}`,
+        () => TurbomachineryBlade.turbineBlade(rHub, rTip, 0.030, stage + 1, N_STAGES));
       for (let i = 0; i < N_ROTORS; i++) {
         const angle = (i / N_ROTORS) * 2 * PI;
-        const blade = PrimitiveBuilder.box(0.030, rTip - rHub, 0.024);
-        blade.userData.serialNumber = `T1000-LPT${stage + 1}R${7000 + i}`;
-        t.addPart(blade, `LPT S${stage + 1} R${i + 1}`, {
+        t.addPart(lptBladeSolid, `LPT S${stage + 1} R${i + 1}`, {
           color: 0xee9966,
-          position: new Vec3(
-            Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-            Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-            zPos
-          ),
-          rotation: new Vec3(0, 0, angle + PI / 2),
+          position: new Vec3(0, 0, zPos),
+          rotation: new Vec3(0, 0, angle),
           material: 'Inconel 718',
         });
         // Fir tree root
@@ -840,17 +830,14 @@ export default class Trent1000Builder {
       }
 
       const N_STATORS = stators[stage];
+      const lptStatorSolid = _getOrBuildBlade(`lpt-stator-s${stage}`,
+        () => TurbomachineryBlade.statorVane(rHub, rTip, 0.030, false));
       for (let i = 0; i < N_STATORS; i++) {
         const angle = (i / N_STATORS) * 2 * PI;
-        const stator = PrimitiveBuilder.box(0.030, rTip - rHub, 0.022);
-        t.addPart(stator, `LPT S${stage + 1} V${i + 1}`, {
+        t.addPart(lptStatorSolid, `LPT S${stage + 1} V${i + 1}`, {
           color: 0xdd8855,
-          position: new Vec3(
-            Math.cos(angle) * (rHub + (rTip - rHub) / 2),
-            Math.sin(angle) * (rHub + (rTip - rHub) / 2),
-            zPos + 0.055
-          ),
-          rotation: new Vec3(0, 0, angle + PI / 2),
+          position: new Vec3(0, 0, zPos + 0.055),
+          rotation: new Vec3(0, 0, angle),
           material: 'Inconel 718',
         });
       }

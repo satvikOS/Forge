@@ -33,14 +33,22 @@
   },
   {
     "item": 5,
-    "name": "Box",
+    "name": "Loft",
     "material": "Titanium Ti-6Al-4V",
-    "qty": 6710,
-    "mass": 9.782268750000002,
-    "volume": 0.003623062500000001
+    "qty": 4178,
+    "mass": 0,
+    "volume": 0
   },
   {
     "item": 6,
+    "name": "Box",
+    "material": "Titanium Ti-6Al-4V",
+    "qty": 2532,
+    "mass": 1.3122,
+    "volume": 0.000486
+  },
+  {
+    "item": 7,
     "name": "Torus",
     "material": "Titanium Ti-6Al-4V",
     "qty": 127,
@@ -48,7 +56,7 @@
     "volume": 0
   },
   {
-    "item": 7,
+    "item": 8,
     "name": "Hex Bolt M6×20",
     "material": "Steel AISI 4340",
     "qty": 192,
@@ -56,7 +64,7 @@
     "volume": 2.5980762113533156e-7
   },
   {
-    "item": 8,
+    "item": 9,
     "name": "Hex Bolt M10×30",
     "material": "Steel AISI 4340",
     "qty": 912,
@@ -64,7 +72,7 @@
     "volume": 0.0000011639381426862859
   },
   {
-    "item": 9,
+    "item": 10,
     "name": "Outer Race",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -72,7 +80,7 @@
     "volume": 0
   },
   {
-    "item": 10,
+    "item": 11,
     "name": "Inner Race",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -80,7 +88,7 @@
     "volume": 0
   },
   {
-    "item": 11,
+    "item": 12,
     "name": "Ball 1",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -88,7 +96,7 @@
     "volume": 0
   },
   {
-    "item": 12,
+    "item": 13,
     "name": "Ball 2",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -96,7 +104,7 @@
     "volume": 0
   },
   {
-    "item": 13,
+    "item": 14,
     "name": "Ball 3",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -104,7 +112,7 @@
     "volume": 0
   },
   {
-    "item": 14,
+    "item": 15,
     "name": "Ball 4",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -112,7 +120,7 @@
     "volume": 0
   },
   {
-    "item": 15,
+    "item": 16,
     "name": "Ball 5",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -120,7 +128,7 @@
     "volume": 0
   },
   {
-    "item": 16,
+    "item": 17,
     "name": "Ball 6",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -128,7 +136,7 @@
     "volume": 0
   },
   {
-    "item": 17,
+    "item": 18,
     "name": "Ball 7",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -136,7 +144,7 @@
     "volume": 0
   },
   {
-    "item": 18,
+    "item": 19,
     "name": "Ball 8",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -144,7 +152,7 @@
     "volume": 0
   },
   {
-    "item": 19,
+    "item": 20,
     "name": "Ball 9",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -152,7 +160,7 @@
     "volume": 0
   },
   {
-    "item": 20,
+    "item": 21,
     "name": "Ball 10",
     "material": "Steel AISI 4340",
     "qty": 5,
@@ -160,7 +168,7 @@
     "volume": 0
   },
   {
-    "item": 21,
+    "item": 22,
     "name": "Ball 11",
     "material": "Steel AISI 4340",
     "qty": 4,
@@ -168,7 +176,7 @@
     "volume": 0
   },
   {
-    "item": 22,
+    "item": 23,
     "name": "Ball 12",
     "material": "Steel AISI 4340",
     "qty": 3,
@@ -176,7 +184,7 @@
     "volume": 0
   },
   {
-    "item": 23,
+    "item": 24,
     "name": "Ball 13",
     "material": "Steel AISI 4340",
     "qty": 1,
@@ -184,7 +192,7 @@
     "volume": 0
   },
   {
-    "item": 24,
+    "item": 25,
     "name": "Cage",
     "material": "Nylon 6/6",
     "qty": 5,
@@ -192,7 +200,7 @@
     "volume": 0
   },
   {
-    "item": 25,
+    "item": 26,
     "name": "Hex Bolt M10×25",
     "material": "Steel AISI 4340",
     "qty": 40,
@@ -200,7 +208,7 @@
     "volume": 0.0000011639381426862859
   },
   {
-    "item": 26,
+    "item": 27,
     "name": "Hex Bolt M24×100",
     "material": "Steel AISI 4340",
     "qty": 32,
@@ -208,7 +216,7 @@
     "volume": 0.000012626650387177114
   },
   {
-    "item": 27,
+    "item": 28,
     "name": "Hex Bolt M16×30",
     "material": "Steel AISI 4340",
     "qty": 96,
@@ -216,7 +224,7 @@
     "volume": 0.0000037412297443487745
   },
   {
-    "item": 28,
+    "item": 29,
     "name": "Flat Washer M16",
     "material": "Steel AISI 1020",
     "qty": 96,
@@ -224,19 +232,11 @@
     "volume": 0.000002096434265330418
   },
   {
-    "item": 29,
+    "item": 30,
     "name": "Hex Nut M16",
     "material": "Steel AISI 4340",
     "qty": 96,
     "mass": 0.013131716402664197,
     "volume": 0.000004863598667653406
-  },
-  {
-    "item": 30,
-    "name": "Hex Bolt M12×30",
-    "material": "Steel AISI 4340",
-    "qty": 272,
-    "mass": 0.004545594139383762,
-    "volume": 0.000001683553384956949
   }
 ]

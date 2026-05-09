@@ -1,9 +1,9 @@
 {
   "engine": "Rolls-Royce Trent 1000",
   "totalComponents": 30224,
-  "buildTimeSec": 1.055,
-  "totalMassKg": 129471.51,
-  "bomEntries": 35,
+  "buildTimeSec": 0.985,
+  "totalMassKg": 128755.94,
+  "bomEntries": 36,
   "sections": [
     {
       "name": "Inlet & Spinner",
@@ -156,7 +156,7 @@
       "total": 30224
     }
   ],
-  "buildDate": "2026-05-09T07:22:00.846Z",
+  "buildDate": "2026-05-09T07:37:05.449Z",
   "builderVersion": "Trent1000Builder v2",
   "kernelVersion": "1.21.0"
 }

@@ -47,15 +47,23 @@ test('Trent 1000: render full engine in viewport with instancing', async ({ page
       } else if (obj.isMesh) regularMeshes++;
     });
 
-    // Frame camera on engine
+    // Frame camera — Trent 1000 is ~5m long × 3m diameter
+    // Need side view showing full engine length
     if (window.__three_camera) {
       const box = new THREE.Box3().setFromObject(root);
       const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3()).length() || 5;
-      const dist = size * 1.0;
-      window.__three_camera.position.set(center.x + dist * 0.7, center.y + dist * 0.4, center.z + dist * 0.7);
+      const size = box.getSize(new THREE.Vector3());
+      // Engine axis is Z, so camera goes off to the side (X)
+      const dist = Math.max(size.x, size.y, size.z) * 1.5;
+
+      window.__three_camera.position.set(
+        center.x + dist * 1.2,        // side view from +X
+        center.y + dist * 0.35,        // slightly above
+        center.z + dist * 0.3          // slightly off-center
+      );
       window.__three_camera.lookAt(center);
-      window.__three_camera.far = Math.max(window.__three_camera.far, size * 5);
+      window.__three_camera.near = 0.001;
+      window.__three_camera.far = dist * 20;
       window.__three_camera.updateProjectionMatrix();
     }
 
