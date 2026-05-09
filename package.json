@@ -1,6 +1,6 @@
 {
   "name": "archdiscv1",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "description": "ArchDisc - Professional 3D Architectural Design Platform",
   "type": "commonjs",
   "main": "electron/main.js",
