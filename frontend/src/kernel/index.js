@@ -109,3 +109,22 @@ export { default as LODManager } from './lod/LODManager.js';
 // Drawing — 2D engineering drawings from 3D solids
 export { default as DrawingEngine, VIEW_DIRECTIONS } from './drawing/DrawingEngine.js';
 export { default as Annotations } from './drawing/Annotations.js';
+
+// Registry — Global Part ID system (foundation for tree panel, export, tests)
+export { default as PartIDRegistry } from './registry/PartIDRegistry.js';
+
+// Focus / spotlight controller — camera + dim-others
+export { default as FocusController } from './bridge/FocusController.js';
+
+// Interaction Recorder — captures every user action with timestamps
+export { default as InteractionRecorder } from './recording/InteractionRecorder.js';
+
+// Project Exporter — emit every component as a file (geometry + metadata + tests)
+export { default as ProjectExporter } from './export/ProjectExporter.js';
+
+// Real-World Test Scenarios + Runner — bird strike, rotor overspeed, etc.
+export { default as TestScenarios, SCENARIO_LIBRARY } from './realworld/TestScenarios.js';
+export { default as RealWorldTestRunner } from './realworld/RealWorldTestRunner.js';
+
+// Cutaway Renderer — section-view rendering for engine internals
+export { default as CutawayRenderer } from './rendering/CutawayRenderer.js';

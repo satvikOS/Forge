@@ -12,11 +12,13 @@ import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
 import AssemblyTree from '../../components/AssemblyTree';
+import ComponentTreePanel from '../../components/ComponentTreePanel';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
 import '../../components/PropertyManager.css';
 import '../../components/AssemblyTree.css';
+import '../../components/ComponentTreePanel.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
@@ -837,6 +839,14 @@ function WorkbenchMechanical() {
                 <AssemblyTree
                     assembly={getCurrentAssembly()}
                     onPartClick={(part) => setSelection({ type: 'object', name: part.name, solidId: part.solid?.id, solid: part.solid })}
+                />
+
+                {/* Component Registry Panel \u2014 every part has a registered ID; click to focus */}
+                <ComponentTreePanel
+                    scene={typeof window !== 'undefined' ? window.__three_scene : null}
+                    camera={typeof window !== 'undefined' ? window.__three_camera : null}
+                    controls={typeof window !== 'undefined' ? window.__three_controls : null}
+                    onSelect={(entry) => setSelection({ type: 'component', name: entry.name, partID: entry.partID, entry })}
                 />
 
                 {/* PropertyManager \u2014 context-aware properties */}

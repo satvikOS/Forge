@@ -7,6 +7,7 @@
 import Vec3 from '../math/Vec3.js';
 import Mat4 from '../math/Mat4.js';
 import BBox3 from '../math/BBox3.js';
+import PartIDRegistry from '../registry/PartIDRegistry.js';
 
 let _assemblyId = 0;
 let _partInstanceId = 0;
@@ -86,6 +87,17 @@ export default class Assembly {
   addPart(solid, name, transform) {
     const part = new PartInstance(solid, name, transform);
     this.parts.push(part);
+    if (transform?.registerID !== false) {
+      PartIDRegistry.register({
+        category: transform?.category || 'GEN',
+        subsystem: transform?.subsystem || 'PRT',
+        name: part.name,
+        material: part.material,
+        parentID: transform?.parentID || null,
+        metadata: transform?.metadata || {},
+        partInstance: part,
+      });
+    }
     this._notify('partAdded', part);
     return part;
   }

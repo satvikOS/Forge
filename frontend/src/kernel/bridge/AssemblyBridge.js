@@ -101,6 +101,7 @@ export default class AssemblyBridge {
     inst.userData.instanced = true;
     inst.userData.instanceCount = parts.length;
     inst.userData.partIds = parts.map(p => p.id);
+    inst.userData.partIDs = parts.map(p => p.partID);  // string IDs from registry
     inst.userData.kernelSolid = first.solid;
 
     // Set per-instance matrix
@@ -149,6 +150,7 @@ export default class AssemblyBridge {
 
       group.name = part.name;
       group.userData.partId = part.id;
+      group.userData.partID = part.partID;
       group.userData.partName = part.name;
       group.userData.material = part.material;
       group.userData.pickable = true;
