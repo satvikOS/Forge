@@ -59,6 +59,7 @@ export { default as AssemblyBridge } from './bridge/AssemblyBridge.js';
 
 // Assembly
 export { default as Assembly, PartInstance, Mate } from './assembly/Assembly.js';
+export { default as MateSolver } from './assembly/MateSolver.js';
 
 // Simulation
 export { default as FEAEngine, MATERIALS } from './simulation/FEAEngine.js';

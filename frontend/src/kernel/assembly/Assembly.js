@@ -141,6 +141,10 @@ export default class Assembly {
     return true;
   }
 
+  // --- Solver ---
+  // Note: solve() and dof() defined externally to avoid circular import.
+  // Use MateSolver.solve(assembly) and MateSolver.computeDOF(assembly).
+
   // --- Analysis ---
 
   totalMass() {
