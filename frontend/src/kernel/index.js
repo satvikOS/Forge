@@ -69,6 +69,8 @@ export { default as FEAVisualizer } from './simulation/FEAVisualizer.js';
 // Manufacturing
 export { default as GCodeGenerator } from './manufacturing/GCodeGenerator.js';
 export { default as Slicer } from './manufacturing/Slicer.js';
+export { default as ToolLibrary, TOOL_TYPES, MATERIAL_PARAMS } from './manufacturing/ToolLibrary.js';
+export { default as CAMVisualizer } from './manufacturing/CAMVisualizer.js';
 
 // Rendering & Publishing
 export { default as SceneComposer, BACKGROUNDS, CAMERA_PRESETS } from './rendering/SceneComposer.js';

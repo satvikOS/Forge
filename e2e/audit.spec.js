@@ -333,8 +333,8 @@ test.describe('AUDIT: Manufacturing', () => {
     const statusText = await page.locator('.tool-status-bar').textContent();
     console.log(`Milling result: ${statusText}`);
 
-    // Should contain line count and cycle time
-    expect(statusText).toContain('lines');
+    // Should contain moves and cycle time
+    expect(statusText).toMatch(/moves|min/i);
   });
 
   test('Slice Preview produces layer count', async ({ page }) => {

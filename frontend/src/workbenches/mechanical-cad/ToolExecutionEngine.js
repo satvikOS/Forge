@@ -15,6 +15,7 @@ import {
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
   DrawingEngine, Annotations,
   FEAVisualizer,
+  ToolLibrary, CAMVisualizer,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -45,6 +46,7 @@ let _lastGCode = null;
 let _lastSliceResult = null;
 let _lastFEAResult = null;
 let _modeAnimation = null;
+let _camAnimation = null;
 export function getLastFEAResult() { return _lastFEAResult; }
 let _versionControl = new VersionControl('ArchDisc Project');
 
@@ -803,19 +805,56 @@ const TOOL_HANDLERS = {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return needSolid('2.5-Axis Milling');
-      const result = GCodeGenerator.pocketMill(solid, { toolDiameter: 0.010, feedRate: 800, spindleSpeed: 8000 });
-      showToolpath(scene, 'mill');
+
+      // Use ToolLibrary to recommend speeds/feeds
+      const tool = ToolLibrary.createTool('endmill_flat', 0.010, null, 4);
+      const sf = ToolLibrary.recommendSpeedsFeeds(tool, 'Aluminum 6061-T6');
+
+      const result = GCodeGenerator.pocketMill(solid, {
+        toolDiameter: tool.diameter,
+        feedRate: sf.feedRate,
+        spindleSpeed: sf.rpm,
+        depthOfCut: sf.depthOfCut,
+      });
+
+      // Render real toolpath in viewport
+      CAMVisualizer.clear(scene);
+      const moves = CAMVisualizer.parseGCode(result.gcode);
+      CAMVisualizer.renderToolpath(scene, moves);
+      const stats = CAMVisualizer.stats(moves);
+
       _lastGCode = result;
-      return { status: 'success', message: `2.5-Axis: ${result.stats.lines} lines, ${result.stats.moves} moves, ${result.stats.passes} passes, cycle: ${result.stats.cycleTimeMin}min` };
+      return {
+        status: 'success',
+        message: `2.5-Axis: Ø${tool.diameterMm}mm ${tool.flutes}-flute @ ${sf.rpm} RPM × ${sf.feedRate} mm/min | ${stats.totalMoves} moves (${stats.cutMoves} cut, ${stats.rapidMoves} rapid) | ${stats.totalLengthMm}mm path | ${stats.totalTimeMin} min`
+      };
     },
     '3-Axis Milling': (scene, viewport) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return needSolid('3-Axis Milling');
-      const result = GCodeGenerator.pocketMill(solid, { toolDiameter: 0.006, stepover: 0.3, depthOfCut: 0.001, feedRate: 600, spindleSpeed: 12000 });
-      showToolpath(scene, 'mill');
+
+      const tool = ToolLibrary.createTool('endmill_ball', 0.006, null, 2);
+      const sf = ToolLibrary.recommendSpeedsFeeds(tool, 'Aluminum 6061-T6');
+
+      const result = GCodeGenerator.pocketMill(solid, {
+        toolDiameter: tool.diameter,
+        stepover: 0.3,
+        depthOfCut: 0.001,
+        feedRate: sf.feedRate,
+        spindleSpeed: sf.rpm,
+      });
+
+      CAMVisualizer.clear(scene);
+      const moves = CAMVisualizer.parseGCode(result.gcode);
+      CAMVisualizer.renderToolpath(scene, moves);
+      const stats = CAMVisualizer.stats(moves);
+
       _lastGCode = result;
-      return { status: 'success', message: `3-Axis: ${result.stats.lines} lines, ${result.stats.moves} moves, cycle: ${result.stats.cycleTimeMin}min (Ø${result.stats.toolDiameterMm}mm)` };
+      return {
+        status: 'success',
+        message: `3-Axis: Ø${tool.diameterMm}mm Ball @ ${sf.rpm} RPM | ${stats.totalMoves} moves | ${stats.totalLengthMm}mm path | ${stats.totalTimeMin} min`
+      };
     },
     'Turning': (scene, viewport) => {
       const ft = getFeatureTree();
@@ -823,9 +862,24 @@ const TOOL_HANDLERS = {
       if (!solid) return needSolid('Turning');
       const profile = [new Vec3(0.02, 0, 0), new Vec3(0.03, 0.01, 0), new Vec3(0.025, 0.04, 0), new Vec3(0.015, 0.05, 0)];
       const result = GCodeGenerator.turning(profile, { feedRate: 150, spindleSpeed: 2400 });
-      showToolpath(scene, 'turn');
+
+      CAMVisualizer.clear(scene);
+      const moves = CAMVisualizer.parseGCode(result.gcode);
+      CAMVisualizer.renderToolpath(scene, moves);
+      const stats = CAMVisualizer.stats(moves);
+
       _lastGCode = result;
-      return { status: 'success', message: `Turning: ${result.stats.passes} passes, ${result.stats.lines} lines G-code` };
+      return {
+        status: 'success',
+        message: `Turning: ${result.stats.passes} passes | ${stats.totalMoves} moves | ${stats.totalLengthMm}mm path | ${stats.totalTimeMin} min @ 2400 RPM`
+      };
+    },
+    'Verify Toolpath': (scene, viewport) => {
+      if (!_lastGCode) return { status: 'warn', message: 'Generate a toolpath first' };
+      if (_camAnimation) { _camAnimation.stop(); _camAnimation = null; }
+      const moves = CAMVisualizer.parseGCode(_lastGCode.gcode);
+      _camAnimation = CAMVisualizer.animateTool(scene, moves, _lastGCode.stats.toolDiameterMm * 0.001 || 0.006, { speed: 5 });
+      return { status: 'success', message: `Verify Toolpath: animating ${moves.length} moves at 5×` };
     },
     'G-Code Post': () => {
       if (_lastGCode?.gcode) {
