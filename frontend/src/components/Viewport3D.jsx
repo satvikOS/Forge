@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
 import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, Layers } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
-import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature } from '../kernel/index.js';
+import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature, BVH } from '../kernel/index.js';
 import { getFeatureTree, registerSelectedEdgesProvider } from '../workbenches/mechanical-cad/ToolExecutionEngine.js';
 
 // Singletons
@@ -286,7 +286,14 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 }
             });
 
-            const intersects = raycaster.intersectObjects(pickable, false);
+            // BVH-accelerated picking for large scenes (>50 objects)
+            let candidates = pickable;
+            if (pickable.length > 50) {
+                const bvh = BVH.build(pickable);
+                candidates = bvh.raycast(raycaster.ray);
+            }
+
+            const intersects = raycaster.intersectObjects(candidates, false);
             const mode = selectionModeRef.current;
 
             if (intersects.length === 0) {

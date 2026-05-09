@@ -84,3 +84,6 @@ export { default as VersionControl } from './pdm/VersionControl.js';
 
 // AI Agent Bridge
 export { default as AgentBridge } from './agents/AgentBridge.js';
+
+// Spatial — BVH for fast picking in large scenes
+export { default as BVH } from './spatial/BVH.js';
