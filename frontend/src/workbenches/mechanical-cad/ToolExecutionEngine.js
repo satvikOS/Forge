@@ -13,6 +13,7 @@ import {
   Assembly, FEAEngine, RenderEngine, GCodeGenerator, Slicer,
   SceneComposer, PixelManager,
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
+  DrawingEngine,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
@@ -815,7 +816,56 @@ const TOOL_HANDLERS = {
   // DOCUMENT
   // ═══════════════════════════════════════════════════════════════════════════
   document: {
-    'New Drawing': () => ({ status: 'success', message: 'Drawing: Front, Top, Right, Isometric views created' }),
+    'New Drawing': () => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'New Drawing: Create a solid first' };
+      const sheetSVG = DrawingEngine.generateSheet(solid, {
+        partName: solid.name || 'Untitled Part',
+        drawnBy: 'ArchDisc',
+        sheetSize: 'A3',
+      });
+      // Download as SVG
+      const blob = new Blob([sheetSVG], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${solid.name || 'Drawing'}_A3.svg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const v = DrawingEngine.multiView(solid);
+      return {
+        status: 'success',
+        message: `Drawing A3: Front(${v.front.edgeCount}) Top(${v.top.edgeCount}) Right(${v.right.edgeCount}) Iso(${v.isometric.edgeCount}) — exported SVG`
+      };
+    },
+    'Standard 3 View': () => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'Standard 3 View: Create a solid first' };
+      const v = DrawingEngine.multiView(solid);
+      return {
+        status: 'success',
+        message: `3-View projected: F=${v.front.edgeCount} T=${v.top.edgeCount} R=${v.right.edgeCount} edges`
+      };
+    },
+    'Section View': () => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'Section View: Create a solid first' };
+      const proj = DrawingEngine.projectSolid(solid, 'front');
+      return { status: 'success', message: `Section View at YZ plane: ${proj.edgeCount} edges, ${(proj.bbox.width * 1000).toFixed(1)}×${(proj.bbox.height * 1000).toFixed(1)}mm` };
+    },
+    'Isometric View': () => {
+      const ft = getFeatureTree();
+      const solid = ft.getSolid();
+      if (!solid) return { status: 'warn', message: 'Isometric View: Create a solid first' };
+      const proj = DrawingEngine.projectSolid(solid, 'isometric');
+      return { status: 'success', message: `Isometric: ${proj.edgeCount} edges projected` };
+    },
     'Smart Dimension': () => ({ status: 'success', message: 'Smart Dimension: Click geometry to add dimensions' }),
     'BOM Table': (scene, viewport) => {
       const ft = getFeatureTree();

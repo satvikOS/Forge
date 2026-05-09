@@ -88,3 +88,6 @@ export { default as AgentBridge } from './agents/AgentBridge.js';
 
 // Spatial — BVH for fast picking in large scenes
 export { default as BVH } from './spatial/BVH.js';
+
+// Drawing — 2D engineering drawings from 3D solids
+export { default as DrawingEngine, VIEW_DIRECTIONS } from './drawing/DrawingEngine.js';
