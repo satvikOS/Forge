@@ -14,7 +14,7 @@ import {
   SceneComposer, PixelManager,
   FastenerLibrary, GDTEngine, BearingLibrary, VersionControl,
   DrawingEngine, Annotations,
-  FEAVisualizer,
+  FEAVisualizer, TopologyOptimizer,
   ToolLibrary, CAMVisualizer, StockSimulator, MoldFlow,
   PartNumbering, CostingEngine, Sustainability,
 } from '../../kernel/index.js';
@@ -731,9 +731,41 @@ const TOOL_HANDLERS = {
     'Modal Analysis': (scene) => TOOL_HANDLERS.simulate.Modal(scene),
     'Topology Optimization': (scene, viewport) => {
       const ft = getFeatureTree();
-      const feature = ft.addSphere(1.2, 12, 8);
-      addSolidToScene(scene, viewport, feature.solid, 0x22cc88);
-      return { status: 'success', message: 'Topology: 34% mass reduction, stress constraint met' };
+      const solid = ft.getSolid();
+
+      // Use part bbox if available, else default 80×50×30mm design space
+      let bbox;
+      if (solid) {
+        const b = solid.boundingBox();
+        bbox = { minX: b.min.x, maxX: b.max.x, minY: b.min.y, maxY: b.max.y, minZ: b.min.z, maxZ: b.max.z };
+      } else {
+        bbox = { minX: -0.040, maxX: 0.040, minY: -0.025, maxY: 0.025, minZ: -0.015, maxZ: 0.015 };
+      }
+
+      // Cantilever load case: fixed at -X end, load at +X end pulling down
+      const loadPoints = [{ x: bbox.maxX, y: (bbox.minY + bbox.maxY) / 2, z: (bbox.minZ + bbox.maxZ) / 2, force: { x: 0, y: -1, z: 0 } }];
+      const fixedPoints = [{ x: bbox.minX, y: (bbox.minY + bbox.maxY) / 2, z: (bbox.minZ + bbox.maxZ) / 2 }];
+
+      const result = TopologyOptimizer.optimize({
+        bbox,
+        volumeFraction: 0.35,
+        loadPoints,
+        fixedPoints,
+        resolution: 24,
+        iterations: 30,
+        penalty: 3,
+      });
+
+      // Hide any prior topology, then render new
+      TopologyOptimizer.clear(scene);
+      TopologyOptimizer.render(scene, result, { densityColor: true });
+      TopologyOptimizer.showLoadCase(scene, result);
+
+      const s = result.stats;
+      return {
+        status: 'success',
+        message: `Topology Opt: ${s.massReductionPercent}% mass reduction | ${s.optimizedVolumeMm3} mm³ kept (target ${s.volumeFractionTarget}%, actual ${s.actualVolumeFraction}%) | ${s.totalCells} cells, ${s.iterations} iter, penalty p=${s.penalty}`
+      };
     },
   },
 
