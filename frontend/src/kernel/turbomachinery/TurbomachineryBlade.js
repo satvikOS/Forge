@@ -142,17 +142,42 @@ export default class TurbomachineryBlade {
   }
 
   /**
-   * Build a stator vane (similar to rotor but reverse stagger and no twist).
+   * Build a stator vane.
+   *
+   * Stators differ from rotors in real engines:
+   *   - Thicker leading edges (more durable, less stress)
+   *   - Less twist (only 5-10° hub-to-tip vs 30-40° for rotors)
+   *   - Wider chord at tip (constant chord typical)
+   *   - Reverse-curve airfoil (deflects flow back to axial)
+   *   - Less camber overall (deceleration not acceleration)
+   *
+   * Compressor stators (IGVs / variable stators): thick LE for FOD,
+   * variable pitch in front 4 stages.
+   *
+   * Turbine stators (NGVs): heavily cooled, often CMC, near-axial
+   * exit angle. Thick airfoil for film cooling channels.
    */
   static statorVane(rHub, rTip, chord = 0.04, isCompressor = true) {
     const cps = isCompressor
-      ? { rootCamber: 6, tipCamber: 4, rootThick: 8, tipThick: 4, rootStagger: -45, tipStagger: -20 }
-      : { rootCamber: 18, tipCamber: 14, rootThick: 14, tipThick: 8, rootStagger: -55, tipStagger: -30 };
+      ? {
+          // Compressor stator: thick LE, gentle camber, mild twist
+          rootCamber: 4, tipCamber: 3,
+          rootThick: 14, tipThick: 12,    // 14-12% thick (vs 10% for rotor)
+          rootStagger: -35, tipStagger: -28,  // Only 7° twist
+          rootChord: chord, tipChord: chord,  // Constant chord
+        }
+      : {
+          // Turbine NGV: very thick (cooling), high camber, reverse stagger
+          rootCamber: 22, tipCamber: 18,
+          rootThick: 22, tipThick: 18,    // 22-18% thick for cooling channels
+          rootStagger: -60, tipStagger: -45,  // 15° twist
+          rootChord: chord * 1.2, tipChord: chord * 1.1,  // larger than rotor
+        };
 
     return TurbomachineryBlade.build({
       rHub, rTip,
-      rootChord: chord,
-      tipChord: chord,
+      rootChord: cps.rootChord,
+      tipChord: cps.tipChord,
       rootCamberPct: cps.rootCamber,
       tipCamberPct: cps.tipCamber,
       rootThicknessPct: cps.rootThick,

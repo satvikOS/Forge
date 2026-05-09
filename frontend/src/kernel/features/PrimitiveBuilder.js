@@ -259,6 +259,35 @@ export default class PrimitiveBuilder {
   }
 
   /**
+   * Create a thin-walled cylindrical shell (tube) for casings, cowls,
+   * and other structural shells.
+   *
+   * The B-Rep geometry is a normal solid cylinder so tessellation and
+   * rendering still work, but `volume()` is overridden to return the
+   * shell wall volume (π(R²−r²)h) so `massProperties()` and BOM mass
+   * reflect the real thin-walled construction. Tagged with _isShell.
+   *
+   * @param {number} outerR
+   * @param {number} innerR
+   * @param {number} height
+   * @param {number} segments
+   * @param {Vec3} [center]
+   */
+  static cylinderShell(outerR, innerR, height, segments = 64, center) {
+    if (innerR <= 0 || innerR >= outerR) {
+      return PrimitiveBuilder.cylinder(outerR, height, segments, center);
+    }
+    const solid = PrimitiveBuilder.cylinder(outerR, height, segments, center);
+    const shellVol = Math.PI * (outerR * outerR - innerR * innerR) * height;
+    solid.name = 'CylinderShell';
+    solid.userData = solid.userData || {};
+    solid.userData.params = { outerR, innerR, height, segments, wallThickness: outerR - innerR };
+    solid.volume = () => shellVol;  // override for correct mass
+    solid._isShell = true;
+    return solid;
+  }
+
+  /**
    * Create a sphere solid.
    * @param {number} radius - Sphere radius
    * @param {number} widthSegments - Longitudinal segments (default: 32)

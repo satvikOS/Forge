@@ -242,16 +242,16 @@ export default class GE9XBuilder {
       category: 'FAN', subsystem: 'RNG',
     });
 
-    // Fan case — composite
-    const fanCase = PrimitiveBuilder.cylinder(rTip + 0.025, 1.20, 128);
+    // Fan case — composite, 25mm wall
+    const fanCase = PrimitiveBuilder.cylinderShell(rTip + 0.025, rTip + 0.000, 1.20, 128);
     t.addPart(fanCase, 'Fan Case (Composite)', {
       color: 0xeaeaea, position: new Vec3(0, 0, 0.30),
       material: 'Composite Carbon-Epoxy',
       category: 'FAN', subsystem: 'CSG',
     });
 
-    // Abradable rub strip
-    const abradable = PrimitiveBuilder.cylinder(rTip + 0.005, 0.40, 96);
+    // Abradable rub strip — 3mm honeycomb metallic on inner fan case
+    const abradable = PrimitiveBuilder.cylinderShell(rTip + 0.005, rTip + 0.002, 0.40, 96);
     t.addPart(abradable, 'Fan Case Abradable Strip', {
       color: 0xddccaa, material: 'ABS Plastic',
       category: 'FAN', subsystem: 'ABR',
@@ -354,8 +354,8 @@ export default class GE9XBuilder {
       zCursor += 0.18;
     }
 
-    // LPC casing
-    const lpcCase = PrimitiveBuilder.cylinder(0.60, 0.70, 96);
+    // LPC casing — titanium 6mm wall
+    const lpcCase = PrimitiveBuilder.cylinderShell(0.60, 0.594, 0.70, 96);
     t.addPart(lpcCase, 'LPC Case', {
       color: 0x9a9a9a, position: new Vec3(0, 0, 1.45),
       material: 'Titanium Ti-6Al-4V',
@@ -423,9 +423,9 @@ export default class GE9XBuilder {
       zCursor += 0.115;
     }
 
-    // HPC casing — split into 4 segments
+    // HPC casing — Inconel, 5mm wall, split into 4 axial segments
     for (let seg = 0; seg < 4; seg++) {
-      const segCase = PrimitiveBuilder.cylinder(0.48, 0.32, 64);
+      const segCase = PrimitiveBuilder.cylinderShell(0.48, 0.475, 0.32, 64);
       t.addPart(segCase, `HPC Casing Segment ${seg + 1}`, {
         color: 0x8c8c8c,
         position: new Vec3(0, 0, 1.95 + seg * 0.32),
@@ -441,16 +441,16 @@ export default class GE9XBuilder {
   static buildCombustor(t) {
     const zCursor = 3.30;
 
-    // Outer + inner casing
-    const outerCase = PrimitiveBuilder.cylinder(0.42, 0.45, 64);
+    // Outer combustor case — Inconel 8mm wall
+    const outerCase = PrimitiveBuilder.cylinderShell(0.42, 0.412, 0.45, 64);
     t.addPart(outerCase, 'Combustor Outer Case', {
       color: 0x707070, position: new Vec3(0, 0, zCursor),
       material: 'Inconel 718',
       category: 'COMB', subsystem: 'CSG',
     });
 
-    // CMC inner liner (the GE9X innovation)
-    const cmcLiner = PrimitiveBuilder.cylinder(0.32, 0.40, 64);
+    // CMC inner liner — 4mm wall ceramic
+    const cmcLiner = PrimitiveBuilder.cylinderShell(0.32, 0.316, 0.40, 64);
     t.addPart(cmcLiner, 'Combustor CMC Inner Liner', {
       color: 0xddccaa, position: new Vec3(0, 0, zCursor),
       material: 'CMC SiC/SiC',
@@ -458,7 +458,8 @@ export default class GE9XBuilder {
       metadata: { type: 'CMC SiC/SiC', tempMax: '1500°C' },
     });
 
-    const cmcOuter = PrimitiveBuilder.cylinder(0.38, 0.40, 64);
+    // CMC outer liner — 4mm wall ceramic
+    const cmcOuter = PrimitiveBuilder.cylinderShell(0.38, 0.376, 0.40, 64);
     t.addPart(cmcOuter, 'Combustor CMC Outer Liner', {
       color: 0xccbb99,
       position: new Vec3(0, 0, zCursor),
@@ -595,8 +596,8 @@ export default class GE9XBuilder {
       zCursor += 0.18;
     }
 
-    // HPT casing
-    const hptCase = PrimitiveBuilder.cylinder(0.42, 0.45, 64);
+    // HPT casing — Inconel 8mm wall
+    const hptCase = PrimitiveBuilder.cylinderShell(0.42, 0.412, 0.45, 64);
     t.addPart(hptCase, 'HPT Casing', {
       color: 0x6a6a7a, position: new Vec3(0, 0, 4.00),
       material: 'Inconel 718',
@@ -658,7 +659,7 @@ export default class GE9XBuilder {
       zCursor += 0.16;
     }
 
-    const lptCase = PrimitiveBuilder.cylinder(0.65, 0.95, 96);
+    const lptCase = PrimitiveBuilder.cylinderShell(0.65, 0.642, 0.95, 96);
     t.addPart(lptCase, 'LPT Casing', {
       color: 0x6a6a7a, position: new Vec3(0, 0, 4.80),
       material: 'Inconel 718',
@@ -723,13 +724,15 @@ export default class GE9XBuilder {
   // Shafts
   // ---------------------------------------------------------------------------
   static buildShafts(t) {
-    const lp = PrimitiveBuilder.cylinder(0.06, 5.4, 32);
+    // LP shaft — hollow tube, 12mm wall (real shafts are tubular)
+    const lp = PrimitiveBuilder.cylinderShell(0.06, 0.048, 5.4, 32);
     t.addPart(lp, 'LP Shaft', {
       color: 0x999999, position: new Vec3(0, 0, 2.5),
       material: 'Steel AISI 4340',
       category: 'SHFT', subsystem: 'LP',
     });
-    const hp = PrimitiveBuilder.cylinder(0.10, 1.6, 32);
+    // HP shaft — concentric tubular, 15mm wall
+    const hp = PrimitiveBuilder.cylinderShell(0.10, 0.085, 1.6, 32);
     t.addPart(hp, 'HP Shaft', {
       color: 0x777777, position: new Vec3(0, 0, 2.8),
       material: 'Steel AISI 4340',
@@ -997,12 +1000,11 @@ export default class GE9XBuilder {
     const NUM_SEG = 12;
     const segLen = NACELLE_LEN / NUM_SEG;
 
-    // Outer fan cowl (12 segments around bypass duct)
+    // Outer fan cowl (12 segments around bypass duct) — 25mm composite wall
     for (let s = 0; s < NUM_SEG; s++) {
       const z = NACELLE_Z_START + s * segLen + segLen / 2;
-      // Slight contraction toward the rear (boat-tail)
       const radius = FAN_R + 0.10 - (s / NUM_SEG) * 0.30;
-      const cowl = PrimitiveBuilder.cylinder(radius, segLen, 96);
+      const cowl = PrimitiveBuilder.cylinderShell(radius, radius - 0.025, segLen, 96);
       t.addPart(cowl, `Fan Cowl Segment ${s + 1}`, {
         color: 0xeeeeee, position: new Vec3(0, 0, z),
         material: 'Composite Carbon-Epoxy',
@@ -1018,9 +1020,9 @@ export default class GE9XBuilder {
       category: 'NAC', subsystem: 'LIP',
     });
 
-    // Acoustic liner — perforated panel inside the inlet, forward of fan
+    // Acoustic liner — perforated panel inside the inlet, 8mm wall
     for (let s = 0; s < 4; s++) {
-      const liner = PrimitiveBuilder.cylinder(FAN_R + 0.005, 0.10, 64);
+      const liner = PrimitiveBuilder.cylinderShell(FAN_R + 0.005, FAN_R - 0.003, 0.10, 64);
       t.addPart(liner, `Acoustic Liner Panel ${s + 1}`, {
         color: 0xc0a060, position: new Vec3(0, 0, NACELLE_Z_START + 0.05 + s * 0.10),
         material: 'Aluminum 6061-T6',
@@ -1028,16 +1030,13 @@ export default class GE9XBuilder {
       });
     }
 
-    // Inner core cowl — 8 axial segments along the core (between bypass
-    // duct and core engine). Real GE9X core cowl extends from fan
-    // exit to exhaust nozzle.
+    // Inner core cowl — 8 axial segments, 18mm composite wall
     const CORE_COWL_START = 0.80;
     const CORE_COWL_LEN = 4.20;
     for (let s = 0; s < 8; s++) {
       const z = CORE_COWL_START + (s + 0.5) * (CORE_COWL_LEN / 8);
-      // Core cowl tapers slightly inward toward exhaust
       const radius = 0.78 - (s / 8) * 0.20;
-      const cowl = PrimitiveBuilder.cylinder(radius, CORE_COWL_LEN / 8, 96);
+      const cowl = PrimitiveBuilder.cylinderShell(radius, radius - 0.018, CORE_COWL_LEN / 8, 96);
       t.addPart(cowl, `Core Cowl Segment ${s + 1}`, {
         color: 0xa0a0b0, position: new Vec3(0, 0, z),
         material: 'Composite Carbon-Epoxy',
@@ -1098,7 +1097,8 @@ export default class GE9XBuilder {
   }
 
   static buildExhaust(t) {
-    const exhaustNozzle = PrimitiveBuilder.cylinder(0.55, 0.45, 64);
+    // Exhaust nozzle — Inconel 6mm wall
+    const exhaustNozzle = PrimitiveBuilder.cylinderShell(0.55, 0.544, 0.45, 64);
     t.addPart(exhaustNozzle, 'Exhaust Nozzle', {
       color: 0x404040, position: new Vec3(0, 0, 5.5),
       material: 'Inconel 718',
@@ -1115,7 +1115,14 @@ export default class GE9XBuilder {
         category: 'EXH', subsystem: 'CHV',
       });
     }
+    // Tail cone — Inconel sheet, much lighter than solid cone
     const tailCone = PrimitiveBuilder.cone(0.30, 0.55, 32);
+    // Real tail cone is a 4mm-thick sheet metal — shell volume:
+    // approximate cone surface area × thickness
+    const coneArea = Math.PI * 0.30 * Math.sqrt(0.30 * 0.30 + 0.55 * 0.55);
+    const shellVol = coneArea * 0.004;
+    tailCone.volume = () => shellVol;
+    tailCone._isShell = true;
     t.addPart(tailCone, 'Tail Cone', {
       color: 0x404040, position: new Vec3(0, 0, 5.6),
       material: 'Inconel 718',
