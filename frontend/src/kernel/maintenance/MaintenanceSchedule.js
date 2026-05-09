@@ -1,0 +1,254 @@
+/**
+ * ArchDisc — Maintenance Schedule
+ *
+ * Generates an aircraft engine maintenance task list with intervals,
+ * special tooling, and life-limit tracking. Modeled on real airline
+ * Engine Manual structure (GE9X Engine Maintenance Manual chapter 72).
+ *
+ * Each task card has:
+ *   - Task ID (5-digit, AMM/EMM convention)
+ *   - Title + description
+ *   - Interval (hours / cycles / calendar)
+ *   - Estimated labor (man-hours)
+ *   - Required tooling
+ *   - Life-limited part flag (LLP)
+ *   - Reference EM section
+ */
+
+const TASK_LIBRARY = [
+  // Pre-flight / on-condition
+  {
+    id: '72001-A', title: 'Pre-flight visual inspection',
+    interval: { hours: 'every flight', cycles: null, calendar_days: null },
+    laborHours: 0.25,
+    tooling: ['flashlight', 'borescope-eye'],
+    description: 'Walk-around visual: fan blade leading-edge nicks/dents > 5mm, OGV cracks, oil stains, FOD on inlet lip, exhaust nozzle integrity.',
+    llp: false, emRef: '72-00-00-200',
+  },
+  {
+    id: '72002-A', title: 'Engine oil quantity + visual',
+    interval: { hours: 1, cycles: null, calendar_days: null },
+    laborHours: 0.1,
+    tooling: ['none'],
+    description: 'Verify oil tank level between MIN/MAX, check for leaks, scavenge filter pop-out.',
+    llp: false, emRef: '72-60-00',
+  },
+
+  // 100-hour / 200-cycle scheduled
+  {
+    id: '72100', title: 'Borescope inspection — fan, LPC',
+    interval: { hours: 100, cycles: 200, calendar_days: 90 },
+    laborHours: 1.5,
+    tooling: ['Olympus IV9000 borescope', 'access port plug wrenches'],
+    description: 'Insert borescope through ports BS-FAN-1 and BS-LPC-1. Inspect fan blades for FOD, LPC airfoils for nicks/cracks. Photo-document any indication > 1mm.',
+    llp: false, emRef: '72-30-00-680',
+  },
+  {
+    id: '72101', title: 'HPC borescope (3 ports)',
+    interval: { hours: 200, cycles: 400, calendar_days: 180 },
+    laborHours: 2.0,
+    tooling: ['Olympus IV9000', 'BS-HPC-1/2/3 plugs'],
+    description: 'BS-HPC-1 (stage 1-3), BS-HPC-2 (stage 4-7), BS-HPC-3 (stage 8-11). Especially inspect stage-1 OGV for tip rub.',
+    llp: false, emRef: '72-30-00-685',
+  },
+  {
+    id: '72200', title: 'Combustor borescope inspection',
+    interval: { hours: 200, cycles: 400, calendar_days: 180 },
+    laborHours: 2.5,
+    tooling: ['articulating borescope', 'BS-COMB-1', 'BS-COMB-2'],
+    description: 'Inspect TAPS swirler tips for hot streaks, CMC liner for spallation, dome plate for cracks. Critical for CMC life monitoring.',
+    llp: false, emRef: '72-40-00-680',
+  },
+  {
+    id: '72300', title: 'HPT stage-1 blade borescope',
+    interval: { hours: 200, cycles: 400, calendar_days: 180 },
+    laborHours: 3.0,
+    tooling: ['articulating borescope', 'BS-HPT-1'],
+    description: 'Tip rub, cooling-hole blockage, TBC spallation, leading-edge erosion. Document all blades. CMC blades require thermal-shock crack assessment.',
+    llp: true, emRef: '72-50-00-680',
+  },
+
+  // 1000-hour / 2000-cycle
+  {
+    id: '72400', title: 'Engine oil change + filter element',
+    interval: { hours: 1000, cycles: null, calendar_days: 365 },
+    laborHours: 1.5,
+    tooling: ['oil-can spanner kit', 'spectrographic analysis bottle'],
+    description: 'Drain hot oil, replace filter element, take oil sample for SOAP (Spectrographic Oil Analysis Program).',
+    llp: false, emRef: '72-60-00-200',
+  },
+  {
+    id: '72401', title: 'Magnetic chip detector inspection',
+    interval: { hours: 200, cycles: null, calendar_days: 90 },
+    laborHours: 0.5,
+    tooling: ['MCD removal tool'],
+    description: 'Pull all 5 main-bearing chip detectors. Measure ferromagnetic debris. > 50mg → engine quarantine.',
+    llp: false, emRef: '72-60-00-220',
+  },
+  {
+    id: '72500', title: 'Fan blade FPI (fluorescent penetrant inspection)',
+    interval: { hours: 5000, cycles: 10000, calendar_days: null },
+    laborHours: 8.0,
+    tooling: ['UV lamp 365nm', 'penetrant kit Type II', 'developer'],
+    description: 'Remove fan blades, clean, apply penetrant, dwell 20 min, remove excess, apply developer, inspect under UV. Re-balance set on reassembly.',
+    llp: false, emRef: '72-30-00-630',
+  },
+  {
+    id: '72600', title: 'HPT blade replacement (LCF limit)',
+    interval: { hours: null, cycles: 12000, calendar_days: null },
+    laborHours: 24.0,
+    tooling: ['Hot-section work-stand', 'turbine-disk lift fixture', 'HPT alignment fixtures'],
+    description: 'Pull HPT module, replace stage-1 + stage-2 blade sets. Re-balance turbine assembly. Critical LLP — do NOT exceed cycles. CMC blades require qualified handler.',
+    llp: true, emRef: '72-50-00-400',
+  },
+
+  // Hot-section / heavy maintenance
+  {
+    id: '72700', title: 'Hot section refurbishment',
+    interval: { hours: null, cycles: 18000, calendar_days: null },
+    laborHours: 240,
+    tooling: ['full engine work-stand', 'piece-part inspection bench', 'stator-vane shop'],
+    description: 'Remove engine. Disassemble combustor + HPT + LPT. Replace LLP per LLP table. Inspect all hot-section components per shop manual. Cold section pass-through inspection.',
+    llp: true, emRef: '72-00-00-700',
+  },
+  {
+    id: '72701', title: 'Engine performance restoration',
+    interval: { hours: null, cycles: 24000, calendar_days: null },
+    laborHours: 480,
+    tooling: ['MRO shop visit'],
+    description: 'Full engine teardown to module level. Recoat HPT blades (TBC). Replace fan/LPC blade dovetails as needed. Restore EGT margin. Re-cert run on test stand.',
+    llp: true, emRef: '72-00-00-800',
+  },
+
+  // Inspection-only
+  {
+    id: '72050', title: 'EGT margin trending check',
+    interval: { hours: 50, cycles: null, calendar_days: null },
+    laborHours: 0.25,
+    tooling: ['data-bus reader'],
+    description: 'Download FADEC trim records, check EGT margin trend vs cycle count. > 5°C/100-cycle decline → schedule borescope.',
+    llp: false, emRef: '72-90-00-200',
+  },
+  {
+    id: '72060', title: 'Vibration trending',
+    interval: { hours: 50, cycles: null, calendar_days: null },
+    laborHours: 0.25,
+    tooling: ['FADEC data extract'],
+    description: 'Inspect 1×N1 + 1×N2 vibration channels. > 0.5 ips at takeoff → bearing diagnostic.',
+    llp: false, emRef: '72-90-00-210',
+  },
+
+  // FOD events
+  {
+    id: '72900', title: 'Bird-strike investigation',
+    interval: { hours: 'event', cycles: null, calendar_days: null },
+    laborHours: 4.0,
+    tooling: ['borescope', 'fan-blade dent gauge', 'sample bag'],
+    description: 'Following bird ingestion event: full borescope of fan, LPC, HPC. Bird-mass sample for species ID. If any blade has > 6mm leading-edge tear, replace blade.',
+    llp: false, emRef: '72-30-00-690',
+  },
+
+  // LLP cycle-limited parts (life table)
+  {
+    id: 'LLP-FAN-DSK', title: 'LLP — Fan disk replacement',
+    interval: { hours: null, cycles: 30000, calendar_days: null },
+    laborHours: 40, tooling: ['fan-module work-stand'],
+    description: 'Hard limit. Disk must be removed and scrapped at exactly 30,000 cycles per FAR 33.70 Critical Parts.',
+    llp: true, emRef: '72-30-00-LLP-1',
+  },
+  {
+    id: 'LLP-LPT-DSK', title: 'LLP — LPT disk set replacement',
+    interval: { hours: null, cycles: 18000, calendar_days: null },
+    laborHours: 80, tooling: ['LPT module work-stand'],
+    description: 'All 6 LPT disks scrapped at 18,000 cycles.',
+    llp: true, emRef: '72-50-00-LLP-2',
+  },
+  {
+    id: 'LLP-HPT-DSK', title: 'LLP — HPT disk set replacement',
+    interval: { hours: null, cycles: 12000, calendar_days: null },
+    laborHours: 80, tooling: ['HPT module work-stand'],
+    description: 'Both HPT disks scrapped at 12,000 cycles. Disk forging traceability per FAA AD 2014-XX-XX equivalent.',
+    llp: true, emRef: '72-50-00-LLP-1',
+  },
+  {
+    id: 'LLP-HPC-DSK', title: 'LLP — HPC disk set replacement',
+    interval: { hours: null, cycles: 24000, calendar_days: null },
+    laborHours: 120, tooling: ['HPC module work-stand'],
+    description: 'All 11 HPC disks scrapped at 24,000 cycles.',
+    llp: true, emRef: '72-30-00-LLP-3',
+  },
+
+  // Optional / on-condition
+  {
+    id: '72950', title: 'Engine wash (compressor performance recovery)',
+    interval: { hours: 1500, cycles: null, calendar_days: null },
+    laborHours: 4.0,
+    tooling: ['core wash cart', 'demineralized water supply', 'detergent (B&B-3100 or eq.)'],
+    description: 'Motoring wash with detergent + water rinse. Restores ~3°C EGT margin typically. Schedule before margin reaches alarm.',
+    llp: false, emRef: '72-00-00-100',
+  },
+  {
+    id: '72951', title: 'Cooling-air filter cleaning',
+    interval: { hours: 1000, cycles: null, calendar_days: null },
+    laborHours: 1.0,
+    tooling: ['filter wrench', 'cleaning solvent'],
+    description: 'Pull HPT cooling-air filter; ultrasonic clean; re-install. Critical for blade cooling effectiveness.',
+    llp: false, emRef: '72-50-00-300',
+  },
+
+  // Special inspections
+  {
+    id: '72801', title: 'Bird-strike post-event LCF debit',
+    interval: { hours: 'event', cycles: null, calendar_days: null },
+    laborHours: 0.5, tooling: ['data-record system'],
+    description: 'After confirmed bird-strike: subtract 50 cycles from each disk LCF count, regardless of damage assessment.',
+    llp: true, emRef: '72-00-00-690',
+  },
+  {
+    id: '72802', title: 'Hard-landing inspection',
+    interval: { hours: 'event', cycles: null, calendar_days: null },
+    laborHours: 6.0, tooling: ['borescope', 'shaft-runout fixture', 'mount link gauges'],
+    description: 'Post hard-landing (> 1.8g): inspect mount-link torque, shaft runout, bearing damage signature.',
+    llp: false, emRef: '72-00-00-695',
+  },
+];
+
+export { TASK_LIBRARY };
+
+export default class MaintenanceSchedule {
+
+  static all() { return TASK_LIBRARY; }
+
+  /** Tasks due before a given operating point. */
+  static dueAt({ hours = 0, cycles = 0, days = 0 }) {
+    return TASK_LIBRARY.filter(t => {
+      const i = t.interval;
+      if (typeof i.hours === 'number' && hours >= i.hours) return true;
+      if (typeof i.cycles === 'number' && cycles >= i.cycles) return true;
+      if (typeof i.calendar_days === 'number' && days >= i.calendar_days) return true;
+      return false;
+    });
+  }
+
+  /** Life-limited parts table only. */
+  static llpTable() {
+    return TASK_LIBRARY.filter(t => t.llp);
+  }
+
+  /** Total scheduled labor across one full overhaul cycle (24,000 cycles). */
+  static totalLaborHours(cycles = 24000) {
+    let total = 0;
+    for (const t of TASK_LIBRARY) {
+      const i = t.interval;
+      if (typeof i.cycles === 'number') {
+        const occurrences = Math.floor(cycles / i.cycles);
+        total += occurrences * t.laborHours;
+      } else if (typeof i.hours === 'number' && i.hours !== 'every flight') {
+        // Approximate 2h flight per cycle
+        const occurrences = Math.floor((cycles * 2) / i.hours);
+        total += occurrences * t.laborHours;
+      }
+    }
+    return total;
+  }
+}

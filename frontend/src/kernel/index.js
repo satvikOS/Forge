@@ -126,6 +126,12 @@ export { default as ProjectExporter } from './export/ProjectExporter.js';
 // Brayton thermodynamic cycle — real engine performance
 export { default as BraytonCycle } from './thermodynamics/BraytonCycle.js';
 
+// Acoustic noise prediction — FAR Part 36 / ICAO Annex 16 cert margins
+export { default as NoisePrediction } from './acoustics/NoisePrediction.js';
+
+// Maintenance schedule — task cards + intervals + LLP
+export { default as MaintenanceSchedule, TASK_LIBRARY as MAINTENANCE_TASKS } from './maintenance/MaintenanceSchedule.js';
+
 // HTML Report Builder — self-contained interactive deliverable
 export { default as HTMLReportBuilder } from './export/HTMLReportBuilder.js';
 
@@ -150,3 +156,6 @@ export { default as EngineMaterials, ENGINE_MATERIAL_PARAMS } from './materials/
 
 // Studio Lighting — 3-point + hemisphere for engineering renders
 export { default as StudioLighting } from './rendering/StudioLighting.js';
+
+// Post-FX — SSAO + bloom + FXAA via Three.js EffectComposer
+export { default as PostFX } from './rendering/PostFX.js';
