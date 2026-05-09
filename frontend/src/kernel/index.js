@@ -139,6 +139,9 @@ export { default as CutawayRenderer } from './rendering/CutawayRenderer.js';
 // Marketing Cutaway — color-coded section view matching reference imagery
 export { default as MarketingCutaway, SECTION_COLORS } from './rendering/MarketingCutaway.js';
 
+// Annotation Overlay — section labels + leader lines on top of renders
+export { default as AnnotationOverlay } from './rendering/AnnotationOverlay.js';
+
 // Engine Materials — PBR mapping per material name (titanium, Inconel, CMC, ...)
 export { default as EngineMaterials, ENGINE_MATERIAL_PARAMS } from './materials/EngineMaterials.js';
 
