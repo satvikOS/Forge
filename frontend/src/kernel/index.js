@@ -102,6 +102,7 @@ export { default as BVH } from './spatial/BVH.js';
 // Airfoil & Turbomachinery (real engine geometry)
 export { default as NACA } from './airfoil/NACA.js';
 export { default as TurbomachineryBlade } from './turbomachinery/TurbomachineryBlade.js';
+export { default as HollowBlade } from './turbomachinery/HollowBlade.js';
 
 // LOD for large assemblies
 export { default as LODManager } from './lod/LODManager.js';
