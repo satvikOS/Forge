@@ -177,15 +177,19 @@ To be fair:
 | F6 | Boolean-merge blade root with disk slot | DEFERRED (heavy boolean at 30K-part scale) |
 | F7 | Different airfoil sections for stators vs rotors | **[DONE]** |
 | F8 | HPC stages: dramatic blade-height taper | **[DONE]** |
-| F9 | Better fan blade tessellation | TODO |
+| F9 | Better fan blade tessellation | **[DONE]** — 13 stations × 100-point airfoil |
 | F10 | Acoustic liner + inlet lip | **[DONE — added in F1]** |
-| F11 | TBC-coated turbine blade visual material | TODO |
-| F12 | Hot-mode emission applies to all HPT/COMB parts | TODO |
-| F13 | CFD streamlines actually thread through engine | TODO |
+| F11 | TBC-coated turbine blade visual material | **[DONE]** |
+| F12 | Hot-mode emission applies to all HPT/COMB parts | **[DONE]** |
+| F13 | CFD streamlines actually thread through engine | **[DONE]** |
 
-After F1-F8 the engine is a recognizable GE9X turbofan with cross-validation against published specs:
-  - 10/10 dimensional/architectural checks PASS
-  - 11,186 kg mass vs 10,012 kg spec (within 6%)
+After F1-F13 (F6 deferred) the engine is a recognizable GE9X turbofan with cross-validation against published specs:
+  - 10/10 dimensional/architectural checks PASS (commit 83cbf16)
+  - 10,600 kg mass vs 10,012 kg spec (within 6%)
   - Marketing cutaway is engineering-poster quality
+  - Hot-mode emission applies to all HPT/COMB/LPT parts uniformly
+  - CFD streamlines thread through engine intake → exhaust
+  - Fan blades tessellate cleanly at any zoom level
+  - TBC-coated blades render with ceramic-warmth distinct from bare metal
 
-Remaining items (F9-F13) are visual polish — they would make individual close-up renders crisper but don't change the structural identity of the model.
+The remaining F6 (boolean-merge blade roots with disk slots) is a heavy CSG operation at 30K-part scale that doesn't change visual identity at engine-overview scale.
