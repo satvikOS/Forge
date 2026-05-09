@@ -1,0 +1,132 @@
+{
+  "engine": "Rolls-Royce Trent 1000",
+  "totalComponents": 16126,
+  "buildTimeSec": 0.603,
+  "totalMassKg": 129434.92,
+  "bomEntries": 34,
+  "sections": [
+    {
+      "name": "Inlet & Spinner",
+      "added": 14,
+      "total": 14
+    },
+    {
+      "name": "Fan Module",
+      "added": 124,
+      "total": 138
+    },
+    {
+      "name": "IP Compressor (Booster)",
+      "added": 1866,
+      "total": 2004
+    },
+    {
+      "name": "HP Compressor",
+      "added": 1560,
+      "total": 3564
+    },
+    {
+      "name": "Combustor",
+      "added": 5428,
+      "total": 8992
+    },
+    {
+      "name": "HP Turbine",
+      "added": 466,
+      "total": 9458
+    },
+    {
+      "name": "IP Turbine",
+      "added": 289,
+      "total": 9747
+    },
+    {
+      "name": "LP Turbine",
+      "added": 2346,
+      "total": 12093
+    },
+    {
+      "name": "Bearings & Seals",
+      "added": 93,
+      "total": 12186
+    },
+    {
+      "name": "Shafts & Couplings",
+      "added": 12,
+      "total": 12198
+    },
+    {
+      "name": "Accessory Gearbox",
+      "added": 146,
+      "total": 12344
+    },
+    {
+      "name": "Fuel System",
+      "added": 18,
+      "total": 12362
+    },
+    {
+      "name": "Oil System",
+      "added": 33,
+      "total": 12395
+    },
+    {
+      "name": "Air System",
+      "added": 18,
+      "total": 12413
+    },
+    {
+      "name": "Ignition System",
+      "added": 8,
+      "total": 12421
+    },
+    {
+      "name": "FADEC & Sensors",
+      "added": 32,
+      "total": 12453
+    },
+    {
+      "name": "Wire Harnesses",
+      "added": 60,
+      "total": 12513
+    },
+    {
+      "name": "Hydraulic Lines",
+      "added": 16,
+      "total": 12529
+    },
+    {
+      "name": "Casings & Cowlings",
+      "added": 13,
+      "total": 12542
+    },
+    {
+      "name": "Pylon & Mounts",
+      "added": 44,
+      "total": 12586
+    },
+    {
+      "name": "Thrust Reverser",
+      "added": 37,
+      "total": 12623
+    },
+    {
+      "name": "Exhaust Section",
+      "added": 23,
+      "total": 12646
+    },
+    {
+      "name": "Fasteners",
+      "added": 3456,
+      "total": 16102
+    },
+    {
+      "name": "Maintenance Tags",
+      "added": 24,
+      "total": 16126
+    }
+  ],
+  "buildDate": "2026-05-09T07:18:51.424Z",
+  "builderVersion": "Trent1000Builder v2",
+  "kernelVersion": "1.21.0"
+}
