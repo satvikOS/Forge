@@ -138,8 +138,14 @@ export function executeTool(groupKey, toolName, scene, viewport) {
 // Helper: take a manifold body, build a Three.js mesh, add to scene,
 // remember it as the last foundation result, and return the group.
 function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b1538) {
+  // Foundation bodies are in mm, but the Three.js scene uses meters
+  // internally (camera ~0.15 m away, grid 0.5 m wide). Scale the
+  // group by 0.001 so a 30 mm cube renders at the correct visual
+  // size. The underlying manifold-3d data stays in mm so volume()
+  // and other queries still report mm³.
   const mesh = manifoldToMesh(manifold, { color });
   const group = new THREE.Group();
+  group.scale.set(0.001, 0.001, 0.001);
   group.add(mesh);
   group.userData.pickable = true;
   group.userData.generatedModel = true;
@@ -147,12 +153,23 @@ function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b153
   scene.add(group);
   _lastFoundationManifold = manifold;
   _lastFoundationGroup = group;
-  // Mirror onto window so integration tests (running in a different
-  // dynamic-import module instance due to Vite's HMR query-param cache
-  // busting) can still read the result without ambiguity.
+  // Force world-matrix update so the focus call below sees the post-
+  // scale bbox (Three.js otherwise lazily computes it on next render
+  // and Box3.setFromObject would read pre-scale coordinates).
+  group.updateMatrixWorld(true);
+
+  // Mirror onto window for integration tests + frame-to-screen.
   if (typeof window !== 'undefined') {
     window.__lastFoundationManifold = manifold;
     window.__lastFoundationGroup = group;
+    // Auto-frame: include every foundation body in the scene so the
+    // user sees the new one alongside any previous geometry. 60 %
+    // margin gives breathing room for the nav gizmo and status bar.
+    if (typeof window.__archdiscFocusOnFoundationBodies === 'function') {
+      window.__archdiscFocusOnFoundationBodies();
+    } else if (typeof window.__archdiscFocusOnObject === 'function') {
+      window.__archdiscFocusOnObject(group);
+    }
   }
   return group;
 }

@@ -1,7 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Box, Layers, Ruler, Settings } from 'lucide-react';
 import { MATERIALS } from '../kernel/index.js';
 import './PropertyManager.css';
+
+// Lightweight hook: re-render whenever a foundation body is added to
+// the scene. Reads window.__lastFoundationManifold which the foundation
+// pipeline mirrors after every Linear Pattern / Sweep / Loft / etc.
+function useFoundationBody() {
+  const [body, setBody] = useState(null);
+  useEffect(() => {
+    const tick = () => {
+      const m = (typeof window !== 'undefined') ? window.__lastFoundationManifold : null;
+      if (m !== body) setBody(m || null);
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [body]);
+  return body;
+}
 
 /**
  * Property Manager — Right sidebar panel.
@@ -20,6 +37,12 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
   const solid = selection?.solid || null;
   const hasSelection = selection && (selection.type === 'object' || selection.type === 'face');
 
+  // Foundation-body fallback: when no legacy-kernel solid is selected,
+  // surface the most recent foundation manifold so the Properties
+  // panel shows real numbers after every Linear Pattern / Sweep / etc.
+  const foundationBody = useFoundationBody();
+  const showFoundation = !solid && !!foundationBody;
+
   let mass = 0, volume = 0, surfaceArea = 0;
   let bbox = null;
   if (solid) {
@@ -29,6 +52,27 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
       volume = props.volume;
       surfaceArea = props.surfaceArea;
       bbox = solid.boundingBox();
+    } catch (e) { /* fallback */ }
+  } else if (showFoundation) {
+    try {
+      const Vmm3 = foundationBody.volume();
+      const Amm2 = foundationBody.surfaceArea();
+      const bb = foundationBody.boundingBox();
+      // Convert mm-scale foundation outputs into the SI units the rest
+      // of the panel uses (legacy kernel: m, m², m³, kg).
+      volume = Vmm3 * 1e-9;          // mm³ → m³
+      surfaceArea = Amm2 * 1e-6;     // mm² → m²
+      const density = MATERIALS[material]?.density || 2700;
+      mass = volume * density;
+      bbox = {
+        min: { x: bb.min[0] / 1000, y: bb.min[1] / 1000, z: bb.min[2] / 1000 },
+        max: { x: bb.max[0] / 1000, y: bb.max[1] / 1000, z: bb.max[2] / 1000 },
+        size: () => ({
+          x: (bb.max[0] - bb.min[0]) / 1000,
+          y: (bb.max[1] - bb.min[1]) / 1000,
+          z: (bb.max[2] - bb.min[2]) / 1000,
+        }),
+      };
     } catch (e) { /* fallback */ }
   }
 
@@ -52,8 +96,9 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
 
       {/* Geometry section */}
       <Section title="Geometry" icon={<Box size={11} />} expanded={expanded.geometry} onToggle={() => toggle('geometry')}>
-        {solid ? (
+        {(solid || showFoundation) ? (
           <>
+            <Row label="Source" value={solid ? 'Legacy B-Rep' : 'Foundation manifold'} />
             <Row label="Volume" value={formatVolume(volume)} />
             <Row label="Surface Area" value={formatArea(surfaceArea)} />
             <Row label="Mass" value={formatMass(mass)} highlight />
@@ -64,9 +109,13 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
                 <Row label="Depth (Z)" value={formatLength(bbox.size().z)} />
               </>
             )}
-            <Row label="Vertices" value={solid.vertices().length} />
-            <Row label="Edges" value={solid.edges().length} />
-            <Row label="Faces" value={solid.faces().length} />
+            {solid && (
+              <>
+                <Row label="Vertices" value={solid.vertices().length} />
+                <Row label="Edges" value={solid.edges().length} />
+                <Row label="Faces" value={solid.faces().length} />
+              </>
+            )}
           </>
         ) : (
           <div className="pm-empty">No selection. Click an object to view properties.</div>
@@ -114,7 +163,7 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
 
       {/* Manufacturing section */}
       <Section title="Manufacturing" icon={<Settings size={11} />} expanded={expanded.manufacturing} onToggle={() => toggle('manufacturing')}>
-        {solid ? (
+        {(solid || showFoundation) ? (
           <>
             <Row label="Material Cost" value={`$${(mass * 3.5).toFixed(2)}`} />
             <Row label="Machining Cost" value={`$${(surfaceArea * 15).toFixed(2)}`} />

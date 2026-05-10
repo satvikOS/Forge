@@ -183,6 +183,7 @@ export function solveThermalSteady({
   fixedTemperatures = [],
   heatLoads = [],
   uniformHeatGen = 0,
+  convectionBCs = [],     // [{ tri: [n0, n1, n2], h, Tinf }]
   options = {},
 }) {
   const numNodes = mesh.vertices.length;
@@ -213,6 +214,37 @@ export function solveThermalSteady({
 
   // Apply point heat loads
   for (const ld of heatLoads) F[ld.node] += ld.value;
+
+  // Robin / convective BCs on boundary triangular faces:
+  //   q_n = h (T − T_∞)   →   K_face_ij += h ∫ N_i N_j dA
+  //                            F_face_i  += h T_∞ ∫ N_i dA
+  //
+  // For a linear-tri shape function on a face of area A:
+  //   ∫ N_i N_j dA = (A/12) (1 + δ_ij)        i.e. A/6 on diag, A/12 off-diag
+  //   ∫ N_i dA     = A / 3
+  //
+  // Used to model cooled blade walls (internal coolant film coefficient
+  // h_in, T_in) ↔ external hot-gas film (h_ext, T_gas).
+  for (const cbc of convectionBCs) {
+    const [a, b, c] = cbc.tri;
+    const pa = mesh.vertices[a], pb = mesh.vertices[b], pc = mesh.vertices[c];
+    const ux = pb[0] - pa[0], uy = pb[1] - pa[1], uz = pb[2] - pa[2];
+    const vx = pc[0] - pa[0], vy = pc[1] - pa[1], vz = pc[2] - pa[2];
+    const cx = uy * vz - uz * vy;
+    const cy = uz * vx - ux * vz;
+    const cz = ux * vy - uy * vx;
+    const A = 0.5 * Math.hypot(cx, cy, cz);
+    if (A < 1e-18) continue;
+    const h = cbc.h, Tinf = cbc.Tinf;
+    const diag = h * A / 6;
+    const off = h * A / 12;
+    const fi = h * Tinf * A / 3;
+    K.add(a, a, diag); K.add(b, b, diag); K.add(c, c, diag);
+    K.add(a, b, off); K.add(b, a, off);
+    K.add(b, c, off); K.add(c, b, off);
+    K.add(a, c, off); K.add(c, a, off);
+    F[a] += fi; F[b] += fi; F[c] += fi;
+  }
 
   // Symmetric row-elimination Dirichlet enforcement (exact, preserves SPD):
   //   For each constrained node i with target value v_i:

@@ -62,8 +62,11 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         const height = container.clientHeight || 600;
 
         // --- Scene ---
+        // OLED-black background matches industry CAD apps (NX, CATIA,
+        // Fusion 360 dark mode) — pure #000 maximizes contrast for
+        // shaded/translucent surfaces and saves OLED pixels.
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a2e);
+        scene.background = new THREE.Color(0x000000);
 
         // --- Camera ---
         const camera = new THREE.PerspectiveCamera(45, width / height, 0.0001, 100);
@@ -80,13 +83,10 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         renderer.toneMappingExposure = 1.2;
         container.appendChild(renderer.domElement);
 
-        // --- Grid ---
-        const grid = new THREE.GridHelper(0.5, 50, 0x444466, 0x222244); // 500mm grid, 10mm spacing
-        grid.userData.pickable = false;
-        grid.userData.isHelper = true;
-        scene.add(grid);
-
-        // --- Axes ---
+        // --- Axes triad only (no infinite floor grid) ---
+        // Industry CAD apps don't draw a perpetual ground plane —
+        // they use a corner triad and an orientation gizmo. Keeps
+        // the OLED-black backdrop uncluttered.
         const axes = new THREE.AxesHelper(0.05); // 50mm axes
         axes.userData.pickable = false;
         axes.userData.isHelper = true;
@@ -171,6 +171,57 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         // Store references
         const selectedRef = { current: null };
         internalsRef.current = { scene, camera, renderer, orbitControls, transformControls, selectedRef };
+
+        // Expose framing hooks so foundation handlers can re-centre
+        // the camera on the body they just added. We expose two:
+        //   __archdiscFitToScreen()   — frame ALL meshes in the scene
+        //                                (use sparingly — pulls the
+        //                                 camera back too far when the
+        //                                 grid/gizmo helpers exist)
+        //   __archdiscFocusOnObject(o) — frame a single Object3D tight
+        //                                (preferred for foundation
+        //                                 bodies just added).
+        if (typeof window !== 'undefined') {
+          window.__archdiscFitToScreen = () => {
+            try { focusOnAll(scene, camera, orbitControls); } catch (_) {}
+          };
+          window.__archdiscFocusOnObject = (obj) => {
+            try { focusOnObject(obj, camera, orbitControls); } catch (_) {}
+          };
+          // Frame every foundation body currently in the scene as a
+          // single bbox. Used by tool handlers that add new geometry —
+          // this keeps prior bodies visible alongside the new one.
+          window.__archdiscFocusOnFoundationBodies = () => {
+            try {
+              const box = new THREE.Box3();
+              scene.traverse(o => {
+                if (o.userData?.foundationManifold) {
+                  o.updateMatrixWorld(true);
+                  box.expandByObject(o);
+                }
+              });
+              if (box.isEmpty()) return;
+              const center = box.getCenter(new THREE.Vector3());
+              const size = box.getSize(new THREE.Vector3());
+              const maxDim = Math.max(size.x, size.y, size.z) || 0.05;
+              const halfFov = (camera.fov * Math.PI / 180) / 2;
+              const dist = (maxDim / 2) / Math.tan(halfFov) * 1.6;
+              const dx = 0.6, dy = 0.35, dz = 0.6;
+              const L = Math.hypot(dx, dy, dz);
+              camera.position.set(
+                center.x + dist * dx / L,
+                center.y + dist * dy / L,
+                center.z + dist * dz / L,
+              );
+              camera.near = Math.max(dist * 0.01, 1e-4);
+              camera.far  = Math.max(dist * 100, 100);
+              camera.updateProjectionMatrix();
+              orbitControls.target.copy(center);
+              orbitControls.update();
+            } catch (_) {}
+          };
+          window.__archdiscScene = scene;
+        }
 
         // --- Raycaster ---
         const raycaster = new THREE.Raycaster();
@@ -769,9 +820,23 @@ function focusOnObject(obj, camera, controls) {
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const dist = maxDim / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.5;
-    camera.position.set(center.x + dist * 0.6, center.y + dist * 0.4, center.z + dist * 0.6);
+    const maxDim = Math.max(size.x, size.y, size.z) || 0.05;
+    // Frame so the body fills ~70 % of the shorter viewport axis.
+    // Multiplier 1.05 gives a ~5 % margin around the bounding sphere.
+    const halfFov = (camera.fov * Math.PI / 180) / 2;
+    const dist = (maxDim / 2) / Math.tan(halfFov) * 1.05;
+    // Keep the existing iso-ish viewing direction (dx ≈ dz, dy small).
+    // Direction unit-vector (0.6, 0.35, 0.6) normalised.
+    const dx = 0.6, dy = 0.35, dz = 0.6;
+    const L = Math.hypot(dx, dy, dz);
+    camera.position.set(
+      center.x + dist * dx / L,
+      center.y + dist * dy / L,
+      center.z + dist * dz / L,
+    );
+    camera.near = Math.max(dist * 0.001, 0.0001);
+    camera.far  = Math.max(dist * 100, 100);
+    camera.updateProjectionMatrix();
     controls.target.copy(center);
     controls.update();
 }

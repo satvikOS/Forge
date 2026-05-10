@@ -1,0 +1,9 @@
+{
+  "TR_FEM": 50.00000000033254,
+  "TM_FEM": 75.00000000010155,
+  "TR_analytical": 50,
+  "TM_analytical": 75,
+  "cgIters": 57,
+  "nodeCount": 189,
+  "elemCount": 480
+}
