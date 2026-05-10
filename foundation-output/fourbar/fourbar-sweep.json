@@ -1,0 +1,8 @@
+{
+  "grashof": "crank-rocker",
+  "nonGrashof": "rocker-rocker",
+  "totalFrames": 60,
+  "validFrames": 60,
+  "collisionFreeFrames": 60,
+  "collisions": []
+}
