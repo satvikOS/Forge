@@ -1,0 +1,698 @@
+{
+  "M3": {
+    "screw": {
+      "manifold": true,
+      "triangles": 468,
+      "vertices": 236,
+      "boundingBoxMm": {
+        "min": [
+          -2.75,
+          -2.75,
+          -12
+        ],
+        "max": [
+          2.75,
+          2.75,
+          3
+        ]
+      },
+      "volumeMm3": 117.80565118450373,
+      "surfaceAreaMm2": 200.5506540776666,
+      "edgeLengthRangeMm": {
+        "min": 0.15631344461912,
+        "max": 12.001018036895566
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 158,
+        "areaFraction": 0.11827509488949284
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ],
+      "spec": {
+        "standard": "ISO 4762",
+        "size": "M3",
+        "designation": "M3×12-12.9 SHCS",
+        "nominalDiameter_mm": 3,
+        "headDiameter_mm": 5.5,
+        "headHeight_mm": 3,
+        "socketAcrossFlats_mm": 2.5,
+        "pitch_mm": 0.5,
+        "minor_mm": 2.39,
+        "length_mm": 12
+      }
+    },
+    "nut": {
+      "manifold": true,
+      "triangles": 216,
+      "vertices": 108,
+      "boundingBoxMm": {
+        "min": [
+          -2.75,
+          -3.175426483154297,
+          0
+        ],
+        "max": [
+          2.75,
+          3.175426483154297,
+          2.4
+        ]
+      },
+      "volumeMm3": 47.066200383837945,
+      "surfaceAreaMm2": 106.7978524050246,
+      "edgeLengthRangeMm": {
+        "min": 0.18966904049632247,
+        "max": 5.50000000339225
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 54,
+        "areaFraction": 0.1836265042018496
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "washer": {
+      "manifold": true,
+      "triangles": 448,
+      "vertices": 224,
+      "boundingBoxMm": {
+        "min": [
+          -3.5,
+          -3.5,
+          0
+        ],
+        "max": [
+          3.5,
+          3.5,
+          0.5
+        ]
+      },
+      "volumeMm3": 15.201594879593893,
+      "surfaceAreaMm2": 76.8204988925922,
+      "edgeLengthRangeMm": {
+        "min": 0.20928999970734483,
+        "max": 6.1734490394592285
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 112,
+        "areaFraction": 0.39576923114285806
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  },
+  "M4": {
+    "screw": {
+      "manifold": true,
+      "triangles": 468,
+      "vertices": 236,
+      "boundingBoxMm": {
+        "min": [
+          -3.5,
+          -3.5,
+          -16
+        ],
+        "max": [
+          3.5,
+          3.5,
+          4
+        ]
+      },
+      "volumeMm3": 261.6482790822263,
+      "surfaceAreaMm2": 343.2802742973002,
+      "edgeLengthRangeMm": {
+        "min": 0.2053657710577922,
+        "max": 16.001317918831056
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 158,
+        "areaFraction": 0.1119281302585364
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ],
+      "spec": {
+        "standard": "ISO 4762",
+        "size": "M4",
+        "designation": "M4×16-12.9 SHCS",
+        "nominalDiameter_mm": 4,
+        "headDiameter_mm": 7,
+        "headHeight_mm": 4,
+        "socketAcrossFlats_mm": 3,
+        "pitch_mm": 0.7,
+        "minor_mm": 3.14,
+        "length_mm": 16
+      }
+    },
+    "nut": {
+      "manifold": true,
+      "triangles": 216,
+      "vertices": 108,
+      "boundingBoxMm": {
+        "min": [
+          -3.5,
+          -4.041451886296272,
+          0
+        ],
+        "max": [
+          3.5,
+          4.041451886296272,
+          3.2
+        ]
+      },
+      "volumeMm3": 97.67495841314864,
+      "surfaceAreaMm2": 177.82181574022988,
+      "edgeLengthRangeMm": {
+        "min": 0.25507218512609486,
+        "max": 7.000000060629194
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 54,
+        "areaFraction": 0.17165174184468646
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "washer": {
+      "manifold": true,
+      "triangles": 448,
+      "vertices": 224,
+      "boundingBoxMm": {
+        "min": [
+          -4.5,
+          -4.5,
+          0
+        ],
+        "max": [
+          4.5,
+          4.5,
+          0.8
+        ]
+      },
+      "volumeMm3": 39.2276249349302,
+      "surfaceAreaMm2": 131.47881136588094,
+      "edgeLengthRangeMm": {
+        "min": 0.28123336783634467,
+        "max": 7.719557272993083
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 112,
+        "areaFraction": 0.3729462584284717
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  },
+  "M5": {
+    "screw": {
+      "manifold": true,
+      "triangles": 468,
+      "vertices": 236,
+      "boundingBoxMm": {
+        "min": [
+          -4.25,
+          -4.25,
+          -20
+        ],
+        "max": [
+          4.25,
+          4.25,
+          5
+        ]
+      },
+      "volumeMm3": 501.75117656259584,
+      "surfaceAreaMm2": 533.8166608922983,
+      "edgeLengthRangeMm": {
+        "min": 0.26292054688136696,
+        "max": 20.001728106626302
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 158,
+        "areaFraction": 0.10612989600777373
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ],
+      "spec": {
+        "standard": "ISO 4762",
+        "size": "M5",
+        "designation": "M5×20-12.9 SHCS",
+        "nominalDiameter_mm": 5,
+        "headDiameter_mm": 8.5,
+        "headHeight_mm": 5,
+        "socketAcrossFlats_mm": 4,
+        "pitch_mm": 0.8,
+        "minor_mm": 4.02,
+        "length_mm": 20
+      }
+    },
+    "nut": {
+      "manifold": true,
+      "triangles": 216,
+      "vertices": 108,
+      "boundingBoxMm": {
+        "min": [
+          -4,
+          -4.618802152574062,
+          0
+        ],
+        "max": [
+          4,
+          4.618802152574062,
+          4.7
+        ]
+      },
+      "volumeMm3": 172.12350626451104,
+      "surfaceAreaMm2": 275.79350114601203,
+      "edgeLengthRangeMm": {
+        "min": 0.3204752862583962,
+        "max": 6.589638180429776
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 54,
+        "areaFraction": 0.13278783968045685
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "washer": {
+      "manifold": true,
+      "triangles": 448,
+      "vertices": 224,
+      "boundingBoxMm": {
+        "min": [
+          -5,
+          -5,
+          0
+        ],
+        "max": [
+          5,
+          5,
+          1
+        ]
+      },
+      "volumeMm3": 56.41482782688099,
+      "surfaceAreaMm2": 160.87152329945792,
+      "edgeLengthRangeMm": {
+        "min": 0.34663647310216966,
+        "max": 8.314696311950684
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 112,
+        "areaFraction": 0.35068249954711117
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  },
+  "M6": {
+    "screw": {
+      "manifold": true,
+      "triangles": 468,
+      "vertices": 236,
+      "boundingBoxMm": {
+        "min": [
+          -5,
+          -5,
+          -25
+        ],
+        "max": [
+          5,
+          5,
+          6
+        ]
+      },
+      "volumeMm3": 851.0077781907844,
+      "surfaceAreaMm2": 771.5763298657134,
+      "edgeLengthRangeMm": {
+        "min": 0.311972821237543,
+        "max": 25.00194646716729
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 158,
+        "areaFraction": 0.1016279399228847
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ],
+      "spec": {
+        "standard": "ISO 4762",
+        "size": "M6",
+        "designation": "M6×25-12.9 SHCS",
+        "nominalDiameter_mm": 6,
+        "headDiameter_mm": 10,
+        "headHeight_mm": 6,
+        "socketAcrossFlats_mm": 5,
+        "pitch_mm": 1,
+        "minor_mm": 4.77,
+        "length_mm": 25
+      }
+    },
+    "nut": {
+      "manifold": true,
+      "triangles": 216,
+      "vertices": 108,
+      "boundingBoxMm": {
+        "min": [
+          -5,
+          -5.773502692580223,
+          0
+        ],
+        "max": [
+          5,
+          5.773502692580223,
+          5.2
+        ]
+      },
+      "volumeMm3": 308.5723673844415,
+      "surfaceAreaMm2": 395.1302279905577,
+      "edgeLengthRangeMm": {
+        "min": 0.3858784120162012,
+        "max": 7.770027857489486
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 54,
+        "areaFraction": 0.15018046930537732
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "washer": {
+      "manifold": true,
+      "triangles": 448,
+      "vertices": 224,
+      "boundingBoxMm": {
+        "min": [
+          -6,
+          -6,
+          0
+        ],
+        "max": [
+          6,
+          6,
+          1.6
+        ]
+      },
+      "volumeMm3": 129.3402058554463,
+      "surfaceAreaMm2": 254.11656161203902,
+      "edgeLengthRangeMm": {
+        "min": 0.41857999941468965,
+        "max": 9.977635383605957
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 112,
+        "areaFraction": 0.318112397681355
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  },
+  "M8": {
+    "screw": {
+      "manifold": true,
+      "triangles": 468,
+      "vertices": 236,
+      "boundingBoxMm": {
+        "min": [
+          -6.5,
+          -6.5,
+          -30
+        ],
+        "max": [
+          6.5,
+          6.5,
+          8
+        ]
+      },
+      "volumeMm3": 1918.9556301348673,
+      "surfaceAreaMm2": 1284.119100918291,
+      "edgeLengthRangeMm": {
+        "min": 0.42315814755573966,
+        "max": 30.002984234781895
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 158,
+        "areaFraction": 0.10319850885519286
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ],
+      "spec": {
+        "standard": "ISO 4762",
+        "size": "M8",
+        "designation": "M8×30-12.9 SHCS",
+        "nominalDiameter_mm": 8,
+        "headDiameter_mm": 13,
+        "headHeight_mm": 8,
+        "socketAcrossFlats_mm": 6,
+        "pitch_mm": 1.25,
+        "minor_mm": 6.47,
+        "length_mm": 30
+      }
+    },
+    "nut": {
+      "manifold": true,
+      "triangles": 216,
+      "vertices": 108,
+      "boundingBoxMm": {
+        "min": [
+          -6.5,
+          -7.505553498864174,
+          0
+        ],
+        "max": [
+          6.5,
+          7.505553498864174,
+          6.8
+        ]
+      },
+      "volumeMm3": 662.8738959660899,
+      "surfaceAreaMm2": 669.8353862518574,
+      "edgeLengthRangeMm": {
+        "min": 0.5166846796812483,
+        "max": 10.127849686559845
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 54,
+        "areaFraction": 0.1455304649517535
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "washer": {
+      "manifold": true,
+      "triangles": 448,
+      "vertices": 224,
+      "boundingBoxMm": {
+        "min": [
+          -8,
+          -8,
+          0
+        ],
+        "max": [
+          8,
+          8,
+          1.6
+        ]
+      },
+      "volumeMm3": 232.76725545065452,
+      "surfaceAreaMm2": 413.5444136603097,
+      "edgeLengthRangeMm": {
+        "min": 0.5493861676190288,
+        "max": 13.303513526916504
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 112,
+        "areaFraction": 0.35178696456685543
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  },
+  "M10": {
+    "screw": {
+      "manifold": true,
+      "triangles": 468,
+      "vertices": 236,
+      "boundingBoxMm": {
+        "min": [
+          -8,
+          -8,
+          -40
+        ],
+        "max": [
+          8,
+          8,
+          10
+        ]
+      },
+      "volumeMm3": 3816.142462570938,
+      "surfaceAreaMm2": 2067.179162805757,
+      "edgeLengthRangeMm": {
+        "min": 0.5336894015770026,
+        "max": 40.00356015003667
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 158,
+        "areaFraction": 0.09710774251250291
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ],
+      "spec": {
+        "standard": "ISO 4762",
+        "size": "M10",
+        "designation": "M10×40-12.9 SHCS",
+        "nominalDiameter_mm": 10,
+        "headDiameter_mm": 16,
+        "headHeight_mm": 10,
+        "socketAcrossFlats_mm": 8,
+        "pitch_mm": 1.5,
+        "minor_mm": 8.16,
+        "length_mm": 40
+      }
+    },
+    "nut": {
+      "manifold": true,
+      "triangles": 216,
+      "vertices": 108,
+      "boundingBoxMm": {
+        "min": [
+          -8,
+          -9.237604305148125,
+          0
+        ],
+        "max": [
+          8,
+          9.237604305148125,
+          8.4
+        ]
+      },
+      "volumeMm3": 1217.5402741037042,
+      "surfaceAreaMm2": 1016.5341613656303,
+      "edgeLengthRangeMm": {
+        "min": 0.6474909280763768,
+        "max": 12.485724895209364
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 54,
+        "areaFraction": 0.14258770711580396
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "washer": {
+      "manifold": true,
+      "triangles": 448,
+      "vertices": 224,
+      "boundingBoxMm": {
+        "min": [
+          -10,
+          -10,
+          0
+        ],
+        "max": [
+          10,
+          10,
+          2
+        ]
+      },
+      "volumeMm3": 454.6235458020596,
+      "surfaceAreaMm2": 646.163146344234,
+      "edgeLengthRangeMm": {
+        "min": 0.6867327593349214,
+        "max": 16.629392623901367
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 112,
+        "areaFraction": 0.35178696632367434
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  }
+}
