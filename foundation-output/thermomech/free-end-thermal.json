@@ -1,0 +1,57 @@
+{
+  "input": {
+    "dT": 75,
+    "material": {
+      "name": "Aluminum 6061-T6",
+      "E": 68900,
+      "nu": 0.33,
+      "alpha": 0.0000236,
+      "density": 0.0000027,
+      "yieldStrength": 276,
+      "k": 0.167
+    },
+    "expectedTipDispMm": 0.17700000000000002
+  },
+  "fem": {
+    "meshStats": {
+      "vertexCount": 525,
+      "tetCount": 1920,
+      "totalVolume": 10000.00000000002,
+      "gridShape": [
+        20,
+        4,
+        4
+      ],
+      "cellSize": [
+        5,
+        2.5,
+        2.5
+      ],
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          100,
+          10,
+          10
+        ]
+      }
+    },
+    "tipDispX": 0.17700000000787777,
+    "maxDispMm": 0.17876123741380903,
+    "maxVonMisesMPa": 3.7554939803037e-7,
+    "meanVonMisesMPa": 5.966301995376444e-8,
+    "thermalCg": {
+      "iters": 0,
+      "res": 0
+    },
+    "structuralCg": {
+      "iters": 652,
+      "res": 8.78969984302795e-11
+    }
+  },
+  "pctError": 4.4507084772211815e-9
+}
