@@ -112,6 +112,9 @@ const TABS = {
         { name: 'Steady-State Thermal', icon: '🌡', key: 'simulation' },
         { name: 'CFD Flow Simulation', icon: '🌊', key: 'simulation' },
       ]},
+      { label: 'Propulsion', tools: [
+        { name: 'Brayton Cycle', icon: '◈', key: 'simulation' },
+      ]},
       { label: 'Optimize', tools: [
         { name: 'Topology Optimization', icon: '🧬', key: 'simulation' },
         { name: 'Design Study', icon: '📈', key: 'simulation' },

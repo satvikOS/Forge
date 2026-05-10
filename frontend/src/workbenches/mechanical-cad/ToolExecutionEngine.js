@@ -47,6 +47,7 @@ import { manifoldMassProperties, principalInertia } from '../../foundation/MassP
 import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
 import { findMaterial } from '../../foundation/MaterialDB.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
+import { solveTurbofan } from '../../foundation/BraytonCycle.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1077,6 +1078,28 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Brayton Cycle': async (scene) => {
+      // Foundation path: solve a Trent-XWB-class turbofan cycle at
+      // FL350 cruise (M=0.85, alt=10670 m, BPR=9.6, OPR=50, T4=1750 K,
+      // 1300 kg/s mass flow). Reports thrust, SFC, OPR, station T's,
+      // efficiencies — the exact numbers a propulsion engineer asks
+      // for on day one of a new engine concept.
+      const r = solveTurbofan({
+        altitudeM: 10670, machNumber: 0.85,
+        bypassRatio: 9.6,
+        fanPR: 1.45,
+        compressorPR: 50 / 1.45,
+        T4_K: 1750,
+        massFlowKgS: 1300,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastBraytonResult = r;
+      return {
+        status: 'success',
+        message: `Brayton (BPR=9.6, OPR=${r.OPR.toFixed(1)}, T4=${r.T4_K}K @ FL350): Thrust = ${(r.thrust_N/1000).toFixed(1)} kN (${(r.thrust_lbf/1000).toFixed(1)} klbf), SFC = ${r.SFC_lb_per_lbf_hr.toFixed(3)} lbm/(lbf·hr), η_overall = ${(r.overallEff*100).toFixed(1)}%, V_core jet = ${r.stations.s9.V.toFixed(0)} m/s, V_bypass = ${r.stations.s19.V.toFixed(0)} m/s via foundation.solveTurbofan`,
+      };
+    },
+
     'Fatigue Analysis': async (scene) => {
       // Foundation path: take peak stress from the last static-FEA
       // result (or use a representative pair) and run Goodman + Basquin.
