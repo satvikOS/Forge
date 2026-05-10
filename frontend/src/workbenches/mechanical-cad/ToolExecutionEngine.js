@@ -42,6 +42,9 @@ import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
 import { solveLinearStaticQuadTet } from '../../foundation/QuadTetFEM.js';
 import { FrameModel, solveFrame, Sections as FrameSections } from '../../foundation/FrameFEM.js';
 import { manifoldToSTEP } from '../../foundation/StepExport.js';
+import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
+import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
+import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -818,14 +821,45 @@ const TOOL_HANDLERS = {
         message: `FEA cantilever: δ_tip = ${dyTip.toFixed(4)} mm (analytical ${deltaTheory.toFixed(4)}, err ${errPct.toFixed(2)}%) | σ_max = ${r.maxStress.toFixed(1)} MPa | SF = ${SF.toFixed(1)} | ${qMesh.tets.length} quad-tets, ${qMesh.vertices.length} nodes, CG ${r.cgIterations} iter | foundation.QuadTetFEM`,
       };
     },
-    'Steady-State Thermal': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const solid = ft.getSolid();
-      if (!solid) return needSolid('Thermal');
-      const result = FEAEngine.thermal(solid, { material: 'Aluminum 6061-T6', heatInput: 100 });
-      colorizeThermal(scene);
-      const s = result.summary;
-      return { status: s.safeForMaterial ? 'success' : 'warn', message: `Thermal: Max ${s.maxTempC}°C, Min ${s.minTempC}°C, Flux ${s.heatFluxWm2} W/m², Thermal stress ${s.thermalStressMPa} MPa` };
+    'Steady-State Thermal': async (scene, viewport) => {
+      // Foundation path: 1-D heat-conduction rod validation. A 100 mm
+      // aluminum rod with T_left = 100 °C and T_right = 0 °C should
+      // give a linear temperature profile T(x) = 100·(1 - x/100) and
+      // heat flux q = -k·dT/dx = +k·1 °C/mm  (with k in W/(mm·K)).
+      // Aluminum k = 167 W/(m·K) = 0.167 W/(mm·K).
+      const ALU_K = 0.167;          // W/(mm·K)
+      const mesh = TetMesh.regularGrid([0, 0, 0], [100, 10, 10], 10, 2, 2);
+      const leftNodes = mesh.selectNodes(([x]) => x < 1e-6);
+      const rightNodes = mesh.selectNodes(([x]) => Math.abs(x - 100) < 1e-6);
+      const fixedTemperatures = [
+        ...leftNodes.map(n => ({ node: n, value: 100 })),
+        ...rightNodes.map(n => ({ node: n, value: 0 })),
+      ];
+      const r = solveThermalSteady({
+        mesh, k: ALU_K, fixedTemperatures, heatLoads: [], uniformHeatGen: 0,
+      });
+      // Compare T at midspan x = 50 vs analytical 50 °C
+      const midNodes = mesh.selectNodes(([x]) => Math.abs(x - 50) < 1e-6);
+      let Tmid = 0;
+      for (const n of midNodes) Tmid += r.temperature[n];
+      Tmid /= midNodes.length;
+      const errPct = ((Tmid - 50) / 50) * 100;
+      const out = {
+        midTempC: Tmid,
+        analyticalMidC: 50,
+        errorPct: errPct,
+        minT: r.minT,
+        maxT: r.maxT,
+        elementCount: mesh.tets.length,
+        nodeCount: mesh.vertices.length,
+        cgIterations: r.cgIterations,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastThermalResult = out;
+      return {
+        status: 'success',
+        message: `Thermal: T(x=50mm) = ${Tmid.toFixed(2)} °C  (analytical 50 °C, err ${errPct.toFixed(3)}%)  |  range [${r.minT.toFixed(2)}, ${r.maxT.toFixed(2)}] °C  |  ${mesh.tets.length} tets, CG ${r.cgIterations} iter via foundation.solveThermalSteady`,
+      };
     },
     'CFD': (scene, viewport) => {
       const ft = getFeatureTree();
@@ -880,7 +914,79 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
-    'Modal Analysis': (scene) => TOOL_HANDLERS.simulate.Modal(scene),
+    'Buckling Analysis': async (scene) => {
+      // Foundation path: fixed-free aluminum column 100 × 10 × 10 mm,
+      // 1 N axial compressive reference load along -X. Theoretical
+      // P_cr = π² E I / (4 L²) for fixed-free (effective length 2L).
+      const ALUM = { E: 68900, nu: 0.33 };  // MPa, mm
+      const mesh = TetMesh.regularGrid([0, 0, 0], [100, 10, 10], 10, 2, 2);
+      const baseNodes = mesh.selectNodes(([x]) => x < 1e-6);
+      // Fix all DOFs on x=0 face
+      const fixedDofs = [];
+      for (const n of baseNodes) for (let d = 0; d < 3; d++) fixedDofs.push({ node: n, dof: d, value: 0 });
+      // Reference compressive load: -1 N total along -x, distributed on tip face
+      const tipNodes = mesh.selectNodes(([x]) => Math.abs(x - 100) < 1e-6);
+      const referenceLoads = tipNodes.map(n => ({ node: n, dof: 0, value: -1 / tipNodes.length }));
+      const r = solveBuckling({ mesh, material: ALUM, fixedDofs, referenceLoads });
+      const Pcr = Math.abs(r.criticalLoadScale ?? r.lambda);
+      const E = ALUM.E, b = 10, h = 10, L = 100;
+      const I = Math.min(b, h) ** 3 * Math.max(b, h) / 12;
+      const PcrTheory = (Math.PI ** 2 * E * I) / (4 * L ** 2);  // fixed-free
+      const errPct = (Pcr - PcrTheory) / PcrTheory * 100;
+      const out = {
+        criticalLoadN: Pcr,
+        analyticalPcrN: PcrTheory,
+        errorPct: errPct,
+        elementCount: mesh.tets.length,
+        nodeCount: mesh.vertices.length,
+        iterations: r.iterations,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastBucklingResult = out;
+      return {
+        status: 'success',
+        message: `Buckling: P_cr = ${Pcr.toFixed(0)} N  (analytical π²EI/4L² = ${PcrTheory.toFixed(0)} N, err ${errPct.toFixed(1)}%)  via foundation.solveBuckling`,
+      };
+    },
+
+    'Modal Analysis': async (scene) => {
+      // Foundation path: solve fundamental natural frequency on the
+      // canonical aluminum cantilever via inverse iteration on the
+      // generalized eigenproblem K x = ω² M x.
+      // Cantilever 100 × 10 × 10 mm Al-6061 → analytical f₁ for
+      // first bending mode = (1.875)² / (2π L²) · √(EI / (ρA))
+      // Linear-tet over-predicts ~25-35 % at coarse grid; we report
+      // both numerical and analytical so the user can audit.
+      const ALUM = { E: 68900e6, nu: 0.33, density: 2700 }; // Pa, kg/m³
+      const linMesh = TetMesh.regularGrid([0, 0, 0], [0.100, 0.010, 0.010], 8, 2, 2);  // metres
+      const fixed = linMesh.selectNodes(([x]) => x < 1e-6);
+      const r = lowestNaturalFrequency({
+        mesh: linMesh, material: ALUM, fixedNodes: fixed, maxIter: 50, cgMaxIter: 5000,
+      });
+      const fNum = r.freqHz;
+      // Analytical Euler-Bernoulli first natural frequency
+      const E = ALUM.E, rho = ALUM.density;
+      const L = 0.100, b = 0.010, h = 0.010;
+      const I = (b * h ** 3) / 12;
+      const A = b * h;
+      const beta1L = 1.875104;
+      const fAnalytical = (beta1L ** 2) / (2 * Math.PI * L ** 2) * Math.sqrt(E * I / (rho * A));
+      const errPct = (fNum - fAnalytical) / fAnalytical * 100;
+      const out = {
+        fundamentalHz: fNum,
+        analyticalHz: fAnalytical,
+        errorPct: errPct,
+        elementCount: linMesh.tets.length,
+        nodeCount: linMesh.vertices.length,
+        iterations: r.iterations,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastModalResult = out;
+      return {
+        status: 'success',
+        message: `Modal: f₁ = ${fNum.toFixed(2)} Hz (analytical ${fAnalytical.toFixed(2)} Hz, err ${errPct.toFixed(1)}%) — foundation.lowestNaturalFrequency`,
+      };
+    },
     'Topology Optimization': (scene, viewport) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();

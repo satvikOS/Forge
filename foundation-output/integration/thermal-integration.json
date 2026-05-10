@@ -1,0 +1,10 @@
+{
+  "midTempC": 49.99999999999914,
+  "analyticalMidC": 50,
+  "errorPct": -1.7195134205394424e-12,
+  "minT": 0,
+  "maxT": 100,
+  "elementCount": 240,
+  "nodeCount": 99,
+  "cgIterations": 30
+}
