@@ -376,7 +376,7 @@ function WorkbenchMechanical() {
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
 
     // ─── Tool Execution Handler ────────────────────────────────────────────────
-    const handleToolExecute = useCallback((groupKey, toolName) => {
+    const handleToolExecute = useCallback(async (groupKey, toolName) => {
         setActiveDropdown(null);
 
         const scene = viewport?.scene;
@@ -385,20 +385,26 @@ function WorkbenchMechanical() {
             return;
         }
 
-        // Execute the tool action
-        const result = executeTool(groupKey, toolName, scene, viewport);
-
-        // Set active tool name
         setActiveTool(toolName);
 
-        // Show status feedback
+        // Execute the tool action — handlers may be async (foundation
+        // path uses manifold-3d WASM and returns a Promise). Show a
+        // transient "Running…" status while we wait so the UI is honest.
+        const out = executeTool(groupKey, toolName, scene, viewport);
+        let result;
+        if (out && typeof out.then === 'function') {
+            setToolStatus({ message: `${toolName} running…`, type: 'info', tool: toolName });
+            result = await out;
+        } else {
+            result = out;
+        }
+
         setToolStatus({
             message: result.message,
             type: result.status, // 'success', 'info', 'warn', 'error'
             tool: toolName,
         });
 
-        // Auto-clear status after a delay (longer for info/warn)
         if (toolStatusTimerRef.current) clearTimeout(toolStatusTimerRef.current);
         const delay = result.status === 'success' ? 4000 : result.status === 'error' ? 6000 : 8000;
         toolStatusTimerRef.current = setTimeout(() => {

@@ -20,6 +20,24 @@ import {
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
 
+// Foundation kernel (manifold-3d + validated math modules) — wired
+// into specific tool handlers (Linear Pattern, Circular Pattern,
+// Mirror Feature, Sweep, Loft, Quad-tet FEA, Frame FEA, etc.) so
+// clicks in the ribbon exercise the validated foundation code paths.
+import { getManifold } from '../../foundation/manifoldKernel.js';
+import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
+import {
+  linearPattern as fLinearPattern,
+  circularPattern as fCircularPattern,
+  mirrorAndUnion as fMirrorAndUnion,
+} from '../../foundation/PatternFeatures.js';
+import {
+  sweep as fSweep,
+  loft as fLoft,
+  circleProfile as fCircleProfile,
+} from '../../foundation/SweepLoft.js';
+import { NURBSCurve } from '../../foundation/NURBSCurve.js';
+
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
 
@@ -49,6 +67,13 @@ let _lastFEAResult = null;
 let _modeAnimation = null;
 let _camAnimation = null;
 export function getLastFEAResult() { return _lastFEAResult; }
+// Foundation-kernel state: last manifold body produced by a foundation
+// handler, plus the Three.js group it was added as. Tests inspect these
+// to assert that the foundation path actually ran.
+let _lastFoundationManifold = null;
+let _lastFoundationGroup = null;
+export function getLastFoundationManifold() { return _lastFoundationManifold; }
+export function getLastFoundationGroup() { return _lastFoundationGroup; }
 let _versionControl = new VersionControl('ArchDisc Project');
 
 export function getActiveSketch() { return _activeSketch; }
@@ -78,11 +103,43 @@ export function executeTool(groupKey, toolName, scene, viewport) {
   }
 
   try {
-    return handler(scene, viewport);
+    const out = handler(scene, viewport);
+    // Async handlers (foundation pipeline uses await) return a Promise.
+    // Wrap any thrown error into the standard {status, message} shape so
+    // the caller can rely on the same surface for both sync and async.
+    if (out && typeof out.then === 'function') {
+      return out.catch((err) => {
+        console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
+        return { status: 'error', message: `${toolName} failed: ${err.message}` };
+      });
+    }
+    return out;
   } catch (err) {
     console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
     return { status: 'error', message: `${toolName} failed: ${err.message}` };
   }
+}
+
+// Helper: take a manifold body, build a Three.js mesh, add to scene,
+// remember it as the last foundation result, and return the group.
+function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b1538) {
+  const mesh = manifoldToMesh(manifold, { color });
+  const group = new THREE.Group();
+  group.add(mesh);
+  group.userData.pickable = true;
+  group.userData.generatedModel = true;
+  group.userData.foundationManifold = true;
+  scene.add(group);
+  _lastFoundationManifold = manifold;
+  _lastFoundationGroup = group;
+  // Mirror onto window so integration tests (running in a different
+  // dynamic-import module instance due to Vite's HMR query-param cache
+  // busting) can still read the result without ambiguity.
+  if (typeof window !== 'undefined') {
+    window.__lastFoundationManifold = manifold;
+    window.__lastFoundationGroup = group;
+  }
+  return group;
 }
 
 // --- Helpers ---
@@ -400,18 +457,27 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Shell: 0.2m wall thickness, 1 face removed (Feature #${feature.id})` };
     },
 
-    'Linear Pattern': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const group = new THREE.Group();
-      for (let i = 0; i < 4; i++) {
-        const feature = ft.addCylinder(0.003, 0.015, 12, new Vec3(i * 0.020, 0, 0)); // M6 holes 20mm apart
-        const solidGroup = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
-        group.add(solidGroup);
+    'Linear Pattern': async (scene, viewport) => {
+      console.log('[foundation] Linear Pattern handler entered');
+      try {
+        const Mod = await getManifold();
+        console.log('[foundation] manifold-3d loaded');
+        const seed = Mod.Manifold.cylinder(15, 3, 3, 64, true);
+        const seedV = seed.volume();
+        console.log(`[foundation] seed cylinder built, V=${seedV}`);
+        const arr = await fLinearPattern(seed, [1, 0, 0], 4, 20);
+        const totalV = arr.volume();
+        console.log(`[foundation] linearPattern done, V=${totalV}`);
+        addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
+        console.log('[foundation] manifold added to scene');
+        return {
+          status: 'success',
+          message: `Linear Pattern: 4× Ø6mm × 15mm @ 20mm spacing  (V = ${totalV.toFixed(0)} mm³ = 4 × ${seedV.toFixed(0)} via foundation.linearPattern)`,
+        };
+      } catch (err) {
+        console.error('[foundation] Linear Pattern handler failed:', err);
+        throw err;
       }
-      group.userData.pickable = true;
-      group.userData.generatedModel = true;
-      scene.add(group);
-      return { status: 'success', message: 'Linear Pattern: 4× Ø6mm holes, 20mm spacing' };
     },
 
     'Circular Pattern': (scene, viewport) => {
