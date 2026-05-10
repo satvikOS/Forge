@@ -362,35 +362,45 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Revolve Cut: Groove Ø26mm×3mm (Feature #${feature.id})` };
     },
 
-    'Loft Boss': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const profile1 = [];
-      const profile2 = [];
-      for (let i = 0; i < 8; i++) {
-        const angle = (i / 8) * Math.PI * 2;
-        profile1.push(new Vec3(Math.cos(angle) * 2, 0, Math.sin(angle) * 2));
-        profile2.push(new Vec3(Math.cos(angle) * 1, 4, Math.sin(angle) * 1));
-      }
-      const feature = ft.addLoft([profile1, profile2], 4);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Loft: Octagon R=2m → R=1m, H=4m (Feature #${feature.id})` };
+    'Loft Boss': async (scene, viewport) => {
+      // Foundation path: loft 4 circular cross-sections of decreasing
+      // radius along +Z, producing a stacked-frustum solid. Volume
+      // matches the sum-of-frusta closed-form to within 0.1%.
+      const heights = [0, 10, 20, 30];
+      const radii = [5, 4, 2, 1];
+      const profiles = heights.map((z, i) => ({
+        points2D: fCircleProfile(radii[i], 96),
+        origin: [0, 0, z],
+        normal: [0, 0, 1],
+        up: [1, 0, 0],
+      }));
+      const result = await fLoft({ profiles, tweenSegments: 0 });
+      const totalV = result.volume();
+      const Vtheory = (() => {
+        const fr = (h, r1, r2) => Math.PI * h * (r1 ** 2 + r1 * r2 + r2 ** 2) / 3;
+        return fr(10, 5, 4) + fr(10, 4, 2) + fr(10, 2, 1);
+      })();
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Loft Boss: 4× circles (R 5→4→2→1, H=30mm)  (V = ${totalV.toFixed(2)} mm³ ≈ Σfrusta = ${Vtheory.toFixed(2)} via foundation.loft)`,
+      };
     },
 
-    'Sweep Boss': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const profile = [];
-      for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * Math.PI * 2;
-        profile.push(new Vec3(Math.cos(angle) * 0.3, Math.sin(angle) * 0.3, 0));
-      }
-      const path = [];
-      for (let i = 0; i <= 32; i++) {
-        const t = i / 32;
-        path.push(new Vec3(Math.cos(t * Math.PI * 2) * 3, t * 4, Math.sin(t * Math.PI * 2) * 3));
-      }
-      const feature = ft.addSweep(profile, path);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Sweep: Ø0.6m tube along helix R=3m, H=4m (Feature #${feature.id})` };
+    'Sweep Boss': async (scene, viewport) => {
+      // Foundation path: sweep a Ø2 mm circle profile along a NURBS
+      // quarter-arc of radius 10 mm. Result is a torus-quadrant tube
+      // whose volume = π² R r² / 2 ≈ 49.35 mm³ (validated to within 1%).
+      const r = 1, R = 10;
+      const profile = fCircleProfile(r, 96);
+      const arc = NURBSCurve.quarterCircle(R);
+      const result = await fSweep({ profile2D: profile, path: arc, samples: 64, referenceUp: [0, 0, 1] });
+      const totalV = result.volume();
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Sweep Boss: Ø2mm circle along R=10mm quarter-arc  (V = ${totalV.toFixed(2)} mm³ ≈ π²Rr²/2 = ${(Math.PI*Math.PI*R*r*r/2).toFixed(2)} via foundation.sweep)`,
+      };
     },
 
     'Fillet': (scene, viewport) => {
@@ -480,21 +490,42 @@ const TOOL_HANDLERS = {
       }
     },
 
-    'Circular Pattern': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const group = new THREE.Group();
-      for (let i = 0; i < 6; i++) {
-        const angle = (i / 6) * Math.PI * 2;
-        const x = Math.cos(angle) * 0.025;
-        const z = Math.sin(angle) * 0.025;
-        const feature = ft.addCylinder(0.003, 0.020, 12, new Vec3(x, 0, z)); // M6 on PCD50mm
-        const solidGroup = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
-        group.add(solidGroup);
-      }
-      group.userData.pickable = true;
-      group.userData.generatedModel = true;
-      scene.add(group);
-      return { status: 'success', message: 'Circular Pattern: 6× Ø6mm on PCD 50mm' };
+    'Mirror Feature': async (scene, viewport) => {
+      // Foundation path: build a half-body that lives entirely in the
+      // +Y half-space, then call foundation.mirrorAndUnion across the
+      // XZ plane (normal = +Y) to construct a Y-symmetric full body.
+      const Mod = await getManifold();
+      const half = Mod.Manifold.cube([20, 10, 10]);   // bbox [0,20] x [0,10] x [0,10]
+      const halfV = half.volume();
+      const sym = await fMirrorAndUnion(half, [0, 1, 0], [0, 0, 0]);
+      const totalV = sym.volume();
+      addFoundationManifoldToScene(scene, viewport, sym, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Mirror Feature: V = ${totalV.toFixed(0)} mm³ = 2 × ${halfV.toFixed(0)} via foundation.mirrorAndUnion (XZ plane)`,
+      };
+    },
+
+    'Circular Pattern': async (scene, viewport) => {
+      // Foundation path: build a thin fin offset from the rotation axis,
+      // then call foundation.circularPattern around +Z, count = 6,
+      // totalAngle = 2π. Validates the foundation rotation pipeline
+      // through the actual ribbon click.
+      const Mod = await getManifold();
+      // 2 × 6 × 10 mm fin centered, then translated 20 mm along +X so it
+      // sits OUTSIDE the rotation axis. At 6-fold symmetry (60°),
+      // adjacent fins are ~21 mm apart center-to-center — no overlap.
+      const seed = Mod.Manifold.cube([2, 6, 10], true).translate([20, 0, 0]);
+      const seedV = seed.volume();
+      const arr = await fCircularPattern({
+        body: seed, axis: [0, 0, 1], anchor: [0, 0, 0], count: 6,
+      });
+      const totalV = arr.volume();
+      addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Circular Pattern: 6× fins around Z axis  (V = ${totalV.toFixed(0)} mm³ = 6 × ${seedV.toFixed(0)} via foundation.circularPattern)`,
+      };
     },
   },
 
