@@ -1,0 +1,58 @@
+{
+  "basename": "phone-stand-bracket",
+  "name": "Phone-Stand Bracket",
+  "meshStats": {
+    "vertexCount": 1323,
+    "tetCount": 3480,
+    "totalVolume": 39364.034738557464,
+    "bbox": {
+      "min": [
+        0,
+        0,
+        -8.940952255126037
+      ],
+      "max": [
+        80,
+        105.33156749486349,
+        12
+      ]
+    },
+    "gridShape": [
+      20,
+      26,
+      5
+    ],
+    "cellSize": [
+      4,
+      4.051214134417827,
+      4.188190451025207
+    ],
+    "sourceTriangles": 438,
+    "insideCells": 580,
+    "totalCells": 2600,
+    "voxelizationMethod": "grid + ray-cast (centroid test, +x ray)"
+  },
+  "loadCase": "gravity 50N at lip",
+  "boundaryConditions": {
+    "fixedNodes": 735,
+    "loadNodes": 84,
+    "totalForceN": -49.99999999999998
+  },
+  "timing": {
+    "voxelize": 0.029,
+    "static": 0.2,
+    "modal": 2.271
+  },
+  "static": {
+    "maxDisplacementMm": 0.00014343085440486243,
+    "maxVonMisesMPa": 0.5460969584624693,
+    "safetyFactor": 505.4047559193066,
+    "cgIterations": 127,
+    "cgResidual": 8.9042140779582e-11
+  },
+  "modal": {
+    "firstNaturalFrequencyHz": 53373.92234212568,
+    "iterations": 29,
+    "converged": true
+  }
+}

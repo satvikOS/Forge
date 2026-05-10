@@ -1,0 +1,58 @@
+{
+  "basename": "gear-planet-z18",
+  "name": "Planetary Planet Gear Z=18",
+  "meshStats": {
+    "vertexCount": 680,
+    "tetCount": 2112,
+    "totalVolume": 1235.0585050270154,
+    "bbox": {
+      "min": [
+        -9.882807166172977,
+        -10,
+        0
+      ],
+      "max": [
+        9.882807166172977,
+        10,
+        6
+      ]
+    },
+    "gridShape": [
+      13,
+      13,
+      4
+    ],
+    "cellSize": [
+      1.5204318717189196,
+      1.5384615384615385,
+      1.5
+    ],
+    "sourceTriangles": 776,
+    "insideCells": 352,
+    "totalCells": 676,
+    "voxelizationMethod": "grid + ray-cast (centroid test, +x ray)"
+  },
+  "loadCase": "12N tangential at tooth",
+  "boundaryConditions": {
+    "fixedNodes": 184,
+    "loadNodes": 300,
+    "totalForceN": -11.99999999999992
+  },
+  "timing": {
+    "voxelize": 0.011,
+    "static": 0.101,
+    "modal": 1.647
+  },
+  "static": {
+    "maxDisplacementMm": 0.00003881133183786235,
+    "maxVonMisesMPa": 0.34256765448132664,
+    "safetyFactor": 805.6802689614257,
+    "cgIterations": 173,
+    "cgResidual": 8.190252962129612e-11
+  },
+  "modal": {
+    "firstNaturalFrequencyHz": 113782.36283294053,
+    "iterations": 30,
+    "converged": false
+  }
+}

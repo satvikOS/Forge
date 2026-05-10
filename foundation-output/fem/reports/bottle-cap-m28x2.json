@@ -1,0 +1,58 @@
+{
+  "basename": "bottle-cap-m28x2",
+  "name": "Bottle Cap M28x2",
+  "meshStats": {
+    "vertexCount": 572,
+    "tetCount": 1128,
+    "totalVolume": 4758.180536543754,
+    "bbox": {
+      "min": [
+        -15.975100374297508,
+        -15.975100374297508,
+        0
+      ],
+      "max": [
+        15.975100374297508,
+        15.975100374297508,
+        18
+      ]
+    },
+    "gridShape": [
+      11,
+      11,
+      6
+    ],
+    "cellSize": [
+      2.9045637044177286,
+      2.9045637044177286,
+      3
+    ],
+    "sourceTriangles": 25068,
+    "insideCells": 188,
+    "totalCells": 726,
+    "voxelizationMethod": "grid + ray-cast (centroid test, +x ray)"
+  },
+  "loadCase": "20N axial torque equivalent",
+  "boundaryConditions": {
+    "fixedNodes": 68,
+    "loadNodes": 84,
+    "totalForceN": -19.999999999999957
+  },
+  "timing": {
+    "voxelize": 4.206,
+    "static": 0.156,
+    "modal": 1.74
+  },
+  "static": {
+    "maxDisplacementMm": 0.0002442744330213283,
+    "maxVonMisesMPa": 0.5008530916970536,
+    "safetyFactor": 551.0597909355456,
+    "cgIterations": 466,
+    "cgResidual": 8.896407091998853e-11
+  },
+  "modal": {
+    "firstNaturalFrequencyHz": 20353.008406225606,
+    "iterations": 17,
+    "converged": true
+  }
+}
