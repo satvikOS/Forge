@@ -310,41 +310,55 @@ const TOOL_HANDLERS = {
   // PART DESIGN — Real kernel operations
   // ═══════════════════════════════════════════════════════════════════════════
   'part-design': {
-    'Extrude Boss': (scene, viewport) => {
-      const ft = getFeatureTree();
-      // 80mm × 50mm rectangle extruded 25mm
-      const profile = [
-        new Vec3(-0.040, -0.025, 0),
-        new Vec3(0.040, -0.025, 0),
-        new Vec3(0.040, 0.025, 0),
-        new Vec3(-0.040, 0.025, 0),
-      ];
-      const feature = ft.addExtrude(profile, Vec3.unitZ(), 0.025);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Extrude Boss: 80×50×25mm solid (Feature #${feature.id})` };
+    'Extrude Boss': async (scene, viewport) => {
+      // Foundation path: extrude an 80 × 50 mm rectangular profile
+      // 25 mm along +Z via manifold-3d's CrossSection.extrude. The
+      // result is exactly a 80×50×25 box — V = 100,000 mm³ exact.
+      const Mod = await getManifold();
+      const profile = [[-40, -25], [40, -25], [40, 25], [-40, 25]];
+      const cs = Mod.CrossSection.ofPolygons([profile]);
+      const result = Mod.Manifold.extrude(cs, 25);
+      const Vfinal = result.volume();
+      const Vexpected = 80 * 50 * 25;
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Extrude Boss: 80×50 rectangle × 25 mm. V = ${Vfinal.toFixed(0)} mm³ (analytical ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d extrude`,
+      };
     },
 
-    'Extrude Cut': (scene, viewport) => {
-      const ft = getFeatureTree();
-      // 15mm × 15mm cut through
-      const profile = [
-        new Vec3(-0.0075, -0.0075, -0.001),
-        new Vec3(0.0075, -0.0075, -0.001),
-        new Vec3(0.0075, 0.0075, -0.001),
-        new Vec3(-0.0075, 0.0075, -0.001),
-      ];
-      const cutFeature = ft.addExtrude(profile, Vec3.unitZ(), 0.027);
-
-      if (ft.features.length >= 2) {
-        const baseId = ft.features[ft.features.length - 2].id;
-        const cutId = cutFeature.id;
-        const boolFeature = ft.addBooleanSubtract(baseId, cutId);
-        addSolidToScene(scene, viewport, boolFeature.solid, 0x8b1538);
-        return { status: 'success', message: `Extrude Cut: 15×15mm through-cut (Feature #${boolFeature.id})` };
+    'Extrude Cut': async (scene, viewport) => {
+      // Foundation path: extrude a 15 × 15 mm pocket profile through
+      // the existing foundation manifold (or a default 80x50x25 base
+      // if none exists), then boolean-subtract.
+      const Mod = await getManifold();
+      let base = _lastFoundationManifold;
+      let createdBase = false;
+      if (!base) {
+        base = Mod.Manifold.extrude(
+          Mod.CrossSection.ofPolygons([[[-40, -25], [40, -25], [40, 25], [-40, 25]]]),
+          25,
+        );
+        createdBase = true;
       }
-
-      addSolidToScene(scene, viewport, cutFeature.solid, 0xcc4444);
-      return { status: 'success', message: `Cut body created. Boolean subtract with base.` };
+      const baseV = base.volume();
+      const cut = Mod.Manifold.extrude(
+        Mod.CrossSection.ofPolygons([[[-7.5, -7.5], [7.5, -7.5], [7.5, 7.5], [-7.5, 7.5]]]),
+        50,
+      ).translate([0, 0, -1]);
+      const result = base.subtract(cut);
+      const Vfinal = result.volume();
+      // For default 80x50x25 base + 15x15 through-cut: V = 100000 - 15*15*25 = 94375
+      const VcutExpected = 15 * 15 * 25;
+      const errFromBase = (baseV - Vfinal) - VcutExpected;
+      const errPct = (errFromBase / VcutExpected) * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      const noteBase = createdBase ? ' (created default 80×50×25 base)' : '';
+      return {
+        status: 'success',
+        message: `Extrude Cut: 15×15 mm through-pocket. V = ${Vfinal.toFixed(0)} mm³ (cut ${(baseV - Vfinal).toFixed(0)} mm³ vs analytical ${VcutExpected}, err ${errPct.toFixed(3)}%)${noteBase} via foundation manifold-3d boolean`,
+      };
     },
 
     'Revolve Boss': async (scene, viewport) => {
