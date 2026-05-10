@@ -1,0 +1,18 @@
+{
+  "totalLines": 38,
+  "cuttingMoves": 12,
+  "profileSegments": 4,
+  "passes": 2,
+  "gcodeFirstLines": [
+    "%",
+    "( ArchDisc Foundation CAM — ArchDisc Part )",
+    "( generated 2026-05-10T11:28:35 )",
+    "G21 ( mm )",
+    "G17 ( XY plane )",
+    "G90 ( absolute )",
+    "G94 ( feed per min )",
+    "G54 ( WCS 1 )",
+    "G40 ( cancel cutter comp )",
+    "G49 ( cancel tool length offset )"
+  ]
+}

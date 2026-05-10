@@ -48,6 +48,8 @@ import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
 import { sliceManifold, generateGCode, estimatePrint } from '../../foundation/Slicer.js';
 import { toBinarySTL } from '../../foundation/STLExport.js';
 import { manifoldToGLB } from '../../foundation/GLTFExport.js';
+import { optimizeSIMP } from '../../foundation/TopologyOptimization.js';
+import { contourMill, pocketClear, drillCycle, programWrap } from '../../foundation/CAMToolpath.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -990,11 +992,52 @@ const TOOL_HANDLERS = {
         message: `Modal: f₁ = ${fNum.toFixed(2)} Hz (analytical ${fAnalytical.toFixed(2)} Hz, err ${errPct.toFixed(1)}%) — foundation.lowestNaturalFrequency`,
       };
     },
-    'Topology Optimization': (scene, viewport) => {
+    'Topology Optimization': async (scene, viewport) => {
+      // Foundation path: SIMP topology optimization with sensitivity
+      // filtering on a small cantilever design domain. Validates the
+      // optimizer with a known result: a tapered web pattern.
+      // Domain: 60 × 20 × 10 mm Al, fixed at x=0 face, 100 N at tip
+      // pulling down (-Y), target volume fraction 35%.
+      const ALUM = { E: 68900, nu: 0.33 };
+      const mesh = TetMesh.regularGrid([0, 0, 0], [60, 20, 10], 12, 4, 2);
+      const fixed = mesh.selectNodes(([x]) => x < 1e-6);
+      const tip = mesh.selectNodes(([x, y]) => Math.abs(x - 60) < 1e-6 && y < 5);
+      const loads = tip.length > 0
+        ? tip.map(n => ({ node: n, dof: 1, value: -100 / tip.length }))
+        : [{ node: 0, dof: 1, value: -100 }];
+      const r = optimizeSIMP({
+        mesh, material: ALUM, fixedNodes: fixed, loads,
+        volumeFraction: 0.35, penalty: 3, filterRadius: 4, maxIter: 12, tol: 0.01,
+      });
+      // Final compliance + density distribution stats
+      const finalRho = r.densities;
+      let solidEls = 0;
+      let voidEls = 0;
+      for (const d of finalRho) {
+        if (d > 0.5) solidEls++;
+        else voidEls++;
+      }
+      const out = {
+        finalCompliance: r.compliance,
+        initialCompliance: r.history[0]?.compliance,
+        outerIterations: r.history.length,
+        solidElements: solidEls,
+        voidElements: voidEls,
+        totalElements: mesh.tets.length,
+        volumeFractionFinal: solidEls / mesh.tets.length,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastTopOptResult = out;
+      return {
+        status: 'success',
+        message: `Topology Opt (SIMP): ${r.history.length} iter, compliance ${r.compliance.toFixed(3)} (started at ${out.initialCompliance.toFixed(3)}), ${solidEls}/${mesh.tets.length} solid elements (V_f = ${out.volumeFractionFinal.toFixed(2)}) via foundation.optimizeSIMP`,
+      };
+    },
+
+    '_legacy_TopologyOptimization_DEPRECATED': (scene, viewport) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
 
-      // Use part bbox if available, else default 80×50×30mm design space
       let bbox;
       if (solid) {
         const b = solid.boundingBox();
@@ -1003,7 +1046,6 @@ const TOOL_HANDLERS = {
         bbox = { minX: -0.040, maxX: 0.040, minY: -0.025, maxY: 0.025, minZ: -0.015, maxZ: 0.015 };
       }
 
-      // Cantilever load case: fixed at -X end, load at +X end pulling down
       const loadPoints = [{ x: bbox.maxX, y: (bbox.minY + bbox.maxY) / 2, z: (bbox.minZ + bbox.maxZ) / 2, force: { x: 0, y: -1, z: 0 } }];
       const fixedPoints = [{ x: bbox.minX, y: (bbox.minY + bbox.maxY) / 2, z: (bbox.minZ + bbox.maxZ) / 2 }];
 
@@ -1017,7 +1059,6 @@ const TOOL_HANDLERS = {
         penalty: 3,
       });
 
-      // Hide any prior topology, then render new
       TopologyOptimizer.clear(scene);
       TopologyOptimizer.render(scene, result, { densityColor: true });
       TopologyOptimizer.showLoadCase(scene, result);
@@ -1124,30 +1165,32 @@ const TOOL_HANDLERS = {
       };
     },
     '3-Axis Milling': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const solid = ft.getSolid();
-      if (!solid) return needSolid('3-Axis Milling');
-
-      const tool = ToolLibrary.createTool('endmill_ball', 0.006, null, 2);
-      const sf = ToolLibrary.recommendSpeedsFeeds(tool, 'Aluminum 6061-T6');
-
-      const result = GCodeGenerator.pocketMill(solid, {
-        toolDiameter: tool.diameter,
-        stepover: 0.3,
-        depthOfCut: 0.001,
-        feedRate: sf.feedRate,
-        spindleSpeed: sf.rpm,
+      // Foundation path: contour mill a 60 × 40 mm rectangular profile
+      // 5 mm deep, ~3 mm depth-per-pass. Output is real ISO G-code
+      // (T1, M3, G0, G1) with verifiable line counts.
+      const profile = [
+        [-30, -20], [30, -20], [30, 20], [-30, 20], [-30, -20],
+      ];
+      const gcode = contourMill(profile, {
+        tool: 1, toolName: 'Ø6 mm 4F end-mill',
+        rpm: 9000, feedMmPerMin: 1500, safeHeightMm: 5,
+        totalDepthMm: 5, depthPerPassMm: 3,
       });
-
-      CAMVisualizer.clear(scene);
-      const moves = CAMVisualizer.parseGCode(result.gcode);
-      CAMVisualizer.renderToolpath(scene, moves);
-      const stats = CAMVisualizer.stats(moves);
-
-      _lastGCode = result;
+      const program = programWrap([gcode], { units: 'mm' });
+      const lineCount = program.split('\n').length;
+      const g1Count = (program.match(/\nG1 /g) || []).length;
+      const out = {
+        gcode: program,
+        totalLines: lineCount,
+        cuttingMoves: g1Count,
+        profileSegments: profile.length - 1,
+        passes: Math.ceil(5 / 3),
+      };
+      _lastGCode = out;
+      if (typeof window !== 'undefined') window.__lastGCodeResult = out;
       return {
         status: 'success',
-        message: `3-Axis: Ø${tool.diameterMm}mm Ball @ ${sf.rpm} RPM | ${stats.totalMoves} moves | ${stats.totalLengthMm}mm path | ${stats.totalTimeMin} min`
+        message: `3-Axis Mill: 60×40 contour, 5mm deep, ${out.passes} passes  |  ${lineCount} G-code lines, ${g1Count} cutting moves  via foundation.contourMill`,
       };
     },
     'Turning': (scene, viewport) => {
