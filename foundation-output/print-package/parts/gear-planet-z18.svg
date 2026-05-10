@@ -2047,7 +2047,7 @@
 <line x1="230" y1="251" x2="410" y2="251" stroke="black" stroke-width="0.3"/>
 <line x1="230" y1="263" x2="410" y2="263" stroke="black" stroke-width="0.3"/>
 <line x1="290" y1="239" x2="290" y2="263" stroke="black" stroke-width="0.3"/>
-<text x="234" y="224" font-family="monospace" font-size="4.0" font-weight="bold">Planetary Planet (Z=18)</text>
+<text x="234" y="224" font-family="monospace" font-size="4.0" font-weight="bold">Planetary Planet Gear Z=18</text>
 <text x="234" y="236" font-family="monospace" font-size="2.5">Material: PETG / PLA</text>
 <text x="234" y="248" font-family="monospace" font-size="2.5">Bbox: 19.77 × 20.00 × 6.00 mm</text>
 <text x="294" y="248" font-family="monospace" font-size="2.5">Vol: 1259 mm³</text>

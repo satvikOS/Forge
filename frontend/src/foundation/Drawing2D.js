@@ -142,26 +142,165 @@ function projectEdge(e, mesh, view, offset) {
 }
 
 /**
- * Emit one orthographic view as an SVG <g> element. The SVG y-axis
- * points down in screen space, so we negate y to keep "up is up".
+ * Hidden-line test: is point (x, y) at depth z in view space occluded by
+ * any triangle that lies in front of it (smaller z = closer to viewer in
+ * our convention)?
+ *
+ * We project all triangles into 2D paper coords once. For each query
+ * sample (x, y, z) we look up the candidate triangles whose 2D bounding
+ * boxes contain (x, y), then test point-in-triangle and depth.
+ */
+function buildOcclusionGrid(mesh, view, partOrigin) {
+  const numTri = mesh.triVerts.length / 3;
+  const tris2D = new Array(numTri);
+  let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
+  for (let t = 0; t < numTri; t++) {
+    const i0 = mesh.triVerts[t * 3];
+    const i1 = mesh.triVerts[t * 3 + 1];
+    const i2 = mesh.triVerts[t * 3 + 2];
+    const p0 = getVert(mesh, i0); const p1 = getVert(mesh, i1); const p2 = getVert(mesh, i2);
+    const a = projectPoint([p0[0] - partOrigin[0], p0[1] - partOrigin[1], p0[2] - partOrigin[2]], view);
+    const b = projectPoint([p1[0] - partOrigin[0], p1[1] - partOrigin[1], p1[2] - partOrigin[2]], view);
+    const c = projectPoint([p2[0] - partOrigin[0], p2[1] - partOrigin[1], p2[2] - partOrigin[2]], view);
+    const triMinX = Math.min(a[0], b[0], c[0]);
+    const triMaxX = Math.max(a[0], b[0], c[0]);
+    const triMinY = Math.min(a[1], b[1], c[1]);
+    const triMaxY = Math.max(a[1], b[1], c[1]);
+    tris2D[t] = {
+      ax: a[0], ay: a[1], az: a[2],
+      bx: b[0], by: b[1], bz: b[2],
+      cx: c[0], cy: c[1], cz: c[2],
+      minX: triMinX, maxX: triMaxX, minY: triMinY, maxY: triMaxY,
+    };
+    if (triMinX < xmin) xmin = triMinX;
+    if (triMaxX > xmax) xmax = triMaxX;
+    if (triMinY < ymin) ymin = triMinY;
+    if (triMaxY > ymax) ymax = triMaxY;
+  }
+
+  // Bucket triangles into a uniform grid for O(1) point-query candidates.
+  // Cell size = sqrt(area / numTri) ≈ avg-triangle scale.
+  const w = Math.max(xmax - xmin, 1e-6);
+  const h = Math.max(ymax - ymin, 1e-6);
+  const cellSize = Math.max(Math.sqrt((w * h) / Math.max(numTri, 1)), 1e-3);
+  const cols = Math.max(1, Math.ceil(w / cellSize));
+  const rows = Math.max(1, Math.ceil(h / cellSize));
+  const cells = Array.from({ length: cols * rows }, () => []);
+  const cellIdx = (cx, cy) => cy * cols + cx;
+  for (let t = 0; t < numTri; t++) {
+    const tri = tris2D[t];
+    const cx0 = Math.max(0, Math.min(cols - 1, Math.floor((tri.minX - xmin) / cellSize)));
+    const cx1 = Math.max(0, Math.min(cols - 1, Math.floor((tri.maxX - xmin) / cellSize)));
+    const cy0 = Math.max(0, Math.min(rows - 1, Math.floor((tri.minY - ymin) / cellSize)));
+    const cy1 = Math.max(0, Math.min(rows - 1, Math.floor((tri.maxY - ymin) / cellSize)));
+    for (let cy = cy0; cy <= cy1; cy++) {
+      for (let cx = cx0; cx <= cx1; cx++) cells[cellIdx(cx, cy)].push(t);
+    }
+  }
+  return { tris2D, cells, cols, rows, cellSize, xmin, ymin };
+}
+
+function trianglesNear(grid, x, y) {
+  const cx = Math.max(0, Math.min(grid.cols - 1, Math.floor((x - grid.xmin) / grid.cellSize)));
+  const cy = Math.max(0, Math.min(grid.rows - 1, Math.floor((y - grid.ymin) / grid.cellSize)));
+  return grid.cells[cy * grid.cols + cx];
+}
+
+/**
+ * Barycentric point-in-triangle test that returns interpolated depth z
+ * at (px, py) if inside, else null.
+ */
+function triDepthAt(t, px, py) {
+  if (px < t.minX || px > t.maxX || py < t.minY || py > t.maxY) return null;
+  const v0x = t.bx - t.ax, v0y = t.by - t.ay;
+  const v1x = t.cx - t.ax, v1y = t.cy - t.ay;
+  const v2x = px   - t.ax, v2y = py   - t.ay;
+  const d00 = v0x * v0x + v0y * v0y;
+  const d01 = v0x * v1x + v0y * v1y;
+  const d11 = v1x * v1x + v1y * v1y;
+  const d20 = v2x * v0x + v2y * v0y;
+  const d21 = v2x * v1x + v2y * v1y;
+  const denom = d00 * d11 - d01 * d01;
+  if (Math.abs(denom) < 1e-12) return null;
+  const v = (d11 * d20 - d01 * d21) / denom;
+  const w = (d00 * d21 - d01 * d20) / denom;
+  const u = 1 - v - w;
+  const eps = -1e-6;
+  if (u < eps || v < eps || w < eps) return null;
+  return u * t.az + v * t.bz + w * t.cz;
+}
+
+/**
+ * Emit one orthographic view as an SVG <g> element. Performs hidden-line
+ * removal: silhouette + crease edges that are occluded by closer
+ * triangles render dashed; visible portions render solid. Edges are
+ * deduped by sorted vertex pair so each undirected edge draws once.
  */
 function emitViewSVG(mesh, viewName, viewDef, partOrigin, paperOrigin, paperScale) {
   const view = buildViewMatrix(viewDef.eye, viewDef.up);
   const edgeMap = buildEdgeMap(mesh);
   const { silhouette, crease } = classifyEdges(mesh, edgeMap, viewDef.eye);
+  const grid = buildOcclusionGrid(mesh, view, partOrigin);
   const out = [`<g class="view view-${viewName}" transform="translate(${paperOrigin[0]},${paperOrigin[1]})">`];
 
-  const drawEdge = (e, lineWidth, dasharray = null) => {
+  const drawnKeys = new Set();
+  const drawEdgeWithHLR = (e) => {
+    const key = e.vA < e.vB ? `${e.vA},${e.vB}` : `${e.vB},${e.vA}`;
+    if (drawnKeys.has(key)) return;
+    drawnKeys.add(key);
+
     const p = projectEdge(e, mesh, view, partOrigin);
-    const x1 = p.x1 * paperScale, y1 = -p.y1 * paperScale;
-    const x2 = p.x2 * paperScale, y2 = -p.y2 * paperScale;
-    const da = dasharray ? ` stroke-dasharray="${dasharray}"` : '';
-    out.push(`<line x1="${x1.toFixed(3)}" y1="${y1.toFixed(3)}" x2="${x2.toFixed(3)}" y2="${y2.toFixed(3)}" stroke="black" stroke-width="${lineWidth}"${da}/>`);
+    // Depth-sample N points along the edge in view space. Treat a sample
+    // as occluded if any triangle (other than the two adjacent to this
+    // edge) interpolates a smaller-z at that sample's (x, y), with a
+    // small back-off to avoid self-occlusion at the edge.
+    const adjacentTris = new Set(e.tris.map(t => t.tri));
+    // Adapt samples to mesh complexity; for >10k tri parts (e.g. helical
+    // threads) we use fewer samples to keep generation tractable.
+    const totalTris = grid.tris2D.length;
+    const SAMPLES = totalTris > 10000 ? 6 : totalTris > 2000 ? 12 : 18;
+    const occlusionBackoff = 1e-3;  // mm in view space
+    const segs = [];   // list of { from, to, hidden }
+    let curStart = 0;
+    let curHidden = null;
+    for (let i = 0; i <= SAMPLES; i++) {
+      const tParam = i / SAMPLES;
+      const x = p.x1 + (p.x2 - p.x1) * tParam;
+      const y = p.y1 + (p.y2 - p.y1) * tParam;
+      const z = p.z1 + (p.z2 - p.z1) * tParam;
+      let hidden = false;
+      const candidates = trianglesNear(grid, x, y);
+      for (let k = 0; k < candidates.length; k++) {
+        const ti = candidates[k];
+        if (adjacentTris.has(ti)) continue;
+        const tz = triDepthAt(grid.tris2D[ti], x, y);
+        if (tz != null && tz < z - occlusionBackoff) { hidden = true; break; }
+      }
+      if (curHidden === null) curHidden = hidden;
+      if (hidden !== curHidden) {
+        segs.push({ from: curStart, to: tParam, hidden: curHidden });
+        curStart = tParam; curHidden = hidden;
+      }
+    }
+    segs.push({ from: curStart, to: 1, hidden: curHidden });
+
+    for (const s of segs) {
+      const x1 = (p.x1 + (p.x2 - p.x1) * s.from) * paperScale;
+      const y1 = -(p.y1 + (p.y2 - p.y1) * s.from) * paperScale;
+      const x2 = (p.x1 + (p.x2 - p.x1) * s.to) * paperScale;
+      const y2 = -(p.y1 + (p.y2 - p.y1) * s.to) * paperScale;
+      const dx = x2 - x1, dy = y2 - y1;
+      if (dx * dx + dy * dy < 1e-4) continue;
+      if (s.hidden) {
+        out.push(`<line x1="${x1.toFixed(3)}" y1="${y1.toFixed(3)}" x2="${x2.toFixed(3)}" y2="${y2.toFixed(3)}" stroke="#888" stroke-width="${VISIBLE_LINE_WIDTH * 0.6}" stroke-dasharray="1.2,0.8"/>`);
+      } else {
+        out.push(`<line x1="${x1.toFixed(3)}" y1="${y1.toFixed(3)}" x2="${x2.toFixed(3)}" y2="${y2.toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+      }
+    }
   };
 
-  // Silhouette + crease both visible at full thickness.
-  for (const e of silhouette) drawEdge(e, VISIBLE_LINE_WIDTH);
-  for (const e of crease)     drawEdge(e, VISIBLE_LINE_WIDTH);
+  for (const e of silhouette) drawEdgeWithHLR(e);
+  for (const e of crease)     drawEdgeWithHLR(e);
 
   // Label
   out.push(`<text x="0" y="-3" font-family="monospace" font-size="3.5" fill="#333">${viewName.toUpperCase()}</text>`);
