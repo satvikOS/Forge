@@ -1,8 +1,8 @@
 {
-  "criticalLoadN": 36333.63858878775,
+  "criticalLoadN": 36333.82294730344,
   "analyticalPcrN": 14166.99465073035,
-  "errorPct": 156.46680530732496,
+  "errorPct": 156.46810663142531,
   "elementCount": 240,
   "nodeCount": 99,
-  "iterations": 32
+  "iterations": 26
 }

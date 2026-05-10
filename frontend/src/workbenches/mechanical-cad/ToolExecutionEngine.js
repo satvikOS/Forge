@@ -464,11 +464,24 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Chamfer: 2mm on ${source} edges (Feature #${feature.id})` };
     },
 
-    'Hole Wizard': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const feature = ft.addCylinder(0.004, 0.030, 24, new Vec3(0, -0.002, 0)); // M8 through-hole
-      addSolidToScene(scene, viewport, feature.solid, 0xcc4444);
-      return { status: 'success', message: `Hole: Ø8mm × 30mm deep (Feature #${feature.id})` };
+    'Hole Wizard': async (scene, viewport) => {
+      // Foundation path: Block - cylinder hole. Build a 50 × 30 × 20 mm
+      // aluminum block, subtract a Ø8 mm through-hole at center via
+      // manifold-3d boolean. Reports the final volume vs analytical.
+      const Mod = await getManifold();
+      const block = Mod.Manifold.cube([50, 30, 20], true);
+      const hole = Mod.Manifold.cylinder(20, 4, 4, 64, true);
+      const result = block.subtract(hole);
+      const Vfinal = result.volume();
+      const Vblock = block.volume();
+      const Vhole = Math.PI * 16 * 20;     // π·4²·20 = 1005.31 mm³
+      const Vexpected = Vblock - Vhole;
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0xcc4444);
+      return {
+        status: 'success',
+        message: `Hole Wizard: 50×30×20 block − Ø8 hole. V = ${Vfinal.toFixed(2)} mm³ (analytical ${Vexpected.toFixed(2)}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
+      };
     },
 
     'Shell': (scene, viewport) => {
@@ -1435,26 +1448,40 @@ const TOOL_HANDLERS = {
       };
     },
     'Cost Estimation': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const solid = ft.getSolid();
-      if (!solid) return { status: 'warn', message: 'No solid to estimate.' };
-      const props = solid.massProperties();
-      const cycleTimeMin = parseFloat(_lastGCode?.stats?.cycleTimeMin) || 8;
+      // Foundation path: estimate per-part cost from the foundation
+      // manifold's volume (mass) + last-slicer time (print time).
+      // Numbers in $USD. Material rate Al-6061 = $4.50/kg billet,
+      // CNC machine rate $90/hr, FDM printer rate $1.50/hr.
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'No foundation body found. Click Linear Pattern / Sweep / Loft first.' };
+      }
+      const Vmm3 = m.volume();
+      const Vm3 = Vmm3 * 1e-9;
+      const massKg = Vm3 * 2700;        // Al 6061-T6
+      const Amm2 = m.surfaceArea();
 
-      const result = CostingEngine.analyze({
-        massKg: props.mass,
-        material: 'Aluminum 6061-T6',
-        machineTimeMin: cycleTimeMin,
-        process: 'cnc_3axis',
-        setupTimeMin: 30,
-        finishing: 'deburr',
-        batchSize: 100,
-        marginPercent: 25,
-      });
+      const slice = _lastSliceResult;
+      const printMin = slice ? slice.layerCount * 0.2 : 0;   // very rough
 
+      const materialCost = massKg * 4.5;          // $/kg
+      const cncTimeHr = (Amm2 * 1e-2) / 60;       // crude: 100 mm²/min
+      const cncCost = cncTimeHr * 90;             // $90/hr
+      const setupCost = 30;
+      const finishCost = 5;
+      const totalCost = materialCost + cncCost + setupCost + finishCost;
+      const margin = 0.25;
+      const sellPrice = totalCost * (1 + margin);
+
+      const out = {
+        massKg, surfaceAreaMm2: Amm2, volumeMm3: Vmm3,
+        cncTimeHr, materialCost, cncCost, setupCost, finishCost,
+        totalCost, sellPrice, marginPct: margin * 100,
+      };
+      if (typeof window !== 'undefined') window.__lastCostEstimate = out;
       return {
         status: 'success',
-        message: `Cost: Material $${result.perPart.materialCost} + Machining $${result.perPart.machiningCost} + Setup $${result.perPart.setupCost} + Finish $${result.perPart.finishingCost} + Overhead $${result.perPart.overhead} = $${result.perPart.totalCost}/part | Sell $${result.perPart.sellPrice} | Batch 100: $${result.batch.totalRevenue}`
+        message: `Cost: ${massKg.toFixed(4)} kg | Material $${materialCost.toFixed(2)} + CNC $${cncCost.toFixed(2)} (${cncTimeHr.toFixed(2)} hr @ $90/hr) + Setup $${setupCost} + Finish $${finishCost} = $${totalCost.toFixed(2)}/part | Sell @25% margin: $${sellPrice.toFixed(2)}`,
       };
     },
   },
