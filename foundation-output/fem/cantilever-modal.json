@@ -1,8 +1,8 @@
 {
   "analytical_Hz": 816.0334438912635,
-  "fem_Hz": 887.7405103533654,
-  "pctError": 8.787270546188166,
-  "iterations": 4,
+  "fem_Hz": 887.935874928624,
+  "pctError": 8.811211302136478,
+  "iterations": 40,
   "meshStats": {
     "vertexCount": 1519,
     "tetCount": 6480,
