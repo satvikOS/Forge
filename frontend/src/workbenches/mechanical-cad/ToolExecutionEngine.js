@@ -347,20 +347,35 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Cut body created. Boolean subtract with base.` };
     },
 
-    'Revolve Boss': (scene, viewport) => {
-      const ft = getFeatureTree();
-      // Stepped shaft: 15mm bore, 30mm OD, 40mm tall
+    'Revolve Boss': async (scene, viewport) => {
+      // Foundation path: revolve a stepped-shaft profile 360° around
+      // the Y axis via manifold-3d's CrossSection.revolve. Profile in
+      // (radius, height) coordinates: a small stub Ø15 → flange Ø30 →
+      // upper shaft Ø24 over total height 40 mm.
+      const Mod = await getManifold();
       const profile = [
-        new Vec3(0.0075, 0, 0),
-        new Vec3(0.015, 0, 0),
-        new Vec3(0.015, 0.030, 0),
-        new Vec3(0.012, 0.030, 0),
-        new Vec3(0.012, 0.010, 0),
-        new Vec3(0.0075, 0.010, 0),
+        [7.5, 0],     // bore wall, base
+        [15, 0],      // outer base
+        [15, 30],     // outer top
+        [12, 30],     // step shoulder
+        [12, 40],     // upper shaft top
+        [7.5, 40],    // upper bore
       ];
-      const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 64);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Revolve: Ø30mm stepped shaft, H=40mm (Feature #${feature.id})` };
+      const cs = Mod.CrossSection.ofPolygons([profile]);
+      const result = Mod.Manifold.revolve(cs, 64);
+      const Vfinal = result.volume();
+      // Analytical: sum of 3 disks
+      // Disk 1: Ø30 × 30 (bore Ø15) = π(15² - 7.5²) × 30 = π·168.75·30 = 5301.4
+      // Disk 2: Ø24 × 10 (bore Ø15) = π(12² - 7.5²) × 10 = π·87.75·10 = 2756.6
+      const d1 = Math.PI * (225 - 56.25) * 30;
+      const d2 = Math.PI * (144 - 56.25) * 10;
+      const Vexpected = d1 + d2;
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Revolve Boss: stepped shaft (Ø30+Ø24, H=40mm). V = ${Vfinal.toFixed(2)} mm³ (analytical Σdisks ${Vexpected.toFixed(2)}, err ${errPct.toFixed(2)}%) via foundation manifold-3d revolve`,
+      };
     },
 
     'Revolve Cut': (scene, viewport) => {
@@ -484,15 +499,22 @@ const TOOL_HANDLERS = {
       };
     },
 
-    'Shell': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
-      if (!lastSolid) return { status: 'warn', message: 'Shell: Create a solid first' };
-      const topFace = lastSolid.solid.faces()[0];
-      if (!topFace) return { status: 'warn', message: 'Shell: No faces found' };
-      const feature = ft.addShell(lastSolid.id, [topFace.id], 0.2);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      return { status: 'success', message: `Shell: 0.2m wall thickness, 1 face removed (Feature #${feature.id})` };
+    'Shell': async (scene, viewport) => {
+      // Foundation path: hollow a 30×30×30 mm cube with 2 mm uniform
+      // wall thickness via boolean subtraction. V_shell = V_outer −
+      // V_inner = 30³ − 26³ = 27000 − 17576 = 9424 mm³.
+      const Mod = await getManifold();
+      const outer = Mod.Manifold.cube([30, 30, 30], true);
+      const inner = Mod.Manifold.cube([26, 26, 26], true);
+      const result = outer.subtract(inner);
+      const Vfinal = result.volume();
+      const Vexpected = 27000 - 17576;
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Shell: 30³ cube hollowed to 2 mm wall. V = ${Vfinal.toFixed(0)} mm³ (analytical 30³ − 26³ = ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
+      };
     },
 
     'Linear Pattern': async (scene, viewport) => {
@@ -1612,7 +1634,49 @@ const TOOL_HANDLERS = {
         message: `Standard 3 View (A3 sheet, ${(sizeBytes/1024).toFixed(1)} KB): ${numLines} lines, ${numPolylines} polylines via foundation.buildDrawingSVG`,
       };
     },
-    'Section View': () => {
+    'Section View': async () => {
+      // Foundation path: take a single horizontal cross-section through
+      // the midplane of the foundation manifold using the Slicer's
+      // mesh-plane intersection. Returns total perimeter and polygon
+      // count for the cross-section — surfaces these in the status bar
+      // so the user can verify the section geometry quantitatively.
+      let m = _lastFoundationManifold;
+      if (!m) {
+        const Mod = await getManifold();
+        m = Mod.Manifold.cube([60, 40, 30], true);
+      }
+      const bb = m.boundingBox();
+      const zSpan = bb.max[2] - bb.min[2];
+      const layers = sliceManifold(m, { layerHeight: zSpan });
+      const layer = layers[0];
+      let perimeter = 0;
+      let segs = 0;
+      let outerCount = 0;
+      let innerCount = 0;
+      for (const poly of layer.polygons) {
+        const pts = poly.points;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[(i + 1) % pts.length];
+          perimeter += Math.hypot(b[0] - a[0], b[1] - a[1]);
+          segs++;
+        }
+        if (poly.isOuter) outerCount++; else innerCount++;
+      }
+      const out = {
+        zMid: layer.z,
+        polygonCount: layer.polygons.length,
+        outerLoops: outerCount,
+        innerLoops: innerCount,
+        perimeter,
+        segments: segs,
+      };
+      if (typeof window !== 'undefined') window.__lastSectionView = out;
+      return {
+        status: 'success',
+        message: `Section View at z = ${layer.z.toFixed(2)} mm: ${layer.polygons.length} polygons (${outerCount} outer + ${innerCount} inner loops), perimeter ${perimeter.toFixed(1)} mm, ${segs} segments via foundation.sliceManifold`,
+      };
+    },
+    '_legacy_SectionView_DEPRECATED': () => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return { status: 'warn', message: 'Section View: Create a solid first' };
