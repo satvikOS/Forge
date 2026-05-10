@@ -1,0 +1,52 @@
+{
+  "simp": {
+    "meshStats": {
+      "vertexCount": 1827,
+      "tetCount": 8064,
+      "totalVolume": 19200.0000000015,
+      "gridShape": [
+        28,
+        8,
+        6
+      ],
+      "cellSize": [
+        2.857142857142857,
+        2.5,
+        2
+      ],
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          80,
+          20,
+          12
+        ]
+      }
+    },
+    "elapsedSec": 53.71,
+    "iterations": 35,
+    "finalCompliance": 24.496319325260007
+  },
+  "marchingCubes": {
+    "elapsedSec": 0.002,
+    "triangles": 808,
+    "vertices": 499
+  },
+  "manifold": {
+    "status": "failed: Not manifold",
+    "elapsedSec": 0.043,
+    "report": null
+  },
+  "pipeline": {
+    "stlBytes": 40485,
+    "stepBytes": 0,
+    "svgBytes": 0,
+    "stlSec": 0.002,
+    "stepSec": 0,
+    "svgSec": 0
+  }
+}
