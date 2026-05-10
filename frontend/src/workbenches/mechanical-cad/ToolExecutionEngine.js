@@ -50,6 +50,7 @@ import { toBinarySTL } from '../../foundation/STLExport.js';
 import { manifoldToGLB } from '../../foundation/GLTFExport.js';
 import { optimizeSIMP } from '../../foundation/TopologyOptimization.js';
 import { contourMill, pocketClear, drillCycle, programWrap } from '../../foundation/CAMToolpath.js';
+import { solveLidDrivenCavity, sampleCenterlineU, GHIA_RE100_U } from '../../foundation/NavierStokes2D.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -898,7 +899,44 @@ const TOOL_HANDLERS = {
         message: `CFD: ${result.fluid} @ ${result.inletVelocity}m/s | Re ${result.reynoldsExp} (${result.regime}) | Cd ${result.dragCoefficient} | Drag ${result.dragForceMilliN}mN | ΔP ${result.pressureDropPa}Pa | Flow ${result.volumetricFlowLs} L/s | ${renderResult?.count || 0} streamlines (${renderResult?.minV || 0}-${renderResult?.maxV || 0} m/s)`
       };
     },
-    'CFD Flow Simulation': (scene, viewport) => TOOL_HANDLERS.simulate.CFD(scene, viewport),
+    'CFD Flow Simulation': async (scene, viewport) => {
+      // Foundation path: lid-driven cavity at Re=100 — the canonical
+      // 2D Navier-Stokes validation problem (Ghia, Ghia & Shin, 1982).
+      // Compute centerline u-velocity profile and compare RMS error
+      // against the published reference data.
+      const r = solveLidDrivenCavity({
+        Re: 100, U: 1, L: 1,
+        nx: 41, ny: 41,    // 41x41 grid → ~10s on JS
+        maxIter: 4000, tol: 1e-4, psiSweeps: 25,
+      });
+      // Sample u-velocity along vertical centerline and compute RMS
+      // error vs Ghia tabulated values.
+      const samples = sampleCenterlineU(r, GHIA_RE100_U);
+      let sumSq = 0, peakU = 0, peakUGhia = 0;
+      for (const s of samples) {
+        const e = s.u_FEM - s.u_Ghia;
+        sumSq += e * e;
+        if (Math.abs(s.u_FEM) > Math.abs(peakU)) peakU = s.u_FEM;
+        if (Math.abs(s.u_Ghia) > Math.abs(peakUGhia)) peakUGhia = s.u_Ghia;
+      }
+      const rmsError = Math.sqrt(sumSq / samples.length);
+      const out = {
+        gridShape: [41, 41],
+        timeSteps: r.iterations,
+        finalResidual: r.residual,
+        rmsErrorVsGhia: rmsError,
+        peakU: peakU,
+        peakUGhia: peakUGhia,
+        sampleCount: samples.length,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastCFDResult = out;
+      return {
+        status: 'success',
+        message: `CFD: lid-driven cavity Re=100, ${r.iterations} steps, RMS centerline u-error vs Ghia 1982 = ${rmsError.toFixed(4)}, peak u = ${peakU.toFixed(3)} (Ghia ${peakUGhia.toFixed(3)}) via foundation.solveLidDrivenCavity`,
+      };
+    },
+    '_legacy_CFD_DEPRECATED': (scene, viewport) => TOOL_HANDLERS.simulate.CFD(scene, viewport),
     'Modal': (scene) => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();

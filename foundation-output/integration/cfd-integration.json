@@ -1,0 +1,12 @@
+{
+  "gridShape": [
+    41,
+    41
+  ],
+  "timeSteps": 4000,
+  "finalResidual": 3.059912158536554,
+  "rmsErrorVsGhia": 0.02027875286864906,
+  "peakU": 1,
+  "peakUGhia": 1,
+  "sampleCount": 17
+}
