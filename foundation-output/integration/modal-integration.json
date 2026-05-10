@@ -1,8 +1,8 @@
 {
-  "fundamentalHz": 1441.3431867967913,
+  "fundamentalHz": 1441.343177829245,
   "analyticalHz": 816.0334438912637,
-  "errorPct": 76.62795533522889,
+  "errorPct": 76.62795423630992,
   "elementCount": 192,
   "nodeCount": 81,
-  "iterations": 39
+  "iterations": 12
 }

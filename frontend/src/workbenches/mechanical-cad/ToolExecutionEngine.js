@@ -48,6 +48,7 @@ import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
 import { findMaterial } from '../../foundation/MaterialDB.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
+import { analyzeCompressorStage } from '../../foundation/CompressorStage.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1078,6 +1079,24 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Compressor Stage': async (scene) => {
+      // Foundation path: subsonic axial fan-stage analysis. 100 kg/s,
+      // sea-level total inlet, 8000 RPM, r_tip = 0.6 m, hub/tip = 0.45,
+      // axial Mach 0.5, ΔT_t = 25 K. Reports velocity triangles at
+      // hub/mid/tip, De Haller diffusion check, stage PR, blade count.
+      const r = analyzeCompressorStage({
+        massFlowKgS: 100, T_t1_K: 288.15, P_t1_Pa: 101325,
+        rpm: 8000, r_tip_m: 0.6, hubToTip: 0.45,
+        axialMach1: 0.5, deltaTtotal_K: 25, polytropicEff: 0.90,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastCompressorResult = r;
+      return {
+        status: r.deHaller_check.passes ? 'success' : 'warn',
+        message: `Compressor stage: π = ${r.work.stagePR.toFixed(3)}, ψ = ${r.nondim.loadingPsi.toFixed(2)}, ${r.geometry.bladeCount} blades, U_tip = ${r.blade_speed.U_tip.toFixed(0)} m/s, M_tip = ${r.blade_speed.M_tip.toFixed(2)}, De Haller mid = ${r.radial.mid.deHaller.toFixed(2)} (${r.deHaller_check.passes ? 'PASS' : 'FAIL'}), spec work = ${r.work.specific_work_kJ_per_kg.toFixed(1)} kJ/kg, total power = ${(r.work.total_power_kW/1000).toFixed(2)} MW via foundation.analyzeCompressorStage`,
+      };
+    },
+
     'Brayton Cycle': async (scene) => {
       // Foundation path: solve a Trent-XWB-class turbofan cycle at
       // FL350 cruise (M=0.85, alt=10670 m, BPR=9.6, OPR=50, T4=1750 K,

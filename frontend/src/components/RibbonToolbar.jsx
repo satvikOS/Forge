@@ -114,6 +114,7 @@ const TABS = {
       ]},
       { label: 'Propulsion', tools: [
         { name: 'Brayton Cycle', icon: '◈', key: 'simulation' },
+        { name: 'Compressor Stage', icon: '⊿', key: 'simulation' },
       ]},
       { label: 'Optimize', tools: [
         { name: 'Topology Optimization', icon: '🧬', key: 'simulation' },
