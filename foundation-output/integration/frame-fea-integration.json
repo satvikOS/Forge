@@ -1,0 +1,8 @@
+{
+  "topLeftDriftMm": 10.462195850345593,
+  "topRightDriftMm": 10.459071207755125,
+  "deltaDriftMm": 0.00312464259046763,
+  "cgIterations": 4,
+  "memberCount": 3,
+  "nodeCount": 4
+}

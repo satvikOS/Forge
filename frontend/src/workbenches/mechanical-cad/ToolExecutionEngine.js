@@ -958,6 +958,47 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Frame FEA': async (scene) => {
+      // Foundation path: 3D portal frame structural analysis using
+      // 12-DOF Euler-Bernoulli beams (foundation.solveFrame).
+      // Geometry: 4 m × 3 m portal, fixed at both base columns,
+      // 5 kN lateral load at top-left corner. Reports top-corner
+      // drift compared between left and right (should match within
+      // ~0.01 mm because the rigid beam ties them together).
+      const STEEL = { E: 200000, G: 77000 };  // MPa
+      const col = FrameSections.squareTube(100, 6);
+      const beam = FrameSections.rectangle(80, 200);
+      const m = new FrameModel();
+      const A = m.addNode([0, 0, 0]);
+      const B = m.addNode([4000, 0, 0]);
+      const C = m.addNode([4000, 0, 3000]);
+      const D = m.addNode([0, 0, 3000]);
+      m.addMember(A, D, { material: STEEL, section: col });
+      m.addMember(B, C, { material: STEEL, section: col });
+      m.addMember(D, C, { material: STEEL, section: beam });
+      m.addFixedSupport(A);
+      m.addFixedSupport(B);
+      m.addNodalLoad(D, [5000, 0, 0, 0, 0, 0]);
+      const r = solveFrame(m);
+      const driftD = r.displacement[D * 6 + 0];
+      const driftC = r.displacement[C * 6 + 0];
+      const out = {
+        topLeftDriftMm: driftD,
+        topRightDriftMm: driftC,
+        deltaDriftMm: Math.abs(driftD - driftC),
+        cgIterations: r.cgIterations,
+        memberCount: m.members.length,
+        nodeCount: m.nodes.length,
+        memberForces: r.memberForces,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastFrameFEAResult = out;
+      return {
+        status: 'success',
+        message: `Frame FEA: 4m×3m portal, 5kN lateral load — D-drift = ${driftD.toFixed(3)} mm, C-drift = ${driftC.toFixed(3)} mm (Δ = ${out.deltaDriftMm.toFixed(4)} mm) | CG ${r.cgIterations} iter via foundation.solveFrame`,
+      };
+    },
+
     'Buckling Analysis': async (scene) => {
       // Foundation path: fixed-free aluminum column 100 × 10 × 10 mm,
       // 1 N axial compressive reference load along -X. Theoretical
@@ -1129,13 +1170,45 @@ const TOOL_HANDLERS = {
     'Angle': () => ({ status: 'success', message: 'Angle: 90.00° between selected faces' }),
 
     'Mass Properties': (scene, viewport) => {
+      // Foundation path: compute volume + surface area + centroid +
+      // bounding box from the foundation manifold and surface that as
+      // a Mass Properties report. Material density defaults to
+      // Aluminum 6061-T6 (2700 kg/m³) for the mass calculation.
+      const m = _lastFoundationManifold;
+      if (m) {
+        const Vmm3 = m.volume();
+        const Vm3 = Vmm3 * 1e-9;          // mm³ → m³
+        const Amm2 = m.surfaceArea();
+        const Am2 = Amm2 * 1e-6;          // mm² → m²
+        const bb = m.boundingBox();
+        const cx = (bb.min[0] + bb.max[0]) / 2;
+        const cy = (bb.min[1] + bb.max[1]) / 2;
+        const cz = (bb.min[2] + bb.max[2]) / 2;
+        const density_kg_per_m3 = 2700;   // Al-6061
+        const massKg = Vm3 * density_kg_per_m3;
+        const out = {
+          volume_mm3: Vmm3,
+          volume_m3: Vm3,
+          surface_area_mm2: Amm2,
+          surface_area_m2: Am2,
+          mass_kg: massKg,
+          density_kg_m3: density_kg_per_m3,
+          bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] },
+          bboxCenter_mm: [cx, cy, cz],
+        };
+        if (typeof window !== 'undefined') window.__lastMassProps = out;
+        return {
+          status: 'success',
+          message: `Mass Properties (Al 6061-T6): V = ${Vmm3.toFixed(2)} mm³ (${Vm3.toExponential(3)} m³) | A = ${Amm2.toFixed(2)} mm² | m = ${massKg.toFixed(4)} kg | bbox center = (${cx.toFixed(2)}, ${cy.toFixed(2)}, ${cz.toFixed(2)}) mm`,
+        };
+      }
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return { status: 'warn', message: 'No solid to analyze. Create geometry first.' };
       const props = solid.massProperties();
       return {
         status: 'success',
-        message: `Mass: ${props.mass.toFixed(3)} kg | Vol: ${props.volume.toFixed(6)} m³ | Area: ${props.surfaceArea.toFixed(4)} m²`
+        message: `Mass: ${props.mass.toFixed(3)} kg | Vol: ${props.volume.toFixed(6)} m³ | Area: ${props.surfaceArea.toFixed(4)} m² (legacy kernel)`,
       };
     },
 

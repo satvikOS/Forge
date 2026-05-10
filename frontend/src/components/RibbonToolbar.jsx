@@ -105,6 +105,7 @@ const TABS = {
         { name: 'Modal Analysis', icon: '〰', key: 'simulation' },
         { name: 'Fatigue Analysis', icon: '⟳', key: 'simulation' },
         { name: 'Buckling Analysis', icon: '↕', key: 'simulation' },
+        { name: 'Frame FEA', icon: '⊏', key: 'simulation' },
       ]},
       { label: 'Thermal', tools: [
         { name: 'Steady-State Thermal', icon: '🌡', key: 'simulation' },
