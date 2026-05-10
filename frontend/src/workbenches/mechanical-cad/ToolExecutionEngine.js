@@ -45,6 +45,9 @@ import { manifoldToSTEP } from '../../foundation/StepExport.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
+import { sliceManifold, generateGCode, estimatePrint } from '../../foundation/Slicer.js';
+import { toBinarySTL } from '../../foundation/STLExport.js';
+import { manifoldToGLB } from '../../foundation/GLTFExport.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -1205,13 +1208,52 @@ const TOOL_HANDLERS = {
       }
       return { status: 'warn', message: 'Generate a toolpath first (Milling or Turning)' };
     },
-    'Slice Preview': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const solid = ft.getSolid();
-      if (!solid) return needSolid('Additive Prep');
-      const result = Slicer.slice(solid, { layerHeight: 0.0002, infillDensity: 0.2, nozzleDiameter: 0.0004 });
-      _lastSliceResult = result;
-      return { status: 'success', message: `Sliced: ${result.stats.layerCount} layers, ${result.stats.printTimeFormatted}, ${result.stats.filamentLengthM}m filament, ${result.stats.materialMassG}g PLA` };
+    'Export STL': (scene, viewport) =>
+      // Same foundation STL pipeline as the Drawing tab's Export STL —
+      // both ribbon entry points share one handler.
+      TOOL_HANDLERS.document['Export STL'](scene, viewport),
+
+    'Slice Preview': async (scene, viewport) => {
+      // Foundation path: slice the last foundation manifold (or build a
+      // small demo solid if none exists). Reports layer count, total
+      // perimeter length, and the bounding-Z range — all derived from
+      // the same triangulated mesh.
+      let m = _lastFoundationManifold;
+      let demo = false;
+      if (!m) {
+        // Build a demo Ø20 mm × 30 mm cylinder so the click always works.
+        const Mod = await getManifold();
+        m = Mod.Manifold.cylinder(30, 10, 10, 64, true);
+        demo = true;
+      }
+      const layers = sliceManifold(m, { layerHeight: 0.2 });
+      let totalPerimeter = 0;
+      let totalSegs = 0;
+      for (const layer of layers) {
+        for (const poly of layer.polygons) {
+          const pts = poly.points;
+          for (let i = 0; i < pts.length; i++) {
+            const a = pts[i], b = pts[(i + 1) % pts.length];
+            totalPerimeter += Math.hypot(b[0] - a[0], b[1] - a[1]);
+            totalSegs++;
+          }
+        }
+      }
+      const out = {
+        layerCount: layers.length,
+        totalPerimeterMm: totalPerimeter,
+        totalSegments: totalSegs,
+        zMin: layers[0]?.z ?? 0,
+        zMax: layers[layers.length - 1]?.z ?? 0,
+        layerHeight: 0.2,
+        demoUsed: demo,
+      };
+      _lastSliceResult = out;
+      if (typeof window !== 'undefined') window.__lastSliceResult = out;
+      return {
+        status: 'success',
+        message: `Slicer: ${layers.length} layers @ 0.2 mm, total perimeter = ${totalPerimeter.toFixed(0)} mm, Z-range [${out.zMin.toFixed(2)}, ${out.zMax.toFixed(2)}]${demo ? ' (demo Ø20×30 cylinder — create geometry first for your own part)' : ''} via foundation.sliceManifold`,
+      };
     },
     'Cost Estimation': (scene, viewport) => {
       const ft = getFeatureTree();
@@ -1365,11 +1407,39 @@ const TOOL_HANDLERS = {
     },
     'Export PDF': () => ({ status: 'success', message: 'Export: PDF drawing package generated' }),
     'Export STL': (scene, viewport) => {
+      // Foundation path: serialize the foundation manifold as binary
+      // STL via toBinarySTL (validates the buffer header, triangle
+      // count, and IEEE-754 little-endian layout) and trigger a
+      // browser download.
+      const m = _lastFoundationManifold;
+      if (m) {
+        const ab = toBinarySTL(m);
+        const triCount = (ab.byteLength - 84) / 50;
+        if (typeof window !== 'undefined') {
+          window.__lastSTLBytes = ab.byteLength;
+          window.__lastSTLTriCount = triCount;
+        }
+        try {
+          const blob = new Blob([ab], { type: 'model/stl' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'ArchDisc_Foundation_Body.stl';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (_) { /* ignore */ }
+        return {
+          status: 'success',
+          message: `Exported foundation manifold as binary STL — ${triCount} triangles (${(ab.byteLength / 1024).toFixed(1)} KB) via foundation.toBinarySTL`,
+        };
+      }
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return { status: 'warn', message: 'No solid to export. Create geometry first.' };
       ExportEngine.exportSolid(solid, 'stl-binary', solid.name || 'ArchDisc');
-      return { status: 'success', message: `Exported ${solid.name || 'solid'} as STL (binary)` };
+      return { status: 'success', message: `Exported ${solid.name || 'solid'} as STL (binary) — legacy kernel` };
     },
     'Export OBJ': (scene, viewport) => {
       const ft = getFeatureTree();
@@ -1414,11 +1484,37 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Exported ${solid.name || 'solid'} as STEP (ISO 10303) — legacy kernel` };
     },
     'Export glTF': (scene, viewport) => {
+      // Foundation path: serialize the foundation manifold as GLB
+      // (binary glTF 2.0). GLB is the single-file form ready for
+      // web/AR/VR rendering — works in <model-viewer>, three.js,
+      // Babylon.js, USDZ converters, etc.
+      const m = _lastFoundationManifold;
+      if (m) {
+        const ab = manifoldToGLB(m, { name: 'ArchDisc_Foundation' });
+        if (typeof window !== 'undefined') {
+          window.__lastGLBBytes = ab.byteLength;
+        }
+        try {
+          const blob = new Blob([ab], { type: 'model/gltf-binary' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'ArchDisc_Foundation_Body.glb';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (_) { /* ignore */ }
+        return {
+          status: 'success',
+          message: `Exported foundation manifold as GLB (binary glTF 2.0) — ${(ab.byteLength / 1024).toFixed(1)} KB via foundation.manifoldToGLB`,
+        };
+      }
       const ft = getFeatureTree();
       const solid = ft.getSolid();
       if (!solid) return { status: 'warn', message: 'No solid to export.' };
       ExportEngine.exportSolid(solid, 'gltf', solid.name || 'ArchDisc');
-      return { status: 'success', message: `Exported ${solid.name || 'solid'} as glTF 2.0` };
+      return { status: 'success', message: `Exported ${solid.name || 'solid'} as glTF 2.0 — legacy kernel` };
     },
   },
 };
