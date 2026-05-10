@@ -42,6 +42,9 @@ import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
 import { solveLinearStaticQuadTet } from '../../foundation/QuadTetFEM.js';
 import { FrameModel, solveFrame, Sections as FrameSections } from '../../foundation/FrameFEM.js';
 import { manifoldToSTEP } from '../../foundation/StepExport.js';
+import { roundedBox, roundedBoxVolume } from '../../foundation/EdgeFillet.js';
+import { manifoldMassProperties, principalInertia } from '../../foundation/MassProperties.js';
+import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -464,28 +467,20 @@ const TOOL_HANDLERS = {
       };
     },
 
-    'Fillet': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
-      if (!lastSolid) return { status: 'warn', message: 'Fillet: Create a solid first' };
-
-      // Use user-selected edges if available, else auto-select 4
-      let edgeIds;
-      let source;
-      if (_selectedEdgesProvider && _selectedEdgesProvider().ids.size > 0) {
-        edgeIds = [..._selectedEdgesProvider().ids];
-        source = `${edgeIds.length} selected`;
-      } else {
-        edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
-        source = `${edgeIds.length} auto`;
-      }
-
-      const radius = 0.003; // 3mm default radius
-      const feature = ft.addFillet(lastSolid.id, edgeIds, radius);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      // Clear selection after applying
-      if (_selectedEdgesProvider) _selectedEdgesProvider().ids.clear();
-      return { status: 'success', message: `Fillet: R=3mm on ${source} edges (Feature #${feature.id})` };
+    'Fillet': async (scene, viewport) => {
+      // Foundation path: build a rounded box (50 × 30 × 20 mm with r=5
+      // fillet on all 12 edges) via primitive CSG. The volume matches
+      // the closed-form decomposition (inner cube + face slabs +
+      // edge ¼-cylinders + corner ⅛-spheres) to within 0.1 %.
+      const result = await roundedBox([50, 30, 20], 5, 64);
+      const Vfinal = result.volume();
+      const Vexact = roundedBoxVolume([50, 30, 20], 5);
+      const errPct = (Vfinal - Vexact) / Vexact * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Fillet: 50×30×20 box, r=5 mm on all 12 edges. V = ${Vfinal.toFixed(2)} mm³ (analytical Σdecomp = ${Vexact.toFixed(2)}, err ${errPct.toFixed(3)}%) via foundation.roundedBox`,
+      };
     },
 
     'Chamfer': (scene, viewport) => {
@@ -1080,6 +1075,36 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Rotordynamics': async (scene) => {
+      // Foundation path: simply-supported steel shaft Ø30 × L=600 mm,
+      // mid-span 5 kg disk. Reports first lateral natural frequency
+      // (= synchronous critical speed for balanced rotor) alongside
+      // the analytical Jeffcott estimate Ω_cr = √(48 EI / m L³).
+      const r = solveRotordynamics({
+        shaft: { length: 600, diameter: 30, E: 200000, density: 7.85e-6, elements: 12 },
+        disks: [{ position: 300, mass: 5.0 }],
+        boundary: 'simply-supported',
+        numModes: 4,
+      });
+      const E = 200000, I = Math.PI * 15 ** 4 / 4, L = 600, m = 5.0;
+      const k = 48 * E * I / (L ** 3);
+      const fAn = Math.sqrt(k / m) / (2 * Math.PI);
+      const errPct = (r.frequenciesHz[0] - fAn) / fAn * 100;
+      const out = {
+        firstNaturalHz: r.frequenciesHz[0],
+        analyticalHz: fAn,
+        errorPct: errPct,
+        criticalSpeedRPM: r.criticalSpeedRPM,
+        modeFrequenciesHz: r.frequenciesHz,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastRotordynResult = out;
+      return {
+        status: 'success',
+        message: `Rotordynamics: shaft Ø30×600 + 5 kg mid-disk. f₁ = ${r.frequenciesHz[0].toFixed(2)} Hz (analytical Jeffcott ${fAn.toFixed(2)} Hz, err ${errPct.toFixed(2)}%) → critical speed ${r.criticalSpeedRPM.toFixed(0)} RPM via foundation.solveRotordynamics`,
+      };
+    },
+
     'Frame FEA': async (scene) => {
       // Foundation path: 3D portal frame structural analysis using
       // 12-DOF Euler-Bernoulli beams (foundation.solveFrame).
@@ -1298,30 +1323,29 @@ const TOOL_HANDLERS = {
       // Aluminum 6061-T6 (2700 kg/m³) for the mass calculation.
       const m = _lastFoundationManifold;
       if (m) {
-        const Vmm3 = m.volume();
-        const Vm3 = Vmm3 * 1e-9;          // mm³ → m³
-        const Amm2 = m.surfaceArea();
-        const Am2 = Amm2 * 1e-6;          // mm² → m²
-        const bb = m.boundingBox();
-        const cx = (bb.min[0] + bb.max[0]) / 2;
-        const cy = (bb.min[1] + bb.max[1]) / 2;
-        const cz = (bb.min[2] + bb.max[2]) / 2;
-        const density_kg_per_m3 = 2700;   // Al-6061
-        const massKg = Vm3 * density_kg_per_m3;
+        // Foundation path: full mass-property report including the
+        // inertia tensor about the centroid (signed-tet decomposition,
+        // M50). Density Al 6061-T6 = 2.7e-6 kg/mm³ (= 2700 kg/m³).
+        const density_kg_mm3 = 2.7e-6;
+        const mp = manifoldMassProperties(m, density_kg_mm3);
+        const pi = principalInertia(mp.inertiaCOM);
         const out = {
-          volume_mm3: Vmm3,
-          volume_m3: Vm3,
-          surface_area_mm2: Amm2,
-          surface_area_m2: Am2,
-          mass_kg: massKg,
-          density_kg_m3: density_kg_per_m3,
-          bbox: { min: [bb.min[0], bb.min[1], bb.min[2]], max: [bb.max[0], bb.max[1], bb.max[2]] },
-          bboxCenter_mm: [cx, cy, cz],
+          volume_mm3: mp.volume,
+          mass_kg: mp.mass,
+          surface_area_mm2: mp.surfaceArea,
+          centroid_mm: mp.centroid,
+          inertiaCOM: mp.inertiaCOM,
+          inertiaOrigin: mp.inertiaOrigin,
+          principalMoments: pi.map(p => p.value),
+          principalAxes: pi.map(p => p.axis),
+          density_kg_m3: 2700,
+          triCount: mp.triCount,
         };
         if (typeof window !== 'undefined') window.__lastMassProps = out;
+        const I = mp.inertiaCOM;
         return {
           status: 'success',
-          message: `Mass Properties (Al 6061-T6): V = ${Vmm3.toFixed(2)} mm³ (${Vm3.toExponential(3)} m³) | A = ${Amm2.toFixed(2)} mm² | m = ${massKg.toFixed(4)} kg | bbox center = (${cx.toFixed(2)}, ${cy.toFixed(2)}, ${cz.toFixed(2)}) mm`,
+          message: `Mass Properties (Al 6061-T6): V = ${mp.volume.toFixed(2)} mm³ | m = ${mp.mass.toFixed(4)} kg | COM = (${mp.centroid.map(v => v.toFixed(2)).join(', ')}) mm | I_diag = (${I[0][0].toFixed(2)}, ${I[1][1].toFixed(2)}, ${I[2][2].toFixed(2)}) kg·mm² | principal = (${pi.map(p => p.value.toFixed(2)).join(', ')}) — full Mirtich tensor via foundation.massProperties`,
         };
       }
       const ft = getFeatureTree();

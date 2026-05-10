@@ -29,11 +29,13 @@ test('Integration: Linear Pattern → Mass Properties through Assembly ribbon', 
   const result = await page.evaluate(() => window.__lastMassProps);
 
   console.log(`\n=== INTEGRATION: MASS PROPERTIES (Al 6061-T6) ===`);
-  console.log(`Volume: ${result.volume_mm3.toFixed(2)} mm³ (${result.volume_m3.toExponential(3)} m³)`);
+  console.log(`Volume: ${result.volume_mm3.toFixed(2)} mm³`);
   console.log(`Surface area: ${result.surface_area_mm2.toFixed(2)} mm²`);
   console.log(`Mass: ${result.mass_kg.toFixed(5)} kg`);
-  console.log(`bbox: [${result.bbox.min}] → [${result.bbox.max}]`);
-  console.log(`bbox center: (${result.bboxCenter_mm.join(', ')}) mm`);
+  console.log(`Centroid (Mirtich): (${result.centroid_mm.map(v => v.toFixed(3)).join(', ')}) mm`);
+  if (result.principalMoments) {
+    console.log(`Principal moments (kg·mm²): ${result.principalMoments.map(v => v.toFixed(3)).join(', ')}`);
+  }
 
   fs.writeFileSync(path.join(ROOT, 'mass-props-integration.json'), JSON.stringify(result, null, 2));
 
