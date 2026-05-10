@@ -6,7 +6,7 @@
   "gcodeFirstLines": [
     "%",
     "( ArchDisc Foundation CAM — ArchDisc Part )",
-    "( generated 2026-05-10T14:01:24 )",
+    "( generated 2026-05-10T14:16:43 )",
     "G21 ( mm )",
     "G17 ( XY plane )",
     "G90 ( absolute )",

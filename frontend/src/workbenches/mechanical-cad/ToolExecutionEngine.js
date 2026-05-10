@@ -49,6 +49,9 @@ import { findMaterial } from '../../foundation/MaterialDB.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
 import { analyzeCompressorStage } from '../../foundation/CompressorStage.js';
+import { analyzeTurbineStage } from '../../foundation/TurbineStage.js';
+import { designAnnularCombustor } from '../../foundation/Combustor.js';
+import { analyzeConvergentNozzle, analyzeCDNozzle } from '../../foundation/Nozzle.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1079,6 +1082,58 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Turbine Stage': async (scene) => {
+      // Foundation path: HPT stage at engine cruise — 25 kg/s core
+      // flow, T_t1 = 1750 K (post-combustor), 12000 RPM, r_tip=0.30,
+      // hub/tip 0.65, ΔT_t = 150 K (single-stage), η_p = 0.92.
+      const r = analyzeTurbineStage({
+        massFlowKgS: 25, T_t1_K: 1750, P_t1_Pa: 3.6e6,
+        rpm: 12000, r_tip_m: 0.30, hubToTip: 0.65,
+        deltaTtotal_K: 150, polytropicEff: 0.92, alpha1Deg: 70,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastTurbineResult = r;
+      return {
+        status: 'success',
+        message: `Turbine HPT: ΔT_t = ${r.work.deltaTtotal_K} K, π_drop = ${r.work.stagePR_drop.toFixed(3)}, ψ = ${r.nondim.loadingPsi.toFixed(2)}, R = ${r.nondim.reactionMean.toFixed(2)}, ${r.geometry.bladeCount} blades, U_tip = ${r.blade_speed.U_tip.toFixed(0)} m/s, w₂/w₁ mid = ${r.radial.mid.relativeAccel.toFixed(2)}, power = ${(r.work.total_power_kW/1000).toFixed(2)} MW (${r.smithChart.eff_zone}) via foundation.analyzeTurbineStage`,
+      };
+    },
+
+    'Combustor': async (scene) => {
+      // Foundation path: annular combustor sized for engine cruise.
+      // 25 kg/s core flow, T_t3 = 850 K (post-HPC), P_t3 = 3.7 MPa,
+      // T_t4 = 1750 K target, residence time 10 ms.
+      const r = designAnnularCombustor({
+        massFlowKgS: 25, T_t3_K: 850, P_t3_Pa: 3.7e6, T_t4_K: 1750,
+        residenceTime_ms: 10,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastCombustorResult = r;
+      return {
+        status: 'success',
+        message: `Combustor: R_in = ${r.geometry.R_inner.toFixed(3)} m, R_out = ${r.geometry.R_outer.toFixed(3)} m, length = ${r.geometry.liner_length_m.toFixed(3)} m, V = ${(r.geometry.volume_m3*1000).toFixed(2)} L | f = ${r.fuelAirRatio_overall.toFixed(4)}, mdot_fuel = ${r.massFlow.fuel.toFixed(3)} kg/s | T_pz = ${r.primaryZone.flameTempK.toFixed(0)} K, NOx EI = ${r.emissions.EI_NOx_g_per_kgFuel.toFixed(1)} g/kg fuel | heat-release = ${r.operating.heatReleaseRate_MW_per_m3_atm.toFixed(1)} MW/(m³·atm) via foundation.designAnnularCombustor`,
+      };
+    },
+
+    'Nozzle': async (scene) => {
+      // Foundation path: convergent + convergent-divergent nozzles
+      // for the engine exhaust. Convergent at P_t=3 atm, T_t=1000 K,
+      // A=100 cm² → choked. CD at M_exit=2, A_throat=0.01 m².
+      const conv = analyzeConvergentNozzle({
+        P_t: 3 * 101325, T_t: 1000, A_exit: 0.01, P_back: 101325, gamma: 1.4,
+      });
+      const cd = analyzeCDNozzle({
+        P_t: 1e6, T_t: 1500, M_exit_design: 2.0, A_throat: 0.01,
+        P_back: 1e6 * Math.pow(1 + 0.2 * 4, -3.5), gamma: 1.4,
+      });
+      _lastFEAResult = { conv, cd };
+      if (typeof window !== 'undefined') window.__lastNozzleResult = { conv, cd };
+      return {
+        status: 'success',
+        message: `Conv nozzle: ${conv.choked ? 'CHOKED' : 'subsonic'}, M_e = ${conv.M_exit.toFixed(2)}, V_e = ${conv.V_exit.toFixed(0)} m/s, mdot = ${conv.mdot.toFixed(2)} kg/s | CD nozzle (M=2): A_e/A* = ${cd.A_exit_over_throat.toFixed(3)}, V_e = ${cd.V_exit_design.toFixed(0)} m/s, ${cd.expansion} | foundation.analyzeConvergent/CDNozzle`,
+      };
+    },
+
     'Compressor Stage': async (scene) => {
       // Foundation path: subsonic axial fan-stage analysis. 100 kg/s,
       // sea-level total inlet, 8000 RPM, r_tip = 0.6 m, hub/tip = 0.45,
