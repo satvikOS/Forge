@@ -1,0 +1,34 @@
+{
+  "manifold": true,
+  "triangles": 27136,
+  "vertices": 13568,
+  "boundingBoxMm": {
+    "min": [
+      -17,
+      -17,
+      0
+    ],
+    "max": [
+      17,
+      17,
+      27
+    ]
+  },
+  "volumeMm3": 7859.406807893086,
+  "surfaceAreaMm2": 5399.773928352162,
+  "edgeLengthRangeMm": {
+    "min": 0.008252301683573203,
+    "max": 27.085973551642663
+  },
+  "overhang": {
+    "angleThresholdDeg": 45,
+    "triangleCount": 8160,
+    "areaFraction": 0.09973756170400598
+  },
+  "minWallThicknessThresholdMm": 0.8,
+  "notes": [
+    "manifold output guaranteed by manifold-3d.",
+    "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+    "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+  ]
+}

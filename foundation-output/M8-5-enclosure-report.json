@@ -1,0 +1,108 @@
+{
+  "reports": {
+    "base": {
+      "manifold": true,
+      "triangles": 1444,
+      "vertices": 716,
+      "boundingBoxMm": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          100,
+          60,
+          27
+        ]
+      },
+      "volumeMm3": 42931.18238619821,
+      "surfaceAreaMm2": 29818.476216176972,
+      "edgeLengthRangeMm": {
+        "min": 0.24263856395014471,
+        "max": 116.619037896906
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 106,
+        "areaFraction": 0.20015094639765071
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    },
+    "lid": {
+      "manifold": true,
+      "triangles": 450,
+      "vertices": 219,
+      "boundingBoxMm": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          100,
+          60,
+          5
+        ]
+      },
+      "volumeMm3": 28996.5015787057,
+      "surfaceAreaMm2": 14581.360862708914,
+      "edgeLengthRangeMm": {
+        "min": 0.4176797545238262,
+        "max": 116.619037896906
+      },
+      "overhang": {
+        "angleThresholdDeg": 45,
+        "triangleCount": 125,
+        "areaFraction": 0.40930310884554083
+      },
+      "minWallThicknessThresholdMm": 0.8,
+      "notes": [
+        "manifold output guaranteed by manifold-3d.",
+        "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+        "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+      ]
+    }
+  },
+  "spec": {
+    "outerW": 100,
+    "outerD": 60,
+    "baseH": 25,
+    "lidH": 5,
+    "wall": 3,
+    "cornerR": 5,
+    "bossOD": 8,
+    "bossClearance": 3.2,
+    "bossInsetXY": 6,
+    "pcbBossOD": 6,
+    "pcbBossID": 2.5,
+    "pcbBossH": 8,
+    "pcbBossPositions": [
+      [
+        20,
+        15
+      ],
+      [
+        80,
+        15
+      ],
+      [
+        20,
+        45
+      ],
+      [
+        80,
+        45
+      ]
+    ],
+    "lipH": 2,
+    "lipInset": 1.5,
+    "grooveDepth": 1.4,
+    "grooveWidth": 2
+  }
+}
