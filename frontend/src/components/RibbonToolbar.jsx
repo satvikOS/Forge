@@ -118,6 +118,8 @@ const TABS = {
         { name: 'Turbine Stage', icon: '⊽', key: 'simulation' },
         { name: 'Combustor', icon: '✺', key: 'simulation' },
         { name: 'Nozzle', icon: '⌒', key: 'simulation' },
+        { name: 'Blade Cooling', icon: '❄', key: 'simulation' },
+        { name: 'Mission', icon: '✈', key: 'simulation' },
       ]},
       { label: 'Optimize', tools: [
         { name: 'Topology Optimization', icon: '🧬', key: 'simulation' },

@@ -1,0 +1,33 @@
+{
+  "weights": {
+    "MTOW_kg": 200000,
+    "OEW_kg": 110000,
+    "payload_kg": 30000,
+    "fuel_total_kg": 60000,
+    "reserve_kg": 3000,
+    "usable_kg": 54150,
+    "W_cruise_start_kg": 197000,
+    "W_cruise_end_kg": 142850
+  },
+  "cruise": {
+    "altitude_m": 10670,
+    "V_ms": 240,
+    "rho_cruise": 0.4135,
+    "CL_avg": 0.3886936554037537,
+    "CD_avg": 0.023955558566451523,
+    "LoverD_avg": 16.22561437361341,
+    "LoverD_max": 18.770677738066766,
+    "drag_avg_N": 102701.50410821685,
+    "thrust_required_per_engine_N": 51350.75205410842
+  },
+  "range": {
+    "range_m": 8060776.032350494,
+    "range_km": 8060.776032350494,
+    "range_nmi": 4352.470859800483
+  },
+  "endurance": {
+    "endurance_s": 33586.566801460394,
+    "endurance_hr": 9.329601889294555
+  },
+  "SFC_kg_per_N_per_hr": 0.057
+}

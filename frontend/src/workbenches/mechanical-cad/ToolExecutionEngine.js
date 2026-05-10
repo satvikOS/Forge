@@ -52,6 +52,8 @@ import { analyzeCompressorStage } from '../../foundation/CompressorStage.js';
 import { analyzeTurbineStage } from '../../foundation/TurbineStage.js';
 import { designAnnularCombustor } from '../../foundation/Combustor.js';
 import { analyzeConvergentNozzle, analyzeCDNozzle } from '../../foundation/Nozzle.js';
+import { analyzeBladeCooling, filmEffectiveness } from '../../foundation/BladeCooling.js';
+import { fullMissionEstimate } from '../../foundation/Mission.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1082,6 +1084,48 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Blade Cooling': async (scene) => {
+      // Foundation path: HPT blade thermal-resistance analysis at
+      // T_gas = 1750 K, T_coolant = 800 K, CMSX-4 metal + 0.3 mm YSZ
+      // TBC. 4 stations: LE / midPS / midSS / TE.
+      const r = analyzeBladeCooling({
+        T_gas_K: 1750, T_coolant_K: 800,
+        t_metal_m: 0.0015, k_metal: 24,
+        t_TBC_m: 0.0003, k_TBC: 1.0,
+        stations: {
+          LE:    { h_ext: 5000, h_int: 3500, etaFilm: filmEffectiveness(0.8, 2) },
+          midPS: { h_ext: 3000, h_int: 2500, etaFilm: filmEffectiveness(0.6, 8) },
+          midSS: { h_ext: 2500, h_int: 2500, etaFilm: filmEffectiveness(0.4, 10) },
+          TE:    { h_ext: 3500, h_int: 2000, etaFilm: filmEffectiveness(1.0, 1) },
+        },
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastBladeCoolingResult = r;
+      return {
+        status: r.survives_long_life ? 'success' : 'warn',
+        message: `Blade Cooling (CMSX-4 + TBC, T_gas=1750 K): hot-spot ${r.hotspot} at T_metal = ${(r.T_metal_max_K - 273.15).toFixed(0)} °C, φ_c hot-spot = ${r.stations[r.hotspot].overall_cooling_effectiveness.toFixed(2)}, q = ${(r.stations[r.hotspot].heat_flux_W_per_m2/1000).toFixed(0)} kW/m². ${r.survives_long_life ? 'PASS (long-life)' : r.survives_short_life ? 'MARGINAL' : 'FAIL'} via foundation.analyzeBladeCooling`,
+      };
+    },
+
+    'Mission': async (scene) => {
+      // Foundation path: 200-t-class subsonic transport @ FL350.
+      // OEW 110 t, payload 30 t, fuel 60 t, S=360 m², CD0=0.018,
+      // AR=9.5, e=0.85, M=0.81, SFC=0.057 kg/(N·hr) (modern HBPR).
+      const r = fullMissionEstimate({
+        MTOW_kg: 200000, OEW_kg: 110000, payload_kg: 30000,
+        fuel_total_kg: 60000, reserve_fraction: 0.05,
+        S_m2: 360, CD0: 0.018, AR: 9.5, e: 0.85,
+        altitude_m: 10670, V_cruise_ms: 240, rho_cruise: 0.4135,
+        SFC_kg_per_N_per_hr: 0.057,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastMissionResult = r;
+      return {
+        status: 'success',
+        message: `Mission: 200-t transport, M=0.81 @ FL350, L/D = ${r.cruise.LoverD_avg.toFixed(1)} → Range = ${r.range.range_km.toFixed(0)} km (${r.range.range_nmi.toFixed(0)} nmi), Endurance = ${r.endurance.endurance_hr.toFixed(2)} hr, thrust required per engine = ${(r.cruise.thrust_required_per_engine_N/1000).toFixed(1)} kN via foundation.fullMissionEstimate`,
+      };
+    },
+
     'Turbine Stage': async (scene) => {
       // Foundation path: HPT stage at engine cruise — 25 kg/s core
       // flow, T_t1 = 1750 K (post-combustor), 12000 RPM, r_tip=0.30,
