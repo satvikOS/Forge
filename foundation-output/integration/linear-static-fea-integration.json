@@ -1,0 +1,10 @@
+{
+  "cantileverDeltaMm": -0.5723951461573428,
+  "analyticalDeltaMm": -0.5805515239477503,
+  "errorPct": -1.404936074397703,
+  "maxStressMPa": 41.03572259627859,
+  "safetyFactor": 6.725847201848217,
+  "elementCount": 240,
+  "nodeCount": 525,
+  "cgIterations": 847
+}
