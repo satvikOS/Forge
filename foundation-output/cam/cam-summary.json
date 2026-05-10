@@ -1,0 +1,80 @@
+{
+  "plate": {
+    "recognized_cylinders": [
+      4.9786,
+      4.9786,
+      4.9786,
+      4.9786
+    ],
+    "holes": [
+      {
+        "x": 15,
+        "y": 15,
+        "diameter": 4.9786,
+        "depth": 6
+      },
+      {
+        "x": 85,
+        "y": 15,
+        "diameter": 4.9786,
+        "depth": 6
+      },
+      {
+        "x": 85,
+        "y": 45,
+        "diameter": 4.9786,
+        "depth": 6
+      },
+      {
+        "x": 15,
+        "y": 45,
+        "diameter": 4.9786,
+        "depth": 6
+      }
+    ],
+    "stats": {
+      "lines": 60,
+      "drillCycleCount": 4,
+      "contourPassCount": 3
+    }
+  },
+  "bracket": {
+    "recognized_cylinders": [
+      3.9696,
+      3.9696,
+      3.9696,
+      3.9696
+    ],
+    "holes": [
+      {
+        "x": 8,
+        "y": 8,
+        "diameter": 3.9696,
+        "depth": 20.940952255126035
+      },
+      {
+        "x": 72,
+        "y": 8,
+        "diameter": 3.9696,
+        "depth": 20.940952255126035
+      },
+      {
+        "x": 72,
+        "y": 52,
+        "diameter": 3.9696,
+        "depth": 20.940952255126035
+      },
+      {
+        "x": 8,
+        "y": 52,
+        "diameter": 3.9696,
+        "depth": 20.940952255126035
+      }
+    ],
+    "stats": {
+      "lines": 116,
+      "drillCycleCount": 4,
+      "contourPassCount": 11
+    }
+  }
+}
