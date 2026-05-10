@@ -1,0 +1,842 @@
+[
+  {
+    "name": "Phone-Stand Bracket",
+    "expected": "plate + tilted wall + lip + 4 cylindrical Ø4 holes",
+    "elapsed": 0.019,
+    "triangles": 438,
+    "summary": {
+      "totalTriangles": 438,
+      "patchCount": 20,
+      "planarPatches": 16,
+      "cylindricalPatches": 4,
+      "freeformPatches": 0,
+      "cylinders": [
+        {
+          "diameter": 3.9696,
+          "axialExtent": 1.3333,
+          "area": 50.12,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            8,
+            8,
+            2
+          ]
+        },
+        {
+          "diameter": 3.9696,
+          "axialExtent": 1.3333,
+          "area": 50.12,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            72,
+            8,
+            2
+          ]
+        },
+        {
+          "diameter": 3.9696,
+          "axialExtent": 1.3333,
+          "area": 50.12,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            72,
+            52,
+            2
+          ]
+        },
+        {
+          "diameter": 3.9696,
+          "axialExtent": 1.3333,
+          "area": 50.12,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            8,
+            52,
+            2
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Hinge Leaf A",
+    "expected": "plate + central knuckle barrel + bore",
+    "elapsed": 0.006,
+    "triangles": 408,
+    "summary": {
+      "totalTriangles": 408,
+      "patchCount": 22,
+      "planarPatches": 16,
+      "cylindricalPatches": 6,
+      "freeformPatches": 0,
+      "cylinders": [
+        {
+          "diameter": 9.9572,
+          "axialExtent": 1.3333,
+          "area": 62.73,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            50,
+            15,
+            -2
+          ]
+        },
+        {
+          "diameter": 9.9572,
+          "axialExtent": 4,
+          "area": 164.67,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            50,
+            15,
+            2
+          ]
+        },
+        {
+          "diameter": 9.9572,
+          "axialExtent": 1.3333,
+          "area": 62.73,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            50,
+            15,
+            6
+          ]
+        },
+        {
+          "diameter": 5.9743,
+          "axialExtent": 1.3333,
+          "area": 37.64,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            50,
+            15,
+            -2
+          ]
+        },
+        {
+          "diameter": 5.9743,
+          "axialExtent": 4,
+          "area": 98.8,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            50,
+            15,
+            2
+          ]
+        },
+        {
+          "diameter": 5.9743,
+          "axialExtent": 1.3333,
+          "area": 37.64,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            50,
+            15,
+            6
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Hinge Pin Ø5.8",
+    "expected": "one cylinder + 2 conical tip caps",
+    "elapsed": 0.003,
+    "triangles": 252,
+    "summary": {
+      "totalTriangles": 252,
+      "patchCount": 7,
+      "planarPatches": 4,
+      "cylindricalPatches": 1,
+      "freeformPatches": 2,
+      "cylinders": [
+        {
+          "diameter": 5.7752,
+          "axialExtent": 9.3333,
+          "area": 509.38,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Sealed Enclosure Base",
+    "expected": "box + 4 corner bosses (cyl) + 4 PCB bosses (cyl) + 4 corner clearance holes (cyl) + 4 PCB ID holes (cyl)",
+    "elapsed": 0.034,
+    "triangles": 1444,
+    "summary": {
+      "totalTriangles": 1444,
+      "patchCount": 52,
+      "planarPatches": 32,
+      "cylindricalPatches": 16,
+      "freeformPatches": 4,
+      "cylinders": [
+        {
+          "diameter": 7.9709,
+          "axialExtent": 7.3333,
+          "area": 287.92,
+          "rms": 0.00189,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            5.9977,
+            54.0023,
+            14
+          ]
+        },
+        {
+          "diameter": 7.9709,
+          "axialExtent": 7.3333,
+          "area": 287.92,
+          "rms": 0.00189,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            94.0023,
+            54.0023,
+            14
+          ]
+        },
+        {
+          "diameter": 7.9709,
+          "axialExtent": 7.3333,
+          "area": 287.92,
+          "rms": 0.00189,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            94.0023,
+            5.9977,
+            14
+          ]
+        },
+        {
+          "diameter": 7.9709,
+          "axialExtent": 7.3333,
+          "area": 287.92,
+          "rms": 0.00189,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            5.9977,
+            5.9977,
+            14
+          ]
+        },
+        {
+          "diameter": 3.1757,
+          "axialExtent": 8.3333,
+          "area": 250.61,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            6,
+            6,
+            12.5
+          ]
+        },
+        {
+          "diameter": 3.1757,
+          "axialExtent": 8.3333,
+          "area": 250.61,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            94,
+            6,
+            12.5
+          ]
+        },
+        {
+          "diameter": 3.1757,
+          "axialExtent": 8.3333,
+          "area": 250.61,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            94,
+            54,
+            12.5
+          ]
+        },
+        {
+          "diameter": 3.1757,
+          "axialExtent": 8.3333,
+          "area": 250.61,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            6,
+            54,
+            12.5
+          ]
+        },
+        {
+          "diameter": 5.9544,
+          "axialExtent": 2.6667,
+          "area": 150.37,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            80,
+            45,
+            7
+          ]
+        },
+        {
+          "diameter": 5.9544,
+          "axialExtent": 2.6667,
+          "area": 150.37,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            20,
+            45,
+            7
+          ]
+        },
+        {
+          "diameter": 5.9544,
+          "axialExtent": 2.6667,
+          "area": 150.37,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            80,
+            15,
+            7
+          ]
+        },
+        {
+          "diameter": 5.9544,
+          "axialExtent": 2.6667,
+          "area": 150.37,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            20,
+            15,
+            7
+          ]
+        },
+        {
+          "diameter": 2.4573,
+          "axialExtent": 3,
+          "area": 70.23,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            20,
+            15,
+            6.5
+          ]
+        },
+        {
+          "diameter": 2.4573,
+          "axialExtent": 3,
+          "area": 70.23,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            80,
+            15,
+            6.5
+          ]
+        },
+        {
+          "diameter": 2.4573,
+          "axialExtent": 3,
+          "area": 70.23,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            20,
+            45,
+            6.5
+          ]
+        },
+        {
+          "diameter": 2.4573,
+          "axialExtent": 3,
+          "area": 70.23,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            80,
+            45,
+            6.5
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "M6 SHCS",
+    "expected": "head cylinder + shank cylinder + hex socket (planar facets)",
+    "elapsed": 0.003,
+    "triangles": 468,
+    "summary": {
+      "totalTriangles": 468,
+      "patchCount": 12,
+      "planarPatches": 10,
+      "cylindricalPatches": 2,
+      "freeformPatches": 0,
+      "cylinders": [
+        {
+          "diameter": 9.9893,
+          "axialExtent": 2,
+          "area": 188.42,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            3
+          ]
+        },
+        {
+          "diameter": 4.7609,
+          "axialExtent": 8.3333,
+          "area": 374.37,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            -12.5
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "M6 nut",
+    "expected": "6 planar hex faces + 1 cylindrical thru-bore",
+    "elapsed": 0.002,
+    "triangles": 216,
+    "summary": {
+      "totalTriangles": 216,
+      "patchCount": 9,
+      "planarPatches": 8,
+      "cylindricalPatches": 1,
+      "freeformPatches": 0,
+      "cylinders": [
+        {
+          "diameter": 5.8888,
+          "axialExtent": 1.7333,
+          "area": 96.32,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            2.6
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "M6 washer",
+    "expected": "2 planar annular faces + 2 cylindrical surfaces (OD + ID)",
+    "elapsed": 0.003,
+    "triangles": 448,
+    "summary": {
+      "totalTriangles": 448,
+      "patchCount": 4,
+      "planarPatches": 2,
+      "cylindricalPatches": 2,
+      "freeformPatches": 0,
+      "cylinders": [
+        {
+          "diameter": 11.9872,
+          "axialExtent": 0.5333,
+          "area": 60.29,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        {
+          "diameter": 6.3878,
+          "axialExtent": 0.5333,
+          "area": 32.15,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            0.8
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Bottle Cap M28x2",
+    "expected": "cylindrical body + helical thread (freeform) + 12 axial knurls",
+    "elapsed": 4.027,
+    "triangles": 25068,
+    "summary": {
+      "totalTriangles": 25068,
+      "patchCount": 3456,
+      "planarPatches": 3443,
+      "cylindricalPatches": 13,
+      "freeformPatches": 0,
+      "cylinders": [
+        {
+          "diameter": 32.5338,
+          "axialExtent": 6,
+          "area": 132.49,
+          "rms": 0.00236,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0.2016,
+            0.2016,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0.3558,
+            0.078,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            0.078,
+            0.3558,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0.3558,
+            -0.078,
+            9
+          ]
+        },
+        {
+          "diameter": 32.5338,
+          "axialExtent": 6,
+          "area": 132.49,
+          "rms": 0.00236,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0.2016,
+            -0.2016,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0.078,
+            -0.3558,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            -0.078,
+            0.3558,
+            9
+          ]
+        },
+        {
+          "diameter": 32.5338,
+          "axialExtent": 6,
+          "area": 132.49,
+          "rms": 0.00236,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            -0.2016,
+            0.2016,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            -0.3558,
+            0.078,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            -0.078,
+            -0.3558,
+            9
+          ]
+        },
+        {
+          "diameter": 32.6899,
+          "axialExtent": 6,
+          "area": 132.36,
+          "rms": 0.0041,
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "axisPoint": [
+            -0.3558,
+            -0.078,
+            9
+          ]
+        },
+        {
+          "diameter": 32.5338,
+          "axialExtent": 6,
+          "area": 132.49,
+          "rms": 0.00236,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            -0.2016,
+            -0.2016,
+            9
+          ]
+        },
+        {
+          "diameter": 28.7692,
+          "axialExtent": 6,
+          "area": 1627.95,
+          "rms": 0,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "axisPoint": [
+            0,
+            0,
+            9
+          ]
+        }
+      ]
+    }
+  }
+]
