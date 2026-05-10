@@ -518,6 +518,62 @@ const TOOL_HANDLERS = {
       }
     },
 
+    'Combine': async (scene, viewport) => {
+      // Foundation path: union of two 30 mm cubes offset 20 mm in X.
+      // Volume = 2 × 27000 - overlap (10 × 30 × 30 = 9000)
+      // = 54000 - 9000 = 45000 mm³.
+      const Mod = await getManifold();
+      const a = Mod.Manifold.cube([30, 30, 30], true);
+      const b = Mod.Manifold.cube([30, 30, 30], true).translate([20, 0, 0]);
+      const result = a.add(b);
+      const Vfinal = result.volume();
+      const Vexpected = 30 * 30 * 30 + 30 * 30 * 30 - 10 * 30 * 30;  // 45000
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0x4caf50);
+      return {
+        status: 'success',
+        message: `Combine (union): two 30³ cubes overlapping 10 mm. V = ${Vfinal.toFixed(0)} mm³ (analytical ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
+      };
+    },
+
+    'Subtract': async (scene, viewport) => {
+      // Foundation path: 30 mm cube minus a Ø20 mm sphere centered at
+      // the +X corner. Removes a hemispherical chunk.
+      // V = 27000 - hemisphere(R=10) = 27000 - (1/2)·(4/3)π·1000 ≈ 24906.
+      const Mod = await getManifold();
+      const cube = Mod.Manifold.cube([30, 30, 30], true);
+      const ball = Mod.Manifold.sphere(10, 64).translate([15, 0, 0]);
+      const result = cube.subtract(ball);
+      const Vfinal = result.volume();
+      const Vsphere = (4 / 3) * Math.PI * 1000;
+      const Vexpected = 27000 - 0.5 * Vsphere;
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
+      addFoundationManifoldToScene(scene, viewport, result, 0xff9800);
+      return {
+        status: 'success',
+        message: `Subtract: 30³ cube − Ø20 sphere @ +X face. V = ${Vfinal.toFixed(2)} mm³ (analytical ${Vexpected.toFixed(2)}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
+      };
+    },
+
+    'Intersect': async (scene, viewport) => {
+      // Foundation path: intersection of a 30 mm cube and a Ø30 mm sphere
+      // both centered at the origin → "rounded cube". The sphere has the
+      // same diameter as the cube edge, so the intersection is the
+      // sphere itself trimmed by 6 cube faces. Compare to ~52.36% of
+      // the sphere volume (sphere − 6 spherical caps).
+      const Mod = await getManifold();
+      const cube = Mod.Manifold.cube([30, 30, 30], true);
+      const ball = Mod.Manifold.sphere(15, 64);
+      const result = cube.intersect(ball);
+      const Vfinal = result.volume();
+      addFoundationManifoldToScene(scene, viewport, result, 0x9c27b0);
+      const bb = result.boundingBox();
+      return {
+        status: 'success',
+        message: `Intersect: 30³ cube ∩ Ø30 sphere. V = ${Vfinal.toFixed(2)} mm³, bbox = [${bb.min[0].toFixed(2)}..${bb.max[0].toFixed(2)}]³ via foundation manifold-3d boolean`,
+      };
+    },
+
     'Mirror Feature': async (scene, viewport) => {
       // Foundation path: build a half-body that lives entirely in the
       // +Y half-space, then call foundation.mirrorAndUnion across the
