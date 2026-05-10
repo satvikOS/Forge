@@ -250,7 +250,7 @@ function elementStiffness(corners, D) {
  */
 export function solveLinearStaticQuadTet({
   mesh, material,
-  fixedNodes = [], loads = [],
+  fixedNodes = [], fixedDofs = [], loads = [],
   options = {},
 }) {
   const D = buildD(material.E, material.nu);
@@ -286,6 +286,10 @@ export function solveLinearStaticQuadTet({
   const fixedSet = new Map();
   for (const fn of fixedNodes) {
     for (let d = 0; d < 3; d++) fixedSet.set(fn * 3 + d, 0);
+  }
+  // Per-DOF Dirichlet (lets callers fix only Z, only Y, etc.)
+  for (const fd of fixedDofs) {
+    fixedSet.set(fd.node * 3 + fd.dof, fd.value ?? 0);
   }
   for (const [bcDof, val] of fixedSet) {
     for (let i = 0; i < ndof; i++) {
