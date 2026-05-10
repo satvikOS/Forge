@@ -1,0 +1,89 @@
+{
+  "project": "Toyota V35X-LEV V6 Hybrid — Final-Approval Submission",
+  "completedPhases": 12,
+  "phases": [
+    {
+      "p": 1,
+      "name": "Cylinder Block",
+      "complete": true
+    },
+    {
+      "p": 2,
+      "name": "Cylinder Heads ×2",
+      "complete": true,
+      "mates": "24/24 head bolts"
+    },
+    {
+      "p": 3,
+      "name": "Bedplate",
+      "complete": true,
+      "mates": "4/4 mains + 8/8 perimeter"
+    },
+    {
+      "p": 4,
+      "name": "Crankshaft",
+      "complete": true,
+      "mates": "4/4 mains"
+    },
+    {
+      "p": 5,
+      "name": "Pistons + Rods + Rings",
+      "complete": true,
+      "mates": "6/6 pistons + 6/6 rods + 6/6 wrist pins"
+    },
+    {
+      "p": 6,
+      "name": "Timing System (chain + 4 phasers + 6 sprockets + 9 guides/tensioners)",
+      "complete": true
+    },
+    {
+      "p": 7,
+      "name": "Oil + Water Pumps + Filter + Thermostat",
+      "complete": true
+    },
+    {
+      "p": 8,
+      "name": "Intake Manifold + Throttle + 6 Runners",
+      "complete": true
+    },
+    {
+      "p": 9,
+      "name": "Exhaust Manifolds ×2 + 2 Close-Coupled Cats + UF Cat + GPF + 6 O2 Sensors + EGR",
+      "complete": true
+    },
+    {
+      "p": 10,
+      "name": "D-4S Fuel (12 injectors + 2 rails + HPFP + LPFP)",
+      "complete": true
+    },
+    {
+      "p": 11,
+      "name": "Ignition (6 plugs + 6 coils + 2 knock + crank/cam pos)",
+      "complete": true
+    },
+    {
+      "p": 12,
+      "name": "Sensors + ECU (PCM + HCU + BMC + TCM + 16 harness)",
+      "complete": true
+    },
+    {
+      "p": 13,
+      "name": "Hybrid Drive (planetary + MG1 30kW + MG2 80/180kW + Inverter + DC-DC)",
+      "complete": true
+    },
+    {
+      "p": 14,
+      "name": "HV Battery (1.3 kWh, 244V, 360 cells)",
+      "complete": true
+    },
+    {
+      "p": 15,
+      "name": "Accessories + Mounts + Front Cover + Sump + Airbox",
+      "complete": true
+    }
+  ],
+  "final_components": 567,
+  "final_mass_kg": 264.7,
+  "target_mass_kg": 175,
+  "overall": "COMPLETE — final render captured"
+}

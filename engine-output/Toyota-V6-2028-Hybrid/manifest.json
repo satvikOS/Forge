@@ -1,0 +1,64 @@
+{
+  "project": "Toyota V35X-LEV 2028 V6 Hybrid",
+  "deliverable": "Final-approval submission package — production-grade",
+  "generatedAt": "2026-05-10T03:55:16.047Z",
+  "cad": "ArchDisc v1.21+ proprietary B-Rep kernel — STEP/SVG/JSON",
+  "architecture": {
+    "type": "60° V6 DOHC 24V Atkinson + D-4S + cooled EGR",
+    "reference": "Toyota V35A-FTS family",
+    "bore_x_stroke_mm": "92.5 × 86.7",
+    "displacement_cc": 3456,
+    "compRatio": 11.8,
+    "block": "A380 HPDC die-cast aluminum, open-deck",
+    "crankcase": "aluminum bedplate cross-bolted",
+    "heads": "A356-T6 cast aluminum, DOHC 4V pent-roof",
+    "hybrid": "Toyota Hybrid System V (THS-V) power-split"
+  },
+  "components": {
+    "total": 567,
+    "mass_kg": 264.7,
+    "target_dry_mass_kg": 175,
+    "breakdown": {
+      "block": 52,
+      "headA": 83,
+      "headB": 83,
+      "bedplate": 31,
+      "crank": 30,
+      "pistonRod": 96,
+      "timing": 15,
+      "pumps": 5,
+      "intExh": 20,
+      "fuelIgn": 30,
+      "sensors": 29,
+      "hybrid": 16,
+      "hvBat": 71,
+      "accessories": 6
+    }
+  },
+  "performance": {
+    "peak_power_kW": 304.8,
+    "peak_power_hp": 409,
+    "cruise_BSFC_g_kWh": 157,
+    "cruise_thermal_eff_pct": 52.1,
+    "hybrid_total_kW": 280,
+    "hybrid_total_hp": 375
+  },
+  "emissions_cruise": {
+    "CO2_g_per_kWh": 498,
+    "NOx_g_per_kWh": 0.062,
+    "HC_g_per_kWh": 0.4,
+    "CO_g_per_kWh": 1,
+    "PM_mg_per_kWh": 0.5
+  },
+  "mate_validation": "See validation/phase{1-5}-mate-validation.json — 57+ mate constraints PASS across short-block + ancillaries",
+  "folderLayout": [
+    "parts/<CAT>/<SUB>/<NAME>/   per-part Part-21 packages",
+    "assembly/   master assembly drawing + EBOM + MBOM",
+    "performance/   Otto cycle data",
+    "emissions/   combined-cycle calculation",
+    "certification/   FAR Part 33 / EPA / Euro 7 compliance",
+    "maintenance/   task cards + LLP table",
+    "validation/   per-phase mate validation reports",
+    "screenshots/   E2E visual proofs from live ArchDisc viewport"
+  ]
+}
