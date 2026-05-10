@@ -1,0 +1,213 @@
+{
+  "log": [
+    {
+      "stage": "1. build",
+      "elapsed_s": 0.008
+    },
+    {
+      "stage": "2a. print-prep",
+      "elapsed_s": 0.04
+    },
+    {
+      "stage": "2b. STL",
+      "elapsed_s": 0.002
+    },
+    {
+      "stage": "2c. STEP AP203",
+      "elapsed_s": 0.038
+    },
+    {
+      "stage": "2d. drawing (HLR)",
+      "elapsed_s": 0.049
+    },
+    {
+      "stage": "3. voxelize (cellSize 4 mm)",
+      "elapsed_s": 0.024
+    },
+    {
+      "stage": "4. static FEM",
+      "elapsed_s": 0.402
+    },
+    {
+      "stage": "5. modal",
+      "elapsed_s": 5.248
+    },
+    {
+      "stage": "6. thermal FEM",
+      "elapsed_s": 0.085
+    },
+    {
+      "stage": "7. thermo-mechanical",
+      "elapsed_s": 0.003
+    },
+    {
+      "stage": "8. SIMP topology opt",
+      "elapsed_s": 5.011
+    },
+    {
+      "stage": "9. tolerance stack (M3 fit)",
+      "elapsed_s": 0.037
+    },
+    {
+      "stage": "10. feature recognition",
+      "elapsed_s": 0.009
+    },
+    {
+      "stage": "11a. diagnose",
+      "elapsed_s": 0.002
+    },
+    {
+      "stage": "11b. repair",
+      "elapsed_s": 0.008
+    }
+  ],
+  "static": {
+    "maxDispMm": 0.00008605851264291744,
+    "maxStressMPa": 0.3276581750774814,
+    "sf": 842.3412598655115,
+    "cgIters": 127
+  },
+  "modal": {
+    "firstFreqHz": 54370.68121302039,
+    "iterations": 30,
+    "converged": false
+  },
+  "thermal": {
+    "Tmin": 24.999999999997126,
+    "Tmax": 90.00000000296343,
+    "cgIters": 37
+  },
+  "thermomech": {
+    "maxDispMm": 0.02767252687754731,
+    "maxStressMPa": 206.01709204558736,
+    "sf": 1.3396946693089273
+  },
+  "simp": {
+    "finalVolFrac": 0.2997126436781609,
+    "finalCompliance": 0.0015405207089668356,
+    "iterations": 20
+  },
+  "tolStack": {
+    "nominal": 1,
+    "wcLow": 0.9100000000000001,
+    "wcHigh": 1.1399999999999997,
+    "rssSigma": 0.026993307307705418,
+    "mcMean": 1.0002311564208353,
+    "mcStddev": 0.026439539009166676,
+    "mcCp": 6.303690340776471,
+    "mcCpk": 6.300776063782015,
+    "ppm": 0,
+    "spec": {
+      "lsl": 0.5,
+      "usl": 1.5,
+      "target": 1
+    }
+  },
+  "features": {
+    "planar": 16,
+    "cylindrical": 4,
+    "freeform": 0,
+    "cylinderDiameters": [
+      3.9696,
+      3.9696,
+      3.9696,
+      3.9696
+    ]
+  },
+  "repair": {
+    "before": {
+      "vertices": 217,
+      "triangles": 438,
+      "edges": 657,
+      "boundaryEdges": 0,
+      "manifoldEdges": 657,
+      "nonManifoldEdges": 0,
+      "degenerateTris": 0,
+      "zeroAreaTris": 0,
+      "duplicateVerts": 0,
+      "isManifold": true
+    },
+    "after": {
+      "vertices": 217,
+      "triangles": 438,
+      "edges": 657,
+      "boundaryEdges": 0,
+      "manifoldEdges": 657,
+      "nonManifoldEdges": 0,
+      "degenerateTris": 0,
+      "zeroAreaTris": 0,
+      "duplicateVerts": 0,
+      "isManifold": true
+    },
+    "operations": [
+      {
+        "op": "harmonize-normals"
+      }
+    ]
+  },
+  "meshStats": {
+    "vertexCount": 1323,
+    "tetCount": 3480,
+    "totalVolume": 39364.034738557464,
+    "bbox": {
+      "min": [
+        0,
+        0,
+        -8.940952255126037
+      ],
+      "max": [
+        80,
+        105.33156749486349,
+        12
+      ]
+    },
+    "gridShape": [
+      20,
+      26,
+      5
+    ],
+    "cellSize": [
+      4,
+      4.051214134417827,
+      4.188190451025207
+    ],
+    "sourceTriangles": 438,
+    "insideCells": 580,
+    "totalCells": 2600,
+    "voxelizationMethod": "grid + ray-cast (centroid test, +x ray)"
+  },
+  "printReport": {
+    "manifold": true,
+    "triangles": 438,
+    "vertices": 217,
+    "boundingBoxMm": {
+      "min": [
+        0,
+        0,
+        -8.940952255126037
+      ],
+      "max": [
+        80,
+        105.33156749486349,
+        12
+      ]
+    },
+    "volumeMm3": 37389.73949020535,
+    "surfaceAreaMm2": 20513.47566820223,
+    "edgeLengthRangeMm": {
+      "min": 0.5221018492515448,
+      "max": 94.33981134573486
+    },
+    "overhang": {
+      "angleThresholdDeg": 45,
+      "triangleCount": 152,
+      "areaFraction": 0.4116252630402899
+    },
+    "minWallThicknessThresholdMm": 0.8,
+    "notes": [
+      "manifold output guaranteed by manifold-3d.",
+      "min-wall-thickness deep analysis pending — current report shows edge length ranges as a coarse signal.",
+      "Overhang area fraction is informational; supports may still be needed for downward-facing features even when fraction is low."
+    ]
+  }
+}
