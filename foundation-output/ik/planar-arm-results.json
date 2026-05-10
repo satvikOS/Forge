@@ -1,0 +1,77 @@
+[
+  {
+    "name": "mid-reach",
+    "target": [
+      150,
+      60
+    ],
+    "finalAngles_deg": [
+      -26.8906286581499,
+      61.50336157762607,
+      60.19975832283825
+    ],
+    "finalDistance": 0.005994446870015057,
+    "iterations": 5,
+    "converged": true
+  },
+  {
+    "name": "inner",
+    "target": [
+      80,
+      -50
+    ],
+    "finalAngles_deg": [
+      -88.1680985305,
+      80.99021402159445,
+      99.63261256114919
+    ],
+    "finalDistance": 0.00004285664804166056,
+    "iterations": 8,
+    "converged": true
+  },
+  {
+    "name": "far-corner",
+    "target": [
+      180,
+      100
+    ],
+    "finalAngles_deg": [
+      -3.4548233826568238,
+      40.608898474881066,
+      36.96276915907204
+    ],
+    "finalDistance": 0.000009240518551871813,
+    "iterations": 5,
+    "converged": true
+  },
+  {
+    "name": "near-singular (extended)",
+    "target": [
+      235,
+      5
+    ],
+    "finalAngles_deg": [
+      -10.572367686969564,
+      13.444781746453744,
+      15.930418397104651
+    ],
+    "finalDistance": 0.00011795242752798687,
+    "iterations": 4,
+    "converged": true
+  },
+  {
+    "name": "reverse",
+    "target": [
+      -50,
+      90
+    ],
+    "finalAngles_deg": [
+      39.29095983696294,
+      110.31258176587065,
+      43.69776241431685
+    ],
+    "finalDistance": 6.342427250286088e-7,
+    "iterations": 12,
+    "converged": true
+  }
+]
