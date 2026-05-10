@@ -1,0 +1,21 @@
+{
+  "baseTriCount": 468,
+  "instanceCount": 60000,
+  "virtualTotalTris": 28080000,
+  "buildSec": 0.08459999990463257,
+  "layoutSec": 0.023,
+  "buildInstancedSec": 0.07240000009536743,
+  "firstRenderSec": 0.3657000000476837,
+  "bbox": {
+    "center": [
+      2600,
+      0,
+      -5.5
+    ],
+    "size": [
+      5212.004341185093,
+      3008.5,
+      3004.565673828125
+    ]
+  }
+}
