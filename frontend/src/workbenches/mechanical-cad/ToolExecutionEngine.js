@@ -45,6 +45,8 @@ import { manifoldToSTEP } from '../../foundation/StepExport.js';
 import { roundedBox, roundedBoxVolume } from '../../foundation/EdgeFillet.js';
 import { manifoldMassProperties, principalInertia } from '../../foundation/MassProperties.js';
 import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
+import { findMaterial } from '../../foundation/MaterialDB.js';
+import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1075,6 +1077,40 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Fatigue Analysis': async (scene) => {
+      // Foundation path: take peak stress from the last static-FEA
+      // result (or use a representative pair) and run Goodman + Basquin.
+      // 4340 alloy steel shaft, surface ground (k_a=0.93), small section
+      // (k_b=1.0), bending (k_c=1.0), 90% reliability (k_e=0.897), room
+      // temperature. Loading: σ_max = +400 MPa, σ_min = −400 MPa
+      // (fully-reversed rotating-bending — the textbook fatigue case).
+      const steel = findMaterial('4340');
+      const r = analyzeFatigue({
+        sigmaMax: 400, sigmaMin: -400, material: steel,
+        surface: { surfaceFinish: 0.93, size: 1.0, load: 1.0,
+                   temperature: 1.0, reliability: 0.897 },
+      });
+      const out = {
+        materialName: steel.name,
+        sigmaAlt: r.alt, sigmaMean: r.mean,
+        Se_corrected: r.Se,
+        Sy: r.Sy, Su: r.Su,
+        marinFactor: r.marinFactor,
+        goodmanSF: r.goodman.safetyFactor,
+        soderbergSF: r.soderberg.safetyFactor,
+        gerberSF: r.gerber.safetyFactor,
+        lifeCycles: r.lifeCycles,
+        status: r.status,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastFatigueResult = out;
+      const lifeStr = r.lifeCycles === Infinity ? '∞ (infinite life)' : r.lifeCycles.toExponential(3) + ' cycles';
+      return {
+        status: r.status === 'safe' ? 'success' : (r.status === 'marginal' ? 'warn' : 'error'),
+        message: `Fatigue (4340, fully-reversed σ=±400 MPa, k_a=0.93, R=90%): S_e = ${r.Se.toFixed(0)} MPa | Goodman SF = ${r.goodman.safetyFactor.toFixed(2)} | Soderberg SF = ${r.soderberg.safetyFactor.toFixed(2)} | Basquin life = ${lifeStr} | status: ${r.status.toUpperCase()} via foundation.analyzeFatigue`,
+      };
+    },
+
     'Rotordynamics': async (scene) => {
       // Foundation path: simply-supported steel shaft Ø30 × L=600 mm,
       // mid-span 5 kg disk. Reports first lateral natural frequency

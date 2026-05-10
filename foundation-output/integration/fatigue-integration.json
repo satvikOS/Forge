@@ -1,0 +1,14 @@
+{
+  "materialName": "AISI 4340 (heat-treated)",
+  "sigmaAlt": 400,
+  "sigmaMean": 0,
+  "Se_corrected": 500.526,
+  "Sy": 1100,
+  "Su": 1280,
+  "marinFactor": 0.83421,
+  "goodmanSF": 1.251315,
+  "soderbergSF": 1.251315,
+  "gerberSF": 1.251315,
+  "lifeCycles": null,
+  "status": "marginal"
+}
