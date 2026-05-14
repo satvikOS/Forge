@@ -64,6 +64,8 @@
   font-size: 12px;
 }
 .pb-row:hover { background: #1a1a1a; }
+.pb-row.pb-selected { background: #1a2a40; border-left: 2px solid #5da5ff; padding-left: 8px; }
+.pb-row.pb-selected .pb-name { color: #fff; }
 .pb-row.pb-hidden .pb-name { color: #555; text-decoration: line-through; }
 .pb-row.pb-hidden .pb-vol { color: #444; }
 

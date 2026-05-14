@@ -1,22 +1,29 @@
 import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Box, Layers, Ruler, Settings } from 'lucide-react';
 import { MATERIALS } from '../kernel/index.js';
+import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 import './PropertyManager.css';
 
-// Lightweight hook: re-render whenever a foundation body is added to
-// the scene. Reads window.__lastFoundationManifold which the foundation
-// pipeline mirrors after every Linear Pattern / Sweep / Loft / etc.
+// Hook: surface the body that should drive the Properties panel.
+// Priority: explicit selection in the Part Browser, then the most
+// recent foundation manifold (fallback for tools that produce a
+// body without going through the registry, e.g. legacy paths).
+// Returns { manifold, name } so the header can show the body name.
 function useFoundationBody() {
-  const [body, setBody] = useState(null);
+  const [body, setBody] = useState({ manifold: null, name: null });
   useEffect(() => {
-    const tick = () => {
+    const reg = getBodyRegistry();
+    const refresh = () => {
+      const sel = reg.selectedBody();
+      if (sel?.manifold) return setBody({ manifold: sel.manifold, name: sel.name });
       const m = (typeof window !== 'undefined') ? window.__lastFoundationManifold : null;
-      if (m !== body) setBody(m || null);
+      setBody({ manifold: m || null, name: m ? 'Most recent body' : null });
     };
-    tick();
-    const id = setInterval(tick, 500);
-    return () => clearInterval(id);
-  }, [body]);
+    refresh();
+    const unsub = reg.onChange(refresh);
+    const id = setInterval(refresh, 500);  // catches legacy __lastFoundationManifold updates
+    return () => { unsub(); clearInterval(id); };
+  }, []);
   return body;
 }
 
@@ -38,9 +45,10 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
   const hasSelection = selection && (selection.type === 'object' || selection.type === 'face');
 
   // Foundation-body fallback: when no legacy-kernel solid is selected,
-  // surface the most recent foundation manifold so the Properties
-  // panel shows real numbers after every Linear Pattern / Sweep / etc.
-  const foundationBody = useFoundationBody();
+  // surface the selected body from the Part Browser (or the most
+  // recent foundation manifold if nothing is selected) so the
+  // Properties panel always reflects real numbers.
+  const { manifold: foundationBody, name: foundationName } = useFoundationBody();
   const showFoundation = !solid && !!foundationBody;
 
   let mass = 0, volume = 0, surfaceArea = 0;
@@ -84,6 +92,9 @@ export default function PropertyManager({ selection, sketchActive, sketchStatus,
       <div className="pm-header">
         <span className="pm-title">PROPERTIES</span>
         {hasSelection && <span className="pm-selection-tag">{selection?.name || 'Object'}</span>}
+        {!hasSelection && showFoundation && foundationName && (
+          <span className="pm-selection-tag">{foundationName}</span>
+        )}
         {sketchActive && <span className="pm-mode-tag sketch">SKETCH</span>}
       </div>
 

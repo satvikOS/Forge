@@ -17,8 +17,8 @@ export default function PartBrowserPanel() {
 
   useEffect(() => {
     const reg = getBodyRegistry();
-    setBodies(reg.list().map(shallow));
-    const unsub = reg.onChange((next) => setBodies(next.map(shallow)));
+    setBodies(reg.list().map(b => shallow({ ...b, selected: b.id === reg.selectedId })));
+    const unsub = reg.onChange((next) => setBodies(next));
     return unsub;
   }, []);
 
@@ -35,6 +35,7 @@ export default function PartBrowserPanel() {
 
   const handleSelect = useCallback((id) => {
     const reg = getBodyRegistry();
+    reg.select(id);
     const body = reg.bodies.find(b => b.id === id);
     if (body?.group && typeof window?.__archdiscFocusOnObject === 'function') {
       window.__archdiscFocusOnObject(body.group);
@@ -78,7 +79,7 @@ export default function PartBrowserPanel() {
         {bodies.map((b) => (
           <div
             key={b.id}
-            className={`pb-row ${b.visible ? '' : 'pb-hidden'}`}
+            className={`pb-row ${b.visible ? '' : 'pb-hidden'} ${b.selected ? 'pb-selected' : ''}`}
             onClick={() => handleSelect(b.id)}
             onContextMenu={(e) => handleContextMenu(e, b)}
           >
@@ -141,7 +142,10 @@ export default function PartBrowserPanel() {
 }
 
 function shallow(b) {
-  return { id: b.id, name: b.name, sourceTool: b.sourceTool, volume_mm3: b.volume_mm3, visible: b.visible };
+  return {
+    id: b.id, name: b.name, sourceTool: b.sourceTool,
+    volume_mm3: b.volume_mm3, visible: b.visible, selected: b.selected,
+  };
 }
 
 function formatVol(v) {

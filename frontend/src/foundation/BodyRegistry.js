@@ -19,6 +19,20 @@ class BodyRegistry {
     this.bodies = [];      // [{ id, name, sourceTool, group, manifold, volume_mm3, createdAt, visible }]
     this._listeners = new Set();
     this._counter = 0;
+    this.selectedId = null;
+  }
+
+  /** Mark a body as selected (drives PropertyManager). Pass null to clear. */
+  select(id) {
+    if (id !== null && !this.bodies.some(b => b.id === id)) return false;
+    this.selectedId = id;
+    this._notify();
+    return true;
+  }
+
+  /** Return the currently-selected body record (full, not snapshot). */
+  selectedBody() {
+    return this.bodies.find(b => b.id === this.selectedId) ?? null;
   }
 
   /**
@@ -60,6 +74,7 @@ class BodyRegistry {
     const [removed] = this.bodies.splice(i, 1);
     // Remove from scene as well
     if (removed.group?.parent) removed.group.parent.remove(removed.group);
+    if (this.selectedId === id) this.selectedId = null;
     this._notify();
     return true;
   }
@@ -104,6 +119,7 @@ class BodyRegistry {
     }
     this.bodies = [];
     this._counter = 0;
+    this.selectedId = null;
     this._notify();
   }
 
@@ -114,6 +130,7 @@ class BodyRegistry {
     const snapshot = this.bodies.map(b => ({
       id: b.id, name: b.name, sourceTool: b.sourceTool,
       volume_mm3: b.volume_mm3, createdAt: b.createdAt, visible: b.visible,
+      selected: b.id === this.selectedId,
     }));
     for (const fn of this._listeners) {
       try { fn(snapshot); } catch (err) { console.warn('body registry listener', err); }
