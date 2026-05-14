@@ -1,0 +1,388 @@
+{
+  "sessionId": "b4c5e750abcf38c62ca5fe1915614b32",
+  "startedAt": "2026-05-14T14:48:12.743Z",
+  "userPrompt": "Design a turbofan engine for an Airbus A350-class airliner.",
+  "domain": "engine",
+  "clarifications": {
+    "thrust_class": 350,
+    "cruise_mach": 0.85,
+    "cruise_alt_m": 10670,
+    "bypass_ratio": 10,
+    "opr_cruise": 50,
+    "tit_max": 1750,
+    "certification": "EASA CS-E"
+  },
+  "plan": [
+    {
+      "tool": "Mission",
+      "comment": "Start with airframe requirements: range + thrust per engine"
+    },
+    {
+      "tool": "Brayton Cycle",
+      "comment": "Pick cycle (BPR, OPR, T4) to meet SFC target"
+    },
+    {
+      "tool": "Compressor Stage",
+      "comment": "Mean-line geometry from cycle outputs"
+    },
+    {
+      "tool": "Combustor",
+      "comment": "Liner sizing + NOx prediction"
+    },
+    {
+      "tool": "Turbine Stage",
+      "comment": "HPT mean-line to balance compressor work"
+    },
+    {
+      "tool": "Blade Cooling",
+      "comment": "Verify HPT blade survives T_gas"
+    },
+    {
+      "tool": "Heat Exchanger",
+      "comment": "Recuperator effectiveness"
+    },
+    {
+      "tool": "Nozzle",
+      "comment": "Exhaust nozzle: convergent or CD"
+    },
+    {
+      "tool": "Linear Pattern",
+      "comment": "Build a representative geometry for downstream analysis"
+    },
+    {
+      "tool": "Mass Properties",
+      "comment": "Inertia tensor for rotordynamics input"
+    },
+    {
+      "tool": "Rotordynamics",
+      "comment": "Critical-speed check"
+    },
+    {
+      "tool": "Fatigue Analysis",
+      "comment": "Life of the highest-stress component"
+    },
+    {
+      "tool": "Export STEP",
+      "comment": "Package CAD output for vendors"
+    }
+  ],
+  "stepResults": [
+    {
+      "stepIndex": 0,
+      "tool": "Mission",
+      "stateKey": "__lastMissionResult",
+      "comment": "Start with airframe requirements: range + thrust per engine"
+    },
+    {
+      "stepIndex": 1,
+      "tool": "Brayton Cycle",
+      "stateKey": "__lastBraytonResult",
+      "comment": "Pick cycle (BPR, OPR, T4) to meet SFC target"
+    },
+    {
+      "stepIndex": 2,
+      "tool": "Compressor Stage",
+      "stateKey": "__lastCompressorResult",
+      "comment": "Mean-line geometry from cycle outputs"
+    },
+    {
+      "stepIndex": 3,
+      "tool": "Combustor",
+      "stateKey": "__lastCombustorResult",
+      "comment": "Liner sizing + NOx prediction"
+    },
+    {
+      "stepIndex": 4,
+      "tool": "Turbine Stage",
+      "stateKey": "__lastTurbineResult",
+      "comment": "HPT mean-line to balance compressor work"
+    },
+    {
+      "stepIndex": 5,
+      "tool": "Blade Cooling",
+      "stateKey": "__lastBladeCoolingResult",
+      "comment": "Verify HPT blade survives T_gas"
+    },
+    {
+      "stepIndex": 6,
+      "tool": "Heat Exchanger",
+      "stateKey": "__lastHXResult",
+      "comment": "Recuperator effectiveness"
+    },
+    {
+      "stepIndex": 7,
+      "tool": "Nozzle",
+      "stateKey": "__lastNozzleResult",
+      "comment": "Exhaust nozzle: convergent or CD"
+    },
+    {
+      "stepIndex": 8,
+      "tool": "Linear Pattern",
+      "stateKey": "__lastFoundationManifold",
+      "comment": "Build a representative geometry for downstream analysis"
+    },
+    {
+      "stepIndex": 9,
+      "tool": "Mass Properties",
+      "stateKey": "__lastMassProps",
+      "comment": "Inertia tensor for rotordynamics input"
+    },
+    {
+      "stepIndex": 10,
+      "tool": "Rotordynamics",
+      "stateKey": "__lastRotordynResult",
+      "comment": "Critical-speed check"
+    },
+    {
+      "stepIndex": 11,
+      "tool": "Fatigue Analysis",
+      "stateKey": "__lastFatigueResult",
+      "comment": "Life of the highest-stress component"
+    },
+    {
+      "stepIndex": 12,
+      "tool": "Export STEP",
+      "stateKey": "__lastSTEPText",
+      "comment": "Package CAD output for vendors"
+    }
+  ],
+  "verification": {
+    "ok": true,
+    "violations": [],
+    "errorCount": 0,
+    "warnCount": 0,
+    "infoCount": 0
+  },
+  "manualOverrides": [],
+  "decisionLog": [
+    {
+      "when": "2026-05-14T14:48:12.743Z",
+      "type": "prompt_set",
+      "payload": {
+        "prompt": "Design a turbofan engine for an Airbus A350-class airliner."
+      },
+      "reasoning": "user input"
+    },
+    {
+      "when": "2026-05-14T14:48:12.743Z",
+      "type": "domain_detected",
+      "payload": {
+        "domain": "engine",
+        "confidence": 0.125
+      },
+      "reasoning": "Clarifier matched 13% confidence"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "thrust_class",
+        "value": 350
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "cruise_mach",
+        "value": 0.85
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "cruise_alt_m",
+        "value": 10670
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "bypass_ratio",
+        "value": 10
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "opr_cruise",
+        "value": 50
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "tit_max",
+        "value": 1750
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.744Z",
+      "type": "clarification",
+      "payload": {
+        "id": "certification",
+        "value": "EASA CS-E"
+      },
+      "reasoning": "user answered"
+    },
+    {
+      "when": "2026-05-14T14:48:12.748Z",
+      "type": "plan_set",
+      "payload": {
+        "stepCount": 13
+      },
+      "reasoning": "fallback-canonical produced plan"
+    },
+    {
+      "when": "2026-05-14T14:48:18.929Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 0,
+        "tool": "Mission",
+        "stateKey": "__lastMissionResult"
+      },
+      "reasoning": "Start with airframe requirements: range + thrust per engine"
+    },
+    {
+      "when": "2026-05-14T14:48:21.200Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 1,
+        "tool": "Brayton Cycle",
+        "stateKey": "__lastBraytonResult"
+      },
+      "reasoning": "Pick cycle (BPR, OPR, T4) to meet SFC target"
+    },
+    {
+      "when": "2026-05-14T14:48:23.453Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 2,
+        "tool": "Compressor Stage",
+        "stateKey": "__lastCompressorResult"
+      },
+      "reasoning": "Mean-line geometry from cycle outputs"
+    },
+    {
+      "when": "2026-05-14T14:48:25.715Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 3,
+        "tool": "Combustor",
+        "stateKey": "__lastCombustorResult"
+      },
+      "reasoning": "Liner sizing + NOx prediction"
+    },
+    {
+      "when": "2026-05-14T14:48:28.065Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 4,
+        "tool": "Turbine Stage",
+        "stateKey": "__lastTurbineResult"
+      },
+      "reasoning": "HPT mean-line to balance compressor work"
+    },
+    {
+      "when": "2026-05-14T14:48:30.333Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 5,
+        "tool": "Blade Cooling",
+        "stateKey": "__lastBladeCoolingResult"
+      },
+      "reasoning": "Verify HPT blade survives T_gas"
+    },
+    {
+      "when": "2026-05-14T14:48:32.538Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 6,
+        "tool": "Heat Exchanger",
+        "stateKey": "__lastHXResult"
+      },
+      "reasoning": "Recuperator effectiveness"
+    },
+    {
+      "when": "2026-05-14T14:48:34.783Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 7,
+        "tool": "Nozzle",
+        "stateKey": "__lastNozzleResult"
+      },
+      "reasoning": "Exhaust nozzle: convergent or CD"
+    },
+    {
+      "when": "2026-05-14T14:48:37.307Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 8,
+        "tool": "Linear Pattern",
+        "stateKey": "__lastFoundationManifold"
+      },
+      "reasoning": "Build a representative geometry for downstream analysis"
+    },
+    {
+      "when": "2026-05-14T14:48:39.555Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 9,
+        "tool": "Mass Properties",
+        "stateKey": "__lastMassProps"
+      },
+      "reasoning": "Inertia tensor for rotordynamics input"
+    },
+    {
+      "when": "2026-05-14T14:48:41.895Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 10,
+        "tool": "Rotordynamics",
+        "stateKey": "__lastRotordynResult"
+      },
+      "reasoning": "Critical-speed check"
+    },
+    {
+      "when": "2026-05-14T14:48:44.121Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 11,
+        "tool": "Fatigue Analysis",
+        "stateKey": "__lastFatigueResult"
+      },
+      "reasoning": "Life of the highest-stress component"
+    },
+    {
+      "when": "2026-05-14T14:48:46.519Z",
+      "type": "step_executed",
+      "payload": {
+        "index": 12,
+        "tool": "Export STEP",
+        "stateKey": "__lastSTEPText"
+      },
+      "reasoning": "Package CAD output for vendors"
+    },
+    {
+      "when": "2026-05-14T14:48:48.032Z",
+      "type": "verification_run",
+      "payload": {
+        "ok": true,
+        "errors": 0,
+        "warnings": 0
+      },
+      "reasoning": "all bounds satisfied"
+    }
+  ],
+  "metadata": {}
+}

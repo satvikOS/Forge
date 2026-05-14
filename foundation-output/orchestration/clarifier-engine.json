@@ -1,0 +1,103 @@
+{
+  "domain": "engine",
+  "kit_name": "Turbofan engine design",
+  "questions": [
+    {
+      "id": "thrust_class",
+      "q": "Thrust class (kN) at sea-level static?",
+      "required": true,
+      "default": 350,
+      "type": "number"
+    },
+    {
+      "id": "cruise_mach",
+      "q": "Cruise Mach number?",
+      "required": true,
+      "default": 0.85,
+      "type": "number"
+    },
+    {
+      "id": "cruise_alt_m",
+      "q": "Cruise altitude (m)?",
+      "required": true,
+      "default": 10670,
+      "type": "number"
+    },
+    {
+      "id": "bypass_ratio",
+      "q": "Bypass ratio (BPR)?",
+      "required": true,
+      "default": 10,
+      "type": "number"
+    },
+    {
+      "id": "opr_cruise",
+      "q": "Overall pressure ratio at cruise?",
+      "required": true,
+      "default": 50,
+      "type": "number"
+    },
+    {
+      "id": "tit_max",
+      "q": "Maximum turbine entry temperature (K)?",
+      "required": true,
+      "default": 1750,
+      "type": "number"
+    },
+    {
+      "id": "certification",
+      "q": "Certification basis?",
+      "required": true,
+      "default": "EASA CS-E",
+      "type": "enum",
+      "options": [
+        "FAA Part 33",
+        "EASA CS-E",
+        "MIL-E-5007E (military)"
+      ]
+    },
+    {
+      "id": "hot_section_material",
+      "q": "Hot-section blade material?",
+      "required": false,
+      "default": "CMSX-4",
+      "type": "enum",
+      "options": [
+        "CMSX-4 (single crystal)",
+        "Inconel 718",
+        "Rene N5"
+      ]
+    },
+    {
+      "id": "noise_chapter",
+      "q": "Acoustic chapter target?",
+      "required": false,
+      "default": "Chapter 14",
+      "type": "enum",
+      "options": [
+        "Chapter 4",
+        "Chapter 14",
+        "CAEP/12"
+      ]
+    },
+    {
+      "id": "mount_interface",
+      "q": "Pylon-attachment standard?",
+      "required": false,
+      "default": "Airbus 4-link",
+      "type": "string"
+    }
+  ],
+  "merged": {
+    "thrust_class": 350,
+    "cruise_mach": 0.85,
+    "cruise_alt_m": 10670,
+    "bypass_ratio": 10,
+    "opr_cruise": 50,
+    "tit_max": 1750,
+    "certification": "EASA CS-E",
+    "hot_section_material": "CMSX-4",
+    "noise_chapter": "Chapter 14",
+    "mount_interface": "Airbus 4-link"
+  }
+}
