@@ -1,0 +1,36 @@
+{
+  "bolt": {
+    "d": 10,
+    "pitch": 1.5,
+    "At": 58,
+    "size": "M10",
+    "grade": "8.8",
+    "Sp": 600,
+    "Sy": 660,
+    "Sut": 830
+  },
+  "stiffness": {
+    "k_b": 650309.6792930872,
+    "k_m": 2095315.535749236,
+    "C": 0.23685304014920439
+  },
+  "preload": {
+    "F_i_N": 26100,
+    "sigma_i_MPa": 450,
+    "fraction": 0.75
+  },
+  "loadedState": {
+    "F_bolt_N": 27521.118240895226,
+    "sigma_max_MPa": 474.5020386361246,
+    "sigma_alt_MPa": 12.251019318062296,
+    "sigma_mean_MPa": 462.2510193180623
+  },
+  "safetyFactors": {
+    "separation": 5.700081673457072,
+    "yield": 6.121939575217526,
+    "proof": 6.121939575217526,
+    "fatigue_Goodman": 14.418114148002482
+  },
+  "Se_estimate_MPa": 224.390243902439,
+  "status": "safe"
+}

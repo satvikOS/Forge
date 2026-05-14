@@ -129,6 +129,9 @@ const TABS = {
         { name: 'Bearing Life', icon: '◯', key: 'simulation' },
         { name: 'Gear Mesh', icon: '⚙', key: 'simulation' },
         { name: 'Shaft Sizing', icon: '⫼', key: 'simulation' },
+        { name: 'Bolted Joint', icon: '⊕', key: 'simulation' },
+        { name: 'Spring Design', icon: '〰', key: 'simulation' },
+        { name: 'Pressure Vessel', icon: '⬮', key: 'simulation' },
       ]},
     ]
   },

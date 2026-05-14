@@ -57,6 +57,9 @@ import { fullMissionEstimate } from '../../foundation/Mission.js';
 import { bearingLife, equivalentDynamicLoad, hertzContact } from '../../foundation/Bearings.js';
 import { analyzeGearMesh } from '../../foundation/Gears.js';
 import { deGoodmanDiameter, asmeElliptiCDiameter, staticShaftCheck } from '../../foundation/Shaft.js';
+import { analyzeBoltedJoint } from '../../foundation/BoltedJoint.js';
+import { analyzeSpring } from '../../foundation/Spring.js';
+import { thinWallCylinder, thickWallCylinder, asmeMinimumThickness } from '../../foundation/PressureVessel.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1087,6 +1090,55 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Bolted Joint': async (scene) => {
+      const r = analyzeBoltedJoint({
+        boltSize: 'M10', grade: '8.8',
+        grip_mm: 25, P_ext_N: 6000,
+        preloadFraction: 0.75,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastBoltResult = r;
+      return {
+        status: r.status === 'safe' ? 'success' : (r.status === 'marginal' ? 'warn' : 'error'),
+        message: `Bolt M10x1.5 grade 8.8 (75% preload, 6 kN ext): F_i = ${r.preload.F_i_N.toFixed(0)} N, σ_max = ${r.loadedState.sigma_max_MPa.toFixed(0)} MPa | SF separation = ${r.safetyFactors.separation.toFixed(2)}, yield = ${r.safetyFactors.yield.toFixed(2)}, fatigue = ${r.safetyFactors.fatigue_Goodman.toFixed(2)} — ${r.status.toUpperCase()} via foundation.analyzeBoltedJoint`,
+      };
+    },
+
+    'Spring Design': async (scene) => {
+      const r = analyzeSpring({
+        d_mm: 2, D_mm: 20, N_active: 14,
+        F_min_N: 0, F_max_N: 20,
+        material: 'music_wire_A228', ends: 'closed_ground',
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastSpringResult = r;
+      return {
+        status: r.status === 'safe' ? 'success' : (r.status === 'marginal' ? 'warn' : 'error'),
+        message: `Helical spring (music wire d=2 D=20 N=14): C = ${r.geometry.springIndex}, K_W = ${r.Wahl.toFixed(3)}, k = ${r.rate.k_N_per_mm.toFixed(2)} N/mm, τ_max = ${r.stresses.tau_max_MPa.toFixed(0)} MPa | SF static = ${r.safetyFactors.static.toFixed(2)}, fatigue = ${r.safetyFactors.fatigue_Sines.toFixed(2)} | L_free = ${r.geometry.L_free_mm.toFixed(1)} mm, ${r.bucklingSafe ? 'buckling-safe' : 'BUCKLES'} — ${r.status.toUpperCase()} via foundation.analyzeSpring`,
+      };
+    },
+
+    'Pressure Vessel': async (scene) => {
+      const thin = thinWallCylinder({ P_Pa: 1e6, r_mean_m: 0.200, t_m: 0.005 });
+      const thick = thickWallCylinder({
+        P_inner_Pa: 124e6, P_outer_Pa: 0,
+        r_inner_m: 0.0254, r_outer_m: 0.0356,
+      });
+      const asme = asmeMinimumThickness({
+        P_Pa: 1e6, r_inner_m: 0.200,
+        allowableStress_Pa: 138e6,
+        jointEfficiency: 0.85,
+        corrosionAllowance_m: 0.0015,
+      });
+      const out = { thin, thick, asme };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastVesselResult = out;
+      return {
+        status: 'success',
+        message: `Pressure vessel — Thin-wall (P=1 MPa, R=200, t=5): σ_hoop = ${(thin.sigma_hoop_Pa/1e6).toFixed(1)} MPa, σ_VM = ${(thin.sigma_von_mises_Pa/1e6).toFixed(1)} MPa | Thick (Lamé): inner σ_hoop = ${(thick.inner.sigma_hoop_Pa/1e6).toFixed(0)} MPa | ASME min t (S=138, E=0.85, CA=1.5 mm) = ${(asme.t_with_CA_m*1000).toFixed(2)} mm via foundation.PressureVessel`,
+      };
+    },
+
     'Bearing Life': async (scene) => {
       // Foundation path: SKF 6210-class deep-groove ball bearing
       // under combined radial 4 kN + axial 2 kN @ 1700 RPM. C=35.1 kN,

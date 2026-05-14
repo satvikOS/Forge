@@ -1,0 +1,41 @@
+{
+  "geometry": {
+    "d_mm": 2,
+    "D_mm": 20,
+    "springIndex": 10,
+    "N_active": 14,
+    "N_total": 16,
+    "L_solid_mm": 32,
+    "L_free_mm": 47.901234567901234,
+    "L0_over_D": 2.3950617283950617
+  },
+  "rate": {
+    "k_N_per_mm": 1.4464285714285714
+  },
+  "Wahl": 1.1448333333333331,
+  "forces": {
+    "F_min_N": 0,
+    "F_max_N": 20,
+    "F_a": 10,
+    "F_m": 10,
+    "y_max_mm": 13.827160493827162
+  },
+  "stresses": {
+    "tau_a_MPa": 72.88235360654859,
+    "tau_m_MPa": 72.88235360654859,
+    "tau_max_MPa": 145.76470721309718
+  },
+  "strengths": {
+    "Sut_MPa": 1999.5828037875656,
+    "Ssy_MPa": 899.8122617044045,
+    "Sse_MPa": 310,
+    "Ssu_MPa": 1339.7204785376691
+  },
+  "safetyFactors": {
+    "static": 6.173046129670784,
+    "fatigue_Sines": 3.454165445501213
+  },
+  "bucklingSafe": true,
+  "naturalFrequency_Hz": 41.096507026521756,
+  "status": "safe"
+}
