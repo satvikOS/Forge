@@ -1,0 +1,71 @@
+[
+  {
+    "step": "Mission",
+    "range_km": 8060.776032350494,
+    "thrust_per_engine_kN": 51.350752054108426
+  },
+  {
+    "step": "Brayton",
+    "thrust_kN": 185.72238236479407,
+    "SFC_lb_lbf_hr": 0.686351804268719,
+    "OPR": 50
+  },
+  {
+    "step": "Compressor",
+    "stage_PR": 1.3010217862915736,
+    "blade_count": 18,
+    "M_tip": 1.51358337112674
+  },
+  {
+    "step": "Combustor",
+    "length_m": 0.25000000000000006,
+    "NOx_g_per_kg": 74.373890059128
+  },
+  {
+    "step": "Turbine",
+    "pi_drop": 0.7181694961930325,
+    "power_MW": 4.338490227272727,
+    "blade_count": 31
+  },
+  {
+    "step": "BladeCooling",
+    "hotspot": "midPS",
+    "T_metal_C": 744.9671102661597,
+    "survives": true
+  },
+  {
+    "step": "HX",
+    "effectiveness": 0.46363558565506147,
+    "q_kW": 194.72694597512583
+  },
+  {
+    "step": "Nozzle",
+    "conv_choked": true,
+    "conv_V_e_ms": 578.7063158459565,
+    "cd_area_ratio": 1.6875000000000002
+  },
+  {
+    "step": "MassProps",
+    "mass_kg": 0.0045730871932159025,
+    "volume_mm3": 1693.7359974873714,
+    "principal_kg_mm2": [
+      2.3825619276472194,
+      2.307089471934349,
+      0.09601831403272552
+    ]
+  },
+  {
+    "step": "Rotordynamics",
+    "f1_Hz": 2.599774582576384,
+    "crit_RPM": 155.98647495458303
+  },
+  {
+    "step": "Fatigue",
+    "goodman_SF": 1.251315,
+    "life_cycles": "infinite"
+  },
+  {
+    "step": "ExportSTEP",
+    "step_KB": 710.8056640625
+  }
+]

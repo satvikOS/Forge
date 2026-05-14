@@ -119,6 +119,7 @@ const TABS = {
         { name: 'Combustor', icon: '✺', key: 'simulation' },
         { name: 'Nozzle', icon: '⌒', key: 'simulation' },
         { name: 'Blade Cooling', icon: '❄', key: 'simulation' },
+        { name: 'Heat Exchanger', icon: '≋', key: 'simulation' },
         { name: 'Mission', icon: '✈', key: 'simulation' },
       ]},
       { label: 'Optimize', tools: [

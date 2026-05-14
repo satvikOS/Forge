@@ -60,6 +60,7 @@ import { deGoodmanDiameter, asmeElliptiCDiameter, staticShaftCheck } from '../..
 import { analyzeBoltedJoint } from '../../foundation/BoltedJoint.js';
 import { analyzeSpring } from '../../foundation/Spring.js';
 import { thinWallCylinder, thickWallCylinder, asmeMinimumThickness } from '../../foundation/PressureVessel.js';
+import { solveHeatExchanger, sizeHeatExchanger } from '../../foundation/HeatExchanger.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1190,6 +1191,23 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Shaft (AISI 1050 CD, M=70 N·m reversed + T=45 N·m steady, n=1.5): DE-Goodman d ≥ ${goodman.diameter_mm.toFixed(2)} mm, ASME elliptic d ≥ ${asme.diameter_mm.toFixed(2)} mm. At d=22 mm: σ_b = ${stat.sigma_bending_MPa.toFixed(1)} MPa, τ_t = ${stat.tau_torsion_MPa.toFixed(1)} MPa, SF_VM = ${stat.SF_von_mises.toFixed(2)} via foundation.deGoodmanDiameter`,
+      };
+    },
+
+    'Heat Exchanger': async (scene) => {
+      // Recuperator: hot exhaust 1 kg/s @ 600°C, cp=1100;
+      // cold inlet 1 kg/s @ 200°C, cp=1050; UA = 1000 W/K cross-flow.
+      const r = solveHeatExchanger({
+        type: 'crossUnmixed',
+        mdot_hot_kgs: 1.0, cp_hot_J_kgK: 1100, T_hot_in_K: 873.15,
+        mdot_cold_kgs: 1.0, cp_cold_J_kgK: 1050, T_cold_in_K: 473.15,
+        UA_W_per_K: 1000,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastHXResult = r;
+      return {
+        status: 'success',
+        message: `Heat exchanger (cross-flow, UA=1000 W/K): NTU = ${r.NTU.toFixed(2)}, ε = ${r.effectiveness.toFixed(3)}, q = ${(r.q_W/1000).toFixed(1)} kW | T_h: ${(r.T_hot_in_K - 273.15).toFixed(0)}→${(r.T_hot_out_K - 273.15).toFixed(0)} °C, T_c: ${(r.T_cold_in_K - 273.15).toFixed(0)}→${(r.T_cold_out_K - 273.15).toFixed(0)} °C via foundation.solveHeatExchanger`,
       };
     },
 
