@@ -16,6 +16,8 @@ import ToolParamDialog from '../../components/ToolParamDialog';
 import '../../components/ToolParamDialog.css';
 import AISettingsPanel from '../../components/AISettingsPanel';
 import '../../components/AISettingsPanel.css';
+import AIChatPanel from '../../components/AIChatPanel';
+import '../../components/AIChatPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -375,6 +377,7 @@ function WorkbenchMechanical() {
     const [activeProjectId, setActiveProjectId] = useState(null);
     const [selection, setSelection] = useState(null);
     const [aiSettingsOpen, setAISettingsOpen] = useState(false);
+    const [aiChatOpen, setAIChatOpen] = useState(false);
     const [ribbonTab, setRibbonTab] = useState('part');
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
@@ -908,6 +911,15 @@ function WorkbenchMechanical() {
               AI
             </button>
             <AISettingsPanel open={aiSettingsOpen} onClose={() => setAISettingsOpen(false)} />
+
+            {/* AI Chat front-door — Clarifier + Planner + Executor in one panel */}
+            <button className="chat-launcher"
+                    onClick={() => setAIChatOpen(true)}
+                    title="AI Chat (Clarifier + Planner + Run)"
+                    data-action="open-chat">
+              💬
+            </button>
+            <AIChatPanel open={aiChatOpen} onClose={() => setAIChatOpen(false)} />
         </>
     );
 }

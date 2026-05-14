@@ -1,0 +1,76 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', () => {
+  test.describe.configure({ timeout: 600000 });
+
+  test('Type goal → answer questions (defaults) → plan appears → Run executes through ribbon', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30000 });
+    await page.waitForTimeout(2000);
+
+    // Open the chat launcher
+    await page.locator('[data-action="open-chat"]').click();
+    const panel = page.locator('.chat-panel');
+    await expect(panel).toBeVisible({ timeout: 5000 });
+
+    // Phase: idle. Submit a goal.
+    await expect(panel.locator('.chat-phase')).toHaveText('idle');
+    await panel.locator('[data-field="chat-input"]').fill('Build a turbofan engine for an A350-class airliner');
+    await panel.locator('[data-action="send"]').click();
+    await page.waitForTimeout(1500);
+
+    // Phase: clarifying. Domain should be detected as engine (10 questions).
+    await expect(panel.locator('.chat-phase')).toHaveText('clarifying');
+    // Hit Enter to accept default on every question. Loop until we leave clarifying.
+    let safety = 20;
+    while (safety-- > 0) {
+      const phase = await panel.locator('.chat-phase').textContent();
+      if (phase !== 'clarifying') break;
+      await panel.locator('[data-field="chat-input"]').press('Enter');
+      await page.waitForTimeout(400);
+    }
+    expect(safety).toBeGreaterThan(0);   // didn't loop forever
+
+    // Phase: planning → ready. Plan list should appear with > 5 steps.
+    await page.waitForFunction(
+      () => document.querySelector('.chat-phase')?.textContent === 'ready',
+      null, { timeout: 30000 }
+    );
+    const planSteps = panel.locator('.chat-plan-step');
+    const stepCount = await planSteps.count();
+    console.log(`\nPlan has ${stepCount} steps`);
+    expect(stepCount).toBeGreaterThanOrEqual(10);
+    // Plan source should be 'fallback-canonical' since no LLM is configured
+    await expect(panel.locator('.chat-plan-head')).toContainText('fallback-canonical');
+
+    // Hit Run
+    await page.waitForTimeout(3000);  // human dwell — see the plan
+    await panel.locator('[data-action="run-plan"]').click();
+    await expect(panel.locator('.chat-phase')).toHaveText('running');
+
+    // Wait until phase is 'done'
+    await page.waitForFunction(
+      () => document.querySelector('.chat-phase')?.textContent === 'done',
+      null, { timeout: 240000 }    // 4 min budget for the 13-step plan
+    );
+
+    // Every step row should be in the done state
+    const doneCount = await panel.locator('.chat-plan-step.status-done').count();
+    const errorCount = await panel.locator('.chat-plan-step.status-error').count();
+    console.log(`After Run: done=${doneCount}, error=${errorCount}`);
+    expect(doneCount).toBe(stepCount);
+    expect(errorCount).toBe(0);
+
+    // Multiple foundation results should be on window after execution
+    const sideEffects = await page.evaluate(() => ({
+      missionRan:    !!window.__lastMissionResult,
+      braytonRan:    !!window.__lastBraytonResult,
+      combustorRan:  !!window.__lastCombustorResult,
+      historyCount:  window.__archdiscHistory?.entries?.length ?? 0,
+    }));
+    console.log('Side effects:', sideEffects);
+    expect(sideEffects.missionRan).toBe(true);
+    expect(sideEffects.braytonRan).toBe(true);
+    expect(sideEffects.historyCount).toBeGreaterThanOrEqual(stepCount);
+  });
+});
