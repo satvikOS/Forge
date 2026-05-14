@@ -78,6 +78,156 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── STRUCTURAL ──────────────────────────────────────────
+  'Linear Static FEA': {
+    title: 'Linear Static FEA — Cantilever Inputs',
+    blurb: 'Quad-tet Mirtich-validated cantilever solver. Defaults: 100×10×10 mm Al-6061 beam, 100 N tip load.',
+    fields: [
+      { name: 'L_mm',      label: 'Length',         type: 'number', default: 100, unit: 'mm',  min: 10,  max: 5000, step: 1 },
+      { name: 'b_mm',      label: 'Width',          type: 'number', default: 10,  unit: 'mm',  min: 1,   max: 500,  step: 1 },
+      { name: 'h_mm',      label: 'Height',         type: 'number', default: 10,  unit: 'mm',  min: 1,   max: 500,  step: 1 },
+      { name: 'P_N',       label: 'Tip load',       type: 'number', default: 100, unit: 'N',   min: 1,   max: 1e6,  step: 1 },
+      { name: 'E_MPa',     label: 'E',              type: 'number', default: 68900, unit: 'MPa', min: 1000, max: 500000, step: 1000 },
+      { name: 'nu',        label: 'Poisson ν',      type: 'number', default: 0.33, unit: '',   min: 0,    max: 0.49, step: 0.01 },
+      { name: 'yield_MPa', label: 'Yield strength', type: 'number', default: 276, unit: 'MPa', min: 50,   max: 3000, step: 10 },
+    ],
+  },
+
+  'Fatigue Analysis': {
+    title: 'Fatigue Analysis — Goodman + Basquin Inputs',
+    blurb: 'Defaults: AISI 4340 fully-reversed bending (σ = ±400 MPa), surface ground (k_a=0.93), R=90 %.',
+    fields: [
+      { name: 'sigmaMax',         label: 'σ_max',           type: 'number', default: 400,  unit: 'MPa', min: -2000, max: 2000, step: 5 },
+      { name: 'sigmaMin',         label: 'σ_min',           type: 'number', default: -400, unit: 'MPa', min: -2000, max: 2000, step: 5 },
+      { name: 'materialName',     label: 'Material key',    type: 'string', default: '4340',                                                hint: 'lookup key in MaterialDB' },
+      { name: 'surfaceFinish',    label: 'k_a (surface)',   type: 'number', default: 0.93, unit: '',    min: 0.5,   max: 1.0,  step: 0.01 },
+      { name: 'size',             label: 'k_b (size)',      type: 'number', default: 1.0,  unit: '',    min: 0.6,   max: 1.0,  step: 0.01 },
+      { name: 'load',             label: 'k_c (load type)', type: 'number', default: 1.0,  unit: '',    min: 0.5,   max: 1.0,  step: 0.01 },
+      { name: 'temperature',      label: 'k_d (temp)',      type: 'number', default: 1.0,  unit: '',    min: 0.5,   max: 1.0,  step: 0.01 },
+      { name: 'reliability',      label: 'k_e (R)',         type: 'number', default: 0.897, unit: '',   min: 0.5,   max: 1.0,  step: 0.001 },
+    ],
+  },
+
+  'Rotordynamics': {
+    title: 'Rotordynamics — Shaft + Disk Inputs',
+    blurb: 'Defaults: steel Ø30 × 600 mm shaft, mid-span 5 kg disk, simply-supported.',
+    fields: [
+      { name: 'length_mm',   label: 'Shaft length',  type: 'number', default: 600,  unit: 'mm',     min: 50,   max: 5000, step: 5 },
+      { name: 'diameter_mm', label: 'Shaft Ø',       type: 'number', default: 30,   unit: 'mm',     min: 5,    max: 500,  step: 1 },
+      { name: 'E_MPa',       label: 'E',             type: 'number', default: 200000, unit: 'MPa',  min: 50000, max: 500000, step: 1000 },
+      { name: 'density_g_per_mm3', label: 'ρ',       type: 'number', default: 7.85e-6, unit: 'g/mm³', min: 1e-6, max: 2e-5, step: 1e-7 },
+      { name: 'disk_mass_kg', label: 'Mid-disk mass', type: 'number', default: 5.0,  unit: 'kg',    min: 0.1,   max: 200,  step: 0.1 },
+      { name: 'disk_position_mm', label: 'Disk position', type: 'number', default: 300, unit: 'mm', min: 1,    max: 5000, step: 1 },
+      { name: 'numModes',    label: '# modes',       type: 'number', default: 4,    unit: '',       min: 1,     max: 12,   step: 1 },
+    ],
+  },
+
+  'Bearing Life': {
+    title: 'Bearing Life — Lundberg-Palmgren Inputs',
+    blurb: 'Defaults: SKF 6210-class deep-groove ball bearing, 4 kN radial + 2 kN axial @ 1700 RPM.',
+    fields: [
+      { name: 'Fr_kN',  label: 'Radial load',  type: 'number', default: 4,    unit: 'kN', min: 0,   max: 1000, step: 0.1 },
+      { name: 'Fa_kN',  label: 'Axial load',   type: 'number', default: 2,    unit: 'kN', min: 0,   max: 1000, step: 0.1 },
+      { name: 'C_kN',   label: 'C (dynamic)',  type: 'number', default: 35.1, unit: 'kN', min: 1,   max: 5000, step: 0.1 },
+      { name: 'C0_kN',  label: 'C₀ (static)',  type: 'number', default: 23.2, unit: 'kN', min: 1,   max: 5000, step: 0.1 },
+      { name: 'rpm',    label: 'Shaft speed',  type: 'number', default: 1700, unit: 'RPM', min: 10, max: 200000, step: 10 },
+      { name: 'type',   label: 'Element type', type: 'string', default: 'ball', hint: 'ball | roller' },
+    ],
+  },
+
+  'Gear Mesh': {
+    title: 'Gear Mesh — AGMA Inputs',
+    blurb: 'Defaults: Shigley Ex 14-4 spur pinion (17 T, m=6 mm, F=75 mm, 1.5 kW @ 1750 RPM).',
+    fields: [
+      { name: 'teeth',         label: '# teeth',         type: 'number', default: 17,   unit: '',    min: 8,    max: 200,  step: 1 },
+      { name: 'module_mm',     label: 'Module',          type: 'number', default: 6,    unit: 'mm',  min: 0.5,  max: 30,   step: 0.25 },
+      { name: 'faceWidth_mm',  label: 'Face width',      type: 'number', default: 75,   unit: 'mm',  min: 5,    max: 500,  step: 1 },
+      { name: 'power_W',       label: 'Power',           type: 'number', default: 1500, unit: 'W',   min: 10,   max: 1e6,  step: 10 },
+      { name: 'rpm',           label: 'Pinion speed',    type: 'number', default: 1750, unit: 'RPM', min: 10,   max: 50000, step: 10 },
+      { name: 'J',             label: 'AGMA J (bend)',   type: 'number', default: 0.31, unit: '',    min: 0.1,  max: 0.6,  step: 0.01 },
+      { name: 'I',             label: 'AGMA I (cont.)',  type: 'number', default: 0.10, unit: '',    min: 0.05, max: 0.30, step: 0.01 },
+      { name: 'allowable_bending_MPa',  label: 'σ_bending limit', type: 'number', default: 250,  unit: 'MPa', min: 50,   max: 1500, step: 10 },
+      { name: 'allowable_contact_MPa',  label: 'σ_contact limit', type: 'number', default: 1100, unit: 'MPa', min: 100,  max: 3000, step: 10 },
+    ],
+  },
+
+  'Shaft Sizing': {
+    title: 'Shaft Sizing — DE-Goodman / ASME Elliptic',
+    blurb: 'Defaults: AISI 1050 CD shaft, M=70 N·m reversed bending + T=45 N·m steady torque, n=1.5.',
+    fields: [
+      { name: 'M_Nm',    label: 'Bending moment', type: 'number', default: 70,  unit: 'N·m', min: 0,   max: 1e6, step: 1 },
+      { name: 'T_Nm',    label: 'Torque',         type: 'number', default: 45,  unit: 'N·m', min: 0,   max: 1e6, step: 1 },
+      { name: 'Sut_MPa', label: 'S_ut',           type: 'number', default: 690, unit: 'MPa', min: 100, max: 3000, step: 10 },
+      { name: 'Sy_MPa',  label: 'S_y',            type: 'number', default: 580, unit: 'MPa', min: 50,  max: 3000, step: 10 },
+      { name: 'Se_MPa',  label: 'S_e (Marin)',    type: 'number', default: 276, unit: 'MPa', min: 30,  max: 2000, step: 10 },
+      { name: 'n',       label: 'Design SF',      type: 'number', default: 1.5, unit: '',    min: 1,   max: 5,    step: 0.1 },
+      { name: 'Kf',      label: 'K_f (bend)',     type: 'number', default: 1.6, unit: '',    min: 1,   max: 4,    step: 0.05 },
+      { name: 'Kfs',     label: 'K_fs (torsion)', type: 'number', default: 1.3, unit: '',    min: 1,   max: 4,    step: 0.05 },
+    ],
+  },
+
+  'Bolted Joint': {
+    title: 'Bolted Joint — Wileman Stiffness + Goodman',
+    blurb: 'Defaults: M10×1.5 grade 8.8, 25 mm grip, 6 kN external load, 75 % preload.',
+    fields: [
+      { name: 'boltSize',         label: 'Bolt size',         type: 'string', default: 'M10',  hint: 'M5 | M6 | M8 | M10 | M12 | M16 | M20' },
+      { name: 'grade',            label: 'Grade',             type: 'string', default: '8.8',   hint: '4.6 | 5.8 | 8.8 | 10.9 | 12.9' },
+      { name: 'grip_mm',          label: 'Grip length',       type: 'number', default: 25,  unit: 'mm',  min: 1,   max: 500, step: 1 },
+      { name: 'P_ext_N',          label: 'External load',     type: 'number', default: 6000, unit: 'N',  min: 0,   max: 1e6, step: 10 },
+      { name: 'preloadFraction',  label: 'Preload fraction',  type: 'number', default: 0.75, unit: '',   min: 0.3, max: 0.9, step: 0.01 },
+    ],
+  },
+
+  'Spring Design': {
+    title: 'Helical Spring — Wahl Stress + Sines Fatigue',
+    blurb: 'Defaults: music-wire d=2 mm, D=20 mm, 14 active coils, 0–20 N load.',
+    fields: [
+      { name: 'd_mm',     label: 'Wire Ø',          type: 'number', default: 2,  unit: 'mm', min: 0.1, max: 50,  step: 0.05 },
+      { name: 'D_mm',     label: 'Coil mean Ø',     type: 'number', default: 20, unit: 'mm', min: 1,   max: 500, step: 0.5 },
+      { name: 'N_active', label: 'Active coils',    type: 'number', default: 14, unit: '',   min: 2,   max: 100, step: 1 },
+      { name: 'F_min_N',  label: 'F_min',           type: 'number', default: 0,  unit: 'N',  min: -1e5, max: 1e5, step: 1 },
+      { name: 'F_max_N',  label: 'F_max',           type: 'number', default: 20, unit: 'N',  min: -1e5, max: 1e5, step: 1 },
+      { name: 'material', label: 'Material key',    type: 'string', default: 'music_wire_A228', hint: 'music_wire_A228 | hard_drawn_A227 | chrome_silicon_A401' },
+      { name: 'ends',     label: 'End condition',   type: 'string', default: 'closed_ground',   hint: 'plain | plain_ground | closed | closed_ground' },
+    ],
+  },
+
+  'Pressure Vessel': {
+    title: 'Pressure Vessel — ASME BPVC Inputs',
+    blurb: 'Defaults: P=1 MPa, R=200 mm, t=5 mm; ASME with S=138 MPa, E=0.85, CA=1.5 mm.',
+    fields: [
+      { name: 'P_MPa',                label: 'Design pressure', type: 'number', default: 1,    unit: 'MPa', min: 0.01, max: 200, step: 0.1 },
+      { name: 'r_inner_mm',           label: 'Inner radius',    type: 'number', default: 200,  unit: 'mm',  min: 5,    max: 5000, step: 1 },
+      { name: 't_mm',                 label: 'Wall thickness',  type: 'number', default: 5,    unit: 'mm',  min: 0.5,  max: 200,  step: 0.5 },
+      { name: 'allowableStress_MPa',  label: 'Allowable stress S', type: 'number', default: 138, unit: 'MPa', min: 30,  max: 1000, step: 5 },
+      { name: 'jointEfficiency',      label: 'Joint efficiency E', type: 'number', default: 0.85, unit: '',   min: 0.5, max: 1.0,  step: 0.05 },
+      { name: 'corrosionAllowance_mm', label: 'Corrosion allowance', type: 'number', default: 1.5, unit: 'mm', min: 0,  max: 20,   step: 0.5 },
+    ],
+  },
+
+  'Stress Concentration': {
+    title: 'Stress Concentration — Peterson Curves',
+    blurb: 'Defaults: shoulder D/d=2, r/d=0.1, hole d/W=0.3, notch r=2 mm in 4340 (S_ut = 1280 MPa).',
+    fields: [
+      { name: 'D_over_d',        label: 'Shoulder D/d',  type: 'number', default: 2.0, unit: '', min: 1.05, max: 5.0, step: 0.05 },
+      { name: 'r_over_d',        label: 'Shoulder r/d',  type: 'number', default: 0.1, unit: '', min: 0.01, max: 1.0, step: 0.01 },
+      { name: 'hole_d_over_W',   label: 'Plate hole d/W', type: 'number', default: 0.3, unit: '', min: 0.05, max: 0.8, step: 0.05 },
+      { name: 'notch_radius_mm', label: 'Notch radius',  type: 'number', default: 2,   unit: 'mm', min: 0.1, max: 20,   step: 0.1 },
+      { name: 'Sut_MPa',         label: 'S_ut',          type: 'number', default: 1280, unit: 'MPa', min: 200, max: 3000, step: 10 },
+    ],
+  },
+
+  'Forced Vibration': {
+    title: 'Forced Vibration — SDOF FRF',
+    blurb: 'Defaults: m=5 kg, k=1000 N/m, ζ=0.05; peak D at resonance = 1/(2ζ) = 10.',
+    fields: [
+      { name: 'm_kg',       label: 'Mass',         type: 'number', default: 5,    unit: 'kg',    min: 0.01, max: 1e5, step: 0.1 },
+      { name: 'k_N_per_m',  label: 'Stiffness',    type: 'number', default: 1000, unit: 'N/m',   min: 1,    max: 1e9,  step: 10 },
+      { name: 'zeta',       label: 'Damping ratio', type: 'number', default: 0.05, unit: '',     min: 0.001, max: 0.5,  step: 0.005 },
+      { name: 'F0_N',       label: 'Forcing amp',  type: 'number', default: 10,   unit: 'N',     min: 0.01, max: 1e6,  step: 0.1 },
+    ],
+  },
+
   'Blade Cooling': {
     title: 'HPT Blade Cooling — Inputs',
     blurb: 'Thermal-resistance model. Defaults: CMSX-4 + 0.3 mm YSZ TBC at T_gas = 1750 K.',

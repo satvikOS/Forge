@@ -968,27 +968,21 @@ const TOOL_HANDLERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   simulate: {
     'Linear Static FEA': async (scene, viewport) => {
-      // Foundation path: solve a fixed validation cantilever with the
-      // 10-node quadratic-tet element (foundation/QuadTetFEM). The
-      // problem is well-posed and the error vs Euler-Bernoulli theory
-      // is reported in the status bar so the user can see HOW the FEA
-      // is performing — not just a green checkmark.
-      //
-      // Cantilever: 100 × 10 × 10 mm Al-6061, 100 N tip load in -Y,
-      // grid 10 × 2 × 2 quadratic tets. Expected ~1-2 % error vs
-      // analytical δ = PL³/(3EI).
-      const ALUM = { E: 68900, nu: 0.33, yieldStrength: 276 };
-      const linMesh = TetMesh.regularGrid([0, 0, 0], [100, 10, 10], 10, 2, 2);
+      const { values, cancelled } = await requestToolParams('Linear Static FEA');
+      if (cancelled) return { status: 'warn', message: 'Linear Static FEA cancelled — no compute' };
+      const ALUM = { E: values.E_MPa, nu: values.nu, yieldStrength: values.yield_MPa };
+      const L = values.L_mm, b = values.b_mm, h = values.h_mm, P = values.P_N;
+      const linMesh = TetMesh.regularGrid([0, 0, 0], [L, b, h], 10, 2, 2);
       const qMesh = QuadraticTetMesh.fromLinearTetMesh(linMesh);
       const fixed = qMesh.selectNodes(([x]) => x < 1e-6);
-      const tip = qMesh.selectNodes(([x]) => Math.abs(x - 100) < 1e-6);
-      const loads = tip.map(n => ({ node: n, dof: 1, value: -100 / tip.length }));
+      const tip = qMesh.selectNodes(([x]) => Math.abs(x - L) < 1e-6);
+      const loads = tip.map(n => ({ node: n, dof: 1, value: -P / tip.length }));
       const r = solveLinearStaticQuadTet({ mesh: qMesh, material: ALUM, fixedNodes: fixed, loads });
 
       let dyTip = 0;
       for (const n of tip) dyTip += r.displacement[n * 3 + 1];
       dyTip /= tip.length;
-      const E = ALUM.E, b = 10, h = 10, L = 100, P = 100;
+      const E = ALUM.E;
       const I = (b * h ** 3) / 12;
       const deltaTheory = (P * L ** 3) / (3 * E * I);
       const errPct = ((Math.abs(dyTip) - deltaTheory) / deltaTheory) * 100;
@@ -1145,14 +1139,14 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
     'Stress Concentration': async (scene) => {
-      // Representative report: shoulder fillet (D/d=2, r/d=0.1) +
-      // hole in plate (d/W=0.3) + notch sensitivity for 4340.
-      const Kt_axial = SCF.shoulderFilletAxial(2.0, 0.1);
-      const Kt_bend = SCF.shoulderFilletBending(2.0, 0.1);
-      const Kt_torsion = SCF.shoulderFilletTorsion(2.0, 0.1);
-      const Kt_hole = SCF.plateWithHoleAxial(0.3);
+      const { values, cancelled } = await requestToolParams('Stress Concentration');
+      if (cancelled) return { status: 'warn', message: 'Stress Concentration cancelled — no compute' };
+      const Kt_axial = SCF.shoulderFilletAxial(values.D_over_d, values.r_over_d);
+      const Kt_bend = SCF.shoulderFilletBending(values.D_over_d, values.r_over_d);
+      const Kt_torsion = SCF.shoulderFilletTorsion(values.D_over_d, values.r_over_d);
+      const Kt_hole = SCF.plateWithHoleAxial(values.hole_d_over_W);
       const Kt_keyway_t = SCF.shaftKeywayTorsion();
-      const q = SCF.notchSensitivity(2, 1280);
+      const q = SCF.notchSensitivity(values.notch_radius_mm, values.Sut_MPa);
       const Kf_shoulder_bend = SCF.fatigueSCF(Kt_bend, q);
       const out = {
         shoulderFillet: { Kt_axial, Kt_bend, Kt_torsion },
@@ -1170,18 +1164,18 @@ const TOOL_HANDLERS = {
     },
 
     'Forced Vibration': async (scene) => {
-      // SDOF: 5 kg, 1000 N/m, c chosen for ζ=0.05. Sweep peak + bandwidth.
-      const m = 5, k = 1000, zeta = 0.05;
+      const { values, cancelled } = await requestToolParams('Forced Vibration');
+      if (cancelled) return { status: 'warn', message: 'Forced Vibration cancelled — no compute' };
+      const m = values.m_kg, k = values.k_N_per_m, zeta = values.zeta;
       const c = 2 * zeta * Math.sqrt(m * k);
       const omega_n = Math.sqrt(k / m);
       const fn = omega_n / (2 * Math.PI);
-      // Peak at r=1: D=1/(2ζ), phase=90°
       const peak = sdofFRF(1, zeta);
       const tr_sqrt2 = sdofTransmissibility(Math.sqrt(2), zeta);
       const tr_r3 = sdofTransmissibility(3, zeta);
       const hp = halfPowerFrequencies(fn, zeta);
       const phys = sdofSteadyState({
-        F0_N: 10, k_N_per_m: k, m_kg: m, c_Ns_per_m: c, omega_rad_s: omega_n,
+        F0_N: values.F0_N, k_N_per_m: k, m_kg: m, c_Ns_per_m: c, omega_rad_s: omega_n,
       });
       const out = {
         m_kg: m, k_N_per_m: k, c_Ns_per_m: c,
@@ -1201,11 +1195,9 @@ const TOOL_HANDLERS = {
     },
 
     'Bolted Joint': async (scene) => {
-      const r = analyzeBoltedJoint({
-        boltSize: 'M10', grade: '8.8',
-        grip_mm: 25, P_ext_N: 6000,
-        preloadFraction: 0.75,
-      });
+      const { values, cancelled } = await requestToolParams('Bolted Joint');
+      if (cancelled) return { status: 'warn', message: 'Bolted Joint cancelled — no compute' };
+      const r = analyzeBoltedJoint(values);
       _lastFEAResult = r;
       if (typeof window !== 'undefined') window.__lastBoltResult = r;
       return {
@@ -1215,11 +1207,9 @@ const TOOL_HANDLERS = {
     },
 
     'Spring Design': async (scene) => {
-      const r = analyzeSpring({
-        d_mm: 2, D_mm: 20, N_active: 14,
-        F_min_N: 0, F_max_N: 20,
-        material: 'music_wire_A228', ends: 'closed_ground',
-      });
+      const { values, cancelled } = await requestToolParams('Spring Design');
+      if (cancelled) return { status: 'warn', message: 'Spring Design cancelled — no compute' };
+      const r = analyzeSpring(values);
       _lastFEAResult = r;
       if (typeof window !== 'undefined') window.__lastSpringResult = r;
       return {
@@ -1229,18 +1219,24 @@ const TOOL_HANDLERS = {
     },
 
     'Pressure Vessel': async (scene) => {
-      const thin = thinWallCylinder({ P_Pa: 1e6, r_mean_m: 0.200, t_m: 0.005 });
+      const { values, cancelled } = await requestToolParams('Pressure Vessel');
+      if (cancelled) return { status: 'warn', message: 'Pressure Vessel cancelled — no compute' };
+      const P_Pa = values.P_MPa * 1e6;
+      const r_inner_m = values.r_inner_mm / 1000;
+      const t_m = values.t_mm / 1000;
+      // Derived/scaled inputs for the validation comparison branches:
+      const thin = thinWallCylinder({ P_Pa, r_mean_m: r_inner_m + t_m / 2, t_m });
       const thick = thickWallCylinder({
-        P_inner_Pa: 124e6, P_outer_Pa: 0,
+        P_inner_Pa: P_Pa * 124, P_outer_Pa: 0,
         r_inner_m: 0.0254, r_outer_m: 0.0356,
       });
       const asme = asmeMinimumThickness({
-        P_Pa: 1e6, r_inner_m: 0.200,
-        allowableStress_Pa: 138e6,
-        jointEfficiency: 0.85,
-        corrosionAllowance_m: 0.0015,
+        P_Pa, r_inner_m,
+        allowableStress_Pa: values.allowableStress_MPa * 1e6,
+        jointEfficiency: values.jointEfficiency,
+        corrosionAllowance_m: values.corrosionAllowance_mm / 1000,
       });
-      const out = { thin, thick, asme };
+      const out = { thin, thick, asme, wallThickness_mm: asme.t_with_CA_m * 1000 };
       _lastFEAResult = out;
       if (typeof window !== 'undefined') window.__lastVesselResult = out;
       return {
@@ -1250,11 +1246,10 @@ const TOOL_HANDLERS = {
     },
 
     'Bearing Life': async (scene) => {
-      // Foundation path: SKF 6210-class deep-groove ball bearing
-      // under combined radial 4 kN + axial 2 kN @ 1700 RPM. C=35.1 kN,
-      // C0=23.2 kN catalog values.
-      const eq = equivalentDynamicLoad({ Fr_kN: 4, Fa_kN: 2, C0_kN: 23.2 });
-      const life = bearingLife({ C_kN: 35.1, P_kN: eq.P_kN, rpm: 1700, type: 'ball' });
+      const { values, cancelled } = await requestToolParams('Bearing Life');
+      if (cancelled) return { status: 'warn', message: 'Bearing Life cancelled — no compute' };
+      const eq = equivalentDynamicLoad({ Fr_kN: values.Fr_kN, Fa_kN: values.Fa_kN, C0_kN: values.C0_kN });
+      const life = bearingLife({ C_kN: values.C_kN, P_kN: eq.P_kN, rpm: values.rpm, type: values.type });
       const hertz = hertzContact({ force_N: 200, R_ball_m: 0.005, R_race_m: -0.00525 });
       const out = { equivalent: eq, life, hertz };
       _lastFEAResult = out;
@@ -1266,13 +1261,9 @@ const TOOL_HANDLERS = {
     },
 
     'Gear Mesh': async (scene) => {
-      // Foundation path: Shigley Ex 14-4-class spur pinion (17T, m=6,
-      // F=75 mm, 1.5 kW @ 1750 RPM). AGMA bending + contact stress.
-      const r = analyzeGearMesh({
-        teeth: 17, module_mm: 6, faceWidth_mm: 75,
-        power_W: 1500, rpm: 1750, J: 0.31, I: 0.10,
-        allowable_bending_MPa: 250, allowable_contact_MPa: 1100,
-      });
+      const { values, cancelled } = await requestToolParams('Gear Mesh');
+      if (cancelled) return { status: 'warn', message: 'Gear Mesh cancelled — no compute' };
+      const r = analyzeGearMesh(values);
       _lastFEAResult = r;
       if (typeof window !== 'undefined') window.__lastGearResult = r;
       return {
@@ -1282,19 +1273,19 @@ const TOOL_HANDLERS = {
     },
 
     'Shaft Sizing': async (scene) => {
-      // Foundation path: Shigley §7 shaft sizing example.
-      // M=70 N·m reversed bending, T=45 N·m steady torque, AISI 1050 CD
-      // (Sut=690, Sy=580). Marin S_e=276. Kf=1.6, Kfs=1.3, n=1.5.
-      const goodman = deGoodmanDiameter({
-        M_Nm: 70, T_Nm: 45, Sut_MPa: 690, Se_MPa: 276,
-        n: 1.5, Kf: 1.6, Kfs: 1.3,
-      });
+      const { values, cancelled } = await requestToolParams('Shaft Sizing');
+      if (cancelled) return { status: 'warn', message: 'Shaft Sizing cancelled — no compute' };
+      const goodman = deGoodmanDiameter(values);
       const asme = asmeElliptiCDiameter({
-        M_Nm: 70, T_Nm: 45, Sy_MPa: 580, Se_MPa: 276,
-        n: 1.5, Kf: 1.6, Kfs: 1.3,
+        M_Nm: values.M_Nm, T_Nm: values.T_Nm,
+        Sy_MPa: values.Sy_MPa, Se_MPa: values.Se_MPa,
+        n: values.n, Kf: values.Kf, Kfs: values.Kfs,
       });
-      const stat = staticShaftCheck({ M_Nm: 70, T_Nm: 45, d_mm: 22, Sy_MPa: 580 });
-      const out = { goodman, asme, stat };
+      const stat = staticShaftCheck({
+        M_Nm: values.M_Nm, T_Nm: values.T_Nm,
+        d_mm: goodman.diameter_mm, Sy_MPa: values.Sy_MPa,
+      });
+      const out = { goodman, asme, stat, diameter_mm: goodman.diameter_mm };
       _lastFEAResult = out;
       if (typeof window !== 'undefined') window.__lastShaftResult = out;
       return {
@@ -1443,17 +1434,17 @@ const TOOL_HANDLERS = {
     },
 
     'Fatigue Analysis': async (scene) => {
-      // Foundation path: take peak stress from the last static-FEA
-      // result (or use a representative pair) and run Goodman + Basquin.
-      // 4340 alloy steel shaft, surface ground (k_a=0.93), small section
-      // (k_b=1.0), bending (k_c=1.0), 90% reliability (k_e=0.897), room
-      // temperature. Loading: σ_max = +400 MPa, σ_min = −400 MPa
-      // (fully-reversed rotating-bending — the textbook fatigue case).
-      const steel = findMaterial('4340');
+      const { values, cancelled } = await requestToolParams('Fatigue Analysis');
+      if (cancelled) return { status: 'warn', message: 'Fatigue Analysis cancelled — no compute' };
+      const steel = findMaterial(values.materialName);
+      if (!steel) return { status: 'error', message: `Unknown material: ${values.materialName}` };
       const r = analyzeFatigue({
-        sigmaMax: 400, sigmaMin: -400, material: steel,
-        surface: { surfaceFinish: 0.93, size: 1.0, load: 1.0,
-                   temperature: 1.0, reliability: 0.897 },
+        sigmaMax: values.sigmaMax, sigmaMin: values.sigmaMin, material: steel,
+        surface: {
+          surfaceFinish: values.surfaceFinish, size: values.size,
+          load: values.load, temperature: values.temperature,
+          reliability: values.reliability,
+        },
       });
       const out = {
         materialName: steel.name,
@@ -1477,17 +1468,19 @@ const TOOL_HANDLERS = {
     },
 
     'Rotordynamics': async (scene) => {
-      // Foundation path: simply-supported steel shaft Ø30 × L=600 mm,
-      // mid-span 5 kg disk. Reports first lateral natural frequency
-      // (= synchronous critical speed for balanced rotor) alongside
-      // the analytical Jeffcott estimate Ω_cr = √(48 EI / m L³).
+      const { values, cancelled } = await requestToolParams('Rotordynamics');
+      if (cancelled) return { status: 'warn', message: 'Rotordynamics cancelled — no compute' };
       const r = solveRotordynamics({
-        shaft: { length: 600, diameter: 30, E: 200000, density: 7.85e-6, elements: 12 },
-        disks: [{ position: 300, mass: 5.0 }],
+        shaft: {
+          length: values.length_mm, diameter: values.diameter_mm,
+          E: values.E_MPa, density: values.density_g_per_mm3, elements: 12,
+        },
+        disks: [{ position: values.disk_position_mm, mass: values.disk_mass_kg }],
         boundary: 'simply-supported',
-        numModes: 4,
+        numModes: values.numModes,
       });
-      const E = 200000, I = Math.PI * 15 ** 4 / 4, L = 600, m = 5.0;
+      const E = values.E_MPa, dRad = values.diameter_mm / 2;
+      const I = Math.PI * dRad ** 4 / 4, L = values.length_mm, m = values.disk_mass_kg;
       const k = 48 * E * I / (L ** 3);
       const fAn = Math.sqrt(k / m) / (2 * Math.PI);
       const errPct = (r.frequenciesHz[0] - fAn) / fAn * 100;
