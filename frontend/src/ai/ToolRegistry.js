@@ -259,7 +259,9 @@ export function toolsByCategory(category) {
 
 /**
  * JSON Schema that an AI can use to validate proposed plans.
- * Plans are arrays of `{tool, dependsOn?, comment?}` items.
+ * Plans are arrays of `{tool, dependsOn?, comment?, params?}` items.
+ * `params` is an object whose keys match the tool's param schema
+ * (see ToolParamSchemas.js). Unknown keys are dropped at validation.
  */
 export const PLAN_SCHEMA = {
   type: 'array',
@@ -280,6 +282,11 @@ export const PLAN_SCHEMA = {
       comment: {
         type: 'string',
         description: 'Human-readable reason for this step',
+      },
+      params: {
+        type: 'object',
+        additionalProperties: true,
+        description: 'Overrides for the tool\'s parameters. Keys must match the tool\'s param schema; unknown keys are dropped.',
       },
     },
   },

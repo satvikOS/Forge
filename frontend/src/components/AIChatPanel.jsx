@@ -267,6 +267,12 @@ async function executePlanInApp(plan, onStep) {
     tab.click();
     await new Promise(r => setTimeout(r, 400));
 
+    // Stash params so requestToolParams consumes them instead of opening the dialog
+    if (step.params && Object.keys(step.params).length) {
+      window.__archdiscPlanParams = window.__archdiscPlanParams || {};
+      window.__archdiscPlanParams[step.tool] = step.params;
+    }
+
     const tool = [...document.querySelectorAll('.ribbon-tool-label')]
       .find(el => el.textContent?.trim() === step.tool);
     if (!tool) { errors.push({ stepIndex: i, error: `Tool not found: ${step.tool}` }); onStep?.(i, 'error'); break; }

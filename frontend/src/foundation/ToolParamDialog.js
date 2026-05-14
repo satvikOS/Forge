@@ -25,6 +25,18 @@ let pendingTool = null;
 
 /** Called by handlers. Resolves to {values, cancelled}. */
 export function requestToolParams(toolName) {
+  // Planner-supplied overrides: when a plan step carries `params`,
+  // the executor stashes them on window.__archdiscPlanParams[toolName]
+  // for one-shot consumption. Merge with defaults; drop the slot
+  // after use so the next manual click reverts to the dialog.
+  if (typeof window !== 'undefined') {
+    const slot = window.__archdiscPlanParams?.[toolName];
+    if (slot && typeof slot === 'object') {
+      delete window.__archdiscPlanParams[toolName];
+      const merged = { ...defaultsForTool(toolName), ...slot };
+      return Promise.resolve({ values: merged, cancelled: false });
+    }
+  }
   // Bypass mode: explicit opt-in, OR auto-on under Playwright /
   // Selenium where navigator.webdriver is true (so existing e2e
   // suites that don't UI-drive the modal keep passing). Tests

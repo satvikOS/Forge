@@ -51,6 +51,15 @@ export async function executePlan(page, plan, options = {}) {
     await page.locator('.ribbon-tab', { hasText: meta.tab }).first().click();
     await page.waitForTimeout(500);
 
+    // 1b. If the plan step carries params, stash them on window so
+    //     requestToolParams() consumes them in lieu of defaults/dialog.
+    if (step.params && Object.keys(step.params).length) {
+      await page.evaluate(({ tool, params }) => {
+        window.__archdiscPlanParams = window.__archdiscPlanParams || {};
+        window.__archdiscPlanParams[tool] = params;
+      }, { tool: step.tool, params: step.params });
+    }
+
     // 2. Click the ribbon-tool-label (exact match — handles icon prefix)
     await page.locator('.ribbon-tool-label', { hasText: new RegExp(`^${escapeRegex(step.tool)}$`) })
               .first().click();
