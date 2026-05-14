@@ -12,6 +12,8 @@ import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
 import PartBrowserPanel from '../../components/PartBrowserPanel';
 import '../../components/PartBrowserPanel.css';
+import ToolParamDialog from '../../components/ToolParamDialog';
+import '../../components/ToolParamDialog.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -892,6 +894,9 @@ function WorkbenchMechanical() {
                     <div className="context-menu-item" onClick={() => handleContextAction('Change Transparency')}>Change Transparency</div>
                 </div>
             )}
+
+            {/* Tool parameter dialog — listens for handler requestToolParams() calls */}
+            <ToolParamDialog />
         </>
     );
 }

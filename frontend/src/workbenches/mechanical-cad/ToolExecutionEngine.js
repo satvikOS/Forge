@@ -76,6 +76,7 @@ import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
 import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody } from '../../foundation/BodyRegistry.js';
+import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -1432,19 +1433,12 @@ const TOOL_HANDLERS = {
     },
 
     'Brayton Cycle': async (scene) => {
-      // Foundation path: solve a Trent-XWB-class turbofan cycle at
-      // FL350 cruise (M=0.85, alt=10670 m, BPR=9.6, OPR=50, T4=1750 K,
-      // 1300 kg/s mass flow). Reports thrust, SFC, OPR, station T's,
-      // efficiencies — the exact numbers a propulsion engineer asks
-      // for on day one of a new engine concept.
-      const r = solveTurbofan({
-        altitudeM: 10670, machNumber: 0.85,
-        bypassRatio: 9.6,
-        fanPR: 1.45,
-        compressorPR: 50 / 1.45,
-        T4_K: 1750,
-        massFlowKgS: 1300,
-      });
+      // Defaults match a Trent-XWB-class turbofan at FL350 cruise.
+      // User-tweakable via ToolParamDialog; bypass-mode e2e tests
+      // get the defaults verbatim.
+      const { values, cancelled } = await requestToolParams('Brayton Cycle');
+      if (cancelled) return { status: 'warn', message: 'Brayton Cycle cancelled — no compute' };
+      const r = solveTurbofan(values);
       _lastFEAResult = r;
       if (typeof window !== 'undefined') window.__lastBraytonResult = r;
       return {

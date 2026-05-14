@@ -1,0 +1,132 @@
+.tpd-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.tpd-dialog {
+  background: #181818;
+  color: #e8e8e8;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  min-width: 480px;
+  max-width: 640px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 14px 60px rgba(0, 0, 0, 0.8);
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.tpd-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #1f1f1f;
+}
+.tpd-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+.tpd-close {
+  background: transparent;
+  color: #aaa;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+}
+.tpd-close:hover { color: #ff5555; background: #2a2a2a; }
+
+.tpd-blurb {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #888;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.tpd-fields {
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+.tpd-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 0;
+  gap: 12px;
+}
+.tpd-label {
+  flex: 0 0 220px;
+  font-size: 12px;
+  color: #ccc;
+  display: flex;
+  flex-direction: column;
+}
+.tpd-hint {
+  font-size: 10px;
+  color: #666;
+  margin-top: 2px;
+}
+.tpd-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tpd-input {
+  flex: 1;
+  background: #0d0d0d;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 12px 'Consolas', monospace;
+  padding: 5px 8px;
+  outline: none;
+}
+.tpd-input:focus { border-color: #5da5ff; }
+.tpd-unit {
+  min-width: 40px;
+  text-align: left;
+  color: #888;
+  font: 11px 'Consolas', monospace;
+}
+
+.tpd-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #2a2a2a;
+  background: #1a1a1a;
+}
+.tpd-btn-cancel,
+.tpd-btn-run {
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 6px 16px;
+  font: 12px 'Segoe UI', sans-serif;
+  cursor: pointer;
+}
+.tpd-btn-cancel {
+  background: transparent;
+  color: #ccc;
+}
+.tpd-btn-cancel:hover { background: #2a2a2a; }
+.tpd-btn-run {
+  background: #5da5ff;
+  color: #fff;
+  border-color: #5da5ff;
+  font-weight: 600;
+}
+.tpd-btn-run:hover { background: #4895ff; }
