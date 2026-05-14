@@ -75,6 +75,7 @@ import { solveLidDrivenCavity, sampleCenterlineU, GHIA_RE100_U } from '../../fou
 import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
 import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
 import { findTool } from '../../ai/ToolRegistry.js';
+import { registerBody } from '../../foundation/BodyRegistry.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -141,6 +142,7 @@ export function executeTool(groupKey, toolName, scene, viewport) {
   }
 
   try {
+    _activeToolName = toolName;
     const out = handler(scene, viewport);
     // Async handlers (foundation pipeline uses await) return a Promise.
     // Wrap any thrown error into the standard {status, message} shape so
@@ -151,15 +153,22 @@ export function executeTool(groupKey, toolName, scene, viewport) {
         .catch((err) => {
           console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
           return { status: 'error', message: `${toolName} failed: ${err.message}` };
-        });
+        })
+        .finally(() => { if (_activeToolName === toolName) _activeToolName = null; });
     }
     logHistoryAfterRun(resolvedKey, toolName, out);
+    _activeToolName = null;
     return out;
   } catch (err) {
+    _activeToolName = null;
     console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
     return { status: 'error', message: `${toolName} failed: ${err.message}` };
   }
 }
+
+// Name of the currently-running ribbon tool — addFoundationManifoldToScene
+// reads this so each new body remembers which tool created it.
+let _activeToolName = null;
 
 /**
  * After a handler runs, push a DesignHistory entry so the user can
@@ -212,6 +221,13 @@ function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b153
   // scale bbox (Three.js otherwise lazily computes it on next render
   // and Box3.setFromObject would read pre-scale coordinates).
   group.updateMatrixWorld(true);
+
+  // Register the body so the Part Browser panel can list it.
+  try {
+    registerBody({ group, manifold, sourceTool: _activeToolName });
+  } catch (err) {
+    console.warn('body registry register failed', err);
+  }
 
   // Mirror onto window for integration tests + frame-to-screen.
   if (typeof window !== 'undefined') {

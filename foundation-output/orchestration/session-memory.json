@@ -1,6 +1,6 @@
 {
-  "sessionId": "69d4c9bc96269e6f1d6c9544e8533186",
-  "startedAt": "2026-05-14T18:15:52.164Z",
+  "sessionId": "7d2eb9f914de552c61745ac8d1661ed8",
+  "startedAt": "2026-05-14T18:28:15.764Z",
   "userPrompt": "Design a turbofan for the A350.",
   "domain": "engine",
   "clarifications": {
@@ -41,13 +41,13 @@
       "field": "thrust_class",
       "oldVal": 350,
       "newVal": 400,
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "reason": "user wanted growth margin"
     }
   ],
   "decisionLog": [
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "prompt_set",
       "payload": {
         "prompt": "Design a turbofan for the A350."
@@ -55,7 +55,7 @@
       "reasoning": "user input"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "domain_detected",
       "payload": {
         "domain": "engine",
@@ -64,7 +64,7 @@
       "reasoning": "Clarifier matched 40% confidence"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "clarification",
       "payload": {
         "id": "thrust_class",
@@ -73,7 +73,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "clarification",
       "payload": {
         "id": "tit_max",
@@ -82,7 +82,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "plan_set",
       "payload": {
         "stepCount": 3
@@ -90,7 +90,7 @@
       "reasoning": "planner produced plan"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "step_executed",
       "payload": {
         "index": 0,
@@ -100,7 +100,7 @@
       "reasoning": "start"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "manual_override",
       "payload": {
         "field": "thrust_class",
@@ -110,7 +110,7 @@
       "reasoning": "user wanted growth margin"
     },
     {
-      "when": "2026-05-14T18:15:52.165Z",
+      "when": "2026-05-14T18:28:15.765Z",
       "type": "verification_run",
       "payload": {
         "ok": true,

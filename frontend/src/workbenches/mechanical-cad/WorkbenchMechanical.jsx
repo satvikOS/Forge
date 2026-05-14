@@ -10,6 +10,8 @@ import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
+import PartBrowserPanel from '../../components/PartBrowserPanel';
+import '../../components/PartBrowserPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -842,6 +844,9 @@ function WorkbenchMechanical() {
             <aside className="workbench-properties">
                 {/* Design history — every foundation tool run appears here */}
                 <DesignHistoryPanel />
+
+                {/* Part browser — every foundation body in the scene */}
+                <PartBrowserPanel />
 
                 {/* Feature Tree at top */}
                 <FeatureTreePanel onSelectFeature={(id) => console.log('Selected feature:', id)} />
