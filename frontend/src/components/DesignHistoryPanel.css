@@ -1,0 +1,102 @@
+.design-history-panel {
+  border-top: 1px solid #2a2a2a;
+  background: #0d0d0d;
+  color: #ddd;
+  font-family: 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow: hidden;
+}
+
+.dh-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: #181818;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.dh-title { flex: 1; color: #b0b0b0; }
+
+.dh-count {
+  background: #2a2a2a;
+  color: #ddd;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  margin-right: 6px;
+}
+
+.dh-clear-btn {
+  background: transparent;
+  color: #888;
+  border: none;
+  font-size: 14px;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+}
+.dh-clear-btn:hover { color: #ff5555; background: #222; }
+
+.dh-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+
+.dh-empty {
+  padding: 10px;
+  color: #555;
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+}
+
+.dh-row {
+  padding: 5px 10px;
+  border-bottom: 1px solid #1a1a1a;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.dh-row:hover { background: #1a1a1a; }
+.dh-row:last-child { border-bottom: none; }
+
+.dh-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dh-tool {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c8c8c8;
+}
+
+.dh-time {
+  font-size: 9px;
+  color: #555;
+  font-family: 'Consolas', monospace;
+}
+
+.dh-headline {
+  font-size: 11px;
+  color: #5da5ff;
+  margin-top: 2px;
+  font-family: 'Consolas', monospace;
+}
+
+.dh-tab {
+  font-size: 9px;
+  color: #555;
+  margin-top: 1px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

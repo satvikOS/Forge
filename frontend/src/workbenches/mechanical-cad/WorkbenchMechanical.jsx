@@ -8,6 +8,8 @@ import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
+import DesignHistoryPanel from '../../components/DesignHistoryPanel';
+import '../../components/DesignHistoryPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -838,6 +840,9 @@ function WorkbenchMechanical() {
 
             {/* RIGHT PROPERTIES PANEL */}
             <aside className="workbench-properties">
+                {/* Design history — every foundation tool run appears here */}
+                <DesignHistoryPanel />
+
                 {/* Feature Tree at top */}
                 <FeatureTreePanel onSelectFeature={(id) => console.log('Selected feature:', id)} />
 

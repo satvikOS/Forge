@@ -1,6 +1,6 @@
 {
-  "sessionId": "b4c5e750abcf38c62ca5fe1915614b32",
-  "startedAt": "2026-05-14T14:48:12.743Z",
+  "sessionId": "acbdad6fccaf8d8c31c7bc90783a0bc8",
+  "startedAt": "2026-05-14T18:15:52.624Z",
   "userPrompt": "Design a turbofan engine for an Airbus A350-class airliner.",
   "domain": "engine",
   "clarifications": {
@@ -156,7 +156,7 @@
   "manualOverrides": [],
   "decisionLog": [
     {
-      "when": "2026-05-14T14:48:12.743Z",
+      "when": "2026-05-14T18:15:52.624Z",
       "type": "prompt_set",
       "payload": {
         "prompt": "Design a turbofan engine for an Airbus A350-class airliner."
@@ -164,7 +164,7 @@
       "reasoning": "user input"
     },
     {
-      "when": "2026-05-14T14:48:12.743Z",
+      "when": "2026-05-14T18:15:52.624Z",
       "type": "domain_detected",
       "payload": {
         "domain": "engine",
@@ -173,7 +173,7 @@
       "reasoning": "Clarifier matched 13% confidence"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.624Z",
       "type": "clarification",
       "payload": {
         "id": "thrust_class",
@@ -182,7 +182,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.624Z",
       "type": "clarification",
       "payload": {
         "id": "cruise_mach",
@@ -191,7 +191,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.624Z",
       "type": "clarification",
       "payload": {
         "id": "cruise_alt_m",
@@ -200,7 +200,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.625Z",
       "type": "clarification",
       "payload": {
         "id": "bypass_ratio",
@@ -209,7 +209,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.625Z",
       "type": "clarification",
       "payload": {
         "id": "opr_cruise",
@@ -218,7 +218,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.625Z",
       "type": "clarification",
       "payload": {
         "id": "tit_max",
@@ -227,7 +227,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.744Z",
+      "when": "2026-05-14T18:15:52.625Z",
       "type": "clarification",
       "payload": {
         "id": "certification",
@@ -236,7 +236,7 @@
       "reasoning": "user answered"
     },
     {
-      "when": "2026-05-14T14:48:12.748Z",
+      "when": "2026-05-14T18:15:52.627Z",
       "type": "plan_set",
       "payload": {
         "stepCount": 13
@@ -244,7 +244,7 @@
       "reasoning": "fallback-canonical produced plan"
     },
     {
-      "when": "2026-05-14T14:48:18.929Z",
+      "when": "2026-05-14T18:15:56.753Z",
       "type": "step_executed",
       "payload": {
         "index": 0,
@@ -254,7 +254,7 @@
       "reasoning": "Start with airframe requirements: range + thrust per engine"
     },
     {
-      "when": "2026-05-14T14:48:21.200Z",
+      "when": "2026-05-14T18:15:58.894Z",
       "type": "step_executed",
       "payload": {
         "index": 1,
@@ -264,7 +264,7 @@
       "reasoning": "Pick cycle (BPR, OPR, T4) to meet SFC target"
     },
     {
-      "when": "2026-05-14T14:48:23.453Z",
+      "when": "2026-05-14T18:16:01.024Z",
       "type": "step_executed",
       "payload": {
         "index": 2,
@@ -274,7 +274,7 @@
       "reasoning": "Mean-line geometry from cycle outputs"
     },
     {
-      "when": "2026-05-14T14:48:25.715Z",
+      "when": "2026-05-14T18:16:03.147Z",
       "type": "step_executed",
       "payload": {
         "index": 3,
@@ -284,7 +284,7 @@
       "reasoning": "Liner sizing + NOx prediction"
     },
     {
-      "when": "2026-05-14T14:48:28.065Z",
+      "when": "2026-05-14T18:16:05.260Z",
       "type": "step_executed",
       "payload": {
         "index": 4,
@@ -294,7 +294,7 @@
       "reasoning": "HPT mean-line to balance compressor work"
     },
     {
-      "when": "2026-05-14T14:48:30.333Z",
+      "when": "2026-05-14T18:16:07.375Z",
       "type": "step_executed",
       "payload": {
         "index": 5,
@@ -304,7 +304,7 @@
       "reasoning": "Verify HPT blade survives T_gas"
     },
     {
-      "when": "2026-05-14T14:48:32.538Z",
+      "when": "2026-05-14T18:16:09.492Z",
       "type": "step_executed",
       "payload": {
         "index": 6,
@@ -314,7 +314,7 @@
       "reasoning": "Recuperator effectiveness"
     },
     {
-      "when": "2026-05-14T14:48:34.783Z",
+      "when": "2026-05-14T18:16:11.590Z",
       "type": "step_executed",
       "payload": {
         "index": 7,
@@ -324,7 +324,7 @@
       "reasoning": "Exhaust nozzle: convergent or CD"
     },
     {
-      "when": "2026-05-14T14:48:37.307Z",
+      "when": "2026-05-14T18:16:13.857Z",
       "type": "step_executed",
       "payload": {
         "index": 8,
@@ -334,7 +334,7 @@
       "reasoning": "Build a representative geometry for downstream analysis"
     },
     {
-      "when": "2026-05-14T14:48:39.555Z",
+      "when": "2026-05-14T18:16:15.966Z",
       "type": "step_executed",
       "payload": {
         "index": 9,
@@ -344,7 +344,7 @@
       "reasoning": "Inertia tensor for rotordynamics input"
     },
     {
-      "when": "2026-05-14T14:48:41.895Z",
+      "when": "2026-05-14T18:16:18.125Z",
       "type": "step_executed",
       "payload": {
         "index": 10,
@@ -354,7 +354,7 @@
       "reasoning": "Critical-speed check"
     },
     {
-      "when": "2026-05-14T14:48:44.121Z",
+      "when": "2026-05-14T18:16:20.224Z",
       "type": "step_executed",
       "payload": {
         "index": 11,
@@ -364,7 +364,7 @@
       "reasoning": "Life of the highest-stress component"
     },
     {
-      "when": "2026-05-14T14:48:46.519Z",
+      "when": "2026-05-14T18:16:22.427Z",
       "type": "step_executed",
       "payload": {
         "index": 12,
@@ -374,7 +374,7 @@
       "reasoning": "Package CAD output for vendors"
     },
     {
-      "when": "2026-05-14T14:48:48.032Z",
+      "when": "2026-05-14T18:16:23.938Z",
       "type": "verification_run",
       "payload": {
         "ok": true,

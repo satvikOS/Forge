@@ -73,6 +73,8 @@ import { optimizeSIMP } from '../../foundation/TopologyOptimization.js';
 import { contourMill, pocketClear, drillCycle, programWrap } from '../../foundation/CAMToolpath.js';
 import { solveLidDrivenCavity, sampleCenterlineU, GHIA_RE100_U } from '../../foundation/NavierStokes2D.js';
 import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
+import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
+import { findTool } from '../../ai/ToolRegistry.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -144,15 +146,47 @@ export function executeTool(groupKey, toolName, scene, viewport) {
     // Wrap any thrown error into the standard {status, message} shape so
     // the caller can rely on the same surface for both sync and async.
     if (out && typeof out.then === 'function') {
-      return out.catch((err) => {
-        console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
-        return { status: 'error', message: `${toolName} failed: ${err.message}` };
-      });
+      return out
+        .then((res) => { logHistoryAfterRun(resolvedKey, toolName, res); return res; })
+        .catch((err) => {
+          console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
+          return { status: 'error', message: `${toolName} failed: ${err.message}` };
+        });
     }
+    logHistoryAfterRun(resolvedKey, toolName, out);
     return out;
   } catch (err) {
     console.error(`Tool ${resolvedKey}/${toolName} failed:`, err);
     return { status: 'error', message: `${toolName} failed: ${err.message}` };
+  }
+}
+
+/**
+ * After a handler runs, push a DesignHistory entry so the user can
+ * see what just happened in the right-side timeline. Looks up the
+ * canonical state slot in ToolRegistry, falls back to the handler's
+ * status-bar message if no slot is registered.
+ */
+function logHistoryAfterRun(groupKey, toolName, result) {
+  if (typeof window === 'undefined') return;
+  if (!result || result.status === 'error') return;
+  const meta = findTool(toolName);
+  const payloadKey = meta?.produces ?? null;
+  const state = payloadKey ? window[payloadKey] : null;
+  let headline = state ? formatHeadline(toolName, state) : '';
+  if (!headline && typeof result.message === 'string') {
+    headline = result.message.split('|')[0].split(' via foundation')[0].slice(0, 80);
+  }
+  try {
+    recordToolRun({
+      tool: toolName,
+      tab: meta?.tab ?? groupKey,
+      category: meta?.category ?? null,
+      headline,
+      payloadKey,
+    });
+  } catch (err) {
+    console.warn('history record failed', err);
   }
 }
 
