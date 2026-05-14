@@ -1321,13 +1321,14 @@ const TOOL_HANDLERS = {
     },
 
     'Blade Cooling': async (scene) => {
-      // Foundation path: HPT blade thermal-resistance analysis at
-      // T_gas = 1750 K, T_coolant = 800 K, CMSX-4 metal + 0.3 mm YSZ
-      // TBC. 4 stations: LE / midPS / midSS / TE.
+      // HPT blade thermal-resistance analysis. Scalar inputs (gas T,
+      // coolant T, metal + TBC thickness/k) are dialog-tweakable; the
+      // 4-station h-distribution stays hardcoded (too many DOFs for
+      // a single dialog — power-user surface lives in code).
+      const { values, cancelled } = await requestToolParams('Blade Cooling');
+      if (cancelled) return { status: 'warn', message: 'Blade Cooling cancelled — no compute' };
       const r = analyzeBladeCooling({
-        T_gas_K: 1750, T_coolant_K: 800,
-        t_metal_m: 0.0015, k_metal: 24,
-        t_TBC_m: 0.0003, k_TBC: 1.0,
+        ...values,
         stations: {
           LE:    { h_ext: 5000, h_int: 3500, etaFilm: filmEffectiveness(0.8, 2) },
           midPS: { h_ext: 3000, h_int: 2500, etaFilm: filmEffectiveness(0.6, 8) },
@@ -1380,13 +1381,11 @@ const TOOL_HANDLERS = {
     },
 
     'Combustor': async (scene) => {
-      // Foundation path: annular combustor sized for engine cruise.
-      // 25 kg/s core flow, T_t3 = 850 K (post-HPC), P_t3 = 3.7 MPa,
-      // T_t4 = 1750 K target, residence time 10 ms.
-      const r = designAnnularCombustor({
-        massFlowKgS: 25, T_t3_K: 850, P_t3_Pa: 3.7e6, T_t4_K: 1750,
-        residenceTime_ms: 10,
-      });
+      // Defaults: 25 kg/s @ 850 K / 3.7 MPa, T_t4 = 1750 K, 10 ms
+      // residence. Lefebvre sizing. Tweakable via ToolParamDialog.
+      const { values, cancelled } = await requestToolParams('Combustor');
+      if (cancelled) return { status: 'warn', message: 'Combustor cancelled — no compute' };
+      const r = designAnnularCombustor(values);
       _lastFEAResult = r;
       if (typeof window !== 'undefined') window.__lastCombustorResult = r;
       return {
@@ -1415,15 +1414,11 @@ const TOOL_HANDLERS = {
     },
 
     'Compressor Stage': async (scene) => {
-      // Foundation path: subsonic axial fan-stage analysis. 100 kg/s,
-      // sea-level total inlet, 8000 RPM, r_tip = 0.6 m, hub/tip = 0.45,
-      // axial Mach 0.5, ΔT_t = 25 K. Reports velocity triangles at
-      // hub/mid/tip, De Haller diffusion check, stage PR, blade count.
-      const r = analyzeCompressorStage({
-        massFlowKgS: 100, T_t1_K: 288.15, P_t1_Pa: 101325,
-        rpm: 8000, r_tip_m: 0.6, hubToTip: 0.45,
-        axialMach1: 0.5, deltaTtotal_K: 25, polytropicEff: 0.90,
-      });
+      // Defaults: subsonic axial fan-stage @ sea-level inlet, 100 kg/s,
+      // 8 000 RPM, r_tip 0.6 m. User-tweakable via ToolParamDialog.
+      const { values, cancelled } = await requestToolParams('Compressor Stage');
+      if (cancelled) return { status: 'warn', message: 'Compressor Stage cancelled — no compute' };
+      const r = analyzeCompressorStage(values);
       _lastFEAResult = r;
       if (typeof window !== 'undefined') window.__lastCompressorResult = r;
       return {

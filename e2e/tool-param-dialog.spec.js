@@ -58,6 +58,42 @@ test.describe('Tool Param Dialog drives Brayton Cycle inputs', () => {
     await expect(dlg).not.toBeVisible();
   });
 
+  test('Combustor + Blade Cooling dialogs accept overrides and feed the solver', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30000 });
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => { window.__archdiscBypassDialog = false; });
+
+    // Combustor: hotter TIT + shorter residence → more aggressive NOx
+    await page.locator('.ribbon-tab', { hasText: 'Simulate' }).first().click();
+    await page.waitForTimeout(500);
+    await page.locator('.ribbon-tool-label', { hasText: /^Combustor$/ }).first().click();
+    const dlg = page.locator('.tpd-dialog');
+    await expect(dlg).toBeVisible({ timeout: 15000 });
+    await expect(dlg.locator('.tpd-title')).toContainText('Combustor');
+    await dlg.locator('[data-field="T_t4_K"]').fill('1900');
+    await dlg.locator('[data-field="residenceTime_ms"]').fill('6');
+    await page.waitForTimeout(4000);
+    await dlg.locator('.tpd-btn-run').click();
+    await page.waitForFunction(() => !!window.__lastCombustorResult, null, { timeout: 30000 });
+    const cR = await page.evaluate(() => window.__lastCombustorResult);
+    console.log(`\nCombustor @ T₄=1900, τ=6 ms → NOx EI ${cR.emissions.EI_NOx_g_per_kgFuel.toFixed(1)} g/kg, q' ${cR.operating.heatReleaseRate_MW_per_m3_atm.toFixed(1)} MW/m³·atm`);
+    expect(cR.emissions.EI_NOx_g_per_kgFuel).toBeGreaterThan(0);
+    expect(cR.geometry.liner_length_m).toBeGreaterThan(0);
+
+    // Blade Cooling: bump gas T → metal temp jumps
+    await page.locator('.ribbon-tool-label', { hasText: /^Blade Cooling$/ }).first().click();
+    await expect(dlg).toBeVisible({ timeout: 15000 });
+    await expect(dlg.locator('.tpd-title')).toContainText('Blade Cooling');
+    await dlg.locator('[data-field="T_gas_K"]').fill('1900');
+    await page.waitForTimeout(4000);
+    await dlg.locator('.tpd-btn-run').click();
+    await page.waitForFunction(() => !!window.__lastBladeCoolingResult, null, { timeout: 30000 });
+    const bR = await page.evaluate(() => window.__lastBladeCoolingResult);
+    console.log(`Blade Cooling @ T_gas=1900 K → T_metal_max ${(bR.T_metal_max_K - 273.15).toFixed(0)} °C, ${bR.survives_long_life ? 'long-life OK' : 'EXCEEDS long-life'}`);
+    expect(bR.T_metal_max_K).toBeGreaterThan(900);
+  });
+
   test('Bypass mode under navigator.webdriver: dialog never opens', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30000 });
