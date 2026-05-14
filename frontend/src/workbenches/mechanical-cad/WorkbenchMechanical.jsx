@@ -14,6 +14,8 @@ import PartBrowserPanel from '../../components/PartBrowserPanel';
 import '../../components/PartBrowserPanel.css';
 import ToolParamDialog from '../../components/ToolParamDialog';
 import '../../components/ToolParamDialog.css';
+import AISettingsPanel from '../../components/AISettingsPanel';
+import '../../components/AISettingsPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -372,6 +374,7 @@ function WorkbenchMechanical() {
     const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const [activeProjectId, setActiveProjectId] = useState(null);
     const [selection, setSelection] = useState(null);
+    const [aiSettingsOpen, setAISettingsOpen] = useState(false);
     const [ribbonTab, setRibbonTab] = useState('part');
     const dropdownRef = useRef(null);
     const buttonRefs = useRef({});
@@ -897,6 +900,14 @@ function WorkbenchMechanical() {
 
             {/* Tool parameter dialog — listens for handler requestToolParams() calls */}
             <ToolParamDialog />
+
+            {/* BYO-LLM Settings — toggled via the floating "AI" pill */}
+            <button className="ai-settings-launcher"
+                    onClick={() => setAISettingsOpen(true)}
+                    title="AI Provider Settings (BYO-LLM)">
+              AI
+            </button>
+            <AISettingsPanel open={aiSettingsOpen} onClose={() => setAISettingsOpen(false)} />
         </>
     );
 }
