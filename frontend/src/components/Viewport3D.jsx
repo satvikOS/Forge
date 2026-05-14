@@ -6,6 +6,7 @@ import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, La
 import { useViewport } from '../contexts/ViewportContext';
 import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature, BVH } from '../kernel/index.js';
 import { getFeatureTree, registerSelectedEdgesProvider } from '../workbenches/mechanical-cad/ToolExecutionEngine.js';
+import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 
 // Singletons
 const _pixelManager = new PixelManager();
@@ -349,6 +350,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
             if (intersects.length === 0) {
                 clearSelection();
+                try { getBodyRegistry().select(null); } catch { /* no-op */ }
                 if (onSelectionChangeRef.current) onSelectionChangeRef.current?.(null);
                 return;
             }
@@ -458,12 +460,18 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
             // Object mode — select and enable transform
             selectObject(topGroup);
+            // If this is a registered foundation body, sync the Part
+            // Browser selection so PropertyManager picks up the right
+            // body (closes the inverse loop: viewport ⇄ side panel).
+            const bodyId = topGroup.userData?.bodyId ?? null;
+            try { getBodyRegistry().select(bodyId); } catch { /* no-op */ }
             if (onSelectionChangeRef.current) {
                 onSelectionChangeRef.current({
                     type: 'object',
                     name: topGroup.name || 'Object',
                     position: { x: topGroup.position.x.toFixed(3), y: topGroup.position.y.toFixed(3), z: topGroup.position.z.toFixed(3) },
                     solidId: topGroup.userData.kernelSolid?.id,
+                    bodyId,
                 });
             }
         };
@@ -639,6 +647,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             window.__three_scene = scene;
             window.__three_camera = camera;
             window.__three_renderer = renderer;
+            window.THREE = THREE;
         }
 
         if (onReadyRef.current) onReadyRef.current({ scene, camera, renderer, controls: orbitControls, transformControls });
