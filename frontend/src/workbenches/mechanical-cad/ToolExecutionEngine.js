@@ -54,6 +54,9 @@ import { designAnnularCombustor } from '../../foundation/Combustor.js';
 import { analyzeConvergentNozzle, analyzeCDNozzle } from '../../foundation/Nozzle.js';
 import { analyzeBladeCooling, filmEffectiveness } from '../../foundation/BladeCooling.js';
 import { fullMissionEstimate } from '../../foundation/Mission.js';
+import { bearingLife, equivalentDynamicLoad, hertzContact } from '../../foundation/Bearings.js';
+import { analyzeGearMesh } from '../../foundation/Gears.js';
+import { deGoodmanDiameter, asmeElliptiCDiameter, staticShaftCheck } from '../../foundation/Shaft.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1084,6 +1087,60 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Bearing Life': async (scene) => {
+      // Foundation path: SKF 6210-class deep-groove ball bearing
+      // under combined radial 4 kN + axial 2 kN @ 1700 RPM. C=35.1 kN,
+      // C0=23.2 kN catalog values.
+      const eq = equivalentDynamicLoad({ Fr_kN: 4, Fa_kN: 2, C0_kN: 23.2 });
+      const life = bearingLife({ C_kN: 35.1, P_kN: eq.P_kN, rpm: 1700, type: 'ball' });
+      const hertz = hertzContact({ force_N: 200, R_ball_m: 0.005, R_race_m: -0.00525 });
+      const out = { equivalent: eq, life, hertz };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastBearingResult = out;
+      return {
+        status: 'success',
+        message: `Bearing 6210-class: P = ${eq.P_kN.toFixed(2)} kN, L₁₀ = ${life.L10_Mrev.toFixed(1)} Mrev = ${life.L10_hours.toFixed(0)} hrs = ${(life.L10_hours/24/365).toFixed(2)} yrs continuous | Hertz p_max = ${(hertz.p_max_Pa/1e6).toFixed(0)} MPa via foundation.bearingLife`,
+      };
+    },
+
+    'Gear Mesh': async (scene) => {
+      // Foundation path: Shigley Ex 14-4-class spur pinion (17T, m=6,
+      // F=75 mm, 1.5 kW @ 1750 RPM). AGMA bending + contact stress.
+      const r = analyzeGearMesh({
+        teeth: 17, module_mm: 6, faceWidth_mm: 75,
+        power_W: 1500, rpm: 1750, J: 0.31, I: 0.10,
+        allowable_bending_MPa: 250, allowable_contact_MPa: 1100,
+      });
+      _lastFEAResult = r;
+      if (typeof window !== 'undefined') window.__lastGearResult = r;
+      return {
+        status: r.status === 'safe' ? 'success' : (r.status === 'marginal' ? 'warn' : 'error'),
+        message: `Spur gear 17T/m=6 @ 1.5 kW: d = ${r.geometry.pitchDiameter_mm} mm, W_t = ${r.force.tangentialForce_N.toFixed(1)} N | σ_bending = ${r.bending.sigma_bending_MPa.toFixed(2)} MPa (SF ${r.safetyFactors.bending.toFixed(1)}), σ_contact = ${r.contact.sigma_contact_MPa.toFixed(0)} MPa (SF ${r.safetyFactors.contact.toFixed(1)}) — ${r.status.toUpperCase()} via foundation.analyzeGearMesh`,
+      };
+    },
+
+    'Shaft Sizing': async (scene) => {
+      // Foundation path: Shigley §7 shaft sizing example.
+      // M=70 N·m reversed bending, T=45 N·m steady torque, AISI 1050 CD
+      // (Sut=690, Sy=580). Marin S_e=276. Kf=1.6, Kfs=1.3, n=1.5.
+      const goodman = deGoodmanDiameter({
+        M_Nm: 70, T_Nm: 45, Sut_MPa: 690, Se_MPa: 276,
+        n: 1.5, Kf: 1.6, Kfs: 1.3,
+      });
+      const asme = asmeElliptiCDiameter({
+        M_Nm: 70, T_Nm: 45, Sy_MPa: 580, Se_MPa: 276,
+        n: 1.5, Kf: 1.6, Kfs: 1.3,
+      });
+      const stat = staticShaftCheck({ M_Nm: 70, T_Nm: 45, d_mm: 22, Sy_MPa: 580 });
+      const out = { goodman, asme, stat };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastShaftResult = out;
+      return {
+        status: 'success',
+        message: `Shaft (AISI 1050 CD, M=70 N·m reversed + T=45 N·m steady, n=1.5): DE-Goodman d ≥ ${goodman.diameter_mm.toFixed(2)} mm, ASME elliptic d ≥ ${asme.diameter_mm.toFixed(2)} mm. At d=22 mm: σ_b = ${stat.sigma_bending_MPa.toFixed(1)} MPa, τ_t = ${stat.tau_torsion_MPa.toFixed(1)} MPa, SF_VM = ${stat.SF_von_mises.toFixed(2)} via foundation.deGoodmanDiameter`,
+      };
+    },
+
     'Blade Cooling': async (scene) => {
       // Foundation path: HPT blade thermal-resistance analysis at
       // T_gas = 1750 K, T_coolant = 800 K, CMSX-4 metal + 0.3 mm YSZ

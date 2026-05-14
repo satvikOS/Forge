@@ -125,6 +125,11 @@ const TABS = {
         { name: 'Topology Optimization', icon: '🧬', key: 'simulation' },
         { name: 'Design Study', icon: '📈', key: 'simulation' },
       ]},
+      { label: 'Machine Elements', tools: [
+        { name: 'Bearing Life', icon: '◯', key: 'simulation' },
+        { name: 'Gear Mesh', icon: '⚙', key: 'simulation' },
+        { name: 'Shaft Sizing', icon: '⫼', key: 'simulation' },
+      ]},
     ]
   },
   manufacture: {
