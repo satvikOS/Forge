@@ -1,0 +1,26 @@
+{
+  "total": 50,
+  "byTab": {
+    "Part": 14,
+    "Assembly": 1,
+    "Simulate": 25,
+    "Manufacture": 6,
+    "Drawing": 4
+  },
+  "byCategory": {
+    "Pattern": 3,
+    "Feature": 8,
+    "Boolean": 3,
+    "Inspect": 1,
+    "Structural": 8,
+    "Thermal": 2,
+    "Optimize": 1,
+    "MachineElement": 6,
+    "Propulsion": 8,
+    "Additive": 1,
+    "CNC": 3,
+    "Cost": 1,
+    "Export": 3,
+    "Drawing": 2
+  }
+}
