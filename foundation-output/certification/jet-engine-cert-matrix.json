@@ -1,0 +1,242 @@
+{
+  "summary": {
+    "total": 14,
+    "covered": 10,
+    "uncovered": 4,
+    "passed": 10,
+    "failed": 0,
+    "coveragePct": 71.42857142857143
+  },
+  "ruleReports": [
+    {
+      "ruleId": "CS-E 50",
+      "category": "Performance",
+      "shortTitle": "Engine ratings",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #0 (Mission):  | step #1 (Brayton Cycle): Thrust 185.7 kN, SFC 0.686 lbm/(lbf·hr)",
+      "verifyingSteps": [
+        {
+          "stepIndex": 0,
+          "tool": "Mission",
+          "satisfied": true,
+          "notes": ""
+        },
+        {
+          "stepIndex": 1,
+          "tool": "Brayton Cycle",
+          "satisfied": true,
+          "notes": "Thrust 185.7 kN, SFC 0.686 lbm/(lbf·hr)"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 60",
+      "category": "Performance",
+      "shortTitle": "SFC declared",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #1 (Brayton Cycle): SFC = 0.686 lbm/(lbf·hr) (typical band 0.3–2.0)",
+      "verifyingSteps": [
+        {
+          "stepIndex": 1,
+          "tool": "Brayton Cycle",
+          "satisfied": true,
+          "notes": "SFC = 0.686 lbm/(lbf·hr) (typical band 0.3–2.0)"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 510",
+      "category": "Structural",
+      "shortTitle": "Strength + deformation",
+      "status": "UNCOVERED",
+      "covered": false,
+      "satisfied": null,
+      "notes": "No plan step used: Linear Static FEA",
+      "verifyingSteps": []
+    },
+    {
+      "ruleId": "CS-E 540",
+      "category": "Structural",
+      "shortTitle": "Fatigue tolerance",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #11 (Fatigue Analysis): Goodman SF = 1.25 (≥ 1.0 required)",
+      "verifyingSteps": [
+        {
+          "stepIndex": 11,
+          "tool": "Fatigue Analysis",
+          "satisfied": true,
+          "notes": "Goodman SF = 1.25 (≥ 1.0 required)"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 650",
+      "category": "Structural",
+      "shortTitle": "Vibration survey",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #10 (Rotordynamics): Critical speed = 156 RPM",
+      "verifyingSteps": [
+        {
+          "stepIndex": 10,
+          "tool": "Rotordynamics",
+          "satisfied": true,
+          "notes": "Critical speed = 156 RPM"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 740",
+      "category": "HotSection",
+      "shortTitle": "Hot-section integrity",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #5 (Blade Cooling): Hot-spot midPS = 745 °C, long-life survival",
+      "verifyingSteps": [
+        {
+          "stepIndex": 5,
+          "tool": "Blade Cooling",
+          "satisfied": true,
+          "notes": "Hot-spot midPS = 745 °C, long-life survival"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 730",
+      "category": "HotSection",
+      "shortTitle": "Combustion",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #3 (Combustor): NOx EI = 74.4 g/kg fuel, heat release = 51.0 MW/(m³·atm)",
+      "verifyingSteps": [
+        {
+          "stepIndex": 3,
+          "tool": "Combustor",
+          "satisfied": true,
+          "notes": "NOx EI = 74.4 g/kg fuel, heat release = 51.0 MW/(m³·atm)"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 850",
+      "category": "Rotors",
+      "shortTitle": "Critical speeds margin",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #10 (Rotordynamics): Critical at 156 RPM (separation margin manual check)",
+      "verifyingSteps": [
+        {
+          "stepIndex": 10,
+          "tool": "Rotordynamics",
+          "satisfied": true,
+          "notes": "Critical at 156 RPM (separation margin manual check)"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 800",
+      "category": "BirdStrike",
+      "shortTitle": "Bird ingestion",
+      "status": "UNCOVERED",
+      "covered": false,
+      "satisfied": null,
+      "notes": "No ArchDisc tool covers this rule yet (test evidence required)",
+      "verifyingSteps": []
+    },
+    {
+      "ruleId": "ICAO Ch 14",
+      "category": "Noise",
+      "shortTitle": "Noise certification",
+      "status": "UNCOVERED",
+      "covered": false,
+      "satisfied": null,
+      "notes": "No ArchDisc tool covers this rule yet (test evidence required)",
+      "verifyingSteps": []
+    },
+    {
+      "ruleId": "CS-E 670",
+      "category": "Fuel",
+      "shortTitle": "Fuel system",
+      "status": "UNCOVERED",
+      "covered": false,
+      "satisfied": null,
+      "notes": "No ArchDisc tool covers this rule yet (test evidence required)",
+      "verifyingSteps": []
+    },
+    {
+      "ruleId": "CS-E 760",
+      "category": "Thermal",
+      "shortTitle": "Cooling adequacy",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #5 (Blade Cooling): T_metal_max = 745 °C | step #6 (Heat Exchanger): Effectiveness = 0.464",
+      "verifyingSteps": [
+        {
+          "stepIndex": 5,
+          "tool": "Blade Cooling",
+          "satisfied": true,
+          "notes": "T_metal_max = 745 °C"
+        },
+        {
+          "stepIndex": 6,
+          "tool": "Heat Exchanger",
+          "satisfied": true,
+          "notes": "Effectiveness = 0.464"
+        }
+      ]
+    },
+    {
+      "ruleId": "CS-E 515",
+      "category": "Durability",
+      "shortTitle": "Engine life",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #11 (Fatigue Analysis): Goodman SF = 1.25",
+      "verifyingSteps": [
+        {
+          "stepIndex": 11,
+          "tool": "Fatigue Analysis",
+          "satisfied": true,
+          "notes": "Goodman SF = 1.25"
+        }
+      ]
+    },
+    {
+      "ruleId": "AMC 25.901",
+      "category": "Aerodynamic",
+      "shortTitle": "Compressor surge margin",
+      "status": "PASS",
+      "covered": true,
+      "satisfied": true,
+      "notes": "step #2 (Compressor Stage): De Haller passes: hub=0.72, mid=0.85, tip=0.91 (>= 0.72 required)",
+      "verifyingSteps": [
+        {
+          "stepIndex": 2,
+          "tool": "Compressor Stage",
+          "satisfied": true,
+          "notes": "De Haller passes: hub=0.72, mid=0.85, tip=0.91 (>= 0.72 required)"
+        }
+      ]
+    }
+  ],
+  "suggestedNext": [
+    {
+      "id": "CS-E 510",
+      "missingTools": [
+        "Linear Static FEA"
+      ]
+    }
+  ]
+}
