@@ -61,6 +61,8 @@ import { analyzeBoltedJoint } from '../../foundation/BoltedJoint.js';
 import { analyzeSpring } from '../../foundation/Spring.js';
 import { thinWallCylinder, thickWallCylinder, asmeMinimumThickness } from '../../foundation/PressureVessel.js';
 import { solveHeatExchanger, sizeHeatExchanger } from '../../foundation/HeatExchanger.js';
+import * as SCF from '../../foundation/StressConcentration.js';
+import { sdofFRF, sdofTransmissibility, sdofSteadyState, halfPowerFrequencies } from '../../foundation/ForcedVibration.js';
 import { lowestNaturalFrequency } from '../../foundation/ModalAnalysis.js';
 import { solveThermalSteady } from '../../foundation/ThermalFEM.js';
 import { solveBuckling } from '../../foundation/BucklingAnalysis.js';
@@ -1091,6 +1093,62 @@ const TOOL_HANDLERS = {
       const m1 = result.modes[0], m2 = result.modes[1], m3 = result.modes[2];
       return { status: 'success', message: `Modal: Mode 1: ${m1.frequencyHz} Hz (${m1.type}) | Mode 2: ${m2.frequencyHz} Hz | Mode 3: ${m3.frequencyHz} Hz | ${result.modes.filter(m=>m.frequency>100).length}/${result.modes.length} above 100Hz` };
     },
+    'Stress Concentration': async (scene) => {
+      // Representative report: shoulder fillet (D/d=2, r/d=0.1) +
+      // hole in plate (d/W=0.3) + notch sensitivity for 4340.
+      const Kt_axial = SCF.shoulderFilletAxial(2.0, 0.1);
+      const Kt_bend = SCF.shoulderFilletBending(2.0, 0.1);
+      const Kt_torsion = SCF.shoulderFilletTorsion(2.0, 0.1);
+      const Kt_hole = SCF.plateWithHoleAxial(0.3);
+      const Kt_keyway_t = SCF.shaftKeywayTorsion();
+      const q = SCF.notchSensitivity(2, 1280);
+      const Kf_shoulder_bend = SCF.fatigueSCF(Kt_bend, q);
+      const out = {
+        shoulderFillet: { Kt_axial, Kt_bend, Kt_torsion },
+        plateHole_d_W_0_3: Kt_hole,
+        keyway_torsion: Kt_keyway_t,
+        notchSensitivity_4340_r2mm: q,
+        Kf_shoulder_bend,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastSCFResult = out;
+      return {
+        status: 'success',
+        message: `SCF report — Shoulder fillet (D/d=2, r/d=0.1): K_t axial=${Kt_axial.toFixed(2)}, bend=${Kt_bend.toFixed(2)}, torsion=${Kt_torsion.toFixed(2)} | Plate w/ hole d/W=0.3: K_t=${Kt_hole.toFixed(2)} | Keyway torsion K_t=${Kt_keyway_t} | 4340 r=2mm: q=${q.toFixed(2)}, K_f bend=${Kf_shoulder_bend.toFixed(2)} via foundation.StressConcentration`,
+      };
+    },
+
+    'Forced Vibration': async (scene) => {
+      // SDOF: 5 kg, 1000 N/m, c chosen for ζ=0.05. Sweep peak + bandwidth.
+      const m = 5, k = 1000, zeta = 0.05;
+      const c = 2 * zeta * Math.sqrt(m * k);
+      const omega_n = Math.sqrt(k / m);
+      const fn = omega_n / (2 * Math.PI);
+      // Peak at r=1: D=1/(2ζ), phase=90°
+      const peak = sdofFRF(1, zeta);
+      const tr_sqrt2 = sdofTransmissibility(Math.sqrt(2), zeta);
+      const tr_r3 = sdofTransmissibility(3, zeta);
+      const hp = halfPowerFrequencies(fn, zeta);
+      const phys = sdofSteadyState({
+        F0_N: 10, k_N_per_m: k, m_kg: m, c_Ns_per_m: c, omega_rad_s: omega_n,
+      });
+      const out = {
+        m_kg: m, k_N_per_m: k, c_Ns_per_m: c,
+        fn_Hz: fn, zeta,
+        peak_magnification: peak.D, peak_phase_deg: peak.phase_deg,
+        transmissibility_r_sqrt2: tr_sqrt2,
+        transmissibility_r_3: tr_r3,
+        halfPower: hp,
+        resonant_X_mm: phys.X_m * 1000,
+      };
+      _lastFEAResult = out;
+      if (typeof window !== 'undefined') window.__lastVibrationResult = out;
+      return {
+        status: 'success',
+        message: `Forced Vibration (m=5 kg, k=1000 N/m, ζ=0.05): fn = ${fn.toFixed(2)} Hz, peak D = ${peak.D.toFixed(1)} (= 1/(2ζ)), TR @ r=√2 = ${tr_sqrt2.toFixed(3)} (= 1 exact), TR @ r=3 = ${tr_r3.toFixed(3)} (isolation), half-power band ${hp.f1_Hz.toFixed(2)}–${hp.f2_Hz.toFixed(2)} Hz → ζ_est=${hp.zeta_check.toFixed(3)}, X_resonant = ${(phys.X_m*1000).toFixed(2)} mm @ F=10 N via foundation.sdofFRF`,
+      };
+    },
+
     'Bolted Joint': async (scene) => {
       const r = analyzeBoltedJoint({
         boltSize: 'M10', grade: '8.8',

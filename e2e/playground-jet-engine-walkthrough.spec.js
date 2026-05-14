@@ -44,17 +44,23 @@ test.describe('Playground: jet-engine design walkthrough', () => {
     // Capture initial state
     await page.screenshot({ path: path.join(ROOT, '00-initial.png'), fullPage: false });
 
+    // "Play around" pause — long enough for a human watching the
+    // browser to actually read the status bar and see geometry.
+    const DWELL_MS = 7000;
+    const dwell = (ms = DWELL_MS) => page.waitForTimeout(ms);
+
     const snapshot = async (label, stateKey, screenshotFile) => {
       const v = await page.evaluate((k) => window[k] || null, stateKey);
       console.log(`\n--- ${label} ---`);
       if (v) console.log(JSON.stringify(v, null, 2).split('\n').slice(0, 10).join('\n'));
       await page.screenshot({ path: path.join(ROOT, screenshotFile), fullPage: false });
+      await dwell();   // sit on this state ~7 s so a human can read it
       return v;
     };
 
     const clickRibbon = async (tab, tool) => {
       await page.locator('.ribbon-tab', { hasText: tab }).first().click();
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(500);    // tab swap settle
       await page.locator('.ribbon-tool-label', { hasText: new RegExp(`^${tool}$`) }).first().click();
     };
 
@@ -144,8 +150,9 @@ test.describe('Playground: jet-engine design walkthrough', () => {
     // ─── 9. Build a representative body (Linear Pattern) ────────
     await clickRibbon('Part', 'Linear Pattern');
     await page.waitForFunction(() => !!window.__lastFoundationManifold, null, { timeout: 60000 });
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
     await page.screenshot({ path: path.join(ROOT, '09-pattern.png'), fullPage: false });
+    await dwell();    // let the cylinders render long enough to see them
 
     // ─── 9b. Mass Properties ────────────────────────────────────
     await clickRibbon('Assembly', 'Mass Properties');
@@ -186,6 +193,7 @@ test.describe('Playground: jet-engine design walkthrough', () => {
     console.log(`STEP AP203 file size: ${(stepSize / 1024).toFixed(1)} KB`);
     await page.screenshot({ path: path.join(ROOT, '13-step.png'), fullPage: false });
     designLog.push({ step: 'ExportSTEP', step_KB: stepSize / 1024 });
+    await dwell();    // final pause so human watching sees the success state
 
     // ─── Save design notebook ───────────────────────────────────
     fs.writeFileSync(

@@ -133,6 +133,8 @@ const TABS = {
         { name: 'Bolted Joint', icon: '⊕', key: 'simulation' },
         { name: 'Spring Design', icon: '〰', key: 'simulation' },
         { name: 'Pressure Vessel', icon: '⬮', key: 'simulation' },
+        { name: 'Stress Concentration', icon: '⊻', key: 'simulation' },
+        { name: 'Forced Vibration', icon: '∿', key: 'simulation' },
       ]},
     ]
   },
