@@ -57,10 +57,78 @@ export default function AIChatPanel({ open, onClose }) {
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
   const transcriptEndRef = useRef(null);
+  const [restoredFromStorage, setRestoredFromStorage] = useState(false);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [messages, plan, stepStatuses]);
+
+  // ── Persist session to localStorage on every meaningful change ──
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    if (phase === 'idle' && messages.length <= 1) return;  // nothing to save yet
+    try {
+      const snapshot = {
+        v: 1,
+        savedAt: new Date().toISOString(),
+        messages, phase, draft,
+        domain, qIdx, answers,
+        plan, planSource, stepStatuses,
+        certMatrix: certMatrix ? {
+          summary: certMatrix.summary,
+          ruleReports: certMatrix.ruleReports.map(r => ({
+            rule: { id: r.rule.id, category: r.rule.category, shortTitle: r.rule.shortTitle,
+                    requirementText: r.rule.requirementText, verifiedBy: r.rule.verifiedBy },
+            status: r.status, covered: r.covered, satisfied: r.satisfied,
+            notes: r.notes, verifyingSteps: r.verifyingSteps,
+          })),
+        } : null,
+        dfmReport, costReport,
+        vendorProfileId,
+        memJSON: memRef.current?.toJSON?.() ?? null,
+      };
+      localStorage.setItem('archdisc.session', JSON.stringify(snapshot));
+    } catch (err) {
+      console.warn('session persist failed', err);
+    }
+  }, [messages, phase, draft, domain, qIdx, answers, plan, planSource, stepStatuses,
+      certMatrix, dfmReport, costReport, vendorProfileId]);
+
+  // ── Restore session on mount ────────────────────────────────────
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    const raw = localStorage.getItem('archdisc.session');
+    if (!raw) return;
+    try {
+      const s = JSON.parse(raw);
+      if (s.v !== 1) return;
+      setMessages(s.messages ?? messages);
+      setPhase(s.phase ?? 'idle');
+      setDraft(s.draft ?? '');
+      setDomain(s.domain ?? null);
+      setQIdx(s.qIdx ?? 0);
+      setAnswers(s.answers ?? {});
+      setPlan(s.plan ?? null);
+      setPlanSource(s.planSource ?? null);
+      setStepStatuses(s.stepStatuses ?? []);
+      setCertMatrix(s.certMatrix ?? null);
+      setDfmReport(s.dfmReport ?? null);
+      setCostReport(s.costReport ?? null);
+      setVendorProfileId(s.vendorProfileId ?? VENDOR_PROFILES[0].id);
+      if (s.memJSON) memRef.current = SessionMemory.fromJSON(s.memJSON);
+      // Re-pick the kit if we have a domain so subsequent clarification
+      // edits work (kit isn't persisted — it's a static catalogue).
+      if (s.domain) {
+        const userPrompt = s.memJSON?.userPrompt ?? '';
+        const { kit: restoredKit } = pickClarificationKit(userPrompt || s.domain);
+        setKit(restoredKit);
+      }
+      setRestoredFromStorage(true);
+    } catch (err) {
+      console.warn('session restore failed', err);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!open) return null;
 
@@ -345,6 +413,8 @@ export default function AIChatPanel({ open, onClose }) {
     setQuotesSortKey('totalCost'); setQuotesDir(1);
     setRfqEmail(null);
     memRef.current = null;
+    setRestoredFromStorage(false);
+    try { localStorage.removeItem('archdisc.session'); } catch { /* no-op */ }
   };
 
   return (
@@ -352,6 +422,12 @@ export default function AIChatPanel({ open, onClose }) {
       <div className="chat-panel" onClick={(e) => e.stopPropagation()}>
         <div className="chat-header">
           <span className="chat-title">ArchDisc AI</span>
+          {restoredFromStorage && phase === 'done' && (
+            <span className="chat-restored" data-restored
+                  title="Chat restored from a previous session. Bodies + ZIP not preserved across reload — click Reset to start fresh.">
+              restored
+            </span>
+          )}
           <span className={`chat-phase chat-phase-${phase}`}>{phase}</span>
           <button className="chat-close" onClick={onClose}>×</button>
         </div>

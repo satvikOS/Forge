@@ -29,6 +29,17 @@
   gap: 10px;
 }
 .chat-title { flex: 1; font-size: 14px; font-weight: 600; color: #fff; }
+.chat-restored {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: #1c2c3a;
+  color: #8aeaff;
+  font-weight: 600;
+}
+
 .chat-phase {
   font-size: 10px;
   text-transform: uppercase;
