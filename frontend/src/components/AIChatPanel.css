@@ -175,6 +175,68 @@
   margin-top: 2px;
 }
 
+.chat-cert {
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #181818;
+  overflow: hidden;
+}
+.chat-cert-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #1f1f1f;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: #aaa;
+}
+.chat-cert-head:hover { background: #222; }
+.chat-cert-stats {
+  flex: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #ccc;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+}
+.chat-cert-toggle { color: #888; font-size: 12px; }
+
+.chat-cert-list {
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.chat-cert-row {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  border-bottom: 1px solid #1a1a1a;
+  align-items: center;
+}
+.chat-cert-row:last-child { border-bottom: none; }
+.chat-cert-id { color: #888; font-family: 'Consolas', monospace; }
+.chat-cert-title { color: #ddd; }
+.chat-cert-status {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cert-pass .chat-cert-status      { background: #1f3520; color: #8aff9a; }
+.cert-fail .chat-cert-status      { background: #3a1f1f; color: #ff8a8a; }
+.cert-uncovered .chat-cert-status { background: #2a2a2a; color: #aaa; }
+
 .chat-input-row {
   display: flex;
   gap: 6px;

@@ -5,6 +5,7 @@ import { loadProviderConfig } from '../ai/PlannerProviders.js';
 import { SessionMemory } from '../ai/SessionMemory.js';
 import { executePlan } from '../ai/PlanExecutor.js';
 import { findTool } from '../ai/ToolRegistry.js';
+import { generateCertificationMatrix, suggestNextModules } from '../ai/CertificationMatrix.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -34,11 +35,13 @@ export default function AIChatPanel({ open, onClose }) {
   const [plan, setPlan]     = useState(null);
   const [planSource, setPlanSource] = useState(null);
   const [stepStatuses, setStepStatuses] = useState([]);   // per-plan-step: 'pending' | 'running' | 'done' | 'error'
+  const [certMatrix, setCertMatrix] = useState(null);     // generated after Run
+  const [certExpanded, setCertExpanded] = useState(false);
   const memRef = useRef(null);
   const transcriptEndRef = useRef(null);
 
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [messages, plan, stepStatuses]);
 
   if (!open) return null;
@@ -126,17 +129,39 @@ export default function AIChatPanel({ open, onClose }) {
   const handleRun = async () => {
     setPhase('running');
     append('assistant', 'Running plan through the ribbon…');
-    const page = null; // We're inside the running app, not Playwright; use direct ribbon clicks
     try {
-      const res = await executePlanInApp(plan, (i, status) => {
+      const res = await executePlanInApp(plan, (i, status, state) => {
         setStepStatuses((arr) => {
           const next = [...arr];
           next[i] = status;
           return next;
         });
+        if (status === 'done') {
+          const meta = findTool(plan[i].tool);
+          memRef.current?.recordStep({
+            stepIndex: i, tool: plan[i].tool,
+            stateKey: meta?.produces ?? 'unknown',
+            state, comment: plan[i].comment,
+          });
+        }
       });
       if (res.ok) {
         append('assistant', `Plan complete — ${res.steps.length} steps executed.`);
+        // ── Cert matrix ────────────────────────────────────────
+        try {
+          const matrix = generateCertificationMatrix(memRef.current);
+          setCertMatrix(matrix);
+          const s = matrix.summary;
+          append('assistant',
+            `Certification coverage: ${s.covered}/${s.total} rules covered (${s.coveragePct.toFixed(0)} %), ${s.passed} PASS, ${s.failed} FAIL, ${s.uncovered} uncovered.`);
+          const next = suggestNextModules(matrix);
+          if (next.length > 0) {
+            append('assistant',
+              `Uncovered rules that more tooling could address: ${next.slice(0, 4).map(n => n.id).join(', ')}${next.length > 4 ? ' …' : ''}`);
+          }
+        } catch (err) {
+          console.warn('cert matrix failed', err);
+        }
         setPhase('done');
       } else {
         append('assistant', `Plan aborted: ${res.errors.map(e => e.error).join(' · ')}`);
@@ -159,6 +184,7 @@ export default function AIChatPanel({ open, onClose }) {
     setDraft('');
     setKit(null); setDomain(null); setQIdx(0); setAnswers({});
     setPlan(null); setPlanSource(null); setStepStatuses([]);
+    setCertMatrix(null); setCertExpanded(false);
     memRef.current = null;
   };
 
@@ -199,6 +225,28 @@ export default function AIChatPanel({ open, onClose }) {
                   );
                 })}
               </ol>
+            </div>
+          )}
+          {certMatrix && (
+            <div className="chat-cert" data-cert-summary>
+              <div className="chat-cert-head" onClick={() => setCertExpanded((v) => !v)}>
+                <span>Certification matrix</span>
+                <span className="chat-cert-stats">
+                  {certMatrix.summary.passed}/{certMatrix.summary.total} pass · {certMatrix.summary.uncovered} uncovered
+                </span>
+                <span className="chat-cert-toggle">{certExpanded ? '▴' : '▾'}</span>
+              </div>
+              {certExpanded && (
+                <ul className="chat-cert-list">
+                  {certMatrix.ruleReports.map((r) => (
+                    <li key={r.rule.id} className={`chat-cert-row cert-${r.status.toLowerCase()}`}>
+                      <span className="chat-cert-id">{r.rule.id}</span>
+                      <span className="chat-cert-title">{r.rule.shortTitle}</span>
+                      <span className="chat-cert-status">{r.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           <div ref={transcriptEndRef} />
@@ -290,8 +338,9 @@ async function executePlanInApp(plan, onStep) {
       onStep?.(i, 'error');
       break;
     }
-    steps.push({ stepIndex: i, tool: step.tool, stateKey: slot, state: window[slot] });
-    onStep?.(i, 'done');
+    const state = window[slot];
+    steps.push({ stepIndex: i, tool: step.tool, stateKey: slot, state });
+    onStep?.(i, 'done', state);
     await new Promise(r => setTimeout(r, 400));
   }
   return { ok: errors.length === 0, errors, steps };

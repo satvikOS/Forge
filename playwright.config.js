@@ -7,7 +7,15 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     headless: false,
-    viewport: { width: 1920, height: 1080 },
+    // Headed playback for a human watcher: pin a generous viewport
+    // and explicitly size the OS-level window to match so nothing
+    // gets cropped. Avoid --start-maximized — it leaves the inner
+    // viewport at the default 1280×720 even when the chrome fills
+    // the screen, which is what was cropping panels before.
+    viewport: { width: 1920, height: 1000 },
+    launchOptions: {
+      args: ['--window-position=0,0', '--window-size=1920,1080'],
+    },
     screenshot: 'on',
     video: 'on-first-retry',
     trace: 'on-first-retry',

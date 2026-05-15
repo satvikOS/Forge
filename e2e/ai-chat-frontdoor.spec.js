@@ -72,5 +72,34 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     expect(sideEffects.missionRan).toBe(true);
     expect(sideEffects.braytonRan).toBe(true);
     expect(sideEffects.historyCount).toBeGreaterThanOrEqual(stepCount);
+
+    // ── Cert matrix should surface inline after Run ─────────────
+    const cert = panel.locator('[data-cert-summary]');
+    await expect(cert).toBeVisible();
+    const stats = await cert.locator('.chat-cert-stats').textContent();
+    console.log(`\nCert matrix banner: ${stats}`);
+    expect(stats).toMatch(/\d+\/\d+ pass/);
+    expect(stats).toMatch(/\d+ uncovered/);
+
+    // Expand the list. Scroll the cert-head into the transcript's
+    // visible area first — the panel's auto-scroll puts new messages
+    // at the bottom, which can push the cert block below the input row.
+    const head = cert.locator('.chat-cert-head');
+    await head.scrollIntoViewIfNeeded();
+    // dispatchEvent rather than .click() — the chat-panel's onClick
+    // stopPropagation chain can swallow synthesized Playwright clicks
+    // in headed mode; a direct synthetic event reliably fires React.
+    await head.dispatchEvent('click');
+    await page.waitForTimeout(1500);
+    const passCount = await cert.locator('.chat-cert-row.cert-pass').count();
+    const uncoveredCount = await cert.locator('.chat-cert-row.cert-uncovered').count();
+    const totalRows = await cert.locator('.chat-cert-row').count();
+    console.log(`Cert rows: ${totalRows} total — ${passCount} pass, ${uncoveredCount} uncovered`);
+    expect(totalRows).toBeGreaterThanOrEqual(10);
+    // The plan exercises engine tooling so several rules pass; bird
+    // strike + noise + fuel + Linear Static FEA are intentionally
+    // uncovered — proves both classes appear in the same matrix.
+    expect(passCount).toBeGreaterThanOrEqual(5);
+    expect(uncoveredCount).toBeGreaterThanOrEqual(3);
   });
 });
