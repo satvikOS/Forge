@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { buildImagePdf } from '../foundation/PdfImage.js';
 
 /**
  * Drawing Preview — full-screen overlay that shows the SVG drawing
@@ -6,11 +7,12 @@ import { useEffect, useState } from 'react';
  * Standard 3 View ribbon tool runs (window.__lastDrawingSVG
  * populated) and stays until the user closes it.
  *
- * Buttons: Download SVG, Print, Close.
+ * Buttons: Download SVG, Download PDF, Print, Close.
  */
 export default function DrawingPreviewPanel() {
   const [svg, setSvg] = useState(null);
   const [visible, setVisible] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     const tick = () => {
@@ -40,6 +42,50 @@ export default function DrawingPreviewPanel() {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
+  /** Rasterise the SVG to JPEG, wrap it in a one-page A3 PDF. */
+  const handleDownloadPDF = async () => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      // 1. SVG → Image. Encode as a data URL so it loads without CORS.
+      const svgUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+      const img = await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error('SVG rasterisation failed'));
+        im.src = svgUrl;
+      });
+      // 2. Draw onto a high-res canvas (A3 landscape ≈ 2480×1754 @ 150 dpi).
+      const cw = 2480, ch = Math.round(cw * (img.height / img.width || 0.707));
+      const canvas = document.createElement('canvas');
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(img, 0, 0, cw, ch);
+      // 3. canvas → JPEG bytes.
+      const jpegBlob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+      // 4. Embed in a minimal A3 PDF.
+      const pdf = buildImagePdf(jpegBytes);
+      const blob = new Blob([pdf], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `archdisc-drawing-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      console.warn('PDF export failed', err);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const handlePrint = () => {
     const w = window.open('', '_blank');
     if (!w) return;
@@ -55,6 +101,8 @@ export default function DrawingPreviewPanel() {
         <div className="dpp-header">
           <span className="dpp-title">Engineering Drawing — A3 third-angle projection</span>
           <button className="dpp-btn" onClick={handleDownload} data-action="dpp-download">Download SVG</button>
+          <button className="dpp-btn" onClick={handleDownloadPDF} disabled={pdfBusy}
+                  data-action="dpp-download-pdf">{pdfBusy ? 'Rendering…' : 'Download PDF'}</button>
           <button className="dpp-btn" onClick={handlePrint} data-action="dpp-print">Print</button>
           <button className="dpp-close" onClick={() => setVisible(false)} data-action="dpp-close">×</button>
         </div>
