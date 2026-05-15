@@ -69,6 +69,7 @@ export default function AIChatPanel({ open, onClose }) {
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [templates, setTemplates] = useState([]);
   const [diff, setDiff] = useState(null);
+  const [runHistory, setRunHistory] = useState([]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -96,6 +97,7 @@ export default function AIChatPanel({ open, onClose }) {
         } : null,
         dfmReport, costReport,
         vendorProfileId,
+        runHistory,
         memJSON: memRef.current?.toJSON?.() ?? null,
       };
       // First write of a session that has no active project → create
@@ -111,7 +113,7 @@ export default function AIChatPanel({ open, onClose }) {
       console.warn('session persist failed', err);
     }
   }, [messages, phase, draft, domain, qIdx, answers, plan, planSource, stepStatuses,
-      certMatrix, dfmReport, costReport, vendorProfileId]);
+      certMatrix, dfmReport, costReport, vendorProfileId, runHistory]);
 
   // ── Restore session on mount (from the active project) ──────────
   useEffect(() => {
@@ -148,6 +150,7 @@ export default function AIChatPanel({ open, onClose }) {
     setDfmReport(s.dfmReport ?? null);
     setCostReport(s.costReport ?? null);
     setVendorProfileId(s.vendorProfileId ?? VENDOR_PROFILES[0].id);
+    setRunHistory(Array.isArray(s.runHistory) ? s.runHistory : []);
     memRef.current = s.memJSON ? SessionMemory.fromJSON(s.memJSON) : null;
     if (s.domain) {
       const userPrompt = s.memJSON?.userPrompt ?? '';
@@ -174,6 +177,7 @@ export default function AIChatPanel({ open, onClose }) {
     setQuotesSortKey('totalCost'); setQuotesDir(1);
     setRfqEmail(null);
     setDiff(null);
+    setRunHistory([]);
     memRef.current = null;
     setRestoredFromStorage(false);
   };
@@ -219,7 +223,11 @@ export default function AIChatPanel({ open, onClose }) {
   const handleLoadTemplate = (id) => {
     const tpl = PlanTemplates.findTemplate(id);
     if (!tpl) return;
+    // Preserve the run-history trend — loading a template to iterate
+    // within the same project should keep prior runs' verdicts.
+    const keptHistory = runHistory;
     clearReactState();
+    setRunHistory(keptHistory);
     const mem = new SessionMemory();
     mem.setPrompt(tpl.prompt);
     mem.setDomain(tpl.domain, 1);
@@ -456,9 +464,12 @@ export default function AIChatPanel({ open, onClose }) {
       });
       if (res.ok) {
         append('assistant', `Plan complete — ${res.steps.length} steps executed.`);
+        // Verdict capture for the run-history trend.
+        let runCert = null, runDfm = null, runCost = null;
         // ── Cert matrix ────────────────────────────────────────
         try {
           const matrix = generateCertificationMatrix(memRef.current);
+          runCert = matrix.summary;
           setCertMatrix(matrix);
           const s = matrix.summary;
           append('assistant',
@@ -476,6 +487,7 @@ export default function AIChatPanel({ open, onClose }) {
           const m = typeof window !== 'undefined' ? window.__lastFoundationManifold : null;
           if (m) {
             const dfm = checkManifoldDFM(m);
+            runDfm = dfm.summary;
             setDfmReport(dfm);
             const s = dfm.summary;
             const banner = s.errors > 0
@@ -495,6 +507,7 @@ export default function AIChatPanel({ open, onClose }) {
           const bodies = getBodyRegistry().list();
           if (bodies.length > 0) {
             const cost = rollupAssemblyCost(bodies);
+            runCost = cost.totals;
             setCostReport(cost);
             const t = cost.totals;
             append('assistant',
@@ -557,6 +570,18 @@ export default function AIChatPanel({ open, onClose }) {
         } catch (err) {
           console.warn('vendor package failed', err);
         }
+        // ── Run-history trend ──────────────────────────────────
+        setRunHistory((hist) => [...hist, {
+          run: hist.length + 1,
+          at: new Date().toISOString(),
+          planSteps: plan.length,
+          certPassed: runCert?.passed ?? null,
+          certTotal: runCert?.total ?? null,
+          dfmOverall: runDfm?.overall ?? null,
+          dfmErrors: runDfm?.errors ?? null,
+          dfmWarnings: runDfm?.warnings ?? null,
+          costTotal: runCost?.totalCost ?? null,
+        }]);
         setPhase('done');
       } else {
         append('assistant', `Plan aborted: ${res.errors.map(e => e.error).join(' · ')}`);
@@ -916,6 +941,47 @@ export default function AIChatPanel({ open, onClose }) {
                         data-action="rfq-close">×</button>
               </div>
               <pre className="chat-rfq-body" data-rfq-body>{rfqEmail.body}</pre>
+            </div>
+          )}
+          {runHistory.length > 1 && (
+            <div className="chat-trend" data-trend-table>
+              <div className="chat-trend-head">Verdict trend — {runHistory.length} runs</div>
+              <table className="chat-trend-grid">
+                <thead>
+                  <tr>
+                    <th>Run</th>
+                    <th>Steps</th>
+                    <th>Cert pass</th>
+                    <th>DFM</th>
+                    <th>Cost $</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runHistory.map((h, i) => {
+                    const prev = i > 0 ? runHistory[i - 1] : null;
+                    const costDelta = prev && h.costTotal != null && prev.costTotal != null
+                      ? h.costTotal - prev.costTotal : null;
+                    return (
+                      <tr key={h.run} data-trend-row={h.run}>
+                        <td>#{h.run}</td>
+                        <td>{h.planSteps ?? '—'}</td>
+                        <td>{h.certPassed != null ? `${h.certPassed}/${h.certTotal}` : '—'}</td>
+                        <td className={`chat-trend-dfm chat-trend-dfm-${h.dfmOverall ?? 'na'}`}>
+                          {h.dfmOverall ? h.dfmOverall.toUpperCase() : '—'}
+                        </td>
+                        <td>
+                          {h.costTotal != null ? `$${h.costTotal.toFixed(2)}` : '—'}
+                          {costDelta != null && costDelta !== 0 && (
+                            <span className={`chat-trend-delta ${costDelta < 0 ? 'down' : 'up'}`}>
+                              {costDelta < 0 ? ' ▼' : ' ▲'}{Math.abs(costDelta).toFixed(2)}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
           {diff && (

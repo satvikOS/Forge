@@ -503,6 +503,51 @@
   border-radius: 3px;
 }
 
+.chat-trend {
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #181818;
+  overflow: hidden;
+}
+.chat-trend-head {
+  padding: 8px 12px;
+  background: #1f1f1f;
+  border-bottom: 1px solid #2a2a2a;
+  font: 600 11px 'Segoe UI', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #aaa;
+}
+.chat-trend-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font: 11px 'Consolas', monospace;
+}
+.chat-trend-grid th {
+  background: #1a1a1a;
+  font: 600 10px 'Segoe UI', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #888;
+  padding: 6px 10px;
+  text-align: left;
+}
+.chat-trend-grid td {
+  padding: 5px 10px;
+  border-top: 1px solid #1a1a1a;
+  color: #ddd;
+}
+.chat-trend-dfm { font-weight: 600; }
+.chat-trend-dfm-pass  { color: #8aff9a; }
+.chat-trend-dfm-info  { color: #8aeaff; }
+.chat-trend-dfm-warn  { color: #fff58a; }
+.chat-trend-dfm-error { color: #ff8a8a; }
+.chat-trend-dfm-na    { color: #666; }
+.chat-trend-delta { font-size: 10px; }
+.chat-trend-delta.down { color: #8aff9a; }
+.chat-trend-delta.up   { color: #ff8a8a; }
+
 .chat-diff {
   margin-top: 8px;
   border: 1px solid #2a2a2a;
