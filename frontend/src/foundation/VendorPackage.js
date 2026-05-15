@@ -31,6 +31,9 @@ import { profileToCostOpts } from './VendorProfiles.js';
  * @param {object=}  args.certJson          optional cert matrix payload
  * @param {string=}  args.partName
  * @param {string=}  args.material
+ * @param {Array=}   args.drawingPdfs   [{name, bytes}] pre-rasterised
+ *                                      PDF drawings (browser-side only —
+ *                                      the foundation can't rasterise SVG)
  * @returns {{ zipBytes: Uint8Array, manifest: object, fileNames: string[] }}
  */
 export function buildVendorPackage(args) {
@@ -53,6 +56,16 @@ export function buildVendorPackage(args) {
     entries.push({
       name: `drawings/${slug(b.name ?? `body-${i + 1}`)}.svg`,
       data: textBytes(svg),
+    });
+  }
+
+  // 1b. Pre-rasterised PDF drawings (caller supplies these — the
+  //     foundation can't rasterise SVG without a browser canvas).
+  for (const pdf of args.drawingPdfs ?? []) {
+    if (!pdf || !pdf.bytes) continue;
+    entries.push({
+      name: `drawings/${slug(pdf.name ?? 'drawing')}.pdf`,
+      data: pdf.bytes instanceof Uint8Array ? pdf.bytes : new Uint8Array(pdf.bytes),
     });
   }
 

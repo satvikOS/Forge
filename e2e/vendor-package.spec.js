@@ -20,12 +20,15 @@ test.describe('Vendor Package — one-click bundled hand-off', () => {
       gcode: 'G0 X0 Y0\nG1 X50 Y30 F1500\nM30\n',
       gcodeSource: '3-Axis Milling',
       certMarkdown: '# Cert Matrix\n10/14 pass',
+      // Caller-supplied pre-rasterised PDF (browser does the real one).
+      drawingPdfs: [{ name: 'Demo Body', bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]) }],
     });
 
     console.log(`\nPackage files (${pkg.fileNames.length}):`);
     for (const n of pkg.fileNames) console.log(`  ${n}`);
     expect(pkg.fileNames).toContain('manifest.json');
-    expect(pkg.fileNames.some(n => n.startsWith('drawings/'))).toBe(true);
+    expect(pkg.fileNames.some(n => n.startsWith('drawings/') && n.endsWith('.svg'))).toBe(true);
+    expect(pkg.fileNames.some(n => n.startsWith('drawings/') && n.endsWith('.pdf'))).toBe(true);
     expect(pkg.fileNames.some(n => n.startsWith('cam/'))).toBe(true);
     expect(pkg.fileNames).toContain('cost/cost.json');
     expect(pkg.fileNames).toContain('cost/cost.csv');
@@ -94,6 +97,9 @@ test.describe('Vendor Package — one-click bundled hand-off', () => {
     console.log(`Files: ${meta.fileNames.join(', ')}`);
     expect(meta.fileNames).toContain('manifest.json');
     expect(meta.fileNames.some(n => n.startsWith('cam/'))).toBe(true);  // CAM was run
+    // The browser rasterised the drawing → a print-ready PDF entry.
+    expect(meta.fileNames.some(n => n.startsWith('drawings/') && n.endsWith('.pdf'))).toBe(true);
+    expect(meta.fileNames.some(n => n.startsWith('drawings/') && n.endsWith('.svg'))).toBe(true);
     expect(meta.sizeBytes).toBe(zipBytes.length);
   });
 });

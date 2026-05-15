@@ -10,6 +10,8 @@ import { checkManifoldDFM } from '../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../foundation/AssemblyCost.js';
 import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 import { buildVendorPackage } from '../foundation/VendorPackage.js';
+import { buildDrawingSVG } from '../foundation/Drawing2D.js';
+import { svgToPdfBytes, isRasterCapable } from '../foundation/SvgRaster.js';
 import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts, quoteAllVendors } from '../foundation/VendorProfiles.js';
 import { buildVendorRFQEmail } from '../foundation/VendorRFQEmail.js';
 import * as ProjectStore from '../foundation/ProjectStore.js';
@@ -513,11 +515,27 @@ export default function AIChatPanel({ open, onClose }) {
               } catch { return undefined; }
             })();
             const profile = findVendorProfile(vendorProfileId);
+            // Rasterise each body's drawing to a print-ready PDF.
+            const drawingPdfs = [];
+            if (isRasterCapable()) {
+              for (let i = 0; i < bodies.length; i++) {
+                const bd = bodies[i];
+                if (!bd.manifold) continue;
+                try {
+                  const dsvg = buildDrawingSVG(bd.manifold, {
+                    name: bd.name ?? `Body ${i + 1}`,
+                    material: profile.materialDefault,
+                  });
+                  drawingPdfs.push({ name: bd.name ?? `body-${i + 1}`, bytes: await svgToPdfBytes(dsvg) });
+                } catch (err) { console.warn('chat vendor PDF failed', err); }
+              }
+            }
             const pkg = buildVendorPackage({
               bodies, profile,
               gcode: lastCAM?.gcode,
               gcodeSource: lastCAM?.source,
               certMarkdown: certMd,
+              drawingPdfs,
             });
             setVendorPackage(pkg);
             append('assistant',

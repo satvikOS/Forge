@@ -77,6 +77,7 @@ import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js
 import { checkManifoldDFM } from '../../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../../foundation/AssemblyCost.js';
 import { buildVendorPackage } from '../../foundation/VendorPackage.js';
+import { svgToPdfBytes, isRasterCapable } from '../../foundation/SvgRaster.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -2127,22 +2128,38 @@ const TOOL_HANDLERS = {
       };
     },
 
-    'Vendor Package': () => {
+    'Vendor Package': async () => {
       // Foundation path: foundation.buildVendorPackage bundles every
-      // hand-off artifact in scope (per-body drawings, optional G-code,
-      // cost CSV+JSON, DFM JSON, manifest) into one ZIP and triggers
-      // a download. No additional ribbon clicks required — the manifest
-      // is self-describing.
+      // hand-off artifact in scope (per-body drawings as SVG + PDF,
+      // optional G-code, cost CSV+JSON, DFM JSON, manifest) into one
+      // ZIP and triggers a download. The manifest is self-describing.
       const reg = getBodyRegistry();
       const bodies = reg.list();
       if (bodies.length === 0) {
         return { status: 'warn', message: 'Vendor Package: no bodies in registry. Build geometry first.' };
       }
       const lastCAM = typeof window !== 'undefined' ? window.__lastCAMProgram : null;
+      // Rasterise each body's drawing to a print-ready PDF so the
+      // archive carries both SVG (editable) and PDF (vendor-ready).
+      const drawingPdfs = [];
+      if (isRasterCapable()) {
+        for (let i = 0; i < bodies.length; i++) {
+          const b = bodies[i];
+          if (!b.manifold) continue;
+          try {
+            const svg = buildDrawingSVG(b.manifold, { name: b.name ?? `Body ${i + 1}`, material: 'Aluminum 6061-T6' });
+            const pdf = await svgToPdfBytes(svg);
+            drawingPdfs.push({ name: b.name ?? `body-${i + 1}`, bytes: pdf });
+          } catch (err) {
+            console.warn('vendor PDF rasterise failed', err);
+          }
+        }
+      }
       const pkg = buildVendorPackage({
         bodies,
         gcode: lastCAM?.gcode,
         gcodeSource: lastCAM?.source,
+        drawingPdfs,
       });
       if (typeof window !== 'undefined') {
         window.__lastVendorPackage = {
