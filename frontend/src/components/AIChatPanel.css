@@ -304,6 +304,29 @@
   cursor: pointer;
 }
 .chat-vendor-btn:hover { background: #ffc97a; }
+.chat-vendor-profile {
+  background: #0d0d0d;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 11px 'Segoe UI', sans-serif;
+  padding: 3px 6px;
+  outline: none;
+  text-transform: none;
+}
+.chat-vendor-profile:focus { border-color: #ffb55d; }
+
+.chat-vendor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+  font: 11px 'Consolas', monospace;
+  color: #ccc;
+}
+.chat-vendor-meta span:nth-child(1) { color: #ffb55d; font-weight: 600; }
+.chat-vendor-meta span:nth-child(2) { color: #888; }
+
 .chat-vendor-files {
   display: flex;
   flex-wrap: wrap;

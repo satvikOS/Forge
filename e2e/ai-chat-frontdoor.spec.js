@@ -155,6 +155,43 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     expect(zipBytes[0]).toBe(0x50); expect(zipBytes[1]).toBe(0x4b);
     expect(zipBytes[2]).toBe(0x03); expect(zipBytes[3]).toBe(0x04);
 
+    // ── Vendor profile switching — same geometry, different quote ──
+    const defaultCost = parseFloat(
+      (await vendor.locator('.chat-vendor-stats').textContent())?.match(/\$(\d+\.\d{2})/)?.[1] ?? '0',
+    );
+    const defaultMeta = await vendor.locator('[data-vendor-meta] span').allTextContents();
+    console.log(`\nDefault profile meta: ${JSON.stringify(defaultMeta)}, cost $${defaultCost.toFixed(2)}`);
+
+    // Swap to Bangalore CNC (low-rate) → cost should drop
+    await vendor.locator('[data-field="vendor-profile"]').selectOption('bangalore-cnc');
+    await page.waitForTimeout(2000);
+    const bangaloreCost = parseFloat(
+      (await vendor.locator('.chat-vendor-stats').textContent())?.match(/\$(\d+\.\d{2})/)?.[1] ?? '0',
+    );
+    const bangaloreMeta = await vendor.locator('[data-vendor-meta] span').allTextContents();
+    console.log(`Bangalore profile meta: ${JSON.stringify(bangaloreMeta)}, cost $${bangaloreCost.toFixed(2)}`);
+    expect(bangaloreMeta[0]).toContain('Bangalore');
+    expect(bangaloreCost).toBeLessThan(defaultCost);
+
+    // Swap to USA Premium → cost should climb above default
+    await vendor.locator('[data-field="vendor-profile"]').selectOption('usa-premium-cmm');
+    await page.waitForTimeout(2000);
+    const usaCost = parseFloat(
+      (await vendor.locator('.chat-vendor-stats').textContent())?.match(/\$(\d+\.\d{2})/)?.[1] ?? '0',
+    );
+    console.log(`USA Premium cost: $${usaCost.toFixed(2)}`);
+    expect(usaCost).toBeGreaterThan(defaultCost);
+
+    // Re-download with the new profile → manifest reflects the swap
+    const [zip2] = await Promise.all([
+      page.waitForEvent('download'),
+      vendor.locator('[data-action="download-vendor-zip"]').dispatchEvent('click'),
+    ]);
+    expect(zip2.suggestedFilename()).toMatch(/archdisc-vendor-/);
+    // Don't fully parse the ZIP — just confirm it's a different payload.
+    const zip2Bytes = fsVendor.readFileSync(await zip2.path());
+    expect(zip2Bytes.length).not.toBe(zipBytes.length);
+
     // ── Cert matrix downloads (.md + .json) ─────────────────────
     const mdBtn = cert.locator('[data-action="download-cert-md"]');
     const jsonBtn = cert.locator('[data-action="download-cert-json"]');

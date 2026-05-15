@@ -18,6 +18,7 @@
 import { buildDrawingSVG } from './Drawing2D.js';
 import { checkManifoldDFM } from './DFMCheck.js';
 import { rollupAssemblyCost } from './AssemblyCost.js';
+import { profileToCostOpts } from './VendorProfiles.js';
 
 /**
  * Build a vendor package from whatever is currently in scope.
@@ -37,8 +38,9 @@ export function buildVendorPackage(args) {
   if (bodies.length === 0) {
     throw new Error('Vendor package needs at least one body in scope.');
   }
+  const profile = args.profile ?? null;
   const partName = args.partName ?? 'ArchDisc Part';
-  const material = args.material ?? 'Aluminum 6061-T6';
+  const material = args.material ?? profile?.materialDefault ?? 'Aluminum 6061-T6';
   const stamp = new Date().toISOString().slice(0, 10);
 
   const entries = [];
@@ -62,8 +64,8 @@ export function buildVendorPackage(args) {
     });
   }
 
-  // 3. Cost rollup
-  const cost = rollupAssemblyCost(bodies);
+  // 3. Cost rollup — uses the profile's rate card if provided.
+  const cost = rollupAssemblyCost(bodies, profile ? profileToCostOpts(profile) : undefined);
   entries.push({
     name: 'cost/cost.json',
     data: textBytes(JSON.stringify({ generatedAt: new Date().toISOString(), ...cost }, null, 2)),
@@ -103,6 +105,11 @@ export function buildVendorPackage(args) {
     partName, material, stamp,
     bodyCount: bodies.length,
     totals: cost.totals,
+    vendor: profile ? {
+      id: profile.id, name: profile.name, location: profile.location,
+      currency: profile.currency, leadTimeDays: profile.leadTimeDays,
+      rates: profileToCostOpts(profile),
+    } : null,
     files: entries.map(e => ({ name: e.name, bytes: e.data.length })),
   };
   // Insert manifest at the top so unzippers list it first.

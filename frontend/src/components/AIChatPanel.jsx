@@ -10,6 +10,7 @@ import { checkManifoldDFM } from '../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../foundation/AssemblyCost.js';
 import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 import { buildVendorPackage } from '../foundation/VendorPackage.js';
+import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts } from '../foundation/VendorProfiles.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -46,6 +47,7 @@ export default function AIChatPanel({ open, onClose }) {
   const [costReport, setCostReport] = useState(null);
   const [costExpanded, setCostExpanded] = useState(false);
   const [vendorPackage, setVendorPackage] = useState(null);
+  const [vendorProfileId, setVendorProfileId] = useState(VENDOR_PROFILES[0].id);
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
@@ -216,15 +218,16 @@ export default function AIChatPanel({ open, onClose }) {
                 return renderMatrixMarkdown(matrix);
               } catch { return undefined; }
             })();
+            const profile = findVendorProfile(vendorProfileId);
             const pkg = buildVendorPackage({
-              bodies,
+              bodies, profile,
               gcode: lastCAM?.gcode,
               gcodeSource: lastCAM?.source,
               certMarkdown: certMd,
             });
             setVendorPackage(pkg);
             append('assistant',
-              `Vendor Package ready: ${pkg.fileNames.length} files, ${(pkg.zipBytes.length / 1024).toFixed(1)} KB ZIP — click the Download button below to grab it.`);
+              `Vendor Package (${profile.name}): ${pkg.fileNames.length} files, ${(pkg.zipBytes.length / 1024).toFixed(1)} KB ZIP — total $${pkg.manifest.totals.totalCost.toFixed(2)}, sell $${pkg.manifest.totals.sellPrice.toFixed(2)}.`);
           }
         } catch (err) {
           console.warn('vendor package failed', err);
@@ -243,6 +246,35 @@ export default function AIChatPanel({ open, onClose }) {
   const handleSubmit = () => {
     if (phase === 'idle' || phase === 'done') handleInitialPrompt();
     else if (phase === 'clarifying') handleAnswer();
+  };
+
+  // Re-bundle the vendor ZIP whenever the user swaps profiles after Run.
+  const reSwitchVendorProfile = (newId) => {
+    setVendorProfileId(newId);
+    if (phase !== 'done' || !vendorPackage) return;
+    try {
+      const bodies = getBodyRegistry().list();
+      if (bodies.length === 0) return;
+      const lastCAM = typeof window !== 'undefined' ? window.__lastCAMProgram : null;
+      const certMd = (() => {
+        try {
+          const matrix = generateCertificationMatrix(memRef.current);
+          return renderMatrixMarkdown(matrix);
+        } catch { return undefined; }
+      })();
+      const profile = findVendorProfile(newId);
+      const pkg = buildVendorPackage({
+        bodies, profile,
+        gcode: lastCAM?.gcode,
+        gcodeSource: lastCAM?.source,
+        certMarkdown: certMd,
+      });
+      setVendorPackage(pkg);
+      append('assistant',
+        `Rebuilt for ${profile.name}: ${pkg.fileNames.length} files, ${(pkg.zipBytes.length / 1024).toFixed(1)} KB — total $${pkg.manifest.totals.totalCost.toFixed(2)}, sell $${pkg.manifest.totals.sellPrice.toFixed(2)}, lead ${profile.leadTimeDays} d.`);
+    } catch (err) {
+      console.warn('vendor profile switch failed', err);
+    }
   };
 
   // ── Plan editing ops (only when phase === 'ready') ───────────
@@ -404,12 +436,26 @@ export default function AIChatPanel({ open, onClose }) {
               <div className="chat-vendor-head">
                 <span className="chat-vendor-pill">📦</span>
                 <span>Vendor Package</span>
+                <select className="chat-vendor-profile"
+                        value={vendorProfileId}
+                        onChange={(e) => reSwitchVendorProfile(e.target.value)}
+                        data-field="vendor-profile">
+                  {VENDOR_PROFILES.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
                 <span className="chat-vendor-stats">
-                  {vendorPackage.fileNames.length} files · {(vendorPackage.zipBytes.length / 1024).toFixed(1)} KB
+                  {vendorPackage.fileNames.length} files · {(vendorPackage.zipBytes.length / 1024).toFixed(1)} KB · ${vendorPackage.manifest.totals.totalCost.toFixed(2)}
                 </span>
                 <button className="chat-vendor-btn"
                         onClick={() => downloadVendorZip(vendorPackage)}
                         data-action="download-vendor-zip">Download ZIP</button>
+              </div>
+              <div className="chat-vendor-meta" data-vendor-meta>
+                <span>{vendorPackage.manifest.vendor?.name ?? '—'}</span>
+                <span>{vendorPackage.manifest.vendor?.location ?? ''}</span>
+                <span>Lead {vendorPackage.manifest.vendor?.leadTimeDays ?? '?'} d</span>
+                <span>Sell ${vendorPackage.manifest.totals.sellPrice.toFixed(2)}</span>
               </div>
               <div className="chat-vendor-files">
                 {vendorPackage.fileNames.map(n => (
