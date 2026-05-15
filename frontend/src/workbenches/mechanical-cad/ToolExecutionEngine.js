@@ -76,6 +76,7 @@ import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
 import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
 import { checkManifoldDFM } from '../../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../../foundation/AssemblyCost.js';
+import { buildVendorPackage } from '../../foundation/VendorPackage.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -2044,6 +2045,50 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Cost: ${massKg.toFixed(4)} kg | Material $${materialCost.toFixed(2)} + CNC $${cncCost.toFixed(2)} (${cncTimeHr.toFixed(2)} hr @ $90/hr) + Setup $${setupCost} + Finish $${finishCost} = $${totalCost.toFixed(2)}/part | Sell @25% margin: $${sellPrice.toFixed(2)}`,
+      };
+    },
+
+    'Vendor Package': () => {
+      // Foundation path: foundation.buildVendorPackage bundles every
+      // hand-off artifact in scope (per-body drawings, optional G-code,
+      // cost CSV+JSON, DFM JSON, manifest) into one ZIP and triggers
+      // a download. No additional ribbon clicks required — the manifest
+      // is self-describing.
+      const reg = getBodyRegistry();
+      const bodies = reg.list();
+      if (bodies.length === 0) {
+        return { status: 'warn', message: 'Vendor Package: no bodies in registry. Build geometry first.' };
+      }
+      const lastCAM = typeof window !== 'undefined' ? window.__lastCAMProgram : null;
+      const pkg = buildVendorPackage({
+        bodies,
+        gcode: lastCAM?.gcode,
+        gcodeSource: lastCAM?.source,
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastVendorPackage = {
+          fileNames: pkg.fileNames,
+          manifest: pkg.manifest,
+          sizeBytes: pkg.zipBytes.length,
+        };
+        try {
+          const blob = new Blob([pkg.zipBytes], { type: 'application/zip' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const stamp = new Date().toISOString().slice(0, 10);
+          a.download = `archdisc-vendor-${stamp}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        } catch (err) {
+          console.warn('vendor package download failed', err);
+        }
+      }
+      return {
+        status: 'success',
+        message: `Vendor Package: ${pkg.fileNames.length} files, ${(pkg.zipBytes.length / 1024).toFixed(1)} KB ZIP — manifest + ${pkg.manifest.bodyCount} drawings + cost + DFM${lastCAM ? ' + G-code' : ''} via foundation.buildVendorPackage`,
       };
     },
 

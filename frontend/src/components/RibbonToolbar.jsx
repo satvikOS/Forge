@@ -156,6 +156,7 @@ const TABS = {
         { name: 'Cost Estimation', icon: '$', key: 'manufacturing' },
         { name: 'Assembly Cost', icon: '∑', key: 'manufacturing' },
         { name: 'DFM Check', icon: '⚠', key: 'manufacturing' },
+        { name: 'Vendor Package', icon: '📦', key: 'manufacturing' },
       ]},
     ]
   },
