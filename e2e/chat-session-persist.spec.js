@@ -70,13 +70,18 @@ test.describe('Chat session persistence across reload', () => {
     expect(postCostStats).toBe(preCostStats);
     console.log(`Post banners: cert "${postCertStats}", dfm "${postDfmStats}", cost "${postCostStats}"`);
 
-    // 4. Reset clears localStorage so the next reload starts blank.
+    // 4. Reset clears the chat content but keeps the project shell —
+    //    the persistence effect writes an empty snapshot back into
+    //    the same project. The legacy single-session key never re-appears.
     await panel2.locator('.chat-reset-btn').click();
-    await page.waitForTimeout(500);
-    const stored = await page.evaluate(() => localStorage.getItem('archdisc.session'));
-    expect(stored).toBe(null);
+    await page.waitForTimeout(800);
+    const legacy = await page.evaluate(() => localStorage.getItem('archdisc.session'));
+    expect(legacy).toBe(null);
+    const projects = await page.evaluate(() => JSON.parse(localStorage.getItem('archdisc.projects') ?? '[]'));
+    expect(projects.length).toBeGreaterThanOrEqual(1);
 
-    // Re-open → fresh idle state, no restored pill
+    // Re-open → fresh idle state, no restored pill (snapshot is empty
+    // because Reset clobbered React state before persistence re-ran).
     await page.reload();
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30000 });
     await page.waitForTimeout(2000);

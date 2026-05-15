@@ -12,6 +12,7 @@ import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 import { buildVendorPackage } from '../foundation/VendorPackage.js';
 import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts, quoteAllVendors } from '../foundation/VendorProfiles.js';
 import { buildVendorRFQEmail } from '../foundation/VendorRFQEmail.js';
+import * as ProjectStore from '../foundation/ProjectStore.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -58,12 +59,16 @@ export default function AIChatPanel({ open, onClose }) {
   const memRef = useRef(null);
   const transcriptEndRef = useRef(null);
   const [restoredFromStorage, setRestoredFromStorage] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [activeProjectId, setActiveProjectIdState] = useState(null);
+  const [renamingProject, setRenamingProject] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState('');
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [messages, plan, stepStatuses]);
 
-  // ── Persist session to localStorage on every meaningful change ──
+  // ── Persist session into the active project on every change ──
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     if (phase === 'idle' && messages.length <= 1) return;  // nothing to save yet
@@ -87,48 +92,130 @@ export default function AIChatPanel({ open, onClose }) {
         vendorProfileId,
         memJSON: memRef.current?.toJSON?.() ?? null,
       };
-      localStorage.setItem('archdisc.session', JSON.stringify(snapshot));
+      // First write of a session that has no active project → create
+      // an "Untitled project" so subsequent saves have somewhere to go.
+      if (!ProjectStore.getActiveProjectId()) {
+        const p = ProjectStore.createProject('Untitled project');
+        setActiveProjectIdState(p.id);
+        setProjects(ProjectStore.listProjects());
+      }
+      ProjectStore.saveSnapshot(snapshot);
+      setProjects(ProjectStore.listProjects());
     } catch (err) {
       console.warn('session persist failed', err);
     }
   }, [messages, phase, draft, domain, qIdx, answers, plan, planSource, stepStatuses,
       certMatrix, dfmReport, costReport, vendorProfileId]);
 
-  // ── Restore session on mount ────────────────────────────────────
+  // ── Restore session on mount (from the active project) ──────────
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
-    const raw = localStorage.getItem('archdisc.session');
-    if (!raw) return;
+    const all = ProjectStore.listProjects();
+    setProjects(all);
+    const active = ProjectStore.getActiveProject();
+    setActiveProjectIdState(active?.id ?? null);
+    if (!active?.snapshot) return;
     try {
-      const s = JSON.parse(raw);
+      const s = active.snapshot;
       if (s.v !== 1) return;
-      setMessages(s.messages ?? messages);
-      setPhase(s.phase ?? 'idle');
-      setDraft(s.draft ?? '');
-      setDomain(s.domain ?? null);
-      setQIdx(s.qIdx ?? 0);
-      setAnswers(s.answers ?? {});
-      setPlan(s.plan ?? null);
-      setPlanSource(s.planSource ?? null);
-      setStepStatuses(s.stepStatuses ?? []);
-      setCertMatrix(s.certMatrix ?? null);
-      setDfmReport(s.dfmReport ?? null);
-      setCostReport(s.costReport ?? null);
-      setVendorProfileId(s.vendorProfileId ?? VENDOR_PROFILES[0].id);
-      if (s.memJSON) memRef.current = SessionMemory.fromJSON(s.memJSON);
-      // Re-pick the kit if we have a domain so subsequent clarification
-      // edits work (kit isn't persisted — it's a static catalogue).
-      if (s.domain) {
-        const userPrompt = s.memJSON?.userPrompt ?? '';
-        const { kit: restoredKit } = pickClarificationKit(userPrompt || s.domain);
-        setKit(restoredKit);
-      }
+      applySnapshot(s);
       setRestoredFromStorage(true);
     } catch (err) {
       console.warn('session restore failed', err);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Apply a persisted snapshot to React state. */
+  const applySnapshot = (s) => {
+    setMessages(s.messages ?? [{ role: 'system', text: 'Tell me what you want to design.' }]);
+    setPhase(s.phase ?? 'idle');
+    setDraft(s.draft ?? '');
+    setDomain(s.domain ?? null);
+    setQIdx(s.qIdx ?? 0);
+    setAnswers(s.answers ?? {});
+    setPlan(s.plan ?? null);
+    setPlanSource(s.planSource ?? null);
+    setStepStatuses(s.stepStatuses ?? []);
+    setCertMatrix(s.certMatrix ?? null);
+    setDfmReport(s.dfmReport ?? null);
+    setCostReport(s.costReport ?? null);
+    setVendorProfileId(s.vendorProfileId ?? VENDOR_PROFILES[0].id);
+    memRef.current = s.memJSON ? SessionMemory.fromJSON(s.memJSON) : null;
+    if (s.domain) {
+      const userPrompt = s.memJSON?.userPrompt ?? '';
+      const { kit: restoredKit } = pickClarificationKit(userPrompt || s.domain);
+      setKit(restoredKit);
+    } else {
+      setKit(null);
+    }
+  };
+
+  /** Reset all in-memory React state to a blank chat. Does NOT touch
+   * the active project's snapshot — callers that want the persisted
+   * snapshot wiped (Reset button) call wipeActiveSnapshot() after. */
+  const clearReactState = () => {
+    setMessages([{ role: 'system', text: 'Tell me what you want to design.' }]);
+    setPhase('idle');
+    setDraft('');
+    setKit(null); setDomain(null); setQIdx(0); setAnswers({});
+    setPlan(null); setPlanSource(null); setStepStatuses([]);
+    setCertMatrix(null); setCertExpanded(false);
+    setDfmReport(null); setDfmExpanded(false);
+    setCostReport(null); setCostExpanded(false);
+    setVendorPackage(null); setQuotes(null);
+    setQuotesSortKey('totalCost'); setQuotesDir(1);
+    setRfqEmail(null);
+    memRef.current = null;
+    setRestoredFromStorage(false);
+  };
+
+  const wipeActiveSnapshot = () => {
+    try { ProjectStore.saveSnapshot(null); }
+    catch (err) { console.warn('snapshot clear failed', err); }
+  };
+
+  // ── Project actions ─────────────────────────────────────────────
+  const handleNewProject = () => {
+    clearReactState();
+    const p = ProjectStore.createProject('Untitled project');
+    setActiveProjectIdState(p.id);
+    setProjects(ProjectStore.listProjects());
+  };
+
+  const handleSwitchProject = (id) => {
+    if (id === activeProjectId) return;
+    ProjectStore.setActiveProjectId(id);
+    const proj = ProjectStore.listProjects().find(p => p.id === id);
+    setActiveProjectIdState(id);
+    setProjects(ProjectStore.listProjects());
+    if (proj?.snapshot) {
+      applySnapshot(proj.snapshot);
+      setRestoredFromStorage(true);
+    } else {
+      clearReactState();
+    }
+  };
+
+  const handleDeleteProject = (id) => {
+    if (!window.confirm('Delete this project? This cannot be undone.')) return;
+    const remaining = ProjectStore.deleteProject(id);
+    setProjects(remaining);
+    const nextActive = ProjectStore.getActiveProject();
+    setActiveProjectIdState(nextActive?.id ?? null);
+    if (nextActive?.snapshot) applySnapshot(nextActive.snapshot);
+    else                       clearReactState();
+  };
+
+  const commitProjectRename = () => {
+    if (!activeProjectId || !projectNameDraft.trim()) {
+      setRenamingProject(false);
+      return;
+    }
+    ProjectStore.renameProject(activeProjectId, projectNameDraft);
+    setProjects(ProjectStore.listProjects());
+    setRenamingProject(false);
+  };
 
   if (!open) return null;
 
@@ -400,21 +487,12 @@ export default function AIChatPanel({ open, onClose }) {
     memRef.current?.setPlan(next, 'user-edited');
   };
 
+  // Reset clears the current chat AND the active project's snapshot
+  // so the next reload is genuinely fresh. The project shell stays so
+  // the user keeps the same project name to start over under.
   const handleReset = () => {
-    setMessages([{ role: 'system', text: 'Tell me what you want to design.' }]);
-    setPhase('idle');
-    setDraft('');
-    setKit(null); setDomain(null); setQIdx(0); setAnswers({});
-    setPlan(null); setPlanSource(null); setStepStatuses([]);
-    setCertMatrix(null); setCertExpanded(false);
-    setDfmReport(null); setDfmExpanded(false);
-    setCostReport(null); setCostExpanded(false);
-    setVendorPackage(null); setQuotes(null);
-    setQuotesSortKey('totalCost'); setQuotesDir(1);
-    setRfqEmail(null);
-    memRef.current = null;
-    setRestoredFromStorage(false);
-    try { localStorage.removeItem('archdisc.session'); } catch { /* no-op */ }
+    clearReactState();
+    wipeActiveSnapshot();
   };
 
   return (
@@ -430,6 +508,51 @@ export default function AIChatPanel({ open, onClose }) {
           )}
           <span className={`chat-phase chat-phase-${phase}`}>{phase}</span>
           <button className="chat-close" onClick={onClose}>×</button>
+        </div>
+        <div className="chat-project-bar" data-project-bar>
+          <span className="chat-project-label">Project</span>
+          {renamingProject ? (
+            <input className="chat-project-name-input"
+                   value={projectNameDraft}
+                   autoFocus
+                   onChange={(e) => setProjectNameDraft(e.target.value)}
+                   onBlur={commitProjectRename}
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter') commitProjectRename();
+                     if (e.key === 'Escape') setRenamingProject(false);
+                   }}
+                   data-field="project-name" />
+          ) : (
+            <span className="chat-project-name"
+                  data-project-name
+                  onDoubleClick={() => {
+                    const cur = projects.find(p => p.id === activeProjectId);
+                    if (!cur) return;
+                    setProjectNameDraft(cur.name);
+                    setRenamingProject(true);
+                  }}
+                  title="Double-click to rename">
+              {projects.find(p => p.id === activeProjectId)?.name ?? '— no project —'}
+            </span>
+          )}
+          <select className="chat-project-select"
+                  value={activeProjectId ?? ''}
+                  onChange={(e) => handleSwitchProject(e.target.value)}
+                  data-field="project-switch">
+            <option value="" disabled>Switch…</option>
+            {projects.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <button className="chat-project-action"
+                  onClick={handleNewProject}
+                  data-action="new-project"
+                  title="New project">+</button>
+          <button className="chat-project-action chat-project-action-danger"
+                  onClick={() => activeProjectId && handleDeleteProject(activeProjectId)}
+                  disabled={!activeProjectId}
+                  data-action="delete-project"
+                  title="Delete this project">×</button>
         </div>
         <div className="chat-transcript">
           {messages.map((m, i) => (

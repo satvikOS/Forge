@@ -29,6 +29,65 @@
   gap: 10px;
 }
 .chat-title { flex: 1; font-size: 14px; font-weight: 600; color: #fff; }
+.chat-project-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: #141414;
+  border-bottom: 1px solid #2a2a2a;
+}
+.chat-project-label {
+  font: 10px 'Segoe UI', sans-serif;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+.chat-project-name {
+  flex: 1;
+  font: 600 12px 'Segoe UI', sans-serif;
+  color: #fff;
+  cursor: text;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.chat-project-name:hover { background: #1a1a1a; }
+.chat-project-name-input {
+  flex: 1;
+  background: #0d0d0d;
+  color: #fff;
+  border: 1px solid #5da5ff;
+  border-radius: 3px;
+  font: 600 12px 'Segoe UI', sans-serif;
+  padding: 2px 6px;
+  outline: none;
+}
+.chat-project-select {
+  background: #0d0d0d;
+  color: #ddd;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 11px 'Segoe UI', sans-serif;
+  padding: 3px 6px;
+  outline: none;
+}
+.chat-project-select:focus { border-color: #5da5ff; }
+.chat-project-action {
+  background: #2a2a2a;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  width: 22px;
+  height: 22px;
+  font: 700 13px 'Segoe UI', sans-serif;
+  cursor: pointer;
+  padding: 0;
+}
+.chat-project-action:hover { background: #5da5ff; color: #fff; }
+.chat-project-action:disabled { opacity: 0.3; cursor: default; }
+.chat-project-action-danger:hover { background: #ff5555; }
+
 .chat-restored {
   font-size: 9px;
   text-transform: uppercase;
