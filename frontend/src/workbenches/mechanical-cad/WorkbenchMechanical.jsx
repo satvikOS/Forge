@@ -20,6 +20,8 @@ import AIChatPanel from '../../components/AIChatPanel';
 import '../../components/AIChatPanel.css';
 import DrawingPreviewPanel from '../../components/DrawingPreviewPanel';
 import '../../components/DrawingPreviewPanel.css';
+import ManufacturePreviewPanel from '../../components/ManufacturePreviewPanel';
+import '../../components/ManufacturePreviewPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -925,6 +927,9 @@ function WorkbenchMechanical() {
 
             {/* Drawing preview overlay — pops when Standard 3 View runs */}
             <DrawingPreviewPanel />
+
+            {/* Manufacture preview overlay — pops when a CAM tool runs */}
+            <ManufacturePreviewPanel />
         </>
     );
 }

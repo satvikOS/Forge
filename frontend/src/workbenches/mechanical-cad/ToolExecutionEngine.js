@@ -1807,7 +1807,14 @@ const TOOL_HANDLERS = {
         pocket,
       };
       _lastGCode = out;
-      if (typeof window !== 'undefined') window.__lastPocketGCodeResult = out;
+      if (typeof window !== 'undefined') {
+        window.__lastPocketGCodeResult = out;
+        window.__lastCAMProgram = {
+          gcode: program,
+          source: '2.5-Axis Milling',
+          stats: { totalLines: lineCount, cuttingMoves: g1Count, pocketMm: pocket },
+        };
+      }
       return {
         status: 'success',
         message: `2.5-Axis Mill: 50×30×5 mm pocket clear, Ø6 mm tool  |  ${lineCount} G-code lines, ${g1Count} cutting moves  via foundation.pocketClear`,
@@ -1836,7 +1843,15 @@ const TOOL_HANDLERS = {
         passes: Math.ceil(5 / 3),
       };
       _lastGCode = out;
-      if (typeof window !== 'undefined') window.__lastGCodeResult = out;
+      if (typeof window !== 'undefined') {
+        window.__lastGCodeResult = out;
+        window.__lastCAMProgram = {
+          gcode: program,
+          source: '3-Axis Milling',
+          stats: { totalLines: lineCount, cuttingMoves: g1Count,
+                   profileSegments: profile.length - 1, passes: out.passes },
+        };
+      }
       return {
         status: 'success',
         message: `3-Axis Mill: 60×40 contour, 5mm deep, ${out.passes} passes  |  ${lineCount} G-code lines, ${g1Count} cutting moves  via foundation.contourMill`,
