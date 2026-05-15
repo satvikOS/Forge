@@ -14,6 +14,7 @@ import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts, quoteAllVendors 
 import { buildVendorRFQEmail } from '../foundation/VendorRFQEmail.js';
 import * as ProjectStore from '../foundation/ProjectStore.js';
 import * as PlanTemplates from '../foundation/PlanTemplates.js';
+import { diffProjects } from '../foundation/ProjectDiff.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -65,6 +66,7 @@ export default function AIChatPanel({ open, onClose }) {
   const [renamingProject, setRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [templates, setTemplates] = useState([]);
+  const [diff, setDiff] = useState(null);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -169,6 +171,7 @@ export default function AIChatPanel({ open, onClose }) {
     setVendorPackage(null); setQuotes(null);
     setQuotesSortKey('totalCost'); setQuotesDir(1);
     setRfqEmail(null);
+    setDiff(null);
     memRef.current = null;
     setRestoredFromStorage(false);
   };
@@ -245,6 +248,16 @@ export default function AIChatPanel({ open, onClose }) {
     });
     setTemplates(PlanTemplates.listTemplates());
     append('assistant', `Saved current ${plan.length}-step plan as template "${name}".`);
+  };
+
+  // Compare the active project against another by id.
+  const handleCompareProject = (otherId) => {
+    if (!otherId || !activeProjectId) return;
+    const all = ProjectStore.listProjects();
+    const a = all.find(p => p.id === activeProjectId);
+    const b = all.find(p => p.id === otherId);
+    if (!a || !b) return;
+    setDiff(diffProjects(a, b));
   };
 
   const commitProjectRename = () => {
@@ -673,6 +686,18 @@ export default function AIChatPanel({ open, onClose }) {
                     data-action="save-template"
                     title="Save the current plan as a reusable template">Save as template</button>
           )}
+          {projects.length > 1 && (
+            <select className="chat-project-select"
+                    value=""
+                    onChange={(e) => { if (e.target.value) handleCompareProject(e.target.value); }}
+                    data-field="compare-project"
+                    title="Compare verdicts against another project">
+              <option value="">Compare with…</option>
+              {projects.filter(p => p.id !== activeProjectId).map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          )}
         </div>
         <div className="chat-transcript">
           {messages.map((m, i) => (
@@ -832,6 +857,39 @@ export default function AIChatPanel({ open, onClose }) {
                         data-action="rfq-close">×</button>
               </div>
               <pre className="chat-rfq-body" data-rfq-body>{rfqEmail.body}</pre>
+            </div>
+          )}
+          {diff && (
+            <div className="chat-diff" data-diff-table>
+              <div className="chat-diff-head">
+                <span>Project comparison</span>
+                <button className="chat-diff-close" onClick={() => setDiff(null)}
+                        data-action="diff-close">×</button>
+              </div>
+              <table className="chat-diff-grid">
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th data-diff-col-a>{diff.a.name}</th>
+                    <th data-diff-col-b>{diff.b.name}</th>
+                    <th>Δ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diff.rows.map(r => (
+                    <tr key={r.key} data-diff-row={r.key}>
+                      <td>{r.label}</td>
+                      <td className={r.better === 'a' ? 'chat-diff-win' : ''}>{String(r.a)}</td>
+                      <td className={r.better === 'b' ? 'chat-diff-win' : ''}>{String(r.b)}</td>
+                      <td className="chat-diff-delta">
+                        {r.delta === null ? '—'
+                          : r.delta === 0 ? '0'
+                          : (r.delta > 0 ? `+${trimNum(r.delta)}` : trimNum(r.delta))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
           {quotes && quotes.length > 0 && (
@@ -1021,6 +1079,11 @@ function downloadMatrix(matrix, format) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** Trim a numeric delta to at most 2 dp without trailing zeros. */
+function trimNum(n) {
+  return Number(n.toFixed(2)).toString();
 }
 
 /** Sort the quote rows by one of name / location / leadTimeDays /
