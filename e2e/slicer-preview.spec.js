@@ -49,11 +49,27 @@ test.describe('Slicer layer preview', () => {
     const z = parseFloat(zText.replace(/[^\d.]/g, ''));
     expect(z).toBeGreaterThan(5);
 
-    // 5. Play button animates
+    // 5. Toggle to Stack (isometric) mode — scrub to a mid layer first
+    //    so the stack has several layers to project.
+    await slider.fill(String(Math.floor(parseInt(maxVal, 10) / 2)));
+    await page.waitForTimeout(400);
+    await dlg.locator('[data-action="slp-mode"]').click();
+    await page.waitForTimeout(500);
+    const isoSvg = dlg.locator('[data-slp-iso]');
+    await expect(isoSvg).toBeVisible();
+    // The stack draws every layer up to idx → many more paths than
+    // a single flat layer.
+    const isoPaths = await isoSvg.locator('path').count();
+    console.log(`Iso stack paths at mid layer: ${isoPaths}`);
+    expect(isoPaths).toBeGreaterThan(10);
+    // Toggle back to flat
+    await dlg.locator('[data-action="slp-mode"]').click();
+    await page.waitForTimeout(400);
+    await expect(dlg.locator('[data-slp-iso]')).toHaveCount(0);
+
+    // 6. Play button animates
     await dlg.locator('[data-action="slp-play"]').click();
     await page.waitForTimeout(2500);
-    // Animation should have moved the layer index off the end (it
-    // resets play at the top); just confirm the title still updates.
     await expect(dlg.locator('.slp-title')).toContainText('Slice Preview');
 
     // Human dwell

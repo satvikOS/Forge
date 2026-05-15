@@ -36,6 +36,16 @@
   font: 12px 'Consolas', monospace;
   color: #5da5ff;
 }
+.slp-mode {
+  background: #2a2a2a;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font: 600 10px 'Consolas', monospace;
+  cursor: pointer;
+}
+.slp-mode:hover { background: #5da5ff; color: #fff; border-color: #5da5ff; }
 .slp-close {
   background: transparent;
   color: #aaa;
