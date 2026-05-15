@@ -94,6 +94,23 @@
 }
 .chat-project-action-import:hover { background: #5da5ff; color: #fff; }
 
+.chat-template-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: #121212;
+  border-bottom: 1px solid #2a2a2a;
+}
+.chat-template-select { flex: 1; }
+.chat-save-template-btn {
+  width: auto;
+  padding: 0 10px;
+  height: 22px;
+  font: 600 10px 'Segoe UI', sans-serif;
+  white-space: nowrap;
+}
+
 .chat-restored {
   font-size: 9px;
   text-transform: uppercase;

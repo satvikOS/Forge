@@ -13,6 +13,7 @@ import { buildVendorPackage } from '../foundation/VendorPackage.js';
 import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts, quoteAllVendors } from '../foundation/VendorProfiles.js';
 import { buildVendorRFQEmail } from '../foundation/VendorRFQEmail.js';
 import * as ProjectStore from '../foundation/ProjectStore.js';
+import * as PlanTemplates from '../foundation/PlanTemplates.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -63,6 +64,7 @@ export default function AIChatPanel({ open, onClose }) {
   const [activeProjectId, setActiveProjectIdState] = useState(null);
   const [renamingProject, setRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
+  const [templates, setTemplates] = useState([]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -112,6 +114,7 @@ export default function AIChatPanel({ open, onClose }) {
     if (typeof localStorage === 'undefined') return;
     const all = ProjectStore.listProjects();
     setProjects(all);
+    setTemplates(PlanTemplates.listTemplates());
     const active = ProjectStore.getActiveProject();
     setActiveProjectIdState(active?.id ?? null);
     if (!active?.snapshot) return;
@@ -205,6 +208,43 @@ export default function AIChatPanel({ open, onClose }) {
     setActiveProjectIdState(nextActive?.id ?? null);
     if (nextActive?.snapshot) applySnapshot(nextActive.snapshot);
     else                       clearReactState();
+  };
+
+  // ── Plan templates ──────────────────────────────────────────────
+  const handleLoadTemplate = (id) => {
+    const tpl = PlanTemplates.findTemplate(id);
+    if (!tpl) return;
+    clearReactState();
+    const mem = new SessionMemory();
+    mem.setPrompt(tpl.prompt);
+    mem.setDomain(tpl.domain, 1);
+    mem.setPlan(tpl.plan, `template:${tpl.name}`);
+    memRef.current = mem;
+    setDomain(tpl.domain);
+    setPlan(tpl.plan);
+    setPlanSource(`template:${tpl.name}`);
+    setStepStatuses(tpl.plan.map(() => 'pending'));
+    setMessages([
+      { role: 'system', text: 'Tell me what you want to design.' },
+      { role: 'user', text: tpl.prompt },
+      { role: 'assistant', text: `Loaded template "${tpl.name}" — ${tpl.plan.length} steps. Review/edit below and hit Run.` },
+    ]);
+    setPhase('ready');
+  };
+
+  const handleSaveTemplate = () => {
+    if (!plan || plan.length === 0) return;
+    const name = window.prompt('Save current plan as template — name:',
+      `${domain ?? 'design'} plan`);
+    if (!name) return;
+    PlanTemplates.saveTemplate({
+      name,
+      domain: domain ?? 'generic',
+      prompt: memRef.current?.userPrompt ?? '',
+      plan,
+    });
+    setTemplates(PlanTemplates.listTemplates());
+    append('assistant', `Saved current ${plan.length}-step plan as template "${name}".`);
   };
 
   const commitProjectRename = () => {
@@ -613,6 +653,26 @@ export default function AIChatPanel({ open, onClose }) {
                   disabled={!activeProjectId}
                   data-action="delete-project"
                   title="Delete this project">×</button>
+        </div>
+        <div className="chat-template-bar" data-template-bar>
+          <span className="chat-project-label">Template</span>
+          <select className="chat-project-select chat-template-select"
+                  value=""
+                  onChange={(e) => { if (e.target.value) handleLoadTemplate(e.target.value); }}
+                  data-field="template-load">
+            <option value="">Load a starter plan…</option>
+            {templates.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.builtin ? '★ ' : ''}{t.name} ({t.plan.length})
+              </option>
+            ))}
+          </select>
+          {(phase === 'ready' || phase === 'done') && plan && plan.length > 0 && (
+            <button className="chat-project-action chat-save-template-btn"
+                    onClick={handleSaveTemplate}
+                    data-action="save-template"
+                    title="Save the current plan as a reusable template">Save as template</button>
+          )}
         </div>
         <div className="chat-transcript">
           {messages.map((m, i) => (
