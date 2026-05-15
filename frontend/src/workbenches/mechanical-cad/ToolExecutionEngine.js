@@ -351,6 +351,25 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: 'Sketch started on XZ plane. Add geometry with sketch tools.' };
     },
 
+    'Auto-Constrain': () => {
+      // Foundation path: hand the live interactive sketch to the
+      // validated foundation Sketch2D solver — infer horizontal /
+      // vertical / parallel / perpendicular / equal-length
+      // constraints, solve, snap the geometry, and place dimensions.
+      if (typeof window === 'undefined' || typeof window.__archdiscCleanupSketch !== 'function') {
+        return { status: 'warn', message: 'Auto-Constrain: open an interactive sketch first (press 4).' };
+      }
+      const r = window.__archdiscCleanupSketch();
+      if (!r.ok) {
+        return { status: 'warn', message: `Auto-Constrain: ${r.reason}` };
+      }
+      const dimCount = r.dimensions?.length ?? 0;
+      return {
+        status: r.solver?.converged ? 'success' : 'warn',
+        message: `Auto-Constrain: ${r.constraintsAdded} constraints inferred, solver ${r.solver?.converged ? 'converged' : 'did not converge'} in ${r.solver?.iterations ?? '?'} iters (‖r‖=${(r.solver?.residualNorm ?? 0).toExponential(1)}), ${dimCount} dimensions placed via foundation.Sketch2D`,
+      };
+    },
+
     'Line': (scene) => {
       if (!_activeSketch) _activeSketch = new SketchSolver();
       const p1 = _activeSketch.addPoint(0, 0);

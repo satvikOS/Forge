@@ -13,6 +13,8 @@ import * as THREE from 'three';
 import Vec3 from '../math/Vec3.js';
 import Plane from '../math/Plane.js';
 import SketchSolver, { SketchPoint, SketchLine, SketchCircle, SketchArc } from './SketchSolver.js';
+import { Sketch2D } from '../../foundation/Sketch2D.js';
+import { inferConstraintsAndDimension } from '../../foundation/SketchAutoDim.js';
 
 const SNAP_DISTANCE = 0.005; // 5mm snap radius
 const GRID_SIZE = 0.001;     // 1mm grid
@@ -313,6 +315,105 @@ export default class InteractiveSketch {
       constraintCount: this.solver.constraints.length,
       pointCount: this.solver.points.length,
     };
+  }
+
+  /**
+   * Clean up the rough-drawn sketch with the validated foundation
+   * Sketch2D kernel: build a foundation sketch from the line/circle
+   * entities, infer horizontal / vertical / parallel / perpendicular
+   * / equal-length constraints, run the Newton-Raphson solver, snap
+   * the geometry, and emit dimension annotations.
+   *
+   * The interactive sketch works in metres (1 mm grid); the
+   * foundation Sketch2D + SketchAutoDim work in millimetres — so
+   * coordinates are scaled ×1000 going in and ÷1000 coming back.
+   *
+   * @returns {{ ok, constraintsAdded?, solver?, dimensions?, reason? }}
+   */
+  cleanupWithFoundation(opts = {}) {
+    const S = 1000;                                  // m → mm
+    const TOL = (opts.mergeTol ?? GRID_SIZE * 0.5) * S;
+    const fSketch = new Sketch2D();
+    const fpts = [];
+    const getPt = (u, v) => {
+      const mu = u * S, mv = v * S;
+      let f = fpts.find(p => Math.hypot(p.u - mu, p.v - mv) < TOL);
+      if (!f) { f = { u: mu, v: mv, sp: fSketch.addPoint(mu, mv) }; fpts.push(f); }
+      return f.sp;
+    };
+    const lineMap = [], circleMap = [];
+    for (const e of this.entities) {
+      if (e.type === 'line') {
+        const a = getPt(e.p1.u, e.p1.v);
+        const b = getPt(e.p2.u, e.p2.v);
+        lineMap.push({ entity: e, fline: fSketch.addLine(a, b) });
+      } else if (e.type === 'circle') {
+        const c = fSketch.addPoint(e.center.u * S, e.center.v * S);
+        const fc = fSketch.addCircle(c, e.radius * S);
+        fSketch.radius(fc, e.radius * S);
+        circleMap.push({ entity: e, fcircle: fc });
+      }
+    }
+    if (lineMap.length === 0 && circleMap.length === 0) {
+      return { ok: false, reason: 'no line or circle entities to clean up' };
+    }
+    const result = inferConstraintsAndDimension(fSketch, opts);
+    // Write the solved geometry back into the entities (mm → m).
+    for (const { entity, fline } of lineMap) {
+      entity.p1 = { u: fline.p1.x / S, v: fline.p1.y / S };
+      entity.p2 = { u: fline.p2.x / S, v: fline.p2.y / S };
+    }
+    for (const { entity, fcircle } of circleMap) {
+      entity.center = { u: fcircle.center.x / S, v: fcircle.center.y / S };
+      entity.radius = fcircle.radius / S;
+    }
+    // Keep the dimension annotations (anchors stay in mm; label carries
+    // the human-readable value) and rebuild the 3D visuals.
+    this._foundationDimensions = result.dimensions ?? [];
+    this._redrawAll();
+    this._notify('cleanup', result);
+    return { ok: true, ...result };
+  }
+
+  /** Dispose every sketch-entity visual and redraw from the entity list. */
+  _redrawAll() {
+    if (!this.sketchGroup) return;
+    const stale = this.sketchGroup.children.filter(c => c.userData.sketchEntity);
+    for (const c of stale) {
+      this.sketchGroup.remove(c);
+      c.geometry?.dispose?.();
+      c.material?.dispose?.();
+    }
+    for (const e of this.entities) {
+      if (e.type === 'line')        e.visual = this._drawLine3D(e.p1, e.p2, 0x00ccff);
+      else if (e.type === 'circle') e.visual = this._drawCircle3D(e.center, e.radius, 0x00ccff);
+      else if (e.type === 'arc')    e.visual = this._drawArc3D(e.p1, e.p2, e.p3, 0x00ccff);
+    }
+    for (const d of (this._foundationDimensions ?? [])) {
+      this._drawAutoDimLabel(d);
+    }
+  }
+
+  /** Render one auto-dimension annotation as a 3D text sprite. */
+  _drawAutoDimLabel(dim) {
+    const u = dim.anchor.x / 1000, v = dim.anchor.y / 1000;
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffd66d';
+    ctx.font = '18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(dim.label, 80, 22);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(canvas), transparent: true,
+    }));
+    const p = this._to3D(u, v);
+    sprite.position.set(p.x, p.y, p.z);
+    sprite.scale.set(0.024, 0.0048, 1);
+    sprite.userData.sketchEntity = true;
+    this.sketchGroup?.add(sprite);
+    return sprite;
   }
 
   // --- Entity creation ---

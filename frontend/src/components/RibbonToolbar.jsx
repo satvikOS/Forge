@@ -43,6 +43,9 @@ const TABS = {
         { name: 'Tangent', icon: '⌒', key: 'sketch' },
         { name: 'Equal', icon: '=', key: 'sketch' },
       ]},
+      { label: 'Solve', tools: [
+        { name: 'Auto-Constrain', icon: '✦', key: 'sketch', primary: true },
+      ]},
     ]
   },
   part: {

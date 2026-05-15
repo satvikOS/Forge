@@ -648,6 +648,11 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             window.__three_camera = camera;
             window.__three_renderer = renderer;
             window.THREE = THREE;
+            // Interactive sketch singleton + foundation cleanup hook.
+            window.__archdiscSketch = _sketch;
+            window.__archdiscCleanupSketch = (opts) =>
+                _sketch.active ? _sketch.cleanupWithFoundation(opts)
+                               : { ok: false, reason: 'no active sketch' };
         }
 
         if (onReadyRef.current) onReadyRef.current({ scene, camera, renderer, controls: orbitControls, transformControls });
