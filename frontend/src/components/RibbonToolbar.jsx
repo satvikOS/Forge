@@ -58,6 +58,7 @@ const TABS = {
         { name: 'Revolve Cut', icon: '↺', key: 'part' },
         { name: 'Loft Boss', icon: '⋈', key: 'part' },
         { name: 'Sweep Boss', icon: '↝', key: 'part' },
+        { name: 'Import STEP', icon: '📥', key: 'part' },
       ]},
       { label: 'Modify', tools: [
         { name: 'Fillet', icon: '◜', key: 'part' },

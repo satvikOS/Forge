@@ -78,6 +78,7 @@ import { checkManifoldDFM } from '../../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../../foundation/AssemblyCost.js';
 import { buildVendorPackage } from '../../foundation/VendorPackage.js';
 import { svgToPdfBytes, isRasterCapable } from '../../foundation/SvgRaster.js';
+import { parseStep, stepMeshToManifold } from '../../foundation/StepImport.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -466,6 +467,48 @@ const TOOL_HANDLERS = {
   // PART DESIGN — Real kernel operations
   // ═══════════════════════════════════════════════════════════════════════════
   'part-design': {
+    'Import STEP': async (scene, viewport) => {
+      // Foundation path: read a STEP (ISO 10303-21) faceted B-rep
+      // via foundation.parseStep, rebuild the mesh as a manifold,
+      // and drop it into the scene like any other foundation body.
+      if (typeof document === 'undefined') {
+        return { status: 'error', message: 'Import STEP needs a browser.' };
+      }
+      const file = await new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.step,.stp,application/step';
+        input.style.display = 'none';
+        input.onchange = () => resolve(input.files?.[0] ?? null);
+        // If the dialog is dismissed there is no reliable cancel
+        // event; a focus-based timeout keeps the handler from hanging.
+        document.body.appendChild(input);
+        input.click();
+        const onFocus = () => {
+          setTimeout(() => {
+            if (!input.files || input.files.length === 0) resolve(null);
+          }, 500);
+          window.removeEventListener('focus', onFocus);
+        };
+        window.addEventListener('focus', onFocus);
+      });
+      if (!file) return { status: 'warn', message: 'Import STEP: no file selected.' };
+      const text = await file.text();
+      let mesh;
+      try {
+        mesh = parseStep(text);
+      } catch (err) {
+        return { status: 'error', message: `Import STEP: ${err.message}` };
+      }
+      const manifold = await stepMeshToManifold(mesh, getManifold);
+      addFoundationManifoldToScene(scene, viewport, manifold, 0x3a7d44);
+      const vol = (() => { try { return manifold.volume(); } catch { return 0; } })();
+      return {
+        status: 'success',
+        message: `Import STEP: ${file.name} — ${mesh.vertices.length} vertices, ${mesh.triangles.length} triangles from ${mesh.faceCount} faces${mesh.skippedFaces ? ` (${mesh.skippedFaces} skipped)` : ''}, V = ${vol.toFixed(0)} mm³ via foundation.parseStep`,
+      };
+    },
+
     'Extrude Boss': async (scene, viewport) => {
       // Foundation path: extrude an 80 × 50 mm rectangular profile
       // 25 mm along +Z via manifold-3d's CrossSection.extrude. The
