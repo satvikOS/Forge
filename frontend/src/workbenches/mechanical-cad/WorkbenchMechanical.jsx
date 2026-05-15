@@ -18,6 +18,8 @@ import AISettingsPanel from '../../components/AISettingsPanel';
 import '../../components/AISettingsPanel.css';
 import AIChatPanel from '../../components/AIChatPanel';
 import '../../components/AIChatPanel.css';
+import DrawingPreviewPanel from '../../components/DrawingPreviewPanel';
+import '../../components/DrawingPreviewPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -920,6 +922,9 @@ function WorkbenchMechanical() {
               💬
             </button>
             <AIChatPanel open={aiChatOpen} onClose={() => setAIChatOpen(false)} />
+
+            {/* Drawing preview overlay — pops when Standard 3 View runs */}
+            <DrawingPreviewPanel />
         </>
     );
 }

@@ -2060,23 +2060,18 @@ const TOOL_HANDLERS = {
       const numLines = (svg.match(/<line\b/g) || []).length;
       const numPolylines = (svg.match(/<polyline\b/g) || []).length;
       if (typeof window !== 'undefined') {
+        // Stash both the metadata (for the design history + cert
+        // matrix) and the raw SVG string (for the DrawingPreview
+        // panel to render inline). The auto-download was dropped
+        // in favour of an explicit "Download SVG" button in the
+        // preview panel — consistent with the cert-matrix downloads.
         window.__last3ViewResult = {
           sizeBytes,
           numLines,
           numPolylines,
           hasTitleBlock: /TITLE BLOCK|Material:|Date:/.test(svg),
         };
-        try {
-          const blob = new Blob([svg], { type: 'image/svg+xml' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'ArchDisc_3View.svg';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        } catch (_) { /* ignore */ }
+        window.__lastDrawingSVG = svg;
       }
       return {
         status: 'success',
