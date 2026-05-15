@@ -267,6 +267,68 @@
   margin-top: 2px;
 }
 
+.chat-cost {
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #181818;
+  overflow: hidden;
+  border-left: 3px solid #5da5ff;
+}
+.chat-cost-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #1f1f1f;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: #aaa;
+}
+.chat-cost-head:hover { background: #222; }
+.chat-cost-pill {
+  font: 700 11px 'Consolas', monospace;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #1a2e44;
+  color: #5da5ff;
+}
+.chat-cost-stats {
+  flex: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #ccc;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+}
+.chat-cost-list {
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+}
+.chat-cost-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 100px;
+  gap: 12px;
+  padding: 5px 12px;
+  font-size: 11px;
+  border-bottom: 1px solid #1a1a1a;
+}
+.chat-cost-row:last-child { border-bottom: none; }
+.chat-cost-name { color: #ddd; }
+.chat-cost-mass { color: #888; text-align: right; font-family: 'Consolas', monospace; }
+.chat-cost-subtotal { color: #5da5ff; text-align: right; font-weight: 600; font-family: 'Consolas', monospace; }
+.chat-cost-total-row {
+  background: #1a1a1a;
+  font-weight: 700;
+  border-top: 1px solid #2a2a2a;
+}
+.chat-cost-total-row .chat-cost-name { color: #fff; }
+.chat-cost-total-row .chat-cost-subtotal { color: #fff; font-size: 12px; }
+
 .chat-dfm {
   margin-top: 8px;
   border: 1px solid #2a2a2a;

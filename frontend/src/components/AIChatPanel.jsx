@@ -7,6 +7,8 @@ import { executePlan } from '../ai/PlanExecutor.js';
 import { findTool, TOOL_REGISTRY } from '../ai/ToolRegistry.js';
 import { generateCertificationMatrix, suggestNextModules, renderMatrixMarkdown } from '../ai/CertificationMatrix.js';
 import { checkManifoldDFM } from '../foundation/DFMCheck.js';
+import { rollupAssemblyCost } from '../foundation/AssemblyCost.js';
+import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -40,6 +42,8 @@ export default function AIChatPanel({ open, onClose }) {
   const [certExpanded, setCertExpanded] = useState(false);
   const [dfmReport, setDfmReport] = useState(null);
   const [dfmExpanded, setDfmExpanded] = useState(false);
+  const [costReport, setCostReport] = useState(null);
+  const [costExpanded, setCostExpanded] = useState(false);
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
@@ -186,6 +190,19 @@ export default function AIChatPanel({ open, onClose }) {
         } catch (err) {
           console.warn('dfm check failed', err);
         }
+        // ── Cost auto-rollup across BodyRegistry ───────────────
+        try {
+          const bodies = getBodyRegistry().list();
+          if (bodies.length > 0) {
+            const cost = rollupAssemblyCost(bodies);
+            setCostReport(cost);
+            const t = cost.totals;
+            append('assistant',
+              `Cost rollup: ${t.partCount} parts, ${(t.mass_kg * 1000).toFixed(0)} g — $${t.totalCost.toFixed(2)} total (sell @${t.marginPct.toFixed(0)}% = $${t.sellPrice.toFixed(2)}).`);
+          }
+        } catch (err) {
+          console.warn('cost rollup failed', err);
+        }
         setPhase('done');
       } else {
         append('assistant', `Plan aborted: ${res.errors.map(e => e.error).join(' · ')}`);
@@ -239,6 +256,7 @@ export default function AIChatPanel({ open, onClose }) {
     setPlan(null); setPlanSource(null); setStepStatuses([]);
     setCertMatrix(null); setCertExpanded(false);
     setDfmReport(null); setDfmExpanded(false);
+    setCostReport(null); setCostExpanded(false);
     memRef.current = null;
   };
 
@@ -324,6 +342,34 @@ export default function AIChatPanel({ open, onClose }) {
                   );
                 })}
               </ol>
+            </div>
+          )}
+          {costReport && (
+            <div className="chat-cost" data-cost-summary>
+              <div className="chat-cost-head" onClick={() => setCostExpanded((v) => !v)}>
+                <span className="chat-cost-pill">$</span>
+                <span>Cost rollup</span>
+                <span className="chat-cost-stats">
+                  {costReport.totals.partCount} parts · ${costReport.totals.totalCost.toFixed(2)} total · sell ${costReport.totals.sellPrice.toFixed(2)}
+                </span>
+                <span className="chat-dfm-toggle">{costExpanded ? '▴' : '▾'}</span>
+              </div>
+              {costExpanded && (
+                <ul className="chat-cost-list">
+                  {costReport.lineItems.map((l) => (
+                    <li key={l.bodyId} className="chat-cost-row">
+                      <span className="chat-cost-name">{l.name}</span>
+                      <span className="chat-cost-mass">{(l.mass_kg * 1000).toFixed(1)} g</span>
+                      <span className="chat-cost-subtotal">${l.subtotal.toFixed(2)}</span>
+                    </li>
+                  ))}
+                  <li className="chat-cost-row chat-cost-total-row">
+                    <span className="chat-cost-name">TOTAL</span>
+                    <span className="chat-cost-mass">{(costReport.totals.mass_kg * 1000).toFixed(1)} g</span>
+                    <span className="chat-cost-subtotal">${costReport.totals.totalCost.toFixed(2)}</span>
+                  </li>
+                </ul>
+              )}
             </div>
           )}
           {dfmReport && (

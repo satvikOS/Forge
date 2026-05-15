@@ -75,6 +75,7 @@ import { solveLidDrivenCavity, sampleCenterlineU, GHIA_RE100_U } from '../../fou
 import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
 import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
 import { checkManifoldDFM } from '../../foundation/DFMCheck.js';
+import { rollupAssemblyCost } from '../../foundation/AssemblyCost.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1991,58 +1992,20 @@ const TOOL_HANDLERS = {
       };
     },
     'Assembly Cost': () => {
-      // Foundation path: roll up Cost Estimation across every body
-      // currently in the BodyRegistry. Same per-body formula as the
-      // single-part Cost Estimation handler (Al-6061-T6 mass × $4.50/kg
-      // + CNC at 100 mm²/min × $90/hr + $30 setup + $5 finish).
-      // Returns a per-body line item + grand totals — drives the
-      // AssemblyCostPanel.
+      // Foundation path: foundation.rollupAssemblyCost across every
+      // body in the BodyRegistry. Same per-body formula as Cost
+      // Estimation; defaults reproduce the original numbers exactly.
       const reg = getBodyRegistry();
       const bodies = reg.list();
       if (bodies.length === 0) {
         return { status: 'warn', message: 'Assembly Cost: no bodies in registry. Click Extrude Boss / Revolve Boss / etc. first.' };
       }
-      const DENSITY = 2700;      // kg/m³ Al 6061-T6
-      const MAT_RATE = 4.5;      // $/kg
-      const CNC_RATE = 90;       // $/hr
-      const SETUP_PER_PART = 30; // one fresh setup per body
-      const FINISH_PER_PART = 5;
-      const MARGIN = 0.25;
-      const lineItems = bodies.map((b) => {
-        const Vmm3 = b.volume_mm3 ?? 0;
-        const Amm2 = (() => {
-          try { return b.manifold?.surfaceArea?.() ?? 0; } catch { return 0; }
-        })();
-        const massKg = (Vmm3 * 1e-9) * DENSITY;
-        const cncTimeHr = (Amm2 * 1e-2) / 60;
-        const materialCost = massKg * MAT_RATE;
-        const cncCost = cncTimeHr * CNC_RATE;
-        return {
-          bodyId: b.id, name: b.name, sourceTool: b.sourceTool,
-          volume_mm3: Vmm3, surfaceArea_mm2: Amm2,
-          mass_kg: massKg, cncTime_hr: cncTimeHr,
-          materialCost, cncCost,
-          setupCost: SETUP_PER_PART, finishCost: FINISH_PER_PART,
-          subtotal: materialCost + cncCost + SETUP_PER_PART + FINISH_PER_PART,
-        };
-      });
-      const sum = (k) => lineItems.reduce((s, l) => s + l[k], 0);
-      const totals = {
-        partCount: lineItems.length,
-        mass_kg: sum('mass_kg'),
-        materialCost: sum('materialCost'),
-        cncCost: sum('cncCost'),
-        setupCost: sum('setupCost'),
-        finishCost: sum('finishCost'),
-        totalCost: sum('subtotal'),
-      };
-      totals.sellPrice = totals.totalCost * (1 + MARGIN);
-      totals.marginPct = MARGIN * 100;
-      const out = { lineItems, totals };
+      const out = rollupAssemblyCost(bodies);
       if (typeof window !== 'undefined') window.__lastAssemblyCost = out;
+      const t = out.totals;
       return {
         status: 'success',
-        message: `Assembly Cost: ${lineItems.length} parts | mass = ${(totals.mass_kg * 1000).toFixed(0)} g | total = $${totals.totalCost.toFixed(2)} (sell @25% = $${totals.sellPrice.toFixed(2)}) via foundation.BodyRegistry sum`,
+        message: `Assembly Cost: ${t.partCount} parts | mass = ${(t.mass_kg * 1000).toFixed(0)} g | total = $${t.totalCost.toFixed(2)} (sell @${t.marginPct.toFixed(0)}% = $${t.sellPrice.toFixed(2)}) via foundation.rollupAssemblyCost`,
       };
     },
 

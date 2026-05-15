@@ -119,6 +119,21 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     expect(dfmRowCount).toBeGreaterThanOrEqual(1);
     console.log(`DFM rows visible: ${dfmRowCount}`);
 
+    // ── Cost rollup banner appears too ──────────────────────────
+    const cost = panel.locator('[data-cost-summary]');
+    await expect(cost).toBeVisible();
+    const costStats = await cost.locator('.chat-cost-stats').textContent();
+    console.log(`Cost banner: ${costStats}`);
+    expect(costStats).toMatch(/\d+ parts/);
+    expect(costStats).toMatch(/\$\d+\.\d{2} total/);
+    expect(costStats).toMatch(/sell \$\d+\.\d{2}/);
+    await cost.locator('.chat-cost-head').dispatchEvent('click');
+    await page.waitForTimeout(800);
+    const costRows = cost.locator('.chat-cost-row');
+    const costRowCount = await costRows.count();
+    expect(costRowCount).toBeGreaterThanOrEqual(2);    // ≥1 part + TOTAL
+    console.log(`Cost rows visible: ${costRowCount}`);
+
     // ── Cert matrix downloads (.md + .json) ─────────────────────
     const mdBtn = cert.locator('[data-action="download-cert-md"]');
     const jsonBtn = cert.locator('[data-action="download-cert-json"]');
