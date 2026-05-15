@@ -11,6 +11,7 @@ import { rollupAssemblyCost } from '../foundation/AssemblyCost.js';
 import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 import { buildVendorPackage } from '../foundation/VendorPackage.js';
 import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts, quoteAllVendors } from '../foundation/VendorProfiles.js';
+import { buildVendorRFQEmail } from '../foundation/VendorRFQEmail.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -51,6 +52,7 @@ export default function AIChatPanel({ open, onClose }) {
   const [quotes, setQuotes] = useState(null);
   const [quotesSortKey, setQuotesSortKey] = useState('totalCost');
   const [quotesDir, setQuotesDir] = useState(1);     // 1 asc, -1 desc
+  const [rfqEmail, setRfqEmail] = useState(null);    // {subject, body, mailtoUrl}
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
@@ -264,6 +266,14 @@ export default function AIChatPanel({ open, onClose }) {
     else if (phase === 'clarifying') handleAnswer();
   };
 
+  const composeRFQEmail = () => {
+    if (!vendorPackage) return;
+    const bodies = getBodyRegistry().list();
+    const profile = findVendorProfile(vendorProfileId);
+    const draft = buildVendorRFQEmail({ vendorPackage, profile, bodies });
+    setRfqEmail(draft);
+  };
+
   // Re-bundle the vendor ZIP whenever the user swaps profiles after Run.
   const reSwitchVendorProfile = (newId) => {
     setVendorProfileId(newId);
@@ -333,6 +343,7 @@ export default function AIChatPanel({ open, onClose }) {
     setCostReport(null); setCostExpanded(false);
     setVendorPackage(null); setQuotes(null);
     setQuotesSortKey('totalCost'); setQuotesDir(1);
+    setRfqEmail(null);
     memRef.current = null;
   };
 
@@ -467,6 +478,9 @@ export default function AIChatPanel({ open, onClose }) {
                 <button className="chat-vendor-btn"
                         onClick={() => downloadVendorZip(vendorPackage)}
                         data-action="download-vendor-zip">Download ZIP</button>
+                <button className="chat-vendor-btn chat-vendor-btn-secondary"
+                        onClick={composeRFQEmail}
+                        data-action="compose-rfq-email">Email RFQ</button>
               </div>
               <div className="chat-vendor-meta" data-vendor-meta>
                 <span>{vendorPackage.manifest.vendor?.name ?? '—'}</span>
@@ -479,6 +493,26 @@ export default function AIChatPanel({ open, onClose }) {
                   <span key={n} className="chat-vendor-file">{n}</span>
                 ))}
               </div>
+            </div>
+          )}
+          {rfqEmail && (
+            <div className="chat-rfq" data-rfq-email>
+              <div className="chat-rfq-head">
+                <span>RFQ draft</span>
+                <span className="chat-rfq-subject" data-rfq-subject>{rfqEmail.subject}</span>
+                <button className="chat-vendor-btn"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(rfqEmail.body);
+                        }}
+                        data-action="rfq-copy">Copy body</button>
+                <a className="chat-vendor-btn chat-vendor-btn-secondary"
+                   href={rfqEmail.mailtoUrl}
+                   data-action="rfq-mailto">Open in mail client</a>
+                <button className="chat-rfq-close"
+                        onClick={() => setRfqEmail(null)}
+                        data-action="rfq-close">×</button>
+              </div>
+              <pre className="chat-rfq-body" data-rfq-body>{rfqEmail.body}</pre>
             </div>
           )}
           {quotes && quotes.length > 0 && (

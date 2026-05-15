@@ -232,6 +232,29 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     const zip2Bytes = fsVendor.readFileSync(await zip2.path());
     expect(zip2Bytes.length).not.toBe(zipBytes.length);
 
+    // ── RFQ email draft + mailto: link ──────────────────────────
+    await vendor.locator('[data-action="compose-rfq-email"]').dispatchEvent('click');
+    await page.waitForTimeout(800);
+    const rfq = panel.locator('[data-rfq-email]');
+    await expect(rfq).toBeVisible();
+    const rfqSubject = await rfq.locator('[data-rfq-subject]').textContent();
+    const rfqBody    = await rfq.locator('[data-rfq-body]').textContent();
+    console.log(`\nRFQ subject: ${rfqSubject}`);
+    expect(rfqSubject).toMatch(/^RFQ — /);
+    expect(rfqSubject).toContain('Aluminum 6061-T6');
+    expect(rfqBody).toMatch(/Part name\s+:/);
+    expect(rfqBody).toMatch(/Material\s+:/);
+    expect(rfqBody).toContain('Our cost');
+    expect(rfqBody).toContain('Sell ref.');
+    expect(rfqBody).toContain('Lead time');
+    expect(rfqBody).toContain('archdisc-vendor-');
+    expect(rfqBody).toContain('Please respond with');
+    // mailto: link is on the anchor
+    const mailtoHref = await rfq.locator('[data-action="rfq-mailto"]').getAttribute('href');
+    expect(mailtoHref).toMatch(/^mailto:\?subject=RFQ/);
+    // Body length should round-trip through URL-encoding
+    expect(decodeURIComponent(mailtoHref).split('&body=')[1]).toContain('Part name');
+
     // ── Cert matrix downloads (.md + .json) ─────────────────────
     const mdBtn = cert.locator('[data-action="download-cert-md"]');
     const jsonBtn = cert.locator('[data-action="download-cert-json"]');
