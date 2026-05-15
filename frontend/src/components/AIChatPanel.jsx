@@ -6,6 +6,7 @@ import { SessionMemory } from '../ai/SessionMemory.js';
 import { executePlan } from '../ai/PlanExecutor.js';
 import { findTool, TOOL_REGISTRY } from '../ai/ToolRegistry.js';
 import { generateCertificationMatrix, suggestNextModules, renderMatrixMarkdown } from '../ai/CertificationMatrix.js';
+import { checkManifoldDFM } from '../foundation/DFMCheck.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -37,6 +38,8 @@ export default function AIChatPanel({ open, onClose }) {
   const [stepStatuses, setStepStatuses] = useState([]);   // per-plan-step: 'pending' | 'running' | 'done' | 'error'
   const [certMatrix, setCertMatrix] = useState(null);     // generated after Run
   const [certExpanded, setCertExpanded] = useState(false);
+  const [dfmReport, setDfmReport] = useState(null);
+  const [dfmExpanded, setDfmExpanded] = useState(false);
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
@@ -164,6 +167,25 @@ export default function AIChatPanel({ open, onClose }) {
         } catch (err) {
           console.warn('cert matrix failed', err);
         }
+        // ── DFM auto-check ─────────────────────────────────────
+        try {
+          const m = typeof window !== 'undefined' ? window.__lastFoundationManifold : null;
+          if (m) {
+            const dfm = checkManifoldDFM(m);
+            setDfmReport(dfm);
+            const s = dfm.summary;
+            const banner = s.errors > 0
+              ? `Manufacturability: FAIL — ${s.errors} errors, ${s.warnings} warnings, ${s.infos} infos`
+              : s.warnings > 0
+              ? `Manufacturability: WARN — ${s.warnings} warnings, ${s.infos} infos`
+              : s.infos > 0
+              ? `Manufacturability: PASS — ${s.infos} infos worth a glance`
+              : `Manufacturability: PASS — no DFM issues`;
+            append('assistant', banner);
+          }
+        } catch (err) {
+          console.warn('dfm check failed', err);
+        }
         setPhase('done');
       } else {
         append('assistant', `Plan aborted: ${res.errors.map(e => e.error).join(' · ')}`);
@@ -216,6 +238,7 @@ export default function AIChatPanel({ open, onClose }) {
     setKit(null); setDomain(null); setQIdx(0); setAnswers({});
     setPlan(null); setPlanSource(null); setStepStatuses([]);
     setCertMatrix(null); setCertExpanded(false);
+    setDfmReport(null); setDfmExpanded(false);
     memRef.current = null;
   };
 
@@ -301,6 +324,41 @@ export default function AIChatPanel({ open, onClose }) {
                   );
                 })}
               </ol>
+            </div>
+          )}
+          {dfmReport && (
+            <div className={`chat-dfm chat-dfm-${dfmReport.summary.overall}`} data-dfm-summary>
+              <div className="chat-dfm-head" onClick={() => setDfmExpanded((v) => !v)}>
+                <span className={`chat-dfm-light chat-dfm-light-${dfmReport.summary.overall}`}>
+                  {dfmReport.summary.overall.toUpperCase()}
+                </span>
+                <span>Manufacturability</span>
+                <span className="chat-dfm-stats">
+                  {dfmReport.summary.errors} err · {dfmReport.summary.warnings} warn · {dfmReport.summary.infos} info
+                </span>
+                <span className="chat-dfm-toggle">{dfmExpanded ? '▴' : '▾'}</span>
+              </div>
+              {dfmExpanded && (
+                <ul className="chat-dfm-list">
+                  {dfmReport.issues.length === 0 && (
+                    <li className="chat-dfm-row chat-dfm-row-pass">
+                      <span className="chat-dfm-pill chat-dfm-pill-pass">OK</span>
+                      <span>No DFM findings — geometry passes all heuristics.</span>
+                    </li>
+                  )}
+                  {dfmReport.issues.map((i, idx) => (
+                    <li key={idx} className={`chat-dfm-row chat-dfm-row-${i.severity}`}>
+                      <span className={`chat-dfm-pill chat-dfm-pill-${i.severity}`}>
+                        {i.severity.toUpperCase()}
+                      </span>
+                      <div className="chat-dfm-issue">
+                        <div className="chat-dfm-issue-title">{i.title}</div>
+                        <div className="chat-dfm-issue-fix">{i.recommendation}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           {certMatrix && (

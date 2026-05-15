@@ -102,6 +102,23 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     expect(passCount).toBeGreaterThanOrEqual(5);
     expect(uncoveredCount).toBeGreaterThanOrEqual(3);
 
+    // ── DFM banner appears alongside cert matrix ────────────────
+    const dfm = panel.locator('[data-dfm-summary]');
+    await expect(dfm).toBeVisible();
+    const dfmLight = (await dfm.locator('.chat-dfm-light').first().textContent())?.trim();
+    const dfmStats = await dfm.locator('.chat-dfm-stats').textContent();
+    console.log(`\nDFM banner: ${dfmLight} — ${dfmStats}`);
+    expect(['PASS', 'INFO', 'WARN', 'ERROR']).toContain(dfmLight);
+    expect(dfmStats).toMatch(/\d+ err · \d+ warn · \d+ info/);
+
+    // Expand DFM list and verify rows render (issue count >= 0).
+    await dfm.locator('.chat-dfm-head').dispatchEvent('click');
+    await page.waitForTimeout(800);
+    const dfmRows = dfm.locator('.chat-dfm-row');
+    const dfmRowCount = await dfmRows.count();
+    expect(dfmRowCount).toBeGreaterThanOrEqual(1);
+    console.log(`DFM rows visible: ${dfmRowCount}`);
+
     // ── Cert matrix downloads (.md + .json) ─────────────────────
     const mdBtn = cert.locator('[data-action="download-cert-md"]');
     const jsonBtn = cert.locator('[data-action="download-cert-json"]');

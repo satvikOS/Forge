@@ -267,6 +267,85 @@
   margin-top: 2px;
 }
 
+.chat-dfm {
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #181818;
+  overflow: hidden;
+}
+.chat-dfm-pass  { border-left: 3px solid #8aff9a; }
+.chat-dfm-info  { border-left: 3px solid #5dadff; }
+.chat-dfm-warn  { border-left: 3px solid #ffd66d; }
+.chat-dfm-error { border-left: 3px solid #ff7070; }
+
+.chat-dfm-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #1f1f1f;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: #aaa;
+}
+.chat-dfm-head:hover { background: #222; }
+.chat-dfm-light {
+  font: 700 9px 'Consolas', monospace;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chat-dfm-light-pass  { background: #1f3520; color: #8aff9a; }
+.chat-dfm-light-info  { background: #1c2c3a; color: #8aeaff; }
+.chat-dfm-light-warn  { background: #353320; color: #fff58a; }
+.chat-dfm-light-error { background: #3a1f1f; color: #ff8a8a; }
+.chat-dfm-stats {
+  flex: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #ccc;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+}
+.chat-dfm-toggle { color: #888; font-size: 12px; }
+
+.chat-dfm-list {
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.chat-dfm-row {
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 11px;
+  align-items: start;
+  border-bottom: 1px solid #1a1a1a;
+}
+.chat-dfm-row:last-child { border-bottom: none; }
+.chat-dfm-pill {
+  font: 700 9px 'Consolas', monospace;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  text-align: center;
+}
+.chat-dfm-pill-pass  { background: #1f3520; color: #8aff9a; }
+.chat-dfm-pill-info  { background: #1c2c3a; color: #8aeaff; }
+.chat-dfm-pill-warn  { background: #353320; color: #fff58a; }
+.chat-dfm-pill-error { background: #3a1f1f; color: #ff8a8a; }
+.chat-dfm-issue { display: flex; flex-direction: column; gap: 2px; }
+.chat-dfm-issue-title { color: #fff; font-weight: 600; }
+.chat-dfm-issue-fix { color: #5da5ff; font-family: 'Consolas', monospace; font-size: 10px; }
+
 .chat-cert {
   margin-top: 8px;
   border: 1px solid #2a2a2a;
