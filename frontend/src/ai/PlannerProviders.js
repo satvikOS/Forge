@@ -17,6 +17,42 @@
  * only when the user opts in).
  */
 
+/**
+ * Read a fetch Response body as Server-Sent Events. For each
+ * `data:` line, parse JSON and hand it to `extract(json)` which
+ * returns the incremental text chunk (or '' / null to skip).
+ * Fires `onToken(chunk)` per non-empty chunk and resolves to the
+ * full concatenated text. `[DONE]` sentinels are ignored.
+ */
+async function readSSE(res, extract, onToken) {
+  if (!res.body || !res.body.getReader) {
+    // Environment without streaming support — fall back to full text.
+    return res.text();
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';   // keep the trailing partial line
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let json;
+      try { json = JSON.parse(payload); } catch { continue; }
+      const chunk = extract(json);
+      if (chunk) { full += chunk; onToken?.(chunk); }
+    }
+  }
+  return full;
+}
+
 /** Concrete providers — keep these tiny; ChatGPT-style is the norm. */
 export const PROVIDERS = {
   anthropic: {
@@ -51,6 +87,28 @@ export const PROVIDERS = {
         .join('\n');
       return text;
     },
+    async generateStream({ apiKey, model, baseUrl, system, userMessage, onToken }) {
+      const url = `${baseUrl ?? 'https://api.anthropic.com'}/v1/messages`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: model ?? 'claude-opus-4-7',
+          max_tokens: 2048, system, stream: true,
+          messages: [{ role: 'user', content: userMessage }],
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
+      }
+      // content_block_delta events carry {delta:{type:'text_delta',text}}
+      return readSSE(res, (j) => j?.delta?.text ?? '', onToken);
+    },
   },
 
   openai: {
@@ -82,6 +140,26 @@ export const PROVIDERS = {
       }
       const json = await res.json();
       return json.choices?.[0]?.message?.content ?? '';
+    },
+    async generateStream({ apiKey, model, baseUrl, system, userMessage, onToken }) {
+      const url = `${baseUrl ?? 'https://api.openai.com'}/v1/chat/completions`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model ?? 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user',   content: userMessage },
+          ],
+          temperature: 0.2, stream: true,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`OpenAI ${res.status}: ${t.slice(0, 300)}`);
+      }
+      return readSSE(res, (j) => j?.choices?.[0]?.delta?.content ?? '', onToken);
     },
   },
 
@@ -140,6 +218,28 @@ export const PROVIDERS = {
       }
       const json = await res.json();
       return json.choices?.[0]?.message?.content ?? '';
+    },
+    async generateStream({ apiKey, model, baseUrl, system, userMessage, onToken }) {
+      if (!baseUrl) throw new Error('Compatible provider needs a baseUrl');
+      const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          model: model ?? 'llama-3.1-8b-instruct',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user',   content: userMessage },
+          ],
+          temperature: 0.2, stream: true,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`Compatible ${res.status}: ${t.slice(0, 300)}`);
+      }
+      return readSSE(res, (j) => j?.choices?.[0]?.delta?.content ?? '', onToken);
     },
   },
 };

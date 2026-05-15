@@ -198,6 +198,13 @@
 }
 .chat-msg-user { align-items: flex-end; }
 
+.chat-msg-streaming .chat-msg-text {
+  border-color: #5da5ff;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #8aeaff;
+}
+
 .chat-plan {
   margin-top: 8px;
   border: 1px solid #2a2a2a;

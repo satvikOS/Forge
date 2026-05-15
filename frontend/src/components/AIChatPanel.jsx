@@ -370,16 +370,56 @@ export default function AIChatPanel({ open, onClose }) {
 
   const runPlanner = async (finalAnswers) => {
     setPhase('planning');
-    append('assistant', 'Building plan…');
     const merged = applyAnswers(kit, finalAnswers);
     const providerCfg = loadProviderConfig();
     const userPrompt = memRef.current?.userPrompt ?? '';
+
+    // If a BYO-LLM is configured, stream its tokens into a live
+    // message so the user sees progress instead of a frozen panel.
+    let streamMsgIndex = -1;
+    let streamAccum = '';
+    const streaming = !!providerCfg;
+    if (streaming) {
+      setMessages((m) => {
+        streamMsgIndex = m.length;
+        return [...m, { role: 'assistant', text: '⟳ Planning…', streaming: true }];
+      });
+    } else {
+      append('assistant', 'Building plan…');
+    }
+    const onToken = streaming ? (chunk) => {
+      streamAccum += chunk;
+      setMessages((m) => {
+        if (streamMsgIndex < 0 || streamMsgIndex >= m.length) return m;
+        const next = [...m];
+        // Show the tail of the stream so the bubble doesn't grow unbounded.
+        const tail = streamAccum.length > 400 ? '…' + streamAccum.slice(-400) : streamAccum;
+        next[streamMsgIndex] = { role: 'assistant', text: `⟳ ${tail}`, streaming: true };
+        return next;
+      });
+    } : undefined;
+
     const result = await planFor({
       userPrompt,
       clarifications: merged,
       domain,
       providerCfg,
+      onToken,
     });
+    // Finalise the streaming bubble.
+    if (streaming && streamMsgIndex >= 0) {
+      setMessages((m) => {
+        if (streamMsgIndex >= m.length) return m;
+        const next = [...m];
+        next[streamMsgIndex] = {
+          role: 'assistant',
+          text: streamAccum
+            ? `Planner finished (${streamAccum.length} chars streamed).`
+            : 'Planner finished.',
+        };
+        return next;
+      });
+    }
     setPlan(result.plan);
     setPlanSource(result.source);
     setStepStatuses(result.plan.map(() => 'pending'));
@@ -701,7 +741,8 @@ export default function AIChatPanel({ open, onClose }) {
         </div>
         <div className="chat-transcript">
           {messages.map((m, i) => (
-            <div key={i} className={`chat-msg chat-msg-${m.role}`}>
+            <div key={i} className={`chat-msg chat-msg-${m.role} ${m.streaming ? 'chat-msg-streaming' : ''}`}
+                 data-streaming={m.streaming ? 'true' : undefined}>
               {m.role !== 'system' && <span className="chat-msg-role">{m.role === 'user' ? 'You' : 'AI'}</span>}
               <span className="chat-msg-text">{m.text}</span>
             </div>

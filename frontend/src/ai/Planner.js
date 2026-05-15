@@ -178,10 +178,11 @@ export function parsePlanFromLLMText(text) {
  * @param {string=} args.domain                 default 'generic'
  * @param {object=} args.providerCfg            {provider, apiKey, model, baseUrl}
  * @param {function=} args.providerOverride     test/inject a provider object
+ * @param {function=} args.onToken              streaming callback(chunk)
  * @returns {{plan, source, errors?}}
- *   source ∈ {'llm', 'fallback-canonical', 'fallback-error'}
+ *   source ∈ {'llm', 'llm-streamed', 'fallback-canonical', 'fallback-error'}
  */
-export async function planFor({ userPrompt, clarifications, domain = 'generic', providerCfg, providerOverride }) {
+export async function planFor({ userPrompt, clarifications, domain = 'generic', providerCfg, providerOverride, onToken }) {
   const fallback = FALLBACK_PLANS[domain] ?? FALLBACK_PLANS.generic;
 
   const cfg = providerCfg ?? null;
@@ -193,13 +194,15 @@ export async function planFor({ userPrompt, clarifications, domain = 'generic', 
   try {
     const system = `${SYSTEM_PROMPT}\n${registryContextBlock()}${PARAM_SCHEMAS_HEADER}\n${paramSchemasContextBlock()}`;
     const userMessage = buildUserMessage(userPrompt, clarifications);
-    const text = await provider.generate({
-      apiKey: cfg?.apiKey,
-      model:  cfg?.model,
-      baseUrl: cfg?.baseUrl,
-      system,
-      userMessage,
-    });
+    const args = {
+      apiKey: cfg?.apiKey, model: cfg?.model, baseUrl: cfg?.baseUrl,
+      system, userMessage,
+    };
+    // Stream when the caller wants tokens AND the provider supports it.
+    const streamed = !!onToken && typeof provider.generateStream === 'function';
+    const text = streamed
+      ? await provider.generateStream({ ...args, onToken })
+      : await provider.generate(args);
     const raw = parsePlanFromLLMText(text);
     if (!raw) {
       return { plan: fallback, source: 'fallback-error', errors: ['could not parse JSON from LLM output'] };
@@ -208,7 +211,7 @@ export async function planFor({ userPrompt, clarifications, domain = 'generic', 
     if (!ok) {
       return { plan: fallback, source: 'fallback-error', errors };
     }
-    return { plan: normalized, source: 'llm', warnings };
+    return { plan: normalized, source: streamed ? 'llm-streamed' : 'llm', warnings };
   } catch (err) {
     return { plan: fallback, source: 'fallback-error', errors: [err.message] };
   }
