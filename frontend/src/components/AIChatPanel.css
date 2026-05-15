@@ -342,6 +342,68 @@
   border-radius: 3px;
 }
 
+.chat-quotes {
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #181818;
+  overflow: hidden;
+}
+.chat-quotes-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #1f1f1f;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: #aaa;
+  border-bottom: 1px solid #2a2a2a;
+}
+.chat-quotes-hint {
+  flex: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #555;
+  font-size: 10px;
+  text-align: right;
+  font-style: italic;
+}
+.chat-quotes-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font: 11px 'Segoe UI', sans-serif;
+}
+.chat-quotes-grid th {
+  background: #1a1a1a;
+  font: 600 10px 'Segoe UI', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #888;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+}
+.chat-quotes-grid th:hover { color: #5da5ff; }
+.chat-quotes-grid th.chat-quotes-active { color: #5da5ff; }
+.chat-quotes-grid td {
+  padding: 5px 10px;
+  border-top: 1px solid #1a1a1a;
+  color: #ddd;
+}
+.chat-quotes-grid tbody tr { cursor: pointer; }
+.chat-quotes-grid tbody tr:hover { background: #1a1a1a; }
+.chat-quotes-grid tbody tr.chat-quotes-selected {
+  background: #1a2a40;
+  border-left: 2px solid #5da5ff;
+}
+.chat-quotes-loc   { color: #888; }
+.chat-quotes-num   { text-align: right; font-family: 'Consolas', monospace; }
+.chat-quotes-total { color: #5da5ff; font-weight: 600; }
+
 .chat-cost {
   margin-top: 8px;
   border: 1px solid #2a2a2a;

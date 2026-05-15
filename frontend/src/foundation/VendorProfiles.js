@@ -103,6 +103,27 @@ export function findVendorProfile(id) {
 }
 
 /**
+ * Run rollupAssemblyCost across every catalogued profile and
+ * return a side-by-side comparison. Useful for the chat's
+ * "Compare all quotes" table.
+ *
+ * @param {Function} rollupFn  the foundation rollupAssemblyCost
+ * @param {Array}    bodies
+ * @returns {Array<{ profile, totals, leadTimeDays }>}
+ */
+export function quoteAllVendors(rollupFn, bodies) {
+  return VENDOR_PROFILES.map((profile) => {
+    const opts = profileToCostOpts(profile);
+    const { totals } = rollupFn(bodies, opts);
+    return {
+      profile,
+      totals,
+      leadTimeDays: profile.leadTimeDays,
+    };
+  });
+}
+
+/**
  * Convert a vendor profile into the opts object that
  * rollupAssemblyCost accepts. Keeps the cost rollup module
  * profile-agnostic.

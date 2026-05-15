@@ -182,6 +182,46 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     console.log(`USA Premium cost: $${usaCost.toFixed(2)}`);
     expect(usaCost).toBeGreaterThan(defaultCost);
 
+    // ── Side-by-side multi-vendor quote table ──────────────────
+    const quotesTbl = panel.locator('[data-quotes-table]');
+    await expect(quotesTbl).toBeVisible();
+    const quoteRows = quotesTbl.locator('tbody tr');
+    expect(await quoteRows.count()).toBe(5);    // 5 catalogued profiles
+
+    // Default sort is totalCost ascending — cheapest first.
+    const totalsInOrder = [];
+    for (let i = 0; i < 5; i++) {
+      const t = (await quoteRows.nth(i).locator('.chat-quotes-total').textContent()) ?? '';
+      totalsInOrder.push(parseFloat(t.replace(/[^\d.]/g, '')));
+    }
+    console.log(`\nQuote totals (asc): ${totalsInOrder.map(v => '$' + v.toFixed(2)).join(', ')}`);
+    for (let i = 1; i < totalsInOrder.length; i++) {
+      expect(totalsInOrder[i]).toBeGreaterThanOrEqual(totalsInOrder[i - 1]);
+    }
+
+    // Click "Lead" header → sort by lead time ascending; shortest first.
+    await quotesTbl.locator('[data-quotes-col="leadTimeDays"]').dispatchEvent('click');
+    await page.waitForTimeout(800);
+    const leadFirst = (await quoteRows.first().locator('td').nth(2).textContent())?.trim();
+    console.log(`Shortest lead: ${leadFirst}`);
+    expect(leadFirst).toMatch(/[1-9]\d? d/);
+    // Shortest lead in our catalogue is 5 d (Shenzhen Prototyping)
+    expect(parseInt(leadFirst, 10)).toBeLessThanOrEqual(7);
+
+    // Click descending again on Lead → longest first
+    await quotesTbl.locator('[data-quotes-col="leadTimeDays"]').dispatchEvent('click');
+    await page.waitForTimeout(800);
+    const leadLast = (await quoteRows.first().locator('td').nth(2).textContent())?.trim();
+    expect(parseInt(leadLast, 10)).toBeGreaterThanOrEqual(14);
+
+    // Click a row → swaps the active profile (vendor banner & cost
+    // line update). We pick "Mexico City Tier-1" by data-quotes-row.
+    await quotesTbl.locator('[data-quotes-row="mexico-city-tier1"]').dispatchEvent('click');
+    await page.waitForTimeout(2000);
+    const mexicoMeta = await vendor.locator('[data-vendor-meta] span').allTextContents();
+    console.log(`Mexico-selected meta: ${JSON.stringify(mexicoMeta)}`);
+    expect(mexicoMeta[0]).toContain('Mexico');
+
     // Re-download with the new profile → manifest reflects the swap
     const [zip2] = await Promise.all([
       page.waitForEvent('download'),

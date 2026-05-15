@@ -10,7 +10,7 @@ import { checkManifoldDFM } from '../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../foundation/AssemblyCost.js';
 import { getBodyRegistry } from '../foundation/BodyRegistry.js';
 import { buildVendorPackage } from '../foundation/VendorPackage.js';
-import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts } from '../foundation/VendorProfiles.js';
+import { VENDOR_PROFILES, findVendorProfile, profileToCostOpts, quoteAllVendors } from '../foundation/VendorProfiles.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -48,6 +48,9 @@ export default function AIChatPanel({ open, onClose }) {
   const [costExpanded, setCostExpanded] = useState(false);
   const [vendorPackage, setVendorPackage] = useState(null);
   const [vendorProfileId, setVendorProfileId] = useState(VENDOR_PROFILES[0].id);
+  const [quotes, setQuotes] = useState(null);
+  const [quotesSortKey, setQuotesSortKey] = useState('totalCost');
+  const [quotesDir, setQuotesDir] = useState(1);     // 1 asc, -1 desc
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
@@ -228,6 +231,19 @@ export default function AIChatPanel({ open, onClose }) {
             setVendorPackage(pkg);
             append('assistant',
               `Vendor Package (${profile.name}): ${pkg.fileNames.length} files, ${(pkg.zipBytes.length / 1024).toFixed(1)} KB ZIP — total $${pkg.manifest.totals.totalCost.toFixed(2)}, sell $${pkg.manifest.totals.sellPrice.toFixed(2)}.`);
+
+            // Quote every catalogued profile so the user can compare
+            // shops side-by-side without stepping through the dropdown.
+            try {
+              const allQuotes = quoteAllVendors(rollupAssemblyCost, bodies);
+              setQuotes(allQuotes);
+              const spread = allQuotes.map(q => q.totals.totalCost);
+              const lo = Math.min(...spread), hi = Math.max(...spread);
+              append('assistant',
+                `${allQuotes.length} vendor quotes computed — spread $${lo.toFixed(2)} … $${hi.toFixed(2)} (${(((hi / lo) - 1) * 100).toFixed(0)} % range).`);
+            } catch (err) {
+              console.warn('multi-vendor quote failed', err);
+            }
           }
         } catch (err) {
           console.warn('vendor package failed', err);
@@ -315,7 +331,8 @@ export default function AIChatPanel({ open, onClose }) {
     setCertMatrix(null); setCertExpanded(false);
     setDfmReport(null); setDfmExpanded(false);
     setCostReport(null); setCostExpanded(false);
-    setVendorPackage(null);
+    setVendorPackage(null); setQuotes(null);
+    setQuotesSortKey('totalCost'); setQuotesDir(1);
     memRef.current = null;
   };
 
@@ -464,6 +481,53 @@ export default function AIChatPanel({ open, onClose }) {
               </div>
             </div>
           )}
+          {quotes && quotes.length > 0 && (
+            <div className="chat-quotes" data-quotes-table>
+              <div className="chat-quotes-head">
+                <span>Quote comparison</span>
+                <span className="chat-quotes-hint">
+                  click a column header to sort
+                </span>
+              </div>
+              <table className="chat-quotes-grid">
+                <thead>
+                  <tr>
+                    {[
+                      { key: 'name',         label: 'Vendor' },
+                      { key: 'location',     label: 'Location' },
+                      { key: 'leadTimeDays', label: 'Lead' },
+                      { key: 'totalCost',    label: 'Total' },
+                      { key: 'sellPrice',    label: 'Sell' },
+                    ].map(col => (
+                      <th key={col.key}
+                          data-quotes-col={col.key}
+                          className={quotesSortKey === col.key ? 'chat-quotes-active' : ''}
+                          onClick={() => {
+                            if (quotesSortKey === col.key) setQuotesDir(d => -d);
+                            else { setQuotesSortKey(col.key); setQuotesDir(1); }
+                          }}>
+                        {col.label}{quotesSortKey === col.key ? (quotesDir > 0 ? ' ▲' : ' ▼') : ''}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortQuotes(quotes, quotesSortKey, quotesDir).map(q => (
+                    <tr key={q.profile.id}
+                        className={q.profile.id === vendorProfileId ? 'chat-quotes-selected' : ''}
+                        onClick={() => reSwitchVendorProfile(q.profile.id)}
+                        data-quotes-row={q.profile.id}>
+                      <td>{q.profile.name}</td>
+                      <td className="chat-quotes-loc">{q.profile.location}</td>
+                      <td className="chat-quotes-num">{q.leadTimeDays} d</td>
+                      <td className="chat-quotes-num chat-quotes-total">${q.totals.totalCost.toFixed(2)}</td>
+                      <td className="chat-quotes-num">${q.totals.sellPrice.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {dfmReport && (
             <div className={`chat-dfm chat-dfm-${dfmReport.summary.overall}`} data-dfm-summary>
               <div className="chat-dfm-head" onClick={() => setDfmExpanded((v) => !v)}>
@@ -604,6 +668,24 @@ function downloadMatrix(matrix, format) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** Sort the quote rows by one of name / location / leadTimeDays /
+ * totalCost / sellPrice. dir is +1 ascending, -1 descending. */
+function sortQuotes(quotes, key, dir) {
+  const get = (q) => {
+    if (key === 'name')         return q.profile.name;
+    if (key === 'location')     return q.profile.location;
+    if (key === 'leadTimeDays') return q.leadTimeDays;
+    if (key === 'totalCost')    return q.totals.totalCost;
+    if (key === 'sellPrice')    return q.totals.sellPrice;
+    return 0;
+  };
+  return [...quotes].sort((a, b) => {
+    const va = get(a), vb = get(b);
+    if (typeof va === 'string') return dir * va.localeCompare(vb);
+    return dir * (va - vb);
+  });
 }
 
 /** Trigger a browser download of the vendor ZIP. */
