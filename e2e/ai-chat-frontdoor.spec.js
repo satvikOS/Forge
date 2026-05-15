@@ -134,6 +134,27 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     expect(costRowCount).toBeGreaterThanOrEqual(2);    // ≥1 part + TOTAL
     console.log(`Cost rows visible: ${costRowCount}`);
 
+    // ── Vendor Package banner + Download ZIP button ─────────────
+    const fsVendor = await import('fs');
+    const vendor = panel.locator('[data-vendor-summary]');
+    await expect(vendor).toBeVisible();
+    const vendorStats = await vendor.locator('.chat-vendor-stats').textContent();
+    console.log(`Vendor banner: ${vendorStats}`);
+    expect(vendorStats).toMatch(/\d+ files · \d+\.\d+ KB/);
+
+    const [zipDl] = await Promise.all([
+      page.waitForEvent('download'),
+      vendor.locator('[data-action="download-vendor-zip"]').dispatchEvent('click'),
+    ]);
+    const zipName = zipDl.suggestedFilename();
+    console.log(`Vendor ZIP download: ${zipName}`);
+    expect(zipName).toMatch(/archdisc-vendor-\d{4}-\d{2}-\d{2}\.zip/);
+    const zipBytes = fsVendor.readFileSync(await zipDl.path());
+    expect(zipBytes.length).toBeGreaterThan(2000);
+    // ZIP magic
+    expect(zipBytes[0]).toBe(0x50); expect(zipBytes[1]).toBe(0x4b);
+    expect(zipBytes[2]).toBe(0x03); expect(zipBytes[3]).toBe(0x04);
+
     // ── Cert matrix downloads (.md + .json) ─────────────────────
     const mdBtn = cert.locator('[data-action="download-cert-md"]');
     const jsonBtn = cert.locator('[data-action="download-cert-json"]');

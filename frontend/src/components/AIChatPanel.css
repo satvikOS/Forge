@@ -267,6 +267,58 @@
   margin-top: 2px;
 }
 
+.chat-vendor {
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #181818;
+  border-left: 3px solid #ffb55d;
+  padding: 10px 14px;
+}
+.chat-vendor-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: #aaa;
+}
+.chat-vendor-pill { font-size: 14px; }
+.chat-vendor-stats {
+  flex: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #ccc;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+}
+.chat-vendor-btn {
+  background: #ffb55d;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 3px;
+  padding: 5px 14px;
+  font: 700 11px 'Segoe UI', sans-serif;
+  cursor: pointer;
+}
+.chat-vendor-btn:hover { background: #ffc97a; }
+.chat-vendor-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 8px;
+}
+.chat-vendor-file {
+  font: 10px 'Consolas', monospace;
+  color: #888;
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
 .chat-cost {
   margin-top: 8px;
   border: 1px solid #2a2a2a;

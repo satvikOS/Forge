@@ -9,6 +9,7 @@ import { generateCertificationMatrix, suggestNextModules, renderMatrixMarkdown }
 import { checkManifoldDFM } from '../foundation/DFMCheck.js';
 import { rollupAssemblyCost } from '../foundation/AssemblyCost.js';
 import { getBodyRegistry } from '../foundation/BodyRegistry.js';
+import { buildVendorPackage } from '../foundation/VendorPackage.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -44,6 +45,7 @@ export default function AIChatPanel({ open, onClose }) {
   const [dfmExpanded, setDfmExpanded] = useState(false);
   const [costReport, setCostReport] = useState(null);
   const [costExpanded, setCostExpanded] = useState(false);
+  const [vendorPackage, setVendorPackage] = useState(null);
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
@@ -203,6 +205,30 @@ export default function AIChatPanel({ open, onClose }) {
         } catch (err) {
           console.warn('cost rollup failed', err);
         }
+        // ── Vendor Package ZIP bundle ──────────────────────────
+        try {
+          const bodies = getBodyRegistry().list();
+          if (bodies.length > 0) {
+            const lastCAM = typeof window !== 'undefined' ? window.__lastCAMProgram : null;
+            const certMd = (() => {
+              try {
+                const matrix = generateCertificationMatrix(memRef.current);
+                return renderMatrixMarkdown(matrix);
+              } catch { return undefined; }
+            })();
+            const pkg = buildVendorPackage({
+              bodies,
+              gcode: lastCAM?.gcode,
+              gcodeSource: lastCAM?.source,
+              certMarkdown: certMd,
+            });
+            setVendorPackage(pkg);
+            append('assistant',
+              `Vendor Package ready: ${pkg.fileNames.length} files, ${(pkg.zipBytes.length / 1024).toFixed(1)} KB ZIP — click the Download button below to grab it.`);
+          }
+        } catch (err) {
+          console.warn('vendor package failed', err);
+        }
         setPhase('done');
       } else {
         append('assistant', `Plan aborted: ${res.errors.map(e => e.error).join(' · ')}`);
@@ -257,6 +283,7 @@ export default function AIChatPanel({ open, onClose }) {
     setCertMatrix(null); setCertExpanded(false);
     setDfmReport(null); setDfmExpanded(false);
     setCostReport(null); setCostExpanded(false);
+    setVendorPackage(null);
     memRef.current = null;
   };
 
@@ -370,6 +397,25 @@ export default function AIChatPanel({ open, onClose }) {
                   </li>
                 </ul>
               )}
+            </div>
+          )}
+          {vendorPackage && (
+            <div className="chat-vendor" data-vendor-summary>
+              <div className="chat-vendor-head">
+                <span className="chat-vendor-pill">📦</span>
+                <span>Vendor Package</span>
+                <span className="chat-vendor-stats">
+                  {vendorPackage.fileNames.length} files · {(vendorPackage.zipBytes.length / 1024).toFixed(1)} KB
+                </span>
+                <button className="chat-vendor-btn"
+                        onClick={() => downloadVendorZip(vendorPackage)}
+                        data-action="download-vendor-zip">Download ZIP</button>
+              </div>
+              <div className="chat-vendor-files">
+                {vendorPackage.fileNames.map(n => (
+                  <span key={n} className="chat-vendor-file">{n}</span>
+                ))}
+              </div>
             </div>
           )}
           {dfmReport && (
@@ -508,6 +554,20 @@ function downloadMatrix(matrix, format) {
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** Trigger a browser download of the vendor ZIP. */
+function downloadVendorZip(pkg) {
+  const blob = new Blob([pkg.zipBytes], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.download = `archdisc-vendor-${stamp}.zip`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
