@@ -26,6 +26,8 @@ import CostEstimationPanel from '../../components/CostEstimationPanel';
 import '../../components/CostEstimationPanel.css';
 import AssemblyCostPanel from '../../components/AssemblyCostPanel';
 import '../../components/AssemblyCostPanel.css';
+import DFMCheckPanel from '../../components/DFMCheckPanel';
+import '../../components/DFMCheckPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -940,6 +942,9 @@ function WorkbenchMechanical() {
 
             {/* Assembly cost overlay — pops when Assembly Cost runs */}
             <AssemblyCostPanel />
+
+            {/* DFM Check overlay — pops when DFM Check runs */}
+            <DFMCheckPanel />
         </>
     );
 }

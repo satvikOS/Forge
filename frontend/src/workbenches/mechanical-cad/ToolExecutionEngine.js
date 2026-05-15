@@ -74,6 +74,7 @@ import { contourMill, pocketClear, drillCycle, programWrap } from '../../foundat
 import { solveLidDrivenCavity, sampleCenterlineU, GHIA_RE100_U } from '../../foundation/NavierStokes2D.js';
 import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
 import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
+import { checkManifoldDFM } from '../../foundation/DFMCheck.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -2081,6 +2082,22 @@ const TOOL_HANDLERS = {
         status: 'success',
         message: `Cost: ${massKg.toFixed(4)} kg | Material $${materialCost.toFixed(2)} + CNC $${cncCost.toFixed(2)} (${cncTimeHr.toFixed(2)} hr @ $90/hr) + Setup $${setupCost} + Finish $${finishCost} = $${totalCost.toFixed(2)}/part | Sell @25% margin: $${sellPrice.toFixed(2)}`,
       };
+    },
+
+    'DFM Check': () => {
+      // Foundation path: geometric DFM via foundation.checkManifoldDFM.
+      // Bbox aspect ratio, characteristic thickness, genus, smallest
+      // bbox dim, heavy-stock flag — drives a traffic-light report.
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'DFM Check: no foundation body found. Click Linear Pattern / Sweep / Loft first.' };
+      }
+      const r = checkManifoldDFM(m);
+      if (typeof window !== 'undefined') window.__lastDFMResult = r;
+      const s = r.summary;
+      const status = s.errors > 0 ? 'error' : s.warnings > 0 ? 'warn' : 'success';
+      const headline = `DFM: ${s.errors} error, ${s.warnings} warn, ${s.infos} info | t = ${r.metrics.characteristicThickness_mm.toFixed(2)} mm, aspect = ${r.metrics.aspectRatio.toFixed(1)}, smallest dim = ${r.metrics.smallestDim_mm.toFixed(2)} mm via foundation.checkManifoldDFM`;
+      return { status, message: headline };
     },
   },
 
