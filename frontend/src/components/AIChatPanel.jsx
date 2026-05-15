@@ -5,7 +5,7 @@ import { loadProviderConfig } from '../ai/PlannerProviders.js';
 import { SessionMemory } from '../ai/SessionMemory.js';
 import { executePlan } from '../ai/PlanExecutor.js';
 import { findTool } from '../ai/ToolRegistry.js';
-import { generateCertificationMatrix, suggestNextModules } from '../ai/CertificationMatrix.js';
+import { generateCertificationMatrix, suggestNextModules, renderMatrixMarkdown } from '../ai/CertificationMatrix.js';
 
 /**
  * Front-door AI chat. Ties the existing Clarifier + Planner +
@@ -234,6 +234,14 @@ export default function AIChatPanel({ open, onClose }) {
                 <span className="chat-cert-stats">
                   {certMatrix.summary.passed}/{certMatrix.summary.total} pass · {certMatrix.summary.uncovered} uncovered
                 </span>
+                <button className="chat-cert-dl"
+                        onClick={(e) => { e.stopPropagation(); downloadMatrix(certMatrix, 'md'); }}
+                        title="Download as Markdown"
+                        data-action="download-cert-md">MD</button>
+                <button className="chat-cert-dl"
+                        onClick={(e) => { e.stopPropagation(); downloadMatrix(certMatrix, 'json'); }}
+                        title="Download as JSON"
+                        data-action="download-cert-json">JSON</button>
                 <span className="chat-cert-toggle">{certExpanded ? '▴' : '▾'}</span>
               </div>
               {certExpanded && (
@@ -285,6 +293,45 @@ function inputPlaceholder(phase, kit, qIdx) {
   if (phase === 'planning') return 'Building plan…';
   if (phase === 'running')  return 'Running plan…';
   return '';
+}
+
+/**
+ * Build a downloadable Blob from the cert matrix and trigger a
+ * browser download. format: 'md' → ArchDisc-cert.md (human-friendly
+ * Markdown report); 'json' → ArchDisc-cert.json (machine-readable
+ * for vendor-portal ingestion).
+ */
+function downloadMatrix(matrix, format) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  let body, name, type;
+  if (format === 'json') {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      summary: matrix.summary,
+      ruleReports: matrix.ruleReports.map((r) => ({
+        ruleId: r.rule.id, category: r.rule.category,
+        shortTitle: r.rule.shortTitle, requirementText: r.rule.requirementText,
+        status: r.status, covered: r.covered, satisfied: r.satisfied,
+        notes: r.notes, verifyingSteps: r.verifyingSteps,
+      })),
+    };
+    body = JSON.stringify(payload, null, 2);
+    name = `archdisc-cert-${stamp}.json`;
+    type = 'application/json';
+  } else {
+    body = renderMatrixMarkdown(matrix);
+    name = `archdisc-cert-${stamp}.md`;
+    type = 'text/markdown';
+  }
+  const blob = new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function statusGlyph(s) {

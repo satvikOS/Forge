@@ -101,5 +101,34 @@ test.describe('AI Chat front-door — full Clarifier → Planner → Run loop', 
     // uncovered — proves both classes appear in the same matrix.
     expect(passCount).toBeGreaterThanOrEqual(5);
     expect(uncoveredCount).toBeGreaterThanOrEqual(3);
+
+    // ── Cert matrix downloads (.md + .json) ─────────────────────
+    const mdBtn = cert.locator('[data-action="download-cert-md"]');
+    const jsonBtn = cert.locator('[data-action="download-cert-json"]');
+
+    const [mdDl] = await Promise.all([
+      page.waitForEvent('download'),
+      mdBtn.dispatchEvent('click'),
+    ]);
+    const mdName = mdDl.suggestedFilename();
+    console.log(`\nMD download: ${mdName}`);
+    expect(mdName).toMatch(/archdisc-cert-\d{4}-\d{2}-\d{2}\.md/);
+    const mdPath = await mdDl.path();
+    const fs = await import('fs');
+    const mdBody = fs.readFileSync(mdPath, 'utf8');
+    expect(mdBody).toContain('# ArchDisc Certification Matrix');
+    expect(mdBody).toMatch(/Passed:\*\*\s*\d+/);
+
+    const [jsonDl] = await Promise.all([
+      page.waitForEvent('download'),
+      jsonBtn.dispatchEvent('click'),
+    ]);
+    const jsonName = jsonDl.suggestedFilename();
+    console.log(`JSON download: ${jsonName}`);
+    expect(jsonName).toMatch(/archdisc-cert-\d{4}-\d{2}-\d{2}\.json/);
+    const jsonBody = JSON.parse(fs.readFileSync(await jsonDl.path(), 'utf8'));
+    expect(jsonBody.summary.total).toBe(14);
+    expect(jsonBody.ruleReports.length).toBe(14);
+    expect(jsonBody.ruleReports[0].ruleId).toBeTruthy();
   });
 });
