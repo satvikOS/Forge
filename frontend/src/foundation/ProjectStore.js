@@ -139,3 +139,53 @@ export function deleteProject(id) {
   }
   return projects;
 }
+
+/**
+ * Serialise a project (by id) to a portable JSON blob suitable
+ * for saving to disk. Schema-tagged so future readers can verify.
+ */
+export function serializeProject(id) {
+  const proj = listProjects().find(p => p.id === id);
+  if (!proj) return null;
+  return {
+    schema: 'archdisc-project-1.0',
+    exportedAt: new Date().toISOString(),
+    project: {
+      name: proj.name,
+      createdAt: proj.createdAt,
+      savedAt: proj.savedAt,
+      snapshot: proj.snapshot,
+    },
+  };
+}
+
+/**
+ * Take a parsed JSON blob produced by serializeProject and import
+ * it as a new project. If the name collides, the counter suffix
+ * pattern from createProject is applied. Becomes the active project.
+ * Returns the new entry, or null if the blob is malformed.
+ */
+export function importProject(blob) {
+  if (!blob || typeof blob !== 'object') return null;
+  if (blob.schema !== 'archdisc-project-1.0') return null;
+  const src = blob.project;
+  if (!src || typeof src.name !== 'string') return null;
+  const projects = listProjects();
+  let finalName = src.name, n = 1;
+  while (projects.some(p => p.name === finalName)) {
+    n++;
+    finalName = `${src.name} (${n})`;
+  }
+  const now = new Date().toISOString();
+  const project = {
+    id: newId(),
+    name: finalName,
+    createdAt: src.createdAt ?? now,
+    savedAt: now,
+    snapshot: src.snapshot ?? null,
+  };
+  projects.push(project);
+  writeAll(projects);
+  setActiveProjectId(project.id);
+  return project;
+}

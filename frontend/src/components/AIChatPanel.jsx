@@ -217,6 +217,47 @@ export default function AIChatPanel({ open, onClose }) {
     setRenamingProject(false);
   };
 
+  const handleExportProject = () => {
+    if (!activeProjectId) return;
+    const blob = ProjectStore.serializeProject(activeProjectId);
+    if (!blob) return;
+    const proj = projects.find(p => p.id === activeProjectId);
+    const slug = (proj?.name ?? 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
+    const blobObj = new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blobObj);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${slug}.archdisc.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const handleImportProject = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const blob = JSON.parse(text);
+      const proj = ProjectStore.importProject(blob);
+      if (!proj) {
+        append('assistant', 'Import failed: file is not a valid .archdisc.json project.');
+        return;
+      }
+      setProjects(ProjectStore.listProjects());
+      setActiveProjectIdState(proj.id);
+      if (proj.snapshot) {
+        applySnapshot(proj.snapshot);
+        setRestoredFromStorage(true);
+      } else {
+        clearReactState();
+      }
+      append('assistant', `Imported project "${proj.name}".`);
+    } catch (err) {
+      append('assistant', `Import failed: ${err.message}`);
+    }
+  };
+
   if (!open) return null;
 
   const append = (role, text) => setMessages((m) => [...m, { role, text }]);
@@ -548,6 +589,25 @@ export default function AIChatPanel({ open, onClose }) {
                   onClick={handleNewProject}
                   data-action="new-project"
                   title="New project">+</button>
+          <button className="chat-project-action"
+                  onClick={handleExportProject}
+                  disabled={!activeProjectId}
+                  data-action="export-project"
+                  title="Download this project as a .archdisc.json file">⤓</button>
+          <label className="chat-project-action chat-project-action-import"
+                 data-action="import-project-label"
+                 title="Import a .archdisc.json file">
+            ⤒
+            <input type="file"
+                   accept="application/json,.json"
+                   style={{ display: 'none' }}
+                   data-action="import-project"
+                   onChange={(e) => {
+                     const f = e.target.files?.[0];
+                     handleImportProject(f);
+                     e.target.value = '';
+                   }} />
+          </label>
           <button className="chat-project-action chat-project-action-danger"
                   onClick={() => activeProjectId && handleDeleteProject(activeProjectId)}
                   disabled={!activeProjectId}

@@ -87,6 +87,12 @@
 .chat-project-action:hover { background: #5da5ff; color: #fff; }
 .chat-project-action:disabled { opacity: 0.3; cursor: default; }
 .chat-project-action-danger:hover { background: #ff5555; }
+.chat-project-action-import {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-project-action-import:hover { background: #5da5ff; color: #fff; }
 
 .chat-restored {
   font-size: 9px;
