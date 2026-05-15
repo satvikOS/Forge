@@ -20,6 +20,8 @@ import AIChatPanel from '../../components/AIChatPanel';
 import '../../components/AIChatPanel.css';
 import DrawingPreviewPanel from '../../components/DrawingPreviewPanel';
 import '../../components/DrawingPreviewPanel.css';
+import SectionPreviewPanel from '../../components/SectionPreviewPanel';
+import '../../components/SectionPreviewPanel.css';
 import ManufacturePreviewPanel from '../../components/ManufacturePreviewPanel';
 import '../../components/ManufacturePreviewPanel.css';
 import CostEstimationPanel from '../../components/CostEstimationPanel';
@@ -933,6 +935,9 @@ function WorkbenchMechanical() {
 
             {/* Drawing preview overlay — pops when Standard 3 View runs */}
             <DrawingPreviewPanel />
+
+            {/* Section preview overlay — pops when Section View runs */}
+            <SectionPreviewPanel />
 
             {/* Manufacture preview overlay — pops when a CAM tool runs */}
             <ManufacturePreviewPanel />

@@ -251,6 +251,50 @@ function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b153
 
 // --- Helpers ---
 
+/**
+ * Build an SVG of a cross-section layer. Outer + inner loops are
+ * combined into one path with fill-rule:evenodd so inner loops
+ * punch holes. ISO section hatching (45° lines) fills the solid
+ * area. Returns a standalone SVG string.
+ */
+function buildSectionSVG(layer, opts = {}) {
+  const polys = layer.polygons ?? [];
+  // Bounds across every loop.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of polys) {
+    for (const [x, y] of p.points) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  if (!Number.isFinite(minX)) { minX = minY = 0; maxX = maxY = 100; }
+  const w = maxX - minX, h = maxY - minY;
+  const margin = Math.max(w, h) * 0.12 + 5;
+  const vbW = w + 2 * margin, vbH = h + 2 * margin;
+  // SVG y grows downward — flip the section so it reads naturally.
+  const toPath = (pts) => pts.map(([x, y], i) =>
+    `${i === 0 ? 'M' : 'L'} ${(x - minX + margin).toFixed(3)} ${(maxY - y + margin).toFixed(3)}`
+  ).join(' ') + ' Z';
+  const combinedPath = polys.map(p => toPath(p.points)).join(' ');
+
+  const out = [];
+  out.push(`<?xml version="1.0" encoding="UTF-8"?>`);
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbW.toFixed(2)} ${vbH.toFixed(2)}" width="${vbW.toFixed(0)}mm" height="${vbH.toFixed(0)}mm">`);
+  out.push(`<defs><pattern id="hatch" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">`);
+  out.push(`<line x1="0" y1="0" x2="0" y2="3" stroke="#8b1538" stroke-width="0.4"/></pattern></defs>`);
+  out.push(`<rect x="0" y="0" width="${vbW.toFixed(2)}" height="${vbH.toFixed(2)}" fill="white"/>`);
+  // Filled section with evenodd holes.
+  out.push(`<path d="${combinedPath}" fill="url(#hatch)" fill-rule="evenodd" stroke="#8b1538" stroke-width="0.6"/>`);
+  // Centre crosshair.
+  const cx = (margin + w / 2), cy = (margin + h / 2);
+  out.push(`<line x1="${(cx - 5).toFixed(2)}" y1="${cy.toFixed(2)}" x2="${(cx + 5).toFixed(2)}" y2="${cy.toFixed(2)}" stroke="#888" stroke-width="0.3"/>`);
+  out.push(`<line x1="${cx.toFixed(2)}" y1="${(cy - 5).toFixed(2)}" x2="${cx.toFixed(2)}" y2="${(cy + 5).toFixed(2)}" stroke="#888" stroke-width="0.3"/>`);
+  // Label.
+  out.push(`<text x="${margin.toFixed(2)}" y="${(vbH - 2).toFixed(2)}" font-family="monospace" font-size="${(Math.max(w, h) * 0.05 + 2).toFixed(1)}" fill="#333">SECTION A-A  z=${(opts.zMid ?? 0).toFixed(2)} mm  ${w.toFixed(1)}×${h.toFixed(1)} mm</text>`);
+  out.push(`</svg>`);
+  return out.join('\n');
+}
+
 function addSolidToScene(scene, viewport, solid, color = 0x8b1538) {
   const group = ThreeJSBridge.solidToGroup(solid, {
     color,
@@ -2210,7 +2254,11 @@ const TOOL_HANDLERS = {
         perimeter,
         segments: segs,
       };
-      if (typeof window !== 'undefined') window.__lastSectionView = out;
+      const svg = buildSectionSVG(layer, { zMid: layer.z });
+      if (typeof window !== 'undefined') {
+        window.__lastSectionView = out;
+        window.__lastSectionSVG = svg;
+      }
       return {
         status: 'success',
         message: `Section View at z = ${layer.z.toFixed(2)} mm: ${layer.polygons.length} polygons (${outerCount} outer + ${innerCount} inner loops), perimeter ${perimeter.toFixed(1)} mm, ${segs} segments via foundation.sliceManifold`,
