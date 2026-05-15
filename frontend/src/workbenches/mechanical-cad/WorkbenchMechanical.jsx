@@ -22,6 +22,8 @@ import DrawingPreviewPanel from '../../components/DrawingPreviewPanel';
 import '../../components/DrawingPreviewPanel.css';
 import ManufacturePreviewPanel from '../../components/ManufacturePreviewPanel';
 import '../../components/ManufacturePreviewPanel.css';
+import CostEstimationPanel from '../../components/CostEstimationPanel';
+import '../../components/CostEstimationPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -930,6 +932,9 @@ function WorkbenchMechanical() {
 
             {/* Manufacture preview overlay — pops when a CAM tool runs */}
             <ManufacturePreviewPanel />
+
+            {/* Cost estimation overlay — pops when Cost Estimation runs */}
+            <CostEstimationPanel />
         </>
     );
 }

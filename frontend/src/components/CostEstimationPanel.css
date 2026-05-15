@@ -1,0 +1,136 @@
+.cep-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10004;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.cep-dialog {
+  background: #181818;
+  color: #e8e8e8;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  width: 720px;
+  max-width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 14px 60px rgba(0, 0, 0, 0.8);
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.cep-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #1f1f1f;
+  gap: 8px;
+}
+.cep-title { flex: 1; font-size: 14px; font-weight: 600; color: #fff; }
+.cep-btn {
+  background: #2a2a2a;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 5px 12px;
+  font: 600 11px 'Consolas', monospace;
+  cursor: pointer;
+}
+.cep-btn:hover { background: #5da5ff; color: #fff; border-color: #5da5ff; }
+.cep-close {
+  background: transparent;
+  color: #aaa;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  width: 26px;
+}
+.cep-close:hover { color: #ff5555; }
+
+.cep-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.cep-card {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 14px 16px;
+}
+.cep-card-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.cep-card-totals {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.cep-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cep-stat-value {
+  font: 600 18px 'Consolas', monospace;
+  color: #ddd;
+}
+.cep-stat-accent { color: #5da5ff; }
+.cep-stat-label {
+  font: 10px 'Segoe UI', sans-serif;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cep-stat-sub {
+  font: 10px 'Consolas', monospace;
+  color: #666;
+}
+
+.cep-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cep-bar-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 80px;
+  align-items: center;
+  gap: 12px;
+  font: 12px 'Segoe UI', sans-serif;
+}
+.cep-bar-label { color: #ccc; }
+.cep-bar-track {
+  height: 14px;
+  background: #1a1a1a;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+.cep-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+.cep-bar-value {
+  font: 600 12px 'Consolas', monospace;
+  color: #fff;
+  text-align: right;
+}
