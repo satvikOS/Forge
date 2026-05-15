@@ -136,6 +136,98 @@
 }
 .chat-run-btn:hover { background: #4895ff; }
 
+.chat-add-btn,
+.chat-add-btn:hover {
+  background: transparent;
+  color: #aaa;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  width: 22px;
+  height: 22px;
+  font: 700 14px 'Segoe UI', sans-serif;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0;
+}
+.chat-add-btn:hover { background: #2a2a2a; color: #5da5ff; }
+
+.chat-add-picker {
+  margin: 6px 0;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  background: #1a1a1a;
+  max-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.chat-add-filter {
+  background: #0d0d0d;
+  color: #fff;
+  border: none;
+  border-bottom: 1px solid #2a2a2a;
+  font: 12px 'Segoe UI', sans-serif;
+  padding: 6px 8px;
+  outline: none;
+}
+.chat-add-filter:focus { border-bottom-color: #5da5ff; }
+.chat-add-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+}
+.chat-add-tool {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: #ddd;
+  font: 12px 'Segoe UI', sans-serif;
+  padding: 5px 10px;
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+}
+.chat-add-tool:hover { background: #2a2a2a; }
+.chat-add-tool span:first-child { flex: 1; }
+.chat-add-tab {
+  font-size: 9px;
+  color: #888;
+  background: #2a2a2a;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-step-edits {
+  display: flex;
+  gap: 2px;
+}
+.chat-step-edits button {
+  background: transparent;
+  color: #888;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  font: 12px 'Segoe UI', sans-serif;
+  cursor: pointer;
+  padding: 0;
+}
+.chat-step-edits button:hover:not(:disabled) {
+  background: #2a2a2a;
+  color: #5da5ff;
+  border-color: #3a3a3a;
+}
+.chat-step-edits button:disabled { opacity: 0.3; cursor: default; }
+.chat-step-edits button[data-action="step-delete"]:hover {
+  background: #3a1a1a;
+  color: #ff7070;
+  border-color: #ff7070;
+}
+
 .chat-plan-list {
   list-style: none;
   padding: 0;
@@ -143,7 +235,7 @@
 }
 .chat-plan-step {
   display: grid;
-  grid-template-columns: 16px 1fr auto;
+  grid-template-columns: 16px 1fr auto auto;
   align-items: center;
   gap: 6px;
   padding: 4px 6px;

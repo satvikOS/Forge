@@ -4,7 +4,7 @@ import { planFor } from '../ai/Planner.js';
 import { loadProviderConfig } from '../ai/PlannerProviders.js';
 import { SessionMemory } from '../ai/SessionMemory.js';
 import { executePlan } from '../ai/PlanExecutor.js';
-import { findTool } from '../ai/ToolRegistry.js';
+import { findTool, TOOL_REGISTRY } from '../ai/ToolRegistry.js';
 import { generateCertificationMatrix, suggestNextModules, renderMatrixMarkdown } from '../ai/CertificationMatrix.js';
 
 /**
@@ -37,6 +37,8 @@ export default function AIChatPanel({ open, onClose }) {
   const [stepStatuses, setStepStatuses] = useState([]);   // per-plan-step: 'pending' | 'running' | 'done' | 'error'
   const [certMatrix, setCertMatrix] = useState(null);     // generated after Run
   const [certExpanded, setCertExpanded] = useState(false);
+  const [addPickerOpen, setAddPickerOpen] = useState(false);
+  const [addPickerFilter, setAddPickerFilter] = useState('');
   const memRef = useRef(null);
   const transcriptEndRef = useRef(null);
 
@@ -178,6 +180,35 @@ export default function AIChatPanel({ open, onClose }) {
     else if (phase === 'clarifying') handleAnswer();
   };
 
+  // ── Plan editing ops (only when phase === 'ready') ───────────
+  const editable = phase === 'ready';
+  const moveStep = (i, dir) => {
+    if (!editable) return;
+    const j = i + dir;
+    if (j < 0 || j >= plan.length) return;
+    const next = [...plan];
+    [next[i], next[j]] = [next[j], next[i]];
+    setPlan(next);
+    setStepStatuses(next.map(() => 'pending'));
+    memRef.current?.setPlan(next, 'user-edited');
+  };
+  const deleteStep = (i) => {
+    if (!editable) return;
+    const next = plan.filter((_, idx) => idx !== i);
+    setPlan(next);
+    setStepStatuses(next.map(() => 'pending'));
+    memRef.current?.setPlan(next, 'user-edited');
+  };
+  const addStep = (toolName) => {
+    if (!editable) return;
+    const next = [...plan, { tool: toolName, comment: 'Added by user' }];
+    setPlan(next);
+    setStepStatuses(next.map(() => 'pending'));
+    setAddPickerOpen(false);
+    setAddPickerFilter('');
+    memRef.current?.setPlan(next, 'user-edited');
+  };
+
   const handleReset = () => {
     setMessages([{ role: 'system', text: 'Tell me what you want to design.' }]);
     setPhase('idle');
@@ -204,22 +235,67 @@ export default function AIChatPanel({ open, onClose }) {
             </div>
           ))}
           {plan && (
-            <div className="chat-plan">
+            <div className="chat-plan" data-plan>
               <div className="chat-plan-head">
                 Plan ({plan.length} steps · source: {planSource})
+                {editable && (
+                  <button className="chat-add-btn"
+                          onClick={() => setAddPickerOpen((v) => !v)}
+                          data-action="open-add-step"
+                          title="Add a step">+</button>
+                )}
                 {phase === 'ready' && (
                   <button className="chat-run-btn" onClick={handleRun} data-action="run-plan">Run</button>
                 )}
               </div>
+              {addPickerOpen && editable && (
+                <div className="chat-add-picker">
+                  <input className="chat-add-filter" placeholder="Filter tools…"
+                         value={addPickerFilter}
+                         onChange={(e) => setAddPickerFilter(e.target.value)}
+                         autoFocus />
+                  <ul className="chat-add-list">
+                    {TOOL_REGISTRY
+                      .filter(t => !addPickerFilter ||
+                        t.name.toLowerCase().includes(addPickerFilter.toLowerCase()))
+                      .slice(0, 40)
+                      .map(t => (
+                        <li key={t.name}>
+                          <button className="chat-add-tool"
+                                  onClick={() => addStep(t.name)}
+                                  data-add-tool={t.name}>
+                            <span>{t.name}</span>
+                            <span className="chat-add-tab">{t.tab}</span>
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
               <ol className="chat-plan-list">
                 {plan.map((s, i) => {
                   const meta = findTool(s.tool);
                   const status = stepStatuses[i] ?? 'pending';
                   return (
-                    <li key={i} className={`chat-plan-step status-${status}`}>
+                    <li key={i} className={`chat-plan-step status-${status}`} data-step-index={i}>
                       <span className="chat-step-icon">{statusGlyph(status)}</span>
                       <span className="chat-step-tool">{s.tool}</span>
                       {meta?.tab && <span className="chat-step-tab">{meta.tab}</span>}
+                      {editable && (
+                        <span className="chat-step-edits">
+                          <button onClick={() => moveStep(i, -1)}
+                                  disabled={i === 0}
+                                  data-action="step-up"
+                                  title="Move up">↑</button>
+                          <button onClick={() => moveStep(i, +1)}
+                                  disabled={i === plan.length - 1}
+                                  data-action="step-down"
+                                  title="Move down">↓</button>
+                          <button onClick={() => deleteStep(i)}
+                                  data-action="step-delete"
+                                  title="Delete">×</button>
+                        </span>
+                      )}
                       {s.comment && <div className="chat-step-comment">{s.comment}</div>}
                     </li>
                   );
