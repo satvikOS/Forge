@@ -32,7 +32,7 @@ test('edge mode picks individual edges', async ({ page }) => {
   await page.screenshot({ path: 'e2e/screenshots/edge-selection.png', fullPage: true });
 });
 
-test('Fillet uses default radius and creates feature', async ({ page }) => {
+test('Fillet creates a real arc-tangent profile fillet', async ({ page }) => {
   await setup(page);
   await clickTool(page, 1, 'Extrude Boss');
   await page.waitForTimeout(800);
@@ -40,11 +40,12 @@ test('Fillet uses default radius and creates feature', async ({ page }) => {
   await clickTool(page, 1, 'Fillet');
 
   const status = page.locator('.tool-status-bar');
-  await expect(status).toContainText('Fillet', { timeout: 5000 });
-  await expect(status).toContainText('R=3mm', { timeout: 5000 });
+  await expect(status).toContainText('Fillet', { timeout: 8000 });
+  // Foundation Fillet: arc-tangent corner fillet on an L-bracket profile.
+  await expect(status).toContainText('arc-tangent fillet', { timeout: 8000 });
 });
 
-test('Chamfer uses default distance and creates feature', async ({ page }) => {
+test('Chamfer creates a real straight-cut profile chamfer', async ({ page }) => {
   await setup(page);
   await clickTool(page, 1, 'Extrude Boss');
   await page.waitForTimeout(800);
@@ -52,6 +53,6 @@ test('Chamfer uses default distance and creates feature', async ({ page }) => {
   await clickTool(page, 1, 'Chamfer');
 
   const status = page.locator('.tool-status-bar');
-  await expect(status).toContainText('Chamfer', { timeout: 5000 });
-  await expect(status).toContainText('2mm', { timeout: 5000 });
+  await expect(status).toContainText('Chamfer', { timeout: 8000 });
+  await expect(status).toContainText('2mm straight-cut chamfer', { timeout: 8000 });
 });

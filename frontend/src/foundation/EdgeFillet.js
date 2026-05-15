@@ -38,6 +38,11 @@
  */
 
 import { getManifold } from './manifoldKernel.js';
+import { filletPolygon2D, chamferPolygon2D, polygonArea } from './Polygon2D.js';
+
+// Re-export the kernel-free 2D polygon helpers so existing
+// `from EdgeFillet.js` imports keep working.
+export { filletPolygon2D, chamferPolygon2D, polygonArea };
 
 /**
  * Build a rounded box of size (sx, sy, sz) with corner / edge fillets
@@ -114,6 +119,37 @@ export async function roundedBox(size, radius, sphereSegs = 64) {
 /** Convenience: rounded cube of side a, fillet radius r. */
 export async function roundedCube(a, r, sphereSegs = 64) {
   return roundedBox([a, a, a], r, sphereSegs);
+}
+
+/**
+ * Fillet a 2D profile then extrude it into a prismatic solid.
+ *
+ * @param {Array<[number,number]>} profile  closed polygon (mm)
+ * @param {number} height                   extrude distance (mm)
+ * @param {number} radius                   fillet radius (mm)
+ * @param {number=} arcSegs
+ * @returns {Promise<Manifold>}
+ */
+export async function filletExtrude(profile, height, radius, arcSegs = 8) {
+  const Mod = await getManifold();
+  const { points } = filletPolygon2D(profile, radius, arcSegs);
+  const cs = Mod.CrossSection.ofPolygons([points]);
+  return Mod.Manifold.extrude(cs, height);
+}
+
+/**
+ * Chamfer a 2D profile then extrude it into a prismatic solid.
+ *
+ * @param {Array<[number,number]>} profile  closed polygon (mm)
+ * @param {number} height                   extrude distance (mm)
+ * @param {number} dist                     chamfer set-back (mm)
+ * @returns {Promise<Manifold>}
+ */
+export async function chamferExtrude(profile, height, dist) {
+  const Mod = await getManifold();
+  const { points } = chamferPolygon2D(profile, dist);
+  const cs = Mod.CrossSection.ofPolygons([points]);
+  return Mod.Manifold.extrude(cs, height);
 }
 
 /**

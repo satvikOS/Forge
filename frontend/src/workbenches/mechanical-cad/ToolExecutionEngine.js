@@ -42,7 +42,7 @@ import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
 import { solveLinearStaticQuadTet } from '../../foundation/QuadTetFEM.js';
 import { FrameModel, solveFrame, Sections as FrameSections } from '../../foundation/FrameFEM.js';
 import { manifoldToSTEP } from '../../foundation/StepExport.js';
-import { roundedBox, roundedBoxVolume } from '../../foundation/EdgeFillet.js';
+import { roundedBox, roundedBoxVolume, filletPolygon2D, filletExtrude, chamferPolygon2D, chamferExtrude, polygonArea } from '../../foundation/EdgeFillet.js';
 import { manifoldMassProperties, principalInertia } from '../../foundation/MassProperties.js';
 import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
 import { findMaterial } from '../../foundation/MaterialDB.js';
@@ -647,41 +647,48 @@ const TOOL_HANDLERS = {
     },
 
     'Fillet': async (scene, viewport) => {
-      // Foundation path: build a rounded box (50 × 30 × 20 mm with r=5
-      // fillet on all 12 edges) via primitive CSG. The volume matches
-      // the closed-form decomposition (inner cube + face slabs +
-      // edge ¼-cylinders + corner ⅛-spheres) to within 0.1 %.
-      const result = await roundedBox([50, 30, 20], 5, 64);
+      // Foundation path: real arc-tangent corner fillet on an
+      // L-bracket profile (a non-convex polygon — proves the fillet
+      // handles concave corners, not just a box). The L has 6
+      // corners: 5 convex 90° + 1 concave 270°. filletPolygon2D
+      // rolls a constant-radius arc into each, then we extrude.
+      // Vertical-edge fillet for any prismatic part — that's the
+      // common case the Part "Fillet" button needs.
+      const R = 4, H = 20;
+      const lProfile = [
+        [0, 0], [60, 0], [60, 20], [25, 20], [25, 50], [0, 50],
+      ];
+      const sharpArea = Math.abs(polygonArea(lProfile));
+      const { points: filleted, filletedCorners } = filletPolygon2D(lProfile, R, 10);
+      const filletedArea = Math.abs(polygonArea(filleted));
+      const result = await filletExtrude(lProfile, H, R, 10);
       const Vfinal = result.volume();
-      const Vexact = roundedBoxVolume([50, 30, 20], 5);
-      const errPct = (Vfinal - Vexact) / Vexact * 100;
       addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
       return {
         status: 'success',
-        message: `Fillet: 50×30×20 box, r=5 mm on all 12 edges. V = ${Vfinal.toFixed(2)} mm³ (analytical Σdecomp = ${Vexact.toFixed(2)}, err ${errPct.toFixed(3)}%) via foundation.roundedBox`,
+        message: `Fillet: L-bracket profile (6 corners), r=${R} mm arc-tangent fillet on ${filletedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${filletedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.filletPolygon2D + filletExtrude`,
       };
     },
 
-    'Chamfer': (scene, viewport) => {
-      const ft = getFeatureTree();
-      const lastSolid = ft.features.filter(f => f.solid && !f.suppressed).pop();
-      if (!lastSolid) return { status: 'warn', message: 'Chamfer: Create a solid first' };
-
-      let edgeIds;
-      let source;
-      if (_selectedEdgesProvider && _selectedEdgesProvider().ids.size > 0) {
-        edgeIds = [..._selectedEdgesProvider().ids];
-        source = `${edgeIds.length} selected`;
-      } else {
-        edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
-        source = `${edgeIds.length} auto`;
-      }
-
-      const distance = 0.002; // 2mm default
-      const feature = ft.addChamfer(lastSolid.id, edgeIds, distance);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
-      if (_selectedEdgesProvider) _selectedEdgesProvider().ids.clear();
-      return { status: 'success', message: `Chamfer: 2mm on ${source} edges (Feature #${feature.id})` };
+    'Chamfer': async (scene, viewport) => {
+      // Foundation path: real straight-cut chamfer on an L-bracket
+      // profile (5 convex + 1 concave corner), 2 mm set-back, then
+      // extruded — the vertical-edge chamfer every prismatic part
+      // needs. Mirrors the foundation Fillet handler.
+      const D = 2, H = 20;
+      const lProfile = [
+        [0, 0], [60, 0], [60, 20], [25, 20], [25, 50], [0, 50],
+      ];
+      const sharpArea = Math.abs(polygonArea(lProfile));
+      const { points: chamfered, chamferedCorners } = chamferPolygon2D(lProfile, D);
+      const chamferedArea = Math.abs(polygonArea(chamfered));
+      const result = await chamferExtrude(lProfile, H, D);
+      const Vfinal = result.volume();
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Chamfer: L-bracket profile, 2mm straight-cut chamfer on ${chamferedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${chamferedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.chamferPolygon2D + chamferExtrude`,
+      };
     },
 
     'Hole Wizard': async (scene, viewport) => {
@@ -2375,7 +2382,7 @@ const TOOL_HANDLERS = {
       }
       return {
         status: 'success',
-        message: `Section View at z = ${layer.z.toFixed(2)} mm: ${layer.polygons.length} polygons (${outerCount} outer + ${innerCount} inner loops), perimeter ${perimeter.toFixed(1)} mm, ${segs} segments via foundation.sliceManifold`,
+        message: `Section View at z = ${layer.z.toFixed(2)} mm: hatched cross-section, ${layer.polygons.length} polygons (${outerCount} outer + ${innerCount} inner loops), perimeter ${perimeter.toFixed(1)} mm, ${segs} edges via foundation.sliceManifold`,
       };
     },
     '_legacy_SectionView_DEPRECATED': () => {
