@@ -24,6 +24,8 @@ import ManufacturePreviewPanel from '../../components/ManufacturePreviewPanel';
 import '../../components/ManufacturePreviewPanel.css';
 import CostEstimationPanel from '../../components/CostEstimationPanel';
 import '../../components/CostEstimationPanel.css';
+import AssemblyCostPanel from '../../components/AssemblyCostPanel';
+import '../../components/AssemblyCostPanel.css';
 import ThoughtBubble from '../../components/ThoughtBubble';
 import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
@@ -935,6 +937,9 @@ function WorkbenchMechanical() {
 
             {/* Cost estimation overlay — pops when Cost Estimation runs */}
             <CostEstimationPanel />
+
+            {/* Assembly cost overlay — pops when Assembly Cost runs */}
+            <AssemblyCostPanel />
         </>
     );
 }
