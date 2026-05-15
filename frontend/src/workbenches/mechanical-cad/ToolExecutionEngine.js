@@ -2029,8 +2029,43 @@ const TOOL_HANDLERS = {
         layerHeight: 0.2,
         demoUsed: demo,
       };
+      // Layer outlines for the SlicerPreviewPanel — capped at 400
+      // layers so the window stash stays small. Each layer keeps its
+      // z + every loop's points (a plain [x,y][] for serialisability).
+      const STEP = Math.max(1, Math.ceil(layers.length / 400));
+      const layerOutlines = [];
+      for (let i = 0; i < layers.length; i += STEP) {
+        const L = layers[i];
+        layerOutlines.push({
+          z: L.z,
+          loops: L.polygons.map(p => ({
+            isOuter: !!p.isOuter,
+            points: p.points.map(([x, y]) => [x, y]),
+          })),
+        });
+      }
+      // Shared bounds across all layers so the slider doesn't make the
+      // section jump around as the user scrubs.
+      let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+      for (const L of layerOutlines) {
+        for (const lp of L.loops) {
+          for (const [x, y] of lp.points) {
+            if (x < bMinX) bMinX = x; if (x > bMaxX) bMaxX = x;
+            if (y < bMinY) bMinY = y; if (y > bMaxY) bMaxY = y;
+          }
+        }
+      }
       _lastSliceResult = out;
-      if (typeof window !== 'undefined') window.__lastSliceResult = out;
+      if (typeof window !== 'undefined') {
+        window.__lastSliceResult = out;
+        window.__lastSliceLayers = {
+          layerHeight: 0.2,
+          layerCount: layers.length,
+          sampled: layerOutlines.length,
+          bounds: { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY },
+          layers: layerOutlines,
+        };
+      }
       return {
         status: 'success',
         message: `Slicer: ${layers.length} layers @ 0.2 mm, total perimeter = ${totalPerimeter.toFixed(0)} mm, Z-range [${out.zMin.toFixed(2)}, ${out.zMax.toFixed(2)}]${demo ? ' (demo Ø20×30 cylinder — create geometry first for your own part)' : ''} via foundation.sliceManifold`,
