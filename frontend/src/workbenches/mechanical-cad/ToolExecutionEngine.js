@@ -81,6 +81,7 @@ import { buildVendorPackage } from '../../foundation/VendorPackage.js';
 import { svgToPdfBytes, isRasterCapable } from '../../foundation/SvgRaster.js';
 import { parseStep, stepMeshToManifold } from '../../foundation/StepImport.js';
 import { subdivideManifold } from '../../foundation/LoopSubdivision.js';
+import { voxelHexMeshManifold } from '../../foundation/VoxelHexMesh.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1633,6 +1634,35 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Rotordynamics: shaft Ø30×600 + 5 kg mid-disk. f₁ = ${r.frequenciesHz[0].toFixed(2)} Hz (analytical Jeffcott ${fAn.toFixed(2)} Hz, err ${errPct.toFixed(2)}%) → critical speed ${r.criticalSpeedRPM.toFixed(0)} RPM via foundation.solveRotordynamics`,
+      };
+    },
+
+    'Voxel Hex Mesh': () => {
+      // Foundation path: Cartesian / voxel hex meshing of the last
+      // foundation manifold via foundation.voxelHexMeshManifold —
+      // ray-crossing point-in-mesh test per cell. The resulting
+      // structured hex mesh feeds LinearHexFEM. As the resolution
+      // rises the summed hex volume converges to the true volume —
+      // reported here as the honest convergence check.
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Voxel Hex Mesh: no foundation body found. Create geometry first.' };
+      }
+      const res = voxelHexMeshManifold(m, { resolution: 24 });
+      const hexVol = res.hexMesh.totalVolume();
+      const trueVol = m.volume();
+      const errPct = trueVol > 0 ? (hexVol - trueVol) / trueVol * 100 : 0;
+      if (typeof window !== 'undefined') {
+        window.__lastVoxelHexMesh = {
+          cellCount: res.cellCount, candidateCells: res.candidateCells,
+          fillFraction: res.fillFraction, cellSize: res.cellSize,
+          hexVolume: hexVol, trueVolume: trueVol,
+          grid: res.hexMesh.metadata.voxel.grid,
+        };
+      }
+      return {
+        status: 'success',
+        message: `Voxel Hex Mesh: ${res.cellCount} hex elements (${res.hexMesh.metadata.voxel.grid.join('×')} grid, ${(res.fillFraction * 100).toFixed(0)}% fill), cell ${res.cellSize.toFixed(2)} mm | hex vol ${hexVol.toFixed(0)} mm³ vs true ${trueVol.toFixed(0)} mm³ (${errPct >= 0 ? '+' : ''}${errPct.toFixed(1)}% staircase) via foundation.voxelHexMesh`,
       };
     },
 

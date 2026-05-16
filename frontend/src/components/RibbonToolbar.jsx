@@ -113,6 +113,9 @@ const TABS = {
         { name: 'Frame FEA', icon: '⊏', key: 'simulation' },
         { name: 'Rotordynamics', icon: '◌', key: 'simulation' },
       ]},
+      { label: 'Mesh', tools: [
+        { name: 'Voxel Hex Mesh', icon: '⊟', key: 'simulation' },
+      ]},
       { label: 'Thermal', tools: [
         { name: 'Steady-State Thermal', icon: '🌡', key: 'simulation' },
         { name: 'CFD Flow Simulation', icon: '🌊', key: 'simulation' },
