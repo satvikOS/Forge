@@ -87,6 +87,7 @@ import { buildBossOnBase } from '../../foundation/SmoothImplicit.js';
 import { PlanarMechanism } from '../../foundation/KinematicsCore.js';
 import { runMotionStudy } from '../../foundation/MotionStudy.js';
 import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation/AssemblySequence.js';
+import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../../foundation/MotionRender.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1283,6 +1284,10 @@ const TOOL_HANDLERS = {
       root.updateMatrixWorld(true);
       if (typeof window?.__archdiscFocusOnObject === 'function') window.__archdiscFocusOnObject(root);
 
+      // Deterministic, verifiable animation artifacts: a SMIL-animated
+      // SVG (the motion plays standalone) and a filmstrip.
+      const animatedSVG = motionAnimatedSVG(study.frames, linkSegments, { durationSec: 3 });
+      const filmstripSVG = motionFilmstripSVG(study.frames, linkSegments, { count: 8 });
       if (typeof window !== 'undefined') {
         window.__lastMotionStudy = {
           mechanism: 'slider-crank', dof: mech.dof(),
@@ -1292,6 +1297,8 @@ const TOOL_HANDLERS = {
           maxLinearSpeed: study.summary.maxLinearSpeed,
           maxAngularSpeed: study.summary.maxAngularSpeed,
           pistonStrokeMM: stroke, animating: true,
+          animatedSVGFrames: countAnimatedFrames(animatedSVG),
+          animatedSVG, filmstripSVG,
         };
       }
       return {
