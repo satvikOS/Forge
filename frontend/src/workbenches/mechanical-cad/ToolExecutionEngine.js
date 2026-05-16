@@ -75,6 +75,7 @@ import { solveLidDrivenCavity, sampleCenterlineU, GHIA_RE100_U } from '../../fou
 import { buildDrawingSVG } from '../../foundation/Drawing2D.js';
 import { recordToolRun, formatHeadline } from '../../foundation/DesignHistory.js';
 import { checkManifoldDFM } from '../../foundation/DFMCheck.js';
+import { inspectManifold } from '../../foundation/GeometryCheck.js';
 import { rollupAssemblyCost } from '../../foundation/AssemblyCost.js';
 import { buildVendorPackage } from '../../foundation/VendorPackage.js';
 import { svgToPdfBytes, isRasterCapable } from '../../foundation/SvgRaster.js';
@@ -1881,9 +1882,24 @@ const TOOL_HANDLERS = {
     },
 
     'Check Geometry': (scene, viewport) => {
+      // Foundation path: if a foundation manifold is in scope, run
+      // the real foundation.inspectManifold diagnostic — manifold-3d
+      // status code, signed volume / orientation, genus, Euler
+      // characteristic vs topology, degenerate-triangle scan.
+      const fm = (typeof window !== 'undefined') ? window.__lastFoundationManifold : null;
+      if (fm) {
+        const r = inspectManifold(fm);
+        if (typeof window !== 'undefined') window.__lastGeometryCheck = r;
+        const m = r.metrics;
+        const status = r.severity === 'error' ? 'error' : r.severity === 'warn' ? 'warn' : 'success';
+        return {
+          status,
+          message: `Check Geometry: ${r.severity.toUpperCase()} — ${r.summary.errors} errors, ${r.summary.warnings} warnings | V=${(m.volume_mm3 ?? 0).toFixed(0)} mm³, genus ${m.genus}, Euler ${m.eulerCharacteristic}, ${m.triangleCount} tris (${m.degenerateTriangles} degenerate), ${m.vertexCount} verts via foundation.inspectManifold`,
+        };
+      }
       const ft = getFeatureTree();
       const solid = ft.getSolid();
-      if (!solid) return { status: 'warn', message: 'No solid to check.' };
+      if (!solid) return { status: 'warn', message: 'No solid to check. Create geometry first.' };
       const valid = solid.isValid();
       const euler = solid.outerShell ? solid.outerShell.eulerCharacteristic() : 'N/A';
       const manifold = solid.outerShell ? solid.outerShell.isManifold() : false;
