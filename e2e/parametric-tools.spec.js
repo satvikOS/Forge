@@ -73,4 +73,38 @@ test.describe('Parametric geometry tools — orchestration plan params', () => {
     console.log(`\nLinear Pattern: 4→${v4.toFixed(0)} mm³, 7→${v7.toFixed(0)} mm³`);
     expect(v7 / v4).toBeCloseTo(7 / 4, 1);
   });
+
+  test('Blade Row builds a general parametric turbomachinery row', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30000 });
+    await page.waitForTimeout(2500);
+
+    // 24-blade row, then 12 — the same general tool, plan-driven.
+    const v24 = await runTool(page, 'Part', 'Blade Row',
+      { count: 24, rHub: 100, rTip: 300, chordHub: 80, chordTip: 60 });
+    const v12 = await runTool(page, 'Part', 'Blade Row',
+      { count: 12, rHub: 100, rTip: 300, chordHub: 80, chordTip: 60 });
+    console.log(`\nBlade Row: 24 blades → ${Math.abs(v24).toFixed(0)} mm³, 12 → ${Math.abs(v12).toFixed(0)} mm³`);
+    expect(Math.abs(v24)).toBeGreaterThan(0);
+    // Twice the blades ≈ twice the material.
+    expect(Math.abs(v24) / Math.abs(v12)).toBeCloseTo(2, 0);
+  });
+
+  test('translate param places a body at an assembly station (multi-body)', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 30000 });
+    await page.waitForTimeout(2500);
+    await page.locator('.ribbon-tab', { hasText: 'Part' }).first().click();
+    await page.waitForTimeout(400);
+    await page.evaluate(() => {
+      window.__archdiscPlanParams = { 'Extrude Boss': { width: 40, depth: 40, height: 40, translate: [500, 0, 0] } };
+    });
+    await page.locator('.ribbon-tool-label', { hasText: /^Extrude Boss$/ }).first().click();
+    await page.waitForFunction(() => !!window.__lastFoundationManifold, null, { timeout: 30000 });
+    const bb = await page.evaluate(() => window.__lastFoundationManifold.boundingBox());
+    console.log(`\nTranslated body bbox X: [${bb.min[0].toFixed(0)}, ${bb.max[0].toFixed(0)}]`);
+    // A 40 mm box centred then translated +500 mm → X spans ~[480, 520].
+    expect(bb.min[0]).toBeGreaterThan(470);
+    expect(bb.max[0]).toBeLessThan(530);
+  });
 });

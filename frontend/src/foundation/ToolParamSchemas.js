@@ -278,6 +278,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
     ],
   },
+  'Blade Row': {
+    title: 'Blade Row — Turbomachinery',
+    blurb: 'A ring of lofted, twisted aerofoils. The same tool builds a fan, compressor or turbine row.',
+    fields: [
+      { name: 'count',      label: 'Blade count', type: 'number', default: 24,  unit: '',  min: 2, max: 200, step: 1 },
+      { name: 'rHub',       label: 'Hub radius',  type: 'number', default: 100, unit: 'mm', min: 5, max: 3000, step: 5 },
+      { name: 'rTip',       label: 'Tip radius',  type: 'number', default: 300, unit: 'mm', min: 10, max: 3000, step: 5 },
+      { name: 'xMid',       label: 'Axial position', type: 'number', default: 0, unit: 'mm', min: -10000, max: 10000, step: 10 },
+      { name: 'chordHub',   label: 'Hub chord',   type: 'number', default: 80,  unit: 'mm', min: 2, max: 1000, step: 1 },
+      { name: 'chordTip',   label: 'Tip chord',   type: 'number', default: 60,  unit: 'mm', min: 2, max: 1000, step: 1 },
+      { name: 'thickRatio', label: 'Thickness ratio', type: 'number', default: 0.10, unit: '', min: 0.02, max: 0.3, step: 0.01 },
+      { name: 'staggerHub', label: 'Hub stagger', type: 'number', default: 0.9, unit: 'rad', min: -1.5, max: 1.5, step: 0.05 },
+      { name: 'staggerTip', label: 'Tip stagger', type: 'number', default: 0.4, unit: 'rad', min: -1.5, max: 1.5, step: 0.05 },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {

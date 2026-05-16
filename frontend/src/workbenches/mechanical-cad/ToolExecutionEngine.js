@@ -84,6 +84,7 @@ import { subdivideManifold } from '../../foundation/LoopSubdivision.js';
 import { voxelHexMeshManifold } from '../../foundation/VoxelHexMesh.js';
 import { morphologicalFilletManifold } from '../../foundation/MorphologicalFillet.js';
 import { buildBossOnBase } from '../../foundation/SmoothImplicit.js';
+import { aerofoilSection, bladeRowParams } from '../../foundation/BladeRow.js';
 import { PlanarMechanism } from '../../foundation/KinematicsCore.js';
 import { runMotionStudy } from '../../foundation/MotionStudy.js';
 import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation/AssemblySequence.js';
@@ -688,7 +689,8 @@ const TOOL_HANDLERS = {
         [width / 2, depth / 2], [-width / 2, depth / 2],
       ];
       const cs = Mod.CrossSection.ofPolygons([profile]);
-      const result = Mod.Manifold.extrude(cs, height);
+      let result = Mod.Manifold.extrude(cs, height);
+      if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
       addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
       if (values.profile) {
@@ -740,6 +742,40 @@ const TOOL_HANDLERS = {
       };
     },
 
+    'Blade Row': async (scene, viewport) => {
+      // Foundation path: a general turbomachinery blade row via
+      // foundation.bladeRowMesh — N lofted, twisted, capped aerofoils
+      // arrayed around the axis. Fully parametric: an orchestration
+      // plan supplies count / radii / chords / stagger / axial position,
+      // so the SAME tool builds a fan, a compressor stage or a turbine
+      // stage. `translate` places the row at its assembly station.
+      const { values, cancelled } = await requestToolParams('Blade Row');
+      if (cancelled) return { status: 'warn', message: 'Blade Row cancelled' };
+      const Mod = await getManifold();
+      const p = bladeRowParams(values);
+      // One blade = the aerofoil section extruded radially with a twist
+      // (stagger change hub→tip) and a chord taper — a valid manifold by
+      // construction. Then a circular array makes the row.
+      const span = p.rTip - p.rHub;
+      const twistDeg = (p.staggerTip - p.staggerHub) * 180 / Math.PI;
+      const taper = p.chordTip / p.chordHub;
+      const cs = Mod.CrossSection.ofPolygons([aerofoilSection(p.chordHub, p.thickRatio, 28)]);
+      // Extrude along +Z, then rotate so the span lies along +Y and
+      // lift the root to the hub radius.
+      let blade = Mod.Manifold.extrude(cs, span, 16, twistDeg, [taper, taper]);
+      blade = blade.rotate([-90, 0, 0]).translate([0, p.rHub, 0]);
+      let row = await fCircularPattern({ body: blade, axis: [0, 0, 1], anchor: [0, 0, 0], count: p.count });
+      if (p.xMid) row = row.translate([0, 0, p.xMid]);
+      if (Array.isArray(values.translate)) row = row.translate(values.translate);
+      addFoundationManifoldToScene(scene, viewport, row, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Blade Row: ${p.count} aerofoils, hub ${p.rHub}→tip ${p.rTip} mm, `
+          + `${twistDeg.toFixed(0)}° twist — V = ${row.volume().toFixed(0)} mm³ `
+          + `via foundation.aerofoilSection + manifold extrude/array`,
+      };
+    },
+
     'Revolve Boss': async (scene, viewport) => {
       // Foundation path: revolve a stepped-shaft profile 360° around
       // the Y axis via manifold-3d's CrossSection.revolve. Profile in
@@ -761,7 +797,8 @@ const TOOL_HANDLERS = {
       ];
       const segs = values.revolveSegs ?? 64;
       const cs = Mod.CrossSection.ofPolygons([profile]);
-      const result = Mod.Manifold.revolve(cs, segs);
+      let result = Mod.Manifold.revolve(cs, segs);
+      if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
       if (values.profile) {
         addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
@@ -940,7 +977,8 @@ const TOOL_HANDLERS = {
           ? _lastFoundationManifold
           : Mod.Manifold.cylinder(values.seedHeight ?? 15, seedR, seedR, 64, true);
         const seedV = seed.volume();
-        const arr = await fLinearPattern(seed, axis, count, spacing);
+        let arr = await fLinearPattern(seed, axis, count, spacing);
+        if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
         const totalV = arr.volume();
         addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
         return {
@@ -1046,7 +1084,8 @@ const TOOL_HANDLERS = {
         seed = Mod.Manifold.cube(s, true).translate([radius, 0, 0]);
       }
       const seedV = seed.volume();
-      const arr = await fCircularPattern({ body: seed, axis, anchor: [0, 0, 0], count });
+      let arr = await fCircularPattern({ body: seed, axis, anchor: [0, 0, 0], count });
+      if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
       const totalV = arr.volume();
       addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
       return {

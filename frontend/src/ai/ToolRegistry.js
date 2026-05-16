@@ -58,7 +58,12 @@ export const TOOL_REGISTRY = [
   { name: 'Revolve Boss',       tab: 'Part', category: 'Feature',
     produces: '__lastFoundationManifold', cost: 'cheap',
     metrics: ['volume'],
-    description: 'Revolve a stepped-shaft profile 360°.' },
+    description: 'Revolve a stepped-shaft profile 360°. Plan params: profile, revolveSegs, translate.' },
+  { name: 'Blade Row',          tab: 'Part', category: 'Feature',
+    produces: '__lastFoundationManifold', cost: 'medium',
+    metrics: ['volume'],
+    description: 'General turbomachinery blade row — N lofted twisted aerofoils around an axis. '
+      + 'Plan params: count, rHub, rTip, xMid, chordHub, chordTip, thickRatio, staggerHub, staggerTip, translate.' },
   { name: 'Shell',              tab: 'Part', category: 'Feature',
     produces: '__lastFoundationManifold', cost: 'cheap',
     metrics: ['volume'],
