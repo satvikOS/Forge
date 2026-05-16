@@ -83,6 +83,7 @@ import { parseStep, stepMeshToManifold } from '../../foundation/StepImport.js';
 import { subdivideManifold } from '../../foundation/LoopSubdivision.js';
 import { voxelHexMeshManifold } from '../../foundation/VoxelHexMesh.js';
 import { morphologicalFilletManifold } from '../../foundation/MorphologicalFillet.js';
+import { buildBossOnBase } from '../../foundation/SmoothImplicit.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -585,6 +586,37 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Volumetric Fillet: rolling-ball r=${radius}mm — morphological open+close on a ${fil.dims.join('×')} voxel grid (cell ${fil.cellSize.toFixed(2)}mm). All convex/concave edges rounded; V ${fil.volumeBefore.toFixed(0)} → ${fil.volumeAfter.toFixed(0)} mm³ (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)${displayed ? '' : ' (metrics only)'} via foundation.morphologicalFillet`,
+      };
+    },
+
+    'Smooth Fillet': async (scene, viewport) => {
+      // Foundation path: smooth implicit (SDF) fillet — the technique
+      // implicit-modelling CAD kernels ship. The body is described by
+      // signed-distance functions; a smooth-min boolean rounds the
+      // boss/base seam into a true circular-arc blend, then
+      // Manifold.levelSet marching-tetrahedra extracts a watertight,
+      // genuinely smooth surface (refine edgeLength → exact blend).
+      // This fillets the implicit construction tree — selective edge
+      // picking on arbitrary B-Rep still needs a NURBS kernel.
+      const Mod = await getManifold();
+      const radius = 8;
+      const smooth = buildBossOnBase(Mod, { filletRadius: radius, edgeLength: 2.0, sharp: false });
+      const sharp = buildBossOnBase(Mod, { sharp: true, edgeLength: 2.0 });
+      const addedByFillet = smooth.volume - sharp.volume;
+      addFoundationManifoldToScene(scene, viewport, smooth.manifold, 0x8b1538);
+      _lastFoundationManifold = smooth.manifold;
+
+      if (typeof window !== 'undefined') {
+        window.__lastSmoothFillet = {
+          radius, edgeLength: smooth.edgeLength,
+          triangleCount: smooth.triangleCount,
+          volumeSmooth: smooth.volume, volumeSharp: sharp.volume,
+          addedByFillet, genus: smooth.genus,
+        };
+      }
+      return {
+        status: 'success',
+        message: `Smooth Fillet: implicit/SDF fillet — circular-arc blend r=${radius}mm at the boss/base seam, marching-tetrahedra surface (${smooth.triangleCount} tris, genus ${smooth.genus}). Genuinely smooth, not voxel-staircased; fillet adds ${addedByFillet.toFixed(0)} mm³ vs the sharp seam via foundation.buildBossOnBase`,
       };
     },
 

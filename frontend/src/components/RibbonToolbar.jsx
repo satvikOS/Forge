@@ -69,6 +69,7 @@ const TABS = {
         { name: 'Scale', icon: '⤡', key: 'part' },
         { name: 'Subdivide', icon: '⊞', key: 'part' },
         { name: 'Volumetric Fillet', icon: '◖', key: 'part' },
+        { name: 'Smooth Fillet', icon: '◝', key: 'part' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },
