@@ -166,6 +166,49 @@ export class NURBSSurface {
   }
 
   /**
+   * Position + all partials up to 2nd order at (u, v).
+   * Returns { S, Su, Sv, Suu, Suv, Svv, normal } — the inputs for
+   * fundamental forms, Gaussian / mean curvature, and G2 continuity.
+   */
+  evalDerivatives2(u, v) {
+    const ku = this._curveU.knotSpan(u);
+    const kv = this._curveV.knotSpan(v);
+    const Nu = this._curveU.basisFunctionDerivatives(ku, u, 2);
+    const Nv = this._curveV.basisFunctionDerivatives(kv, v, 2);
+    const A = { '00': [0, 0, 0], '10': [0, 0, 0], '01': [0, 0, 0], '20': [0, 0, 0], '11': [0, 0, 0], '02': [0, 0, 0] };
+    const W = { '00': 0, '10': 0, '01': 0, '20': 0, '11': 0, '02': 0 };
+    for (let i = 0; i <= this.p; i++) {
+      const iIdx = ku - this.p + i;
+      for (let j = 0; j <= this.q; j++) {
+        const jIdx = kv - this.q + j;
+        const w = this.weights[iIdx][jIdx];
+        const P = this.controlNet[iIdx][jIdx];
+        for (const [k, l] of [[0, 0], [1, 0], [0, 1], [2, 0], [1, 1], [0, 2]]) {
+          const f = Nu[k][i] * Nv[l][j] * w;
+          const key = `${k}${l}`;
+          A[key][0] += f * P[0]; A[key][1] += f * P[1]; A[key][2] += f * P[2];
+          W[key] += f;
+        }
+      }
+    }
+    const w0 = W['00'];
+    const sub = (x, y) => [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
+    const scl = (x, s) => [x[0] * s, x[1] * s, x[2] * s];
+    const div = (x) => [x[0] / w0, x[1] / w0, x[2] / w0];
+    const S = div(A['00']);
+    const Su = div(sub(A['10'], scl(S, W['10'])));
+    const Sv = div(sub(A['01'], scl(S, W['01'])));
+    const Suu = div(sub(sub(A['20'], scl(Su, 2 * W['10'])), scl(S, W['20'])));
+    const Svv = div(sub(sub(A['02'], scl(Sv, 2 * W['01'])), scl(S, W['02'])));
+    const Suv = div(sub(sub(sub(A['11'], scl(Sv, W['10'])), scl(Su, W['01'])), scl(S, W['11'])));
+    const nx = Su[1] * Sv[2] - Su[2] * Sv[1];
+    const ny = Su[2] * Sv[0] - Su[0] * Sv[2];
+    const nz = Su[0] * Sv[1] - Su[1] * Sv[0];
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    return { S, Su, Sv, Suu, Suv, Svv, normal: [nx / nl, ny / nl, nz / nl] };
+  }
+
+  /**
    * Tessellate to a triangle mesh on a uniform grid in (u, v).
    * Returns { vertProperties, triVerts, numProp } compatible with the
    * rest of foundation (manifold-3d Mesh shape).
@@ -203,6 +246,23 @@ export class NURBSSurface {
       vertProperties: new Float32Array(verts),
       triVerts: new Uint32Array(tris),
     };
+  }
+
+  /**
+   * Convenience: a flat plane through `origin` spanned by uDir × vDir
+   * (degree 1 × 1, four corner control points).
+   */
+  static plane(origin, uDir, vDir, uLen = 1, vLen = 1) {
+    const pt = (s, t) => [
+      origin[0] + uDir[0] * s * uLen + vDir[0] * t * vLen,
+      origin[1] + uDir[1] * s * uLen + vDir[1] * t * vLen,
+      origin[2] + uDir[2] * s * uLen + vDir[2] * t * vLen,
+    ];
+    return new NURBSSurface({
+      degreeU: 1, degreeV: 1,
+      controlNet: [[pt(0, 0), pt(0, 1)], [pt(1, 0), pt(1, 1)]],
+      knotsU: [0, 0, 1, 1], knotsV: [0, 0, 1, 1],
+    });
   }
 
   /**
