@@ -278,6 +278,20 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
     ],
   },
+  'Impact Simulation': {
+    title: 'Impact Simulation — Explicit Dynamics',
+    blurb: 'Mass-spring transient impact. Defaults: a 1.8 kg bird-strike-class impact at 90 m/s.',
+    fields: [
+      { name: 'gridN',          label: 'Panel grid (N×N)', type: 'number', default: 11,  unit: '',    min: 5, max: 25, step: 2 },
+      { name: 'panelSize_mm',   label: 'Panel size',       type: 'number', default: 220, unit: 'mm',  min: 50, max: 2000, step: 10 },
+      { name: 'stiffness',      label: 'Spring stiffness', type: 'number', default: 9000, unit: 'N/m', min: 500, max: 1e5, step: 500 },
+      { name: 'nodeMass',       label: 'Node mass',        type: 'number', default: 0.05, unit: 'kg',  min: 0.005, max: 1, step: 0.005 },
+      { name: 'breakStrain',    label: 'Spring break strain', type: 'number', default: 0.25, unit: '', min: 0.05, max: 1, step: 0.05 },
+      { name: 'impactSpeed_ms', label: 'Impact speed',     type: 'number', default: 90,  unit: 'm/s', min: 1, max: 400, step: 5 },
+      { name: 'impactorMass_kg', label: 'Impactor mass',   type: 'number', default: 1.8, unit: 'kg',  min: 0.05, max: 50, step: 0.05 },
+      { name: 'damping',        label: 'Viscous damping',  type: 'number', default: 1.5, unit: 'N·s/m', min: 0, max: 20, step: 0.5 },
+    ],
+  },
   'Blade Row': {
     title: 'Blade Row — Turbomachinery',
     blurb: 'A ring of lofted, twisted aerofoils. The same tool builds a fan, compressor or turbine row.',

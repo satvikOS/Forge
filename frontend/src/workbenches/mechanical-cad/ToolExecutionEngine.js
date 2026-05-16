@@ -85,6 +85,7 @@ import { voxelHexMeshManifold } from '../../foundation/VoxelHexMesh.js';
 import { morphologicalFilletManifold } from '../../foundation/MorphologicalFillet.js';
 import { buildBossOnBase } from '../../foundation/SmoothImplicit.js';
 import { aerofoilSection, bladeRowParams } from '../../foundation/BladeRow.js';
+import { gridPanel, simulateImpact } from '../../foundation/ExplicitDynamics.js';
 import { PlanarMechanism } from '../../foundation/KinematicsCore.js';
 import { runMotionStudy } from '../../foundation/MotionStudy.js';
 import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation/AssemblySequence.js';
@@ -2009,6 +2010,49 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Voxel Hex Mesh: ${res.cellCount} hex elements (${res.hexMesh.metadata.voxel.grid.join('×')} grid, ${(res.fillFraction * 100).toFixed(0)}% fill), cell ${res.cellSize.toFixed(2)} mm | hex vol ${hexVol.toFixed(0)} mm³ vs true ${trueVol.toFixed(0)} mm³ (${errPct >= 0 ? '+' : ''}${errPct.toFixed(1)}% staircase) via foundation.voxelHexMesh`,
+      };
+    },
+
+    'Impact Simulation': async () => {
+      // Foundation path: general explicit-dynamics impact via
+      // foundation.simulateImpact — a mass-spring panel struck by a
+      // rigid impactor, time-stepped explicitly. Fully parametric: an
+      // orchestration plan supplies the panel and the impactor, so the
+      // SAME tool runs a bird strike, fan-blade-out debris or a drop
+      // test. The per-frame deformed node positions are recorded for
+      // the sim→video pipeline.
+      const { values, cancelled } = await requestToolParams('Impact Simulation');
+      if (cancelled) return { status: 'warn', message: 'Impact Simulation cancelled' };
+      const gridN = Math.round(values.gridN ?? 11);
+      const size = (values.panelSize_mm ?? 220) / 1000;          // m
+      const panel = gridPanel({
+        nx: gridN, ny: gridN, spacing: size / (gridN - 1),
+        nodeMass: values.nodeMass ?? 0.05, stiffness: values.stiffness ?? 9000,
+        breakStrain: values.breakStrain ?? 0.25,
+      });
+      const speed = values.impactSpeed_ms ?? 90;
+      const sim = simulateImpact({
+        ...panel,
+        impactor: {
+          pos: [size / 2, size / 2, 0.07],
+          vel: [0, 0, -speed],
+          mass: values.impactorMass_kg ?? 1.8, radius: 0.035,
+        },
+        contactStiffness: 4e5, damping: values.damping ?? 1.5,
+      }, { dt: 1.2e-5, steps: 4200 });
+      const s = sim.summary;
+      if (typeof window !== 'undefined') {
+        window.__lastImpactSim = {
+          frames: sim.frames, summary: s, grid: [gridN, gridN], panelSize_m: size,
+        };
+      }
+      return {
+        status: 'success',
+        message: `Impact Simulation: ${(values.impactorMass_kg ?? 1.8)} kg @ ${speed} m/s — `
+          + `peak deflection ${s.peakDeflection_mm.toFixed(0)} mm, peak contact `
+          + `${(s.peakContactForce_N / 1000).toFixed(1)} kN, ${s.energyAbsorbed_J.toFixed(0)} J absorbed, `
+          + `${s.brokenSprings}/${s.totalSprings} springs damaged, ${sim.frames.length} frames `
+          + `via foundation.simulateImpact (explicit dynamics)`,
       };
     },
 

@@ -108,6 +108,12 @@ export const TOOL_REGISTRY = [
     produces: '__lastRotordynResult', cost: 'medium',
     metrics: ['firstNaturalHz', 'criticalSpeedRPM'],
     description: '1D shaft + disk + bearing → first natural Hz, critical RPM.' },
+  { name: 'Impact Simulation',  tab: 'Simulate', category: 'Structural',
+    produces: '__lastImpactSim', cost: 'medium',
+    metrics: ['peakDeflection_mm', 'peakContactForce_N', 'energyAbsorbed_J', 'brokenSprings'],
+    description: 'General explicit-dynamics transient impact (bird strike / FBO debris / drop). '
+      + 'Plan params: gridN, panelSize_mm, stiffness, nodeMass, breakStrain, impactSpeed_ms, '
+      + 'impactorMass_kg, damping. Records per-frame deformed geometry.' },
   { name: 'Fatigue Analysis',   tab: 'Simulate', category: 'Structural',
     produces: '__lastFatigueResult', cost: 'cheap',
     metrics: ['goodmanSF', 'lifeCycles'],

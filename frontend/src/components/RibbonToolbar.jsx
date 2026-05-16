@@ -119,6 +119,7 @@ const TABS = {
         { name: 'Buckling Analysis', icon: '↕', key: 'simulation' },
         { name: 'Frame FEA', icon: '⊏', key: 'simulation' },
         { name: 'Rotordynamics', icon: '◌', key: 'simulation' },
+        { name: 'Impact Simulation', icon: '💥', key: 'simulation' },
       ]},
       { label: 'Mesh', tools: [
         { name: 'Voxel Hex Mesh', icon: '⊟', key: 'simulation' },
