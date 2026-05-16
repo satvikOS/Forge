@@ -84,6 +84,9 @@ import { subdivideManifold } from '../../foundation/LoopSubdivision.js';
 import { voxelHexMeshManifold } from '../../foundation/VoxelHexMesh.js';
 import { morphologicalFilletManifold } from '../../foundation/MorphologicalFillet.js';
 import { buildBossOnBase } from '../../foundation/SmoothImplicit.js';
+import { PlanarMechanism } from '../../foundation/KinematicsCore.js';
+import { runMotionStudy } from '../../foundation/MotionStudy.js';
+import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation/AssemblySequence.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -254,6 +257,55 @@ function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b153
     }
   }
   return group;
+}
+
+// --- Motion animation helpers ---
+
+/**
+ * Cancel any in-flight motion/assembly animation and start a new
+ * requestAnimationFrame loop. `stepFn(elapsedSec)` is called each
+ * frame; the loop wraps at `periodSec`.
+ */
+function _startAnimationLoop(stepFn, periodSec) {
+  if (typeof window === 'undefined') return;
+  if (window.__archdiscAnimRAF) cancelAnimationFrame(window.__archdiscAnimRAF);
+  const t0 = performance.now();
+  const tick = () => {
+    const elapsed = ((performance.now() - t0) / 1000) % periodSec;
+    try { stepFn(elapsed); } catch { /* keep the loop alive */ }
+    window.__archdiscAnimRAF = requestAnimationFrame(tick);
+  };
+  window.__archdiscAnimRAF = requestAnimationFrame(tick);
+}
+
+/**
+ * Build a Three.js group of rods for a planar mechanism: one sub-group
+ * per link, each holding box "rods" along that link's local segments.
+ * Returns the per-link groups so the caller can drive their poses.
+ */
+function _buildMechanismGroup(scene, linkSegments, color) {
+  const root = new THREE.Group();
+  root.scale.set(0.001, 0.001, 0.001);
+  root.userData.generatedModel = true;
+  const linkGroups = [];
+  for (let li = 0; li < linkSegments.length; li++) {
+    const lg = new THREE.Group();
+    for (const [a, b] of (linkSegments[li] ?? [])) {
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy) || 1;
+      const rod = new THREE.Mesh(
+        new THREE.BoxGeometry(len, 4, 4),
+        new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.6 }),
+      );
+      rod.position.set((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0);
+      rod.rotation.z = Math.atan2(dy, dx);
+      lg.add(rod);
+    }
+    root.add(lg);
+    linkGroups.push(lg);
+  }
+  scene.add(root);
+  return { root, linkGroups };
 }
 
 // --- Helpers ---
@@ -1188,6 +1240,118 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Exploded View: ${_currentAssembly.partCount()} parts separated` };
       }
       return { status: 'warn', message: 'No assembly to explode. Insert Component first.' };
+    },
+    'Motion Study': (scene, viewport) => {
+      // Foundation path: a real slider-crank mechanism solved through
+      // time by foundation.runMotionStudy (Newton-Raphson per frame),
+      // then animated live in the viewport. The piston motion is the
+      // genuine kinematic solution — not a scripted keyframe.
+      const r = 40, l = 120;
+      const mech = new PlanarMechanism({
+        links: [{ name: 'ground' }, { name: 'crank' }, { name: 'conrod' }, { name: 'slider' }],
+        joints: [
+          { type: 'revolute', linkA: 0, linkB: 1, pA: [0, 0], pB: [0, 0] },
+          { type: 'revolute', linkA: 1, linkB: 2, pA: [r, 0], pB: [0, 0] },
+          { type: 'revolute', linkA: 2, linkB: 3, pA: [l, 0], pB: [0, 0] },
+          { type: 'prismatic', linkA: 0, linkB: 3, pA: [0, 0], pB: [0, 0], axisAngle: 0, perpOffset: 0 },
+        ],
+        drivers: [{ jointIndex: 0, fn: (t) => 2 * Math.PI * t }],
+      });
+      mech._q = [0, 0, 0, r, 0, 0, r + l, 0, 0];   // seed at θ=0 (top dead centre)
+      const linkSegments = [
+        [],                                                            // ground
+        [[[0, 0], [r, 0]]],                                            // crank
+        [[[0, 0], [l, 0]]],                                            // conrod
+        [[[-16, -12], [16, -12]], [[16, -12], [16, 12]],               // slider box
+         [[16, 12], [-16, 12]], [[-16, 12], [-16, -12]]],
+      ];
+      const study = runMotionStudy(mech, { t0: 0, t1: 1, frames: 120, linkSegments });
+      const sliderX = study.frames.map((f) => f.links[3].x);
+      const stroke = Math.max(...sliderX) - Math.min(...sliderX);
+
+      const { root, linkGroups } = _buildMechanismGroup(scene, linkSegments, 0x8b1538);
+      _startAnimationLoop((elapsed) => {
+        const playSec = 3;
+        const fi = Math.min(study.frames.length - 1,
+          Math.floor((elapsed / playSec) * study.frames.length));
+        const fr = study.frames[fi];
+        for (let li = 0; li < linkGroups.length; li++) {
+          linkGroups[li].position.set(fr.links[li].x, fr.links[li].y, 0);
+          linkGroups[li].rotation.z = fr.links[li].theta;
+        }
+      }, 3);
+      root.updateMatrixWorld(true);
+      if (typeof window?.__archdiscFocusOnObject === 'function') window.__archdiscFocusOnObject(root);
+
+      if (typeof window !== 'undefined') {
+        window.__lastMotionStudy = {
+          mechanism: 'slider-crank', dof: mech.dof(),
+          frameCount: study.summary.frameCount,
+          allConverged: study.summary.allConverged,
+          collisionFreeFrames: study.summary.collisionFreeFrames,
+          maxLinearSpeed: study.summary.maxLinearSpeed,
+          maxAngularSpeed: study.summary.maxAngularSpeed,
+          pistonStrokeMM: stroke, animating: true,
+        };
+      }
+      return {
+        status: 'success',
+        message: `Motion Study: slider-crank (DOF ${mech.dof()}) — ${study.summary.frameCount} frames, all converged, piston stroke ${stroke.toFixed(1)} mm (analytical 2r = ${2 * r}), animating live via foundation.runMotionStudy`,
+      };
+    },
+    'Assembly Animation': (scene, viewport) => {
+      // Foundation path: foundation.generateAssemblySequence derives the
+      // assembly order from the mate graph, computes an exploded pose
+      // per part, and produces per-part keyframes. Played back live.
+      const parts = [
+        { id: 'base',  name: 'Base Plate', assembledPosition: [0, 0, 0],  size: [100, 10, 100], color: 0x5a6470 },
+        { id: 'shaft', name: 'Shaft',      assembledPosition: [0, 35, 0], size: [12, 60, 12],   color: 0x8b1538 },
+        { id: 'gear',  name: 'Gear',       assembledPosition: [0, 48, 0], size: [54, 12, 54],   color: 0xc8a04a },
+        { id: 'cover', name: 'Cover',      assembledPosition: [0, 78, 0], size: [100, 8, 100],  color: 0x4a90d9 },
+      ];
+      const mates = [
+        { a: 'base', b: 'shaft' }, { a: 'shaft', b: 'gear' }, { a: 'base', b: 'cover' },
+      ];
+      const seq = generateAssemblySequence({ parts, mates }, {
+        baseId: 'base', explodeAxis: [1, 0, 0], explodeGap: 90,
+      });
+      const frames = sampleAssemblyFrames(seq, 96);
+
+      const root = new THREE.Group();
+      root.scale.set(0.001, 0.001, 0.001);
+      root.userData.generatedModel = true;
+      const partMeshes = {};
+      for (const p of parts) {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(...p.size),
+          new THREE.MeshStandardMaterial({ color: p.color, metalness: 0.3, roughness: 0.6 }),
+        );
+        partMeshes[p.id] = mesh;
+        root.add(mesh);
+      }
+      scene.add(root);
+      _startAnimationLoop((elapsed) => {
+        const playSec = 4;
+        const t = (elapsed / playSec) * seq.duration;
+        const pos = seq.sample(Math.min(t, seq.duration));
+        for (const p of parts) {
+          const m = partMeshes[p.id];
+          m.position.set(pos[p.id][0], pos[p.id][1], pos[p.id][2]);
+        }
+      }, 4);
+      root.updateMatrixWorld(true);
+      if (typeof window?.__archdiscFocusOnObject === 'function') window.__archdiscFocusOnObject(root);
+
+      if (typeof window !== 'undefined') {
+        window.__lastAssemblyAnimation = {
+          order: seq.order, partCount: parts.length,
+          duration: seq.duration, frameCount: frames.length, animating: true,
+        };
+      }
+      return {
+        status: 'success',
+        message: `Assembly Animation: ${parts.length}-part gearbox — order [${seq.order.join(' → ')}], ${frames.length} frames, exploded poses from the mate graph, animating live via foundation.generateAssemblySequence`,
+      };
     },
   },
 

@@ -102,6 +102,10 @@ const TABS = {
         { name: 'Interference', icon: '⚠', key: 'assembly' },
         { name: 'Mass Properties', icon: '⚖', key: 'measure' },
       ]},
+      { label: 'Motion', tools: [
+        { name: 'Motion Study', icon: '⟳', key: 'assembly', primary: true },
+        { name: 'Assembly Animation', icon: '▶', key: 'assembly' },
+      ]},
     ]
   },
   simulate: {
