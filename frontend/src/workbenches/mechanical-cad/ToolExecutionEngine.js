@@ -674,20 +674,36 @@ const TOOL_HANDLERS = {
     },
 
     'Extrude Boss': async (scene, viewport) => {
-      // Foundation path: extrude an 80 × 50 mm rectangular profile
-      // 25 mm along +Z via manifold-3d's CrossSection.extrude. The
-      // result is exactly a 80×50×25 box — V = 100,000 mm³ exact.
+      // Foundation path: extrude a rectangular (or arbitrary) profile
+      // via manifold-3d's CrossSection.extrude. Parametric — an
+      // orchestration plan supplies { width, depth, height } or an
+      // explicit { profile } point list; defaults give the canonical
+      // 80×50×25 box (V = 100,000 mm³).
+      const { values, cancelled } = await requestToolParams('Extrude Boss');
+      if (cancelled) return { status: 'warn', message: 'Extrude Boss cancelled' };
       const Mod = await getManifold();
-      const profile = [[-40, -25], [40, -25], [40, 25], [-40, 25]];
+      const width = values.width ?? 80, depth = values.depth ?? 50, height = values.height ?? 25;
+      const profile = values.profile ?? [
+        [-width / 2, -depth / 2], [width / 2, -depth / 2],
+        [width / 2, depth / 2], [-width / 2, depth / 2],
+      ];
       const cs = Mod.CrossSection.ofPolygons([profile]);
-      const result = Mod.Manifold.extrude(cs, 25);
+      const result = Mod.Manifold.extrude(cs, height);
       const Vfinal = result.volume();
-      const Vexpected = 80 * 50 * 25;
-      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
       addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      if (values.profile) {
+        return {
+          status: 'success',
+          message: `Extrude Boss: custom ${profile.length}-pt profile × ${height} mm. `
+            + `V = ${Vfinal.toFixed(0)} mm³ via foundation manifold-3d extrude`,
+        };
+      }
+      const Vexpected = width * depth * height;
+      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
       return {
         status: 'success',
-        message: `Extrude Boss: 80×50 rectangle × 25 mm. V = ${Vfinal.toFixed(0)} mm³ (analytical ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d extrude`,
+        message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${Vfinal.toFixed(0)} mm³ `
+          + `(analytical ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d extrude`,
       };
     },
 
@@ -729,8 +745,13 @@ const TOOL_HANDLERS = {
       // the Y axis via manifold-3d's CrossSection.revolve. Profile in
       // (radius, height) coordinates: a small stub Ø15 → flange Ø30 →
       // upper shaft Ø24 over total height 40 mm.
+      // Parametric — an orchestration plan supplies an explicit
+      // { profile } in (radius, height) coordinates and { revolveSegs };
+      // defaults give the canonical stepped shaft.
+      const { values, cancelled } = await requestToolParams('Revolve Boss');
+      if (cancelled) return { status: 'warn', message: 'Revolve Boss cancelled' };
       const Mod = await getManifold();
-      const profile = [
+      const profile = values.profile ?? [
         [7.5, 0],     // bore wall, base
         [15, 0],      // outer base
         [15, 30],     // outer top
@@ -738,9 +759,18 @@ const TOOL_HANDLERS = {
         [12, 40],     // upper shaft top
         [7.5, 40],    // upper bore
       ];
+      const segs = values.revolveSegs ?? 64;
       const cs = Mod.CrossSection.ofPolygons([profile]);
-      const result = Mod.Manifold.revolve(cs, 64);
+      const result = Mod.Manifold.revolve(cs, segs);
       const Vfinal = result.volume();
+      if (values.profile) {
+        addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+        return {
+          status: 'success',
+          message: `Revolve Boss: custom ${profile.length}-pt profile revolved 360°. `
+            + `V = ${Vfinal.toFixed(0)} mm³ via foundation manifold-3d revolve`,
+        };
+      }
       // Analytical: sum of 3 disks
       // Disk 1: Ø30 × 30 (bore Ø15) = π(15² - 7.5²) × 30 = π·168.75·30 = 5301.4
       // Disk 2: Ø24 × 10 (bore Ø15) = π(12² - 7.5²) × 10 = π·87.75·10 = 2756.6
@@ -894,21 +924,29 @@ const TOOL_HANDLERS = {
     },
 
     'Linear Pattern': async (scene, viewport) => {
-      console.log('[foundation] Linear Pattern handler entered');
+      // Parametric — an orchestration plan supplies { count, spacing,
+      // axis } and the seed body's { seedHeight, seedRadius }, or
+      // patterns the current foundation body. Defaults: 4× Ø6×15 mm.
+      const { values, cancelled } = await requestToolParams('Linear Pattern');
+      if (cancelled) return { status: 'warn', message: 'Linear Pattern cancelled' };
       try {
         const Mod = await getManifold();
-        console.log('[foundation] manifold-3d loaded');
-        const seed = Mod.Manifold.cylinder(15, 3, 3, 64, true);
+        const count = values.count ?? 4;
+        const spacing = values.spacing ?? 20;
+        const axis = values.axis ?? [1, 0, 0];
+        const usedExisting = !!_lastFoundationManifold && values.useCurrentBody === true;
+        const seedR = values.seedRadius ?? 3;
+        const seed = usedExisting
+          ? _lastFoundationManifold
+          : Mod.Manifold.cylinder(values.seedHeight ?? 15, seedR, seedR, 64, true);
         const seedV = seed.volume();
-        console.log(`[foundation] seed cylinder built, V=${seedV}`);
-        const arr = await fLinearPattern(seed, [1, 0, 0], 4, 20);
+        const arr = await fLinearPattern(seed, axis, count, spacing);
         const totalV = arr.volume();
-        console.log(`[foundation] linearPattern done, V=${totalV}`);
         addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
-        console.log('[foundation] manifold added to scene');
         return {
           status: 'success',
-          message: `Linear Pattern: 4× Ø6mm × 15mm @ 20mm spacing  (V = ${totalV.toFixed(0)} mm³ = 4 × ${seedV.toFixed(0)} via foundation.linearPattern)`,
+          message: `Linear Pattern: ${count}× seed @ ${spacing} mm along [${axis}] `
+            + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via foundation.linearPattern)`,
         };
       } catch (err) {
         console.error('[foundation] Linear Pattern handler failed:', err);
@@ -989,24 +1027,32 @@ const TOOL_HANDLERS = {
     },
 
     'Circular Pattern': async (scene, viewport) => {
-      // Foundation path: build a thin fin offset from the rotation axis,
-      // then call foundation.circularPattern around +Z, count = 6,
-      // totalAngle = 2π. Validates the foundation rotation pipeline
-      // through the actual ribbon click.
+      // Foundation path: foundation.circularPattern around an axis.
+      // Parametric — an orchestration plan supplies { count, axis,
+      // radius } and the seed body's { seedSize }, or patterns the
+      // current foundation body (useCurrentBody). This is how a plan
+      // builds a blade row, a bolt circle, a cooling-hole ring, etc.
+      const { values, cancelled } = await requestToolParams('Circular Pattern');
+      if (cancelled) return { status: 'warn', message: 'Circular Pattern cancelled' };
       const Mod = await getManifold();
-      // 2 × 6 × 10 mm fin centered, then translated 20 mm along +X so it
-      // sits OUTSIDE the rotation axis. At 6-fold symmetry (60°),
-      // adjacent fins are ~21 mm apart center-to-center — no overlap.
-      const seed = Mod.Manifold.cube([2, 6, 10], true).translate([20, 0, 0]);
+      const count = values.count ?? 6;
+      const axis = values.axis ?? [0, 0, 1];
+      const radius = values.radius ?? 20;
+      let seed;
+      if (values.useCurrentBody === true && _lastFoundationManifold) {
+        seed = _lastFoundationManifold;
+      } else {
+        const s = values.seedSize ?? [2, 6, 10];
+        seed = Mod.Manifold.cube(s, true).translate([radius, 0, 0]);
+      }
       const seedV = seed.volume();
-      const arr = await fCircularPattern({
-        body: seed, axis: [0, 0, 1], anchor: [0, 0, 0], count: 6,
-      });
+      const arr = await fCircularPattern({ body: seed, axis, anchor: [0, 0, 0], count });
       const totalV = arr.volume();
       addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
       return {
         status: 'success',
-        message: `Circular Pattern: 6× fins around Z axis  (V = ${totalV.toFixed(0)} mm³ = 6 × ${seedV.toFixed(0)} via foundation.circularPattern)`,
+        message: `Circular Pattern: ${count}× around [${axis}] @ R=${radius} mm `
+          + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via foundation.circularPattern)`,
       };
     },
   },

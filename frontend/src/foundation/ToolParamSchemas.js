@@ -240,6 +240,44 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'k_TBC',       label: 'k_TBC',         type: 'number', default: 1.0,  unit: 'W/m·K', min: 0.3, max: 3, step: 0.1 },
     ],
   },
+
+  // ─── GEOMETRY (parametric — orchestration plans drive these) ──────
+  // Plans may also pass non-dialog params: Extrude Boss `profile`,
+  // Revolve Boss `profile`, the pattern tools `axis`/`useCurrentBody`.
+  'Extrude Boss': {
+    title: 'Extrude Boss — Inputs',
+    blurb: 'Extrude a rectangular profile. Defaults: 80×50 mm × 25 mm box.',
+    fields: [
+      { name: 'width',  label: 'Width',  type: 'number', default: 80, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'depth',  label: 'Depth',  type: 'number', default: 50, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 25, unit: 'mm', min: 1, max: 5000, step: 1 },
+    ],
+  },
+  'Revolve Boss': {
+    title: 'Revolve Boss — Inputs',
+    blurb: 'Revolve a (radius,height) profile 360°. Defaults: stepped shaft.',
+    fields: [
+      { name: 'revolveSegs', label: 'Revolution segments', type: 'number', default: 64, unit: '', min: 8, max: 256, step: 8 },
+    ],
+  },
+  'Linear Pattern': {
+    title: 'Linear Pattern — Inputs',
+    blurb: 'N copies of a seed body along an axis. Defaults: 4× Ø6×15 mm @ 20 mm.',
+    fields: [
+      { name: 'count',      label: 'Count',       type: 'number', default: 4,  unit: '',  min: 1, max: 200, step: 1 },
+      { name: 'spacing',    label: 'Spacing',     type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+      { name: 'seedRadius', label: 'Seed radius', type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 1000, step: 0.5 },
+      { name: 'seedHeight', label: 'Seed height', type: 'number', default: 15, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+    ],
+  },
+  'Circular Pattern': {
+    title: 'Circular Pattern — Inputs',
+    blurb: 'N copies around an axis. Defaults: 6 fins around +Z at R=20 mm.',
+    fields: [
+      { name: 'count',  label: 'Count',  type: 'number', default: 6,  unit: '',  min: 1, max: 400, step: 1 },
+      { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {
