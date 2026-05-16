@@ -67,6 +67,7 @@ const TABS = {
         { name: 'Hole Wizard', icon: '◉', key: 'part' },
         { name: 'Draft', icon: '∠', key: 'part' },
         { name: 'Scale', icon: '⤡', key: 'part' },
+        { name: 'Subdivide', icon: '⊞', key: 'part' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

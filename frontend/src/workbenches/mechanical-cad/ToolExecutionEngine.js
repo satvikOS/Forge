@@ -80,6 +80,7 @@ import { rollupAssemblyCost } from '../../foundation/AssemblyCost.js';
 import { buildVendorPackage } from '../../foundation/VendorPackage.js';
 import { svgToPdfBytes, isRasterCapable } from '../../foundation/SvgRaster.js';
 import { parseStep, stepMeshToManifold } from '../../foundation/StepImport.js';
+import { subdivideManifold } from '../../foundation/LoopSubdivision.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -507,6 +508,24 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Import STEP: ${file.name} — ${mesh.vertices.length} vertices, ${mesh.triangles.length} triangles from ${mesh.faceCount} faces${mesh.skippedFaces ? ` (${mesh.skippedFaces} skipped)` : ''}, V = ${vol.toFixed(0)} mm³ via foundation.parseStep`,
+      };
+    },
+
+    'Subdivide': async (scene, viewport) => {
+      // Foundation path: Loop subdivision (the correct triangle-mesh
+      // scheme) on the last foundation manifold. Replaces the disabled
+      // Catmull-Clark-on-triangles path.
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Subdivide: no foundation body found. Create geometry first.' };
+      }
+      const beforeTris = m.getMesh().triVerts.length / 3;
+      const result = await subdivideManifold(m, 2, getManifold);
+      const afterTris = result.getMesh().triVerts.length / 3;
+      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Subdivide: Loop subdivision ×2 — ${beforeTris} → ${afterTris} triangles (4ⁿ refinement), V = ${result.volume().toFixed(0)} mm³ via foundation.loopSubdivide`,
       };
     },
 
