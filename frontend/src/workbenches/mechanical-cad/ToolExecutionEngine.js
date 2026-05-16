@@ -82,6 +82,7 @@ import { svgToPdfBytes, isRasterCapable } from '../../foundation/SvgRaster.js';
 import { parseStep, stepMeshToManifold } from '../../foundation/StepImport.js';
 import { subdivideManifold } from '../../foundation/LoopSubdivision.js';
 import { voxelHexMeshManifold } from '../../foundation/VoxelHexMesh.js';
+import { morphologicalFilletManifold } from '../../foundation/MorphologicalFillet.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -527,6 +528,63 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Subdivide: Loop subdivision ×2 — ${beforeTris} → ${afterTris} triangles (4ⁿ refinement), V = ${result.volume().toFixed(0)} mm³ via foundation.loopSubdivide`,
+      };
+    },
+
+    'Volumetric Fillet': async (scene, viewport) => {
+      // Foundation path: rolling-ball fillet by mathematical morphology
+      // (foundation.morphologicalFillet). Voxelizes the body, then a
+      // morphological open + close with a ball of radius r rounds every
+      // convex AND concave edge. Works on arbitrary geometry. Honest
+      // limitation: the result is stair-stepped at the voxel resolution,
+      // not a smooth analytic B-Rep blend surface.
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Volumetric Fillet: no foundation body found. Create geometry first.' };
+      }
+      const radius = 4;
+      const fil = morphologicalFilletManifold(m, { radius, resolution: 40, mode: 'round' });
+      const pct = fil.volumeChangeFraction * 100;
+
+      // Rebuild the rounded voxel solid as a manifold for display.
+      let displayed = false;
+      try {
+        const Mod = await getManifold();
+        const sm = fil.surfaceMesh;
+        const vp = new Float32Array(sm.vertices.length * 3);
+        for (let i = 0; i < sm.vertices.length; i++) {
+          vp[i * 3] = sm.vertices[i][0];
+          vp[i * 3 + 1] = sm.vertices[i][1];
+          vp[i * 3 + 2] = sm.vertices[i][2];
+        }
+        const tv = new Uint32Array(sm.triangles.length * 3);
+        for (let i = 0; i < sm.triangles.length; i++) {
+          tv[i * 3] = sm.triangles[i][0];
+          tv[i * 3 + 1] = sm.triangles[i][1];
+          tv[i * 3 + 2] = sm.triangles[i][2];
+        }
+        const rounded = Mod.Manifold.ofMesh(new Mod.Mesh({ numProp: 3, vertProperties: vp, triVerts: tv }));
+        if (rounded && !rounded.isEmpty() && rounded.volume() > 0) {
+          addFoundationManifoldToScene(scene, viewport, rounded, 0x8b1538);
+          _lastFoundationManifold = rounded;
+          displayed = true;
+        }
+      } catch {
+        displayed = false;
+      }
+
+      if (typeof window !== 'undefined') {
+        window.__lastVolumetricFillet = {
+          radius, cellSize: fil.cellSize, rCells: fil.rCells,
+          volumeBefore: fil.volumeBefore, volumeAfter: fil.volumeAfter,
+          volumeChangeFraction: fil.volumeChangeFraction,
+          cellCount: fil.cellCount, exposedFaces: fil.exposedFaces,
+          dims: fil.dims, displayed,
+        };
+      }
+      return {
+        status: 'success',
+        message: `Volumetric Fillet: rolling-ball r=${radius}mm — morphological open+close on a ${fil.dims.join('×')} voxel grid (cell ${fil.cellSize.toFixed(2)}mm). All convex/concave edges rounded; V ${fil.volumeBefore.toFixed(0)} → ${fil.volumeAfter.toFixed(0)} mm³ (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)${displayed ? '' : ' (metrics only)'} via foundation.morphologicalFillet`,
       };
     },
 
