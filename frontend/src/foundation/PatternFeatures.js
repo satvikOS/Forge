@@ -44,6 +44,13 @@ function vcross(a, b) {
   ];
 }
 
+// manifold-3d objects hold WASM heap memory and are NOT freed by JS
+// GC promptly. A pattern that arrays hundreds of copies must dispose
+// every intermediate (`.delete()`) or the kernel heap exhausts
+// ("RuntimeError: table index out of bounds"). `body` belongs to the
+// caller and is never deleted here; every manifold WE create is.
+const drop = (m) => { if (m && typeof m.delete === 'function') m.delete(); };
+
 /**
  * Translate by k·spacing·direction.
  */
@@ -53,10 +60,11 @@ export async function linearPattern(body, direction, count, spacing) {
   const dir = vnorm(direction);
   let acc = body;
   for (let k = 1; k < count; k++) {
-    const tx = dir[0] * k * spacing;
-    const ty = dir[1] * k * spacing;
-    const tz = dir[2] * k * spacing;
-    acc = acc.add(body.translate([tx, ty, tz]));
+    const copy = body.translate([dir[0] * k * spacing, dir[1] * k * spacing, dir[2] * k * spacing]);
+    const next = acc.add(copy);
+    drop(copy);
+    if (acc !== body) drop(acc);
+    acc = next;
   }
   return acc;
 }
@@ -71,10 +79,15 @@ export async function linearPattern2D(body, dir1, n1, s1, dir2, n2, s2) {
   for (let i = 0; i < n1; i++) {
     for (let j = 0; j < n2; j++) {
       if (i === 0 && j === 0) continue;
-      const tx = u[0] * i * s1 + v[0] * j * s2;
-      const ty = u[1] * i * s1 + v[1] * j * s2;
-      const tz = u[2] * i * s1 + v[2] * j * s2;
-      acc = acc.add(body.translate([tx, ty, tz]));
+      const copy = body.translate([
+        u[0] * i * s1 + v[0] * j * s2,
+        u[1] * i * s1 + v[1] * j * s2,
+        u[2] * i * s1 + v[2] * j * s2,
+      ]);
+      const next = acc.add(copy);
+      drop(copy);
+      if (acc !== body) drop(acc);
+      acc = next;
     }
   }
   return acc;
@@ -105,20 +118,28 @@ export async function circularPattern({ body, axis, anchor = [0, 0, 0], count, t
   const alignDeg = computeAlignToZ(ax);   // {axis: [x,y,z], deg}
   const negAlign = alignDeg ? { axis: alignDeg.axis, deg: -alignDeg.deg } : null;
 
+  const hasAnchor = anchor[0] !== 0 || anchor[1] !== 0 || anchor[2] !== 0;
   let acc = body;
   for (let k = 1; k < count; k++) {
-    let copy = body;
-    // step 1
-    copy = copy.translate([-anchor[0], -anchor[1], -anchor[2]]);
-    // step 2 (only if axis isn't already +Z)
-    if (alignDeg) copy = rotateAboutAxis(copy, alignDeg.axis, alignDeg.deg);
-    // step 3: rotate about Z
-    copy = rotateAboutAxis(copy, [0, 0, 1], k * dThetaDeg);
-    // step 4
-    if (negAlign) copy = rotateAboutAxis(copy, negAlign.axis, negAlign.deg);
-    // step 5
-    copy = copy.translate([anchor[0], anchor[1], anchor[2]]);
-    acc = acc.add(copy);
+    // Build the k-th copy through the transform pipeline, disposing
+    // each intermediate. `cur` starts as the caller's `body` (never
+    // deleted); `curOwned` marks once `cur` is an intermediate we made.
+    let cur = body, curOwned = false;
+    const apply = (fn) => {
+      const next = fn(cur);
+      if (curOwned) drop(cur);
+      cur = next; curOwned = true;
+    };
+    if (hasAnchor) apply((m) => m.translate([-anchor[0], -anchor[1], -anchor[2]]));
+    if (alignDeg) apply((m) => rotateAboutAxis(m, alignDeg.axis, alignDeg.deg));
+    apply((m) => rotateAboutAxis(m, [0, 0, 1], k * dThetaDeg));
+    if (negAlign) apply((m) => rotateAboutAxis(m, negAlign.axis, negAlign.deg));
+    if (hasAnchor) apply((m) => m.translate([anchor[0], anchor[1], anchor[2]]));
+    // `cur` is the finished copy (curOwned === true — the Z rotate ran).
+    const next = acc.add(cur);
+    drop(cur);
+    if (acc !== body) drop(acc);
+    acc = next;
   }
   return acc;
 }
@@ -160,15 +181,16 @@ function rotateAboutAxis(body, axis, deg) {
   if (Math.abs(ax[1] + 1) < 1e-9) return body.rotate([0, -deg, 0]);
   if (Math.abs(ax[2] - 1) < 1e-9) return body.rotate([0, 0, deg]);
   if (Math.abs(ax[2] + 1) < 1e-9) return body.rotate([0, 0, -deg]);
-  // General axis: spherical-decomposition method
+  // General axis: spherical-decomposition method. Chain five rotations,
+  // disposing each intermediate; the caller's `body` is left intact.
   const beta = Math.acos(Math.max(-1, Math.min(1, ax[2]))) * 180 / Math.PI;
   const alpha = Math.atan2(ax[1], ax[0]) * 180 / Math.PI;
-  return body
-    .rotate([0, 0, -alpha])
-    .rotate([0, -beta, 0])
-    .rotate([0, 0, deg])
-    .rotate([0, beta, 0])
-    .rotate([0, 0, alpha]);
+  let m = body.rotate([0, 0, -alpha]);
+  let n = m.rotate([0, -beta, 0]); drop(m);
+  m = n.rotate([0, 0, deg]); drop(n);
+  n = m.rotate([0, beta, 0]); drop(m);
+  m = n.rotate([0, 0, alpha]); drop(n);
+  return m;
 }
 
 /**

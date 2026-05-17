@@ -20,6 +20,9 @@ test-*.js
 .env.local
 .env.production
 
+# Local LLM credentials — NEVER commit
+.llm-credentials.local.json
+
 # Build output
 dist/
 build/
@@ -49,3 +52,5 @@ lambda-*.zip
 test-results/
 dist-electron/
 ge9x-deliverable/
+autonomous-output/
+engine-output/

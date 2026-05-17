@@ -120,6 +120,9 @@ const TABS = {
         { name: 'Frame FEA', icon: '⊏', key: 'simulation' },
         { name: 'Rotordynamics', icon: '◌', key: 'simulation' },
         { name: 'Impact Simulation', icon: '💥', key: 'simulation' },
+        { name: 'Dynamic Response', icon: '∿', key: 'simulation' },
+        { name: 'Shaft Whirl', icon: '◐', key: 'simulation' },
+        { name: 'System Dynamic Test', icon: '⊛', key: 'simulation' },
       ]},
       { label: 'Mesh', tools: [
         { name: 'Voxel Hex Mesh', icon: '⊟', key: 'simulation' },
@@ -127,6 +130,9 @@ const TABS = {
       { label: 'Thermal', tools: [
         { name: 'Steady-State Thermal', icon: '🌡', key: 'simulation' },
         { name: 'CFD Flow Simulation', icon: '🌊', key: 'simulation' },
+      ]},
+      { label: 'Survival', tools: [
+        { name: 'Survival Test', icon: '🔥', key: 'simulation' },
       ]},
       { label: 'Propulsion', tools: [
         { name: 'Brayton Cycle', icon: '◈', key: 'simulation' },

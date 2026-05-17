@@ -46,6 +46,9 @@ import { roundedBox, roundedBoxVolume, filletPolygon2D, filletExtrude, chamferPo
 import { manifoldMassProperties, principalInertia } from '../../foundation/MassProperties.js';
 import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
 import { findMaterial } from '../../foundation/MaterialDB.js';
+import { runSurvivalSuite } from '../../foundation/SurvivalSim.js';
+import { transientCantilever, shaftCriticalSpeed } from '../../foundation/DynamicStructural.js';
+import { systemTransientResponse } from '../../foundation/SystemDynamics.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
 import { analyzeCompressorStage } from '../../foundation/CompressorStage.js';
@@ -798,13 +801,18 @@ const TOOL_HANDLERS = {
       const taper = p.chordTip / p.chordHub;
       const cs = Mod.CrossSection.ofPolygons([aerofoilSection(p.chordHub, p.thickRatio, 28)]);
       // Extrude along +Z, then rotate so the span lies along +Y and
-      // lift the root to the hub radius.
+      // lift the root to the hub radius. manifold-3d objects hold WASM
+      // heap — dispose every intermediate or the kernel exhausts when a
+      // plan builds dozens of blade rows.
       let blade = Mod.Manifold.extrude(cs, span, 16, twistDeg, [taper, taper]);
-      blade = blade.rotate([-90, 0, 0]).translate([0, p.rHub, 0]);
+      cs.delete();
+      let bTmp = blade.rotate([-90, 0, 0]); blade.delete(); blade = bTmp;
+      bTmp = blade.translate([0, p.rHub, 0]); blade.delete(); blade = bTmp;
       let row = await fCircularPattern({ body: blade, axis: [0, 0, 1], anchor: [0, 0, 0], count: p.count });
-      if (p.xMid) row = row.translate([0, 0, p.xMid]);
-      if (Array.isArray(values.rotate)) row = row.rotate(values.rotate);
-      if (Array.isArray(values.translate)) row = row.translate(values.translate);
+      blade.delete();                                    // seed consumed by the pattern
+      if (p.xMid) { const t = row.translate([0, 0, p.xMid]); row.delete(); row = t; }
+      if (Array.isArray(values.rotate)) { const t = row.rotate(values.rotate); row.delete(); row = t; }
+      if (Array.isArray(values.translate)) { const t = row.translate(values.translate); row.delete(); row = t; }
       addFoundationManifoldToScene(scene, viewport, row, 0x8b1538);
       return {
         status: 'success',
@@ -1533,6 +1541,66 @@ const TOOL_HANDLERS = {
         message: `FEA cantilever: δ_tip = ${dyTip.toFixed(4)} mm (analytical ${deltaTheory.toFixed(4)}, err ${errPct.toFixed(2)}%) | σ_max = ${r.maxStress.toFixed(1)} MPa | SF = ${SF.toFixed(1)} | ${qMesh.tets.length} quad-tets, ${qMesh.vertices.length} nodes, CG ${r.cgIterations} iter | foundation.QuadTetFEM`,
       };
     },
+    'Dynamic Response': async () => {
+      // Foundation path: transient (dynamic) structural response of an
+      // L×b×h cantilever to a step tip load via
+      // foundation.transientCantilever. Unlike a static FEA snapshot this
+      // is time-stepped — the part deflects past its static position,
+      // oscillates and settles — and returns a frame history so the
+      // motion can be rendered. The verdict is the DYNAMIC safety factor.
+      const { values, cancelled } = await requestToolParams('Dynamic Response');
+      if (cancelled) return { status: 'warn', message: 'Dynamic Response cancelled — no compute' };
+      const r = transientCantilever(values);
+      if (typeof window !== 'undefined') window.__lastDynamicResult = r;
+      return {
+        status: r.dynamicSafetyFactor >= 1 ? 'success' : 'warn',
+        message: `Dynamic Response: f₁ = ${r.naturalFrequencyHz} Hz, `
+          + `DAF = ${r.dynamicAmplificationFactor} → peak dynamic σ = ${r.peakDynamicStressMPa} MPa `
+          + `(static ${r.staticStressMPa}), dynamic SF = ${r.dynamicSafetyFactor}, `
+          + `${r.frameCount} motion frames via foundation.transientCantilever`,
+      };
+    },
+
+    'Shaft Whirl': async () => {
+      // Foundation path: rotordynamic critical (whirl) speed of a
+      // simply-supported shaft + mid-disk via foundation.shaftCriticalSpeed
+      // — strict-SI, correct-units (the legacy Rotordynamics tool mixes
+      // N/mm with kg). The rotor must run sub-critical.
+      const { values, cancelled } = await requestToolParams('Shaft Whirl');
+      if (cancelled) return { status: 'warn', message: 'Shaft Whirl cancelled' };
+      const r = shaftCriticalSpeed(values);
+      if (typeof window !== 'undefined') window.__lastShaftWhirl = r;
+      return {
+        status: r.subcritical ? 'success' : 'warn',
+        message: `Shaft Whirl: Ø${r.diameter_mm}×${r.length_mm} mm → first whirl `
+          + `${r.firstWhirlHz} Hz, critical speed ${r.criticalSpeedRPM} RPM `
+          + `(operating ${r.operatingRPM} RPM, margin ×${r.marginRatio}, `
+          + `${r.subcritical ? 'sub-critical' : 'SUPERCRITICAL — resonance risk'}) `
+          + `via foundation.shaftCriticalSpeed`,
+      };
+    },
+
+    'System Dynamic Test': async () => {
+      // Foundation path: assembled-system transient response via
+      // foundation.systemTransientResponse. The designed members are
+      // combined along the real load path (supports in parallel, a span
+      // in series) into the assembled system's 1-DOF dynamics — natural
+      // frequency + transient response with a frame history, so the
+      // whole product's motion can be rendered. NOT a per-part test.
+      const { values, cancelled } = await requestToolParams('System Dynamic Test');
+      if (cancelled) return { status: 'warn', message: 'System Dynamic Test cancelled' };
+      const r = systemTransientResponse(values);
+      if (typeof window !== 'undefined') window.__lastSystemResult = r;
+      return {
+        status: 'success',
+        message: `System Dynamic Test: ${r.memberCount} members → system stiffness `
+          + `${r.systemStiffness_N_per_mm} N/mm, f₁ = ${r.systemNaturalFrequencyHz} Hz, `
+          + `peak dynamic deflection ${r.peakDynamicDeflection_mm} mm `
+          + `(DAF ${r.dynamicAmplificationFactor}), ${r.frameCount} motion frames `
+          + `via foundation.systemTransientResponse`,
+      };
+    },
+
     'Steady-State Thermal': async (scene, viewport) => {
       // Foundation path: 1-D heat-conduction rod validation. A 100 mm
       // aluminum rod with T_left = 100 °C and T_right = 0 °C should
@@ -2093,6 +2161,38 @@ const TOOL_HANDLERS = {
           + `${(s.peakContactForce_N / 1000).toFixed(1)} kN, ${s.energyAbsorbed_J.toFixed(0)} J absorbed, `
           + `${s.brokenSprings}/${s.totalSprings} springs damaged, ${sim.frames.length} frames `
           + `via foundation.simulateImpact (explicit dynamics)`,
+      };
+    },
+
+    'Survival Test': async () => {
+      // Foundation path: real-world survival scenarios via
+      // foundation.runSurvivalSuite — fire (transient conduction +
+      // flame film), water immersion (quench thermal-shock) and bird
+      // strike (explicit dynamics). GENERAL: an orchestration plan
+      // supplies the material / wall / impact params for any part.
+      const { values, cancelled } = await requestToolParams('Survival Test');
+      if (cancelled) return { status: 'warn', message: 'Survival Test cancelled' };
+      const suite = runSurvivalSuite({
+        fire: {
+          material: values.fireMaterial, flameTempC: values.flameTempC,
+          wallThickness: values.fireWall_mm != null ? values.fireWall_mm / 1000 : undefined,
+          durationS: values.fireDurationS,
+        },
+        water: {
+          material: values.waterMaterial, initialTempC: values.partTempC,
+          wallThickness: values.waterWall_mm != null ? values.waterWall_mm / 1000 : undefined,
+        },
+        bird: {
+          material: values.birdMaterial, birdMassKg: values.birdMassKg,
+          impactSpeed: values.impactSpeed_ms,
+        },
+      });
+      if (typeof window !== 'undefined') window.__lastSurvivalResult = suite;
+      return {
+        status: 'success',
+        message: `Survival Test: ${suite.overall} — `
+          + `FIRE ${suite.fire.verdict}; WATER ${suite.water.verdict}; `
+          + `BIRD ${suite.bird.verdict} via foundation.runSurvivalSuite`,
       };
     },
 

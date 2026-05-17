@@ -242,6 +242,111 @@ export const PROVIDERS = {
       return readSSE(res, (j) => j?.choices?.[0]?.delta?.content ?? '', onToken);
     },
   },
+
+  // Azure AI Foundry (services.ai.azure.com) — serverless model
+  // deployments: DeepSeek, Llama, Mistral, Phi, etc. OpenAI-shaped chat
+  // body, but the path is /models/chat/completions, auth is the `api-key`
+  // header, and an ?api-version query param is required.
+  azureFoundry: {
+    label: 'Azure AI Foundry (DeepSeek, Llama, Mistral, …)',
+    defaultModel: 'DeepSeek-V4-Flash',
+    defaultBaseUrl: '',
+    _url(baseUrl, apiVersion) {
+      if (!baseUrl) throw new Error('Azure AI Foundry needs an endpoint (baseUrl)');
+      return `${baseUrl.replace(/\/+$/, '')}/models/chat/completions`
+        + `?api-version=${apiVersion ?? '2024-05-01-preview'}`;
+    },
+    async generate({ apiKey, model, baseUrl, system, userMessage, apiVersion }) {
+      const res = await fetch(this._url(baseUrl, apiVersion), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          model: model ?? 'DeepSeek-V4-Flash',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userMessage },
+          ],
+          temperature: 0.2,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Azure AI Foundry ${res.status}: ${text.slice(0, 300)}`);
+      }
+      const json = await res.json();
+      return json.choices?.[0]?.message?.content ?? '';
+    },
+    async generateStream({ apiKey, model, baseUrl, system, userMessage, apiVersion, onToken }) {
+      const res = await fetch(this._url(baseUrl, apiVersion), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          model: model ?? 'DeepSeek-V4-Flash',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userMessage },
+          ],
+          temperature: 0.2, stream: true,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`Azure AI Foundry ${res.status}: ${t.slice(0, 300)}`);
+      }
+      return readSSE(res, (j) => j?.choices?.[0]?.delta?.content ?? '', onToken);
+    },
+  },
+
+  // Azure OpenAI — the v1 API (project-scoped `/openai/v1/` path on
+  // services.ai.azure.com, or the classic resource path). GPT-4.1 /
+  // GPT-4o etc. OpenAI-shaped chat body; `api-key` header; no
+  // api-version param on the v1 route. `baseUrl` is the …/openai/v1 base.
+  azureOpenAI: {
+    label: 'Azure OpenAI (v1 — GPT-4.1, GPT-4o, …)',
+    defaultModel: 'gpt-4.1',
+    defaultBaseUrl: '',
+    async generate({ apiKey, model, baseUrl, system, userMessage }) {
+      if (!baseUrl) throw new Error('Azure OpenAI needs the v1 endpoint (baseUrl)');
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          model: model ?? 'gpt-4.1',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userMessage },
+          ],
+          temperature: 0.2,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Azure OpenAI ${res.status}: ${text.slice(0, 300)}`);
+      }
+      const json = await res.json();
+      return json.choices?.[0]?.message?.content ?? '';
+    },
+    async generateStream({ apiKey, model, baseUrl, system, userMessage, onToken }) {
+      if (!baseUrl) throw new Error('Azure OpenAI needs the v1 endpoint (baseUrl)');
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          model: model ?? 'gpt-4.1',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userMessage },
+          ],
+          temperature: 0.2, stream: true,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`Azure OpenAI ${res.status}: ${t.slice(0, 300)}`);
+      }
+      return readSSE(res, (j) => j?.choices?.[0]?.delta?.content ?? '', onToken);
+    },
+  },
 };
 
 /**

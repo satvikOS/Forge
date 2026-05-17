@@ -9,7 +9,7 @@ function ensure(d) { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
 
 test.setTimeout(300000);
 
-test('Massive assembly: 60 000 ISO M5 fasteners on virtual airframe (single InstancedMesh)', async ({ page }) => {
+test('Massive assembly: 100 000 ISO M5 fasteners on virtual airframe (single InstancedMesh)', async ({ page }) => {
   ensure(ROOT); ensure(SS_ROOT);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/');
@@ -35,10 +35,9 @@ test('Massive assembly: 60 000 ISO M5 fasteners on virtual airframe (single Inst
     // Multiply by 10 (more rings) for the upper-bound demo.
     const t1 = performance.now();
     const instances = buildAirframeFastenerSet({
-      rows: 30, fastenersPerRow: 200, rowSpacing: 100, fastenerSpacing: 25, cylinderRadius: 1500,
+      rows: 40, fastenersPerRow: 250, rowSpacing: 100, fastenerSpacing: 25, cylinderRadius: 1500,
     });
-    // 10× density: stack 10 rings of clusters. Use a stride layout to
-    // create more fasteners without over-running the demo.
+    // 10× density: stack 10 rings of clusters → 100 000 fasteners.
     const denser = [];
     for (let cluster = 0; cluster < 10; cluster++) {
       for (const ins of instances) {
@@ -122,7 +121,7 @@ test('Massive assembly: 60 000 ISO M5 fasteners on virtual airframe (single Inst
 
   fs.writeFileSync(path.join(ROOT, 'massive-assembly.json'), JSON.stringify(out, null, 2));
 
-  // 60 000 instances × 468 tris/M5 = 28 M virtual triangles
-  expect(out.instanceCount).toBeGreaterThanOrEqual(50000);
-  expect(out.virtualTotalTris).toBeGreaterThan(20_000_000);
+  // 100 000 instances × ~468 tris/M5 ≈ 47 M virtual triangles, ONE draw call
+  expect(out.instanceCount).toBeGreaterThanOrEqual(100000);
+  expect(out.virtualTotalTris).toBeGreaterThan(40_000_000);
 });

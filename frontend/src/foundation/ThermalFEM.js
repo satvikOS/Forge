@@ -311,3 +311,129 @@ export function solveThermalSteady({
 }
 
 export const THERMAL_K = MATERIAL_K_DEFAULT;
+
+/**
+ * Transient thermal FEM — backward-Euler time integration.
+ *
+ *   C Ṫ + K T = F          (semi-discrete heat equation)
+ *   (C/Δt + K) Tⁿ⁺¹ = (C/Δt) Tⁿ + F        (implicit, unconditionally stable)
+ *
+ * C is a lumped (diagonal) capacitance matrix, Cᵢ = Σ ρ·cp·Vₑ/4 — the
+ * row-summed consistent capacitance, which keeps the scheme monotone
+ * (no spurious over/undershoot) at large time steps.
+ *
+ * Boundary conditions: Robin/convection faces only (hot-gas film, coolant
+ * film, water-quench film). The conduction stiffness, the convection
+ * contribution and the constant load are assembled once; only the RHS
+ * capacitance term changes per step, so each step is one PCG solve.
+ *
+ * All inputs SI: mesh in metres, k W/(m·K), rho kg/m³, cp J/(kg·K),
+ * h W/(m²·K), temperatures in the same unit as T0 (°C or K — consistent).
+ *
+ * @returns {{
+ *   temperature: Float64Array,   final nodal field
+ *   history: Array<{ t, minT, maxT, meanT }>,
+ *   peakGradientPerM: number,    largest |∇T| seen at any element/step
+ *   steps, dt
+ * }}
+ */
+export function solveThermalTransient({
+  mesh, k, rho, cp,
+  T0 = 20,
+  convectionBCs = [],
+  uniformHeatGen = 0,
+  dt, steps,
+  recordEvery = 1,
+  options = {},
+}) {
+  const numNodes = mesh.vertices.length;
+  const K = new SparseMatrix(numNodes);
+  const C = new Float64Array(numNodes);          // lumped capacitance (J/K)
+  const F = new Float64Array(numNodes);          // constant load (W)
+  const elementCache = new Array(mesh.tets.length);
+
+  for (let t = 0; t < mesh.tets.length; t++) {
+    const tet = mesh.tets[t];
+    const v = [
+      mesh.vertices[tet[0]], mesh.vertices[tet[1]],
+      mesh.vertices[tet[2]], mesh.vertices[tet[3]],
+    ];
+    const r = elementThermalStiffness(v[0], v[1], v[2], v[3], k);
+    if (!r) { elementCache[t] = null; continue; }
+    elementCache[t] = r;
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+      if (r.Ke[a][b] !== 0) K.add(tet[a], tet[b], r.Ke[a][b]);
+    }
+    const cNode = rho * cp * r.Ve / 4;
+    for (const a of tet) C[a] += cNode;
+    if (uniformHeatGen !== 0) {
+      const fNode = uniformHeatGen * r.Ve / 4;
+      for (const a of tet) F[a] += fNode;
+    }
+  }
+
+  // Convection faces → K (h Nᵢ Nⱼ) and F (h T∞ Nᵢ).
+  for (const cbc of convectionBCs) {
+    const [a, b, c] = cbc.tri;
+    const pa = mesh.vertices[a], pb = mesh.vertices[b], pc = mesh.vertices[c];
+    const ux = pb[0] - pa[0], uy = pb[1] - pa[1], uz = pb[2] - pa[2];
+    const vx = pc[0] - pa[0], vy = pc[1] - pa[1], vz = pc[2] - pa[2];
+    const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+    const A = 0.5 * Math.hypot(cx, cy, cz);
+    if (A < 1e-18) continue;
+    const diag = cbc.h * A / 6, off = cbc.h * A / 12, fi = cbc.h * cbc.Tinf * A / 3;
+    K.add(a, a, diag); K.add(b, b, diag); K.add(c, c, diag);
+    K.add(a, b, off); K.add(b, a, off);
+    K.add(b, c, off); K.add(c, b, off);
+    K.add(a, c, off); K.add(c, a, off);
+    F[a] += fi; F[b] += fi; F[c] += fi;
+  }
+
+  // System matrix A = C/Δt + K (assembled once — time-invariant).
+  const A = new SparseMatrix(numNodes);
+  for (let i = 0; i < numNodes; i++) {
+    for (const [j, v] of K.rows[i]) A.add(i, j, v);
+    A.add(i, i, C[i] / dt);
+  }
+
+  let T = new Float64Array(numNodes);
+  if (typeof T0 === 'number') T.fill(T0);
+  else for (let i = 0; i < numNodes; i++) T[i] = T0[i];
+
+  const history = [];
+  let peakGradientPerM = 0;
+  const record = (step) => {
+    let mn = Infinity, mx = -Infinity, sum = 0;
+    for (let i = 0; i < numNodes; i++) {
+      if (T[i] < mn) mn = T[i];
+      if (T[i] > mx) mx = T[i];
+      sum += T[i];
+    }
+    history.push({ t: step * dt, minT: mn, maxT: mx, meanT: sum / numNodes });
+  };
+  record(0);
+
+  const b = new Float64Array(numNodes);
+  for (let step = 1; step <= steps; step++) {
+    for (let i = 0; i < numNodes; i++) b[i] = (C[i] / dt) * T[i] + F[i];
+    const sol = pcg(A, b, { tol: options.tol ?? 1e-9, maxIter: options.maxIter ?? 4000 });
+    T = sol.x;
+    if (step % recordEvery === 0 || step === steps) record(step);
+  }
+
+  // Peak through-body gradient (drives thermal-shock stress).
+  for (let t = 0; t < mesh.tets.length; t++) {
+    const ec = elementCache[t];
+    if (!ec) continue;
+    const tet = mesh.tets[t];
+    const Te = [T[tet[0]], T[tet[1]], T[tet[2]], T[tet[3]]];
+    let gx = 0, gy = 0, gz = 0;
+    for (let j = 0; j < 4; j++) {
+      gx += ec.B[0][j] * Te[j]; gy += ec.B[1][j] * Te[j]; gz += ec.B[2][j] * Te[j];
+    }
+    const g = Math.hypot(gx, gy, gz);
+    if (g > peakGradientPerM) peakGradientPerM = g;
+  }
+
+  return { temperature: T, history, peakGradientPerM, steps, dt };
+}
