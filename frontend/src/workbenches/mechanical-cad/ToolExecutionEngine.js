@@ -52,6 +52,7 @@ import { transientCantilever, shaftCriticalSpeed, transientPressurePanel }
 import { systemTransientResponse } from '../../foundation/SystemDynamics.js';
 import { involuteGearProfile } from '../../foundation/GearGenerator.js';
 import { escapeWheelProfile } from '../../foundation/EscapeWheelGenerator.js';
+import { balanceWheelProfile } from '../../foundation/BalanceWheelGenerator.js';
 import { materialColor } from '../../foundation/materialColor.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
@@ -929,6 +930,35 @@ const TOOL_HANDLERS = {
         message: `Escape Wheel: ${w.teeth} club teeth, rim Ø${w.rimDiameter_mm} mm, `
           + `tip Ø${w.tipDiameter_mm} mm, ${faceWidth} mm thick, bore Ø${w.boreDiameter_mm} mm, `
           + `V = ${V.toFixed(2)} mm³ via foundation.escapeWheelProfile`,
+      };
+    },
+
+    'Balance Wheel': async (scene, viewport) => {
+      // Foundation path: a real watch balance wheel — annular rim, N
+      // straight arms, central hub, staff bore — generated from scratch
+      // by foundation.balanceWheelProfile and extruded by the platform
+      // kernel (outer boundary + the open sectors and bore as holes).
+      const { values, cancelled } = await requestToolParams('Balance Wheel');
+      if (cancelled) return { status: 'warn', message: 'Balance Wheel cancelled' };
+      const Mod = await getManifold();
+      const b = balanceWheelProfile(values);
+      const faceWidth = values.faceWidth_mm ?? 1.0;
+      const cs = Mod.CrossSection.ofPolygons([b.profile, ...b.holes]);
+      let wheel = Mod.Manifold.extrude(cs, faceWidth);
+      if (Array.isArray(values.rotate)) wheel = wheel.rotate(values.rotate);
+      if (Array.isArray(values.translate)) wheel = wheel.translate(values.translate);
+      const V = wheel.volume();
+      if (typeof window !== 'undefined') {
+        window.__lastBalanceWheel = { ...b, faceWidth_mm: faceWidth, volume_mm3: V };
+      }
+      addFoundationManifoldToScene(scene, viewport, wheel,
+        materialColor(values.material ?? 'brass'));
+      return {
+        status: 'success',
+        message: `Balance Wheel: rim Ø${b.rimDiameter_mm} mm, ${b.arms} arms, `
+          + `hub Ø${b.hubDiameter_mm} mm, bore Ø${b.boreDiameter_mm} mm, `
+          + `${faceWidth} mm thick, V = ${V.toFixed(2)} mm³ `
+          + `via foundation.balanceWheelProfile`,
       };
     },
 

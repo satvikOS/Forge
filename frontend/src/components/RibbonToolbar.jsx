@@ -61,6 +61,7 @@ const TABS = {
         { name: 'Blade Row', icon: '✺', key: 'part' },
         { name: 'Spur Gear', icon: '⚙', key: 'part' },
         { name: 'Escape Wheel', icon: '✦', key: 'part' },
+        { name: 'Balance Wheel', icon: '◍', key: 'part' },
         { name: 'Import STEP', icon: '📥', key: 'part' },
       ]},
       { label: 'Modify', tools: [
