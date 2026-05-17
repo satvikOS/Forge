@@ -61,6 +61,9 @@ export function involuteParamAtRadius(baseRadius, r) {
  */
 export function archimedeanSpiral(a, b, theta0, theta1, segments = 128) {
   if (!(segments >= 1)) throw new Error('archimedeanSpiral: segments must be >= 1');
+  if (a + b * theta0 < 0 || a + b * theta1 < 0) {
+    throw new Error('archimedeanSpiral: r = a + b·θ must stay non-negative over [theta0, theta1]');
+  }
   const pts = [];
   for (let i = 0; i <= segments; i++) {
     const th = theta0 + (theta1 - theta0) * (i / segments);

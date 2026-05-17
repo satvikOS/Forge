@@ -59,6 +59,17 @@ test.describe('ParametricCurve — Archimedean spiral', () => {
     expect(pts[0][0]).toBeCloseTo(2, 9);
     expect(pts[0][1]).toBeCloseTo(0, 9);
   });
+
+  test('archimedeanSpiral rejects a range where the radius goes negative', () => {
+    // r at theta1 = 1 + (-1)(4π) ≈ -11.6  -> must throw
+    expect(() => archimedeanSpiral(1, -1, 0, 4 * Math.PI, 10)).toThrow(/non-negative/);
+  });
+
+  test('archimedeanSpiral accepts a contracting spiral that stays non-negative', () => {
+    // r goes from 5 down to 5 - 0.1·(4π) ≈ 3.74, never negative -> ok
+    const pts = archimedeanSpiral(5, -0.1, 0, 4 * Math.PI, 10);
+    expect(pts.length).toBe(11);
+  });
 });
 
 test.describe('ParametricCurve — ellipse and circle', () => {
@@ -85,5 +96,9 @@ test.describe('ParametricCurve — ellipse and circle', () => {
     for (const [x, y] of pts) {
       expect(Math.hypot(x - 10, y - (-5))).toBeCloseTo(1, 9);
     }
+  });
+
+  test('ellipseArc rejects a non-positive semi-axis', () => {
+    expect(() => ellipseArc(0, 2, 0, 1, 8)).toThrow(/rx and ry/);
   });
 });

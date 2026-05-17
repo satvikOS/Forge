@@ -88,6 +88,9 @@ export function chainLoops(segments, tol = 1e-6) {
     }
 
     loop.pop();   // final vertex duplicates loopStart — drop it
+    if (loop.length < 3) {
+      throw new Error('chainLoops: degenerate loop with fewer than 3 vertices');
+    }
     loops.push(loop);
   }
 

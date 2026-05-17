@@ -78,4 +78,12 @@ test.describe('SketchProfile — chainLoops', () => {
     expect(loops.length).toBe(1);
     expect(loops[0].length).toBe(3);
   });
+
+  test('a degenerate loop with fewer than 3 vertices throws', () => {
+    const segs = [
+      [[0, 0], [1, 0]],
+      [[1, 0], [0, 0]],   // back to start -> only 2 distinct vertices
+    ];
+    expect(() => chainLoops(segs)).toThrow(/fewer than 3 vertices/);
+  });
 });
