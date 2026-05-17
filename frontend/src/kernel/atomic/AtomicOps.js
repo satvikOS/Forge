@@ -109,7 +109,7 @@ export async function extrude(part, distance) {
 
   let result = block;
   if (part.solid) {
-    result = part.solid.union(block);
+    result = Mod.Manifold.union(part.solid, block);
     part.solid.delete();
     block.delete();
   }
