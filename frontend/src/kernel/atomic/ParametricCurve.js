@@ -47,3 +47,25 @@ export function involuteParamAtRadius(baseRadius, r) {
   if (r < baseRadius) throw new Error('involuteParamAtRadius: r must be >= baseRadius');
   return Math.sqrt((r / baseRadius) ** 2 - 1);
 }
+
+/**
+ * Archimedean spiral r = a + b·θ, sampled over θ ∈ [theta0, theta1].
+ * Used for hairspring profiles.
+ *
+ * @param {number} a         radius at θ = 0
+ * @param {number} b         radial growth per radian
+ * @param {number} theta0    start angle (radians)
+ * @param {number} theta1    end angle (radians)
+ * @param {number} segments  positive integer, number of segments (>= 1); returns segments+1 pts
+ * @returns {Array<[number,number]>}
+ */
+export function archimedeanSpiral(a, b, theta0, theta1, segments = 128) {
+  if (!(segments >= 1)) throw new Error('archimedeanSpiral: segments must be >= 1');
+  const pts = [];
+  for (let i = 0; i <= segments; i++) {
+    const th = theta0 + (theta1 - theta0) * (i / segments);
+    const r = a + b * th;
+    pts.push([r * Math.cos(th), r * Math.sin(th)]);
+  }
+  return pts;
+}

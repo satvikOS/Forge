@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { involute, involuteParamAtRadius } from '../frontend/src/kernel/atomic/ParametricCurve.js';
+import { involute, involuteParamAtRadius, archimedeanSpiral } from '../frontend/src/kernel/atomic/ParametricCurve.js';
 
 test.describe('ParametricCurve — involute', () => {
   test('every involute point lies at radius rb·sqrt(1+t^2) from the origin', () => {
@@ -40,5 +40,23 @@ test.describe('ParametricCurve — involute', () => {
 
   test('involuteParamAtRadius returns 0 when r equals baseRadius', () => {
     expect(involuteParamAtRadius(6, 6)).toBe(0);
+  });
+});
+
+test.describe('ParametricCurve — Archimedean spiral', () => {
+  test('radius grows linearly with angle: r = a + b·theta', () => {
+    const a = 1, b = 0.5;
+    const pts = archimedeanSpiral(a, b, 0, 4 * Math.PI, 100);
+    expect(pts.length).toBe(101);
+    for (let i = 0; i < pts.length; i++) {
+      const th = (4 * Math.PI) * (i / 100);
+      expect(Math.hypot(pts[i][0], pts[i][1])).toBeCloseTo(a + b * th, 9);
+    }
+  });
+
+  test('the first point sits at radius a along the +x axis', () => {
+    const pts = archimedeanSpiral(2, 0.3, 0, Math.PI, 16);
+    expect(pts[0][0]).toBeCloseTo(2, 9);
+    expect(pts[0][1]).toBeCloseTo(0, 9);
   });
 });
