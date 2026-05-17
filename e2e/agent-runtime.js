@@ -232,6 +232,66 @@ export async function runShaftAgent(page, cred, shaft, material, opts = {}) {
   };
 }
 
+const RESONANCE_SYSTEM = `You are an autonomous mechanical design agent operating ArchDisc CAD.
+You design an instrument MOUNT (a bracket) by choosing its cross-section so it does NOT
+resonate with the machine it is bolted to. The system builds it ("Extrude Boss") and runs a
+dynamic analysis ("Dynamic Response") returning the mount's natural frequency (Hz). To avoid
+resonance the natural frequency must sit well ABOVE the machine's excitation frequency — a
+taller cross-section (height h) raises it (≈ h to the first power). The design is ACCEPTED only
+when naturalFrequency / excitationFrequency is between 1.5 and 4.0 — safely clear of resonance,
+not wastefully stiff. Below 1.5 → resonance risk, stiffen it; above 4.0 → over-stiff, thin it.
+Reply with ONLY JSON: {"b_mm":num,"h_mm":num,"reasoning":"short"}. No prose.`;
+
+/**
+ * Resonance-avoidance archetype agent. A third part type: a structural
+ * mount verified by a dynamic analysis but on a different design driver
+ * — frequency separation from a machine's excitation, not stress.
+ *
+ * @param mount { name, reach_mm, excitationHz }
+ */
+export async function runResonanceAgent(page, cred, mount, material, opts = {}) {
+  const MIN = opts.minRatio ?? 1.5, MAX = opts.maxRatio ?? 4.0, maxIter = opts.maxIter ?? 6;
+  const inBand = (r) => r >= MIN && r <= MAX;
+  const tag = (r) => inBand(r) ? 'ACCEPTED' : r < MIN ? 'FAILS-resonance-risk' : 'over-stiff';
+  const history = [];
+  let converged = false;
+
+  for (let iter = 1; iter <= maxIter; iter++) {
+    const prompt = `Mount: ${mount.name}. Reach ${mount.reach_mm} mm, bolted to a machine `
+      + `whose excitation frequency is ${mount.excitationHz} Hz, material ${material.name}. `
+      + `Accepted when ${MIN} <= naturalFrequency/excitation <= ${MAX}.\n`
+      + (history.length
+        ? 'Previous attempts:\n' + history.map((h) =>
+            `  b=${h.b} h=${h.h} mm -> f₁=${h.f1.toFixed(1)} Hz, ratio ${h.ratio.toFixed(2)} `
+            + `(${tag(h.ratio)})`).join('\n') + '\n'
+        : 'First attempt.\n')
+      + 'Give the next design as JSON.';
+    const d = extractJSON(await llm(cred, RESONANCE_SYSTEM, prompt));
+    const b = +d.b_mm, h = +d.h_mm;
+    if (!(Number.isFinite(b) && Number.isFinite(h))) {
+      throw new Error(`agent returned non-numeric dims for ${mount.name}`);
+    }
+
+    await runTool(page, 'Part', 'Extrude Boss',
+      { width: b, depth: mount.reach_mm, height: h }, '__lastFoundationManifold');
+    await runTool(page, 'Simulate', 'Dynamic Response', {
+      L_mm: mount.reach_mm, b_mm: b, h_mm: h, P_N: 100,
+      E_MPa: material.E_MPa, density: material.density, yield_MPa: material.yield_MPa,
+    }, '__lastDynamicResult');
+    const dyn = await page.evaluate(() => window.__lastDynamicResult);
+    const ratio = dyn.naturalFrequencyHz / mount.excitationHz;
+
+    history.push({
+      iter, b, h, f1: dyn.naturalFrequencyHz, ratio, reasoning: d.reasoning || '',
+    });
+    if (inBand(ratio)) { converged = true; break; }
+  }
+  return {
+    part: mount.name, archetype: 'resonance-mount', converged,
+    iterations: history.length, final: history[history.length - 1], history,
+  };
+}
+
 /**
  * Parallel agent swarm — a worker pool of concurrent ArchDisc instances.
  *
