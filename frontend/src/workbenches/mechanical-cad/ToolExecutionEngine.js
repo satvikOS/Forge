@@ -51,6 +51,8 @@ import { transientCantilever, shaftCriticalSpeed, transientPressurePanel }
   from '../../foundation/DynamicStructural.js';
 import { systemTransientResponse } from '../../foundation/SystemDynamics.js';
 import { involuteGearProfile } from '../../foundation/GearGenerator.js';
+import { escapeWheelProfile } from '../../foundation/EscapeWheelGenerator.js';
+import { materialColor } from '../../foundation/materialColor.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
 import { analyzeCompressorStage } from '../../foundation/CompressorStage.js';
@@ -734,7 +736,7 @@ const TOOL_HANDLERS = {
       if (Array.isArray(values.rotate)) result = result.rotate(values.rotate);
       if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
       if (values.profile) {
         return {
           status: 'success',
@@ -815,7 +817,7 @@ const TOOL_HANDLERS = {
       if (p.xMid) { const t = row.translate([0, 0, p.xMid]); row.delete(); row = t; }
       if (Array.isArray(values.rotate)) { const t = row.rotate(values.rotate); row.delete(); row = t; }
       if (Array.isArray(values.translate)) { const t = row.translate(values.translate); row.delete(); row = t; }
-      addFoundationManifoldToScene(scene, viewport, row, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, row, materialColor(values.material));
       return {
         status: 'success',
         message: `Blade Row: ${p.count} aerofoils, hub ${p.rHub}→tip ${p.rTip} mm, `
@@ -864,7 +866,7 @@ const TOOL_HANDLERS = {
       const d2 = Math.PI * (144 - 56.25) * 10;
       const Vexpected = d1 + d2;
       const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
       return {
         status: 'success',
         message: `Revolve Boss: stepped shaft (Ø30+Ø24, H=40mm). V = ${Vfinal.toFixed(2)} mm³ (analytical Σdisks ${Vexpected.toFixed(2)}, err ${errPct.toFixed(2)}%) via foundation manifold-3d revolve`,
@@ -891,13 +893,42 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') {
         window.__lastGearSpec = { ...g, faceWidth_mm: faceWidth, volume_mm3: V };
       }
-      addFoundationManifoldToScene(scene, viewport, gear, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, gear, materialColor(values.material));
       return {
         status: 'success',
         message: `Spur Gear: ${g.teeth} teeth, module ${g.module_mm} mm, `
           + `pitch Ø${g.pitchDiameter_mm} mm, base Ø${g.baseDiameter_mm} mm — `
           + `real involute flanks, ${faceWidth} mm face, bore Ø${g.boreDiameter_mm} mm, `
           + `V = ${V.toFixed(0)} mm³ via foundation.involuteGearProfile`,
+      };
+    },
+
+    'Escape Wheel': async (scene, viewport) => {
+      // Foundation path: a real Swiss-lever (club-tooth) escape wheel —
+      // raked teeth with a steep locking heel, a club tip flat and a long
+      // impulse face — generated from scratch by
+      // foundation.escapeWheelProfile and extruded by the platform kernel.
+      const { values, cancelled } = await requestToolParams('Escape Wheel');
+      if (cancelled) return { status: 'warn', message: 'Escape Wheel cancelled' };
+      const Mod = await getManifold();
+      const w = escapeWheelProfile(values);
+      const faceWidth = values.faceWidth_mm ?? 0.5;
+      const cs = Mod.CrossSection.ofPolygons(
+        w.borePolygon ? [w.profile, w.borePolygon] : [w.profile]);
+      let wheel = Mod.Manifold.extrude(cs, faceWidth);
+      if (Array.isArray(values.rotate)) wheel = wheel.rotate(values.rotate);
+      if (Array.isArray(values.translate)) wheel = wheel.translate(values.translate);
+      const V = wheel.volume();
+      if (typeof window !== 'undefined') {
+        window.__lastEscapeWheel = { ...w, faceWidth_mm: faceWidth, volume_mm3: V };
+      }
+      addFoundationManifoldToScene(scene, viewport, wheel,
+        materialColor(values.material ?? 'steel'));
+      return {
+        status: 'success',
+        message: `Escape Wheel: ${w.teeth} club teeth, rim Ø${w.rimDiameter_mm} mm, `
+          + `tip Ø${w.tipDiameter_mm} mm, ${faceWidth} mm thick, bore Ø${w.boreDiameter_mm} mm, `
+          + `V = ${V.toFixed(2)} mm³ via foundation.escapeWheelProfile`,
       };
     },
 
@@ -973,7 +1004,7 @@ const TOOL_HANDLERS = {
       const filletedArea = Math.abs(polygonArea(filleted));
       const result = await filletExtrude(lProfile, H, R, 10);
       const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
       return {
         status: 'success',
         message: `Fillet: L-bracket profile (6 corners), r=${R} mm arc-tangent fillet on ${filletedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${filletedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.filletPolygon2D + filletExtrude`,
@@ -994,7 +1025,7 @@ const TOOL_HANDLERS = {
       const chamferedArea = Math.abs(polygonArea(chamfered));
       const result = await chamferExtrude(lProfile, H, D);
       const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
       return {
         status: 'success',
         message: `Chamfer: L-bracket profile, 2mm straight-cut chamfer on ${chamferedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${chamferedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.chamferPolygon2D + chamferExtrude`,
@@ -1032,7 +1063,7 @@ const TOOL_HANDLERS = {
       const Vfinal = result.volume();
       const Vexpected = 27000 - 17576;
       const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
       return {
         status: 'success',
         message: `Shell: 30³ cube hollowed to 2 mm wall. V = ${Vfinal.toFixed(0)} mm³ (analytical 30³ − 26³ = ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
