@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { involute, involuteParamAtRadius, archimedeanSpiral } from '../frontend/src/kernel/atomic/ParametricCurve.js';
+import { involute, involuteParamAtRadius, archimedeanSpiral, ellipseArc, circlePolyline } from '../frontend/src/kernel/atomic/ParametricCurve.js';
 
 test.describe('ParametricCurve — involute', () => {
   test('every involute point lies at radius rb·sqrt(1+t^2) from the origin', () => {
@@ -58,5 +58,32 @@ test.describe('ParametricCurve — Archimedean spiral', () => {
     const pts = archimedeanSpiral(2, 0.3, 0, Math.PI, 16);
     expect(pts[0][0]).toBeCloseTo(2, 9);
     expect(pts[0][1]).toBeCloseTo(0, 9);
+  });
+});
+
+test.describe('ParametricCurve — ellipse and circle', () => {
+  test('ellipse arc points satisfy (x/rx)^2 + (y/ry)^2 = 1', () => {
+    const rx = 3, ry = 2;
+    const pts = ellipseArc(rx, ry, 0, 2 * Math.PI, 50);
+    for (const [x, y] of pts) {
+      expect((x / rx) ** 2 + (y / ry) ** 2).toBeCloseTo(1, 9);
+    }
+  });
+
+  test('circlePolyline returns exactly `segments` non-repeating points on the circle', () => {
+    const pts = circlePolyline(4, 12);
+    expect(pts.length).toBe(12);
+    for (const [x, y] of pts) {
+      expect(Math.hypot(x, y)).toBeCloseTo(4, 9);
+    }
+    // first and last must NOT coincide (closed implicitly, not by duplication)
+    expect(Math.hypot(pts[0][0] - pts[11][0], pts[0][1] - pts[11][1])).toBeGreaterThan(0.1);
+  });
+
+  test('circlePolyline honours a non-origin centre', () => {
+    const pts = circlePolyline(1, 8, 10, -5);
+    for (const [x, y] of pts) {
+      expect(Math.hypot(x - 10, y - (-5))).toBeCloseTo(1, 9);
+    }
   });
 });

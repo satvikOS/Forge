@@ -69,3 +69,45 @@ export function archimedeanSpiral(a, b, theta0, theta1, segments = 128) {
   }
   return pts;
 }
+
+/**
+ * Ellipse arc centred at the origin, semi-axes rx and ry, over [a0, a1].
+ *
+ * @param {number} rx        semi-axis along x (> 0)
+ * @param {number} ry        semi-axis along y (> 0)
+ * @param {number} a0        start angle (radians, assumed finite)
+ * @param {number} a1        end angle (radians, assumed finite)
+ * @param {number} segments  positive integer, number of segments (>= 1); returns segments+1 pts
+ * @returns {Array<[number,number]>}
+ */
+export function ellipseArc(rx, ry, a0, a1, segments = 64) {
+  if (!(rx > 0) || !(ry > 0)) throw new Error('ellipseArc: rx and ry must be > 0');
+  if (!(segments >= 1)) throw new Error('ellipseArc: segments must be >= 1');
+  const pts = [];
+  for (let i = 0; i <= segments; i++) {
+    const a = a0 + (a1 - a0) * (i / segments);
+    pts.push([rx * Math.cos(a), ry * Math.sin(a)]);
+  }
+  return pts;
+}
+
+/**
+ * Full circle as a closed polyline of exactly `segments` points (the first
+ * point is NOT repeated at the end — the loop closes implicitly).
+ *
+ * @param {number} radius    circle radius (> 0)
+ * @param {number} segments  positive integer, number of points (>= 3)
+ * @param {number} cx        centre x (default 0)
+ * @param {number} cy        centre y (default 0)
+ * @returns {Array<[number,number]>}
+ */
+export function circlePolyline(radius, segments = 64, cx = 0, cy = 0) {
+  if (!(radius > 0)) throw new Error('circlePolyline: radius must be > 0');
+  if (!(segments >= 3)) throw new Error('circlePolyline: segments must be >= 3');
+  const pts = [];
+  for (let i = 0; i < segments; i++) {
+    const a = (2 * Math.PI) * (i / segments);
+    pts.push([cx + radius * Math.cos(a), cy + radius * Math.sin(a)]);
+  }
+  return pts;
+}
