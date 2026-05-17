@@ -59,7 +59,7 @@ test.describe('Autonomous mechanism — multi-archetype swarm', () => {
     for (const r of results) {
       expect(r.history.length).toBeGreaterThan(0);
       expect(r.converged).toBe(true);
-      expect(['structural-cantilever', 'rotating-shaft', 'resonance-mount'])
+      expect(['structural-cantilever', 'rotating-shaft', 'resonance-mount', 'pressure-panel'])
         .toContain(r.archetype);
     }
     expect(archetypes.length).toBeGreaterThanOrEqual(2);   // genuinely mixed

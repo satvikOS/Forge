@@ -121,6 +121,7 @@ const TABS = {
         { name: 'Rotordynamics', icon: '◌', key: 'simulation' },
         { name: 'Impact Simulation', icon: '💥', key: 'simulation' },
         { name: 'Dynamic Response', icon: '∿', key: 'simulation' },
+        { name: 'Pressure Response', icon: '⊡', key: 'simulation' },
         { name: 'Shaft Whirl', icon: '◐', key: 'simulation' },
         { name: 'System Dynamic Test', icon: '⊛', key: 'simulation' },
       ]},

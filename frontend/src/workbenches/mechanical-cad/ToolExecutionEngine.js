@@ -47,7 +47,8 @@ import { manifoldMassProperties, principalInertia } from '../../foundation/MassP
 import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
 import { findMaterial } from '../../foundation/MaterialDB.js';
 import { runSurvivalSuite } from '../../foundation/SurvivalSim.js';
-import { transientCantilever, shaftCriticalSpeed } from '../../foundation/DynamicStructural.js';
+import { transientCantilever, shaftCriticalSpeed, transientPressurePanel }
+  from '../../foundation/DynamicStructural.js';
 import { systemTransientResponse } from '../../foundation/SystemDynamics.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
@@ -1558,6 +1559,25 @@ const TOOL_HANDLERS = {
           + `DAF = ${r.dynamicAmplificationFactor} → peak dynamic σ = ${r.peakDynamicStressMPa} MPa `
           + `(static ${r.staticStressMPa}), dynamic SF = ${r.dynamicSafetyFactor}, `
           + `${r.frameCount} motion frames via foundation.transientCantilever`,
+      };
+    },
+
+    'Pressure Response': async () => {
+      // Foundation path: transient response of a clamped square panel to
+      // a suddenly-applied uniform pressure via
+      // foundation.transientPressurePanel — a pressure-loaded plate
+      // archetype. Time-stepped dynamic amplification; verdict is the
+      // DYNAMIC safety factor.
+      const { values, cancelled } = await requestToolParams('Pressure Response');
+      if (cancelled) return { status: 'warn', message: 'Pressure Response cancelled' };
+      const r = transientPressurePanel(values);
+      if (typeof window !== 'undefined') window.__lastPressureResult = r;
+      return {
+        status: r.dynamicSafetyFactor >= 1 ? 'success' : 'warn',
+        message: `Pressure Response: ${r.side_mm}×${r.side_mm}×${r.thickness_mm} mm panel → `
+          + `f₁ = ${r.naturalFrequencyHz} Hz, DAF = ${r.dynamicAmplificationFactor}, `
+          + `peak dynamic σ = ${r.peakDynamicStressMPa} MPa, dynamic SF = ${r.dynamicSafetyFactor} `
+          + `via foundation.transientPressurePanel`,
       };
     },
 

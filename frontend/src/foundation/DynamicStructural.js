@@ -156,3 +156,55 @@ export function shaftCriticalSpeed(o = {}) {
     midspanStiffness_N_per_mm: +(k / 1000).toFixed(1),
   };
 }
+
+/**
+ * Transient (dynamic) response of a clamped square panel to a suddenly
+ * applied uniform pressure — a pressure-loaded plate archetype (a cover,
+ * a bulkhead, a tank wall). Distinct from a point-loaded beam.
+ *
+ *   D     = E·t³ / (12(1−ν²))                       flexural rigidity
+ *   δ     = 0.00126·P·a⁴ / D                         static centre deflection
+ *   σ     = 0.308·P·(a/t)²                           static peak (mid-edge) stress
+ *   f₁    = (35.99/2π)·√(D / (ρ·t·a⁴))               fundamental frequency
+ *   peak dynamic = static × DAF (≈2 for a step load)
+ *
+ * Strict SI internally. Honest scope: thin-plate (Kirchhoff) theory with
+ * the standard clamped-square coefficients + a single-mode dynamic
+ * amplification — design-grade, not a full plate FE transient.
+ *
+ * @param {object} o
+ *   side_mm, thickness_mm   panel geometry
+ *   pressure_kPa            suddenly-applied uniform pressure
+ *   E_MPa, nu, yield_MPa    material (default Al 6061)
+ *   density, dampingRatio
+ */
+export function transientPressurePanel(o = {}) {
+  const a = (o.side_mm ?? 200) / 1000;
+  const t = (o.thickness_mm ?? 5) / 1000;
+  const P = (o.pressure_kPa ?? 100) * 1000;
+  const E = (o.E_MPa ?? 69000) * 1e6;
+  const nu = o.nu ?? 0.33;
+  const rho = o.density ?? 2700;
+  const yieldPa = (o.yield_MPa ?? 276) * 1e6;
+  const zeta = Math.max(1e-4, Math.min(0.5, o.dampingRatio ?? 0.02));
+
+  const Dr = (E * Math.pow(t, 3)) / (12 * (1 - nu * nu));
+  const deltaStatic = (0.00126 * P * Math.pow(a, 4)) / Dr;
+  const sigmaStatic = 0.308 * P * Math.pow(a / t, 2);
+  const f1 = (35.99 / (2 * Math.PI)) * Math.sqrt(Dr / (rho * t * Math.pow(a, 4)));
+  const DAF = 1 + Math.exp((-zeta * Math.PI) / Math.sqrt(1 - zeta * zeta));
+  const peakStressPa = sigmaStatic * DAF;
+  const dynamicSF = peakStressPa > 0 ? yieldPa / peakStressPa : Infinity;
+
+  return {
+    side_mm: o.side_mm ?? 200,
+    thickness_mm: o.thickness_mm ?? 5,
+    naturalFrequencyHz: +f1.toFixed(1),
+    staticDeflection_mm: +(deltaStatic * 1000).toFixed(3),
+    peakDynamicDeflection_mm: +(deltaStatic * DAF * 1000).toFixed(3),
+    dynamicAmplificationFactor: +DAF.toFixed(3),
+    staticStressMPa: +(sigmaStatic / 1e6).toFixed(1),
+    peakDynamicStressMPa: +(peakStressPa / 1e6).toFixed(1),
+    dynamicSafetyFactor: +dynamicSF.toFixed(3),
+  };
+}

@@ -90,6 +90,7 @@ type-specific parameters:
   - "rotating"   — a rotating shaft. params: length_mm, operatingRPM, disk_mass_kg
   - "mount"      — an instrument/control mount that must avoid resonance.
                    params: reach_mm, excitationHz
+  - "pressure"   — a pressure-loaded panel/cover. params: side_mm, pressure_kPa
 Choose realistic values. Include the part types the product genuinely needs.
 Reply with ONLY JSON, no prose, no code fences:
 {"product":"<name>","parts":[{"id":"p1","name":"<part>","type":"structural|rotating|mount", ...type params...}]}
@@ -116,6 +117,11 @@ export async function runPartByType(page, cred, part, opts = {}) {
   if (part.type === 'mount') {
     return runResonanceAgent(page, cred, {
       name: part.name, reach_mm: part.reach_mm, excitationHz: part.excitationHz,
+    }, ALU, opts);
+  }
+  if (part.type === 'pressure') {
+    return runPressureAgent(page, cred, {
+      name: part.name, side_mm: part.side_mm, pressure_kPa: part.pressure_kPa,
     }, ALU, opts);
   }
   return runPartAgent(page, cred, {
@@ -328,6 +334,64 @@ export async function runResonanceAgent(page, cred, mount, material, opts = {}) 
   }
   return {
     part: mount.name, archetype: 'resonance-mount', converged,
+    iterations: history.length, final: history[history.length - 1], history,
+  };
+}
+
+const PRESSURE_SYSTEM = `You are an autonomous mechanical design agent operating ArchDisc CAD.
+You design a pressure-loaded PANEL (a cover / bulkhead / tank wall) by choosing its thickness
+(mm); the system builds it ("Extrude Boss") and runs a DYNAMIC analysis ("Pressure Response")
+— a sudden uniform pressure is applied and the panel responds transiently — returning a
+dynamic safety factor. A thicker panel lowers stress (the safety factor rises strongly with
+thickness). The design is ACCEPTED only when the dynamic safety factor is between 1.5 and 3.0
+— safe under the dynamic peak, not wastefully heavy. Below 1.5 → unsafe, thicken it; above
+3.0 → over-built, thin it.
+Reply with ONLY JSON: {"thickness_mm":num,"reasoning":"short"}. No prose.`;
+
+/**
+ * Pressure-panel archetype agent. A fourth part type: a clamped square
+ * panel verified by a transient response to a suddenly-applied uniform
+ * pressure — a distinct load case from beam / shaft / mount.
+ *
+ * @param panel { name, side_mm, pressure_kPa }
+ */
+export async function runPressureAgent(page, cred, panel, material, opts = {}) {
+  const MIN = opts.minSF ?? 1.5, MAX = opts.maxSF ?? 3.0, maxIter = opts.maxIter ?? 6;
+  const inBand = (sf) => sf >= MIN && sf <= MAX;
+  const tag = (sf) => inBand(sf) ? 'ACCEPTED' : sf < MIN ? 'FAILS-unsafe' : 'over-built';
+  const history = [];
+  let converged = false;
+
+  for (let iter = 1; iter <= maxIter; iter++) {
+    const prompt = `Panel: ${panel.name}. ${panel.side_mm}×${panel.side_mm} mm, suddenly-applied `
+      + `uniform pressure ${panel.pressure_kPa} kPa, material ${material.name} `
+      + `(yield ${material.yield_MPa} MPa). Accepted when ${MIN} <= dynamic SF <= ${MAX}.\n`
+      + (history.length
+        ? 'Previous attempts:\n' + history.map((h) =>
+            `  t=${h.t} mm -> dynamic SF=${h.SF.toFixed(2)} (${tag(h.SF)})`).join('\n') + '\n'
+        : 'First attempt.\n')
+      + 'Give the next design as JSON.';
+    const d = extractJSON(await llm(cred, PRESSURE_SYSTEM, prompt));
+    const t = +d.thickness_mm;
+    if (!(Number.isFinite(t) && t > 0)) throw new Error(`agent returned bad thickness for ${panel.name}`);
+
+    await runTool(page, 'Part', 'Extrude Boss',
+      { width: panel.side_mm, depth: panel.side_mm, height: t }, '__lastFoundationManifold');
+    await runTool(page, 'Simulate', 'Pressure Response', {
+      side_mm: panel.side_mm, thickness_mm: t, pressure_kPa: panel.pressure_kPa,
+      E_MPa: material.E_MPa, nu: material.nu, yield_MPa: material.yield_MPa,
+      density: material.density,
+    }, '__lastPressureResult');
+    const pr = await page.evaluate(() => window.__lastPressureResult);
+
+    history.push({
+      iter, t, SF: pr.dynamicSafetyFactor, peakStress: pr.peakDynamicStressMPa,
+      f1: pr.naturalFrequencyHz, reasoning: d.reasoning || '',
+    });
+    if (inBand(pr.dynamicSafetyFactor)) { converged = true; break; }
+  }
+  return {
+    part: panel.name, archetype: 'pressure-panel', converged,
     iterations: history.length, final: history[history.length - 1], history,
   };
 }
