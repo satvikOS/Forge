@@ -223,7 +223,7 @@ function logHistoryAfterRun(groupKey, toolName, result) {
 
 // Helper: take a manifold body, build a Three.js mesh, add to scene,
 // remember it as the last foundation result, and return the group.
-function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x9aa3ad) {
+export function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x9aa3ad) {
   // Foundation bodies are in mm, but the Three.js scene uses meters
   // internally (camera ~0.15 m away, grid 0.5 m wide). Scale the
   // group by 0.001 so a 30 mm cube renders at the correct visual

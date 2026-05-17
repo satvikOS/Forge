@@ -7,6 +7,8 @@ import ComponentInfoPanel from '../../components/ComponentInfoPanel';
 import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
+import { addFoundationManifoldToScene } from './ToolExecutionEngine';
+import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude } from '../../kernel/atomic/AtomicOps.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -397,6 +399,21 @@ function WorkbenchMechanical() {
     const buttonRefs = useRef({});
     const toolStatusTimerRef = useRef(null);
     const viewport = useViewport();
+
+    // Expose the atomic CAD operation set on window so the autonomous
+    // sculptor (and headed e2e specs) can drive ArchDisc's real tools and
+    // see each feature appear in the live viewport.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const scene = viewport?.scene;
+        if (!scene) return undefined;
+        window.__archdiscAtomic = {
+            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude,
+            render: (part, color) =>
+                addFoundationManifoldToScene(scene, viewport, part.solid, color ?? 0x9aa3ad),
+        };
+        return () => { delete window.__archdiscAtomic; };
+    }, [viewport]);
 
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
