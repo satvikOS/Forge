@@ -193,6 +193,7 @@ const TABS = {
         { name: 'Surface Finish', icon: '▽', key: 'documentation' },
       ]},
       { label: 'Export', tools: [
+        { name: 'Export Assembly', icon: '⊕', key: 'documentation', primary: true },
         { name: 'Export STEP', icon: '📁', key: 'documentation' },
         { name: 'Export PDF', icon: '📄', key: 'documentation' },
         { name: 'Export glTF', icon: '🌐', key: 'documentation' },

@@ -230,6 +230,12 @@ export const TOOL_REGISTRY = [
     description: 'Binary STL export of the foundation manifold.' },
 
   // ─── DRAWING tab ────────────────────────────────────────────
+  { name: 'Export Assembly',    tab: 'Drawing', category: 'Export',
+    produces: '__lastAssemblyExport', cost: 'medium',
+    metrics: ['bodyCount', 'triangles', 'bytes'],
+    description: 'Compose EVERY foundation body in the scene into one assembly, '
+      + 'download it as STL, and make it the active body so Export STEP/glTF '
+      + 'cover the whole multi-part model. The multi-body export an engine needs.' },
   { name: 'Export STEP',        tab: 'Drawing', category: 'Export',
     produces: '__lastSTEPText', cost: 'cheap',
     metrics: ['__lastSTEPSizeBytes'],

@@ -311,6 +311,41 @@ function _buildMechanismGroup(scene, linkSegments, color) {
   return { root, linkGroups };
 }
 
+/**
+ * Binary STL of several manifolds merged at the mesh level. Robust —
+ * concatenates every body's triangles with computed face normals; no
+ * boolean, so it never fails however many bodies there are.
+ */
+function buildAssemblySTL(manifolds) {
+  const meshes = manifolds.map((m) => m.getMesh());
+  let totalTris = 0;
+  for (const me of meshes) totalTris += me.triVerts.length / 3;
+  const buf = new ArrayBuffer(84 + totalTris * 50);
+  const dv = new DataView(buf);
+  dv.setUint32(80, totalTris, true);
+  let o = 84;
+  for (const me of meshes) {
+    const vp = me.vertProperties, tv = me.triVerts, np = me.numProp;
+    for (let t = 0; t < tv.length; t += 3) {
+      const a = tv[t] * np, b = tv[t + 1] * np, c = tv[t + 2] * np;
+      const ax = vp[a], ay = vp[a + 1], az = vp[a + 2];
+      const bx = vp[b], by = vp[b + 1], bz = vp[b + 2];
+      const cx = vp[c], cy = vp[c + 1], cz = vp[c + 2];
+      const ux = bx - ax, uy = by - ay, uz = bz - az;
+      const vx = cx - ax, vy = cy - ay, vz = cz - az;
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      dv.setFloat32(o, nx / nl, true); dv.setFloat32(o + 4, ny / nl, true); dv.setFloat32(o + 8, nz / nl, true);
+      dv.setFloat32(o + 12, ax, true); dv.setFloat32(o + 16, ay, true); dv.setFloat32(o + 20, az, true);
+      dv.setFloat32(o + 24, bx, true); dv.setFloat32(o + 28, by, true); dv.setFloat32(o + 32, bz, true);
+      dv.setFloat32(o + 36, cx, true); dv.setFloat32(o + 40, cy, true); dv.setFloat32(o + 44, cz, true);
+      dv.setUint16(o + 48, 0, true);
+      o += 50;
+    }
+  }
+  return buf;
+}
+
 // --- Helpers ---
 
 /**
@@ -2931,6 +2966,54 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Revision Table: ${revs.length} entries (REV/ECN/DATE/APPROVED)` };
     },
     'Export PDF': () => ({ status: 'success', message: 'Export: PDF drawing package generated' }),
+    'Export Assembly': async () => {
+      // Compose EVERY foundation body in the scene into one assembly and
+      // export it. This is the multi-body export an engine or any
+      // multi-part machine needs — the other Export tools handle only
+      // the single active body.
+      const bodies = getBodyRegistry().list().filter((b) => b && b.manifold);
+      if (!bodies.length) {
+        return { status: 'warn', message: 'Export Assembly: no bodies in the scene — build geometry first.' };
+      }
+      const Mod = await getManifold();
+      let assembly = null;
+      try {
+        assembly = bodies.length === 1
+          ? bodies[0].manifold
+          : Mod.Manifold.union(bodies.map((b) => b.manifold));
+      } catch (err) {
+        console.warn('Export Assembly: union failed — falling back to a mesh-level merge', err);
+      }
+      let ab;
+      if (assembly) {
+        ab = toBinarySTL(assembly);
+        _lastFoundationManifold = assembly;          // full assembly = active body
+      } else {
+        ab = buildAssemblySTL(bodies.map((b) => b.manifold));
+      }
+      const triCount = (ab.byteLength - 84) / 50;
+      if (typeof window !== 'undefined') {
+        window.__lastAssemblyExport = {
+          bodyCount: bodies.length, triangles: triCount, bytes: ab.byteLength,
+        };
+        if (assembly) window.__lastFoundationManifold = assembly;
+      }
+      try {
+        const blob = new Blob([ab], { type: 'model/stl' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'ArchDisc-assembly.stl';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (_) { /* download is best-effort */ }
+      return {
+        status: 'success',
+        message: `Export Assembly: ${bodies.length} bodies → one ${triCount.toLocaleString()}-triangle `
+          + `assembly, ${(ab.byteLength / 1048576).toFixed(1)} MB STL downloaded`
+          + (assembly ? ' — now the active body, Export STEP/glTF cover the full assembly.' : '.'),
+      };
+    },
+
     'Export STL': (scene, viewport) => {
       // Foundation path: serialize the foundation manifold as binary
       // STL via toBinarySTL (validates the buffer header, triangle
