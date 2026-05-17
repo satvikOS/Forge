@@ -209,9 +209,11 @@ export async function runPartAgent(page, cred, part, material, opts = {}) {
       };
     }
   }
+  const f0 = history[history.length - 1];
   return {
     part: part.name, archetype: 'structural-cantilever', converged,
-    iterations: history.length, final: history[history.length - 1], history, motion,
+    iterations: history.length, final: f0, history, motion,
+    geometry: { kind: 'box', width: f0.b, depth: f0.L, height: f0.h },
   };
 }
 
@@ -272,9 +274,11 @@ export async function runShaftAgent(page, cred, shaft, material, opts = {}) {
     });
     if (inBand(ratio)) { converged = true; break; }
   }
+  const f0 = history[history.length - 1];
   return {
     part: shaft.name, archetype: 'rotating-shaft', converged,
-    iterations: history.length, final: history[history.length - 1], history,
+    iterations: history.length, final: f0, history,
+    geometry: { kind: 'cylinder', diameter: f0.D, length: shaft.length_mm },
   };
 }
 
@@ -332,9 +336,11 @@ export async function runResonanceAgent(page, cred, mount, material, opts = {}) 
     });
     if (inBand(ratio)) { converged = true; break; }
   }
+  const f0 = history[history.length - 1];
   return {
     part: mount.name, archetype: 'resonance-mount', converged,
-    iterations: history.length, final: history[history.length - 1], history,
+    iterations: history.length, final: f0, history,
+    geometry: { kind: 'box', width: f0.b, depth: mount.reach_mm, height: f0.h },
   };
 }
 
@@ -390,9 +396,11 @@ export async function runPressureAgent(page, cred, panel, material, opts = {}) {
     });
     if (inBand(pr.dynamicSafetyFactor)) { converged = true; break; }
   }
+  const f0 = history[history.length - 1];
   return {
     part: panel.name, archetype: 'pressure-panel', converged,
-    iterations: history.length, final: history[history.length - 1], history,
+    iterations: history.length, final: f0, history,
+    geometry: { kind: 'box', width: panel.side_mm, depth: panel.side_mm, height: f0.t },
   };
 }
 
@@ -574,10 +582,49 @@ export function resolveAssembly(designedParts) {
   return { placements, span: span.name, supports: supports.map((p) => p.name) };
 }
 
-/** Build every part at its resolved placement (real Extrude Boss). */
+/**
+ * Stacked assembly resolver — for layered products (a watch: caseback →
+ * movement → dial → crystal stacked along the central axis; also racks,
+ * presses, towers). Heterogeneous parts: each carries a `geometry`
+ * descriptor ({kind:'box',width,depth,height} or {kind:'cylinder',
+ * diameter,length}). Parts are centred on the axis and stacked in Z so
+ * each rests on the previous — coherent by construction.
+ *
+ * @param parts [{ name, geometry }]
+ */
+export function resolveStackedAssembly(parts) {
+  let z = 0;
+  const placements = [];
+  for (const p of parts) {
+    const g = p.geometry || { kind: 'box', width: 20, depth: 20, height: 5 };
+    if (g.kind === 'cylinder') {
+      const R = g.diameter / 2;
+      placements.push({
+        name: p.name, tool: 'Revolve Boss',
+        build: {
+          profile: [[0, 0], [R, 0], [R, g.length], [0, g.length]],
+          revolveSegs: 48, translate: [0, 0, z], rotate: [0, 0, 0],
+        },
+      });
+      z += g.length;
+    } else {
+      placements.push({
+        name: p.name, tool: 'Extrude Boss',
+        build: {
+          width: g.width, depth: g.depth, height: g.height,
+          translate: [0, 0, z], rotate: [0, 0, 0],
+        },
+      });
+      z += g.height;
+    }
+  }
+  return { placements, totalHeight_mm: +z.toFixed(1) };
+}
+
+/** Build every part at its resolved placement (real ArchDisc tools). */
 export async function buildAssembly(page, plan) {
   for (const pl of plan.placements) {
-    await runTool(page, 'Part', 'Extrude Boss', pl.build, '__lastFoundationManifold');
+    await runTool(page, 'Part', pl.tool || 'Extrude Boss', pl.build, '__lastFoundationManifold');
   }
 }
 
