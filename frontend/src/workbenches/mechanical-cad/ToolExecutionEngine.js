@@ -691,6 +691,7 @@ const TOOL_HANDLERS = {
       ];
       const cs = Mod.CrossSection.ofPolygons([profile]);
       let result = Mod.Manifold.extrude(cs, height);
+      if (Array.isArray(values.rotate)) result = result.rotate(values.rotate);
       if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
       addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
@@ -767,6 +768,7 @@ const TOOL_HANDLERS = {
       blade = blade.rotate([-90, 0, 0]).translate([0, p.rHub, 0]);
       let row = await fCircularPattern({ body: blade, axis: [0, 0, 1], anchor: [0, 0, 0], count: p.count });
       if (p.xMid) row = row.translate([0, 0, p.xMid]);
+      if (Array.isArray(values.rotate)) row = row.rotate(values.rotate);
       if (Array.isArray(values.translate)) row = row.translate(values.translate);
       addFoundationManifoldToScene(scene, viewport, row, 0x8b1538);
       return {
@@ -799,6 +801,7 @@ const TOOL_HANDLERS = {
       const segs = values.revolveSegs ?? 64;
       const cs = Mod.CrossSection.ofPolygons([profile]);
       let result = Mod.Manifold.revolve(cs, segs);
+      if (Array.isArray(values.rotate)) result = result.rotate(values.rotate);
       if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
       if (values.profile) {
@@ -979,6 +982,7 @@ const TOOL_HANDLERS = {
           : Mod.Manifold.cylinder(values.seedHeight ?? 15, seedR, seedR, 64, true);
         const seedV = seed.volume();
         let arr = await fLinearPattern(seed, axis, count, spacing);
+        if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
         if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
         const totalV = arr.volume();
         addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
@@ -1086,6 +1090,7 @@ const TOOL_HANDLERS = {
       }
       const seedV = seed.volume();
       let arr = await fCircularPattern({ body: seed, axis, anchor: [0, 0, 0], count });
+      if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
       if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
       const totalV = arr.volume();
       addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
