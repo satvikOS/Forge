@@ -234,6 +234,15 @@ check on the video frames.
    failure is diagnosed to a specific part or mate and routed back for re-sculpt
    / re-solve. This is the design→analyze→redesign loop that genuinely closes —
    the real target from the autonomous-reframe memory.
+7. **Deliverable package** — `ai/sculptor/DeliverablePackage.js` collects the
+   run's complete output into one ZIP (via the existing `ZipArchive.js`). The
+   ZIP **must include, for every part AND for the assembly**: screenshots (the
+   multi-view renders / vision-check images), STEP files (ISO 10303-21 CAD
+   export), and the motion `.mp4` video(s). Plus the feature-tree JSON of every
+   part (the editable construction history) and the design brief. "All" means
+   each individual part gets its own screenshots + STEP + any part-level motion
+   clip, not only the final assembly — so a human can open, inspect, and edit
+   any single component.
 
 ---
 
@@ -330,6 +339,9 @@ record — the entire point of "the human can replicate/edit/learn."
 - `ai/sculptor/Orchestrator.js`
 - `ai/sculptor/ClarificationSwarm.js`
 - `ai/sculptor/SculptorSwarm.js`
+- `ai/sculptor/DeliverablePackage.js` — bundles per-part + assembly
+  screenshots, STEP files, `.mp4` videos, feature-tree JSON, and the design
+  brief into one deliverable ZIP.
 
 **Modified:**
 - `kernel/features/FeatureTree.js` — add sketch / cut / pattern feature types.
@@ -339,4 +351,5 @@ record — the entire point of "the human can replicate/edit/learn."
 **Reused as-is:** `SketchSolver.js`, `kernel/topology/Topo*`,
 `KinematicsCore.js`, `MotionStudy.js`, `SystemDynamics.js`,
 `ExplicitDynamics.js`, `Assembly.js`, `JpegEncoder.js`, `VideoMux.js`,
-`Clarifier.js`, `PlannerProviders.js`, `materialColor.js`.
+`ZipArchive.js`, the STEP exporter (`kernel/export/`), `Clarifier.js`,
+`PlannerProviders.js`, `materialColor.js`.
