@@ -83,6 +83,46 @@ export async function decomposeProduct(cred, brief) {
   return g;
 }
 
+const DECOMPOSE_MECHANISM_SYSTEM = `You are an autonomous mechanical design lead in the ArchDisc
+CAD system. Decompose a powered mechanical product into its parts. Each part has a "type" and
+type-specific parameters:
+  - "structural" — a load-bearing bracket/beam. params: reach_mm, tipLoad_N
+  - "rotating"   — a rotating shaft. params: length_mm, operatingRPM, disk_mass_kg
+  - "mount"      — an instrument/control mount that must avoid resonance.
+                   params: reach_mm, excitationHz
+Choose realistic values. Include the part types the product genuinely needs.
+Reply with ONLY JSON, no prose, no code fences:
+{"product":"<name>","parts":[{"id":"p1","name":"<part>","type":"structural|rotating|mount", ...type params...}]}
+Use 3 to 6 parts.`;
+
+/** Decompose a powered product into typed (multi-archetype) parts. */
+export async function decomposeMechanism(cred, brief) {
+  const g = extractJSON(await llm(cred, DECOMPOSE_MECHANISM_SYSTEM, `Product brief: ${brief}`));
+  if (!Array.isArray(g.parts) || !g.parts.length) throw new Error('decomposer returned no parts');
+  return g;
+}
+
+const ALU = { name: 'aluminium 6061', E_MPa: 69000, nu: 0.33, yield_MPa: 276, density: 2700 };
+const STEEL = { name: 'AISI 4340 steel', E_MPa: 200000, density_kg_m3: 7850 };
+
+/** Dispatch a typed part to its archetype agent (the swarm router). */
+export async function runPartByType(page, cred, part, opts = {}) {
+  if (part.type === 'rotating') {
+    return runShaftAgent(page, cred, {
+      name: part.name, length_mm: part.length_mm,
+      operatingRPM: part.operatingRPM, disk_mass_kg: part.disk_mass_kg,
+    }, STEEL, opts);
+  }
+  if (part.type === 'mount') {
+    return runResonanceAgent(page, cred, {
+      name: part.name, reach_mm: part.reach_mm, excitationHz: part.excitationHz,
+    }, ALU, opts);
+  }
+  return runPartAgent(page, cred, {
+    name: part.name, reach_mm: part.reach_mm, tipLoad_N: part.tipLoad_N,
+  }, ALU, opts);
+}
+
 /** Drive one real ArchDisc ribbon tool exactly as a user click does. */
 export async function runTool(page, tab, tool, params, slot) {
   await page.locator('.ribbon-tab', { hasText: tab }).first().click();
@@ -164,8 +204,8 @@ export async function runPartAgent(page, cred, part, material, opts = {}) {
     }
   }
   return {
-    part: part.name, converged, iterations: history.length,
-    final: history[history.length - 1], history, motion,
+    part: part.name, archetype: 'structural-cantilever', converged,
+    iterations: history.length, final: history[history.length - 1], history, motion,
   };
 }
 
@@ -324,7 +364,9 @@ export async function runSwarm(browser, cred, parts, material, opts = {}) {
         await page.goto('/');
         await page.locator('canvas').first().waitFor({ state: 'visible', timeout: 30000 });
         await page.waitForTimeout(2000);
-        results[idx] = await runPartAgent(page, cred, part, material, opts);
+        results[idx] = part.type
+          ? await runPartByType(page, cred, part, opts)        // multi-archetype
+          : await runPartAgent(page, cred, part, material, opts);
       } finally {
         await ctx.close();
       }
