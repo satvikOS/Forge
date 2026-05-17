@@ -15,9 +15,9 @@
  * Distance from the origin is rb·sqrt(1 + t²) by construction.
  *
  * @param {number} baseRadius  base circle radius (> 0)
- * @param {number} t0          start unrolling parameter
- * @param {number} t1          end unrolling parameter
- * @param {number} segments    number of segments (>= 1); returns segments+1 pts
+ * @param {number} t0          start unrolling parameter (assumed finite)
+ * @param {number} t1          end unrolling parameter (assumed finite)
+ * @param {number} segments    positive integer, number of segments (>= 1); returns segments+1 pts
  * @returns {Array<[number,number]>}
  */
 export function involute(baseRadius, t0, t1, segments = 32) {

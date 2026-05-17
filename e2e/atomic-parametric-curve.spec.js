@@ -4,10 +4,11 @@ import { involute, involuteParamAtRadius } from '../frontend/src/kernel/atomic/P
 test.describe('ParametricCurve — involute', () => {
   test('every involute point lies at radius rb·sqrt(1+t^2) from the origin', () => {
     const rb = 5;
-    const pts = involute(rb, 0, 1.2, 40);
-    expect(pts.length).toBe(41);
+    const t0 = 0, t1 = 1.2, segments = 40;
+    const pts = involute(rb, t0, t1, segments);
+    expect(pts.length).toBe(segments + 1);
     for (let i = 0; i < pts.length; i++) {
-      const t = (1.2) * (i / 40);
+      const t = t0 + (t1 - t0) * (i / segments);
       const expectedR = rb * Math.sqrt(1 + t * t);
       const actualR = Math.hypot(pts[i][0], pts[i][1]);
       expect(actualR).toBeCloseTo(expectedR, 9);
@@ -30,6 +31,14 @@ test.describe('ParametricCurve — involute', () => {
   });
 
   test('involuteParamAtRadius rejects a radius below the base circle', () => {
-    expect(() => involuteParamAtRadius(5, 4)).toThrow(/baseRadius/);
+    expect(() => involuteParamAtRadius(5, 4)).toThrow(/r must be >= baseRadius/);
+  });
+
+  test('involuteParamAtRadius rejects a non-positive base radius', () => {
+    expect(() => involuteParamAtRadius(0, 5)).toThrow(/baseRadius/);
+  });
+
+  test('involuteParamAtRadius returns 0 when r equals baseRadius', () => {
+    expect(involuteParamAtRadius(6, 6)).toBe(0);
   });
 });
