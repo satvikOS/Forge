@@ -8,7 +8,7 @@ import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
-import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude } from '../../kernel/atomic/AtomicOps.js';
+import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut } from '../../kernel/atomic/AtomicOps.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -402,15 +402,25 @@ function WorkbenchMechanical() {
 
     // Expose the atomic CAD operation set on window so the autonomous
     // sculptor (and headed e2e specs) can drive ArchDisc's real tools and
-    // see each feature appear in the live viewport.
+    // see each feature appear in the live viewport. `render` replaces the
+    // previous atomic body so an evolving part stays a single body.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
         const scene = viewport?.scene;
         if (!scene) return undefined;
+        let lastAtomicGroup = null;
         window.__archdiscAtomic = {
-            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude,
-            render: (part, color) =>
-                addFoundationManifoldToScene(scene, viewport, part.solid, color ?? 0x9aa3ad),
+            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut,
+            render: (part, color) => {
+                if (lastAtomicGroup) {
+                    scene.remove(lastAtomicGroup);
+                    lastAtomicGroup = null;
+                }
+                lastAtomicGroup = addFoundationManifoldToScene(
+                    scene, viewport, part.solid, color ?? 0x9aa3ad,
+                );
+                return lastAtomicGroup;
+            },
         };
         return () => { delete window.__archdiscAtomic; };
     }, [viewport]);
