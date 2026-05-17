@@ -50,9 +50,6 @@ import { runSurvivalSuite } from '../../foundation/SurvivalSim.js';
 import { transientCantilever, shaftCriticalSpeed, transientPressurePanel }
   from '../../foundation/DynamicStructural.js';
 import { systemTransientResponse } from '../../foundation/SystemDynamics.js';
-import { involuteGearProfile } from '../../foundation/GearGenerator.js';
-import { escapeWheelProfile } from '../../foundation/EscapeWheelGenerator.js';
-import { balanceWheelProfile } from '../../foundation/BalanceWheelGenerator.js';
 import { materialColor } from '../../foundation/materialColor.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
@@ -871,94 +868,6 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Revolve Boss: stepped shaft (Ø30+Ø24, H=40mm). V = ${Vfinal.toFixed(2)} mm³ (analytical Σdisks ${Vexpected.toFixed(2)}, err ${errPct.toFixed(2)}%) via foundation manifold-3d revolve`,
-      };
-    },
-
-    'Spur Gear': async (scene, viewport) => {
-      // Foundation path: a real involute spur gear — every flank a true
-      // involute of the base circle — generated from scratch by
-      // foundation.involuteGearProfile, then extruded by the platform's
-      // kernel. The centre bore is a clockwise hole polygon in the same
-      // cross-section, so the gear comes out bored in one operation.
-      const { values, cancelled } = await requestToolParams('Spur Gear');
-      if (cancelled) return { status: 'warn', message: 'Spur Gear cancelled' };
-      const Mod = await getManifold();
-      const g = involuteGearProfile(values);
-      const faceWidth = values.faceWidth_mm ?? 6;
-      const cs = Mod.CrossSection.ofPolygons(
-        g.borePolygon ? [g.profile, g.borePolygon] : [g.profile]);
-      let gear = Mod.Manifold.extrude(cs, faceWidth);
-      if (Array.isArray(values.rotate)) gear = gear.rotate(values.rotate);
-      if (Array.isArray(values.translate)) gear = gear.translate(values.translate);
-      const V = gear.volume();
-      if (typeof window !== 'undefined') {
-        window.__lastGearSpec = { ...g, faceWidth_mm: faceWidth, volume_mm3: V };
-      }
-      addFoundationManifoldToScene(scene, viewport, gear, materialColor(values.material));
-      return {
-        status: 'success',
-        message: `Spur Gear: ${g.teeth} teeth, module ${g.module_mm} mm, `
-          + `pitch Ø${g.pitchDiameter_mm} mm, base Ø${g.baseDiameter_mm} mm — `
-          + `real involute flanks, ${faceWidth} mm face, bore Ø${g.boreDiameter_mm} mm, `
-          + `V = ${V.toFixed(0)} mm³ via foundation.involuteGearProfile`,
-      };
-    },
-
-    'Escape Wheel': async (scene, viewport) => {
-      // Foundation path: a real Swiss-lever (club-tooth) escape wheel —
-      // raked teeth with a steep locking heel, a club tip flat and a long
-      // impulse face — generated from scratch by
-      // foundation.escapeWheelProfile and extruded by the platform kernel.
-      const { values, cancelled } = await requestToolParams('Escape Wheel');
-      if (cancelled) return { status: 'warn', message: 'Escape Wheel cancelled' };
-      const Mod = await getManifold();
-      const w = escapeWheelProfile(values);
-      const faceWidth = values.faceWidth_mm ?? 0.5;
-      const cs = Mod.CrossSection.ofPolygons(
-        w.borePolygon ? [w.profile, w.borePolygon] : [w.profile]);
-      let wheel = Mod.Manifold.extrude(cs, faceWidth);
-      if (Array.isArray(values.rotate)) wheel = wheel.rotate(values.rotate);
-      if (Array.isArray(values.translate)) wheel = wheel.translate(values.translate);
-      const V = wheel.volume();
-      if (typeof window !== 'undefined') {
-        window.__lastEscapeWheel = { ...w, faceWidth_mm: faceWidth, volume_mm3: V };
-      }
-      addFoundationManifoldToScene(scene, viewport, wheel,
-        materialColor(values.material ?? 'steel'));
-      return {
-        status: 'success',
-        message: `Escape Wheel: ${w.teeth} club teeth, rim Ø${w.rimDiameter_mm} mm, `
-          + `tip Ø${w.tipDiameter_mm} mm, ${faceWidth} mm thick, bore Ø${w.boreDiameter_mm} mm, `
-          + `V = ${V.toFixed(2)} mm³ via foundation.escapeWheelProfile`,
-      };
-    },
-
-    'Balance Wheel': async (scene, viewport) => {
-      // Foundation path: a real watch balance wheel — annular rim, N
-      // straight arms, central hub, staff bore — generated from scratch
-      // by foundation.balanceWheelProfile and extruded by the platform
-      // kernel (outer boundary + the open sectors and bore as holes).
-      const { values, cancelled } = await requestToolParams('Balance Wheel');
-      if (cancelled) return { status: 'warn', message: 'Balance Wheel cancelled' };
-      const Mod = await getManifold();
-      const b = balanceWheelProfile(values);
-      const faceWidth = values.faceWidth_mm ?? 1.0;
-      const cs = Mod.CrossSection.ofPolygons([b.profile, ...b.holes]);
-      let wheel = Mod.Manifold.extrude(cs, faceWidth);
-      if (Array.isArray(values.rotate)) wheel = wheel.rotate(values.rotate);
-      if (Array.isArray(values.translate)) wheel = wheel.translate(values.translate);
-      const V = wheel.volume();
-      if (typeof window !== 'undefined') {
-        window.__lastBalanceWheel = { ...b, faceWidth_mm: faceWidth, volume_mm3: V };
-      }
-      addFoundationManifoldToScene(scene, viewport, wheel,
-        materialColor(values.material ?? 'brass'));
-      return {
-        status: 'success',
-        message: `Balance Wheel: rim Ø${b.rimDiameter_mm} mm, ${b.arms} arms, `
-          + `hub Ø${b.hubDiameter_mm} mm, bore Ø${b.boreDiameter_mm} mm, `
-          + `${faceWidth} mm thick, V = ${V.toFixed(2)} mm³ `
-          + `via foundation.balanceWheelProfile`,
       };
     },
 
