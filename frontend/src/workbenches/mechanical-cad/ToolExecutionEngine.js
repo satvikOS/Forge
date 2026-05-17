@@ -50,6 +50,7 @@ import { runSurvivalSuite } from '../../foundation/SurvivalSim.js';
 import { transientCantilever, shaftCriticalSpeed, transientPressurePanel }
   from '../../foundation/DynamicStructural.js';
 import { systemTransientResponse } from '../../foundation/SystemDynamics.js';
+import { involuteGearProfile } from '../../foundation/GearGenerator.js';
 import { analyzeFatigue } from '../../foundation/Fatigue.js';
 import { solveTurbofan } from '../../foundation/BraytonCycle.js';
 import { analyzeCompressorStage } from '../../foundation/CompressorStage.js';
@@ -867,6 +868,36 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Revolve Boss: stepped shaft (Ø30+Ø24, H=40mm). V = ${Vfinal.toFixed(2)} mm³ (analytical Σdisks ${Vexpected.toFixed(2)}, err ${errPct.toFixed(2)}%) via foundation manifold-3d revolve`,
+      };
+    },
+
+    'Spur Gear': async (scene, viewport) => {
+      // Foundation path: a real involute spur gear — every flank a true
+      // involute of the base circle — generated from scratch by
+      // foundation.involuteGearProfile, then extruded by the platform's
+      // kernel. The centre bore is a clockwise hole polygon in the same
+      // cross-section, so the gear comes out bored in one operation.
+      const { values, cancelled } = await requestToolParams('Spur Gear');
+      if (cancelled) return { status: 'warn', message: 'Spur Gear cancelled' };
+      const Mod = await getManifold();
+      const g = involuteGearProfile(values);
+      const faceWidth = values.faceWidth_mm ?? 6;
+      const cs = Mod.CrossSection.ofPolygons(
+        g.borePolygon ? [g.profile, g.borePolygon] : [g.profile]);
+      let gear = Mod.Manifold.extrude(cs, faceWidth);
+      if (Array.isArray(values.rotate)) gear = gear.rotate(values.rotate);
+      if (Array.isArray(values.translate)) gear = gear.translate(values.translate);
+      const V = gear.volume();
+      if (typeof window !== 'undefined') {
+        window.__lastGearSpec = { ...g, faceWidth_mm: faceWidth, volume_mm3: V };
+      }
+      addFoundationManifoldToScene(scene, viewport, gear, 0x8b1538);
+      return {
+        status: 'success',
+        message: `Spur Gear: ${g.teeth} teeth, module ${g.module_mm} mm, `
+          + `pitch Ø${g.pitchDiameter_mm} mm, base Ø${g.baseDiameter_mm} mm — `
+          + `real involute flanks, ${faceWidth} mm face, bore Ø${g.boreDiameter_mm} mm, `
+          + `V = ${V.toFixed(0)} mm³ via foundation.involuteGearProfile`,
       };
     },
 

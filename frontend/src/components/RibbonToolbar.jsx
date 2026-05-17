@@ -59,6 +59,7 @@ const TABS = {
         { name: 'Loft Boss', icon: '⋈', key: 'part' },
         { name: 'Sweep Boss', icon: '↝', key: 'part' },
         { name: 'Blade Row', icon: '✺', key: 'part' },
+        { name: 'Spur Gear', icon: '⚙', key: 'part' },
         { name: 'Import STEP', icon: '📥', key: 'part' },
       ]},
       { label: 'Modify', tools: [
