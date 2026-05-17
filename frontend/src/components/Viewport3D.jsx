@@ -542,7 +542,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                             const dir = _sketch.planeNormal || new Vec3(0, 1, 0);
                             const feature = ft.addExtrude(profile, dir, 0.020); // 20mm default
                             if (feature.solid) {
-                                const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
+                                const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x9aa3ad, edges: true });
                                 group.userData.pickable = true;
                                 group.userData.generatedModel = true;
                                 group.userData.kernelSolid = feature.solid;
@@ -748,7 +748,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                             const ft = getFeatureTree();
                             const feature = ft.addExtrude(profile, new Vec3(0, 1, 0), 0.02);
                             if (feature.solid) {
-                                const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x8b1538, edges: true });
+                                const group = ThreeJSBridge.solidToGroup(feature.solid, { color: 0x9aa3ad, edges: true });
                                 group.userData.pickable = true;
                                 group.userData.generatedModel = true;
                                 group.userData.kernelSolid = feature.solid;

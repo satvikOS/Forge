@@ -223,7 +223,7 @@ function logHistoryAfterRun(groupKey, toolName, result) {
 
 // Helper: take a manifold body, build a Three.js mesh, add to scene,
 // remember it as the last foundation result, and return the group.
-function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x8b1538) {
+function addFoundationManifoldToScene(scene, viewport, manifold, color = 0x9aa3ad) {
   // Foundation bodies are in mm, but the Three.js scene uses meters
   // internally (camera ~0.15 m away, grid 0.5 m wide). Scale the
   // group by 0.001 so a 30 mm cube renders at the correct visual
@@ -397,7 +397,7 @@ function buildSectionSVG(layer, opts = {}) {
   return out.join('\n');
 }
 
-function addSolidToScene(scene, viewport, solid, color = 0x8b1538) {
+function addSolidToScene(scene, viewport, solid, color = 0x9aa3ad) {
   const group = ThreeJSBridge.solidToGroup(solid, {
     color,
     metalness: 0.3,
@@ -620,7 +620,7 @@ const TOOL_HANDLERS = {
       const beforeTris = m.getMesh().triVerts.length / 3;
       const result = await subdivideManifold(m, 2, getManifold);
       const afterTris = result.getMesh().triVerts.length / 3;
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Subdivide: Loop subdivision ×2 — ${beforeTris} → ${afterTris} triangles (4ⁿ refinement), V = ${result.volume().toFixed(0)} mm³ via foundation.loopSubdivide`,
@@ -661,7 +661,7 @@ const TOOL_HANDLERS = {
         }
         const rounded = Mod.Manifold.ofMesh(new Mod.Mesh({ numProp: 3, vertProperties: vp, triVerts: tv }));
         if (rounded && !rounded.isEmpty() && rounded.volume() > 0) {
-          addFoundationManifoldToScene(scene, viewport, rounded, 0x8b1538);
+          addFoundationManifoldToScene(scene, viewport, rounded, 0x9aa3ad);
           _lastFoundationManifold = rounded;
           displayed = true;
         }
@@ -698,7 +698,7 @@ const TOOL_HANDLERS = {
       const smooth = buildBossOnBase(Mod, { filletRadius: radius, edgeLength: 2.0, sharp: false });
       const sharp = buildBossOnBase(Mod, { sharp: true, edgeLength: 2.0 });
       const addedByFillet = smooth.volume - sharp.volume;
-      addFoundationManifoldToScene(scene, viewport, smooth.manifold, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, smooth.manifold, 0x9aa3ad);
       _lastFoundationManifold = smooth.manifold;
 
       if (typeof window !== 'undefined') {
@@ -734,7 +734,7 @@ const TOOL_HANDLERS = {
       if (Array.isArray(values.rotate)) result = result.rotate(values.rotate);
       if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       if (values.profile) {
         return {
           status: 'success',
@@ -776,7 +776,7 @@ const TOOL_HANDLERS = {
       const VcutExpected = 15 * 15 * 25;
       const errFromBase = (baseV - Vfinal) - VcutExpected;
       const errPct = (errFromBase / VcutExpected) * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       const noteBase = createdBase ? ' (created default 80×50×25 base)' : '';
       return {
         status: 'success',
@@ -815,7 +815,7 @@ const TOOL_HANDLERS = {
       if (p.xMid) { const t = row.translate([0, 0, p.xMid]); row.delete(); row = t; }
       if (Array.isArray(values.rotate)) { const t = row.rotate(values.rotate); row.delete(); row = t; }
       if (Array.isArray(values.translate)) { const t = row.translate(values.translate); row.delete(); row = t; }
-      addFoundationManifoldToScene(scene, viewport, row, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, row, 0x9aa3ad);
       return {
         status: 'success',
         message: `Blade Row: ${p.count} aerofoils, hub ${p.rHub}→tip ${p.rTip} mm, `
@@ -850,7 +850,7 @@ const TOOL_HANDLERS = {
       if (Array.isArray(values.translate)) result = result.translate(values.translate);
       const Vfinal = result.volume();
       if (values.profile) {
-        addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+        addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
         return {
           status: 'success',
           message: `Revolve Boss: custom ${profile.length}-pt profile revolved 360°. `
@@ -864,7 +864,7 @@ const TOOL_HANDLERS = {
       const d2 = Math.PI * (144 - 56.25) * 10;
       const Vexpected = d1 + d2;
       const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Revolve Boss: stepped shaft (Ø30+Ø24, H=40mm). V = ${Vfinal.toFixed(2)} mm³ (analytical Σdisks ${Vexpected.toFixed(2)}, err ${errPct.toFixed(2)}%) via foundation manifold-3d revolve`,
@@ -891,7 +891,7 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') {
         window.__lastGearSpec = { ...g, faceWidth_mm: faceWidth, volume_mm3: V };
       }
-      addFoundationManifoldToScene(scene, viewport, gear, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, gear, 0x9aa3ad);
       return {
         status: 'success',
         message: `Spur Gear: ${g.teeth} teeth, module ${g.module_mm} mm, `
@@ -933,7 +933,7 @@ const TOOL_HANDLERS = {
         const fr = (h, r1, r2) => Math.PI * h * (r1 ** 2 + r1 * r2 + r2 ** 2) / 3;
         return fr(10, 5, 4) + fr(10, 4, 2) + fr(10, 2, 1);
       })();
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Loft Boss: 4× circles (R 5→4→2→1, H=30mm)  (V = ${totalV.toFixed(2)} mm³ ≈ Σfrusta = ${Vtheory.toFixed(2)} via foundation.loft)`,
@@ -949,7 +949,7 @@ const TOOL_HANDLERS = {
       const arc = NURBSCurve.quarterCircle(R);
       const result = await fSweep({ profile2D: profile, path: arc, samples: 64, referenceUp: [0, 0, 1] });
       const totalV = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Sweep Boss: Ø2mm circle along R=10mm quarter-arc  (V = ${totalV.toFixed(2)} mm³ ≈ π²Rr²/2 = ${(Math.PI*Math.PI*R*r*r/2).toFixed(2)} via foundation.sweep)`,
@@ -973,7 +973,7 @@ const TOOL_HANDLERS = {
       const filletedArea = Math.abs(polygonArea(filleted));
       const result = await filletExtrude(lProfile, H, R, 10);
       const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Fillet: L-bracket profile (6 corners), r=${R} mm arc-tangent fillet on ${filletedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${filletedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.filletPolygon2D + filletExtrude`,
@@ -994,7 +994,7 @@ const TOOL_HANDLERS = {
       const chamferedArea = Math.abs(polygonArea(chamfered));
       const result = await chamferExtrude(lProfile, H, D);
       const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Chamfer: L-bracket profile, 2mm straight-cut chamfer on ${chamferedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${chamferedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.chamferPolygon2D + chamferExtrude`,
@@ -1032,7 +1032,7 @@ const TOOL_HANDLERS = {
       const Vfinal = result.volume();
       const Vexpected = 27000 - 17576;
       const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
       return {
         status: 'success',
         message: `Shell: 30³ cube hollowed to 2 mm wall. V = ${Vfinal.toFixed(0)} mm³ (analytical 30³ − 26³ = ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
@@ -1060,7 +1060,7 @@ const TOOL_HANDLERS = {
         if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
         if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
         const totalV = arr.volume();
-        addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
+        addFoundationManifoldToScene(scene, viewport, arr, 0x9aa3ad);
         return {
           status: 'success',
           message: `Linear Pattern: ${count}× seed @ ${spacing} mm along [${axis}] `
@@ -1137,7 +1137,7 @@ const TOOL_HANDLERS = {
       const halfV = half.volume();
       const sym = await fMirrorAndUnion(half, [0, 1, 0], [0, 0, 0]);
       const totalV = sym.volume();
-      addFoundationManifoldToScene(scene, viewport, sym, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, sym, 0x9aa3ad);
       return {
         status: 'success',
         message: `Mirror Feature: V = ${totalV.toFixed(0)} mm³ = 2 × ${halfV.toFixed(0)} via foundation.mirrorAndUnion (XZ plane)`,
@@ -1168,7 +1168,7 @@ const TOOL_HANDLERS = {
       if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
       if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
       const totalV = arr.volume();
-      addFoundationManifoldToScene(scene, viewport, arr, 0x8b1538);
+      addFoundationManifoldToScene(scene, viewport, arr, 0x9aa3ad);
       return {
         status: 'success',
         message: `Circular Pattern: ${count}× around [${axis}] @ R=${radius} mm `
@@ -1316,7 +1316,7 @@ const TOOL_HANDLERS = {
       const face = lastSolid.solid.faces()[0];
       if (!face) return { status: 'warn', message: 'Push/Pull: No faces found' };
       const feature = ft.addPushPull(lastSolid.id, face.id, 1.0);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
       return { status: 'success', message: `Push/Pull: Face moved 1m outward (Feature #${feature.id})` };
     },
     'Move Face': (scene, viewport) => {
@@ -1326,7 +1326,7 @@ const TOOL_HANDLERS = {
       const face = lastSolid.solid.faces()[0];
       if (!face) return { status: 'warn', message: 'Move Face: No faces found' };
       const feature = ft.addPushPull(lastSolid.id, face.id, 0.5);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
       return { status: 'success', message: `Move Face: Offset 0.5m (Feature #${feature.id})` };
     },
     'Offset Face': (scene, viewport) => {
@@ -1336,7 +1336,7 @@ const TOOL_HANDLERS = {
       const faceId = lastSolid.solid.faces()[0]?.id;
       if (!faceId) return needSolid('Offset Face');
       const feature = ft.addPushPull(lastSolid.id, faceId, 0.3);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
       return { status: 'success', message: `Offset Face: 0.3m offset applied` };
     },
     'Delete Face': (scene, viewport) => {
@@ -1436,7 +1436,7 @@ const TOOL_HANDLERS = {
       const sliderX = study.frames.map((f) => f.links[3].x);
       const stroke = Math.max(...sliderX) - Math.min(...sliderX);
 
-      const { root, linkGroups } = _buildMechanismGroup(scene, linkSegments, 0x8b1538);
+      const { root, linkGroups } = _buildMechanismGroup(scene, linkSegments, 0x9aa3ad);
       _startAnimationLoop((elapsed) => {
         const playSec = 3;
         const fi = Math.min(study.frames.length - 1,
@@ -1478,7 +1478,7 @@ const TOOL_HANDLERS = {
       // per part, and produces per-part keyframes. Played back live.
       const parts = [
         { id: 'base',  name: 'Base Plate', assembledPosition: [0, 0, 0],  size: [100, 10, 100], color: 0x5a6470 },
-        { id: 'shaft', name: 'Shaft',      assembledPosition: [0, 35, 0], size: [12, 60, 12],   color: 0x8b1538 },
+        { id: 'shaft', name: 'Shaft',      assembledPosition: [0, 35, 0], size: [12, 60, 12],   color: 0x9aa3ad },
         { id: 'gear',  name: 'Gear',       assembledPosition: [0, 48, 0], size: [54, 12, 54],   color: 0xc8a04a },
         { id: 'cover', name: 'Cover',      assembledPosition: [0, 78, 0], size: [100, 8, 100],  color: 0x4a90d9 },
       ];
@@ -3311,7 +3311,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     const dir = nameLower.includes('surface') ? Vec3.unitZ() : Vec3.unitY();
     const dist = nameLower.includes('thin') ? 0.002 : 0.025; // 2mm or 25mm
     const feature = ft.addExtrude(profile, dir, dist);
-    addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x9aa3ad);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
   }
 
@@ -3319,7 +3319,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
   if (nameLower.includes('revolve')) {
     const profile = [new Vec3(0.008,0,0), new Vec3(0.020,0,0), new Vec3(0.020,0.030,0), new Vec3(0.008,0.030,0)];
     const feature = ft.addRevolve(profile, Vec3.zero(), Vec3.unitY(), Math.PI * 2, 64);
-    addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x9aa3ad);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
   }
 
@@ -3328,7 +3328,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     const profile = circleProfile(3, 12); // 3mm radius tube
     const path = helixPath(15, 30, 24);   // R15mm, H30mm helix
     const feature = ft.addSweep(profile, path);
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `${toolName}: Sweep created (Feature #${feature.id})` };
   }
 
@@ -3337,7 +3337,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     const p1 = circleProfile(20, 8).map(p => new Vec3(p.x, 0, p.z));   // R20mm
     const p2 = circleProfile(10, 8).map(p => new Vec3(p.x, 0.040, p.z)); // R10mm, 40mm up
     const feature = ft.addLoft([p1, p2], 4);
-    addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, nameLower.includes('cut') ? 0xcc4444 : 0x9aa3ad);
     return { status: 'success', message: `${toolName}: Created (Feature #${feature.id})` };
   }
 
@@ -3346,14 +3346,14 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     if (!lastSolid) { return needSolid(toolName); }
     const edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
     const feature = ft.addFillet(lastSolid.id, edgeIds, 0.15);
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `${toolName}: R=0.15m on ${edgeIds.length} edges` };
   }
   if (nameLower.includes('chamfer')) {
     if (!lastSolid) { return needSolid(toolName); }
     const edgeIds = lastSolid.solid.edges().slice(0, 4).map(e => e.id);
     const feature = ft.addChamfer(lastSolid.id, edgeIds, 0.1);
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `${toolName}: 0.1m on ${edgeIds.length} edges` };
   }
 
@@ -3363,7 +3363,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     const faceId = lastSolid.solid.faces()[0]?.id;
     if (!faceId) return needSolid(toolName);
     const feature = ft.addShell(lastSolid.id, [faceId], 0.15);
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `${toolName}: 0.15m wall, 1 face removed` };
   }
 
@@ -3373,7 +3373,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
     const faceId = lastSolid.solid.faces()[0]?.id;
     if (!faceId) return needSolid(toolName);
     const feature = ft.addPushPull(lastSolid.id, faceId, 0.5);
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `${toolName}: Face moved 0.5m` };
   }
 
@@ -3436,14 +3436,14 @@ function smartFallback(groupKey, toolName, scene, viewport) {
   // --- Dome / Indent / Rib ---
   if (nameLower === 'dome') {
     const feature = ft.addSphere(0.015, 16, 8, new Vec3(0, 0.025, 0)); // R15mm dome
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `Dome: R15mm hemispherical cap` };
   }
   if (nameLower === 'rib' || nameLower === 'coil') {
     const profile = circleProfile(2, 8);    // 2mm wire
     const path = helixPath(10, 25, 48);     // R10mm, H25mm
     const feature = ft.addSweep(profile, path);
-    addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+    addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
     return { status: 'success', message: `${toolName}: Created along helix path` };
   }
 
@@ -3512,7 +3512,7 @@ function smartFallback(groupKey, toolName, scene, viewport) {
       if (!lastSolid) return needSolid(toolName);
       const edgeIds = lastSolid.solid.edges().slice(0, 2).map(e => e.id);
       const feature = ft.addFillet(lastSolid.id, edgeIds, 0.3);
-      addSolidToScene(scene, viewport, feature.solid, 0x8b1538);
+      addSolidToScene(scene, viewport, feature.solid, 0x9aa3ad);
       return { status: 'success', message: `${toolName}: Resized to R=0.3m` };
     }
   }

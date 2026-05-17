@@ -20,7 +20,7 @@ export class PartInstance {
     this.position = transform?.position || Vec3.zero();
     this.rotation = transform?.rotation || Vec3.zero(); // euler XYZ in radians
     this.scale = transform?.scale || new Vec3(1, 1, 1);
-    this.color = transform?.color || 0x8b1538;
+    this.color = transform?.color || 0x9aa3ad;
     this.visible = true;
     this.fixed = false; // if true, cannot be moved by solver
     this.material = transform?.material || 'Aluminum 6061-T6';
