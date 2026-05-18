@@ -12,6 +12,7 @@ import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
 import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
+import { requestManifest } from '../../ai/sculptor/ComponentManifest.js';
 import { ComponentLibrary, partToStep } from '../../ai/sculptor/ComponentLibrary.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
@@ -442,7 +443,7 @@ function WorkbenchMechanical() {
     // LLM to autonomously sculpt a part from a plain-text description.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
-        window.__archdiscSculptor = { sculptPart, requestSculptPlan, executeSculptPlan, sculptAssembly };
+        window.__archdiscSculptor = { sculptPart, requestSculptPlan, executeSculptPlan, sculptAssembly, requestManifest };
         return () => { delete window.__archdiscSculptor; };
     }, []);
 
