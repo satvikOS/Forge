@@ -66,11 +66,17 @@ test('the AI decomposes the Seamaster and builds the next components, verified',
         return { volume: part.solid.volume() };
       }, plan),
       renderAndCapture: async () => {
-        await win.waitForTimeout(1200);
-        const buf = await win.locator('canvas').first().screenshot();
-        return 'data:image/png;base64,' + buf.toString('base64');
+        const views = [];
+        for (const az of [30, 100, 170, 240, 310]) {
+          await win.evaluate((a) => window.__archdiscOrbitView(a, 22), az);
+          await win.waitForTimeout(350);
+          const buf = await win.locator('canvas').first().screenshot();
+          views.push('data:image/png;base64,' + buf.toString('base64'));
+        }
+        return views;
       },
-      verify: ({ description, imageDataUrl }) => verifyRender({ description, imageDataUrl, llm }),
+      verify: ({ description, imageDataUrl }) =>
+        verifyRender({ description, imageDataUrls: imageDataUrl, llm }),
       maxRounds: 3,
     });
 
