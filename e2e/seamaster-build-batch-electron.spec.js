@@ -16,11 +16,11 @@ const ROOT = path.resolve(__dirname, '..', 'autonomous-output', 'seamaster');
 const COMPONENTS = path.join(ROOT, 'components');
 const MANIFEST = path.join(ROOT, 'manifest.json');
 const CREDS = path.resolve(__dirname, '..', '.llm-credentials.local.json');
-const BATCH = 2;
+const BATCH = 25;
 
 test('the AI decomposes the Seamaster and builds the next components, verified', async () => {
   test.skip(!fs.existsSync(CREDS), 'no .llm-credentials.local.json — BYO LLM not configured');
-  test.setTimeout(600000);
+  test.setTimeout(2400000);
   const cred = JSON.parse(fs.readFileSync(CREDS, 'utf8'));
   const llm = { provider: cred.provider, apiKey: cred.apiKey, baseUrl: cred.endpoint, model: cred.model };
   fs.mkdirSync(COMPONENTS, { recursive: true });
