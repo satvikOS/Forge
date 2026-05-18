@@ -145,29 +145,37 @@ export async function extrude(part, distance) {
 
 /**
  * Cut: extrude the pending sketch profile into a tool and subtract it from
- * the Part's current solid. The tool starts 1 mm below z = 0, so pass a
- * `distance` GREATER than the material thickness for a clean through-cut
- * (coincident faces in a boolean are fragile). Records a 'cut' feature.
+ * the Part's current solid.
+ *
+ * For an XY-plane sketch the tool starts 1 mm below z=0 and goes up. For a
+ * sketch-on-face (top/bottom) sketch — `part.pendingBaseZ` non-zero — the tool
+ * is positioned to cut DOWNWARD from that face: its top sits 1 mm proud of the
+ * face and it removes a pocket of depth `distance` (a through-cut when
+ * `distance` exceeds the material thickness).
  *
  * @param {Part} part
- * @param {number} distance  cut depth (mm, > 0; exceed the material thickness
- *                           for a through-cut)
+ * @param {number} distance  cut depth (mm, > 0; exceed the thickness for a
+ *                           through-cut)
  * @returns {Promise<object>} the resulting manifold-3d solid
  */
 export async function cut(part, distance) {
   if (!part.pendingProfile) throw new Error('cut: no finished sketch profile — call finishSketch first');
   if (!part.solid) throw new Error('cut: no solid to cut — extrude a base first');
   if (!(distance > 0)) throw new Error('cut: distance must be > 0');
-  if (part.pendingBaseZ) throw new Error('cut: sketch-on-face is not supported for cut yet — sketch on the XY plane for cuts');
   const Mod = await getManifold();
   const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
   const tool = Mod.Manifold.extrude(cs, distance);
   cs.delete();
-  const loweredTool = tool.translate([0, 0, -1]);   // start below z=0 for a clean through-cut
+  // Position the tool. XY-plane cut: tool spans z = -1 .. distance-1 (cuts up
+  // from below the base). Sketch-on-face cut at z = baseZ: tool spans
+  // z = baseZ+1-distance .. baseZ+1 (cuts down from 1 mm proud of the face).
+  const baseZ = part.pendingBaseZ ?? 0;
+  const dz = baseZ ? (baseZ + 1 - distance) : -1;
+  const positioned = tool.translate([0, 0, dz]);
   tool.delete();
-  const result = Mod.Manifold.difference(part.solid, loweredTool);
+  const result = Mod.Manifold.difference(part.solid, positioned);
   part.solid.delete();
-  loweredTool.delete();
+  positioned.delete();
   part.solid = result;
   part.pendingProfile = null;
   part.pendingBaseZ = 0;
