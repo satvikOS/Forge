@@ -10,7 +10,7 @@ import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve } from '../../kernel/atomic/AtomicOps.js';
-import { sculptPart } from '../../ai/sculptor/PartSculptor.js';
+import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -438,7 +438,7 @@ function WorkbenchMechanical() {
     // LLM to autonomously sculpt a part from a plain-text description.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
-        window.__archdiscSculptor = { sculptPart };
+        window.__archdiscSculptor = { sculptPart, requestSculptPlan, executeSculptPlan };
         return () => { delete window.__archdiscSculptor; };
     }, []);
 
