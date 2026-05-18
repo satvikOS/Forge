@@ -44,6 +44,7 @@ export function buildSculptPrompt() {
     '       Use distance GREATER than the material thickness for a clean through-hole.',
     '- {"op":"revolve","segments":N,"degrees":N} — revolve the finished profile into a solid of',
     '       revolution; the profile must lie in the +X half (all x >= 0).',
+    '       segments and degrees are optional (defaults: 64 segments, 360 degrees).',
     '',
     'Rules:',
     '- The first feature must be an extrude or a revolve (cut needs existing material).',
@@ -91,4 +92,58 @@ export function parseSculptPlan(text) {
     }
   }
   return ops;
+}
+
+/**
+ * Execute a validated operation plan through an AtomicOps-shaped API,
+ * building a Part. The `atomicApi` must provide `createPart, startSketch,
+ * sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve`.
+ *
+ * @param {Array<object>} plan  operations (validated by parseSculptPlan)
+ * @param {object} atomicApi    the AtomicOps API
+ * @returns {Promise<object>} the sculpted Part
+ */
+export async function executeSculptPlan(plan, atomicApi) {
+  const part = atomicApi.createPart('AI-Sculpted Part');
+  for (const o of plan) {
+    switch (o.op) {
+      case 'startSketch':     atomicApi.startSketch(part, o.plane ?? 'XY'); break;
+      case 'sketchRectangle': atomicApi.sketchRectangle(part, o.cx, o.cy, o.w, o.h); break;
+      case 'sketchCircle':    atomicApi.sketchCircle(part, o.cx, o.cy, o.r); break;
+      case 'finishSketch':    atomicApi.finishSketch(part); break;
+      case 'extrude':         await atomicApi.extrude(part, o.distance); break;
+      case 'cut':             await atomicApi.cut(part, o.distance); break;
+      case 'revolve':         await atomicApi.revolve(part, o.segments ?? 64, o.degrees ?? 360); break;
+      default: throw new Error(`executeSculptPlan: unknown op '${o.op}'`);
+    }
+  }
+  return part;
+}
+
+/**
+ * The full L2 sculpt: ask the LLM for an operation plan, parse it, and
+ * execute it into a Part.
+ *
+ * @param {object}   args
+ * @param {string}   args.description  plain-text part description
+ * @param {object}   args.llm          { provider, apiKey, baseUrl, model }
+ * @param {object}   args.atomicApi    the AtomicOps API
+ * @param {object}   [args.providers]  PROVIDERS map (injected for testing;
+ *                                     defaults to ai/PlannerProviders PROVIDERS)
+ * @returns {Promise<{part:object, plan:Array, raw:string}>}
+ */
+export async function sculptPart({ description, llm, atomicApi, providers }) {
+  const PROV = providers ?? (await import('../PlannerProviders.js')).PROVIDERS;
+  const provider = PROV[llm?.provider];
+  if (!provider) throw new Error(`sculptPart: unknown LLM provider '${llm?.provider}'`);
+  const raw = await provider.generate({
+    apiKey: llm.apiKey,
+    model: llm.model,
+    baseUrl: llm.baseUrl,
+    system: buildSculptPrompt(),
+    userMessage: `Part to sculpt: ${description}`,
+  });
+  const plan = parseSculptPlan(raw);
+  const part = await executeSculptPlan(plan, atomicApi);
+  return { part, plan, raw };
 }
