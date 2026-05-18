@@ -12,6 +12,7 @@ import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
 import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
+import { ComponentLibrary, partToStep } from '../../ai/sculptor/ComponentLibrary.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -443,6 +444,25 @@ function WorkbenchMechanical() {
         if (typeof window === 'undefined') return undefined;
         window.__archdiscSculptor = { sculptPart, requestSculptPlan, executeSculptPlan, sculptAssembly };
         return () => { delete window.__archdiscSculptor; };
+    }, []);
+
+    // The session-wide component library: each finished component is saved
+    // here (and exported to STEP) so the build never loses a completed part.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const library = new ComponentLibrary();
+        window.__archdiscComponents = {
+            library,
+            partToStep,
+            save: async ({ id, name, part }) => {
+                const stepText = await partToStep(part);
+                return library.saveComponent({ id, name, stepText, volume: part.solid.volume() });
+            },
+            list: () => library.list(),
+            get: (id) => library.get(id),
+            count: () => library.count(),
+        };
+        return () => { delete window.__archdiscComponents; };
     }, []);
 
     // Get selected model from context
