@@ -8,6 +8,12 @@ test.describe('PartSculptor — prompt', () => {
       expect(p).toContain(op);
     }
   });
+
+  test('the prompt explains sketching on the top face for a boss', () => {
+    const p = buildSculptPrompt();
+    expect(p).toContain('top');
+    expect(p.toLowerCase()).toContain('boss');
+  });
 });
 
 test.describe('PartSculptor — parseSculptPlan', () => {
