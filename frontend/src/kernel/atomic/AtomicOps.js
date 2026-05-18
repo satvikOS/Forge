@@ -25,14 +25,29 @@ export function createPart(name = 'Part') {
 }
 
 /**
- * Open a new sketch on a datum plane. Only one sketch may be open at a time.
+ * Open a new sketch. `plane` selects where the sketch sits:
+ *  - 'XY'     — the base XY plane at z = 0 (default).
+ *  - 'top'    — the top face of the current solid (its max-Z) — for a boss.
+ *  - 'bottom' — the bottom face of the current solid (its min-Z).
+ * Only one sketch may be open at a time.
+ *
  * @param {Part} part
- * @param {string} [plane]  datum plane id ('XY' for Plan 2)
- * @returns {object} the open sketch
+ * @param {string} [plane]  'XY' | 'top' | 'bottom'
+ * @returns {Promise<object>} the open sketch
  */
-export function startSketch(part, plane = 'XY') {
+export async function startSketch(part, plane = 'XY') {
   if (part.activeSketch) throw new Error('startSketch: a sketch is already open — finishSketch first');
-  part.activeSketch = { plane, loops: [] };
+  let baseZ = 0;
+  if (plane === 'top' || plane === 'bottom') {
+    if (!part.solid) {
+      throw new Error(`startSketch: plane '${plane}' needs an existing solid — extrude a base first`);
+    }
+    const bbox = part.solid.boundingBox();
+    baseZ = plane === 'top' ? bbox.max[2] : bbox.min[2];
+  } else if (plane !== 'XY') {
+    throw new Error(`startSketch: unknown plane '${plane}' (use 'XY', 'top', or 'bottom')`);
+  }
+  part.activeSketch = { plane, baseZ, loops: [] };
   part.addFeature('startSketch', { plane });
   return part.activeSketch;
 }
@@ -77,8 +92,8 @@ export function sketchCircle(part, cx, cy, r, segments = 64) {
 }
 
 /**
- * Close the open sketch. Its loops become the pending profile for the next
- * feature operation (e.g. extrude).
+ * Close the open sketch. Its loops + base Z become the pending profile for
+ * the next feature operation.
  * @param {Part} part
  * @returns {Array<Array<[number,number]>>} the closed profile loops
  */
@@ -86,6 +101,7 @@ export function finishSketch(part) {
   if (!part.activeSketch) throw new Error('finishSketch: no open sketch');
   if (part.activeSketch.loops.length === 0) throw new Error('finishSketch: sketch has no geometry');
   part.pendingProfile = part.activeSketch.loops;
+  part.pendingBaseZ = part.activeSketch.baseZ ?? 0;
   const loopCount = part.pendingProfile.length;
   part.activeSketch = null;
   part.addFeature('finishSketch', { loops: loopCount });
@@ -104,8 +120,15 @@ export async function extrude(part, distance) {
   if (!(distance > 0)) throw new Error('extrude: distance must be > 0');
   const Mod = await getManifold();
   const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
-  const block = Mod.Manifold.extrude(cs, distance);
+  let block = Mod.Manifold.extrude(cs, distance);
   cs.delete();
+
+  const baseZ = part.pendingBaseZ ?? 0;
+  if (baseZ !== 0) {
+    const lifted = block.translate([0, 0, baseZ]);
+    block.delete();
+    block = lifted;
+  }
 
   let result = block;
   if (part.solid) {
@@ -115,6 +138,7 @@ export async function extrude(part, distance) {
   }
   part.solid = result;
   part.pendingProfile = null;
+  part.pendingBaseZ = 0;
   part.addFeature('extrude', { distance }, result);
   return result;
 }
@@ -134,6 +158,7 @@ export async function cut(part, distance) {
   if (!part.pendingProfile) throw new Error('cut: no finished sketch profile — call finishSketch first');
   if (!part.solid) throw new Error('cut: no solid to cut — extrude a base first');
   if (!(distance > 0)) throw new Error('cut: distance must be > 0');
+  if (part.pendingBaseZ) throw new Error('cut: sketch-on-face is not supported for cut yet — sketch on the XY plane for cuts');
   const Mod = await getManifold();
   const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
   const tool = Mod.Manifold.extrude(cs, distance);
@@ -145,6 +170,7 @@ export async function cut(part, distance) {
   loweredTool.delete();
   part.solid = result;
   part.pendingProfile = null;
+  part.pendingBaseZ = 0;
   part.addFeature('cut', { distance }, result);
   return result;
 }
@@ -164,6 +190,7 @@ export async function revolve(part, segments = 64, degrees = 360) {
   if (!part.pendingProfile) throw new Error('revolve: no finished sketch profile — call finishSketch first');
   if (!(segments >= 3)) throw new Error('revolve: segments must be >= 3');
   if (!(degrees > 0)) throw new Error('revolve: degrees must be > 0');
+  if (part.pendingBaseZ) throw new Error('revolve: sketch-on-face is not supported for revolve yet — sketch on the XY plane');
   const Mod = await getManifold();
   const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
   const body = Mod.Manifold.revolve(cs, segments, degrees);
@@ -177,6 +204,7 @@ export async function revolve(part, segments = 64, degrees = 360) {
   }
   part.solid = result;
   part.pendingProfile = null;
+  part.pendingBaseZ = 0;
   part.addFeature('revolve', { segments, degrees }, result);
   return result;
 }

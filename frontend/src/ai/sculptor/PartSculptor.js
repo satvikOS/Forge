@@ -107,7 +107,7 @@ export async function executeSculptPlan(plan, atomicApi) {
   const part = atomicApi.createPart('AI-Sculpted Part');
   for (const o of plan) {
     switch (o.op) {
-      case 'startSketch':     atomicApi.startSketch(part, o.plane ?? 'XY'); break;
+      case 'startSketch':     await atomicApi.startSketch(part, o.plane ?? 'XY'); break;
       case 'sketchRectangle': atomicApi.sketchRectangle(part, o.cx, o.cy, o.w, o.h); break;
       case 'sketchCircle':    atomicApi.sketchCircle(part, o.cx, o.cy, o.r); break;
       case 'finishSketch':    atomicApi.finishSketch(part); break;
