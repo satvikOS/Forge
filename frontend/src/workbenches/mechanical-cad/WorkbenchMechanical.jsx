@@ -8,6 +8,7 @@ import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
+import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut } from '../../kernel/atomic/AtomicOps.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
@@ -413,7 +414,14 @@ function WorkbenchMechanical() {
             createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut,
             render: (part, color) => {
                 if (lastAtomicGroup) {
-                    scene.remove(lastAtomicGroup);
+                    // Unregister from the body registry (also removes from scene)
+                    // so the BODIES panel shows only the current atomic body.
+                    const prevId = lastAtomicGroup.userData.bodyId;
+                    if (prevId) {
+                        getBodyRegistry().remove(prevId);
+                    } else {
+                        scene.remove(lastAtomicGroup);
+                    }
                     lastAtomicGroup = null;
                 }
                 lastAtomicGroup = addFoundationManifoldToScene(
