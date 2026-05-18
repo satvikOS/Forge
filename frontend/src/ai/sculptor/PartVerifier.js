@@ -22,6 +22,8 @@ export function buildVerifyPrompt() {
     'intended mechanical part and a rendered image of the part a CAD agent',
     'actually built. Judge whether the rendered part faithfully matches the',
     'description.',
+    'You are shown the rendered part from SEVERAL camera angles — judge the',
+    'whole 3-D shape, not a single silhouette.',
     '',
     'Output ONLY a JSON object — no prose, no markdown:',
     '{"matches": boolean, "feedback": "one short sentence", "revisedOperations": [...] or null}',
@@ -60,19 +62,30 @@ export function parseVerifyResponse(text) {
 }
 
 /**
- * Ask a vision-capable LLM whether `imageDataUrl` matches `description`.
- * Assumes an Azure-OpenAI-style v1 chat endpoint (`api-key` header,
- * multimodal user content).
+ * Ask a vision-capable LLM whether the rendered part matches `description`.
+ * Accepts either `imageDataUrls` (an array of data: URLs — multiple camera
+ * angles) or a single `imageDataUrl`. All views go in one multimodal message.
+ * Assumes an Azure-OpenAI-style v1 chat endpoint.
  *
  * @param {object} args
- * @param {string} args.description    the intended part
- * @param {string} args.imageDataUrl   a data: URL of the rendered part
- * @param {object} args.llm            { apiKey, baseUrl, model }
+ * @param {string} args.description
+ * @param {string[]} [args.imageDataUrls]  data: URLs, one per camera angle
+ * @param {string} [args.imageDataUrl]     a single data: URL (back-compat)
+ * @param {object} args.llm                { apiKey, baseUrl, model }
  * @returns {Promise<{matches:boolean, feedback:string, revisedOperations:Array|null}>}
  */
-export async function verifyRender({ description, imageDataUrl, llm }) {
+export async function verifyRender({ description, imageDataUrls, imageDataUrl, llm }) {
   if (!llm?.baseUrl) throw new Error('verifyRender: llm.baseUrl is required');
+  const urls = Array.isArray(imageDataUrls) && imageDataUrls.length
+    ? imageDataUrls
+    : (imageDataUrl ? [imageDataUrl] : []);
+  if (urls.length === 0) throw new Error('verifyRender: at least one image is required');
   const url = `${llm.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const content = [
+    { type: 'text', text: `Intended part: ${description}\n`
+      + `You are shown the rendered part from ${urls.length} camera angle(s).` },
+    ...urls.map((u) => ({ type: 'image_url', image_url: { url: u } })),
+  ];
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'api-key': llm.apiKey },
@@ -81,13 +94,7 @@ export async function verifyRender({ description, imageDataUrl, llm }) {
       temperature: 0.1,
       messages: [
         { role: 'system', content: buildVerifyPrompt() },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: `Intended part: ${description}` },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
-          ],
-        },
+        { role: 'user', content },
       ],
     }),
   });
