@@ -121,21 +121,18 @@ export async function executeSculptPlan(plan, atomicApi) {
 }
 
 /**
- * The full L2 sculpt: ask the LLM for an operation plan, parse it, and
- * execute it into a Part.
+ * Ask the LLM for an atomic-operation plan and return the validated plan.
  *
- * @param {object}   args
- * @param {string}   args.description  plain-text part description
- * @param {object}   args.llm          { provider, apiKey, baseUrl, model }
- * @param {object}   args.atomicApi    the AtomicOps API
- * @param {object}   [args.providers]  PROVIDERS map (injected for testing;
- *                                     defaults to ai/PlannerProviders PROVIDERS)
- * @returns {Promise<{part:object, plan:Array, raw:string}>}
+ * @param {object} args
+ * @param {string} args.description  plain-text part description
+ * @param {object} args.llm          { provider, apiKey, baseUrl, model }
+ * @param {object} [args.providers]  PROVIDERS map (injected for testing)
+ * @returns {Promise<Array<object>>} the validated operation plan
  */
-export async function sculptPart({ description, llm, atomicApi, providers }) {
+export async function requestSculptPlan({ description, llm, providers }) {
   const PROV = providers ?? (await import('../PlannerProviders.js')).PROVIDERS;
   const provider = PROV[llm?.provider];
-  if (!provider) throw new Error(`sculptPart: unknown LLM provider '${llm?.provider}'`);
+  if (!provider) throw new Error(`requestSculptPlan: unknown LLM provider '${llm?.provider}'`);
   const raw = await provider.generate({
     apiKey: llm.apiKey,
     model: llm.model,
@@ -143,7 +140,60 @@ export async function sculptPart({ description, llm, atomicApi, providers }) {
     system: buildSculptPrompt(),
     userMessage: `Part to sculpt: ${description}`,
   });
-  const plan = parseSculptPlan(raw);
+  return parseSculptPlan(raw);
+}
+
+/**
+ * The full L2 sculpt: ask the LLM for an operation plan and execute it.
+ *
+ * @param {object}   args
+ * @param {string}   args.description  plain-text part description
+ * @param {object}   args.llm          { provider, apiKey, baseUrl, model }
+ * @param {object}   args.atomicApi    the AtomicOps API
+ * @param {object}   [args.providers]  PROVIDERS map (injected for testing)
+ * @returns {Promise<{part:object, plan:Array}>}
+ */
+export async function sculptPart({ description, llm, atomicApi, providers }) {
+  const plan = await requestSculptPlan({ description, llm, providers });
   const part = await executeSculptPlan(plan, atomicApi);
-  return { part, plan, raw };
+  return { part, plan };
+}
+
+/**
+ * The closing L2 loop: produce a plan, execute it, render it, and have a
+ * vision LLM verify the render against the description — revising and
+ * re-executing when the verdict rejects. All side-effecting steps are
+ * injected callbacks so the loop itself is environment-agnostic and
+ * unit-testable.
+ *
+ * @param {object} args
+ * @param {string}   args.description       the intended part
+ * @param {Function} args.requestPlan       async () => operations array
+ * @param {Function} args.executePlan       async (plan) => result handle
+ * @param {Function} args.renderAndCapture  async () => image data URL
+ * @param {Function} args.verify            async ({description,imageDataUrl})
+ *                                          => {matches,feedback,revisedOperations}
+ * @param {number}   [args.maxRounds]       max verify rounds (default 3)
+ * @returns {Promise<{plan:Array, result:*, rounds:Array, accepted:boolean}>}
+ */
+export async function sculptAndVerify({
+  description, requestPlan, executePlan, renderAndCapture, verify, maxRounds = 3,
+}) {
+  let plan = await requestPlan();
+  let result = await executePlan(plan);
+  const rounds = [];
+  for (let r = 1; r <= maxRounds; r++) {
+    const imageDataUrl = await renderAndCapture();
+    const verdict = await verify({ description, imageDataUrl });
+    rounds.push({ round: r, matches: verdict.matches, feedback: verdict.feedback });
+    if (verdict.matches) {
+      return { plan, result, rounds, accepted: true };
+    }
+    if (!verdict.revisedOperations || r === maxRounds) {
+      return { plan, result, rounds, accepted: false };
+    }
+    plan = verdict.revisedOperations;
+    result = await executePlan(plan);
+  }
+  return { plan, result, rounds, accepted: false };
 }
