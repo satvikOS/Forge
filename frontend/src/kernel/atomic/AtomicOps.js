@@ -227,7 +227,6 @@ export async function revolve(part, segments = 64, degrees = 360) {
  */
 export async function circularPattern(part, mode, count, distance, angle = 360) {
   if (!part.pendingProfile) throw new Error('circularPattern: no finished sketch profile — call finishSketch first');
-  if (part.pendingBaseZ) throw new Error('circularPattern: sketch on the XY plane for patterns');
   if (mode !== 'extrude' && mode !== 'cut') throw new Error("circularPattern: mode must be 'extrude' or 'cut'");
   if (!(count >= 1)) throw new Error('circularPattern: count must be >= 1');
   if (!(distance > 0)) throw new Error('circularPattern: distance must be > 0');
@@ -251,19 +250,31 @@ export async function circularPattern(part, mode, count, distance, angle = 360) 
   }
   seed.delete();
 
+  const baseZ = part.pendingBaseZ ?? 0;
   let result;
   if (mode === 'cut') {
+    // For cuts, start 1 mm below z=0 for a clean through-cut regardless of which
+    // plane the sketch was on (same convention as the plain `cut` operation).
     const tool = pattern.translate([0, 0, -1]);
     pattern.delete();
     result = Mod.Manifold.difference(part.solid, tool);
     part.solid.delete();
     tool.delete();
-  } else if (part.solid) {
-    result = Mod.Manifold.union(part.solid, pattern);
-    part.solid.delete();
-    pattern.delete();
   } else {
-    result = pattern;
+    // For extrude mode, honour the sketch plane (lift by baseZ).
+    let placed = pattern;
+    if (baseZ !== 0) {
+      const lifted = placed.translate([0, 0, baseZ]);
+      placed.delete();
+      placed = lifted;
+    }
+    if (part.solid) {
+      result = Mod.Manifold.union(part.solid, placed);
+      part.solid.delete();
+      placed.delete();
+    } else {
+      result = placed;
+    }
   }
   part.solid = result;
   part.pendingProfile = null;
