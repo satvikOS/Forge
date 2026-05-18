@@ -355,3 +355,25 @@ export async function linearPattern(part, mode, count, distance, dx, dy) {
   part.addFeature('linearPattern', { mode, count, distance, dx, dy }, result);
   return result;
 }
+
+/**
+ * Translate: move the part's whole current solid by (dx, dy, dz) mm. Used to
+ * position a finished part within an assembly.
+ *
+ * @param {Part} part
+ * @param {number} dx  x offset (mm)
+ * @param {number} dy  y offset (mm)
+ * @param {number} dz  z offset (mm)
+ * @returns {object} the moved manifold-3d solid
+ */
+export function translate(part, dx, dy, dz) {
+  if (!part.solid) throw new Error('translate: nothing to translate — build a solid first');
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(dz)) {
+    throw new Error('translate: dx, dy, dz must be finite numbers');
+  }
+  const moved = part.solid.translate([dx, dy, dz]);
+  part.solid.delete();
+  part.solid = moved;
+  part.addFeature('translate', { dx, dy, dz }, moved);
+  return moved;
+}
