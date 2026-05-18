@@ -18,6 +18,7 @@ const OP_SCHEMA = {
   extrude:         ['distance'],
   cut:             ['distance'],
   revolve:         [],
+  circularPattern: ['count', 'distance'],
 };
 
 /**
@@ -48,6 +49,12 @@ export function buildSculptPrompt() {
     '- {"op":"revolve","segments":N,"degrees":N} — revolve the finished profile into a solid of',
     '       revolution; the profile must lie in the +X half (all x >= 0).',
     '       segments and degrees are optional (defaults: 64 segments, 360 degrees).',
+    '- {"op":"circularPattern","mode":"extrude"|"cut","count":N,"distance":N,"angle":N}',
+    '       — extrude the finished profile and make `count` copies evenly spaced around',
+    '       the Z axis over `angle` degrees (default 360); mode "extrude" adds them (gear',
+    '       teeth), mode "cut" subtracts them (a bolt circle of holes). The profile is',
+    '       patterned about the origin — sketch the single feature offset from the origin',
+    '       (e.g. a hole centred at (bolt_circle_radius, 0)).',
     '',
     'Rules:',
     '- The first feature must be an extrude or a revolve (cut needs existing material).',
@@ -117,6 +124,7 @@ export async function executeSculptPlan(plan, atomicApi) {
       case 'extrude':         await atomicApi.extrude(part, o.distance); break;
       case 'cut':             await atomicApi.cut(part, o.distance); break;
       case 'revolve':         await atomicApi.revolve(part, o.segments ?? 64, o.degrees ?? 360); break;
+      case 'circularPattern': await atomicApi.circularPattern(part, o.mode, o.count, o.distance, o.angle ?? 360); break;
       default: throw new Error(`executeSculptPlan: unknown op '${o.op}'`);
     }
   }

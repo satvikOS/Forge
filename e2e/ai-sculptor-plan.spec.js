@@ -63,6 +63,19 @@ test.describe('PartSculptor — parseSculptPlan', () => {
     ] }));
     expect(plan.length).toBe(8);
   });
+
+  test('accepts a circularPattern op with numeric count and distance', () => {
+    const plan = parseSculptPlan(JSON.stringify({ operations: [
+      { op: 'circularPattern', mode: 'cut', count: 6, distance: 12 },
+    ] }));
+    expect(plan.length).toBe(1);
+    expect(plan[0].op).toBe('circularPattern');
+  });
+
+  test('rejects a circularPattern op missing the numeric count', () => {
+    expect(() => parseSculptPlan('[{"op":"circularPattern","mode":"cut","distance":12}]'))
+      .toThrow(/circularPattern/);
+  });
 });
 
 test.describe('PartSculptor — executeSculptPlan', () => {
@@ -80,6 +93,8 @@ test.describe('PartSculptor — executeSculptPlan', () => {
       extrude: async (p, d) => calls.push(['extrude', d]),
       cut: async (p, d) => calls.push(['cut', d]),
       revolve: async (p, s, deg) => calls.push(['revolve', s, deg]),
+      circularPattern: async (p, mode, count, distance, angle) =>
+        calls.push(['circularPattern', mode, count, distance, angle]),
     };
   }
 
@@ -114,5 +129,16 @@ test.describe('PartSculptor — executeSculptPlan', () => {
   test('an unknown op in executeSculptPlan throws', async () => {
     const api = fakeAtomicApi();
     await expect(executeSculptPlan([{ op: 'warpDrive' }], api)).rejects.toThrow(/unknown op/);
+  });
+
+  test('executeSculptPlan dispatches circularPattern to the atomic api', async () => {
+    const api = fakeAtomicApi();
+    await executeSculptPlan([
+      { op: 'startSketch', plane: 'XY' },
+      { op: 'sketchCircle', cx: 20, cy: 0, r: 4 },
+      { op: 'finishSketch' },
+      { op: 'circularPattern', mode: 'cut', count: 6, distance: 12 },
+    ], api);
+    expect(api.calls[api.calls.length - 1]).toEqual(['circularPattern', 'cut', 6, 12, 360]);
   });
 });
