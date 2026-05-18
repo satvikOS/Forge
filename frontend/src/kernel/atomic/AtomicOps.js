@@ -282,3 +282,76 @@ export async function circularPattern(part, mode, count, distance, angle = 360) 
   part.addFeature('circularPattern', { mode, count, distance, angle }, result);
   return result;
 }
+
+/**
+ * Linear pattern: extrude the pending sketch profile into a seed solid, make
+ * `count` copies in a straight row each offset by (dx, dy) mm from the last,
+ * and union them (mode 'extrude') or subtract them (mode 'cut') into the part.
+ * Use this for rows of holes (cut) or repeated bosses/ribs (extrude).
+ *
+ * Copies are placed at i*(dx,dy) for i = 0..count-1 — so the first copy is at
+ * the sketched position; sketch the single feature where the row should start.
+ *
+ * @param {Part} part
+ * @param {string} mode      'extrude' (additive) or 'cut' (subtractive)
+ * @param {number} count     number of copies (>= 1)
+ * @param {number} distance  extrude depth of each copy (mm, > 0)
+ * @param {number} dx        x step between copies (mm)
+ * @param {number} dy        y step between copies (mm)
+ * @returns {Promise<object>} the resulting manifold-3d solid
+ */
+export async function linearPattern(part, mode, count, distance, dx, dy) {
+  if (!part.pendingProfile) throw new Error('linearPattern: no finished sketch profile — call finishSketch first');
+  if (mode !== 'extrude' && mode !== 'cut') throw new Error("linearPattern: mode must be 'extrude' or 'cut'");
+  if (!(count >= 1)) throw new Error('linearPattern: count must be >= 1');
+  if (!(distance > 0)) throw new Error('linearPattern: distance must be > 0');
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error('linearPattern: dx and dy must be finite numbers');
+  if (mode === 'cut' && !part.solid) throw new Error('linearPattern: cut needs an existing solid');
+  const Mod = await getManifold();
+  const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
+  const seed = Mod.Manifold.extrude(cs, distance);
+  cs.delete();
+
+  let pattern = null;
+  for (let i = 0; i < count; i++) {
+    const copy = seed.translate([dx * i, dy * i, 0]);
+    if (pattern === null) {
+      pattern = copy;
+    } else {
+      const merged = Mod.Manifold.union(pattern, copy);
+      pattern.delete();
+      copy.delete();
+      pattern = merged;
+    }
+  }
+  seed.delete();
+
+  let result;
+  if (mode === 'cut') {
+    const tool = pattern.translate([0, 0, -1]);
+    pattern.delete();
+    result = Mod.Manifold.difference(part.solid, tool);
+    part.solid.delete();
+    tool.delete();
+  } else {
+    const baseZ = part.pendingBaseZ ?? 0;
+    let placed = pattern;
+    if (baseZ !== 0) {
+      const lifted = placed.translate([0, 0, baseZ]);
+      placed.delete();
+      placed = lifted;
+    }
+    if (part.solid) {
+      result = Mod.Manifold.union(part.solid, placed);
+      part.solid.delete();
+      placed.delete();
+    } else {
+      result = placed;
+    }
+  }
+  part.solid = result;
+  part.pendingProfile = null;
+  part.pendingBaseZ = 0;
+  part.addFeature('linearPattern', { mode, count, distance, dx, dy }, result);
+  return result;
+}
