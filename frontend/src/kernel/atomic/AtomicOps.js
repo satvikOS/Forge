@@ -148,3 +148,35 @@ export async function cut(part, distance) {
   part.addFeature('cut', { distance }, result);
   return result;
 }
+
+/**
+ * Revolve: revolve the pending sketch profile around the axis to form a
+ * solid of revolution, and union it into the Part's current solid. The
+ * profile must lie in the positive-X half-plane (x >= 0) — the revolve
+ * axis is the Y axis. Records a 'revolve' feature.
+ *
+ * @param {Part} part
+ * @param {number} [segments]  circular segment count (>= 3)
+ * @param {number} [degrees]   revolve sweep angle in degrees (default 360)
+ * @returns {Promise<object>} the resulting manifold-3d solid
+ */
+export async function revolve(part, segments = 64, degrees = 360) {
+  if (!part.pendingProfile) throw new Error('revolve: no finished sketch profile — call finishSketch first');
+  if (!(segments >= 3)) throw new Error('revolve: segments must be >= 3');
+  if (!(degrees > 0)) throw new Error('revolve: degrees must be > 0');
+  const Mod = await getManifold();
+  const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
+  const body = Mod.Manifold.revolve(cs, segments, degrees);
+  cs.delete();
+
+  let result = body;
+  if (part.solid) {
+    result = Mod.Manifold.union(part.solid, body);
+    part.solid.delete();
+    body.delete();
+  }
+  part.solid = result;
+  part.pendingProfile = null;
+  part.addFeature('revolve', { segments, degrees }, result);
+  return result;
+}
