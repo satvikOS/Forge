@@ -19,6 +19,7 @@ const OP_SCHEMA = {
   cut:             ['distance'],
   revolve:         [],
   circularPattern: ['count', 'distance'],
+  linearPattern:   ['count', 'distance', 'dx', 'dy'],
 };
 
 /**
@@ -57,6 +58,10 @@ export function buildSculptPrompt() {
     '       single feature offset from the origin (e.g. a hole centred at',
     '       (bolt_circle_radius, 0)). For a bolt circle: sketch ONE hole, finishSketch,',
     '       then circularPattern with mode "cut".',
+    '- {"op":"linearPattern","mode":"extrude"|"cut","count":N,"distance":N,"dx":N,"dy":N}',
+    '       — extrude the finished profile and make `count` copies in a straight row,',
+    '       each offset by (dx,dy) mm; mode "extrude" adds them, "cut" subtracts them',
+    '       (a row of holes). The first copy is at the sketched position.',
     '',
     'Rules:',
     '- The first feature must be an extrude or a revolve (cut needs existing material).',
@@ -127,6 +132,7 @@ export async function executeSculptPlan(plan, atomicApi) {
       case 'cut':             await atomicApi.cut(part, o.distance); break;
       case 'revolve':         await atomicApi.revolve(part, o.segments ?? 64, o.degrees ?? 360); break;
       case 'circularPattern': await atomicApi.circularPattern(part, o.mode, o.count, o.distance, o.angle ?? 360); break;
+      case 'linearPattern': await atomicApi.linearPattern(part, o.mode, o.count, o.distance, o.dx, o.dy); break;
       default: throw new Error(`executeSculptPlan: unknown op '${o.op}'`);
     }
   }

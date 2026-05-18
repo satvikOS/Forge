@@ -76,6 +76,19 @@ test.describe('PartSculptor — parseSculptPlan', () => {
     expect(() => parseSculptPlan('[{"op":"circularPattern","mode":"cut","distance":12}]'))
       .toThrow(/circularPattern/);
   });
+
+  test('accepts a linearPattern op with numeric count, distance, dx, dy', () => {
+    const plan = parseSculptPlan(JSON.stringify({ operations: [
+      { op: 'linearPattern', mode: 'cut', count: 4, distance: 12, dx: 15, dy: 0 },
+    ] }));
+    expect(plan.length).toBe(1);
+    expect(plan[0].op).toBe('linearPattern');
+  });
+
+  test('rejects a linearPattern op missing the numeric dx', () => {
+    expect(() => parseSculptPlan('[{"op":"linearPattern","mode":"cut","count":4,"distance":12,"dy":0}]'))
+      .toThrow(/linearPattern/);
+  });
 });
 
 test.describe('PartSculptor — executeSculptPlan', () => {
@@ -140,5 +153,24 @@ test.describe('PartSculptor — executeSculptPlan', () => {
       { op: 'circularPattern', mode: 'cut', count: 6, distance: 12 },
     ], api);
     expect(api.calls[api.calls.length - 1]).toEqual(['circularPattern', 'cut', 6, 12, 360]);
+  });
+
+  test('executeSculptPlan dispatches linearPattern to the atomic api', async () => {
+    const calls = [];
+    const api = {
+      createPart: () => ({}),
+      startSketch: () => calls.push(['startSketch']),
+      sketchCircle: (p, cx, cy, r) => calls.push(['sketchCircle', cx, cy, r]),
+      finishSketch: () => calls.push(['finishSketch']),
+      linearPattern: async (p, mode, count, distance, dx, dy) =>
+        calls.push(['linearPattern', mode, count, distance, dx, dy]),
+    };
+    await executeSculptPlan([
+      { op: 'startSketch', plane: 'XY' },
+      { op: 'sketchCircle', cx: -22.5, cy: 0, r: 3 },
+      { op: 'finishSketch' },
+      { op: 'linearPattern', mode: 'cut', count: 4, distance: 12, dx: 15, dy: 0 },
+    ], api);
+    expect(calls[calls.length - 1]).toEqual(['linearPattern', 'cut', 4, 12, 15, 0]);
   });
 });
