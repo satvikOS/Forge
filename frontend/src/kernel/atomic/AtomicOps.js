@@ -208,3 +208,66 @@ export async function revolve(part, segments = 64, degrees = 360) {
   part.addFeature('revolve', { segments, degrees }, result);
   return result;
 }
+
+/**
+ * Circular pattern: extrude the pending sketch profile into a seed solid,
+ * make `count` copies evenly spaced around the Z axis over `angle` degrees,
+ * and union them (mode 'extrude') or subtract them (mode 'cut') into the
+ * part. Use this for gear teeth (extrude) and bolt-circle holes (cut).
+ *
+ * The seed is patterned about the ORIGIN — so sketch the feature offset from
+ * the origin (e.g. a hole at (radius, 0)) to get a ring of features.
+ *
+ * @param {Part} part
+ * @param {string} mode      'extrude' (additive) or 'cut' (subtractive)
+ * @param {number} count     number of copies (>= 1)
+ * @param {number} distance  extrude depth of each copy (mm, > 0)
+ * @param {number} [angle]   total spread in degrees (default 360)
+ * @returns {Promise<object>} the resulting manifold-3d solid
+ */
+export async function circularPattern(part, mode, count, distance, angle = 360) {
+  if (!part.pendingProfile) throw new Error('circularPattern: no finished sketch profile — call finishSketch first');
+  if (part.pendingBaseZ) throw new Error('circularPattern: sketch on the XY plane for patterns');
+  if (mode !== 'extrude' && mode !== 'cut') throw new Error("circularPattern: mode must be 'extrude' or 'cut'");
+  if (!(count >= 1)) throw new Error('circularPattern: count must be >= 1');
+  if (!(distance > 0)) throw new Error('circularPattern: distance must be > 0');
+  if (mode === 'cut' && !part.solid) throw new Error('circularPattern: cut needs an existing solid');
+  const Mod = await getManifold();
+  const cs = Mod.CrossSection.ofPolygons(part.pendingProfile);
+  const seed = Mod.Manifold.extrude(cs, distance);
+  cs.delete();
+
+  let pattern = null;
+  for (let i = 0; i < count; i++) {
+    const copy = seed.rotate([0, 0, (angle * i) / count]);
+    if (pattern === null) {
+      pattern = copy;
+    } else {
+      const merged = Mod.Manifold.union(pattern, copy);
+      pattern.delete();
+      copy.delete();
+      pattern = merged;
+    }
+  }
+  seed.delete();
+
+  let result;
+  if (mode === 'cut') {
+    const tool = pattern.translate([0, 0, -1]);
+    pattern.delete();
+    result = Mod.Manifold.difference(part.solid, tool);
+    part.solid.delete();
+    tool.delete();
+  } else if (part.solid) {
+    result = Mod.Manifold.union(part.solid, pattern);
+    part.solid.delete();
+    pattern.delete();
+  } else {
+    result = pattern;
+  }
+  part.solid = result;
+  part.pendingProfile = null;
+  part.pendingBaseZ = 0;
+  part.addFeature('circularPattern', { mode, count, distance, angle }, result);
+  return result;
+}
