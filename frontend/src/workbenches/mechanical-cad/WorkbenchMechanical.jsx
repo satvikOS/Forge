@@ -10,6 +10,7 @@ import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve } from '../../kernel/atomic/AtomicOps.js';
+import { sculptPart } from '../../ai/sculptor/PartSculptor.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -432,6 +433,14 @@ function WorkbenchMechanical() {
         };
         return () => { delete window.__archdiscAtomic; };
     }, [viewport]);
+
+    // Expose the L2 AI Sculptor so headed e2e specs (and the app) can ask an
+    // LLM to autonomously sculpt a part from a plain-text description.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscSculptor = { sculptPart };
+        return () => { delete window.__archdiscSculptor; };
+    }, []);
 
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
