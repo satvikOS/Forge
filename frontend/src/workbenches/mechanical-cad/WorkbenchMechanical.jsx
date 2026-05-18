@@ -9,7 +9,7 @@ import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
-import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut } from '../../kernel/atomic/AtomicOps.js';
+import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve } from '../../kernel/atomic/AtomicOps.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -411,7 +411,7 @@ function WorkbenchMechanical() {
         if (!scene) return undefined;
         let lastAtomicGroup = null;
         window.__archdiscAtomic = {
-            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut,
+            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve,
             render: (part, color) => {
                 if (lastAtomicGroup) {
                     // Unregister from the body registry (also removes from scene)
