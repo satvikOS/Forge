@@ -95,4 +95,47 @@ test.describe('PartSculptor — sculptAndVerify loop', () => {
     expect(result.accepted).toBe(false);
     expect(result.rounds.length).toBe(2);
   });
+
+  test('an execution failure triggers a re-plan with the error as feedback', async () => {
+    let planCalls = 0;
+    let executes = 0;
+    const feedbacks = [];
+    const result = await sculptAndVerify({
+      description: 'a part',
+      requestPlan: async (feedback) => {
+        planCalls++;
+        feedbacks.push(feedback ?? null);
+        return [{ op: 'extrude', distance: planCalls }];
+      },
+      executePlan: async () => {
+        executes++;
+        if (executes === 1) throw new Error('cut: sketch-on-face not supported');
+        return { volume: executes };
+      },
+      renderAndCapture: async () => 'data:image/png;base64,AAA',
+      verify: async () => ({ matches: true, feedback: 'ok', revisedOperations: null }),
+      maxRounds: 3,
+    });
+    expect(result.accepted).toBe(true);
+    expect(planCalls).toBe(2);
+    expect(executes).toBe(2);
+    expect(feedbacks[0]).toBe(null);
+    expect(feedbacks[1]).toContain('sketch-on-face');
+    expect(result.rounds[0].matches).toBe(false);
+    expect(result.rounds[0].feedback).toContain('execution failed');
+  });
+
+  test('persistent execution failures end unaccepted at maxRounds', async () => {
+    const result = await sculptAndVerify({
+      description: 'an impossible part',
+      requestPlan: async () => [{ op: 'extrude', distance: 1 }],
+      executePlan: async () => { throw new Error('always broken'); },
+      renderAndCapture: async () => 'data:image/png;base64,AAA',
+      verify: async () => ({ matches: true }),
+      maxRounds: 2,
+    });
+    expect(result.accepted).toBe(false);
+    expect(result.rounds.length).toBe(2);
+    expect(result.rounds.every((r) => r.matches === false)).toBe(true);
+  });
 });

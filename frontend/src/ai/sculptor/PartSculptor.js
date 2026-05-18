@@ -181,27 +181,40 @@ export async function sculptPart({ description, llm, atomicApi, providers }) {
 /**
  * The closing L2 loop: produce a plan, execute it, render it, and have a
  * vision LLM verify the render against the description — revising and
- * re-executing when the verdict rejects. All side-effecting steps are
- * injected callbacks so the loop itself is environment-agnostic and
- * unit-testable.
+ * re-executing when the verdict rejects.
+ *
+ * Resilient to execution failures: if `executePlan` throws (a bad plan), the
+ * round is recorded as a failure and `requestPlan` is re-invoked WITH the error
+ * text so the LLM produces a corrected plan. All side-effecting steps are
+ * injected callbacks so the loop is environment-agnostic and unit-testable.
  *
  * @param {object} args
  * @param {string}   args.description       the intended part
- * @param {Function} args.requestPlan       async () => operations array
- * @param {Function} args.executePlan       async (plan) => result handle
+ * @param {Function} args.requestPlan       async (feedback?) => operations array
+ * @param {Function} args.executePlan       async (plan) => result handle (may throw)
  * @param {Function} args.renderAndCapture  async () => image data URL
  * @param {Function} args.verify            async ({description,imageDataUrl})
  *                                          => {matches,feedback,revisedOperations}
- * @param {number}   [args.maxRounds]       max verify rounds (default 3)
+ * @param {number}   [args.maxRounds]       max rounds (default 3)
  * @returns {Promise<{plan:Array, result:*, rounds:Array, accepted:boolean}>}
  */
 export async function sculptAndVerify({
   description, requestPlan, executePlan, renderAndCapture, verify, maxRounds = 3,
 }) {
-  let plan = await requestPlan();
-  let result = await executePlan(plan);
   const rounds = [];
+  let plan = await requestPlan();
+  let result = null;
   for (let r = 1; r <= maxRounds; r++) {
+    try {
+      result = await executePlan(plan);
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : err);
+      rounds.push({ round: r, matches: false, feedback: 'plan execution failed: ' + msg });
+      if (r === maxRounds) return { plan, result: null, rounds, accepted: false };
+      plan = await requestPlan('The previous operation plan failed during execution with this '
+        + 'error: ' + msg + '. Produce a corrected plan that avoids it.');
+      continue;
+    }
     const imageDataUrl = await renderAndCapture();
     const verdict = await verify({ description, imageDataUrl });
     rounds.push({ round: r, matches: verdict.matches, feedback: verdict.feedback });
@@ -212,7 +225,6 @@ export async function sculptAndVerify({
       return { plan, result, rounds, accepted: false };
     }
     plan = verdict.revisedOperations;
-    result = await executePlan(plan);
   }
   return { plan, result, rounds, accepted: false };
 }
