@@ -9,8 +9,9 @@ import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
-import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern } from '../../kernel/atomic/AtomicOps.js';
+import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
+import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -412,7 +413,7 @@ function WorkbenchMechanical() {
         if (!scene) return undefined;
         let lastAtomicGroup = null;
         window.__archdiscAtomic = {
-            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern,
+            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate,
             render: (part, color) => {
                 if (lastAtomicGroup) {
                     // Unregister from the body registry (also removes from scene)
@@ -430,6 +431,8 @@ function WorkbenchMechanical() {
                 );
                 return lastAtomicGroup;
             },
+            renderBody: (part, color) =>
+                addFoundationManifoldToScene(scene, viewport, part.solid, color ?? 0x9aa3ad),
         };
         return () => { delete window.__archdiscAtomic; };
     }, [viewport]);
@@ -438,7 +441,7 @@ function WorkbenchMechanical() {
     // LLM to autonomously sculpt a part from a plain-text description.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
-        window.__archdiscSculptor = { sculptPart, requestSculptPlan, executeSculptPlan };
+        window.__archdiscSculptor = { sculptPart, requestSculptPlan, executeSculptPlan, sculptAssembly };
         return () => { delete window.__archdiscSculptor; };
     }, []);
 
