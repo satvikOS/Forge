@@ -60,5 +60,82 @@
     "TopExp_Explorer_2"
   ],
   "hasTopoDS": true,
-  "total": 24878
+  "brepGPropMethods": [
+    "LinearProperties",
+    "SurfaceProperties_1",
+    "SurfaceProperties_2",
+    "VolumePropertiesGK_1",
+    "VolumePropertiesGK_2",
+    "VolumeProperties_1",
+    "VolumeProperties_2"
+  ],
+  "total": 24878,
+  "verified": {
+    "item1_box": {
+      "working": true,
+      "error": null,
+      "overload": "BRepPrimAPI_MakeBox_2"
+    },
+    "item2_volume": {
+      "working": true,
+      "error": null,
+      "volumeMM3": 999.9999999999998,
+      "calls": [
+        "const props = new oc.GProp_GProps_1()",
+        "oc.BRepGProp.VolumeProperties_1(shape, props, false, false, false)",
+        "const volume = props.Mass()"
+      ]
+    },
+    "item3_topo": {
+      "working": true,
+      "error": null,
+      "faceCount": 6,
+      "edgeCount": 24,
+      "calls": [
+        "const faceExp = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE)",
+        "for (; faceExp.More(); faceExp.Next()) { const face = oc.TopoDS.Face_1(faceExp.Current()); }",
+        "const edgeExp = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE)"
+      ],
+      "edgeNote": "24 hits = 12 unique edges x2 (shared between adjacent faces); deduplicate with .IsSame()"
+    },
+    "item4_bbox": {
+      "working": true,
+      "error": null,
+      "min": {
+        "x": -1e-7,
+        "y": -1e-7,
+        "z": -1e-7
+      },
+      "max": {
+        "x": 10.0000001,
+        "y": 10.0000001,
+        "z": 10.0000001
+      },
+      "calls": [
+        "const bbox = new oc.Bnd_Box_1()",
+        "oc.BRepBndLib.Add(shape, bbox, true)",
+        "const pmin = bbox.CornerMin(); const pmax = bbox.CornerMax()",
+        "pmin.X(), pmin.Y(), pmin.Z(), pmax.X(), pmax.Y(), pmax.Z()"
+      ]
+    },
+    "item5_tess": {
+      "working": true,
+      "error": null,
+      "nodeCount": 24,
+      "triCount": 12,
+      "calls": [
+        "new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false)",
+        "const loc = new oc.TopLoc_Location_1()",
+        "const handleTri = oc.BRep_Tool.Triangulation(face, loc, 0)",
+        "const tri = handleTri.get()",
+        "tri.NbNodes(), tri.NbTriangles()",
+        "const t = tri.Triangle(i); t.Value(1), t.Value(2), t.Value(3)"
+      ],
+      "sampleTriIndices": [
+        2,
+        1,
+        3
+      ]
+    }
+  }
 }
