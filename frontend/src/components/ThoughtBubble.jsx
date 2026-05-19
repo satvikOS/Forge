@@ -7,7 +7,7 @@ import './ThoughtBubble.css';
  * Shows all computed properties: mass, volume, material, stress, cost, tolerances.
  * Positioned near the selected object in the viewport.
  */
-export default function ThoughtBubble({ selection, viewport }) {
+export default function ThoughtBubble({ selection, viewport, onClose }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
 
@@ -58,6 +58,17 @@ export default function ThoughtBubble({ selection, viewport }) {
       <div className="thought-bubble-header" onClick={() => setExpanded(!expanded)}>
         <span className="thought-bubble-name">{name}</span>
         <span className="thought-bubble-toggle">{expanded ? '\u25B4' : '\u25BE'}</span>
+        {onClose && (
+          <button
+            className="thought-bubble-close"
+            title="Close"
+            aria-label="Close"
+            data-testid="thought-bubble-close"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+          >
+            \u00D7
+          </button>
+        )}
       </div>
 
       {/* Quick stats (always visible) */}

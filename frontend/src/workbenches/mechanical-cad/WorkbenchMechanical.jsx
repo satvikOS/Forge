@@ -403,6 +403,15 @@ function WorkbenchMechanical() {
     const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const [activeProjectId, setActiveProjectId] = useState(null);
     const [selection, setSelection] = useState(null);
+
+    // Expose setSelection on window so headed e2e specs can trigger the
+    // ThoughtBubble without needing a real 3D viewport pick.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscSetSelection = setSelection;
+        return () => { delete window.__archdiscSetSelection; };
+    }, [setSelection]);
+
     const [aiSettingsOpen, setAISettingsOpen] = useState(false);
     const [aiChatOpen, setAIChatOpen] = useState(false);
     const [ribbonTab, setRibbonTab] = useState('part');
@@ -663,7 +672,7 @@ function WorkbenchMechanical() {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             if (e.key === 'v' || e.key === 'V') { handleSelectMode(); }
             if (e.key === 'g' || e.key === 'G') { handleMoveMode(); }
-            if (e.key === 'Escape') { setActiveDropdown(null); setActiveTool(null); setToolStatus(null); }
+            if (e.key === 'Escape') { setActiveDropdown(null); setActiveTool(null); setToolStatus(null); setSelection(null); }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
@@ -995,7 +1004,7 @@ function WorkbenchMechanical() {
                 )}
 
                 {/* Thought Bubble — component info on selection */}
-                {selection && <ThoughtBubble selection={selection} viewport={viewport} />}
+                {selection && <ThoughtBubble selection={selection} viewport={viewport} onClose={() => setSelection(null)} />}
 
                 {/* Selection Info Bar */}
                 {selection && (
