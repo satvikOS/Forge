@@ -12,3 +12,4 @@ export { brepToMesh } from './brepToMesh.js';
 export { ArchDiscKernel } from './ArchDiscKernel.js';
 export { sweep, loft } from './BrepSurfacing.js';
 export { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
+export { checkSelfIntersection, checkClash } from './BrepCheck.js';

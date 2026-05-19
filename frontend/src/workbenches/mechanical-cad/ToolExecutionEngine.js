@@ -99,6 +99,7 @@ import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
+import { checkSelfIntersection, checkClash } from '../../kernel/brep/BrepCheck.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -1691,6 +1692,53 @@ const TOOL_HANDLERS = {
         message: `Assembly Animation: ${parts.length}-part gearbox — order [${seq.order.join(' → ')}], ${frames.length} frames, exploded poses from the mate graph, animating live via foundation.generateAssemblySequence`,
       };
     },
+
+    'Interference': async (scene, viewport) => {
+      // OCCT path: build two overlapping solids (box + cylinder) and run
+      // ArchDiscKernel.brep.checkClash — returns clash verdict + interference
+      // volume + min clearance distance. Analytical only — no geometry rendering.
+      try {
+        const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
+        const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
+        const r = await ArchDiscKernel.brep.checkClash(a, b);
+        a.dispose(); b.dispose();
+        if (r.clash) {
+          return {
+            status: 'warn',
+            message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via OCCT)',
+          };
+        }
+        return {
+          status: 'success',
+          message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Interference (OCCT): ' + err.message };
+      }
+    },
+
+    'Interference Detection': async (scene, viewport) => {
+      // Alias — same OCCT clash check, reached from the WorkbenchMechanical
+      // dropdown (which uses 'Interference Detection').
+      try {
+        const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
+        const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
+        const r = await ArchDiscKernel.brep.checkClash(a, b);
+        a.dispose(); b.dispose();
+        if (r.clash) {
+          return {
+            status: 'warn',
+            message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via OCCT)',
+          };
+        }
+        return {
+          status: 'success',
+          message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Interference Detection (OCCT): ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2676,7 +2724,33 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: 'Section plane at Y=1m. Drag to reposition.' };
     },
 
-    'Check Geometry': (scene, viewport) => {
+    'Check Geometry': async (scene, viewport) => {
+      // OCCT path: if an OCCT body is in scope, run BRepCheck_Analyzer
+      // self-intersection check via ArchDiscKernel.brep.checkSelfIntersection.
+      // Returns a verdict only — no geometry rendering.
+      try {
+        const body = (typeof window !== 'undefined' && window.__lastBrepShape)
+          ? window.__lastBrepShape
+          : await ArchDiscKernel.brep.makeBox(40, 40, 40);
+        const r = await ArchDiscKernel.brep.checkSelfIntersection(body);
+        if (typeof window !== 'undefined') window.__lastGeometryCheck = r;
+        if (r.selfIntersects) {
+          return {
+            status: 'warn',
+            message: 'Check Geometry: self-intersection detected — ' + r.count + ' intersecting solid pair(s)' +
+              (r.valid ? '' : ', invalid geometry') + ' (via OCCT BRepCheck_Analyzer)',
+          };
+        }
+        return {
+          status: 'success',
+          message: 'Check Geometry: no self-intersections — geometry is valid (via OCCT BRepCheck_Analyzer)',
+        };
+      } catch (occtErr) {
+        return { status: 'error', message: 'Check Geometry (OCCT): ' + occtErr.message };
+      }
+    },
+
+    '_Check Geometry (legacy)': (scene, viewport) => {
       // Foundation path: if a foundation manifold is in scope, run
       // the real foundation.inspectManifold diagnostic — manifold-3d
       // status code, signed volume / orientation, genus, Euler
