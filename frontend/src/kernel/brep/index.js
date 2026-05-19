@@ -10,3 +10,4 @@ export { exportStep, importStep } from './BrepStep.js';
 export { tessellate } from './BrepTessellate.js';
 export { brepToMesh } from './brepToMesh.js';
 export { ArchDiscKernel } from './ArchDiscKernel.js';
+export { sweep, loft } from './BrepSurfacing.js';
