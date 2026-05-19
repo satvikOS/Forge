@@ -894,44 +894,35 @@ const TOOL_HANDLERS = {
     },
 
     'Loft Boss': async (scene, viewport) => {
-      // Foundation path: loft 4 circular cross-sections of decreasing
-      // radius along +Z, producing a stacked-frustum solid. Volume
-      // matches the sum-of-frusta closed-form to within 0.1%.
-      const heights = [0, 10, 20, 30];
-      const radii = [5, 4, 2, 1];
-      const profiles = heights.map((z, i) => ({
-        points2D: fCircleProfile(radii[i], 96),
-        origin: [0, 0, z],
-        normal: [0, 0, 1],
-        up: [1, 0, 0],
-      }));
-      const result = await fLoft({ profiles, tweenSegments: 0 });
-      const totalV = result.volume();
-      const Vtheory = (() => {
-        const fr = (h, r1, r2) => Math.PI * h * (r1 ** 2 + r1 * r2 + r2 ** 2) / 3;
-        return fr(10, 5, 4) + fr(10, 4, 2) + fr(10, 2, 1);
-      })();
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
-      return {
-        status: 'success',
-        message: `Loft Boss: 4× circles (R 5→4→2→1, H=30mm)  (V = ${totalV.toFixed(2)} mm³ ≈ Σfrusta = ${Vtheory.toFixed(2)} via foundation.loft)`,
-      };
+      // OCCT exact B-rep path: loft a 40×40 square section at z=0 to a
+      // 16×16 square section at z=50 mm via BRepOffsetAPI_ThruSections.
+      try {
+        const result = await ArchDiscKernel.brep.loft(40, 16, 50);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Loft Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Loft Boss failed: ${err.message}` };
+      }
     },
 
     'Sweep Boss': async (scene, viewport) => {
-      // Foundation path: sweep a Ø2 mm circle profile along a NURBS
-      // quarter-arc of radius 10 mm. Result is a torus-quadrant tube
-      // whose volume = π² R r² / 2 ≈ 49.35 mm³ (validated to within 1%).
-      const r = 1, R = 10;
-      const profile = fCircleProfile(r, 96);
-      const arc = NURBSCurve.quarterCircle(R);
-      const result = await fSweep({ profile2D: profile, path: arc, samples: 64, referenceUp: [0, 0, 1] });
-      const totalV = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
-      return {
-        status: 'success',
-        message: `Sweep Boss: Ø2mm circle along R=10mm quarter-arc  (V = ${totalV.toFixed(2)} mm³ ≈ π²Rr²/2 = ${(Math.PI*Math.PI*R*r*r/2).toFixed(2)} via foundation.sweep)`,
-      };
+      // OCCT exact B-rep path: sweep a circular profile of radius 8 mm
+      // along a 60 mm straight path via BRepOffsetAPI_MakePipe.
+      try {
+        const result = await ArchDiscKernel.brep.sweep(8, 60);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Sweep Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Sweep Boss failed: ${err.message}` };
+      }
     },
 
     'Fillet': async (scene, viewport) => {
@@ -1017,21 +1008,103 @@ const TOOL_HANDLERS = {
     },
 
     'Shell': async (scene, viewport) => {
-      // Foundation path: hollow a 30×30×30 mm cube with 2 mm uniform
-      // wall thickness via boolean subtraction. V_shell = V_outer −
-      // V_inner = 30³ − 26³ = 27000 − 17576 = 9424 mm³.
-      const Mod = await getManifold();
-      const outer = Mod.Manifold.cube([30, 30, 30], true);
-      const inner = Mod.Manifold.cube([26, 26, 26], true);
-      const result = outer.subtract(inner);
-      const Vfinal = result.volume();
-      const Vexpected = 27000 - 17576;
-      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
-      return {
-        status: 'success',
-        message: `Shell: 30³ cube hollowed to 2 mm wall. V = ${Vfinal.toFixed(0)} mm³ (analytical 30³ − 26³ = ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
-      };
+      // OCCT exact B-rep path: hollow a solid via BRepOffsetAPI_MakeThickSolid.
+      // Uses the last OCCT body if available, else creates a 40×40×40 default box.
+      try {
+        let body;
+        let ownedBody = false;
+        if (typeof window !== 'undefined' && window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+          ownedBody = true;
+        }
+        const result = await ArchDiscKernel.brep.shell(body, 3);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Shell: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Shell failed: ${err.message}` };
+      }
+    },
+
+    'Draft': async (scene, viewport) => {
+      // OCCT exact B-rep path: apply a 5° draft angle to the side faces
+      // of the last OCCT body (or a default 40×40×40 box).
+      try {
+        let body;
+        let ownedBody = false;
+        if (typeof window !== 'undefined' && window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+          ownedBody = true;
+        }
+        const result = await ArchDiscKernel.brep.draft(body, 5);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Draft: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Draft failed: ${err.message}` };
+      }
+    },
+
+    'Variable Radius Fillet': async (scene, viewport) => {
+      // OCCT exact B-rep path: variable-radius fillet (r1=1 mm → r2=4 mm)
+      // applied to all edges of the last OCCT body or a default 40×40×40 box.
+      try {
+        let body;
+        let ownedBody = false;
+        if (typeof window !== 'undefined' && window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+          ownedBody = true;
+        }
+        const result = await ArchDiscKernel.brep.variableFillet(body, 1, 4);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Variable Radius Fillet: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Variable Radius Fillet failed: ${err.message}` };
+      }
+    },
+
+    'Offset Shape': async (scene, viewport) => {
+      // OCCT exact B-rep path: offset every face of the last OCCT body
+      // outward by 2 mm (or a default 40×40×40 box).
+      try {
+        let body;
+        let ownedBody = false;
+        if (typeof window !== 'undefined' && window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+          ownedBody = true;
+        }
+        const result = await ArchDiscKernel.brep.offsetShape(body, 2);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Offset Shape: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Offset Shape failed: ${err.message}` };
+      }
     },
 
     'Linear Pattern': async (scene, viewport) => {
@@ -1245,6 +1318,27 @@ const TOOL_HANDLERS = {
         message: `Circular Pattern: ${count}× around [${axis}] @ R=${radius} mm `
           + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via foundation.circularPattern)`,
       };
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SURFACE — OCCT-wired surface/sheet operations
+  // ═══════════════════════════════════════════════════════════════════════════
+  surface: {
+    'Thicken': async (scene, viewport) => {
+      // OCCT exact B-rep path: thicken a 60×40 mm planar sheet into a
+      // 3 mm solid slab via BRepOffsetAPI_MakeThickSolid.
+      try {
+        const result = await ArchDiscKernel.brep.thicken(60, 40, 3);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Thicken: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Thicken failed: ${err.message}` };
+      }
     },
   },
 

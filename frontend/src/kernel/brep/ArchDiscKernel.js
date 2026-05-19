@@ -10,8 +10,10 @@ import {
   makeBox, makeCylinder, makeSphere, makeCone, makeTorus,
 } from './BrepPrimitives.js';
 import { fuse, cut, common } from './BrepBoolean.js';
-import { extrudeRect, revolveRect, filletAll, chamferAll } from './BrepFeatures.js';
+import { extrudeRect, revolveRect, filletAll, chamferAll, variableFillet } from './BrepFeatures.js';
 import { exportStep, importStep } from './BrepStep.js';
+import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
+import { sweep, loft } from './BrepSurfacing.js';
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
@@ -24,7 +26,9 @@ export const ArchDiscKernel = {
     makeBox,
     makeCylinder, makeSphere, makeCone, makeTorus,
     fuse, cut, common,
-    extrudeRect, revolveRect, filletAll, chamferAll,
+    extrudeRect, revolveRect, filletAll, chamferAll, variableFillet,
+    shell, thicken, offsetShape, draft,
+    sweep, loft,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,

@@ -113,7 +113,7 @@ const TOOL_GROUPS = {
             { header: 'Modify', items: [
                 'Fillet', 'Variable Radius Fillet', 'Face Fillet', 'Full Round Fillet',
                 'Chamfer', 'Shell', 'Draft', 'Draft Analysis',
-                'Hole Wizard', 'Thread', 'Counterbore', 'Countersink',
+                'Offset Shape', 'Hole Wizard', 'Thread', 'Counterbore', 'Countersink',
                 'Scale', 'Dome', 'Indent', 'Flex', 'Deform'
             ]},
             { header: 'Boolean', items: [

@@ -71,9 +71,11 @@ const TABS = {
       { label: 'Modify', tools: [
         { name: 'Fillet', icon: '◜', key: 'part' },
         { name: 'Chamfer', icon: '◿', key: 'part' },
+        { name: 'Variable Radius Fillet', icon: '◟', key: 'part' },
         { name: 'Shell', icon: '▢', key: 'part' },
         { name: 'Hole Wizard', icon: '◉', key: 'part' },
         { name: 'Draft', icon: '∠', key: 'part' },
+        { name: 'Offset Shape', icon: '⊡', key: 'part' },
         { name: 'Scale', icon: '⤡', key: 'part' },
         { name: 'Subdivide', icon: '⊞', key: 'part' },
         { name: 'Volumetric Fillet', icon: '◖', key: 'part' },
