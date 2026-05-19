@@ -9,7 +9,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 /**
  * Translate a shape by (dx, dy, dz) mm.
  * Verified OCCT sequence: occt-api-A3.md Item 3 —
- *   gp_Trsf_1() + SetTranslation_1(gp_Vec_4) + BRepBuilderAPI_Transform_2(shape, trsf, false)
+ *   gp_Trsf_1() + SetTranslation_1(gp_Vec_4) + BRepBuilderAPI_Transform_2(shape, trsf, true)
  * @param {BrepShape} brepShape
  * @param {number} dx
  * @param {number} dy
@@ -23,11 +23,12 @@ export async function translate(brepShape, dx, dy, dz) {
     // Verified sequence from occt-api-A3.md Item 3:
     // gp_Trsf_1() no-arg constructor; SetTranslation_1(gp_Vec) takes a gp_Vec
     // gp_Vec_4 = 3-double constructor (verified in A3 recon)
-    // BRepBuilderAPI_Transform_2(shape, trsf, copy=false)
+    // BRepBuilderAPI_Transform_2(shape, trsf, copy=true) — copy=true gives
+    // a geometry-independent result so disposing the input cannot corrupt it.
     const trsf = track(new oc.gp_Trsf_1());
     const vec = track(new oc.gp_Vec_4(dx, dy, dz));
     trsf.SetTranslation_1(vec);
-    const tf = track(new oc.BRepBuilderAPI_Transform_2(brepShape.shape, trsf, false));
+    const tf = track(new oc.BRepBuilderAPI_Transform_2(brepShape.shape, trsf, true));
     const shape = tf.Shape();
     if (!shape || shape.IsNull()) throw new Error('translate: OCCT produced a null shape');
     return new BrepShape(shape, { op: 'translate', params: { dx, dy, dz }, parents: [brepShape.id] });

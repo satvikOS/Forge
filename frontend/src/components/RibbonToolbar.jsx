@@ -206,7 +206,6 @@ const TABS = {
         { name: 'Import Diagnosis', icon: '🔍', key: 'directEdit' },
         { name: 'Heal Faces', icon: '✚', key: 'directEdit' },
         { name: 'Stitch Surface', icon: '⊞', key: 'directEdit' },
-        { name: 'Check Geometry', icon: '✓', key: 'directEdit' },
         { name: 'Remove Duplicates', icon: '⊟', key: 'directEdit' },
         { name: 'Simplify Geometry', icon: '◈', key: 'directEdit', primary: true },
       ]},

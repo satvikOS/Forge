@@ -65,8 +65,14 @@ test('simplify: result renders correctly from all camera angles and zooms', asyn
   await win.evaluate(async () => {
     const K = window.__archdiscKernel.kernel.brep;
     const a = await K.makeBox(20, 20, 20);
-    const b = await K.translate(await K.makeBox(20, 20, 20), 20, 0, 0);
-    const simplified = await K.simplify(await K.fuse(a, b));
+    const bBase = await K.makeBox(20, 20, 20);
+    const b = await K.translate(bBase, 20, 0, 0);
+    bBase.dispose();
+    const fused = await K.fuse(a, b);
+    a.dispose();
+    b.dispose();
+    const simplified = await K.simplify(fused);
+    fused.dispose();
     await window.__archdiscKernel.renderShape(simplified);
   });
   const cap = await captureAllAngles(win, 'simplify', {
