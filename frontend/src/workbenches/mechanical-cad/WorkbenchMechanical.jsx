@@ -8,6 +8,7 @@ import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
+import { getOCCT } from '../../kernel/brep/occtKernel.js';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, fillet } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
@@ -464,6 +465,14 @@ function WorkbenchMechanical() {
             count: () => library.count(),
         };
         return () => { delete window.__archdiscComponents; };
+    }, []);
+
+    // Expose the OCCT-backed ArchDisc Kernel so headed Electron e2e specs
+    // (and the B-rep Lab panel) can drive exact B-rep geometry.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscKernel = { getOCCT };
+        return () => { delete window.__archdiscKernel; };
     }, []);
 
     // Get selected model from context
