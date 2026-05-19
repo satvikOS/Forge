@@ -153,7 +153,7 @@ const TOOL_GROUPS = {
             ]},
             { header: 'Import Repair', items: [
                 'Import Diagnosis', 'Heal Faces', 'Stitch Surface', 'Knit Surface',
-                'Check Geometry', 'Remove Duplicates'
+                'Check Geometry', 'Remove Duplicates', 'Simplify Geometry'
             ]},
         ]
     },

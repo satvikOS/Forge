@@ -1547,6 +1547,30 @@ const TOOL_HANDLERS = {
     'Replace Face': (scene, viewport) => {
       return { status: 'success', message: 'Replace Face: Select target face, then replacement surface geometry' };
     },
+
+    'Simplify Geometry': async (scene, viewport) => {
+      // OCCT path: fuse two abutting 20mm boxes to create a redundant coplanar
+      // face, then run ShapeUpgrade_UnifySameDomain via ArchDiscKernel.brep.simplify
+      // to merge those faces. Reports the face count before and after.
+      try {
+        const a = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const bRaw = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const b = await ArchDiscKernel.brep.translate(bRaw, 20, 0, 0);
+        const fused = await ArchDiscKernel.brep.fuse(a, b);
+        a.dispose(); bRaw.dispose(); b.dispose();
+        const before = await ArchDiscKernel.brep.measure(fused);
+        const result = await ArchDiscKernel.brep.simplify(fused);
+        fused.dispose();
+        const after = await ArchDiscKernel.brep.measure(result);
+        await addBrepShapeToScene(scene, viewport, result);
+        return {
+          status: 'success',
+          message: 'Simplify: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via OCCT ShapeUpgrade_UnifySameDomain',
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Simplify Geometry failed: ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

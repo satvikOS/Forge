@@ -192,6 +192,26 @@ const TABS = {
       ]},
     ]
   },
+  directEdit: {
+    label: 'Direct Edit',
+    groups: [
+      { label: 'Direct Modeling', tools: [
+        { name: 'Push/Pull Face', icon: '⤢', key: 'directEdit' },
+        { name: 'Move Face', icon: '↗', key: 'directEdit' },
+        { name: 'Offset Face', icon: '⊡', key: 'directEdit' },
+        { name: 'Delete Face', icon: '✕', key: 'directEdit' },
+        { name: 'Replace Face', icon: '↔', key: 'directEdit' },
+      ]},
+      { label: 'Import Repair', tools: [
+        { name: 'Import Diagnosis', icon: '🔍', key: 'directEdit' },
+        { name: 'Heal Faces', icon: '✚', key: 'directEdit' },
+        { name: 'Stitch Surface', icon: '⊞', key: 'directEdit' },
+        { name: 'Check Geometry', icon: '✓', key: 'directEdit' },
+        { name: 'Remove Duplicates', icon: '⊟', key: 'directEdit' },
+        { name: 'Simplify Geometry', icon: '◈', key: 'directEdit', primary: true },
+      ]},
+    ]
+  },
   drawing: {
     label: 'Drawing',
     groups: [
