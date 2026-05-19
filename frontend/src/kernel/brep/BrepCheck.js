@@ -34,7 +34,7 @@ function collectSolids(oc, shape) {
     // Copy to get an independent handle that survives explorer moves
     try {
       const copy = track(new oc.BRepBuilderAPI_Copy_1(s, true, false));
-      solids.push(copy.Shape());
+      solids.push(track(copy.Shape()));
     } catch (_e) {
       // fallback: alias (safe for read-only ops like volume measurement)
       solids.push(s);
@@ -66,6 +66,12 @@ function commonVolume(oc, sA, sB) {
 /**
  * Detect self-intersection in a shape: reports the shape as self-intersecting
  * if it fails an intrinsic validity check OR contains two solids that overlap.
+ *
+ * Limitation: this uses BRepCheck_Analyzer for intrinsic validity and pairwise
+ * solid-overlap via BRepAlgoAPI_Common. It does NOT detect face-level
+ * self-intersection within a single solid because OCCT BOPAlgo_CheckerSI is
+ * unbound in this opencascade.js build.
+ *
  * @param {import('./BrepShape.js').BrepShape} brepShape
  * @returns {Promise<{selfIntersects: boolean, count: number, valid: boolean}>}
  */

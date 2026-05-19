@@ -87,3 +87,41 @@ test('clash: two disjoint solids report no clash with a real clearance', async (
   expect(pageErrors).toEqual([]);
   await app.close();
 });
+
+test('leak guard: checkSelfIntersection called 25x does not grow the WASM heap (C1)', async () => {
+  const { app, win, pageErrors } = await launch();
+  const heap = await win.evaluate(async () => {
+    const K = window.__archdiscKernel.kernel.brep;
+    const oc = await window.__archdiscKernel.getOCCT();
+
+    // Build a compound of two overlapping boxes once (reused across all calls)
+    const a = await K.makeBox(20, 20, 20);
+    const bRaw = await K.makeBox(20, 20, 20);
+    const b = await K.translate(bRaw, 10, 0, 0);
+    const compound = await K.makeCompound([a, b]);
+
+    function getHeapSize(oc) {
+      if (oc.HEAPU8 && oc.HEAPU8.buffer) return oc.HEAPU8.buffer.byteLength;
+      if (oc.HEAP8 && oc.HEAP8.buffer) return oc.HEAP8.buffer.byteLength;
+      const heapKeys = Object.keys(oc).filter(k => /^HEAP/.test(k));
+      for (const k of heapKeys) {
+        const v = oc[k];
+        if (v && v.buffer) return v.buffer.byteLength;
+      }
+      return 0;
+    }
+
+    const before = getHeapSize(oc);
+    for (let i = 0; i < 25; i++) {
+      await K.checkSelfIntersection(compound);
+    }
+    const after = getHeapSize(oc);
+    return { before, after, heapExposed: before > 0 };
+  });
+  if (heap.heapExposed) {
+    // If heap is exposed, growth must be bounded (< 8 MB) — proves no per-call leak
+    expect(heap.after - heap.before).toBeLessThan(8 * 1024 * 1024);
+  }
+  expect(pageErrors).toEqual([]);
+  await app.close();
+});

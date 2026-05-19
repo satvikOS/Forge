@@ -99,7 +99,6 @@ import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
-import { checkSelfIntersection, checkClash } from '../../kernel/brep/BrepCheck.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -484,6 +483,36 @@ function removeSelectedFromScene(scene, viewport) {
     return selected;
   }
   return null;
+}
+
+// --- Shared handler helpers ---
+
+/**
+ * Run an OCCT clash check between a 30mm box and a 10r×40h cylinder.
+ * Shared by the 'Interference' and 'Interference Detection' ribbon entries.
+ */
+async function _runInterferenceDemo() {
+  // OCCT path: build two overlapping solids (box + cylinder) and run
+  // ArchDiscKernel.brep.checkClash — returns clash verdict + interference
+  // volume + min clearance distance. Analytical only — no geometry rendering.
+  try {
+    const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
+    const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
+    const r = await ArchDiscKernel.brep.checkClash(a, b);
+    a.dispose(); b.dispose();
+    if (r.clash) {
+      return {
+        status: 'warn',
+        message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via OCCT)',
+      };
+    }
+    return {
+      status: 'success',
+      message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
+    };
+  } catch (err) {
+    return { status: 'error', message: 'Interference (OCCT): ' + err.message };
+  }
 }
 
 // --- Tool Handlers ---
@@ -1693,52 +1722,8 @@ const TOOL_HANDLERS = {
       };
     },
 
-    'Interference': async (scene, viewport) => {
-      // OCCT path: build two overlapping solids (box + cylinder) and run
-      // ArchDiscKernel.brep.checkClash — returns clash verdict + interference
-      // volume + min clearance distance. Analytical only — no geometry rendering.
-      try {
-        const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
-        const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
-        const r = await ArchDiscKernel.brep.checkClash(a, b);
-        a.dispose(); b.dispose();
-        if (r.clash) {
-          return {
-            status: 'warn',
-            message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via OCCT)',
-          };
-        }
-        return {
-          status: 'success',
-          message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
-        };
-      } catch (err) {
-        return { status: 'error', message: 'Interference (OCCT): ' + err.message };
-      }
-    },
-
-    'Interference Detection': async (scene, viewport) => {
-      // Alias — same OCCT clash check, reached from the WorkbenchMechanical
-      // dropdown (which uses 'Interference Detection').
-      try {
-        const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
-        const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
-        const r = await ArchDiscKernel.brep.checkClash(a, b);
-        a.dispose(); b.dispose();
-        if (r.clash) {
-          return {
-            status: 'warn',
-            message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via OCCT)',
-          };
-        }
-        return {
-          status: 'success',
-          message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
-        };
-      } catch (err) {
-        return { status: 'error', message: 'Interference Detection (OCCT): ' + err.message };
-      }
-    },
+    'Interference': (scene, viewport) => _runInterferenceDemo(),
+    'Interference Detection': (scene, viewport) => _runInterferenceDemo(),
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2729,10 +2714,12 @@ const TOOL_HANDLERS = {
       // self-intersection check via ArchDiscKernel.brep.checkSelfIntersection.
       // Returns a verdict only — no geometry rendering.
       try {
-        const body = (typeof window !== 'undefined' && window.__lastBrepShape)
-          ? window.__lastBrepShape
-          : await ArchDiscKernel.brep.makeBox(40, 40, 40);
+        const ownFallback = !(typeof window !== 'undefined' && window.__lastBrepShape);
+        const body = ownFallback
+          ? await ArchDiscKernel.brep.makeBox(40, 40, 40)
+          : window.__lastBrepShape;
         const r = await ArchDiscKernel.brep.checkSelfIntersection(body);
+        if (ownFallback) body.dispose();
         if (typeof window !== 'undefined') window.__lastGeometryCheck = r;
         if (r.selfIntersects) {
           return {
