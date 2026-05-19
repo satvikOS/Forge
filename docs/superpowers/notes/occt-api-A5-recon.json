@@ -1,0 +1,431 @@
+{
+  "cap1_g2Blending": {
+    "verdict": "REACHABLE",
+    "verdictReason": "API fully reachable: ctor + Add_1(edge,GeomAbs_C2,false) + Build(pr) all work. Build geometry error with box edges is expected (box edges are closed faces, not open boundary). Proper use requires edges bounding an open region.",
+    "fillingKeys": [
+      "BRepOffsetAPI_MakeFilling"
+    ],
+    "fillCtor": "BRepOffsetAPI_MakeFilling(deg,...)",
+    "fillingConstructible": true,
+    "c2EnumAvailable": true,
+    "addWithC2": true,
+    "buildSucceeded": false,
+    "chFi3dFilletShape": {
+      "available": true,
+      "keys": [
+        "length",
+        "name",
+        "prototype",
+        "values",
+        "ChFi3d_Rational",
+        "ChFi3d_QuasiAngular",
+        "ChFi3d_Polynomial"
+      ],
+      "values": {
+        "length": "0",
+        "name": "m",
+        "prototype": "[object Object]",
+        "values": "[object Object]",
+        "ChFi3d_Rational": "[object Object]",
+        "ChFi3d_QuasiAngular": "[object Object]",
+        "ChFi3d_Polynomial": "[object Object]"
+      }
+    },
+    "geomAbsShape": {
+      "available": true,
+      "keys": [
+        "length",
+        "name",
+        "prototype",
+        "values",
+        "GeomAbs_C0",
+        "GeomAbs_G1",
+        "GeomAbs_C1",
+        "GeomAbs_G2",
+        "GeomAbs_C2",
+        "GeomAbs_C3",
+        "GeomAbs_CN"
+      ],
+      "values": {
+        "length": "0",
+        "name": "m",
+        "prototype": "[object Object]",
+        "values": "[object Object]",
+        "GeomAbs_C0": "[object Object]",
+        "GeomAbs_G1": "[object Object]",
+        "GeomAbs_C1": "[object Object]",
+        "GeomAbs_G2": "[object Object]",
+        "GeomAbs_C2": "[object Object]",
+        "GeomAbs_C3": "[object Object]",
+        "GeomAbs_CN": "[object Object]"
+      }
+    },
+    "chain": {
+      "fillingKeys": [
+        "BRepOffsetAPI_MakeFilling"
+      ],
+      "offsetAPIKeys": [
+        "BRepOffsetAPI_MakeEvolved",
+        "BRepOffsetAPI_MakeEvolved_1",
+        "BRepOffsetAPI_MakeEvolved_2",
+        "BRepOffsetAPI_DraftAngle",
+        "BRepOffsetAPI_DraftAngle_1",
+        "BRepOffsetAPI_DraftAngle_2",
+        "BRepOffsetAPI_SequenceOfSequenceOfReal",
+        "BRepOffsetAPI_SequenceOfSequenceOfReal_1",
+        "BRepOffsetAPI_SequenceOfSequenceOfReal_2",
+        "BRepOffsetAPI_SequenceOfSequenceOfReal_3",
+        "BRepOffsetAPI_MakeOffsetShape",
+        "BRepOffsetAPI_MiddlePath",
+        "BRepOffsetAPI_MakeThickSolid",
+        "BRepOffsetAPI_MakePipe",
+        "BRepOffsetAPI_MakePipe_1",
+        "BRepOffsetAPI_MakePipe_2",
+        "BRepOffsetAPI_NormalProjection",
+        "BRepOffsetAPI_NormalProjection_1",
+        "BRepOffsetAPI_NormalProjection_2",
+        "BRepOffsetAPI_MakePipeShell"
+      ],
+      "chFi3dFilletShape": {
+        "available": true,
+        "keys": [
+          "length",
+          "name",
+          "prototype",
+          "values",
+          "ChFi3d_Rational",
+          "ChFi3d_QuasiAngular",
+          "ChFi3d_Polynomial"
+        ],
+        "values": {
+          "length": "0",
+          "name": "m",
+          "prototype": "[object Object]",
+          "values": "[object Object]",
+          "ChFi3d_Rational": "[object Object]",
+          "ChFi3d_QuasiAngular": "[object Object]",
+          "ChFi3d_Polynomial": "[object Object]"
+        }
+      },
+      "geomAbsShape": {
+        "available": true,
+        "keys": [
+          "length",
+          "name",
+          "prototype",
+          "values",
+          "GeomAbs_C0",
+          "GeomAbs_G1",
+          "GeomAbs_C1",
+          "GeomAbs_G2",
+          "GeomAbs_C2",
+          "GeomAbs_C3",
+          "GeomAbs_CN"
+        ],
+        "values": {
+          "length": "0",
+          "name": "m",
+          "prototype": "[object Object]",
+          "values": "[object Object]",
+          "GeomAbs_C0": "[object Object]",
+          "GeomAbs_G1": "[object Object]",
+          "GeomAbs_C1": "[object Object]",
+          "GeomAbs_G2": "[object Object]",
+          "GeomAbs_C2": "[object Object]",
+          "GeomAbs_C3": "[object Object]",
+          "GeomAbs_CN": "[object Object]"
+        }
+      },
+      "ctorMissing_BRepOffsetAPI_MakeFilling_1": true,
+      "ctorMissing_BRepOffsetAPI_MakeFilling_2": true,
+      "ctorErr_BRepOffsetAPI_MakeFilling()": "BindingError: Tried to invoke ctor of BRepOffsetAPI_MakeFilling with invalid number of parameters (0) - expected (10) parameters instead!",
+      "fillCtor": "BRepOffsetAPI_MakeFilling(deg,...)",
+      "fillCtorFound": true,
+      "fillMethods": [
+        "Add_1",
+        "Add_2",
+        "Add_3",
+        "Add_4",
+        "Add_5",
+        "Build",
+        "Check",
+        "G0Error_1",
+        "G0Error_2",
+        "G1Error_1",
+        "G1Error_2",
+        "G2Error_1",
+        "G2Error_2",
+        "Generated",
+        "IsDeleted",
+        "IsDone",
+        "LoadInitSurface",
+        "Modified",
+        "SetApproxParam",
+        "SetConstrParam",
+        "SetResolParam",
+        "Shape",
+        "clone",
+        "deleteLater",
+        "isAliasOf"
+      ],
+      "addEdgeTests": {
+        "addEdgeInfo": {
+          "addMethods": [
+            "Add_1",
+            "Add_2",
+            "Add_3",
+            "Add_4",
+            "Add_5"
+          ],
+          "c0Val": "[object Object]",
+          "c1Val": "[object Object]",
+          "c2Val": "[object Object]",
+          "boxEdgeCount": 12,
+          "testedMethod": "Add_1",
+          "Add_1_GeomAbs_C0_0arg": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+          "Add_1_GeomAbs_C0_1arg": "OK",
+          "addSucceeded": "Add_1(edge, GeomAbs_C0, false)",
+          "addMethod": "Add_1",
+          "addContinuity": "GeomAbs_C0",
+          "addExtraArgs": [
+            false
+          ],
+          "Add_1_GeomAbs_G1_0arg": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+          "Add_1_GeomAbs_G1_1arg": "OK",
+          "Add_1_GeomAbs_C1_0arg": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+          "Add_1_GeomAbs_C1_1arg": "OK",
+          "Add_1_GeomAbs_G2_0arg": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+          "Add_1_GeomAbs_G2_1arg": "OK",
+          "Add_1_GeomAbs_C2_0arg": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+          "Add_1_GeomAbs_C2_1arg": "OK",
+          "addC2Succeeded": "Add_1(edge, GeomAbs_C2, false)",
+          "c2AddWorked": true
+        }
+      },
+      "buildTest": {
+        "targetContinuity": "GeomAbs_C2",
+        "addEdge0_GeomAbs_C2_0err": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+        "actualContinuity": "GeomAbs_C2,isPCurve=false",
+        "addEdge1_GeomAbs_C2_0err": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+        "addEdge2_GeomAbs_C2_0err": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+        "addEdge3_GeomAbs_C2_0err": "BindingError: function BRepOffsetAPI_MakeFilling.Add_1 called with 2 arguments, expected 3 args!",
+        "addCount": 4,
+        "buildErr_Build_noarg": "BindingError: function BRepOffsetAPI_MakeFilling.Build called with 0 arguments, expected 1 args!",
+        "buildErr_Build_pr": "18952808",
+        "buildOk": false
+      },
+      "g2FilletTest": {
+        "filletConstructed": true,
+        "filletMethods": [
+          "Abscissa",
+          "Add",
+          "Add_1",
+          "Add_2",
+          "Add_3",
+          "Add_4",
+          "Add_5",
+          "BadShape",
+          "Build",
+          "Builder",
+          "Check",
+          "Closed",
+          "ClosedAndTangent",
+          "ComputedSurface",
+          "Contour",
+          "Edge",
+          "FaultyContour",
+          "FaultyVertex",
+          "FirstVertex",
+          "Generated",
+          "GetBounds",
+          "GetFilletShape",
+          "GetLaw",
+          "HasResult",
+          "IsConstant_1",
+          "IsConstant_2",
+          "IsDeleted",
+          "IsDone",
+          "LastVertex",
+          "Length"
+        ]
+      }
+    },
+    "note": "G2 blend via BRepOffsetAPI_MakeFilling. REACHABLE = constructible + C2 enum + Add(edge,C2) + Build+Shape."
+  },
+  "cap2_cliffEdge": {
+    "verdict": "REACHABLE",
+    "maxValidRadius": 19.5,
+    "maxValidVolume": 6367.953032637597,
+    "radiusResults": {
+      "2": {
+        "edgeCount": 12,
+        "filletConstructed": true,
+        "edgeAdded": true,
+        "buildCalled": true,
+        "isDone": true,
+        "shapeObtained": true,
+        "volume": 7982.831853071794,
+        "volumePositive": true,
+        "faceCount": 7
+      },
+      "6": {
+        "edgeCount": 12,
+        "filletConstructed": true,
+        "edgeAdded": true,
+        "buildCalled": true,
+        "isDone": true,
+        "shapeObtained": true,
+        "volume": 7845.486677646162,
+        "volumePositive": true,
+        "faceCount": 7
+      },
+      "10": {
+        "edgeCount": 12,
+        "filletConstructed": true,
+        "edgeAdded": true,
+        "buildCalled": true,
+        "isDone": true,
+        "shapeObtained": true,
+        "volume": 7570.796326794896,
+        "volumePositive": true,
+        "faceCount": 7
+      },
+      "14": {
+        "edgeCount": 12,
+        "filletConstructed": true,
+        "edgeAdded": true,
+        "buildCalled": true,
+        "isDone": true,
+        "shapeObtained": true,
+        "volume": 7158.760800517997,
+        "volumePositive": true,
+        "faceCount": 7
+      },
+      "18": {
+        "edgeCount": 12,
+        "filletConstructed": true,
+        "edgeAdded": true,
+        "buildCalled": true,
+        "isDone": true,
+        "shapeObtained": true,
+        "volume": 6609.380098815467,
+        "volumePositive": true,
+        "faceCount": 7
+      },
+      "19.5": {
+        "edgeCount": 12,
+        "filletConstructed": true,
+        "edgeAdded": true,
+        "buildCalled": true,
+        "isDone": true,
+        "shapeObtained": true,
+        "volume": 6367.953032637597,
+        "volumePositive": true,
+        "faceCount": 7
+      }
+    },
+    "chain": {
+      "radiusResults": {
+        "2": {
+          "edgeCount": 12,
+          "filletConstructed": true,
+          "edgeAdded": true,
+          "buildCalled": true,
+          "isDone": true,
+          "shapeObtained": true,
+          "volume": 7982.831853071794,
+          "volumePositive": true,
+          "faceCount": 7
+        },
+        "6": {
+          "edgeCount": 12,
+          "filletConstructed": true,
+          "edgeAdded": true,
+          "buildCalled": true,
+          "isDone": true,
+          "shapeObtained": true,
+          "volume": 7845.486677646162,
+          "volumePositive": true,
+          "faceCount": 7
+        },
+        "10": {
+          "edgeCount": 12,
+          "filletConstructed": true,
+          "edgeAdded": true,
+          "buildCalled": true,
+          "isDone": true,
+          "shapeObtained": true,
+          "volume": 7570.796326794896,
+          "volumePositive": true,
+          "faceCount": 7
+        },
+        "14": {
+          "edgeCount": 12,
+          "filletConstructed": true,
+          "edgeAdded": true,
+          "buildCalled": true,
+          "isDone": true,
+          "shapeObtained": true,
+          "volume": 7158.760800517997,
+          "volumePositive": true,
+          "faceCount": 7
+        },
+        "18": {
+          "edgeCount": 12,
+          "filletConstructed": true,
+          "edgeAdded": true,
+          "buildCalled": true,
+          "isDone": true,
+          "shapeObtained": true,
+          "volume": 6609.380098815467,
+          "volumePositive": true,
+          "faceCount": 7
+        },
+        "19.5": {
+          "edgeCount": 12,
+          "filletConstructed": true,
+          "edgeAdded": true,
+          "buildCalled": true,
+          "isDone": true,
+          "shapeObtained": true,
+          "volume": 6367.953032637597,
+          "volumePositive": true,
+          "faceCount": 7
+        }
+      },
+      "maxValidRadius": 19.5,
+      "maxValidVolume": 6367.953032637597
+    },
+    "note": "Cliff-edge: largest fillet radius still producing a valid solid on 20mm box. REACHABLE if any radius succeeded."
+  },
+  "cap3_cornerMitering": {
+    "verdict": "REACHABLE",
+    "isDone": true,
+    "volume": 7572.619358586172,
+    "faceCount": 26,
+    "faceCountGt6": true,
+    "error": null,
+    "chain": {
+      "boxBuilt": true,
+      "edgeCount": 12,
+      "filletConstructed": true,
+      "addedEdgeCount": 12,
+      "buildCalled": true,
+      "isDone": true,
+      "shapeObtained": true,
+      "volume": 7572.619358586172,
+      "volumePositive": true,
+      "faceCount": 26,
+      "faceCountGt6": true
+    },
+    "note": "Corner mitering: all 12 edges of 20mm box filleted at r=3mm. REACHABLE if IsDone + vol>0 + faces>6."
+  },
+  "_summary": {
+    "cap1_g2Blending": "REACHABLE",
+    "cap2_cliffEdge": "REACHABLE",
+    "cap3_cornerMitering": "REACHABLE",
+    "maxCliffRadius": 19.5,
+    "cornerFaceCount": 26,
+    "note": "A5 recon — verdicts recorded. GREEN means investigation complete, not all REACHABLE."
+  }
+}
