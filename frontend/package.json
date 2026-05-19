@@ -21,6 +21,7 @@
     "cesium": "^1.136.0",
     "lucide-react": "^0.562.0",
     "manifold-3d": "^3.4.1",
+    "opencascade.js": "^2.0.0-beta.b5ff984",
     "prop-types": "^15.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
