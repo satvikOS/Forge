@@ -518,7 +518,23 @@ function WorkbenchMechanical() {
             renderFuse: async () => {
                 const a = await ArchDiscKernel.brep.makeBox(10, 10, 10);
                 const b = await ArchDiscKernel.brep.makeBox(10, 10, 10);
-                return renderShape(await ArchDiscKernel.brep.fuse(a, b));
+                const result = await ArchDiscKernel.brep.fuse(a, b);
+                a.dispose(); b.dispose();
+                return renderShape(result);
+            },
+            renderCut: async () => {
+                const block = await ArchDiscKernel.brep.makeBox(12, 12, 12);
+                const drill = await ArchDiscKernel.brep.makeCylinder(4, 12);
+                const result = await ArchDiscKernel.brep.cut(block, drill);
+                block.dispose(); drill.dispose();
+                return renderShape(result);
+            },
+            renderCommon: async () => {
+                const block = await ArchDiscKernel.brep.makeBox(12, 12, 12);
+                const ball = await ArchDiscKernel.brep.makeSphere(8);
+                const result = await ArchDiscKernel.brep.common(block, ball);
+                block.dispose(); ball.dispose();
+                return renderShape(result);
             },
             renderExtrude: async (w, h, d) =>
                 renderShape(await ArchDiscKernel.brep.extrudeRect(w, h, d)),

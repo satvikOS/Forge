@@ -29,6 +29,8 @@ export default function BrepLabPanel() {
     ['cone', 'Cone', (k) => k.renderCone(6, 2, 12)],
     ['torus', 'Torus', (k) => k.renderTorus(10, 3)],
     ['fuse', 'Fuse', (k) => k.renderFuse()],
+    ['cut', 'Cut', (k) => k.renderCut()],
+    ['common', 'Common', (k) => k.renderCommon()],
     ['extrude', 'Extrude', (k) => k.renderExtrude(12, 8, 5)],
     ['revolve', 'Revolve', (k) => k.renderRevolve(4, 3, 10, 360)],
     ['fillet', 'Fillet', (k) => k.renderFillet(10, 1.5)],

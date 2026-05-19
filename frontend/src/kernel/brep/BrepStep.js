@@ -31,13 +31,20 @@ export async function exportStep(brepShape) {
     if (transferRet.value !== 1) {
       throw new Error(`exportStep: OCCT transfer failed (status ${transferRet.value})`);
     }
-    writer.Write(STEP_TMP);
-    const text = oc.FS.readFile(STEP_TMP, { encoding: 'utf8' });
-    try { oc.FS.unlink(STEP_TMP); } catch { /* fine */ }
-    if (!text || !text.includes('ISO-10303-21')) {
-      throw new Error('exportStep: produced text is not valid STEP');
+    const writeRet = writer.Write(STEP_TMP);
+    // writeRet is an Embind object; .value === 1 means IFSelect_RetDone (same convention)
+    if (writeRet.value !== 1) {
+      throw new Error('exportStep: OCCT Write failed');
     }
-    return text;
+    try {
+      const text = oc.FS.readFile(STEP_TMP, { encoding: 'utf8' });
+      if (!text || !text.includes('ISO-10303-21')) {
+        throw new Error('exportStep: produced text is not valid STEP');
+      }
+      return text;
+    } finally {
+      try { oc.FS.unlink(STEP_TMP); } catch { /* fine */ }
+    }
   });
 }
 
@@ -53,16 +60,19 @@ export async function importStep(stepText) {
   const oc = await getOCCT();
   return withScope(() => {
     oc.FS.writeFile(STEP_TMP, stepText);
-    const reader = track(new oc.STEPControl_Reader_1());
-    const readStatus = reader.ReadFile(STEP_TMP);
-    // readStatus is an Embind object; .value === 1 means IFSelect_RetDone (verified: item 13)
-    if (readStatus.value !== 1) {
-      throw new Error(`importStep: OCCT ReadFile failed (status ${readStatus.value})`);
+    try {
+      const reader = track(new oc.STEPControl_Reader_1());
+      const readStatus = reader.ReadFile(STEP_TMP);
+      // readStatus is an Embind object; .value === 1 means IFSelect_RetDone (verified: item 13)
+      if (readStatus.value !== 1) {
+        throw new Error(`importStep: OCCT ReadFile failed (status ${readStatus.value})`);
+      }
+      reader.TransferRoots(track(new oc.Message_ProgressRange_1()));
+      const shape = reader.OneShape();
+      if (shape.IsNull()) throw new Error('importStep: OCCT produced a null shape');
+      return new BrepShape(shape, { op: 'importStep' });
+    } finally {
+      try { oc.FS.unlink(STEP_TMP); } catch { /* fine */ }
     }
-    reader.TransferRoots(track(new oc.Message_ProgressRange_1()));
-    const shape = reader.OneShape();
-    try { oc.FS.unlink(STEP_TMP); } catch { /* fine */ }
-    if (shape.IsNull()) throw new Error('importStep: OCCT produced a null shape');
-    return new BrepShape(shape, { op: 'importStep' });
   });
 }

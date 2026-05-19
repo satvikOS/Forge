@@ -55,8 +55,8 @@ test('cut: a 20mm block minus a drilled cylinder removes volume', async () => {
     const holed = await K.cut(block, drill);
     return K.measure(holed);
   });
-  expect(m.volume).toBeGreaterThan(0);
-  expect(m.volume).toBeLessThan(8000);
+  expect(m.volume).toBeGreaterThan(7379);
+  expect(m.volume).toBeLessThan(7835);
   expect(pageErrors).toEqual([]);
   await app.close();
 });
