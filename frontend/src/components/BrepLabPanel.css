@@ -22,4 +22,5 @@
   cursor: pointer;
 }
 .brep-lab-btn:disabled { opacity: 0.5; cursor: default; }
+.brep-lab-btn { margin-bottom: 4px; }
 .brep-lab-status { margin-top: 8px; color: #9aa3ad; }

@@ -478,38 +478,58 @@ function WorkbenchMechanical() {
         const scene = viewport?.scene;
         if (!scene) return undefined;
         let lastBrepGroup = null;
+        const renderShape = async (shape) => {
+            const mesh = await ArchDiscKernel.brep.brepToMesh(shape);
+            if (lastBrepGroup) { scene.remove(lastBrepGroup); lastBrepGroup = null; }
+            const group = new THREE.Group();
+            group.scale.set(0.001, 0.001, 0.001);
+            group.add(mesh);
+            group.userData.pickable = true;
+            group.userData.generatedModel = true;
+            scene.add(group);
+            group.updateMatrixWorld(true);
+            lastBrepGroup = group;
+            if (typeof window.__archdiscFocusOnObject === 'function') {
+                window.__archdiscFocusOnObject(group);
+            }
+            const metrics = await ArchDiscKernel.brep.measure(shape);
+            // __lastBrepShape holds live OCCT memory owned by this closure;
+            // dispose the previous before replacing. External code must not
+            // dispose it.
+            if (window.__lastBrepShape) { window.__lastBrepShape.dispose(); }
+            window.__lastBrepMetrics = metrics;
+            window.__lastBrepShape = shape;
+            return metrics;
+        };
         window.__archdiscKernel = {
             getOCCT,
             kernel: ArchDiscKernel,
-            /** Build a box, render it, return its metrics. */
-            renderBox: async (dx, dy, dz) => {
-                const shape = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
-                const mesh = await ArchDiscKernel.brep.brepToMesh(shape);
-                if (lastBrepGroup) { scene.remove(lastBrepGroup); lastBrepGroup = null; }
-                const group = new THREE.Group();
-                group.scale.set(0.001, 0.001, 0.001);
-                group.add(mesh);
-                group.userData.pickable = true;
-                group.userData.generatedModel = true;
-                scene.add(group);
-                group.updateMatrixWorld(true);
-                lastBrepGroup = group;
-                if (typeof window.__archdiscFocusOnObject === 'function') {
-                    window.__archdiscFocusOnObject(group);
-                }
-                const metrics = await ArchDiscKernel.brep.measure(shape);
-                window.__lastBrepMetrics = metrics;
-                // I1: dispose the previous shape before overwriting the slot.
-                // The current mesh's BufferGeometry holds its own Float32Array
-                // copies built from tessellation data, so disposing the previous
-                // shape does not affect the current Three.js mesh.
-                if (window.__lastBrepShape) { window.__lastBrepShape.dispose(); }
-                // m5: this slot holds live OCCT heap memory; it is owned by
-                // renderBox, which disposes it on the next call. External code
-                // must NOT call .dispose() on window.__lastBrepShape directly.
-                window.__lastBrepShape = shape;
-                return metrics;
+            renderShape,
+            renderBox: async (dx, dy, dz) =>
+                renderShape(await ArchDiscKernel.brep.makeBox(dx, dy, dz)),
+            renderCylinder: async (r, h) =>
+                renderShape(await ArchDiscKernel.brep.makeCylinder(r, h)),
+            renderSphere: async (r) =>
+                renderShape(await ArchDiscKernel.brep.makeSphere(r)),
+            renderCone: async (r1, r2, h) =>
+                renderShape(await ArchDiscKernel.brep.makeCone(r1, r2, h)),
+            renderTorus: async (R, r) =>
+                renderShape(await ArchDiscKernel.brep.makeTorus(R, r)),
+            renderFuse: async () => {
+                const a = await ArchDiscKernel.brep.makeBox(10, 10, 10);
+                const b = await ArchDiscKernel.brep.makeBox(10, 10, 10);
+                return renderShape(await ArchDiscKernel.brep.fuse(a, b));
             },
+            renderExtrude: async (w, h, d) =>
+                renderShape(await ArchDiscKernel.brep.extrudeRect(w, h, d)),
+            renderRevolve: async (innerR, w, h, deg) =>
+                renderShape(await ArchDiscKernel.brep.revolveRect(innerR, w, h, deg)),
+            renderFillet: async (size, radius) =>
+                renderShape(await ArchDiscKernel.brep.filletAll(
+                    await ArchDiscKernel.brep.makeBox(size, size, size), radius)),
+            renderChamfer: async (size, distance) =>
+                renderShape(await ArchDiscKernel.brep.chamferAll(
+                    await ArchDiscKernel.brep.makeBox(size, size, size), distance)),
         };
         return () => { delete window.__archdiscKernel; };
     }, [viewport]);

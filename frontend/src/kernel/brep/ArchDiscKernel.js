@@ -1,11 +1,17 @@
 /**
  * ArchDisc Kernel — the unified facade. The single entry point for exact
  * B-rep geometry. OCCT internals never leak past this module. A0 scope:
- * makeBox + measurement + tessellation. A1+ extend `brep`.
+ * makeBox + measurement + tessellation. A1 scope: all primitives, booleans,
+ * features (extrude/revolve/fillet/chamfer), and STEP import/export.
  */
 
 import { getOCCT } from './occtKernel.js';
-import { makeBox } from './BrepPrimitives.js';
+import {
+  makeBox, makeCylinder, makeSphere, makeCone, makeTorus,
+} from './BrepPrimitives.js';
+import { fuse, cut, common } from './BrepBoolean.js';
+import { extrudeRect, revolveRect, filletAll, chamferAll } from './BrepFeatures.js';
+import { exportStep, importStep } from './BrepStep.js';
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
@@ -16,6 +22,10 @@ export const ArchDiscKernel = {
   /** Exact B-rep operations. */
   brep: {
     makeBox,
+    makeCylinder, makeSphere, makeCone, makeTorus,
+    fuse, cut, common,
+    extrudeRect, revolveRect, filletAll, chamferAll,
+    exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,
     brepToMesh,
