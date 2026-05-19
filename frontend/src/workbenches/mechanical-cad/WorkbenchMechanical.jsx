@@ -9,7 +9,7 @@ import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
-import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate } from '../../kernel/atomic/AtomicOps.js';
+import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, fillet } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
 import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
 import { requestManifest } from '../../ai/sculptor/ComponentManifest.js';
@@ -415,7 +415,7 @@ function WorkbenchMechanical() {
         if (!scene) return undefined;
         let lastAtomicGroup = null;
         window.__archdiscAtomic = {
-            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate,
+            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, fillet,
             render: (part, color) => {
                 if (lastAtomicGroup) {
                     // Unregister from the body registry (also removes from scene)

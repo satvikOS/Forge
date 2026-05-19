@@ -20,6 +20,7 @@ const OP_SCHEMA = {
   revolve:         [],
   circularPattern: ['count', 'distance'],
   linearPattern:   ['count', 'distance', 'dx', 'dy'],
+  fillet:          ['radius'],
 };
 
 /**
@@ -62,6 +63,8 @@ export function buildSculptPrompt() {
     '       — extrude the finished profile and make `count` copies in a straight row,',
     '       each offset by (dx,dy) mm; mode "extrude" adds them, "cut" subtracts them',
     '       (a row of holes). The first copy is at the sketched position.',
+    '- {"op":"fillet","radius":N} — round all edges of the current solid by N mm',
+    '       (a rolling-ball fillet). Use a radius small relative to the part.',
     '',
     'Rules:',
     '- The first feature must be an extrude or a revolve (cut needs existing material).',
@@ -133,6 +136,7 @@ export async function executeSculptPlan(plan, atomicApi) {
       case 'revolve':         await atomicApi.revolve(part, o.segments ?? 64, o.degrees ?? 360); break;
       case 'circularPattern': await atomicApi.circularPattern(part, o.mode, o.count, o.distance, o.angle ?? 360); break;
       case 'linearPattern': await atomicApi.linearPattern(part, o.mode, o.count, o.distance, o.dx, o.dy); break;
+      case 'fillet': await atomicApi.fillet(part, o.radius); break;
       default: throw new Error(`executeSculptPlan: unknown op '${o.op}'`);
     }
   }

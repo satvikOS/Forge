@@ -89,6 +89,16 @@ test.describe('PartSculptor — parseSculptPlan', () => {
     expect(() => parseSculptPlan('[{"op":"linearPattern","mode":"cut","count":4,"distance":12,"dy":0}]'))
       .toThrow(/linearPattern/);
   });
+
+  test('accepts a fillet op with a numeric radius', () => {
+    const plan = parseSculptPlan('[{"op":"fillet","radius":2}]');
+    expect(plan.length).toBe(1);
+    expect(plan[0].op).toBe('fillet');
+  });
+
+  test('rejects a fillet op with no numeric radius', () => {
+    expect(() => parseSculptPlan('[{"op":"fillet"}]')).toThrow(/fillet/);
+  });
 });
 
 test.describe('PartSculptor — executeSculptPlan', () => {
@@ -172,5 +182,25 @@ test.describe('PartSculptor — executeSculptPlan', () => {
       { op: 'linearPattern', mode: 'cut', count: 4, distance: 12, dx: 15, dy: 0 },
     ], api);
     expect(calls[calls.length - 1]).toEqual(['linearPattern', 'cut', 4, 12, 15, 0]);
+  });
+
+  test('executeSculptPlan dispatches fillet to the atomic api', async () => {
+    const calls = [];
+    const api = {
+      createPart: () => ({}),
+      startSketch: () => calls.push(['startSketch']),
+      sketchRectangle: (p, cx, cy, w, h) => calls.push(['sketchRectangle', cx, cy, w, h]),
+      finishSketch: () => calls.push(['finishSketch']),
+      extrude: async () => calls.push(['extrude']),
+      fillet: async (p, radius) => calls.push(['fillet', radius]),
+    };
+    await executeSculptPlan([
+      { op: 'startSketch', plane: 'XY' },
+      { op: 'sketchRectangle', cx: 0, cy: 0, w: 40, h: 40 },
+      { op: 'finishSketch' },
+      { op: 'extrude', distance: 10 },
+      { op: 'fillet', radius: 3 },
+    ], api);
+    expect(calls[calls.length - 1]).toEqual(['fillet', 3]);
   });
 });
