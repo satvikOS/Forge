@@ -20,8 +20,12 @@ export async function makeBox(dx, dy, dz) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeBox_2(dx, dy, dz));
-    if (!maker.IsDone()) throw new Error('makeBox: OCCT BRepPrimAPI_MakeBox failed');
-    const shape = maker.Shape(); // survives — owned by the returned BrepShape
+    // IsDone() may return false on some opencascade.js builds before
+    // Shape() is called (the build happens lazily). Check the shape instead.
+    const shape = maker.Shape();
+    if (!shape || shape.IsNull()) {
+      throw new Error('makeBox: OCCT BRepPrimAPI_MakeBox produced a null shape');
+    }
     return new BrepShape(shape, { op: 'makeBox', params: { dx, dy, dz } });
   });
 }
