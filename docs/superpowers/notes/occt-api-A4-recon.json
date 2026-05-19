@@ -1,0 +1,207 @@
+{
+  "item1_fusedBar": {
+    "confirmed": true,
+    "fuseCtor": "BRepAlgoAPI_Fuse_3(a,b,pr)",
+    "buildMethod": "Build(pr)",
+    "shapeMethod": "Shape()",
+    "fusedVolume": 15999.999999999995,
+    "fusedFaceCount": 10,
+    "fusedEdgeCount": 20,
+    "volumeWithinTol": true,
+    "seamNote": "Seam RETAINED: faces > 6 (internal seam face present)",
+    "chain": {
+      "fuseKeys": [
+        "BRepAlgoAPI_Fuse",
+        "BRepAlgoAPI_Fuse_1",
+        "BRepAlgoAPI_Fuse_2",
+        "BRepAlgoAPI_Fuse_3",
+        "BRepAlgoAPI_Fuse_4"
+      ],
+      "boxABuilt": true,
+      "boxBBuilt": true,
+      "boxBMinX": 19.9999999,
+      "fuseCtor": "BRepAlgoAPI_Fuse_3(a,b,pr)",
+      "buildMethod": "Build(pr)",
+      "buildOk": true,
+      "isDone": true,
+      "shapeMethod": "Shape()",
+      "shapeReadOk": true,
+      "fusedVolume": 15999.999999999995,
+      "fusedFaceCount": 10,
+      "fusedEdgeCount": 20,
+      "seamNote": "Seam RETAINED: faces > 6 (internal seam face present)"
+    },
+    "note": "Box A(20³) fused with Box B(20³) at (20,0,0). Expected vol≈16000. Faces may retain internal seam."
+  },
+  "item2_unifySameDomain": {
+    "confirmed": true,
+    "unifyCtor": "ShapeUpgrade_UnifySameDomain_2(shape, true, true, false)",
+    "buildMethod": "Build()",
+    "shapeMethod": "Shape()",
+    "simplifiedVolume": 15999.999999999996,
+    "simplifiedFaceCount": 6,
+    "simplifiedEdgeCount": 12,
+    "volumePreserved": true,
+    "facesReduced": true,
+    "edgesReduced": true,
+    "cleanBoxResult": true,
+    "beforeAfter": {
+      "before": {
+        "faces": 10,
+        "edges": 20,
+        "volume": 15999.999999999995
+      },
+      "after": {
+        "faces": 6,
+        "edges": 12,
+        "volume": 15999.999999999996
+      }
+    },
+    "NOT_CONFIRMED_NOTE": null,
+    "chain": {
+      "unifySameDomainKeys": [
+        "ShapeUpgrade_UnifySameDomain",
+        "ShapeUpgrade_UnifySameDomain_1",
+        "ShapeUpgrade_UnifySameDomain_2"
+      ],
+      "shapeUpgradeKeys": [
+        "ShapeUpgrade_SplitCurve3dContinuity",
+        "ShapeUpgrade_Tool",
+        "ShapeUpgrade_ConvertSurfaceToBezierBasis",
+        "ShapeUpgrade_SplitCurve3d",
+        "ShapeUpgrade_UnifySameDomain",
+        "ShapeUpgrade_UnifySameDomain_1",
+        "ShapeUpgrade_UnifySameDomain_2",
+        "ShapeUpgrade_ConvertCurve3dToBezier",
+        "ShapeUpgrade_RemoveLocations",
+        "ShapeUpgrade_EdgeDivide",
+        "ShapeUpgrade_RemoveInternalWires",
+        "ShapeUpgrade_RemoveInternalWires_1",
+        "ShapeUpgrade_RemoveInternalWires_2",
+        "ShapeUpgrade_ConvertCurve2dToBezier",
+        "ShapeUpgrade_ShapeDivideClosedEdges",
+        "ShapeUpgrade_ShapeConvertToBezier",
+        "ShapeUpgrade_ShapeConvertToBezier_1",
+        "ShapeUpgrade_ShapeConvertToBezier_2",
+        "ShapeUpgrade_FaceDivideArea",
+        "ShapeUpgrade_FaceDivideArea_1",
+        "ShapeUpgrade_FaceDivideArea_2",
+        "ShapeUpgrade_ShellSewing",
+        "ShapeUpgrade_WireDivide",
+        "ShapeUpgrade_SplitSurfaceArea",
+        "ShapeUpgrade_ShapeDivideAngle",
+        "ShapeUpgrade_ShapeDivideAngle_1",
+        "ShapeUpgrade_ShapeDivideAngle_2",
+        "ShapeUpgrade_SplitSurface",
+        "ShapeUpgrade_FixSmallBezierCurves",
+        "ShapeUpgrade"
+      ],
+      "unifyCtor": "ShapeUpgrade_UnifySameDomain_2(shape, true, true, false)",
+      "unifyCtorFound": true,
+      "unifyMethods": [
+        "AllowInternalEdges",
+        "Build",
+        "DecrementRefCounter",
+        "Delete",
+        "DynamicType",
+        "GetRefCount",
+        "History_1",
+        "History_2",
+        "IncrementRefCounter",
+        "Initialize",
+        "IsInstance_1",
+        "IsInstance_2",
+        "IsKind_1",
+        "IsKind_2",
+        "KeepShape",
+        "KeepShapes",
+        "SetAngularTolerance",
+        "SetLinearTolerance",
+        "SetSafeInputMode",
+        "Shape",
+        "This",
+        "clone",
+        "deleteLater",
+        "isAliasOf"
+      ],
+      "buildMethod": "Build()",
+      "buildOk": true,
+      "shapeMethod": "Shape()",
+      "shapeReadOk": true,
+      "simplifiedVolume": 15999.999999999996,
+      "simplifiedFaceCount": 6,
+      "simplifiedEdgeCount": 12
+    },
+    "note": "ShapeUpgrade_UnifySameDomain simplifies fused bar. Volume must be preserved; faces/edges should be reduced."
+  },
+  "item3_shapefixShape": {
+    "confirmed": true,
+    "sfCtor": "ShapeFix_Shape_2(shape)",
+    "performMethod": "Perform(pr)",
+    "shapeMethod": "Shape()",
+    "performOk": true,
+    "shapeOk": true,
+    "chain": {
+      "shapefixKeys": [
+        "ShapeFix_ShapeTolerance",
+        "ShapeFix_Shape",
+        "ShapeFix_Shape_1",
+        "ShapeFix_Shape_2"
+      ],
+      "sfCtor": "ShapeFix_Shape_2(shape)",
+      "sfMethods": [
+        "Context",
+        "DecrementRefCounter",
+        "Delete",
+        "DynamicType",
+        "FixEdgeTool",
+        "FixFaceTool",
+        "FixFreeFaceMode",
+        "FixFreeShellMode",
+        "FixFreeWireMode",
+        "FixSameParameterMode",
+        "FixShellTool",
+        "FixSolidMode",
+        "FixSolidTool",
+        "FixVertexPositionMode",
+        "FixVertexTolMode",
+        "FixWireTool",
+        "GetRefCount",
+        "IncrementRefCounter",
+        "Init",
+        "IsInstance_1",
+        "IsInstance_2",
+        "IsKind_1",
+        "IsKind_2",
+        "LimitTolerance",
+        "MaxTolerance",
+        "MinTolerance",
+        "MsgRegistrator",
+        "Perform",
+        "Precision",
+        "SendFail_1"
+      ],
+      "performMethod": "Perform(pr)",
+      "shapeMethod": "Shape()",
+      "sfVolume": 999.9999999999998
+    },
+    "note": "Optional check — ShapeFix_Shape constructible + Perform + Shape"
+  },
+  "_summary": {
+    "item1_fusedBar": "CONFIRMED",
+    "item2_unifySameDomain": "CONFIRMED",
+    "item3_shapefixShape": "CONFIRMED",
+    "beforeAfter": {
+      "before": {
+        "faces": 10,
+        "edges": 20,
+        "volume": 15999.999999999995
+      },
+      "after": {
+        "faces": 6,
+        "edges": 12,
+        "volume": 15999.999999999996
+      }
+    }
+  }
+}
