@@ -51,6 +51,13 @@ const TABS = {
   part: {
     label: 'Part',
     groups: [
+      { label: 'Solid Primitives', tools: [
+        { name: 'Box', icon: '⬜', key: 'part', primary: true },
+        { name: 'Cylinder', icon: '⬭', key: 'part' },
+        { name: 'Sphere', icon: '●', key: 'part' },
+        { name: 'Cone', icon: '△', key: 'part' },
+        { name: 'Torus', icon: '◎', key: 'part' },
+      ]},
       { label: 'Create', tools: [
         { name: 'Extrude Boss', icon: '⬆', key: 'part', primary: true },
         { name: 'Extrude Cut', icon: '⬇', key: 'part' },
