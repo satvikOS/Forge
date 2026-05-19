@@ -9,6 +9,8 @@ import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
 import { getOCCT } from '../../kernel/brep/occtKernel.js';
+import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
+import * as THREE from 'three';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
 import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, fillet } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
@@ -468,12 +470,40 @@ function WorkbenchMechanical() {
     }, []);
 
     // Expose the OCCT-backed ArchDisc Kernel so headed Electron e2e specs
-    // (and the B-rep Lab panel) can drive exact B-rep geometry.
+    // (and the B-rep Lab panel) can drive exact B-rep geometry and see it
+    // render in the live viewport.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
-        window.__archdiscKernel = { getOCCT };
+        const scene = viewport?.scene;
+        if (!scene) return undefined;
+        let lastBrepGroup = null;
+        window.__archdiscKernel = {
+            getOCCT,
+            kernel: ArchDiscKernel,
+            /** Build a box, render it, return its metrics. */
+            renderBox: async (dx, dy, dz) => {
+                const shape = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+                const mesh = await ArchDiscKernel.brep.brepToMesh(shape);
+                if (lastBrepGroup) { scene.remove(lastBrepGroup); lastBrepGroup = null; }
+                const group = new THREE.Group();
+                group.scale.set(0.001, 0.001, 0.001);
+                group.add(mesh);
+                group.userData.pickable = true;
+                group.userData.generatedModel = true;
+                scene.add(group);
+                group.updateMatrixWorld(true);
+                lastBrepGroup = group;
+                if (typeof window.__archdiscFocusOnObject === 'function') {
+                    window.__archdiscFocusOnObject(group);
+                }
+                const metrics = await ArchDiscKernel.brep.measure(shape);
+                window.__lastBrepMetrics = metrics;
+                window.__lastBrepShape = shape;
+                return metrics;
+            },
+        };
         return () => { delete window.__archdiscKernel; };
-    }, []);
+    }, [viewport]);
 
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
