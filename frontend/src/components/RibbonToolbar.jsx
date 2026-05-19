@@ -80,6 +80,9 @@ const TABS = {
         { name: 'Subdivide', icon: '⊞', key: 'part' },
         { name: 'Volumetric Fillet', icon: '◖', key: 'part' },
         { name: 'Smooth Fillet', icon: '◝', key: 'part' },
+        { name: 'Face Fillet', icon: '◠', key: 'part' },
+        { name: 'Full Round Fillet', icon: '◡', key: 'part' },
+        { name: 'Corner Mitre', icon: '◺', key: 'part' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

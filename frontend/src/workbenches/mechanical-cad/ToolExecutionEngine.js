@@ -1112,6 +1112,78 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ── A5 Blending ops ─────────────────────────────────────────────────────
+
+    'Face Fillet': async (scene, viewport) => {
+      // OCCT exact B-rep path: G2 (C2) fill face built via
+      // BRepOffsetAPI_MakeFilling on a planar square wire (z=10, side=6 mm).
+      try {
+        const result = await ArchDiscKernel.brep.blendG2(6);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        let areaStr = '';
+        try {
+          const a = await ArchDiscKernel.brep.area(result);
+          areaStr = ` — area ${a.toFixed(1)} mm²`;
+        } catch (_) { /* area not critical */ }
+        return {
+          status: 'success',
+          message: `G2 Blend: C2 fill face built${areaStr} (via OCCT BRepOffsetAPI_MakeFilling)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Face Fillet (G2 Blend) failed: ${err.message}` };
+      }
+    },
+
+    'Full Round Fillet': async (scene, viewport) => {
+      // OCCT exact B-rep path: large-radius cliff-edge blend (r=8 mm) applied
+      // to all unique edges. Uses the last OCCT body or a default 20×20×20 box.
+      try {
+        let body;
+        let ownedBody = false;
+        if (typeof window !== 'undefined' && window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+          ownedBody = true;
+        }
+        const result = await ArchDiscKernel.brep.cliffEdgeBlend(body, 8);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Cliff-Edge Blend: r=8mm — V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Full Round Fillet (Cliff-Edge Blend) failed: ${err.message}` };
+      }
+    },
+
+    'Corner Mitre': async (scene, viewport) => {
+      // OCCT exact B-rep path: auto-mitre all corners via filleting every
+      // edge (r=3 mm). Uses the last OCCT body or a default 20×20×20 box.
+      try {
+        let body;
+        let ownedBody = false;
+        if (typeof window !== 'undefined' && window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+          ownedBody = true;
+        }
+        const result = await ArchDiscKernel.brep.mitreCorner(body, 3);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Corner Mitre: r=3mm — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Corner Mitre failed: ${err.message}` };
+      }
+    },
+
     'Offset Shape': async (scene, viewport) => {
       // OCCT exact B-rep path: offset every face of the last OCCT body
       // outward by 2 mm (or a default 40×40×40 box).

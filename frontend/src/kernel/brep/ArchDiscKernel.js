@@ -20,6 +20,7 @@ import { simplify } from './BrepHeal.js';
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
+import { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 
 export const ArchDiscKernel = {
   /** Ensure the OCCT WASM module is loaded. */
@@ -35,6 +36,7 @@ export const ArchDiscKernel = {
     checkSelfIntersection, checkClash,
     translate, makeCompound,
     simplify,
+    blendG2, cliffEdgeBlend, mitreCorner,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,

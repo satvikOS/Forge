@@ -114,7 +114,7 @@ const TOOL_GROUPS = {
                 'Fillet', 'Variable Radius Fillet', 'Face Fillet', 'Full Round Fillet',
                 'Chamfer', 'Shell', 'Draft', 'Draft Analysis',
                 'Offset Shape', 'Hole Wizard', 'Thread', 'Counterbore', 'Countersink',
-                'Scale', 'Dome', 'Indent', 'Flex', 'Deform'
+                'Scale', 'Dome', 'Indent', 'Flex', 'Deform', 'Corner Mitre'
             ]},
             { header: 'Boolean', items: [
                 'Combine', 'Intersect', 'Subtract', 'Split', 'Move Body', 'Copy Body'
