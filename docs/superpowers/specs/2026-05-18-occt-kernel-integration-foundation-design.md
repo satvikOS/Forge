@@ -37,8 +37,9 @@ re-litigation inside this spec:
 - **Integration approach:** thin facade over the prebuilt full
   `opencascade.js` (no custom slim WASM build in this sub-project).
 - **Verification:** every operation is verified by a **headed Playwright e2e
-  test** and confirmed green before the next operation is built. This is a
-  hard, non-negotiable gate.
+  test that launches the genuine ArchDisc Electron desktop app**, and
+  confirmed green before the next operation is built. This is a hard,
+  non-negotiable gate. See §8.
 
 ## 3. Scope
 
@@ -184,14 +185,25 @@ window.__archdiscKernel      BrepTessellate ──► {positions,normals,indices
 
 ## 8. Testing strategy
 
-- One headed Playwright spec per operation family, under `e2e/`, following
-  existing conventions: 1920×1000 viewport, `webServer` on port 3000, real
-  button clicks (`dispatchEvent('click')` where a scroll container would
-  intercept), screenshots on.
-- Each spec: launch app → drive the op via its B-rep Lab button → assert
-  geometry metrics via `BrepMeasure` (e.g. a 10 mm box → volume ≈ 1000 mm³,
-  6 faces) → assert the viewport screenshot is non-blank → run the leak
-  guard.
+**Every operation is verified by a headed Playwright e2e test that launches
+the genuine ArchDisc Electron desktop app** — not the Vite dev server. This
+is a hard requirement: each op must be proven inside the real packaged
+desktop product before the next op is built.
+
+- One headed Electron spec per operation, under `e2e/`, named
+  `brep-<op>-electron.spec.js`, following the existing `*-electron.spec.js`
+  convention: launch via `_electron.launch({ args: ['electron/main.js'] })`
+  in production mode, capture renderer `console` + `pageerror`, wait for the
+  `canvas` and for `window.__archdiscKernel` to register.
+- **Build prerequisite:** the Electron app in production mode loads
+  `frontend/dist/index.html`, so each spec run requires a fresh
+  `cd frontend && npx vite build` first (the OCCT `.wasm` asset must be
+  present in `dist/`). The plan will wire this into the e2e workflow.
+- Each spec: launch the Electron app → drive the op via its real B-rep Lab
+  button (`dispatchEvent('click')` where a scroll container would intercept
+  a real click) → assert geometry metrics via `BrepMeasure` (e.g. a 10 mm
+  box → volume ≈ 1000 mm³, 6 faces) → assert the viewport screenshot is
+  non-blank → run the leak guard → assert zero renderer `pageerror`s.
 - `fillet` spec: assert volume decreased by the expected rounded-corner
   amount and face count increased.
 - STEP spec: build a shape → `exportStep` → `importStep` → assert round-trip
@@ -221,7 +233,9 @@ window.__archdiscKernel      BrepTessellate ──► {positions,normals,indices
 - `opencascade.js` integrated; OCCT loads in both `vite dev` and the
   Electron build.
 - Every operation in §3.1 has: a facade method, a B-rep Lab button, a
-  `window.__archdiscKernel` entry, and a **green headed Playwright spec**.
-- All specs pass headed; the leak guard passes for every op.
+  `window.__archdiscKernel` entry, and a **green headed Electron-app
+  Playwright spec** (`brep-<op>-electron.spec.js`).
+- All specs pass headed against the Electron app; the leak guard passes for
+  every op.
 - The existing ~388 e2e tests still pass.
 - Phase A5 outcome reported honestly (complete, partial, or deferred).
