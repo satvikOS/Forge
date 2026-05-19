@@ -104,7 +104,8 @@ export async function thicken(w, h, thickness) {
     const faceShape = track(fm.Face());
 
     // Step 2: Thicken via MakeThickSolidBySimple(shape, offset) — exactly 2 args
-    // Note: resulting volume may be negative (signed); caller should use Math.abs if comparing.
+    // Note: MakeThickSolidBySimple may produce an inward-oriented solid; we fix
+    // the orientation below by calling Reversed() on the result.
     const thickObj = track(new oc.BRepOffsetAPI_MakeThickSolid());
     thickObj.MakeThickSolidBySimple(faceShape, thickness);
 
@@ -112,9 +113,15 @@ export async function thicken(w, h, thickness) {
     thickObj.Build(prBuild);
 
     if (!thickObj.IsDone()) throw new Error('thicken: MakeThickSolidBySimple did not complete');
-    const shape = track(thickObj.Shape());
+    const rawShape = track(thickObj.Shape());
 
-    if (shape.IsNull()) throw new Error('thicken: OCCT produced a null shape');
+    if (rawShape.IsNull()) throw new Error('thicken: OCCT produced a null shape');
+
+    // MakeThickSolidBySimple may produce an inward-oriented solid whose
+    // VolumeProperties returns a negative value. Reversing the orientation
+    // corrects the face normals so downstream consumers (measure, boolean, …)
+    // receive a properly-outward-oriented solid.
+    const shape = track(rawShape.Reversed());
     return new BrepShape(shape, { op: 'thicken', params: { w, h, thickness } });
   });
 }
