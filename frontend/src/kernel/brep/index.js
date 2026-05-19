@@ -15,3 +15,4 @@ export { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 export { checkSelfIntersection, checkClash } from './BrepCheck.js';
 export { translate, makeCompound } from './BrepTransform.js';
 export { simplify } from './BrepHeal.js';
+export { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
