@@ -98,6 +98,7 @@ test('A0 gate: OCCT box builds, measures, renders, and leak-guards in the Electr
     const before = getHeapSize(oc);
     for (let i = 0; i < 20; i++) {
       const s = await window.__archdiscKernel.kernel.brep.makeBox(5, 5, 5);
+      await window.__archdiscKernel.kernel.brep.brepToMesh(s);
       s.dispose();
     }
     const after = getHeapSize(oc);

@@ -499,6 +499,14 @@ function WorkbenchMechanical() {
                 }
                 const metrics = await ArchDiscKernel.brep.measure(shape);
                 window.__lastBrepMetrics = metrics;
+                // I1: dispose the previous shape before overwriting the slot.
+                // The current mesh's BufferGeometry holds its own Float32Array
+                // copies built from tessellation data, so disposing the previous
+                // shape does not affect the current Three.js mesh.
+                if (window.__lastBrepShape) { window.__lastBrepShape.dispose(); }
+                // m5: this slot holds live OCCT heap memory; it is owned by
+                // renderBox, which disposes it on the next call. External code
+                // must NOT call .dispose() on window.__lastBrepShape directly.
                 window.__lastBrepShape = shape;
                 return metrics;
             },

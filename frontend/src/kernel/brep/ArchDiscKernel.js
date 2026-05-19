@@ -16,6 +16,7 @@ export const ArchDiscKernel = {
   /** Exact B-rep operations. */
   brep: {
     makeBox,
+    /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,
     brepToMesh,
     volume: Measure.volume,

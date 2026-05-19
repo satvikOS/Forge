@@ -220,6 +220,47 @@ loc.delete();
 
 ---
 
+## Item 6 — Face Orientation Enum (TopAbs_Orientation)
+
+**Empirically verified** by `e2e/brep-occt-load-electron.spec.js` Pass 3 (I2 introspection).
+
+### Representation
+
+`face.Orientation_1()` returns an **Embind-wrapped object** (`typeof === "object"`), not a plain
+integer. The same applies to `oc.TopAbs_Orientation.TopAbs_REVERSED` and `.TopAbs_FORWARD`.
+
+| Property | Observed |
+|---|---|
+| `typeof oriVal` | `"object"` |
+| `JSON.stringify(oriVal)` | `"{}"` (serializes as empty — Embind enum object) |
+| `oriVal.value` | integer (e.g. `1` for REVERSED, `0` for FORWARD) |
+| `typeof oc.TopAbs_Orientation.TopAbs_REVERSED` | `"object"` |
+| `oc.TopAbs_Orientation.TopAbs_REVERSED.value` | `1` |
+| `oc.TopAbs_Orientation.TopAbs_FORWARD.value` | `0` |
+
+### Comparison
+
+Embind enum singletons for `TopAbs_Orientation` are returned as the **same object reference**
+from a given `oc` instance, so `===` happens to pass — but only because both sides are the
+same singleton. This is an implementation detail of the Emscripten binding. The **robust**
+comparison is via `.value`:
+
+```js
+// VERIFIED — robust, does not rely on singleton reference identity
+const oriVal      = face.Orientation_1();
+const reversedVal = oc.TopAbs_Orientation.TopAbs_REVERSED;
+const reversed = (typeof oriVal === 'number')
+  ? oriVal === reversedVal
+  : (oriVal && reversedVal && oriVal.value === reversedVal.value);
+```
+
+A box built with `BRepPrimAPI_MakeBox_2` has `oriVal.value === 1` (REVERSED) for at least its
+first face as encountered by `TopExp_Explorer_2`. The old `===` comparison also passed for box
+faces (masking the issue), but the `.value` path is correct regardless of whether the binding
+evolves to return fresh objects instead of singletons.
+
+---
+
 ## General Memory Rules
 
 Every object created with `new oc.Xyz(...)` leaks WASM heap unless `.delete()` is called.

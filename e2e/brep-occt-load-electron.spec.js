@@ -336,8 +336,44 @@ test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes
     return result;
   });
 
+  // ─── Pass 3: I2 — empirical TopAbs_Orientation enum representation ──────────
+  const orientationRecon = await win.evaluate(async () => {
+    const oc = await window.__archdiscKernel.getOCCT();
+    // Build a box and get a face so we can call Orientation_1().
+    const box = new oc.BRepPrimAPI_MakeBox_2(10, 10, 10);
+    const shape = box.Shape();
+    const mesh = new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false);
+    mesh.delete();
+    const faceExp = new oc.TopExp_Explorer_2(
+      shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE,
+    );
+    const face = oc.TopoDS.Face_1(faceExp.Current());
+    faceExp.delete();
+    const oriVal = face.Orientation_1();
+    const reversedEnum = oc.TopAbs_Orientation.TopAbs_REVERSED;
+    const forwardEnum = oc.TopAbs_Orientation.TopAbs_FORWARD;
+    const result = {
+      oriValType: typeof oriVal,
+      oriValRaw: JSON.stringify(oriVal),
+      oriValDotValue: (oriVal && typeof oriVal === 'object') ? oriVal.value : oriVal,
+      reversedEnumType: typeof reversedEnum,
+      reversedEnumRaw: JSON.stringify(reversedEnum),
+      reversedEnumDotValue: (reversedEnum && typeof reversedEnum === 'object') ? reversedEnum.value : reversedEnum,
+      forwardEnumDotValue: (forwardEnum && typeof forwardEnum === 'object') ? forwardEnum.value : forwardEnum,
+      strictEqTest: oriVal === reversedEnum,
+      dotValueEqTest: (oriVal && reversedEnum && typeof oriVal === 'object')
+        ? oriVal.value === reversedEnum.value
+        : oriVal === reversedEnum,
+    };
+    face.delete();
+    shape.delete();
+    box.delete();
+    return result;
+  });
+  console.log('I2 orientation recon:', JSON.stringify(orientationRecon, null, 2));
+
   // Write combined output
-  const fullOutput = { ...recon, verified };
+  const fullOutput = { ...recon, verified, orientationRecon };
   fs.mkdirSync(path.join(__dirname, '..', 'docs', 'superpowers', 'notes'), { recursive: true });
   fs.writeFileSync(
     path.join(__dirname, '..', 'docs', 'superpowers', 'notes', 'occt-api-A0-recon.json'),
