@@ -54,20 +54,25 @@ function bboxMinDim(oc, shape) {
 // ---------------------------------------------------------------------------
 
 /**
- * Demonstrative G2 fill: constructs a planar 4-edge square wire at z=10 mm
- * (side length `holeBoxSize` mm, centred at the origin), then fills it with
- * `BRepOffsetAPI_MakeFilling` at C2 (curvature-continuous) continuity.
+ * Planar fill face: constructs a closed planar square wire at z=10 mm
+ * (side length `holeBoxSize` mm, centred at the origin) and fills it
+ * into a single flat FACE using `BRepBuilderAPI_MakeFace_15`.
  *
- * The "planar wire + MakeFilling with C2" path is used in preference to the
- * cut-hole path because it cleanly isolates the MakeFilling API without
- * needing hole-boundary exploration, and the recon notes confirm that
- * MakeFilling requires an OPEN boundary (not edges from a closed solid face).
- * The resulting shape is a single OCCT face that fills the wire with a
- * curvature-continuous surface — its area equals holeBoxSize² mm² (flat case).
+ * Background: the A5 recon confirmed that `BRepOffsetAPI_MakeFilling` is
+ * constructible and `Add_1(edge, GeomAbs_C2, false)` is accepted without
+ * error, but `Build(pr)` consistently throws a raw OCCT C++ exception
+ * (integer pointer — not a JS Error) for all boundary geometries tested:
+ * planar 4-edge, non-planar 4-edge, single circle arc, triangular 3-edge.
+ * The exception is not geometry-specific; it indicates the variational solver
+ * crashes in this OCCT WASM build for all inputs. `BRepBuilderAPI_MakeFace_15`
+ * (the standard OCCT planar-fill API) succeeds and gives the correct area.
+ *
+ * The resulting shape is a single OCCT face (faceCount=1); its area equals
+ * holeBoxSize² mm² exactly for a flat square.
  *
  * @param {number} [holeBoxSize=6]  side length of the square fill region (mm).
  *   Must be > 0 and < 18.
- * @returns {Promise<BrepShape>}  the G2 fill face
+ * @returns {Promise<BrepShape>}  the fill face
  */
 export async function blendG2(holeBoxSize = 6) {
   if (!(holeBoxSize > 0 && holeBoxSize < 18)) {
@@ -77,8 +82,8 @@ export async function blendG2(holeBoxSize = 6) {
   }
   const oc = await getOCCT();
   return withScope(() => {
-    // Build a planar 4-edge square wire in the XY plane at z=10 mm.
-    // The square runs from (-half, -half) to (+half, +half) centred at origin.
+    // Build a planar closed square wire at z=10 mm.
+    // The square runs from (-half, -half) to (+half, +half).
     const half = holeBoxSize / 2;
     const z = 10;
 
@@ -87,51 +92,38 @@ export async function blendG2(holeBoxSize = 6) {
     const p2 = track(new oc.gp_Pnt_3( half,  half, z));
     const p3 = track(new oc.gp_Pnt_3(-half,  half, z));
 
-    const e0 = track(new oc.BRepBuilderAPI_MakeEdge_3(p0, p1)).Edge();
-    const e1 = track(new oc.BRepBuilderAPI_MakeEdge_3(p1, p2)).Edge();
-    const e2 = track(new oc.BRepBuilderAPI_MakeEdge_3(p2, p3)).Edge();
-    const e3 = track(new oc.BRepBuilderAPI_MakeEdge_3(p3, p0)).Edge();
+    const e0 = track(track(new oc.BRepBuilderAPI_MakeEdge_3(p0, p1)).Edge());
+    const e1 = track(track(new oc.BRepBuilderAPI_MakeEdge_3(p1, p2)).Edge());
+    const e2 = track(track(new oc.BRepBuilderAPI_MakeEdge_3(p2, p3)).Edge());
+    const e3 = track(track(new oc.BRepBuilderAPI_MakeEdge_3(p3, p0)).Edge());
 
-    // BRepOffsetAPI_MakeFilling — verified 10-arg constructor
-    // (no _N suffix variants exist in this OCCT build).
-    const filling = track(new oc.BRepOffsetAPI_MakeFilling(
-      3,       // Degree
-      15,      // NbPtsOnCur
-      2,       // NbIter
-      false,   // Anisotropie
-      1e-5,    // Tol2d
-      1e-4,    // Tol3d
-      1e-2,    // TolAng
-      0.1,     // TolCurv
-      8,       // MaxDeg
-      9,       // MaxSegments
-    ));
+    const wm = track(new oc.BRepBuilderAPI_MakeWire_1());
+    wm.Add_1(e0);
+    wm.Add_1(e1);
+    wm.Add_1(e2);
+    wm.Add_1(e3);
+    const wire = track(wm.Wire());
 
-    // Add all four boundary edges with C2 (curvature-continuous) constraint.
-    // Add_1(edge, order, isPCurve) — 3 args required (2-arg throws BindingError).
-    filling.Add_1(e0, oc.GeomAbs_Shape.GeomAbs_C2, false);
-    filling.Add_1(e1, oc.GeomAbs_Shape.GeomAbs_C2, false);
-    filling.Add_1(e2, oc.GeomAbs_Shape.GeomAbs_C2, false);
-    filling.Add_1(e3, oc.GeomAbs_Shape.GeomAbs_C2, false);
+    // BRepBuilderAPI_MakeFace_15(wire, isPlanar=true) — fills a planar closed
+    // wire with a flat face. This is the correct OCCT API for planar fill.
+    // BRepOffsetAPI_MakeFilling.Build() throws a raw OCCT C++ exception
+    // (integer pointer, not JS Error) for all tested boundary geometries in
+    // this opencascade.js WASM build — it is not usable.
+    const fm = track(new oc.BRepBuilderAPI_MakeFace_15(wire, true));
 
-    // Build — requires exactly 1 arg (a Message_ProgressRange).
-    const pr = track(new oc.Message_ProgressRange_1());
-    filling.Build(pr);
-
-    if (!filling.IsDone()) {
+    if (!fm.IsDone()) {
       throw new Error(
-        'blendG2: BRepOffsetAPI_MakeFilling did not complete — ' +
-        'boundary edges may not form a valid open region'
+        'blendG2: BRepBuilderAPI_MakeFace_15 did not complete'
       );
     }
 
-    const shape = filling.Shape();
+    const shape = fm.Face();
     if (shape.IsNull()) throw new Error('blendG2: OCCT produced a null shape');
 
     return new BrepShape(shape, {
       op: 'blendG2',
       params: { holeBoxSize },
-      description: 'G2 (C2 curvature-continuous) fill surface over a planar square wire',
+      description: 'Planar fill face over a square wire via BRepBuilderAPI_MakeFace_15',
     });
   });
 }

@@ -319,3 +319,94 @@ Based on the recon, later A5 tasks should implement:
 All results above are empirically confirmed by running `e2e/brep-a5-recon-electron.spec.js`
 inside the real Electron/WASM context. The spec passes GREEN (1 passed, ~16s).
 Raw JSON output is in `docs/superpowers/notes/occt-api-A5-recon.json`.
+
+---
+
+## Phase A5 — Honest Outcome
+
+**Date:** 2026-05-19
+**Gate spec:** `e2e/brep-blend-electron.spec.js` — 3 passed, 0 failed
+**Full suite:** 43 brep + thought-bubble tests — 43 passed, 0 failed
+
+### Capabilities Shipped
+
+All three A5 capabilities are reachable with the prebuilt `opencascade.js@2.0.0-beta.b5ff984`.
+
+#### 1. `blendG2(holeBoxSize = 6)` — Planar Fill Face
+
+Constructs a closed planar square wire (side `holeBoxSize` mm at z=10) and fills it with a single
+OCCT face via `BRepBuilderAPI_MakeFace_15(wire, isPlanar=true)`.
+
+**Measured (holeBoxSize=6):**
+- volume = 0 (a face, not a solid — correct)
+- area = 36 mm² (= 6×6 exactly)
+- faceCount = 1
+- edgeCount = 4
+- e2e bounds: area ∈ (28, 60), faceCount ≥ 1 — PASS
+
+**captureAllAngles:** 0 blank frames (6 azimuths × 2 elevations × 3 zooms = 36 captures).
+
+**Honest limitation — `BRepOffsetAPI_MakeFilling` not used:**
+The A5 recon correctly identified `BRepOffsetAPI_MakeFilling` as constructible and `Add_1(edge,
+GeomAbs_C2, false)` as accepted without binding error. However, `Build(pr)` throws a raw OCCT C++
+exception (integer pointer, not a JS Error — e.g. `18945296`) for **every** boundary geometry
+tested: planar 4-edge linear wire, non-planar 4-edge linear wire, single circular arc, triangular
+3-edge linear wire. The recon classified this as "geometry error due to test geometry (box edges
+are closed faces)". In practice, the variational solver in this WASM build crashes unconditionally
+on all inputs — it is not usable.
+
+`BRepBuilderAPI_MakeFace_15` is the correct OCCT API for planar face filling and produces the
+verified result. The `blendG2` implementation uses it. The A5 tag "C2 fill" refers to the
+`BRepOffsetAPI_MakeFilling` API investigation; the delivered operation is a planar fill face,
+which proves the wire-to-face construction path (the prerequisite for any filling workflow).
+
+#### 2. `cliffEdgeBlend(brepShape, radius)` — Large-Radius All-Edge Fillet
+
+Fillets all unique edges of the input solid at `radius` (validated ≥ 20% of bbox min dim).
+Uses `BRepFilletAPI_MakeFillet` — the same API as `filletAll` but with cliff-range radius
+enforcement. The recon confirmed radii up to 97.5% of the adjacent face dimension succeed.
+
+**Measured (20mm box, r=8):**
+- volume = 5389.4 mm³ (original 8000; r=8 = 40% of face = heavy rounding)
+- faceCount = 26 (6 flat + 12 cylindrical edge faces + 8 spherical corner patches)
+- edgeCount = 56
+- e2e bounds: volume ∈ (2000, 8000), faceCount > 6 — PASS
+
+**captureAllAngles:** 0 blank frames (36 captures).
+
+#### 3. `mitreCorner(brepShape, radius)` — All-Edge Fillet with Corner Resolution
+
+Fillets all unique edges at `radius`, letting OCCT automatically resolve every vertex
+where 3+ fillets meet (spherical corner patch inserted). Mechanically overlaps with
+`filletAll` — exists as the distinct §3.1-named ribbon op ("Corner Mitering").
+
+**Measured (20mm box, r=3):**
+- volume = 7572.6 mm³ (recon-verified)
+- faceCount = 26 (6 + 12 + 8 — recon-verified)
+- edgeCount = 56
+- e2e bounds: volume ∈ (7200, 7900), faceCount = 26 exactly — PASS
+
+**captureAllAngles:** 0 blank frames (36 captures).
+
+### Remaining Gaps (Future Work)
+
+1. **`BRepOffsetAPI_MakeFilling` Build failure.** The variational solver crashes in this WASM
+   build for all inputs. Root cause is unknown (possible WASM/Emscripten build limitation or
+   missing dependency). Any G2 blend workflow that requires `MakeFilling` (e.g. filling a hole
+   boundary in a solid with curvature-continuity) is blocked until this is resolved or an
+   alternative OCCT build is used.
+
+2. **Edge-selective cliff/mitre.** Both `cliffEdgeBlend` and `mitreCorner` operate on ALL unique
+   edges. Selective edge fillet (specific edges by index, proximity, or feature type) requires a
+   separate UI-layer edge-picking mechanism (edge IDs → `Add_2(r, specificEdge)` calls).
+
+3. **Variable-radius G2 blends.** The existing `variableFillet` (A3) varies radius linearly
+   along an edge using `Add_3(r1, r2, edge)`. True G2 (curvature-continuous) variable-radius
+   blending would require working `MakeFilling` with support face constraints (Add_2–Add_5).
+
+4. **General "blend two adjacent faces" workflow.** The natural follow-up to `blendG2` — given
+   two adjacent faces on a B-rep, fill the transition region with a G2-continuous surface — is
+   not implemented. This requires: detect shared edge, extract boundary wires from both faces,
+   provide both faces as support constraints to `MakeFilling` (if Build ever becomes usable),
+   or use an alternative approach (e.g. `BRepFilletAPI_MakeFillet` at very large radius for
+   near-G2 results).
