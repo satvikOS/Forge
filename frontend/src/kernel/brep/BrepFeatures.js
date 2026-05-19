@@ -91,3 +91,63 @@ export async function revolveRect(innerR, width, height, angleDeg) {
     return new BrepShape(shape, { op: 'revolveRect', params: { innerR, width, height, angleDeg } });
   });
 }
+
+/**
+ * Walk every unique edge of a shape and invoke `addEdge(edge)` once per edge.
+ * TopExp_Explorer double-counts shared edges, so dedup with IsSame() — the
+ * same approach as BrepMeasure.countSubShapes.
+ */
+function forEachUniqueEdge(oc, shape, addEdge) {
+  const ex = track(new oc.TopExp_Explorer_2(
+    shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE));
+  const seen = [];
+  for (; ex.More(); ex.Next()) {
+    const cur = track(ex.Current());
+    if (seen.some((s) => s.IsSame(cur))) continue;
+    seen.push(cur);
+    addEdge(track(oc.TopoDS.Edge_1(cur)));
+  }
+}
+
+/**
+ * Exact constant-radius fillet applied to ALL edges of a solid.
+ * @param {BrepShape} brepShape
+ * @param {number} radius  fillet radius (mm)
+ * @returns {Promise<BrepShape>}
+ */
+export async function filletAll(brepShape, radius) {
+  if (!brepShape || !brepShape.shape) throw new Error('filletAll: needs a BrepShape');
+  if (!(radius > 0)) throw new Error(`filletAll: radius must be positive (got ${radius})`);
+  const oc = await getOCCT();
+  return withScope(() => {
+    const maker = track(new oc.BRepFilletAPI_MakeFillet(
+      brepShape.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
+    forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(radius, edge); });
+    maker.Build(track(new oc.Message_ProgressRange_1()));
+    if (!maker.IsDone()) throw new Error('filletAll: OCCT fillet did not complete');
+    const shape = maker.Shape();
+    if (shape.IsNull()) throw new Error('filletAll: OCCT produced a null shape');
+    return new BrepShape(shape, { op: 'filletAll', params: { radius }, parents: [brepShape.id] });
+  });
+}
+
+/**
+ * Exact chamfer applied to ALL edges of a solid.
+ * @param {BrepShape} brepShape
+ * @param {number} distance  chamfer setback (mm)
+ * @returns {Promise<BrepShape>}
+ */
+export async function chamferAll(brepShape, distance) {
+  if (!brepShape || !brepShape.shape) throw new Error('chamferAll: needs a BrepShape');
+  if (!(distance > 0)) throw new Error(`chamferAll: distance must be positive (got ${distance})`);
+  const oc = await getOCCT();
+  return withScope(() => {
+    const maker = track(new oc.BRepFilletAPI_MakeChamfer(brepShape.shape));
+    forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(distance, edge); });
+    maker.Build(track(new oc.Message_ProgressRange_1()));
+    if (!maker.IsDone()) throw new Error('chamferAll: OCCT chamfer did not complete');
+    const shape = maker.Shape();
+    if (shape.IsNull()) throw new Error('chamferAll: OCCT produced a null shape');
+    return new BrepShape(shape, { op: 'chamferAll', params: { distance }, parents: [brepShape.id] });
+  });
+}
