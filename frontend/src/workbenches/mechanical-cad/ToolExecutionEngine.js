@@ -98,6 +98,7 @@ import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../.
 import { findTool } from '../../ai/ToolRegistry.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
+import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -264,6 +265,51 @@ export function addFoundationManifoldToScene(scene, viewport, manifold, color = 
       window.__archdiscFocusOnObject(group);
     }
   }
+  return group;
+}
+
+// Helper: take an OCCT BrepShape, build a Three.js mesh via ArchDiscKernel,
+// add to scene, register the body in the Part Browser, and return the group.
+// Mirrors the addFoundationManifoldToScene pattern — same scale (0.001 mm→m),
+// same userData flags, same auto-frame and window mirror behaviour.
+export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x9aa3ad) {
+  const mesh = await ArchDiscKernel.brep.brepToMesh(brepShape, { color });
+  const group = new THREE.Group();
+  group.scale.set(0.001, 0.001, 0.001);
+  group.add(mesh);
+  group.userData.pickable = true;
+  group.userData.generatedModel = true;
+  group.userData.brepShape = true;
+  scene.add(group);
+  group.updateMatrixWorld(true);
+
+  // Register in the body registry so the Part Browser can list it.
+  // registerBody expects { group, manifold, sourceTool }. OCCT bodies
+  // don't have a manifold-3d Manifold; we pass a minimal shim that
+  // exposes a volume() method so the registry can record the volume.
+  try {
+    const metrics = await ArchDiscKernel.brep.measure(brepShape);
+    const manifoldShim = {
+      volume: () => metrics.volume,
+    };
+    registerBody({ group, manifold: manifoldShim, sourceTool: _activeToolName });
+  } catch (err) {
+    console.warn('addBrepShapeToScene: body registry register failed', err);
+  }
+
+  // Mirror last OCCT shape onto window — dispose the previous live shape
+  // first to release OCCT WASM heap.
+  if (typeof window !== 'undefined') {
+    if (window.__lastBrepShape && typeof window.__lastBrepShape.dispose === 'function') {
+      window.__lastBrepShape.dispose();
+    }
+    window.__lastBrepShape = brepShape;
+    window.__lastBrepGroup = group;
+    if (typeof window.__archdiscFocusOnObject === 'function') {
+      window.__archdiscFocusOnObject(group);
+    }
+  }
+
   return group;
 }
 
@@ -716,39 +762,25 @@ const TOOL_HANDLERS = {
     },
 
     'Extrude Boss': async (scene, viewport) => {
-      // Foundation path: extrude a rectangular (or arbitrary) profile
-      // via manifold-3d's CrossSection.extrude. Parametric — an
-      // orchestration plan supplies { width, depth, height } or an
-      // explicit { profile } point list; defaults give the canonical
-      // 80×50×25 box (V = 100,000 mm³).
+      // OCCT exact B-rep path: extrude a rectangular profile via the
+      // ArchDiscKernel exact kernel. Parametric — orchestration plans
+      // supply { width, depth, height }; defaults give 80×50×25 mm.
       const { values, cancelled } = await requestToolParams('Extrude Boss');
       if (cancelled) return { status: 'warn', message: 'Extrude Boss cancelled' };
-      const Mod = await getManifold();
-      const width = values.width ?? 80, depth = values.depth ?? 50, height = values.height ?? 25;
-      const profile = values.profile ?? [
-        [-width / 2, -depth / 2], [width / 2, -depth / 2],
-        [width / 2, depth / 2], [-width / 2, depth / 2],
-      ];
-      const cs = Mod.CrossSection.ofPolygons([profile]);
-      let result = Mod.Manifold.extrude(cs, height);
-      if (Array.isArray(values.rotate)) result = result.rotate(values.rotate);
-      if (Array.isArray(values.translate)) result = result.translate(values.translate);
-      const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
-      if (values.profile) {
+      try {
+        const width = values.width ?? 80;
+        const depth = values.depth ?? 50;
+        const height = values.height ?? 25;
+        const shape = await ArchDiscKernel.brep.extrudeRect(width, depth, height);
+        await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
         return {
           status: 'success',
-          message: `Extrude Boss: custom ${profile.length}-pt profile × ${height} mm. `
-            + `V = ${Vfinal.toFixed(0)} mm³ via foundation manifold-3d extrude`,
+          message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
         };
+      } catch (err) {
+        return { status: 'error', message: `Extrude Boss failed: ${err.message}` };
       }
-      const Vexpected = width * depth * height;
-      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      return {
-        status: 'success',
-        message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${Vfinal.toFixed(0)} mm³ `
-          + `(analytical ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d extrude`,
-      };
     },
 
     'Extrude Cut': async (scene, viewport) => {
@@ -825,50 +857,26 @@ const TOOL_HANDLERS = {
     },
 
     'Revolve Boss': async (scene, viewport) => {
-      // Foundation path: revolve a stepped-shaft profile 360° around
-      // the Y axis via manifold-3d's CrossSection.revolve. Profile in
-      // (radius, height) coordinates: a small stub Ø15 → flange Ø30 →
-      // upper shaft Ø24 over total height 40 mm.
-      // Parametric — an orchestration plan supplies an explicit
-      // { profile } in (radius, height) coordinates and { revolveSegs };
-      // defaults give the canonical stepped shaft.
+      // OCCT exact B-rep path: revolve a rectangular ring profile 360°
+      // around the axis via ArchDiscKernel.brep.revolveRect. Parametric
+      // — orchestration plans supply { innerR, width, height }; defaults
+      // give innerR=12, width=18, height=40 mm (a stepped-shaft ring).
       const { values, cancelled } = await requestToolParams('Revolve Boss');
       if (cancelled) return { status: 'warn', message: 'Revolve Boss cancelled' };
-      const Mod = await getManifold();
-      const profile = values.profile ?? [
-        [7.5, 0],     // bore wall, base
-        [15, 0],      // outer base
-        [15, 30],     // outer top
-        [12, 30],     // step shoulder
-        [12, 40],     // upper shaft top
-        [7.5, 40],    // upper bore
-      ];
-      const segs = values.revolveSegs ?? 64;
-      const cs = Mod.CrossSection.ofPolygons([profile]);
-      let result = Mod.Manifold.revolve(cs, segs);
-      if (Array.isArray(values.rotate)) result = result.rotate(values.rotate);
-      if (Array.isArray(values.translate)) result = result.translate(values.translate);
-      const Vfinal = result.volume();
-      if (values.profile) {
-        addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+      try {
+        const innerR = values.innerR ?? 12;
+        const width = values.width ?? 18;
+        const height = values.height ?? 40;
+        const shape = await ArchDiscKernel.brep.revolveRect(innerR, width, height, 360);
+        await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
         return {
           status: 'success',
-          message: `Revolve Boss: custom ${profile.length}-pt profile revolved 360°. `
-            + `V = ${Vfinal.toFixed(0)} mm³ via foundation manifold-3d revolve`,
+          message: `Revolve Boss: innerR=${innerR} mm, width=${width} mm, height=${height} mm, 360°. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
         };
+      } catch (err) {
+        return { status: 'error', message: `Revolve Boss failed: ${err.message}` };
       }
-      // Analytical: sum of 3 disks
-      // Disk 1: Ø30 × 30 (bore Ø15) = π(15² - 7.5²) × 30 = π·168.75·30 = 5301.4
-      // Disk 2: Ø24 × 10 (bore Ø15) = π(12² - 7.5²) × 10 = π·87.75·10 = 2756.6
-      const d1 = Math.PI * (225 - 56.25) * 30;
-      const d2 = Math.PI * (144 - 56.25) * 10;
-      const Vexpected = d1 + d2;
-      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
-      return {
-        status: 'success',
-        message: `Revolve Boss: stepped shaft (Ø30+Ø24, H=40mm). V = ${Vfinal.toFixed(2)} mm³ (analytical Σdisks ${Vexpected.toFixed(2)}, err ${errPct.toFixed(2)}%) via foundation manifold-3d revolve`,
-      };
     },
 
     'Revolve Cut': (scene, viewport) => {
@@ -927,48 +935,65 @@ const TOOL_HANDLERS = {
     },
 
     'Fillet': async (scene, viewport) => {
-      // Foundation path: real arc-tangent corner fillet on an
-      // L-bracket profile (a non-convex polygon — proves the fillet
-      // handles concave corners, not just a box). The L has 6
-      // corners: 5 convex 90° + 1 concave 270°. filletPolygon2D
-      // rolls a constant-radius arc into each, then we extrude.
-      // Vertical-edge fillet for any prismatic part — that's the
-      // common case the Part "Fillet" button needs.
-      const R = 4, H = 20;
-      const lProfile = [
-        [0, 0], [60, 0], [60, 20], [25, 20], [25, 50], [0, 50],
-      ];
-      const sharpArea = Math.abs(polygonArea(lProfile));
-      const { points: filleted, filletedCorners } = filletPolygon2D(lProfile, R, 10);
-      const filletedArea = Math.abs(polygonArea(filleted));
-      const result = await filletExtrude(lProfile, H, R, 10);
-      const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
-      return {
-        status: 'success',
-        message: `Fillet: L-bracket profile (6 corners), r=${R} mm arc-tangent fillet on ${filletedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${filletedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.filletPolygon2D + filletExtrude`,
-      };
+      // OCCT exact B-rep path: filletAll on the current OCCT body (if
+      // one is stored in window.__lastBrepShape) or a default 40×40×40
+      // box. Uses ArchDiscKernel.brep.filletAll with a radius from the
+      // tool param dialog (default 2 mm).
+      const { values, cancelled } = await requestToolParams('Fillet');
+      if (cancelled) return { status: 'warn', message: 'Fillet cancelled' };
+      try {
+        const radius = values.radius ?? 2;
+        let body;
+        let ownedBody = false;
+        if (window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+          ownedBody = true;
+        }
+        const shape = await ArchDiscKernel.brep.filletAll(body, radius);
+        // If we created a temporary box, dispose it now (the filletAll
+        // result is the shape we keep; the input box is no longer needed).
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Fillet: radius=${radius} mm on all edges. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Fillet failed: ${err.message}` };
+      }
     },
 
     'Chamfer': async (scene, viewport) => {
-      // Foundation path: real straight-cut chamfer on an L-bracket
-      // profile (5 convex + 1 concave corner), 2 mm set-back, then
-      // extruded — the vertical-edge chamfer every prismatic part
-      // needs. Mirrors the foundation Fillet handler.
-      const D = 2, H = 20;
-      const lProfile = [
-        [0, 0], [60, 0], [60, 20], [25, 20], [25, 50], [0, 50],
-      ];
-      const sharpArea = Math.abs(polygonArea(lProfile));
-      const { points: chamfered, chamferedCorners } = chamferPolygon2D(lProfile, D);
-      const chamferedArea = Math.abs(polygonArea(chamfered));
-      const result = await chamferExtrude(lProfile, H, D);
-      const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, materialColor(values.material));
-      return {
-        status: 'success',
-        message: `Chamfer: L-bracket profile, 2mm straight-cut chamfer on ${chamferedCorners} corners → extruded ${H} mm. Profile area ${sharpArea.toFixed(0)} → ${chamferedArea.toFixed(1)} mm², V = ${Vfinal.toFixed(0)} mm³ via foundation.chamferPolygon2D + chamferExtrude`,
-      };
+      // OCCT exact B-rep path: chamferAll on the current OCCT body (if
+      // one is stored in window.__lastBrepShape) or a default 40×40×40
+      // box. Uses ArchDiscKernel.brep.chamferAll with a distance from
+      // the tool param dialog (default 2 mm). Mirrors the Fillet handler.
+      const { values, cancelled } = await requestToolParams('Chamfer');
+      if (cancelled) return { status: 'warn', message: 'Chamfer cancelled' };
+      try {
+        const distance = values.distance ?? 2;
+        let body;
+        let ownedBody = false;
+        if (window.__lastBrepShape) {
+          body = window.__lastBrepShape;
+        } else {
+          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+          ownedBody = true;
+        }
+        const shape = await ArchDiscKernel.brep.chamferAll(body, distance);
+        if (ownedBody) body.dispose();
+        await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Chamfer: distance=${distance} mm on all edges. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Chamfer failed: ${err.message}` };
+      }
     },
 
     'Hole Wizard': async (scene, viewport) => {
@@ -1043,59 +1068,135 @@ const TOOL_HANDLERS = {
     },
 
     'Combine': async (scene, viewport) => {
-      // Foundation path: union of two 30 mm cubes offset 20 mm in X.
-      // Volume = 2 × 27000 - overlap (10 × 30 × 30 = 9000)
-      // = 54000 - 9000 = 45000 mm³.
-      const Mod = await getManifold();
-      const a = Mod.Manifold.cube([30, 30, 30], true);
-      const b = Mod.Manifold.cube([30, 30, 30], true).translate([20, 0, 0]);
-      const result = a.add(b);
-      const Vfinal = result.volume();
-      const Vexpected = 30 * 30 * 30 + 30 * 30 * 30 - 10 * 30 * 30;  // 45000
-      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0x4caf50);
-      return {
-        status: 'success',
-        message: `Combine (union): two 30³ cubes overlapping 10 mm. V = ${Vfinal.toFixed(0)} mm³ (analytical ${Vexpected}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
-      };
+      // OCCT exact B-rep path: fuse a 30×30×30 box with a Ø24×40 cylinder.
+      // Dispose the two operand BrepShapes after the fuse.
+      try {
+        const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
+        const b = await ArchDiscKernel.brep.makeCylinder(12, 40);
+        const result = await ArchDiscKernel.brep.fuse(a, b);
+        a.dispose();
+        b.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x4caf50);
+        const metrics = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Combine (fuse): 30³ box ∪ Ø24×40 cylinder. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Combine failed: ${err.message}` };
+      }
     },
 
     'Subtract': async (scene, viewport) => {
-      // Foundation path: 30 mm cube minus a Ø20 mm sphere centered at
-      // the +X corner. Removes a hemispherical chunk.
-      // V = 27000 - hemisphere(R=10) = 27000 - (1/2)·(4/3)π·1000 ≈ 24906.
-      const Mod = await getManifold();
-      const cube = Mod.Manifold.cube([30, 30, 30], true);
-      const ball = Mod.Manifold.sphere(10, 64).translate([15, 0, 0]);
-      const result = cube.subtract(ball);
-      const Vfinal = result.volume();
-      const Vsphere = (4 / 3) * Math.PI * 1000;
-      const Vexpected = 27000 - 0.5 * Vsphere;
-      const errPct = (Vfinal - Vexpected) / Vexpected * 100;
-      addFoundationManifoldToScene(scene, viewport, result, 0xff9800);
-      return {
-        status: 'success',
-        message: `Subtract: 30³ cube − Ø20 sphere @ +X face. V = ${Vfinal.toFixed(2)} mm³ (analytical ${Vexpected.toFixed(2)}, err ${errPct.toFixed(3)}%) via foundation manifold-3d boolean`,
-      };
+      // OCCT exact B-rep path: cut a Ø24×40 cylinder from a 40×40×40 box.
+      // Dispose the two operand BrepShapes after the cut.
+      try {
+        const base = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+        const tool = await ArchDiscKernel.brep.makeCylinder(12, 40);
+        const result = await ArchDiscKernel.brep.cut(base, tool);
+        base.dispose();
+        tool.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0xff9800);
+        const metrics = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Subtract: 40³ box − Ø24×40 cylinder. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Subtract failed: ${err.message}` };
+      }
     },
 
     'Intersect': async (scene, viewport) => {
-      // Foundation path: intersection of a 30 mm cube and a Ø30 mm sphere
-      // both centered at the origin → "rounded cube". The sphere has the
-      // same diameter as the cube edge, so the intersection is the
-      // sphere itself trimmed by 6 cube faces. Compare to ~52.36% of
-      // the sphere volume (sphere − 6 spherical caps).
-      const Mod = await getManifold();
-      const cube = Mod.Manifold.cube([30, 30, 30], true);
-      const ball = Mod.Manifold.sphere(15, 64);
-      const result = cube.intersect(ball);
-      const Vfinal = result.volume();
-      addFoundationManifoldToScene(scene, viewport, result, 0x9c27b0);
-      const bb = result.boundingBox();
-      return {
-        status: 'success',
-        message: `Intersect: 30³ cube ∩ Ø30 sphere. V = ${Vfinal.toFixed(2)} mm³, bbox = [${bb.min[0].toFixed(2)}..${bb.max[0].toFixed(2)}]³ via foundation manifold-3d boolean`,
-      };
+      // OCCT exact B-rep path: common of a 40×40×40 box and a sphere r=26.
+      // Dispose the two operand BrepShapes after the common operation.
+      try {
+        const box = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+        const ball = await ArchDiscKernel.brep.makeSphere(26);
+        const result = await ArchDiscKernel.brep.common(box, ball);
+        box.dispose();
+        ball.dispose();
+        await addBrepShapeToScene(scene, viewport, result, 0x9c27b0);
+        const metrics = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Intersect: 40³ box ∩ sphere r=26 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Intersect failed: ${err.message}` };
+      }
+    },
+
+    // ── OCCT Solid Primitives (Solid Primitives ribbon section) ──────────────
+
+    'Box': async (scene, viewport) => {
+      try {
+        const shape = await ArchDiscKernel.brep.makeBox(40, 40, 40);
+        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Box: 40×40×40 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Box failed: ${err.message}` };
+      }
+    },
+
+    'Cylinder': async (scene, viewport) => {
+      try {
+        const shape = await ArchDiscKernel.brep.makeCylinder(20, 40);
+        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Cylinder: r=20 mm, h=40 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Cylinder failed: ${err.message}` };
+      }
+    },
+
+    'Sphere': async (scene, viewport) => {
+      try {
+        const shape = await ArchDiscKernel.brep.makeSphere(25);
+        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Sphere: r=25 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Sphere failed: ${err.message}` };
+      }
+    },
+
+    'Cone': async (scene, viewport) => {
+      try {
+        const shape = await ArchDiscKernel.brep.makeCone(25, 8, 45);
+        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Cone: r1=25 mm, r2=8 mm, h=45 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Cone failed: ${err.message}` };
+      }
+    },
+
+    'Torus': async (scene, viewport) => {
+      try {
+        const shape = await ArchDiscKernel.brep.makeTorus(30, 10);
+        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
+        const metrics = await ArchDiscKernel.brep.measure(shape);
+        return {
+          status: 'success',
+          message: `Torus: R=30 mm, r=10 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Torus failed: ${err.message}` };
+      }
     },
 
     'Mirror Feature': async (scene, viewport) => {
