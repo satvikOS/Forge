@@ -1409,6 +1409,540 @@ test('Phase A3 — OCCT API recon (items 1-5)', async () => {
       result.item5_minDist = { confirmed: false, error: String(e) };
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // Item 6 — BRepCheck_Analyzer: intrinsic validity check
+    //
+    //   Run on a clean BRepPrimAPI_MakeBox_2(20,20,20).Shape().
+    //   Expect: IsValid() → true.
+    //
+    //   Try: new oc.BRepCheck_Analyzer_1(shape, true)
+    //        new oc.BRepCheck_Analyzer_2(shape, true)
+    //        new oc.BRepCheck_Analyzer(shape, true)
+    //   Then try IsValid_1() / IsValid() / IsValid_2(shape).
+    // ══════════════════════════════════════════════════════════════════════════
+    try {
+      const chain6 = {};
+
+      // Introspect available BRepCheck classes
+      const ocKeys = Object.getOwnPropertyNames(oc);
+      chain6.brepCheckKeys = ocKeys.filter(k => k.startsWith('BRepCheck')).slice(0, 20);
+
+      const cleanBox6 = makeBoxShape(20, 20, 20);
+
+      let analyzerObj = null;
+      let analyzerCtor = null;
+
+      // Try suffixed then undecorated; try 3, 2, 1 arg combinations
+      // OCCT signature: BRepCheck_Analyzer(shape, isGeomCtrled, isParallelMode)
+      // This build has no _N suffix — undecorated class with 3 mandatory args
+      for (const suffix of ['_1', '_2', '_3', '']) {
+        const cls = 'BRepCheck_Analyzer' + suffix;
+        if (!oc[cls]) continue;
+        // Try (shape, true, false), (shape, false, false), (shape, true), (shape)
+        for (const args of [
+          [cleanBox6, true, false],   // 3 args: shape, geomCtrled=true, parallelMode=false
+          [cleanBox6, false, false],  // 3 args: geomCtrled=false
+          [cleanBox6, true],          // 2 args
+          [cleanBox6],                // 1 arg
+        ]) {
+          try {
+            analyzerObj = new oc[cls](...args);
+            analyzerCtor = cls + '(' + args.map((a, i) => i === 0 ? 'shape' : a).join(', ') + ')';
+            break;
+          } catch (e) {
+            chain6['ctorErr_' + suffix + '_' + args.length + 'args'] = String(e).substring(0, 200);
+          }
+        }
+        if (analyzerObj) break;
+      }
+      chain6.analyzerCtor = analyzerCtor;
+      chain6.analyzerAvailable = !!analyzerObj;
+
+      let isValid = null;
+      let isValidMethod = null;
+      let isValidMethodUsed = null;
+
+      if (analyzerObj) {
+        // Introspect all methods
+        const methods6 = introspectMethods(analyzerObj);
+        chain6.allMethods = methods6;
+        chain6.validMethods = methods6.filter(m => m.toLowerCase().includes('valid'));
+
+        // Try IsValid(), IsValid_1(), IsValid_2(shape)
+        for (const m of ['IsValid', 'IsValid_1', 'IsValid_2']) {
+          if (typeof analyzerObj[m] !== 'function') continue;
+          // IsValid() → bool (no-arg)
+          try {
+            const v = analyzerObj[m]();
+            isValid = v;
+            isValidMethodUsed = m + '()';
+            break;
+          } catch (e) {
+            chain6['isValidErr_' + m + '_noarg'] = String(e).substring(0, 150);
+          }
+          // IsValid_2(shape) takes a shape arg — tests validity of specific sub-shape
+          if (m === 'IsValid_2') {
+            try {
+              const v = analyzerObj[m](cleanBox6);
+              if (typeof v === 'boolean') {
+                isValid = v;
+                isValidMethodUsed = m + '(shape)';
+              }
+              break;
+            } catch (e) {
+              chain6['isValidErr_IsValid_2_shape'] = String(e).substring(0, 150);
+            }
+          }
+        }
+        chain6.isValid = isValid;
+        chain6.isValidMethodUsed = isValidMethodUsed;
+        analyzerObj.delete();
+      }
+
+      // If BRepCheck_Analyzer totally unbound, try other validity checkers
+      let altCheckerFound = null;
+      if (!analyzerObj) {
+        const altKeys = ocKeys.filter(k =>
+          k.toLowerCase().includes('valid') ||
+          k.toLowerCase().includes('check') ||
+          k.toLowerCase().includes('brep') &&  k.toLowerCase().includes('check')
+        ).slice(0, 20);
+        chain6.altCheckerKeys = altKeys;
+        altCheckerFound = altKeys.length > 0 ? altKeys : null;
+      }
+
+      cleanBox6.delete();
+
+      result.item6_brepCheckAnalyzer = {
+        confirmed: analyzerObj !== null && isValid === true,
+        analyzerCtor,
+        isValidMethod: isValidMethodUsed,
+        isValid,
+        altCheckerFound,
+        chain: chain6,
+        note: 'BRepCheck_Analyzer on clean 20mm box → IsValid should be true',
+      };
+    } catch (e) {
+      result.item6_brepCheckAnalyzer = { confirmed: false, error: String(e) };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Item 7 — TopExp_Explorer over SOLID sub-shapes
+    //
+    //   7a. Single box: explore SOLID → expect exactly 1 solid
+    //   7b. Compound of two boxes: explore SOLID → expect exactly 2 solids
+    //
+    //   Pattern:
+    //     new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID,
+    //                              oc.TopAbs_ShapeEnum.TopAbs_SHAPE)
+    //     .More() / .Next() / .Current()
+    //     .Current() → TopoDS_Shape (usable directly, or cast to TopoDS_Solid)
+    // ══════════════════════════════════════════════════════════════════════════
+    try {
+      const chain7 = {};
+
+      // Introspect TopExp_Explorer constructors
+      const ocKeys7 = Object.getOwnPropertyNames(oc);
+      chain7.explorerKeys = ocKeys7.filter(k => k.startsWith('TopExp_Explorer'));
+      chain7.topAbsKeys = ocKeys7.filter(k => k.startsWith('TopAbs')).slice(0, 10);
+
+      // Introspect TopAbs_ShapeEnum values
+      let solidEnum = null;
+      let shapeEnum = null;
+
+      // TopAbs_ShapeEnum may be on oc.TopAbs_ShapeEnum or oc directly
+      // Try common patterns
+      for (const attempt of [
+        () => oc.TopAbs_ShapeEnum && oc.TopAbs_ShapeEnum.TopAbs_SOLID,
+        () => oc.TopAbs_SOLID,
+      ]) {
+        try {
+          const v = attempt();
+          if (v !== undefined && v !== null) { solidEnum = v; break; }
+        } catch (_e) {}
+      }
+      for (const attempt of [
+        () => oc.TopAbs_ShapeEnum && oc.TopAbs_ShapeEnum.TopAbs_SHAPE,
+        () => oc.TopAbs_SHAPE,
+      ]) {
+        try {
+          const v = attempt();
+          if (v !== undefined && v !== null) { shapeEnum = v; break; }
+        } catch (_e) {}
+      }
+      chain7.solidEnum = solidEnum !== null ? String(solidEnum) : null;
+      chain7.shapeEnum = shapeEnum !== null ? String(shapeEnum) : null;
+      chain7.solidEnumType = typeof solidEnum;
+
+      /**
+       * Count SOLID sub-shapes in a shape via TopExp_Explorer.
+       * Returns { count, explorerCtor, currentMethod, error }.
+       */
+      function countSolids(shape, label) {
+        const info = { label, count: null, explorerCtor: null, currentMethod: null };
+
+        // Determine enum args — try the enum values found above
+        const solidArg = solidEnum;
+        const shapeArg = shapeEnum;
+
+        if (solidArg === null || solidArg === undefined) {
+          info.error = 'TopAbs_SOLID enum not found';
+          return info;
+        }
+
+        let explorerObj = null;
+        let explorerCtor = null;
+
+        // Try TopExp_Explorer_2(shape, solidEnum, shapeEnum) — 3 args
+        // Try TopExp_Explorer_1(shape, solidEnum) — 2 args
+        for (const suffix of ['_2', '_3', '_1', '']) {
+          const cls = 'TopExp_Explorer' + suffix;
+          if (!oc[cls]) continue;
+          // Try 3-arg: (shape, solid, shape_stop)
+          if (shapeArg !== null) {
+            try {
+              explorerObj = new oc[cls](shape, solidArg, shapeArg);
+              explorerCtor = cls + '(shape, TopAbs_SOLID, TopAbs_SHAPE)';
+              break;
+            } catch (e) {
+              info['ctorErr_' + suffix + '_3args'] = String(e).substring(0, 150);
+            }
+          }
+          // Try 2-arg: (shape, solid)
+          try {
+            explorerObj = new oc[cls](shape, solidArg);
+            explorerCtor = cls + '(shape, TopAbs_SOLID)';
+            break;
+          } catch (e) {
+            info['ctorErr_' + suffix + '_2args'] = String(e).substring(0, 150);
+          }
+        }
+        info.explorerCtor = explorerCtor;
+
+        if (!explorerObj) {
+          info.error = 'TopExp_Explorer: no constructor worked';
+          return info;
+        }
+
+        // Enumerate callable methods
+        const explorerCallable = enumCallableMethods(explorerObj);
+        info.explorerMethods = explorerCallable;
+
+        // Iterate: .More() / .Next() / .Current()
+        let count = 0;
+        const solidShapes = [];
+        let currentMethodWorked = null;
+        let currentUsable = false;
+
+        while (typeof explorerObj.More === 'function' && explorerObj.More()) {
+          count++;
+          // Get current sub-shape
+          let currentShape = null;
+          for (const m of ['Current', 'Current_1', 'Value']) {
+            if (typeof explorerObj[m] !== 'function') continue;
+            try {
+              currentShape = explorerObj[m]();
+              if (!currentMethodWorked) currentMethodWorked = m + '()';
+              break;
+            } catch (e) {
+              info['currentErr_' + m] = String(e).substring(0, 100);
+            }
+          }
+
+          if (currentShape) {
+            // Verify it's usable as a shape — measure its volume
+            try {
+              const v6 = volume(currentShape);
+              solidShapes.push({ index: count, volume: v6 });
+              currentUsable = true;
+            } catch (e) {
+              info['volumeErr_' + count] = String(e).substring(0, 100);
+              // Try TopoDS cast
+              try {
+                if (oc.TopoDS && typeof oc.TopoDS.Solid_1 === 'function') {
+                  const solid = oc.TopoDS.Solid_1(currentShape);
+                  const v7 = volume(solid);
+                  solidShapes.push({ index: count, volume: v7, cast: 'TopoDS.Solid_1' });
+                  currentUsable = true;
+                  solid.delete();
+                }
+              } catch (e2) {
+                info['castSolidErr_' + count] = String(e2).substring(0, 100);
+              }
+            }
+          }
+
+          if (typeof explorerObj.Next === 'function') explorerObj.Next();
+          else break;
+        }
+
+        info.count = count;
+        info.solidShapes = solidShapes;
+        info.currentMethod = currentMethodWorked;
+        info.currentUsable = currentUsable;
+        explorerObj.delete();
+        return info;
+      }
+
+      // 7a: Single box → expect 1 solid
+      const singleBox7 = makeBoxShape(20, 20, 20);
+      const singleResult = countSolids(singleBox7, 'single-box');
+      chain7.singleBox = singleResult;
+
+      // 7b: Compound of two boxes → expect 2 solids
+      const box7a = makeBoxShape(20, 20, 20);
+      const box7b = makeBoxShape(20, 20, 20);  // second box (may be coincident — just need 2 solids)
+      let compound7 = null;
+      let compoundResult7 = null;
+      try {
+        compound7 = new oc.TopoDS_Compound();
+        const builder7 = new oc.BRep_Builder();
+        builder7.MakeCompound(compound7);
+        builder7.Add(compound7, box7a);
+        builder7.Add(compound7, box7b);
+        builder7.delete();
+        compoundResult7 = countSolids(compound7, 'compound-2boxes');
+        chain7.compound2Boxes = compoundResult7;
+        compound7.delete();
+      } catch (e) {
+        chain7.compoundErr7 = String(e).substring(0, 150);
+      }
+
+      singleBox7.delete();
+      box7a.delete();
+      box7b.delete();
+
+      const singleOk = singleResult.count === 1 && singleResult.currentUsable;
+      const compoundOk = compoundResult7 && compoundResult7.count === 2 && compoundResult7.currentUsable;
+
+      result.item7_topExpExplorer = {
+        confirmed: singleOk && compoundOk,
+        solidEnumFound: solidEnum !== null,
+        explorerCtor: singleResult.explorerCtor,
+        currentMethod: singleResult.currentMethod,
+        singleBoxSolidCount: singleResult.count,
+        compound2BoxesSolidCount: compoundResult7 ? compoundResult7.count : null,
+        solidShapesUsableDirectly: singleResult.currentUsable,
+        chain: chain7,
+        note: 'Single box → 1 solid; compound of 2 boxes → 2 solids; .Current() usable directly for volume',
+      };
+    } catch (e) {
+      result.item7_topExpExplorer = { confirmed: false, error: String(e) };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Item 8 — Self-intersection detection via pairwise solid overlap
+    //
+    //   8a. OVERLAPPING compound: box A 20³ at origin + box B translated (10,0,0).
+    //       Explore solids, compute pairwise Common volume.
+    //       Expect: common vol > 0 (≈ 4000) → SELF-INTERSECTING detected.
+    //
+    //   8b. DISJOINT compound: box A 20³ + box C translated (50,0,0).
+    //       Pairwise Common vol ≈ 0 → NOT self-intersecting.
+    //
+    //   Algorithm: explore solids → for every pair (i,j), compute
+    //   BRepAlgoAPI_Common_3 volume; if vol > epsilon → self-intersecting.
+    // ══════════════════════════════════════════════════════════════════════════
+    try {
+      const chain8 = {};
+
+      /**
+       * Build a compound of shapes (using verified builder from items 2 & 7).
+       * Returns the compound — caller must .delete() all input shapes and the compound.
+       */
+      function buildCompound(shapes) {
+        const comp = new oc.TopoDS_Compound();
+        const bld  = new oc.BRep_Builder();
+        bld.MakeCompound(comp);
+        for (const s of shapes) bld.Add(comp, s);
+        bld.delete();
+        return comp;
+      }
+
+      /**
+       * Collect all SOLID sub-shapes of a compound into an array of TopoDS_Shape.
+       * Caller is responsible for .delete()-ing each shape in the returned array.
+       */
+      function collectSolids(shape) {
+        const solids = [];
+        if (typeof oc.TopAbs_ShapeEnum === 'undefined' && typeof oc.TopAbs_SOLID === 'undefined') {
+          return solids;
+        }
+        const solidArg = (oc.TopAbs_ShapeEnum && oc.TopAbs_ShapeEnum.TopAbs_SOLID !== undefined)
+          ? oc.TopAbs_ShapeEnum.TopAbs_SOLID
+          : oc.TopAbs_SOLID;
+        const shapeArg = (oc.TopAbs_ShapeEnum && oc.TopAbs_ShapeEnum.TopAbs_SHAPE !== undefined)
+          ? oc.TopAbs_ShapeEnum.TopAbs_SHAPE
+          : oc.TopAbs_SHAPE;
+
+        let exp = null;
+        for (const suffix of ['_2', '_1', '']) {
+          const cls = 'TopExp_Explorer' + suffix;
+          if (!oc[cls]) continue;
+          try {
+            if (shapeArg !== undefined) {
+              exp = new oc[cls](shape, solidArg, shapeArg);
+            } else {
+              exp = new oc[cls](shape, solidArg);
+            }
+            break;
+          } catch (_e) {}
+        }
+        if (!exp) return solids;
+
+        while (exp.More()) {
+          let s = null;
+          for (const m of ['Current', 'Current_1']) {
+            if (typeof exp[m] !== 'function') continue;
+            try { s = exp[m](); break; } catch (_e) {}
+          }
+          if (s) {
+            // Make a deep copy so it outlives the explorer iteration
+            let kept = null;
+            try {
+              // Use BRepBuilderAPI_Copy to get an independent handle
+              const copy = new oc.BRepBuilderAPI_Copy_1(s, true, false);
+              kept = copy.Shape();
+              copy.delete();
+            } catch (_e) {
+              kept = s; // if copy fails, keep reference (may alias — ok for read-only ops)
+            }
+            solids.push(kept);
+          }
+          exp.Next();
+        }
+        exp.delete();
+        return solids;
+      }
+
+      /**
+       * Compute common volume between two shapes.
+       * Returns the volume (mm³), or 0 if Common fails/is empty.
+       */
+      function commonVolume(sA, sB) {
+        let vol = 0;
+        try {
+          const pr1 = new oc.Message_ProgressRange_1();
+          const algo = new oc.BRepAlgoAPI_Common_3(sA, sB, pr1);
+          pr1.delete();
+          const prB = new oc.Message_ProgressRange_1();
+          algo.Build(prB);
+          prB.delete();
+          if (algo.IsDone()) {
+            const cs = algo.Shape();
+            if (cs) {
+              const p = new oc.GProp_GProps_1();
+              oc.BRepGProp.VolumeProperties_1(cs, p, false, false, false);
+              vol = Math.abs(p.Mass());
+              p.delete();
+              cs.delete();
+            }
+          }
+          algo.delete();
+        } catch (_e) {}
+        return vol;
+      }
+
+      // ── 8a: OVERLAPPING compound ──────────────────────────────────────────
+      const box8A = makeBoxShape(20, 20, 20);
+      // Translate by (10,0,0) → overlaps in X=[10..20]
+      const trsf8ov = new oc.gp_Trsf_1();
+      const vec8ov  = new oc.gp_Vec_4(10, 0, 0);
+      trsf8ov.SetTranslation_1(vec8ov);
+      vec8ov.delete();
+      const xform8ov = new oc.BRepBuilderAPI_Transform_2(box8A, trsf8ov, false);
+      const box8B_overlap = xform8ov.Shape();
+      xform8ov.delete();
+      trsf8ov.delete();
+
+      const compOverlap = buildCompound([box8A, box8B_overlap]);
+      const solidsOv = collectSolids(compOverlap);
+      chain8.overlapSolidCount = solidsOv.length;
+
+      let overlapCommonVol = null;
+      let overlapDetected = null;
+      if (solidsOv.length >= 2) {
+        overlapCommonVol = commonVolume(solidsOv[0], solidsOv[1]);
+        overlapDetected = overlapCommonVol > 1; // epsilon = 1 mm³
+        chain8.overlapCommonVol = overlapCommonVol;
+        chain8.overlapDetected = overlapDetected;
+      }
+
+      // Cleanup overlapping
+      for (const s of solidsOv) { try { s.delete(); } catch (_e) {} }
+      compOverlap.delete();
+      box8A.delete();
+      box8B_overlap.delete();
+
+      // ── 8b: DISJOINT compound ─────────────────────────────────────────────
+      const box8C = makeBoxShape(20, 20, 20);
+      // Translate by (50,0,0) → gap of 30mm, no overlap
+      const trsf8dj = new oc.gp_Trsf_1();
+      const vec8dj  = new oc.gp_Vec_4(50, 0, 0);
+      trsf8dj.SetTranslation_1(vec8dj);
+      vec8dj.delete();
+      const xform8dj = new oc.BRepBuilderAPI_Transform_2(box8C, trsf8dj, false);
+      const box8D_disjoint = xform8dj.Shape();
+      xform8dj.delete();
+      trsf8dj.delete();
+
+      const compDisjoint = buildCompound([box8C, box8D_disjoint]);
+      const solidsDj = collectSolids(compDisjoint);
+      chain8.disjointSolidCount = solidsDj.length;
+
+      let disjointCommonVol = null;
+      let disjointDetected = null;
+      if (solidsDj.length >= 2) {
+        disjointCommonVol = commonVolume(solidsDj[0], solidsDj[1]);
+        disjointDetected = disjointCommonVol > 1;
+        chain8.disjointCommonVol = disjointCommonVol;
+        chain8.disjointDetected = disjointDetected;
+      }
+
+      // Cleanup disjoint
+      for (const s of solidsDj) { try { s.delete(); } catch (_e) {} }
+      compDisjoint.delete();
+      box8C.delete();
+      box8D_disjoint.delete();
+
+      // ── Algorithm summary ─────────────────────────────────────────────────
+      // checkSelfIntersection(compound):
+      //   1. BRepCheck_Analyzer(shape, true).IsValid() → if false → invalid (single-solid SI)
+      //   2. Explore SOLID sub-shapes
+      //   3. For every pair (i,j) of solids: if commonVolume(i,j) > ε → self-intersecting
+      //   4. Return { selfIntersecting: bool, invalidSubshape: bool, intersectingPairs: [[i,j]] }
+
+      const overlapConfirmed = solidsOv.length === 2 && overlapDetected === true &&
+                               Math.abs(overlapCommonVol - 4000) < 200;
+      const disjointConfirmed = solidsDj.length === 2 && disjointDetected === false &&
+                                disjointCommonVol < 1;
+
+      result.item8_pairwiseOverlap = {
+        confirmed: overlapConfirmed && disjointConfirmed,
+        // Overlapping compound
+        overlapSolidCount: solidsOv.length,
+        overlapCommonVolMM3: overlapCommonVol,
+        overlapDetected,
+        overlapExpectedVol: 4000,
+        overlapWithinTol: overlapCommonVol !== null && Math.abs(overlapCommonVol - 4000) < 200,
+        // Disjoint compound
+        disjointSolidCount: solidsDj.length,
+        disjointCommonVolMM3: disjointCommonVol,
+        disjointDetected,
+        // Algorithm
+        algorithm: [
+          '1. collectSolids(compound) via TopExp_Explorer_2(shape, TopAbs_SOLID, TopAbs_SHAPE)',
+          '2. for every pair (i,j): commonVolume = BRepAlgoAPI_Common_3(si,sj,pr)+Build+Shape+VolumeProperties',
+          '3. if commonVolume > epsilon → intersecting pair',
+          '4. checkSelfIntersection = BRepCheck_Analyzer validity check OR any pair has commonVol > epsilon',
+        ],
+        chain: chain8,
+        note: 'Overlapping boxes (B offset 10mm): common vol ≈ 4000 → detected. Disjoint (B offset 50mm): vol ≈ 0 → not detected.',
+      };
+    } catch (e) {
+      result.item8_pairwiseOverlap = { confirmed: false, error: String(e) };
+    }
+
     return result;
   });
 
@@ -1476,6 +2010,56 @@ test('Phase A3 — OCCT API recon (items 1-5)', async () => {
     `min dist disjoint=${verified.item5_minDist.disjointMinDist} expected≈30`).toBe(true);
   expect(verified.item5_minDist.overlapDistOk,
     `min dist overlap=${verified.item5_minDist.overlapMinDist} expected≈0`).toBe(true);
+
+  // Item 6: BRepCheck_Analyzer — intrinsic validity check
+  expect(verified.item6_brepCheckAnalyzer.confirmed,
+    `BRepCheck_Analyzer: ${verified.item6_brepCheckAnalyzer.error || JSON.stringify({
+      analyzerCtor: verified.item6_brepCheckAnalyzer.analyzerCtor,
+      isValid: verified.item6_brepCheckAnalyzer.isValid,
+      isValidMethod: verified.item6_brepCheckAnalyzer.isValidMethod,
+      chain: verified.item6_brepCheckAnalyzer.chain,
+    })}`).toBe(true);
+
+  // Item 6: IsValid must be true for a clean box
+  expect(verified.item6_brepCheckAnalyzer.isValid,
+    `BRepCheck_Analyzer.IsValid() on clean box should be true, got: ${verified.item6_brepCheckAnalyzer.isValid}`).toBe(true);
+
+  // Item 7: TopExp_Explorer — solid counting
+  expect(verified.item7_topExpExplorer.confirmed,
+    `TopExp_Explorer: ${verified.item7_topExpExplorer.error || JSON.stringify({
+      solidEnumFound: verified.item7_topExpExplorer.solidEnumFound,
+      explorerCtor: verified.item7_topExpExplorer.explorerCtor,
+      singleBoxSolidCount: verified.item7_topExpExplorer.singleBoxSolidCount,
+      compound2BoxesSolidCount: verified.item7_topExpExplorer.compound2BoxesSolidCount,
+      chain: verified.item7_topExpExplorer.chain,
+    })}`).toBe(true);
+
+  expect(verified.item7_topExpExplorer.singleBoxSolidCount,
+    'single box should contain exactly 1 solid').toBe(1);
+
+  expect(verified.item7_topExpExplorer.compound2BoxesSolidCount,
+    'compound of 2 boxes should contain exactly 2 solids').toBe(2);
+
+  // Item 8: Pairwise solid overlap — self-intersection detection
+  expect(verified.item8_pairwiseOverlap.confirmed,
+    `pairwise overlap: ${verified.item8_pairwiseOverlap.error || JSON.stringify({
+      overlapSolidCount: verified.item8_pairwiseOverlap.overlapSolidCount,
+      overlapCommonVolMM3: verified.item8_pairwiseOverlap.overlapCommonVolMM3,
+      overlapDetected: verified.item8_pairwiseOverlap.overlapDetected,
+      disjointSolidCount: verified.item8_pairwiseOverlap.disjointSolidCount,
+      disjointCommonVolMM3: verified.item8_pairwiseOverlap.disjointCommonVolMM3,
+      disjointDetected: verified.item8_pairwiseOverlap.disjointDetected,
+      chain: verified.item8_pairwiseOverlap.chain,
+    })}`).toBe(true);
+
+  expect(verified.item8_pairwiseOverlap.overlapDetected,
+    `overlapping compound should detect self-intersection (common vol ≈ 4000), got vol=${verified.item8_pairwiseOverlap.overlapCommonVolMM3}`).toBe(true);
+
+  expect(verified.item8_pairwiseOverlap.overlapWithinTol,
+    `overlap common vol=${verified.item8_pairwiseOverlap.overlapCommonVolMM3} expected ≈ 4000 (±200)`).toBe(true);
+
+  expect(verified.item8_pairwiseOverlap.disjointDetected,
+    `disjoint compound should NOT detect self-intersection (common vol ≈ 0), got vol=${verified.item8_pairwiseOverlap.disjointCommonVolMM3}`).toBe(false);
 
   expect(pageErrors).toEqual([]);
   await app.close();

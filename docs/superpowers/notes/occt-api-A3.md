@@ -334,3 +334,216 @@ algo.delete();
 | Boolean Common (A[0..20]³ ∩ B[10..30]×[0..20]²) | Overlap = 10·20·20 | 4000 | 3999.999… |
 | DistShapeShape (disjoint, gap 30) | Min dist | 30 mm | 30 mm |
 | DistShapeShape (overlapping 10mm in X) | Min dist | 0 mm | 0 mm |
+
+---
+
+## Self-intersection (reachable approach)
+
+**Verified in:** `e2e/brep-a3-recon-electron.spec.js` items 6–8, all GREEN.
+
+**Key finding:** `BOPAlgo_CheckerSI` is unbound (needs `BOPAlgo_PaveFiller`, also unbound) and
+`BRepExtrema_SelfIntersection.OverlapElements()` return type is unbound.
+The reachable approach uses `BRepCheck_Analyzer` (single-solid intrinsic validity) and
+`BRepAlgoAPI_Common_3` pairwise volume (multi-solid overlap).
+
+---
+
+### Item 6 — BRepCheck_Analyzer (CONFIRMED)
+
+**Constructor:** `new oc.BRepCheck_Analyzer(shape, true, false)` — 3 required args (no `_N` suffix).
+- arg 1: `TopoDS_Shape`
+- arg 2: `isGeomCtrled` — `true` = geometry-controlled checks on (use this)
+- arg 3: `isParallelMode` — `false` = single-threaded (safe in WASM)
+
+**IsValid reader:** `analyzer.IsValid_2()` — no-arg, returns bool for the whole shape.
+- `IsValid_1(subshape)` — takes a sub-shape arg, tests that specific sub-shape only.
+- `IsValid_2()` — whole shape, use this for `checkSelfIntersection`.
+
+**Verified:** clean `BRepPrimAPI_MakeBox_2(20,20,20)` → `IsValid_2() === true`.
+
+**Note:** `BOPAlgo_CheckerSI` (face-level SI on a SINGLE solid) is still unbound in this build.
+`BRepCheck_Analyzer` catches degenerate geometry, bad orientations, missing PCurves, etc.,
+but does NOT detect two solids that penetrate each other. For inter-solid penetration, use
+item 8 (pairwise Boolean Common volume).
+
+```js
+// VERIFIED — BRepCheck_Analyzer intrinsic validity check
+// new oc.BRepCheck_Analyzer(shape, isGeomCtrled, isParallelMode)
+// IsValid_2() → bool (whole shape); IsValid_1(subshape) → bool (per subshape)
+
+const box = new oc.BRepPrimAPI_MakeBox_2(20, 20, 20);
+const shape = box.Shape();
+box.delete();
+
+const analyzer = new oc.BRepCheck_Analyzer(shape, true, false);
+const valid = analyzer.IsValid_2();   // → true for a well-formed box
+analyzer.delete();
+shape.delete();
+
+// Methods on BRepCheck_Analyzer instance:
+//   Init(shape, isGeomCtrled)  — re-initialize on a new shape
+//   IsValid_1(subshape)        — check a specific sub-shape
+//   IsValid_2()                — check the whole shape (use this)
+//   Result(subshape)           — returns Handle to BRepCheck_Result for sub-shape
+```
+
+---
+
+### Item 7 — TopExp_Explorer over SOLID sub-shapes (CONFIRMED)
+
+**Constructor:** `new oc.TopExp_Explorer_2(shape, solidEnum, shapeEnum)` — 3 args.
+- `solidEnum = oc.TopAbs_ShapeEnum.TopAbs_SOLID` (also accessible as `oc.TopAbs_SOLID`)
+- `shapeEnum = oc.TopAbs_ShapeEnum.TopAbs_SHAPE` (stop-shape type = top level)
+- `.More()` → bool; `.Next()` → void; `.Current()` → `TopoDS_Shape` (usable directly)
+
+**`.Current()` returns a `TopoDS_Shape` usable directly** — no `TopoDS.Solid_1()` cast needed.
+Can be passed directly to `BRepGProp.VolumeProperties_1`, `BRepAlgoAPI_Common_3`, etc.
+
+**Verified:**
+- Single `BRepPrimAPI_MakeBox_2(20,20,20)` → 1 solid counted.
+- `TopoDS_Compound` of two boxes → 2 solids counted.
+
+```js
+// VERIFIED — count and iterate SOLID sub-shapes via TopExp_Explorer_2
+
+const solidEnum = oc.TopAbs_ShapeEnum.TopAbs_SOLID;  // or oc.TopAbs_SOLID
+const shapeEnum = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;  // stop type
+
+const exp = new oc.TopExp_Explorer_2(compoundShape, solidEnum, shapeEnum);
+const solids = [];
+while (exp.More()) {
+  const solid = exp.Current();  // TopoDS_Shape — usable directly, no cast needed
+  solids.push(solid);
+  exp.Next();
+}
+exp.delete();
+
+// solids[] now contains all SOLID sub-shapes
+// Each is a valid TopoDS_Shape for volume measurement, boolean ops, etc.
+// Note: these shapes alias internal explorer memory — copy them if the
+//       explorer may go out of scope before you use the shapes:
+//   const copy = new oc.BRepBuilderAPI_Copy_1(solid, true, false);
+//   const safeSolid = copy.Shape(); copy.delete();
+```
+
+---
+
+### Item 8 — Self-intersection via pairwise solid overlap (CONFIRMED)
+
+**Approach:** Explore all SOLID sub-shapes → for every pair (i, j) compute
+`BRepAlgoAPI_Common_3` Boolean Common volume → if volume > epsilon → self-intersecting.
+
+**Verified:**
+- Overlapping compound (B offset 10 mm in X): common vol = **3999.999… mm³** (≈ 4000) → **DETECTED**.
+- Disjoint compound (B offset 50 mm in X): common vol = **0 mm³** → **NOT DETECTED**.
+
+```js
+// VERIFIED — complete self-intersection detection via pairwise Boolean Common
+
+/**
+ * Collect all SOLID sub-shapes from a compound.
+ * Returns array of TopoDS_Shape copies — caller must .delete() each.
+ */
+function collectSolids(oc, shape) {
+  const solidEnum = oc.TopAbs_ShapeEnum.TopAbs_SOLID;
+  const shapeEnum = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;
+  const exp = new oc.TopExp_Explorer_2(shape, solidEnum, shapeEnum);
+  const solids = [];
+  while (exp.More()) {
+    const s = exp.Current();
+    // Copy to get an independent handle
+    try {
+      const copy = new oc.BRepBuilderAPI_Copy_1(s, true, false);
+      solids.push(copy.Shape());
+      copy.delete();
+    } catch (_e) {
+      solids.push(s);  // fallback: alias (safe for read-only ops)
+    }
+    exp.Next();
+  }
+  exp.delete();
+  return solids;
+}
+
+/**
+ * Compute Boolean Common volume between two shapes (mm³).
+ */
+function commonVolume(oc, sA, sB) {
+  let vol = 0;
+  const pr1 = new oc.Message_ProgressRange_1();
+  const algo = new oc.BRepAlgoAPI_Common_3(sA, sB, pr1);
+  pr1.delete();
+  const prB = new oc.Message_ProgressRange_1();
+  algo.Build(prB);
+  prB.delete();
+  if (algo.IsDone()) {
+    const cs = algo.Shape();
+    if (cs) {
+      const p = new oc.GProp_GProps_1();
+      oc.BRepGProp.VolumeProperties_1(cs, p, false, false, false);
+      vol = Math.abs(p.Mass());
+      p.delete();
+      cs.delete();
+    }
+  }
+  algo.delete();
+  return vol;
+}
+
+/**
+ * checkSelfIntersection(oc, shape, epsilon = 1.0)
+ *
+ * Returns { selfIntersecting: bool, invalidGeometry: bool, intersectingPairs: [[i,j,...]] }
+ *
+ * Algorithm:
+ *   1. BRepCheck_Analyzer validity check (catches bad geometry / single-solid SI)
+ *   2. Collect SOLID sub-shapes via TopExp_Explorer
+ *   3. For every pair (i,j): compute commonVolume → if > epsilon → overlap detected
+ */
+function checkSelfIntersection(oc, shape, epsilon = 1.0) {
+  // Step 1: intrinsic validity
+  const analyzer = new oc.BRepCheck_Analyzer(shape, true, false);
+  const invalidGeometry = !analyzer.IsValid_2();
+  analyzer.delete();
+
+  // Step 2: collect solids
+  const solids = collectSolids(oc, shape);
+
+  // Step 3: pairwise overlap
+  const intersectingPairs = [];
+  for (let i = 0; i < solids.length; i++) {
+    for (let j = i + 1; j < solids.length; j++) {
+      const vol = commonVolume(oc, solids[i], solids[j]);
+      if (vol > epsilon) {
+        intersectingPairs.push([i, j, vol]);
+      }
+    }
+  }
+
+  // Cleanup
+  for (const s of solids) { try { s.delete(); } catch (_e) {} }
+
+  return {
+    selfIntersecting: invalidGeometry || intersectingPairs.length > 0,
+    invalidGeometry,
+    intersectingPairs,
+  };
+}
+```
+
+### Algorithm statement
+
+`checkSelfIntersection(shape)` reports a shape as self-intersecting if:
+
+- **(a) Intrinsic validity:** `BRepCheck_Analyzer(shape, true, false).IsValid_2() === false`
+  Catches degenerate geometry, bad face orientations, missing PCurves, etc.
+  Does NOT detect two penetrating solids in a compound.
+
+- **(b) Pairwise solid overlap:** For any pair of SOLID sub-shapes (i, j) in the compound:
+  `BRepAlgoAPI_Common_3(i, j, pr) + .Build(pr) + .Shape() + VolumeProperties.Mass() > epsilon`
+  Detects physical penetration between any two solid bodies.
+
+**`BOPAlgo_CheckerSI` note:** This class — which performs true face-level self-intersection
+detection on a single solid (self-intersecting faces within one body) — is unbound in
+`opencascade.js@2.0.0-beta.b5ff984` because `BOPAlgo_PaveFiller` is not exposed.
+`BRepCheck_Analyzer` is the best available single-solid validity check in this build.

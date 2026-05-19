@@ -510,5 +510,167 @@
       }
     },
     "note": "Disjoint (gap=30) expect dist≈30; Overlap expect dist≈0"
+  },
+  "item6_brepCheckAnalyzer": {
+    "confirmed": true,
+    "analyzerCtor": "BRepCheck_Analyzer(shape, true, false)",
+    "isValidMethod": "IsValid_2()",
+    "isValid": true,
+    "altCheckerFound": null,
+    "chain": {
+      "brepCheckKeys": [
+        "BRepCheck_Result",
+        "BRepCheck_Analyzer",
+        "BRepCheck_Solid",
+        "BRepCheck_Face",
+        "BRepCheck_Vertex",
+        "BRepCheck_Wire",
+        "BRepCheck_ListOfStatus",
+        "BRepCheck_ListOfStatus_1",
+        "BRepCheck_ListOfStatus_2",
+        "BRepCheck_ListOfStatus_3",
+        "BRepCheck_Edge",
+        "BRepCheck_Status",
+        "BRepCheck_Shell",
+        "BRepCheck"
+      ],
+      "analyzerCtor": "BRepCheck_Analyzer(shape, true, false)",
+      "analyzerAvailable": true,
+      "allMethods": [
+        "$$",
+        "Init",
+        "IsValid_1",
+        "IsValid_2",
+        "Result",
+        "clone",
+        "constructor",
+        "delete",
+        "deleteLater",
+        "isAliasOf",
+        "isDeleted"
+      ],
+      "validMethods": [
+        "IsValid_1",
+        "IsValid_2"
+      ],
+      "isValidErr_IsValid_1_noarg": "BindingError: function BRepCheck_Analyzer.IsValid_1 called with 0 arguments, expected 1 args!",
+      "isValid": true,
+      "isValidMethodUsed": "IsValid_2()"
+    },
+    "note": "BRepCheck_Analyzer on clean 20mm box → IsValid should be true"
+  },
+  "item7_topExpExplorer": {
+    "confirmed": true,
+    "solidEnumFound": true,
+    "explorerCtor": "TopExp_Explorer_2(shape, TopAbs_SOLID, TopAbs_SHAPE)",
+    "currentMethod": "Current()",
+    "singleBoxSolidCount": 1,
+    "compound2BoxesSolidCount": 2,
+    "solidShapesUsableDirectly": true,
+    "chain": {
+      "explorerKeys": [
+        "TopExp_Explorer",
+        "TopExp_Explorer_1",
+        "TopExp_Explorer_2"
+      ],
+      "topAbsKeys": [
+        "TopAbs",
+        "TopAbs_State",
+        "TopAbs_ShapeEnum",
+        "TopAbs_Orientation"
+      ],
+      "solidEnum": "[object Object]",
+      "shapeEnum": "[object Object]",
+      "solidEnumType": "object",
+      "singleBox": {
+        "label": "single-box",
+        "count": 1,
+        "explorerCtor": "TopExp_Explorer_2(shape, TopAbs_SOLID, TopAbs_SHAPE)",
+        "currentMethod": "Current()",
+        "explorerMethods": [
+          "Clear",
+          "Current",
+          "Depth",
+          "ExploredShape",
+          "Init",
+          "More",
+          "Next",
+          "ReInit",
+          "Value",
+          "clone",
+          "delete",
+          "deleteLater",
+          "isAliasOf",
+          "isDeleted"
+        ],
+        "solidShapes": [
+          {
+            "index": 1,
+            "volume": 7999.999999999998
+          }
+        ],
+        "currentUsable": true
+      },
+      "compound2Boxes": {
+        "label": "compound-2boxes",
+        "count": 2,
+        "explorerCtor": "TopExp_Explorer_2(shape, TopAbs_SOLID, TopAbs_SHAPE)",
+        "currentMethod": "Current()",
+        "explorerMethods": [
+          "Clear",
+          "Current",
+          "Depth",
+          "ExploredShape",
+          "Init",
+          "More",
+          "Next",
+          "ReInit",
+          "Value",
+          "clone",
+          "delete",
+          "deleteLater",
+          "isAliasOf",
+          "isDeleted"
+        ],
+        "solidShapes": [
+          {
+            "index": 1,
+            "volume": 7999.999999999998
+          },
+          {
+            "index": 2,
+            "volume": 7999.999999999998
+          }
+        ],
+        "currentUsable": true
+      }
+    },
+    "note": "Single box → 1 solid; compound of 2 boxes → 2 solids; .Current() usable directly for volume"
+  },
+  "item8_pairwiseOverlap": {
+    "confirmed": true,
+    "overlapSolidCount": 2,
+    "overlapCommonVolMM3": 3999.999999999999,
+    "overlapDetected": true,
+    "overlapExpectedVol": 4000,
+    "overlapWithinTol": true,
+    "disjointSolidCount": 2,
+    "disjointCommonVolMM3": 0,
+    "disjointDetected": false,
+    "algorithm": [
+      "1. collectSolids(compound) via TopExp_Explorer_2(shape, TopAbs_SOLID, TopAbs_SHAPE)",
+      "2. for every pair (i,j): commonVolume = BRepAlgoAPI_Common_3(si,sj,pr)+Build+Shape+VolumeProperties",
+      "3. if commonVolume > epsilon → intersecting pair",
+      "4. checkSelfIntersection = BRepCheck_Analyzer validity check OR any pair has commonVol > epsilon"
+    ],
+    "chain": {
+      "overlapSolidCount": 2,
+      "overlapCommonVol": 3999.999999999999,
+      "overlapDetected": true,
+      "disjointSolidCount": 2,
+      "disjointCommonVol": 0,
+      "disjointDetected": false
+    },
+    "note": "Overlapping boxes (B offset 10mm): common vol ≈ 4000 → detected. Disjoint (B offset 50mm): vol ≈ 0 → not detected."
   }
 }
