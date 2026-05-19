@@ -215,6 +215,10 @@ export async function draft(brepShape, angleDeg) {
       }
     }
 
+    if (sideFaces.length === 0) {
+      throw new Error('draft: no side faces found spanning the full height; input shape may not be prismatic');
+    }
+
     // Step 5: DraftAngle constructor — _2(shape), NOT undecorated (no accessible ctor)
     const draftObj = track(new oc.BRepOffsetAPI_DraftAngle_2(inputShape));
 

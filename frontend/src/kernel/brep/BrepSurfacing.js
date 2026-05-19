@@ -111,6 +111,7 @@ export async function loft(bottomSize, topSize, height) {
     const prBuild = track(new oc.Message_ProgressRange_1());
     loftOp.Build(prBuild);
 
+    if (!loftOp.IsDone()) throw new Error('loft: BRepOffsetAPI_ThruSections did not complete');
     const shape = loftOp.Shape();
 
     if (shape.IsNull()) throw new Error('loft: OCCT produced a null shape');

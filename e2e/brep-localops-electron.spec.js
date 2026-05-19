@@ -83,6 +83,7 @@ test('offsetShape: offset 20mm box outward +2mm -> volume > 9120', async () => {
   expect(m.volume).toBeGreaterThan(8000);
   // Tightened lower bound ±5% around 9600
   expect(m.volume).toBeGreaterThan(9120);
+  expect(m.volume).toBeLessThan(10080);
   await app.close();
 });
 
