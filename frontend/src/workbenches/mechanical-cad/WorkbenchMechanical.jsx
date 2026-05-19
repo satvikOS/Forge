@@ -557,6 +557,63 @@ function WorkbenchMechanical() {
             renderChamfer: async (size, distance) =>
                 renderShape(await ArchDiscKernel.brep.chamferAll(
                     await ArchDiscKernel.brep.makeBox(size, size, size), distance)),
+            renderShell: async (boxSize, wallThickness) => {
+                const box = await ArchDiscKernel.brep.makeBox(boxSize, boxSize, boxSize);
+                const hollowed = await ArchDiscKernel.brep.shell(box, wallThickness);
+                box.dispose();
+                return renderShape(hollowed);
+            },
+            renderThicken: async (w, h, t) => {
+                const slab = await ArchDiscKernel.brep.thicken(w, h, t);
+                return renderShape(slab);
+            },
+            renderOffsetShape: async (boxSize, offset) => {
+                const box = await ArchDiscKernel.brep.makeBox(boxSize, boxSize, boxSize);
+                const offsetted = await ArchDiscKernel.brep.offsetShape(box, offset);
+                box.dispose();
+                return renderShape(offsetted);
+            },
+            renderDraft: async (boxSize, angleDeg) => {
+                const box = await ArchDiscKernel.brep.makeBox(boxSize, boxSize, boxSize);
+                const drafted = await ArchDiscKernel.brep.draft(box, angleDeg);
+                box.dispose();
+                return renderShape(drafted);
+            },
+            renderSweep: async (r, len) => {
+                const pipe = await ArchDiscKernel.brep.sweep(r, len);
+                return renderShape(pipe);
+            },
+            renderLoft: async (bottomSize, topSize, height) => {
+                const lofted = await ArchDiscKernel.brep.loft(bottomSize, topSize, height);
+                return renderShape(lofted);
+            },
+            renderVariableFillet: async (boxSize, r1, r2) => {
+                const box = await ArchDiscKernel.brep.makeBox(boxSize, boxSize, boxSize);
+                const filleted = await ArchDiscKernel.brep.variableFillet(box, r1, r2);
+                box.dispose();
+                return renderShape(filleted);
+            },
+            renderBoolFuse: async (size) => {
+                const a = await ArchDiscKernel.brep.makeBox(size, size, size);
+                const b = await ArchDiscKernel.brep.makeBox(size, size, size);
+                const result = await ArchDiscKernel.brep.fuse(a, b);
+                a.dispose(); b.dispose();
+                return renderShape(result);
+            },
+            renderBoolCommon: async (size) => {
+                const a = await ArchDiscKernel.brep.makeBox(size, size, size);
+                const b = await ArchDiscKernel.brep.makeBox(size, size, size);
+                const result = await ArchDiscKernel.brep.common(a, b);
+                a.dispose(); b.dispose();
+                return renderShape(result);
+            },
+            renderBoolCut: async (blockSize, cylR, cylH) => {
+                const block = await ArchDiscKernel.brep.makeBox(blockSize, blockSize, blockSize);
+                const drill = await ArchDiscKernel.brep.makeCylinder(cylR, cylH);
+                const result = await ArchDiscKernel.brep.cut(block, drill);
+                block.dispose(); drill.dispose();
+                return renderShape(result);
+            },
         };
         return () => { delete window.__archdiscKernel; };
     }, [viewport]);

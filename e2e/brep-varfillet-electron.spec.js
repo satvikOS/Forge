@@ -8,6 +8,7 @@
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
+import { captureAllAngles } from './helpers/orbitCapture.js';
 
 async function launch() {
   const app = await electron.launch({
@@ -24,6 +25,9 @@ async function launch() {
 }
 
 test.setTimeout(600000);
+
+// 6 azimuths × 2 elevations × 3 zooms = 36 captures
+const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
 
 test('variableFillet: 20mm box r1=1->r2=4 on all edges -> volume in (6000, 8000), faceCount > 6', async () => {
   // Empirically measured: 7969.16 mm³ (occt-api-A2.md item 7, ONE edge).
@@ -43,5 +47,9 @@ test('variableFillet: 20mm box r1=1->r2=4 on all edges -> volume in (6000, 8000)
   expect(m.volume).toBeGreaterThan(6000);
   expect(m.volume).toBeLessThan(8000);
   expect(m.faceCount).toBeGreaterThan(6);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderVariableFillet(20, 1, 4));
+  const cap = await captureAllAngles(win, 'varfillet', SWEEP);
+  expect(cap.blanks).toEqual([]);
   await app.close();
 });

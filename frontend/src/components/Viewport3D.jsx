@@ -221,9 +221,14 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
               orbitControls.update();
             } catch (_) {}
           };
-          window.__archdiscOrbitView = (azimuthDeg, elevationDeg = 20) => {
+          let __orbitBaseRadius = null;
+          window.__archdiscSetOrbitBase = () => {
+            __orbitBaseRadius = camera.position.distanceTo(orbitControls.target) || 1;
+          };
+          window.__archdiscOrbitView = (azimuthDeg, elevationDeg = 20, zoomFactor = 1) => {
             const target = orbitControls.target;
-            const r = camera.position.distanceTo(target) || 1;
+            const base = __orbitBaseRadius || camera.position.distanceTo(target) || 1;
+            const r = base * zoomFactor;
             const az = (azimuthDeg * Math.PI) / 180;
             const el = (elevationDeg * Math.PI) / 180;
             camera.position.set(

@@ -9,6 +9,7 @@
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
+import { captureAllAngles } from './helpers/orbitCapture.js';
 
 async function launch() {
   const app = await electron.launch({
@@ -25,6 +26,9 @@ async function launch() {
 }
 
 test.setTimeout(600000);
+
+// 6 azimuths × 2 elevations × 3 zooms = 36 captures
+const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
 
 test('shell: hollow a 20mm box with wall-2 -> volume in (3224, 3561)', async () => {
   // Empirically measured: 3392 mm³ (occt-api-A2.md item 1)
@@ -45,6 +49,10 @@ test('shell: hollow a 20mm box with wall-2 -> volume in (3224, 3561)', async () 
   // Tightened ±5% around measured 3392 mm³
   expect(m.volume).toBeGreaterThan(3222);
   expect(m.volume).toBeLessThan(3562);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderShell(20, 2));
+  const cap = await captureAllAngles(win, 'shell', SWEEP);
+  expect(cap.blanks).toEqual([]);
   await app.close();
 });
 
@@ -63,6 +71,10 @@ test('thicken: 60x40 sheet thickened 3mm -> volume in (6840, 7560)', async () =>
   expect(pageErrors).toEqual([]);
   expect(m.volume).toBeGreaterThan(6840);
   expect(m.volume).toBeLessThan(7560);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderThicken(60, 40, 3));
+  const cap = await captureAllAngles(win, 'thicken', SWEEP);
+  expect(cap.blanks).toEqual([]);
   await app.close();
 });
 
@@ -84,6 +96,10 @@ test('offsetShape: offset 20mm box outward +2mm -> volume > 9120', async () => {
   // Tightened lower bound ±5% around 9600
   expect(m.volume).toBeGreaterThan(9120);
   expect(m.volume).toBeLessThan(10080);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderOffsetShape(20, 2));
+  const cap = await captureAllAngles(win, 'offset-shape', SWEEP);
+  expect(cap.blanks).toEqual([]);
   await app.close();
 });
 
@@ -106,5 +122,9 @@ test('draft: 5deg draft on 20mm box -> positive volume ~6682, 6 faces', async ()
   // Tightened ±5% around 6681.83
   expect(m.volume).toBeGreaterThan(6347);
   expect(m.volume).toBeLessThan(7016);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderDraft(20, 5));
+  const cap = await captureAllAngles(win, 'draft', SWEEP);
+  expect(cap.blanks).toEqual([]);
   await app.close();
 });

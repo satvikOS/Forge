@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
+import { captureAllAngles } from './helpers/orbitCapture.js';
 
 async function launch() {
   const app = await electron.launch({
@@ -17,6 +18,9 @@ async function launch() {
 
 test.setTimeout(600000);
 
+// 6 azimuths × 2 elevations × 3 zooms = 36 captures
+const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
+
 // Two coincident 10mm boxes: fuse -> 1000, common -> 1000 (deterministic).
 async function runBool(win, op) {
   return win.evaluate(async (which) => {
@@ -33,6 +37,10 @@ test('fuse: two coincident boxes union to one box volume (~1000)', async () => {
   const m = await runBool(win, 'fuse');
   expect(m.volume).toBeGreaterThan(990);
   expect(m.volume).toBeLessThan(1010);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderBoolFuse(10));
+  const cap = await captureAllAngles(win, 'bool-fuse', SWEEP);
+  expect(cap.blanks).toEqual([]);
   expect(pageErrors).toEqual([]);
   await app.close();
 });
@@ -42,6 +50,10 @@ test('common: two coincident boxes intersect to one box volume (~1000)', async (
   const m = await runBool(win, 'common');
   expect(m.volume).toBeGreaterThan(990);
   expect(m.volume).toBeLessThan(1010);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderBoolCommon(10));
+  const cap = await captureAllAngles(win, 'bool-common', SWEEP);
+  expect(cap.blanks).toEqual([]);
   expect(pageErrors).toEqual([]);
   await app.close();
 });
@@ -57,6 +69,10 @@ test('cut: a 20mm block minus a drilled cylinder removes volume', async () => {
   });
   expect(m.volume).toBeGreaterThan(7379);
   expect(m.volume).toBeLessThan(7835);
+  // Render for visual verification
+  await win.evaluate(() => window.__archdiscKernel.renderBoolCut(20, 5, 20));
+  const cap = await captureAllAngles(win, 'bool-cut', SWEEP);
+  expect(cap.blanks).toEqual([]);
   expect(pageErrors).toEqual([]);
   await app.close();
 });
