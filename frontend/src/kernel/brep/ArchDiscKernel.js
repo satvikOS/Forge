@@ -15,6 +15,7 @@ import { exportStep, importStep } from './BrepStep.js';
 import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 import { sweep, loft } from './BrepSurfacing.js';
 import { checkSelfIntersection, checkClash } from './BrepCheck.js';
+import { translate, makeCompound } from './BrepTransform.js';
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
@@ -31,6 +32,7 @@ export const ArchDiscKernel = {
     shell, thicken, offsetShape, draft,
     sweep, loft,
     checkSelfIntersection, checkClash,
+    translate, makeCompound,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,
