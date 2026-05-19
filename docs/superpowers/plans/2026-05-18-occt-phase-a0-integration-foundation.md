@@ -573,15 +573,26 @@ export async function area(brepShape) {
   });
 }
 
-/** Count sub-shapes of a given TopAbs enum kind. */
+/**
+ * Count UNIQUE sub-shapes of a given TopAbs kind. A raw TopExp_Explorer
+ * DOUBLE-COUNTS shared sub-shapes: a box edge is visited once per adjacent
+ * face, so TopAbs_EDGE yields 24 hits for 12 real edges (empirically
+ * verified — see docs/superpowers/notes/occt-api-A0.md, Item 3). We
+ * deduplicate with TopoDS_Shape.IsSame(). (A1+ may switch to
+ * TopExp.MapShapes for O(n) counting on large shapes; IsSame dedup is
+ * sufficient at A0 scope — box only.)
+ */
 async function countSubShapes(brepShape, kind) {
   const oc = await getOCCT();
   return withScope(() => {
     const ex = track(new oc.TopExp_Explorer_2(
       brepShape.shape, kind, oc.TopAbs_ShapeEnum.TopAbs_SHAPE));
-    let n = 0;
-    for (; ex.More(); ex.Next()) n++;
-    return n;
+    const unique = [];
+    for (; ex.More(); ex.Next()) {
+      const cur = track(ex.Current());
+      if (!unique.some((s) => s.IsSame(cur))) unique.push(cur);
+    }
+    return unique.length;
   });
 }
 
