@@ -47,6 +47,7 @@ import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
 import AssemblyTree from '../../components/AssemblyTree';
 import ComponentTreePanel from '../../components/ComponentTreePanel';
+import BrepLabPanel from '../../components/BrepLabPanel.jsx';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -911,6 +912,9 @@ function WorkbenchMechanical() {
                     onReady={handleViewportReady}
                     onSelectionChange={setSelection}
                 />
+
+                {/* B-rep Lab panel — OCCT-backed kernel UI (A0) */}
+                <BrepLabPanel />
 
                 {/* NavSphere - translucent 3D navigation sphere */}
                 {viewportRef && (
