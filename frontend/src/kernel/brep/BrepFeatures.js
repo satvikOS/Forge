@@ -151,3 +151,27 @@ export async function chamferAll(brepShape, distance) {
     return new BrepShape(shape, { op: 'chamferAll', params: { distance }, parents: [brepShape.id] });
   });
 }
+
+/**
+ * Variable-radius fillet on ALL edges of a solid: the radius ramps
+ * linearly from `r1` at one end of each edge to `r2` at the other.
+ * @param {BrepShape} brepShape
+ * @param {number} r1  start radius (mm)
+ * @param {number} r2  end radius (mm)
+ * @returns {Promise<BrepShape>}
+ */
+export async function variableFillet(brepShape, r1, r2) {
+  if (!brepShape || !brepShape.shape) throw new Error('variableFillet: needs a BrepShape');
+  if (!(r1 > 0 && r2 > 0)) throw new Error(`variableFillet: r1, r2 must be positive (got ${r1}, ${r2})`);
+  const oc = await getOCCT();
+  return withScope(() => {
+    const maker = track(new oc.BRepFilletAPI_MakeFillet(
+      brepShape.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
+    forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_3(r1, r2, edge); });
+    maker.Build(track(new oc.Message_ProgressRange_1()));
+    if (!maker.IsDone()) throw new Error('variableFillet: OCCT fillet did not complete');
+    const shape = maker.Shape();
+    if (shape.IsNull()) throw new Error('variableFillet: OCCT produced a null shape');
+    return new BrepShape(shape, { op: 'variableFillet', params: { r1, r2 }, parents: [brepShape.id] });
+  });
+}
