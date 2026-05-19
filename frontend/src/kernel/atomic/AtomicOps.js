@@ -11,6 +11,7 @@
  */
 
 import { getManifold } from '../../foundation/manifoldKernel.js';
+import { morphologicalFilletManifold } from '../../foundation/MorphologicalFillet.js';
 import { circlePolyline } from './ParametricCurve.js';
 import { orient } from './SketchProfile.js';
 import { Part } from './Part.js';
@@ -384,4 +385,43 @@ export function translate(part, dx, dy, dz) {
   part.solid = moved;
   part.addFeature('translate', { dx, dy, dz }, moved);
   return moved;
+}
+
+/**
+ * Fillet: round the edges of the part's current solid by `radius` mm, using
+ * ArchDisc's morphological (rolling-ball) fillet. Honest note: this fillet is
+ * voxel-based — a real rounding, but staircased at fine scale and slower than
+ * the other ops; it is not an exact B-rep fillet.
+ *
+ * @param {Part} part
+ * @param {number} radius  rolling-ball radius (mm, > 0)
+ * @returns {Promise<object>} the resulting manifold-3d solid
+ */
+export async function fillet(part, radius) {
+  if (!part.solid) throw new Error('fillet: nothing to fillet — build a solid first');
+  if (!(radius > 0)) throw new Error('fillet: radius must be > 0');
+  const fil = morphologicalFilletManifold(part.solid, { radius });
+  if (!fil) throw new Error('fillet: morphological fillet produced no result');
+  // Reconstruct a manifold from the voxel surface mesh (same approach used
+  // by the Volumetric Fillet tool handler in ToolExecutionEngine.js).
+  const Mod = await getManifold();
+  const sm = fil.surfaceMesh;
+  const vp = new Float32Array(sm.vertices.length * 3);
+  for (let i = 0; i < sm.vertices.length; i++) {
+    vp[i * 3]     = sm.vertices[i][0];
+    vp[i * 3 + 1] = sm.vertices[i][1];
+    vp[i * 3 + 2] = sm.vertices[i][2];
+  }
+  const tv = new Uint32Array(sm.triangles.length * 3);
+  for (let i = 0; i < sm.triangles.length; i++) {
+    tv[i * 3]     = sm.triangles[i][0];
+    tv[i * 3 + 1] = sm.triangles[i][1];
+    tv[i * 3 + 2] = sm.triangles[i][2];
+  }
+  const filleted = Mod.Manifold.ofMesh(new Mod.Mesh({ numProp: 3, vertProperties: vp, triVerts: tv }));
+  if (!filleted) throw new Error('fillet: morphological fillet produced no result');
+  if (filleted !== part.solid) part.solid.delete();
+  part.solid = filleted;
+  part.addFeature('fillet', { radius }, filleted);
+  return filleted;
 }
