@@ -1,0 +1,599 @@
+{
+  "item1_nurbsSSI": {
+    "verdict": "REACHABLE",
+    "verdictReason": "GeomAPI_IntSS: ctor=GeomAPI_IntSS_1() + Perform(surfA, surfB, tol), perform=Perform(surfA, surfB, tol), IsDone=true, NbLines=2, Line(1) class=Geom_Line, D0 sampled 3 points.",
+    "intSSKeys": [
+      "GeomAPI_IntSS",
+      "GeomAPI_IntSS_1",
+      "GeomAPI_IntSS_2"
+    ],
+    "usedCtor": "GeomAPI_IntSS_1() + Perform(surfA, surfB, tol)",
+    "usedPerform": "Perform(surfA, surfB, tol)",
+    "isDone": true,
+    "nbLines": 2,
+    "curveTest": {
+      "lineMethod": "Line(1)",
+      "curveHandleClass": "Handle_Geom_Curve",
+      "rawCurveClass": "Geom_Line",
+      "firstParam": -2e+100,
+      "lastParam": 2e+100,
+      "samplePoints": [
+        {
+          "u": -2e+100,
+          "x": 0,
+          "y": -15,
+          "z": -2e+100
+        },
+        {
+          "u": 0,
+          "x": 0,
+          "y": -15,
+          "z": 0
+        },
+        {
+          "u": 2e+100,
+          "x": 0,
+          "y": -15,
+          "z": 2e+100
+        }
+      ]
+    },
+    "chain": {
+      "intSSKeys": [
+        "GeomAPI_IntSS",
+        "GeomAPI_IntSS_1",
+        "GeomAPI_IntSS_2"
+      ],
+      "cubeBuilt": true,
+      "cubeFaceCount": 6,
+      "cubeFace0Area": 1599.9999999999998,
+      "cubeSurfHandleClass": "Handle_Geom_Surface",
+      "cubeSurfHandleNull": false,
+      "cubeSurfRawClass": "Geom_Plane",
+      "cubeSurfExtracted": true,
+      "cylBuilt": true,
+      "cylFaceCount": 3,
+      "cylFaceAreas": [
+        {
+          "idx": 0,
+          "area": 3769.911184307752
+        },
+        {
+          "idx": 1,
+          "area": 706.8583470577036
+        },
+        {
+          "idx": 2,
+          "area": 706.8583470577036
+        }
+      ],
+      "cylCurvedFaceIdx": 0,
+      "cylCurvedFaceArea": 3769.911184307752,
+      "cylSurfHandleClass": "Handle_Geom_Surface",
+      "cylSurfHandleNull": false,
+      "cylSurfRawClass": "Geom_CylindricalSurface",
+      "cylSurfExtracted": true,
+      "intSSTest": {
+        "usedCtor": "GeomAPI_IntSS_1() + Perform(surfA, surfB, tol)",
+        "usedPerform": "Perform(surfA, surfB, tol)",
+        "intSSConstructed": true,
+        "methods": [
+          "IsDone",
+          "Line",
+          "NbLines",
+          "Perform",
+          "clone",
+          "constructor",
+          "delete",
+          "deleteLater",
+          "isAliasOf",
+          "isDeleted"
+        ],
+        "isDone": true,
+        "nbLines": 2,
+        "curveTest": {
+          "lineMethod": "Line(1)",
+          "curveHandleClass": "Handle_Geom_Curve",
+          "rawCurveClass": "Geom_Line",
+          "firstParam": -2e+100,
+          "lastParam": 2e+100,
+          "samplePoints": [
+            {
+              "u": -2e+100,
+              "x": 0,
+              "y": -15,
+              "z": -2e+100
+            },
+            {
+              "u": 0,
+              "x": 0,
+              "y": -15,
+              "z": 0
+            },
+            {
+              "u": 2e+100,
+              "x": 0,
+              "y": -15,
+              "z": 2e+100
+            }
+          ]
+        }
+      }
+    },
+    "note": "NURBS SSI via GeomAPI_IntSS. Cube face + cylinder lateral face. IsDone+NbLines+D0 sampling."
+  },
+  "item2_closestPointProjection": {
+    "verdict": "REACHABLE",
+    "verdictReason": "GeomAPI_ProjectPointOnSurf: ctor=GeomAPI_ProjectPointOnSurf_2(pnt, surface, tol), NbPoints=2, NearestPoint=(20.000,0.000,20.000) err=0.0000mm (expect <0.1), Distance(1)=5.0000mm (expect ≈5.0).",
+    "ppKeys": [
+      "GeomAPI_ProjectPointOnSurf",
+      "GeomAPI_ProjectPointOnSurf_1",
+      "GeomAPI_ProjectPointOnSurf_2",
+      "GeomAPI_ProjectPointOnSurf_3",
+      "GeomAPI_ProjectPointOnSurf_4",
+      "GeomAPI_ProjectPointOnSurf_5"
+    ],
+    "usedCtor": "GeomAPI_ProjectPointOnSurf_2(pnt, surface, tol)",
+    "nbPoints": 2,
+    "nearestPoint": [
+      20,
+      0,
+      20
+    ],
+    "nearestExpected": [
+      20,
+      0,
+      20
+    ],
+    "nearestErr": 0,
+    "nearestCorrect": true,
+    "distance1": 5,
+    "distanceCorrect": true,
+    "chain": {
+      "ppKeys": [
+        "GeomAPI_ProjectPointOnSurf",
+        "GeomAPI_ProjectPointOnSurf_1",
+        "GeomAPI_ProjectPointOnSurf_2",
+        "GeomAPI_ProjectPointOnSurf_3",
+        "GeomAPI_ProjectPointOnSurf_4",
+        "GeomAPI_ProjectPointOnSurf_5"
+      ],
+      "cylBuilt": true,
+      "cylFaceCount": 3,
+      "cylFaceAreas": [
+        {
+          "idx": 0,
+          "area": 5026.548245743669
+        },
+        {
+          "idx": 1,
+          "area": 1256.6370614359173
+        },
+        {
+          "idx": 2,
+          "area": 1256.6370614359173
+        }
+      ],
+      "cylCurvedFaceIdx": 0,
+      "cylCurvedFaceArea": 5026.548245743669,
+      "surfHandleClass": "Handle_Geom_Surface",
+      "surfHandleNull": false,
+      "surfRawClass": "Geom_CylindricalSurface",
+      "surfExtracted": true,
+      "queryPntBuilt": true,
+      "ppTest": {
+        "ctorErr_GeomAPI_ProjectPointOnSurf_2(pnt, surface)": "BindingError: Tried to invoke ctor of GeomAPI_ProjectPointOnSurf_2 with invalid number of parameters (2) - expected (3) parameters instead!",
+        "ctorErr_GeomAPI_ProjectPointOnSurf_1(pnt, surface)": "BindingError: Tried to invoke ctor of GeomAPI_ProjectPointOnSurf_1 with invalid number of parameters (2) - expected (0) parameters instead!",
+        "ctorErr_GeomAPI_ProjectPointOnSurf(pnt, surface)": "BindingError: GeomAPI_ProjectPointOnSurf has no accessible constructor",
+        "usedCtor": "GeomAPI_ProjectPointOnSurf_2(pnt, surface, tol)",
+        "ppConstructed": true,
+        "methods": [
+          "Distance",
+          "Init_1",
+          "Init_2",
+          "Init_3",
+          "Init_4",
+          "Init_5",
+          "Init_6",
+          "IsDone",
+          "LowerDistance",
+          "LowerDistanceParameters",
+          "NbPoints",
+          "NearestPoint",
+          "Parameters",
+          "Perform",
+          "Point",
+          "SetExtremaAlgo",
+          "SetExtremaFlag",
+          "clone",
+          "constructor",
+          "delete",
+          "deleteLater",
+          "isAliasOf",
+          "isDeleted"
+        ],
+        "performMethod": "Perform(queryPnt)",
+        "nbPoints": 2,
+        "nearestX": 20,
+        "nearestY": 0,
+        "nearestZ": 20,
+        "nearestExpected": [
+          20,
+          0,
+          20
+        ],
+        "nearestErr": 0,
+        "nearestCorrect": true,
+        "distance1": 5,
+        "distanceExpected": 5,
+        "distanceCorrect": true,
+        "parametersMethod": "Parameters(1, u, v)"
+      }
+    },
+    "note": "Closest-point projection via GeomAPI_ProjectPointOnSurf. Cylinder r=20, query (25,0,20), expected nearest (20,0,20), dist≈5."
+  },
+  "item3_trimmedNurbsFace": {
+    "verdict": "REACHABLE",
+    "verdictReason": "Path B (rectangular trim): Geom_RectangularTrimmedSurface_1(handle, u1, u2, v1, v2, true, true), trimmedFaceArea=1809.6 mm², fullFaceArea=5026.5 mm², areaRatio=0.360 (expected ≈0.36).",
+    "usedPath": "B",
+    "pathA": {
+      "makeEdge2dAvailable": true,
+      "makeEdge2dKeys": [
+        "BRepBuilderAPI_MakeEdge2d",
+        "BRepBuilderAPI_MakeEdge2d_1",
+        "BRepBuilderAPI_MakeEdge2d_2",
+        "BRepBuilderAPI_MakeEdge2d_3",
+        "BRepBuilderAPI_MakeEdge2d_4",
+        "BRepBuilderAPI_MakeEdge2d_5",
+        "BRepBuilderAPI_MakeEdge2d_6",
+        "BRepBuilderAPI_MakeEdge2d_7",
+        "BRepBuilderAPI_MakeEdge2d_8",
+        "BRepBuilderAPI_MakeEdge2d_9",
+        "BRepBuilderAPI_MakeEdge2d_10",
+        "BRepBuilderAPI_MakeEdge2d_11",
+        "BRepBuilderAPI_MakeEdge2d_12",
+        "BRepBuilderAPI_MakeEdge2d_13",
+        "BRepBuilderAPI_MakeEdge2d_14",
+        "BRepBuilderAPI_MakeEdge2d_15",
+        "BRepBuilderAPI_MakeEdge2d_16",
+        "BRepBuilderAPI_MakeEdge2d_17",
+        "BRepBuilderAPI_MakeEdge2d_18",
+        "BRepBuilderAPI_MakeEdge2d_19",
+        "BRepBuilderAPI_MakeEdge2d_20",
+        "BRepBuilderAPI_MakeEdge2d_21",
+        "BRepBuilderAPI_MakeEdge2d_22",
+        "BRepBuilderAPI_MakeEdge2d_23",
+        "BRepBuilderAPI_MakeEdge2d_24",
+        "BRepBuilderAPI_MakeEdge2d_25",
+        "BRepBuilderAPI_MakeEdge2d_26",
+        "BRepBuilderAPI_MakeEdge2d_27",
+        "BRepBuilderAPI_MakeEdge2d_28"
+      ]
+    },
+    "pathB": {
+      "rectTrimSurfAvailable": true,
+      "rectTrimSurfKeys": [
+        "Geom_RectangularTrimmedSurface",
+        "Geom_RectangularTrimmedSurface_1",
+        "Geom_RectangularTrimmedSurface_2"
+      ],
+      "rectTrimSurfBuilt": true,
+      "usedRectCtor": "Geom_RectangularTrimmedSurface_1(handle, u1, u2, v1, v2, true, true)",
+      "trimmedFaceBuilt": true,
+      "trimmedFaceArea": 1809.5573684677208,
+      "fullFaceArea": 5026.548245743669,
+      "areaRatio": 0.36,
+      "usedMakeFaceCtor": "BRepBuilderAPI_MakeFace_14 (handle, u1, u2, v1, v2, tol)"
+    },
+    "chain": {
+      "makeEdge2dKeys": [
+        "BRepBuilderAPI_MakeEdge2d",
+        "BRepBuilderAPI_MakeEdge2d_1",
+        "BRepBuilderAPI_MakeEdge2d_2",
+        "BRepBuilderAPI_MakeEdge2d_3",
+        "BRepBuilderAPI_MakeEdge2d_4",
+        "BRepBuilderAPI_MakeEdge2d_5",
+        "BRepBuilderAPI_MakeEdge2d_6",
+        "BRepBuilderAPI_MakeEdge2d_7",
+        "BRepBuilderAPI_MakeEdge2d_8",
+        "BRepBuilderAPI_MakeEdge2d_9",
+        "BRepBuilderAPI_MakeEdge2d_10",
+        "BRepBuilderAPI_MakeEdge2d_11",
+        "BRepBuilderAPI_MakeEdge2d_12",
+        "BRepBuilderAPI_MakeEdge2d_13",
+        "BRepBuilderAPI_MakeEdge2d_14",
+        "BRepBuilderAPI_MakeEdge2d_15",
+        "BRepBuilderAPI_MakeEdge2d_16",
+        "BRepBuilderAPI_MakeEdge2d_17",
+        "BRepBuilderAPI_MakeEdge2d_18",
+        "BRepBuilderAPI_MakeEdge2d_19",
+        "BRepBuilderAPI_MakeEdge2d_20",
+        "BRepBuilderAPI_MakeEdge2d_21",
+        "BRepBuilderAPI_MakeEdge2d_22",
+        "BRepBuilderAPI_MakeEdge2d_23",
+        "BRepBuilderAPI_MakeEdge2d_24",
+        "BRepBuilderAPI_MakeEdge2d_25",
+        "BRepBuilderAPI_MakeEdge2d_26",
+        "BRepBuilderAPI_MakeEdge2d_27",
+        "BRepBuilderAPI_MakeEdge2d_28"
+      ],
+      "rectTrimSurfKeys": [
+        "Geom_RectangularTrimmedSurface",
+        "Geom_RectangularTrimmedSurface_1",
+        "Geom_RectangularTrimmedSurface_2"
+      ],
+      "makeFaceKeys": [
+        "BRepBuilderAPI_MakeFace",
+        "BRepBuilderAPI_MakeFace_1",
+        "BRepBuilderAPI_MakeFace_2",
+        "BRepBuilderAPI_MakeFace_3",
+        "BRepBuilderAPI_MakeFace_4",
+        "BRepBuilderAPI_MakeFace_5",
+        "BRepBuilderAPI_MakeFace_6",
+        "BRepBuilderAPI_MakeFace_7",
+        "BRepBuilderAPI_MakeFace_8",
+        "BRepBuilderAPI_MakeFace_9",
+        "BRepBuilderAPI_MakeFace_10",
+        "BRepBuilderAPI_MakeFace_11",
+        "BRepBuilderAPI_MakeFace_12",
+        "BRepBuilderAPI_MakeFace_13",
+        "BRepBuilderAPI_MakeFace_14",
+        "BRepBuilderAPI_MakeFace_15",
+        "BRepBuilderAPI_MakeFace_16",
+        "BRepBuilderAPI_MakeFace_17",
+        "BRepBuilderAPI_MakeFace_18",
+        "BRepBuilderAPI_MakeFace_19",
+        "BRepBuilderAPI_MakeFace_20",
+        "BRepBuilderAPI_MakeFace_21",
+        "BRepBuilderAPI_MakeFace_22"
+      ],
+      "pathA": {
+        "makeEdge2dKeysFound": [
+          "BRepBuilderAPI_MakeEdge2d",
+          "BRepBuilderAPI_MakeEdge2d_1",
+          "BRepBuilderAPI_MakeEdge2d_2",
+          "BRepBuilderAPI_MakeEdge2d_3",
+          "BRepBuilderAPI_MakeEdge2d_4",
+          "BRepBuilderAPI_MakeEdge2d_5",
+          "BRepBuilderAPI_MakeEdge2d_6",
+          "BRepBuilderAPI_MakeEdge2d_7",
+          "BRepBuilderAPI_MakeEdge2d_8",
+          "BRepBuilderAPI_MakeEdge2d_9",
+          "BRepBuilderAPI_MakeEdge2d_10",
+          "BRepBuilderAPI_MakeEdge2d_11",
+          "BRepBuilderAPI_MakeEdge2d_12",
+          "BRepBuilderAPI_MakeEdge2d_13",
+          "BRepBuilderAPI_MakeEdge2d_14",
+          "BRepBuilderAPI_MakeEdge2d_15",
+          "BRepBuilderAPI_MakeEdge2d_16",
+          "BRepBuilderAPI_MakeEdge2d_17",
+          "BRepBuilderAPI_MakeEdge2d_18",
+          "BRepBuilderAPI_MakeEdge2d_19",
+          "BRepBuilderAPI_MakeEdge2d_20",
+          "BRepBuilderAPI_MakeEdge2d_21",
+          "BRepBuilderAPI_MakeEdge2d_22",
+          "BRepBuilderAPI_MakeEdge2d_23",
+          "BRepBuilderAPI_MakeEdge2d_24",
+          "BRepBuilderAPI_MakeEdge2d_25",
+          "BRepBuilderAPI_MakeEdge2d_26",
+          "BRepBuilderAPI_MakeEdge2d_27",
+          "BRepBuilderAPI_MakeEdge2d_28"
+        ],
+        "makeEdge2dAvailable": true,
+        "bspBuilt": true,
+        "noPnt2d_0": true,
+        "edge2dFailed_0": true,
+        "allEdges2dBuilt": false
+      },
+      "pathB": {
+        "rectTrimSurfKeysFound": [
+          "Geom_RectangularTrimmedSurface",
+          "Geom_RectangularTrimmedSurface_1",
+          "Geom_RectangularTrimmedSurface_2"
+        ],
+        "rectTrimSurfAvailable": true,
+        "fullFaceArea": 5026.548245743669,
+        "surfHandleClass": "Handle_Geom_Surface",
+        "surfHandleNull": false,
+        "surfRawClass": "Geom_CylindricalSurface",
+        "paramInfo": {},
+        "rectTrimSurfBuilt": true,
+        "usedRectCtor": "Geom_RectangularTrimmedSurface_1(handle, u1, u2, v1, v2, true, true)",
+        "rtsMethods": [
+          "BasisSurface",
+          "Bounds",
+          "Continuity",
+          "Copy",
+          "D0",
+          "D1",
+          "D2",
+          "D3",
+          "DN",
+          "DecrementRefCounter",
+          "Delete",
+          "DumpJson",
+          "DynamicType",
+          "GetRefCount",
+          "IncrementRefCounter",
+          "IsCNu",
+          "IsCNv",
+          "IsInstance_1",
+          "IsInstance_2",
+          "IsKind_1",
+          "IsKind_2",
+          "IsUClosed",
+          "IsUPeriodic",
+          "IsVClosed",
+          "IsVPeriodic",
+          "Mirror_1",
+          "Mirror_2",
+          "Mirror_3",
+          "Mirrored_1",
+          "Mirrored_2",
+          "Mirrored_3",
+          "ParametricTransformation",
+          "Rotate",
+          "Rotated",
+          "Scale",
+          "Scaled",
+          "SetTrim_1",
+          "SetTrim_2",
+          "This",
+          "Transform",
+          "TransformParameters",
+          "Transformed",
+          "Translate_1",
+          "Translate_2",
+          "Translated_1",
+          "Translated_2",
+          "UIso",
+          "UPeriod",
+          "UReverse",
+          "UReversed",
+          "UReversedParameter",
+          "VIso",
+          "VPeriod",
+          "VReverse",
+          "VReversed",
+          "VReversedParameter",
+          "Value",
+          "clone",
+          "constructor",
+          "delete",
+          "deleteLater",
+          "isAliasOf",
+          "isDeleted"
+        ],
+        "rtsConstructorName": "Geom_RectangularTrimmedSurface_1",
+        "makeFaceAttempts": [
+          {
+            "cls": "BRepBuilderAPI_MakeFace_8",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Expected null or instance of Handle_Geom_Surface, got an instance of Standard_Transient"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_9",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_9 with invalid number of parameters (2) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_10",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_10 with invalid number of parameters (2) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_11",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_11 with invalid number of parameters (2) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_12",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_12 with invalid number of parameters (2) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_13",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_13 with invalid number of parameters (2) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_14",
+            "args": "(rectTrimSurf, 1e-6)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_14 with invalid number of parameters (2) - expected (6) parameters instead!"
+          }
+        ],
+        "paramFaceAttempts": [
+          {
+            "cls": "BRepBuilderAPI_MakeFace_9",
+            "args": "(handle, u1, u2, v1, v2, tol)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_9 with invalid number of parameters (6) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_9",
+            "args": "(handle, u1, u2, v1, v2)",
+            "err": "BindingError: Expected null or instance of gp_Pln, got an instance of Handle_Geom_Surface"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_10",
+            "args": "(handle, u1, u2, v1, v2, tol)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_10 with invalid number of parameters (6) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_10",
+            "args": "(handle, u1, u2, v1, v2)",
+            "err": "BindingError: Expected null or instance of gp_Cylinder, got an instance of Handle_Geom_Surface"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_11",
+            "args": "(handle, u1, u2, v1, v2, tol)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_11 with invalid number of parameters (6) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_11",
+            "args": "(handle, u1, u2, v1, v2)",
+            "err": "BindingError: Expected null or instance of gp_Cone, got an instance of Handle_Geom_Surface"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_12",
+            "args": "(handle, u1, u2, v1, v2, tol)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_12 with invalid number of parameters (6) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_12",
+            "args": "(handle, u1, u2, v1, v2)",
+            "err": "BindingError: Expected null or instance of gp_Sphere, got an instance of Handle_Geom_Surface"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_13",
+            "args": "(handle, u1, u2, v1, v2, tol)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_13 with invalid number of parameters (6) - expected (5) parameters instead!"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_13",
+            "args": "(handle, u1, u2, v1, v2)",
+            "err": "BindingError: Expected null or instance of gp_Torus, got an instance of Handle_Geom_Surface"
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_14",
+            "args": "(handle, u1, u2, v1, v2, tol)",
+            "isDone": true,
+            "area": 1809.5573684677208
+          },
+          {
+            "cls": "BRepBuilderAPI_MakeFace_14",
+            "args": "(handle, u1, u2, v1, v2)",
+            "err": "BindingError: Tried to invoke ctor of BRepBuilderAPI_MakeFace_14 with invalid number of parameters (5) - expected (6) parameters instead!"
+          }
+        ],
+        "trimmedFaceBuilt": true,
+        "trimmedFaceArea": 1809.5573684677208,
+        "usedMakeFaceCtor": "BRepBuilderAPI_MakeFace_14 (handle, u1, u2, v1, v2, tol)",
+        "areaRatio": 0.36,
+        "expectedRatio": 0.36,
+        "areaRatioReasonable": true,
+        "pathBVariant": "direct_param_bounds_on_handle"
+      }
+    },
+    "note": "Auto-trimming NURBS face. Path A (parametric wire) tried first; Path B (RectangularTrimmedSurface) as fallback."
+  },
+  "_summary": {
+    "item1_nurbsSSI": "REACHABLE",
+    "item2_closestPointProjection": "REACHABLE",
+    "item3_trimmedNurbsFace": "REACHABLE",
+    "item1_reason": "GeomAPI_IntSS: ctor=GeomAPI_IntSS_1() + Perform(surfA, surfB, tol), perform=Perform(surfA, surfB, tol), IsDone=true, NbLines=2, Line(1) class=Geom_Line, D0 sampled 3 points.",
+    "item2_reason": "GeomAPI_ProjectPointOnSurf: ctor=GeomAPI_ProjectPointOnSurf_2(pnt, surface, tol), NbPoints=2, NearestPoint=(20.000,0.000,20.000) err=0.0000mm (expect <0.1), Distance(1)=5.0000mm (expect ≈5.0).",
+    "item3_reason": "Path B (rectangular trim): Geom_RectangularTrimmedSurface_1(handle, u1, u2, v1, v2, true, true), trimmedFaceArea=1809.6 mm², fullFaceArea=5026.5 mm², areaRatio=0.360 (expected ≈0.36).",
+    "item1_nbLines": 2,
+    "item1_isDone": true,
+    "item2_nearestPoint": [
+      20,
+      0,
+      20
+    ],
+    "item2_distance1": 5,
+    "item3_usedPath": "B",
+    "item3_trimmedArea": 1809.5573684677208,
+    "note": "Sub-project G recon — OCCT-binding-dependent capability verdicts. GREEN = investigation complete.",
+    "package": "opencascade.js@2.0.0-beta.b5ff984"
+  }
+}
