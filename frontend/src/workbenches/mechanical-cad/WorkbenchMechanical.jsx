@@ -17,6 +17,7 @@ import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculp
 import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
 import { requestManifest } from '../../ai/sculptor/ComponentManifest.js';
 import { ComponentLibrary, partToStep } from '../../ai/sculptor/ComponentLibrary.js';
+import { loopSubdivide, loopStep } from '../../foundation/LoopSubdivision.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -618,6 +619,15 @@ function WorkbenchMechanical() {
         };
         return () => { delete window.__archdiscKernel; };
     }, [viewport]);
+
+    // Expose Loop subdivision utilities so headed Electron e2e recon specs
+    // can run loopSubdivide/loopStep against tessellated B-rep meshes without
+    // bundling the module separately. Mirror pattern: __archdiscKernel above.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscSubdiv = { loopSubdivide, loopStep };
+        return () => { delete window.__archdiscSubdiv; };
+    }, []);
 
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
