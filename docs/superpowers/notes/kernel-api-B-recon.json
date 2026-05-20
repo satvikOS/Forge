@@ -609,12 +609,12 @@
   },
   "cap3_latticeBatch": {
     "verdict": "REACHABLE",
-    "verdictReason": "Single-pass multi-arg builder: 8 shapes → vol≈720 (expected 720) in 192ms",
+    "verdictReason": "Single-pass multi-arg builder: 8 shapes → vol≈720 (expected 720) in 196ms",
     "nativeSinglePassAvailable": true,
     "volumeOk": true,
     "volumeActual": 720,
     "volumeExpected": 720,
-    "timingMs": 192.10000002384186,
+    "timingMs": 196.20000004768372,
     "chain": {
       "boxesBuilt": 8,
       "expectedVolume": 720,
@@ -629,7 +629,7 @@
       "volumeExpected": 720,
       "volumeOk": true,
       "faceCount": 48,
-      "timingMs": 192.10000002384186
+      "timingMs": 196.20000004768372
     },
     "note": "Lattice batching. REACHABLE (native) = multi-arg builder feeds 8 shapes in one pass. NOT_REACHABLE if fallback to sequential fuse."
   },
@@ -855,7 +855,7 @@
     "cap1_adjacentVolume": 15999.999999999993,
     "cap1_overlapVolume": 11999.999999999995,
     "cap2_fuzzyMethod": "SetFuzzyValue",
-    "cap3_timingMs": 192.10000002384186,
+    "cap3_timingMs": 196.20000004768372,
     "cap4_reshapeClass": "BRepTools_ReShape()",
     "note": "Sub-project B recon — verdicts recorded. GREEN means investigation complete, not all REACHABLE.",
     "package": "opencascade.js@2.0.0-beta.b5ff984"
