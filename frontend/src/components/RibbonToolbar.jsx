@@ -91,6 +91,9 @@ const TABS = {
         { name: 'Combine', icon: '∪', key: 'part' },
         { name: 'Subtract', icon: '−', key: 'part' },
         { name: 'Intersect', icon: '∩', key: 'part' },
+        { name: 'Combine (Non-Manifold)', icon: '⋒', key: 'part' },
+        { name: 'Combine (Coincident)', icon: '≈', key: 'part' },
+        { name: 'Lattice Fuse', icon: '⊞', key: 'part' },
       ]},
       { label: 'Pattern', tools: [
         { name: 'Linear Pattern', icon: '⫶', key: 'part' },

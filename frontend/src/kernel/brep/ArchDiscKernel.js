@@ -21,6 +21,8 @@ import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
 import { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
+import { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
+import { replaceFace } from './BrepRewrite.js';
 
 export const ArchDiscKernel = {
   /** Ensure the OCCT WASM module is loaded. */
@@ -37,6 +39,8 @@ export const ArchDiscKernel = {
     translate, makeCompound,
     simplify,
     blendG2, cliffEdgeBlend, mitreCorner,
+    fuseAll, fuseNonManifold, fuseCoincident, fuseLattice,
+    replaceFace,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,

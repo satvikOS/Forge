@@ -117,7 +117,8 @@ const TOOL_GROUPS = {
                 'Scale', 'Dome', 'Indent', 'Flex', 'Deform', 'Corner Mitre'
             ]},
             { header: 'Boolean', items: [
-                'Combine', 'Intersect', 'Subtract', 'Split', 'Move Body', 'Copy Body'
+                'Combine', 'Intersect', 'Subtract', 'Split', 'Move Body', 'Copy Body',
+                'Combine (Non-Manifold)', 'Combine (Coincident)', 'Lattice Fuse'
             ]},
             { header: 'Pattern', items: [
                 'Linear Pattern', 'Circular Pattern', 'Mirror Feature', 'Mirror Body',

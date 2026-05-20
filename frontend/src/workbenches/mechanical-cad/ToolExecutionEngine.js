@@ -1309,6 +1309,73 @@ const TOOL_HANDLERS = {
       }
     },
 
+    'Combine (Non-Manifold)': async (scene, viewport) => {
+      // OCCT multi-arg boolean (BRepAlgoAPI_BuilderAlgo_1) on two adjacent
+      // 20×20×20 boxes — they share a 20×20 face (non-manifold topology).
+      try {
+        const a = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const bRaw = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const b = await ArchDiscKernel.brep.translate(bRaw, 20, 0, 0);
+        const result = await ArchDiscKernel.brep.fuseNonManifold(a, b);
+        a.dispose(); bRaw.dispose(); b.dispose();
+        await addBrepShapeToScene(scene, viewport, result);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Combine (Non-Manifold): V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Combine (Non-Manifold) failed: ${err.message}` };
+      }
+    },
+
+    'Combine (Coincident)': async (scene, viewport) => {
+      // Two 20×20×20 boxes with a 0.001 mm gap; fuzzy fuse bridges the gap.
+      try {
+        const a = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const bRaw = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const b = await ArchDiscKernel.brep.translate(bRaw, 20.001, 0, 0);
+        const result = await ArchDiscKernel.brep.fuseCoincident(a, b, 0.01);
+        a.dispose(); bRaw.dispose(); b.dispose();
+        await addBrepShapeToScene(scene, viewport, result);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Combine (Coincident): fuzzy fuse (tol=0.01mm). V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_Fuse SetFuzzyValue`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Combine (Coincident) failed: ${err.message}` };
+      }
+    },
+
+    'Lattice Fuse': async (scene, viewport) => {
+      // 8 × 10×3×3 mm boxes in a 2×2×2 non-overlapping grid — single-pass
+      // BRepAlgoAPI_BuilderAlgo fuse. Expected vol = 8 × 90 = 720 mm³.
+      try {
+        const offsets = [
+          [0, 0, 0], [0, 0, 5], [0, 5, 0], [0, 5, 5],
+          [10, 0, 0], [10, 0, 5], [10, 5, 0], [10, 5, 5],
+        ];
+        const members = [];
+        for (const [dx, dy, dz] of offsets) {
+          const raw = await ArchDiscKernel.brep.makeBox(10, 3, 3);
+          const placed = await ArchDiscKernel.brep.translate(raw, dx, dy, dz);
+          raw.dispose();
+          members.push(placed);
+        }
+        const result = await ArchDiscKernel.brep.fuseLattice(members);
+        for (const m of members) m.dispose();
+        await addBrepShapeToScene(scene, viewport, result);
+        const meas = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Lattice Fuse: 8 members, single-pass. V = ${meas.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Lattice Fuse failed: ${err.message}` };
+      }
+    },
+
     // ── OCCT Solid Primitives (Solid Primitives ribbon section) ──────────────
 
     'Box': async (scene, viewport) => {
@@ -1623,8 +1690,23 @@ const TOOL_HANDLERS = {
       addSolidToScene(scene, viewport, feature.solid, 0xff6644);
       return { status: 'success', message: `Delete Face: Removed face #${face.id} (Feature #${feature.id})` };
     },
-    'Replace Face': (scene, viewport) => {
-      return { status: 'success', message: 'Replace Face: Select target face, then replacement surface geometry' };
+    'Replace Face': async (scene, viewport) => {
+      // OCCT BRepTools_ReShape path: replace face #1 of a 20×20×20 box with
+      // an identity copy of itself — proves the Replace/Apply API works and
+      // produces a topologically-valid solid with identical volume + face count.
+      try {
+        const box = await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const out = await ArchDiscKernel.brep.replaceFace(box, 1);
+        box.dispose();
+        await addBrepShapeToScene(scene, viewport, out);
+        const m = await ArchDiscKernel.brep.measure(out);
+        return {
+          status: 'success',
+          message: `Replace Face: face #1 rewritten via OCCT BRepTools_ReShape — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Replace Face failed: ${err.message}` };
+      }
     },
 
     'Simplify Geometry': async (scene, viewport) => {
