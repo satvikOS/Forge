@@ -1,7 +1,7 @@
 /**
  * brep-e-recon-electron.spec.js
  *
- * Sub-project E empirical OCCT API reconnaissance — NURBS Operations.
+ * Sub-project E empirical kernel API reconnaissance — NURBS Operations.
  * Empirically determines reachability for each of seven NURBS capabilities:
  *
  *   1. Geom_BSplineSurface construction from a 4×4 control-point grid
@@ -34,7 +34,7 @@
  *      Convert the analytic cylindrical surface to NURBS form.
  *      Verdict: REACHABLE or NOT_REACHABLE
  *
- * Writes:  docs/superpowers/notes/occt-api-E-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-E-recon.json
  * Pattern: e2e/brep-b-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  *
@@ -48,7 +48,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Sub-project E — OCCT API recon (NURBS operations)', async () => {
+test('Sub-project E — kernel API recon (NURBS operations)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -160,7 +160,7 @@ test('Sub-project E — OCCT API recon (NURBS operations)', async () => {
     //   Key findings from prior iteration:
     //   - TColgp_Array2OfPnt_2(1,4,1,4) ✓
     //   - TColStd_Array1OfReal_2(1,2) with DISTINCT knots [0,1] ✓
-    //     (NOT the expanded form [0,0,0,0,1,1,1,1] — OCCT uses distinct knot + mult separately)
+    //     (NOT the expanded form [0,0,0,0,1,1,1,1] — kernel uses distinct knot + mult separately)
     //   - TColStd_Array1OfInteger_2(1,2) with mults [4,4] ✓
     //   - Geom_BSplineSurface_1(poles, uK, vK, uM, vM, 3, 3, false, false) ✓
     //
@@ -371,7 +371,7 @@ test('Sub-project E — OCCT API recon (NURBS operations)', async () => {
     //
     //   Build a fresh surface. Read NbUKnots/NbVKnots before, insert u=0.5
     //   mult=1 tol=1e-6. Read again. Confirm count increased.
-    //   OCCT signature (confirmed from prior iteration): 4 args
+    //   Kernel signature (confirmed from prior iteration): 4 args
     //     InsertUKnot(U, Mult, ParametricTolerance, Add=true)
     // ══════════════════════════════════════════════════════════════════════════
     try {
@@ -844,7 +844,7 @@ test('Sub-project E — OCCT API recon (NURBS operations)', async () => {
     //
     //   Use the Handle_Geom_Surface from item 6 (or rebuild).
     //   oc.GeomConvert.SurfaceToBSplineSurface IS present (method listed in scan).
-    //   The prior error "18947992" was an integer OCCT exception — possibly the
+    //   The prior error "18947992" was an integer kernel exception — possibly the
     //   method received a null or wrong handle type.
     //   Strategy: pass the Handle directly (not .get()), then try .get() result.
     //   Also scan: GeomConvert_ApproxSurface as alternative.
@@ -1007,7 +1007,7 @@ test('Sub-project E — OCCT API recon (NURBS operations)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-E-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-E-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('E RECON SUMMARY:', JSON.stringify(verified._summary, null, 2));
   console.log('E RECON FULL:', JSON.stringify(verified, null, 2));

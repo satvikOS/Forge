@@ -1,7 +1,7 @@
 /**
  * brep-varfillet-electron.spec.js
  *
- * Real-user-workflow test for OCCT variable-radius fillet.
+ * Real-user-workflow test for variable-radius fillet.
  * Geometry is invoked by clicking the real ribbon tool button
  * (Part tab, Modify group) and filling the ToolParamDialog —
  * NOT by calling kernel APIs directly.

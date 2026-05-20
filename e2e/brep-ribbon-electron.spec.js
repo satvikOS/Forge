@@ -1,7 +1,7 @@
 /**
  * brep-ribbon-electron.spec.js
  *
- * Verifies that OCCT operations are genuinely wired into the ribbon toolbar.
+ * Verifies that kernel operations are genuinely wired into the ribbon toolbar.
  * For each tested tool: switch to the correct ribbon tab, click the ribbon
  * button, wait for window.__lastBrepShape to update, measure via the kernel,
  * assert real geometry (volume > 0, faceCount >= 1), and confirm zero
@@ -26,7 +26,7 @@ import {
 
 const SHOT = path.resolve(__dirname, 'screenshots');
 
-test.setTimeout(600000); // OCCT WASM is 50 MB; allow up to 10 min cold-load
+test.setTimeout(600000); // Kernel WASM is 50 MB; allow up to 10 min cold-load
 
 /** Launch the Electron app and wait until the kernel is ready. */
 async function launchAndWarm() {
@@ -42,7 +42,7 @@ async function launchAndWarm() {
   await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
   await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
 
-  // Pre-warm OCCT WASM (cached after first call)
+  // Pre-warm kernel WASM (cached after first call)
   await win.waitForFunction(async () => {
     try {
       const oc = await window.__archdiscKernel.getOCCT();
@@ -54,14 +54,14 @@ async function launchAndWarm() {
   }, null, { timeout: 300000 });
 
   const occtReady = await win.evaluate(() => window.__occtPreWarmed);
-  expect(occtReady.ok, `OCCT load failed: ${occtReady.error ?? 'unknown'}`).toBe(true);
+  expect(occtReady.ok, `Kernel load failed: ${occtReady.error ?? 'unknown'}`).toBe(true);
 
   return { app, win, pageErrors };
 }
 
 // ─── Box ─────────────────────────────────────────────────────────────────────
 
-test('ribbon: Box creates OCCT exact B-rep box (40³ mm, 6 faces, 12 edges)', async () => {
+test('ribbon: Box creates ArchDisc exact B-rep box (40³ mm, 6 faces, 12 edges)', async () => {
   // Artifact: test cube — the simplest engineering primitive, proves Box ribbon wiring.
   // Arity-0 primitive: Part tab → Box.
   // buildPrimitive clicks the tab, injects default params, clicks Box, waits
@@ -92,7 +92,7 @@ test('ribbon: Box creates OCCT exact B-rep box (40³ mm, 6 faces, 12 edges)', as
 
 // ─── Cylinder ────────────────────────────────────────────────────────────────
 
-test('ribbon: Cylinder creates OCCT exact B-rep cylinder (volume > 0, faces >= 3)', async () => {
+test('ribbon: Cylinder creates ArchDisc exact B-rep cylinder (volume > 0, faces >= 3)', async () => {
   // Artifact: shaft stub — a cylindrical stock piece, proves Cylinder ribbon wiring.
   // Arity-0 primitive: Part tab → Cylinder.
   const { app, win, pageErrors } = await launchAndWarm();
@@ -120,7 +120,7 @@ test('ribbon: Cylinder creates OCCT exact B-rep cylinder (volume > 0, faces >= 3
 
 // ─── Sphere ───────────────────────────────────────────────────────────────────
 
-test('ribbon: Sphere creates OCCT exact B-rep sphere (volume > 0, faceCount >= 1)', async () => {
+test('ribbon: Sphere creates ArchDisc exact B-rep sphere (volume > 0, faceCount >= 1)', async () => {
   // Artifact: bearing ball — a precision spherical component, proves Sphere ribbon wiring.
   // Arity-0 primitive: Part tab → Sphere.
   const { app, win, pageErrors } = await launchAndWarm();
@@ -148,7 +148,7 @@ test('ribbon: Sphere creates OCCT exact B-rep sphere (volume > 0, faceCount >= 1
 
 // ─── Fillet (Modify feature) ──────────────────────────────────────────────────
 
-test('ribbon: Fillet creates OCCT filleted box (rounded plate: volume drop + 26 faces)', async () => {
+test('ribbon: Fillet creates ArchDisc filleted box (rounded plate: volume drop + 26 faces)', async () => {
   // Artifact: rounded plate — a Box(40³) with all edges filleted at r=2mm.
   // A fully-filleted box (12 edges, 8 corners) produces 6 flat + 12 fillet + 8 corner = 26 faces.
   // Arity-1: build a Box via ribbon, select it, inject fillet radius, click Fillet.
@@ -204,7 +204,7 @@ test('ribbon: Fillet creates OCCT filleted box (rounded plate: volume drop + 26 
 
 // ─── Combine (Boolean union) ──────────────────────────────────────────────────
 
-test('ribbon: Combine creates OCCT boolean union (mounting block with boss: volume > 0)', async () => {
+test('ribbon: Combine creates ArchDisc boolean union (mounting block with boss: volume > 0)', async () => {
   // Artifact: mounting block with boss — a Box(40³) [base plate] fused with
   // a Box(40³) [boss feature] at the same origin, proving Boolean union wiring.
   // Arity-2: build two Boxes via ribbon, select both, click Combine.

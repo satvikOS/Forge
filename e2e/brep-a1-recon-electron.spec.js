@@ -1,7 +1,7 @@
 /**
  * brep-a1-recon-electron.spec.js
  *
- * Phase A1 empirical OCCT API reconnaissance.
+ * Phase A1 empirical kernel API reconnaissance.
  * Verifies exact opencascade.js call signatures for:
  *   1.  Cylinder
  *   2.  Sphere
@@ -17,8 +17,8 @@
  *   12. STEP export
  *   13. STEP import
  *
- * Writes:  docs/superpowers/notes/occt-api-A1-recon.json
- * Pattern: e2e/brep-occt-load-electron.spec.js + docs/superpowers/notes/occt-api-A0.md
+ * Writes:  docs/superpowers/notes/kernel-api-A1-recon.json
+ * Pattern: e2e/brep-occt-load-electron.spec.js + docs/superpowers/notes/kernel-api-A0.md
  * Package: opencascade.js@2.0.0-beta.b5ff984
  *
  * Verified overloads (from diagnostic runs):
@@ -49,7 +49,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Phase A1 — OCCT API recon (items 1-13)', async () => {
+test('Phase A1 — kernel API recon (items 1-13)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -855,7 +855,7 @@ test('Phase A1 — OCCT API recon (items 1-13)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-A1-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-A1-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('A1 RECON RESULT:', JSON.stringify(verified, null, 2));
 

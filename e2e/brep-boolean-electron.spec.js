@@ -1,7 +1,7 @@
 /**
  * brep-boolean-electron.spec.js
  *
- * Real-user-workflow tests for OCCT boolean operations.
+ * Real-user-workflow tests for boolean operations.
  * Every geometry op is invoked by:
  *   1. Building input bodies via real ribbon primitive tools + dialogs.
  *   2. Selecting the bodies.

@@ -1,7 +1,7 @@
 /**
  * brep-f-recon-electron.spec.js
  *
- * Sub-project F empirical OCCT API reconnaissance — Final §3 Capabilities.
+ * Sub-project F empirical kernel API reconnaissance — Final §3 Capabilities.
  * Empirically determines reachability for each of five items:
  *
  *   1. N-Sided Patching  — BRepOffsetAPI_MakeFilling
@@ -35,7 +35,7 @@
  *      - BRepBuilderAPI_MakeSolid from SHELL → measure volume
  *      Verdict: REACHABLE or NOT_REACHABLE
  *
- * Writes:  docs/superpowers/notes/occt-api-F-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-F-recon.json
  * Pattern: e2e/brep-a5-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -46,7 +46,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Sub-project F — OCCT API recon (final §3 capabilities)', async () => {
+test('Sub-project F — kernel API recon (final §3 capabilities)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -138,7 +138,7 @@ test('Sub-project F — OCCT API recon (final §3 capabilities)', async () => {
     //   Re-verify A5 finding on proper wire boundaries:
     //     - 4-edge planar square wire boundary
     //     - 5-edge pentagon wire boundary
-    //   A5 honest outcome: Build throws raw OCCT integer for all inputs.
+    //   A5 honest outcome: Build throws a raw WASM integer for all inputs.
     //   This re-check uses PROPER open boundaries (not box edges).
     // ══════════════════════════════════════════════════════════════════════════
     try {
@@ -301,12 +301,12 @@ test('Sub-project F — OCCT API recon (final §3 capabilities)', async () => {
         verdictReason = 'MakeFilling.Build() + IsDone() produced a face — N-sided patching works.';
       } else if (build4Exception || build5Exception) {
         verdict = 'NOT_REACHABLE';
-        verdictReason = 'MakeFilling.Build() throws raw OCCT C++ exception (integer pointer) for all inputs. ' +
+        verdictReason = 'MakeFilling.Build() throws a raw WASM C++ exception (integer pointer) for all inputs. ' +
           'Confirms A5 honest outcome: variational solver crashes in this WASM build unconditionally. ' +
           'Errors: 4edge=' + (test4Edge.buildErr || 'n/a') + ' 5edge=' + (test5Edge.buildErr || 'n/a');
       } else if (build4Ran && !buildWorked4) {
         verdict = 'NOT_REACHABLE';
-        verdictReason = 'MakeFilling.Build() returns but IsDone()=false. OCCT solver failed. ' +
+        verdictReason = 'MakeFilling.Build() returns but IsDone()=false. Kernel solver failed. ' +
           'Confirms A5 finding — filling does not produce usable output in this WASM build.';
       } else {
         verdict = 'NOT_REACHABLE';
@@ -475,7 +475,7 @@ test('Sub-project F — OCCT API recon (final §3 capabilities)', async () => {
             } catch (e) {
               const errStr = String(e);
               buildTest['buildErr_' + buildM + '_' + tryArgs.length] = errStr.substring(0, 200);
-              // If it's not a BindingError, Build ran (OCCT exception) — move on
+              // If it's not a BindingError, Build ran (kernel exception) — move on
               if (!errStr.includes('BindingError')) {
                 buildTest.buildRanWithOCCTError = errStr.substring(0, 200);
                 buildTest.buildMethod = buildM + '[OCCT_exception]';
@@ -1261,7 +1261,7 @@ test('Sub-project F — OCCT API recon (final §3 capabilities)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-F-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-F-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('F RECON RESULT:', JSON.stringify(verified._summary, null, 2));
   console.log('F RECON FULL:', JSON.stringify(verified, null, 2));

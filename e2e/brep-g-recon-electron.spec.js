@@ -1,7 +1,7 @@
 /**
  * brep-g-recon-electron.spec.js
  *
- * Sub-project G empirical OCCT API reconnaissance — OCCT-binding-dependent capabilities.
+ * Sub-project G empirical kernel API reconnaissance — binding-dependent capabilities.
  * Empirically determines reachability for each of three items:
  *
  *   1. NURBS Surface-Surface Intersection (GeomAPI_IntSS)
@@ -26,7 +26,7 @@
  *        wrap as face via BRepBuilderAPI_MakeFace_8, measure area vs full patch
  *      Verdict: REACHABLE (path A or B) or NOT_REACHABLE
  *
- * Writes:  docs/superpowers/notes/occt-api-G-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-G-recon.json
  * Pattern: e2e/brep-f-recon-electron.spec.js, e2e/brep-e-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -37,7 +37,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Sub-project G — OCCT API recon (NURBS SSI / surface projection / trimmed face)', async () => {
+test('Sub-project G — kernel API recon (NURBS SSI / surface projection / trimmed face)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -353,7 +353,7 @@ test('Sub-project G — OCCT API recon (NURBS SSI / surface projection / trimmed
           if (intSSTest.isDone && (intSSTest.nbLines || 0) >= 1) {
             const curveTest = {};
             try {
-              // Line(i) is 1-based in OCCT
+              // Line(i) is 1-based in the kernel
               const curveSuffix = ['Line', 'Line_1', 'Line_2'];
               let curveHandle = null;
               for (const lm of curveSuffix) {
@@ -685,12 +685,12 @@ test('Sub-project G — OCCT API recon (NURBS SSI / surface projection / trimmed
               ppTest.distanceErr = String(e).substring(0, 200);
             }
 
-            // Parameters(1, u, v) — u and v passed by reference in OCCT
+            // Parameters(1, u, v) — u and v passed by reference in the kernel
             // In JS bindings these are often returned as an object or need special handling
             // Try different parameter readback approaches
             try {
               if (typeof ppObj.Parameters === 'function') {
-                // Try: Parameters(idx, u_ref, v_ref) — OCCT pass-by-ref pattern
+                // Try: Parameters(idx, u_ref, v_ref) — kernel pass-by-ref pattern
                 // In embind this may be Parameters(idx) → {u, v} or similar
                 // Or it may need pre-allocated reference objects
                 // Try 3-arg with number placeholders
@@ -1287,7 +1287,7 @@ test('Sub-project G — OCCT API recon (NURBS SSI / surface projection / trimmed
       item2_distance1:      result.item2_closestPointProjection?.distance1,
       item3_usedPath:       result.item3_trimmedNurbsFace?.usedPath,
       item3_trimmedArea:    result.item3_trimmedNurbsFace?.pathB?.trimmedFaceArea ?? result.item3_trimmedNurbsFace?.pathA?.trimmedFaceArea,
-      note: 'Sub-project G recon — OCCT-binding-dependent capability verdicts. GREEN = investigation complete.',
+      note: 'Sub-project G recon — binding-dependent capability verdicts. GREEN = investigation complete.',
       package: 'opencascade.js@2.0.0-beta.b5ff984',
     };
 
@@ -1297,7 +1297,7 @@ test('Sub-project G — OCCT API recon (NURBS SSI / surface projection / trimmed
   // ── Write JSON output ─────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-G-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-G-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('G RECON SUMMARY:', JSON.stringify(verified._summary, null, 2));
   console.log('G RECON FULL:', JSON.stringify(verified, null, 2));

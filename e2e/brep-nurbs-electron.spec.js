@@ -140,7 +140,7 @@ test('NURBS Patch: sail-like fairing patch — ribbon click → area in [1500, 2
   // A 40×40 mm clamped-cubic NURBS surface with inner 2×2 control poles
   // lifted z=8 mm (crown). This produces a smooth sail-like curved patch
   // used in aerospace fairing panels, automotive Class-A surface prototyping,
-  // and naval hull form design. Built via OCCT Geom_BSplineSurface_1 → BRep face.
+  // and naval hull form design. Built via kernel Geom_BSplineSurface_1 → BRep face.
   const { app, win, pageErrors } = await launch();
   try {
     const patchId = await buildNurbsPatch(win, { size: 40, crown: 8 });
@@ -293,7 +293,7 @@ test('NURBS Curvature: sail patch has non-zero curvature; flat patch (crown=0) h
     const nLen = Math.sqrt(
       sailCurv.normal[0] ** 2 + sailCurv.normal[1] ** 2 + sailCurv.normal[2] ** 2,
     );
-    // Normal should be approximately unit length (OCCT gp_Dir normalises automatically).
+    // Normal should be approximately unit length (gp_Dir normalises automatically).
     expect(nLen).toBeGreaterThan(0.9);
     expect(nLen).toBeLessThan(1.1);
 

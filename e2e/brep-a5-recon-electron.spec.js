@@ -1,7 +1,7 @@
 /**
  * brep-a5-recon-electron.spec.js
  *
- * Phase A5 empirical OCCT API reconnaissance — Hard Blending.
+ * Phase A5 empirical kernel API reconnaissance — Hard Blending.
  * Empirically determines reachability for each of three capabilities:
  *
  *   1. G2 (curvature-continuous) blending via BRepOffsetAPI_MakeFilling
@@ -22,7 +22,7 @@
  *      - Confirm IsDone, positive volume, face count > 6
  *      Verdict: REACHABLE or NOT_REACHABLE (record face count as evidence)
  *
- * Writes:  docs/superpowers/notes/occt-api-A5-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-A5-recon.json
  * Pattern: e2e/brep-a4-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -33,7 +33,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Phase A5 — OCCT API recon (hard blending)', async () => {
+test('Phase A5 — kernel API recon (hard blending)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -387,7 +387,7 @@ test('Phase A5 — OCCT API recon (hard blending)', async () => {
                     buildTest['buildErr_' + buildM + '_pr'] = String(e2).substring(0, 200);
                   }
                 } else {
-                  // Non-binding error = Build ran but OCCT geometry failed
+                  // Non-binding error = Build ran but kernel geometry failed
                   // Record the error code but mark as "ran"
                   buildTest['buildRanWithOCCTError'] = String(e).substring(0, 200);
                   buildTest.buildMethod = buildM + '(pr)[occt_error]';
@@ -460,12 +460,12 @@ test('Phase A5 — OCCT API recon (hard blending)', async () => {
       // REACHABLE = filling is constructible AND C2 enum exists AND Add(edge,C2) works
       // NOTE: Build geometry failure with box edges is EXPECTED — box edges form closed faces,
       //       not an open boundary. The API itself is callable; geometry fails due to test geometry.
-      //       Build returning a numeric error code (not a BindingError) means OCCT executed.
+      //       Build returning a numeric error code (not a BindingError) means the kernel executed.
       const addWithC2 = chain1.addEdgeTests &&
         chain1.addEdgeTests.addEdgeInfo &&
         !!(chain1.addEdgeTests.addEdgeInfo.addC2Succeeded || chain1.addEdgeTests.addEdgeInfo.c2AddWorked);
 
-      // Check if Build ran (returned numeric code = OCCT ran, just geometry failed)
+      // Check if Build ran (returned numeric code = kernel ran, just geometry failed)
       const buildRan = chain1.buildTest &&
         (chain1.buildTest.buildOk ||
          (chain1.buildTest.buildRanWithOCCTError !== undefined) ||
@@ -744,7 +744,7 @@ test('Phase A5 — OCCT API recon (hard blending)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-A5-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-A5-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('A5 RECON RESULT:', JSON.stringify(verified, null, 2));
 

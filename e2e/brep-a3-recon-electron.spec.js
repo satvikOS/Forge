@@ -1,7 +1,7 @@
 /**
  * brep-a3-recon-electron.spec.js
  *
- * Phase A3 empirical OCCT API reconnaissance.
+ * Phase A3 empirical kernel API reconnaissance.
  * Verifies exact opencascade.js call signatures for:
  *   1.  Self-intersection check on a clean shape (BOPAlgo_CheckerSI, no errors expected)
  *   2.  Self-intersection check on a self-intersecting compound (errors expected)
@@ -9,7 +9,7 @@
  *   4.  Clash — interference volume (BRepAlgoAPI_Common on two overlapping solids)
  *   5.  Clash — minimum distance (BRepExtrema_DistShapeShape)
  *
- * Writes:  docs/superpowers/notes/occt-api-A3-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-A3-recon.json
  * Pattern: e2e/brep-a2-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -20,7 +20,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Phase A3 — OCCT API recon (items 1-5)', async () => {
+test('Phase A3 — kernel API recon (items 1-5)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -1433,7 +1433,7 @@ test('Phase A3 — OCCT API recon (items 1-5)', async () => {
       let analyzerCtor = null;
 
       // Try suffixed then undecorated; try 3, 2, 1 arg combinations
-      // OCCT signature: BRepCheck_Analyzer(shape, isGeomCtrled, isParallelMode)
+      // Kernel signature: BRepCheck_Analyzer(shape, isGeomCtrled, isParallelMode)
       // This build has no _N suffix — undecorated class with 3 mandatory args
       for (const suffix of ['_1', '_2', '_3', '']) {
         const cls = 'BRepCheck_Analyzer' + suffix;
@@ -1949,7 +1949,7 @@ test('Phase A3 — OCCT API recon (items 1-5)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-A3-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-A3-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('A3 RECON RESULT:', JSON.stringify(verified, null, 2));
 

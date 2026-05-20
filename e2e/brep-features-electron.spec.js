@@ -1,7 +1,7 @@
 /**
  * brep-features-electron.spec.js
  *
- * Real-user-workflow tests for OCCT feature operations.
+ * Real-user-workflow tests for feature operations.
  * Every geometry op is invoked by clicking the real ribbon tool button
  * (Part tab) and filling the ToolParamDialog — NOT by calling kernel APIs
  * directly.
@@ -88,7 +88,7 @@ test('Revolve Boss: rotational shaft — ribbon click + dialog defaults → inne
     );
     console.log(`  Revolve Boss (rotational shaft): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // Annular ring: outerR=innerR+width=30, innerR=12, height=40
-    // V = π×h×(R²−r²) = π×40×(900−144) ≈ 95 034 mm³, ±15% (OCCT approximation)
+    // V = π×h×(R²−r²) = π×40×(900−144) ≈ 95 034 mm³, ±15% (kernel approximation)
     expect(m.volume).toBeGreaterThan(50000);
     expect(m.faceCount).toBeGreaterThanOrEqual(3);
 

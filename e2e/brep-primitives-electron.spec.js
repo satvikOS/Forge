@@ -1,7 +1,7 @@
 /**
  * brep-primitives-electron.spec.js
  *
- * Real-user-workflow tests for OCCT solid primitives.
+ * Real-user-workflow tests for solid primitives.
  * Every geometry op is invoked by clicking the real ribbon tool button
  * (Part tab, Solid Primitives group) and filling the ToolParamDialog —
  * NOT by calling kernel APIs directly.

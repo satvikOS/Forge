@@ -1,7 +1,7 @@
 /**
  * brep-blend-electron.spec.js
  *
- * Real-user-workflow tests for OCCT hard-blending operations.
+ * Real-user-workflow tests for hard-blending operations.
  * Every geometry op is invoked by clicking the real ribbon tool button and
  * filling the ToolParamDialog — NOT by calling kernel APIs directly.
  *

@@ -1,7 +1,7 @@
 /**
  * brep-a2-recon-electron.spec.js
  *
- * Phase A2 empirical OCCT API reconnaissance.
+ * Phase A2 empirical kernel API reconnaissance.
  * Verifies exact opencascade.js call signatures for:
  *   1.  Shell / hollow  (BRepOffsetAPI_MakeThickSolid)
  *   2.  Thicken sheet   (BRepOffsetAPI_MakeThickSolid or MakeOffsetShape on open shell)
@@ -11,7 +11,7 @@
  *   6.  Loft through sections (BRepOffsetAPI_ThruSections)
  *   7.  Variable-radius fillet (BRepFilletAPI_MakeFillet variable Add overload)
  *
- * Writes:  docs/superpowers/notes/occt-api-A2-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-A2-recon.json
  * Pattern: e2e/brep-a1-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -22,7 +22,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Phase A2 — OCCT API recon (items 1-7)', async () => {
+test('Phase A2 — kernel API recon (items 1-7)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -673,7 +673,7 @@ test('Phase A2 — OCCT API recon (items 1-7)', async () => {
 
             for (const sideFace of sideFaces) {
               // From run 1: Add needs 5 args. Try: Add(face, dir, angle, plane, bool)
-              // OCCT signature: Add(F: TopoDS_Face, D: gp_Dir, Angle: Real, NeutralPlane: gp_Pln, Flag: bool=true)
+              // Kernel signature: Add(F: TopoDS_Face, D: gp_Dir, Angle: Real, NeutralPlane: gp_Pln, Flag: bool=true)
               for (const addM of ['Add', 'Add_1', 'Add_2']) {
                 if (typeof draftObj[addM] !== 'function') continue;
                 // Try 5 args first
@@ -1196,7 +1196,7 @@ test('Phase A2 — OCCT API recon (items 1-7)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-A2-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-A2-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('A2 RECON RESULT:', JSON.stringify(verified, null, 2));
 

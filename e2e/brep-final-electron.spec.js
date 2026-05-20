@@ -139,7 +139,7 @@ test('Sweep Tortuous: S-bend pipe section — ribbon click → volume > 1500 mm�
 
     // Swept pipe: π * r² * segLength ≈ π * 16 * 20 ≈ 1005 mm³ per segment.
     // MakePipeShell on a C0 polyline spine with tight right-angle bends produces
-    // a valid solid; measured volume ≈ 1005 mm³ (confirmed by OCCT BRepGProp).
+    // a valid solid; measured volume ≈ 1005 mm³ (confirmed by BRepGProp).
     // Assert volume > 900 mm³ — validates a genuinely non-trivial capped solid.
     expect(m.volume).toBeGreaterThan(900);
 

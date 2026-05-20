@@ -14,7 +14,7 @@
  *
  * Assertions:
  *   - refinedTris > baseTris × 8  (≥8× growth after 2 Loop steps)
- *   - weldedVerts < baseVerts      (OCCT per-face duplicates were merged)
+ *   - weldedVerts < baseVerts      (per-face duplicates were merged)
  *   - creaseEdges ≥ 12             (sharp prismatic edges of the Extrude Boss
  *                                   detected at 30° dihedral threshold)
  *   - post-subdivide bbox ≥ 10% of max axis in each axis (no severe pinching)
@@ -73,7 +73,7 @@ test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude
     // Defaults: width=80, depth=50, height=25 → 80×50×25 mm prismatic plate.
     const handleId = await buildPrimitive(win, 'Extrude Boss');
 
-    // ── Step 2: Compute the Extrude Boss bbox (pre-subdivide) via OCCT ─────────
+    // ── Step 2: Compute the Extrude Boss bbox (pre-subdivide) via kernel ─────────
     // This gives us the reference bbox to check for no-pinching after subdivision.
     const preBbox = await win.evaluate(async () => {
       const m = await window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape);
@@ -110,7 +110,7 @@ test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude
     // Each Loop step is ×4 in theory; 2 steps = ×16; floor at ×8 (conservative).
     expect(stats.refinedTris).toBeGreaterThan(stats.baseTris * 8);
 
-    // OCCT tessellates per-face with duplicate boundary verts; welding must reduce count.
+    // Tessellation gives per-face duplicate boundary verts; welding must reduce count.
     expect(stats.weldedVerts).toBeLessThan(stats.baseVerts);
 
     // The Extrude Boss has 12 sharp prismatic edges — all detected at 30° threshold.

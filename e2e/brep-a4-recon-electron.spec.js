@@ -1,7 +1,7 @@
 /**
  * brep-a4-recon-electron.spec.js
  *
- * Phase A4 empirical OCCT API reconnaissance — Geometry Simplification.
+ * Phase A4 empirical kernel API reconnaissance — Geometry Simplification.
  * Empirically determines the COMPLETE working call sequence for:
  *
  *   1. Build a fused two-box bar with an internal seam:
@@ -19,7 +19,7 @@
  *
  *   3. (Optional) ShapeFix_Shape — brief check if constructible + Perform + Shape work
  *
- * Writes:  docs/superpowers/notes/occt-api-A4-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-A4-recon.json
  * Pattern: e2e/brep-a3-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -30,7 +30,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Phase A4 — OCCT API recon (geometry simplification)', async () => {
+test('Phase A4 — kernel API recon (geometry simplification)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -779,7 +779,7 @@ test('Phase A4 — OCCT API recon (geometry simplification)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-A4-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-A4-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('A4 RECON RESULT:', JSON.stringify(verified, null, 2));
 

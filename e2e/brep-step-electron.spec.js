@@ -12,7 +12,7 @@ async function launch() {
   await win.waitForLoadState('domcontentloaded');
   await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
   await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  // Pre-warm OCCT WASM fully before running the test — avoids stack-overflow
+  // Pre-warm kernel WASM fully before running the test — avoids stack-overflow
   // page errors that can occur when the 50 MB WASM is still initializing.
   await win.waitForFunction(async () => {
     try {

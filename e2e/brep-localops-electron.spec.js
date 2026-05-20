@@ -1,7 +1,7 @@
 /**
  * brep-localops-electron.spec.js
  *
- * Real-user-workflow tests for OCCT local operations.
+ * Real-user-workflow tests for local operations.
  * Every geometry op is invoked by clicking the real ribbon tool button and
  * filling the ToolParamDialog — NOT by calling kernel APIs directly.
  *
@@ -48,7 +48,7 @@ test('Shell: thin-walled tray (open housing) — build 40³ box → select → r
   // Artifact: thin-walled tray (open housing)
   // Arity-1: build a Box (40³ — the housing blank), select it, click Shell,
   // accept thickness=3. Result: a thin-walled open tray like an electronics enclosure
-  // or oil-pan housing. OCCT shell removes one face (open shell).
+  // or oil-pan housing. Shell removes one face (open shell).
   const { app, win, pageErrors } = await launch();
   try {
     // 1. Build the housing blank (Box 40³).
@@ -128,7 +128,7 @@ test('Offset Shape: padded block (face-offset) — build 40³ box → select →
   // Arity-1: build a Box (40³ — the base block), select it, click Offset Shape,
   // fill distance=2. Uniformly offsets all faces outward by 2 mm, producing a
   // padded enclosure block (like adding material for machining stock allowance).
-  // Empirically measured: 70400 mm³ (OCCT offsetShape result at +2mm offset).
+  // Empirically measured: 70400 mm³ (offsetShape result at +2mm offset).
   const { app, win, pageErrors } = await launch();
   try {
     // 1. Build the base block (Box 40³).

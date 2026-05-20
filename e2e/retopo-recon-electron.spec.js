@@ -4,7 +4,7 @@
  * Sub-project D — Retopology / Isotropic Remeshing baseline reconnaissance.
  *
  * Builds a real-world artifact — a Box → Fillet rounded plate — via actual
- * ribbon clicks (no hardcoded geometry). Tessellates it with OCCT deflection
+ * ribbon clicks (no hardcoded geometry). Tessellates it with kernel deflection
  * 0.5 mm, welds duplicate vertices, then measures baseline mesh quality:
  *
  *   vertexCount     — number of vertices in the welded mesh
@@ -90,7 +90,7 @@ test('Sub-project D — retopology baseline recon (Box→Fillet rounded plate)',
       rawTriangles.push([tess.indices[i], tess.indices[i+1], tess.indices[i+2]]);
     }
 
-    // 3. Weld duplicate vertices (OCCT tessellation duplicates per face).
+    // 3. Weld duplicate vertices (tessellation duplicates per face).
     //    Use tolerance 1e-4 mm to merge co-located vertices reliably.
     const mesh = weldMesh({ vertices: rawVertices, triangles: rawTriangles }, 1e-4);
 

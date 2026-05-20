@@ -1,14 +1,14 @@
 /**
  * brep-foundation-electron.spec.js
  *
- * A0 gate: OCCT B-rep kernel wiring + WASM heap lifecycle.
+ * A0 gate: ArchDisc B-rep kernel wiring + WASM heap lifecycle.
  *
  * Box build: driven by buildPrimitive('Box') helper (clicks real ribbon
  * tool + dialog bypass via __archdiscPlanParams) — NOT a direct kernel call.
  *
  * WASM heap leak guard: intentionally calls makeBox/brepToMesh/dispose
  * 20× via the kernel API directly. There is no ribbon workflow that probes
- * WASM heap behaviour — this test validates the OCCT WASM lifecycle, not
+ * WASM heap behaviour — this test validates the kernel WASM lifecycle, not
  * user-visible geometry building.
  */
 
@@ -19,10 +19,10 @@ import { buildPrimitive } from './helpers/uiWorkflow.js';
 
 const SHOT = path.resolve(__dirname, 'screenshots');
 
-test.setTimeout(600000); // OCCT WASM is 50 MB; allow up to 10 min for full pipeline
+test.setTimeout(600000); // Kernel WASM is 50 MB; allow up to 10 min for full pipeline
 
-test('A0 gate: OCCT box builds, measures, renders, and leak-guards via ribbon in the Electron app', async () => {
-  // Artifact: test cube (the platform's foundational primitive — proves the OCCT pipeline)
+test('A0 gate: B-rep box builds, measures, renders, and leak-guards via ribbon in the Electron app', async () => {
+  // Artifact: test cube (the platform's foundational primitive — proves the kernel pipeline)
   fs.mkdirSync(SHOT, { recursive: true });
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
@@ -37,7 +37,7 @@ test('A0 gate: OCCT box builds, measures, renders, and leak-guards via ribbon in
   await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
   await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
 
-  // ── Pre-warm OCCT WASM load ──────────────────────────────────────────────
+  // ── Pre-warm kernel WASM load ──────────────────────────────────────────────
   // getOCCT() is cached; calling it here lets us see load errors early and
   // ensures the 50 MB WASM is fully instantiated before the ribbon click.
   await win.waitForFunction(async () => {
@@ -50,8 +50,8 @@ test('A0 gate: OCCT box builds, measures, renders, and leak-guards via ribbon in
     return !!window.__occtPreWarmed;
   }, null, { timeout: 300000 });
   const occtReady = await win.evaluate(() => window.__occtPreWarmed);
-  console.log('  OCCT pre-warm:', JSON.stringify(occtReady));
-  expect(occtReady.ok, `OCCT load failed: ${occtReady.error}`).toBe(true);
+  console.log('  kernel pre-warm:', JSON.stringify(occtReady));
+  expect(occtReady.ok, `Kernel load failed: ${occtReady.error}`).toBe(true);
   expect(occtReady.hasBox).toBe(true);
 
   // ── Drive the op via the real ribbon Box button (UI wiring check) ────────

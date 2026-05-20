@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
-test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes', async () => {
+test('Kernel WASM loads inside the ArchDisc Electron app and exposes B-rep classes', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -37,7 +37,7 @@ test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes
     };
   });
 
-  console.log('OCCT recon (pass 1):', JSON.stringify(recon, null, 2));
+  console.log('Kernel recon (pass 1):', JSON.stringify(recon, null, 2));
 
   // ─── Pass 2: empirical verification of all 5 items ────────────────────────
   const verified = await win.evaluate(async () => {
@@ -376,10 +376,10 @@ test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes
   const fullOutput = { ...recon, verified, orientationRecon };
   fs.mkdirSync(path.join(__dirname, '..', 'docs', 'superpowers', 'notes'), { recursive: true });
   fs.writeFileSync(
-    path.join(__dirname, '..', 'docs', 'superpowers', 'notes', 'occt-api-A0-recon.json'),
+    path.join(__dirname, '..', 'docs', 'superpowers', 'notes', 'kernel-api-A0-recon.json'),
     JSON.stringify(fullOutput, null, 2),
   );
-  console.log('OCCT recon (full):', JSON.stringify(fullOutput, null, 2));
+  console.log('Kernel recon (full):', JSON.stringify(fullOutput, null, 2));
 
   // ─── Assertions ────────────────────────────────────────────────────────────
   // Binding surface

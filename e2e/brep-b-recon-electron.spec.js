@@ -1,7 +1,7 @@
 /**
  * brep-b-recon-electron.spec.js
  *
- * Sub-project B empirical OCCT API reconnaissance — Advanced Booleans.
+ * Sub-project B empirical kernel API reconnaissance — Advanced Booleans.
  * Empirically determines reachability for each of four §3.4 capabilities:
  *
  *   1. Non-manifold / multi-arg booleans
@@ -27,7 +27,7 @@
  *      - Swap face #1 of a 20mm box with an identity copy → still 6 faces?
  *      Verdict: REACHABLE or NOT_REACHABLE
  *
- * Writes:  docs/superpowers/notes/occt-api-B-recon.json
+ * Writes:  docs/superpowers/notes/kernel-api-B-recon.json
  * Pattern: e2e/brep-a5-recon-electron.spec.js
  * Package: opencascade.js@2.0.0-beta.b5ff984
  */
@@ -38,7 +38,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('Sub-project B — OCCT API recon (advanced booleans)', async () => {
+test('Sub-project B — kernel API recon (advanced booleans)', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -352,7 +352,7 @@ test('Sub-project B — OCCT API recon (advanced booleans)', async () => {
             adjacentTest.feedOk = feedOk;
 
             if (feedOk) {
-              // Try Perform first (OCCT low-level), then Build
+              // Try Perform first (kernel low-level), then Build
               let ran = false;
               for (const runM of ['Perform', 'Build', 'Build_1']) {
                 if (typeof builder[runM] !== 'function') continue;
@@ -702,7 +702,7 @@ test('Sub-project B — OCCT API recon (advanced booleans)', async () => {
         let usedFuzzyMethod = null;
         let usedFuzzyTolerance = null;
 
-        // Common fuzzy method names in OCCT (try variants)
+        // Common fuzzy method names in the kernel (try variants)
         const fuzzyMethodCandidates = [
           'SetFuzzyValue', 'SetFuzzyValue_1',
           'SetTolerance', 'SetTolerance_1',
@@ -1240,7 +1240,7 @@ test('Sub-project B — OCCT API recon (advanced booleans)', async () => {
   // ── Write JSON output ────────────────────────────────────────────────────────
   const notesDir = path.join(__dirname, '..', 'docs', 'superpowers', 'notes');
   fs.mkdirSync(notesDir, { recursive: true });
-  const jsonPath = path.join(notesDir, 'occt-api-B-recon.json');
+  const jsonPath = path.join(notesDir, 'kernel-api-B-recon.json');
   fs.writeFileSync(jsonPath, JSON.stringify(verified, null, 2));
   console.log('B RECON RESULT:', JSON.stringify(verified._summary, null, 2));
   console.log('B RECON FULL:', JSON.stringify(verified, null, 2));

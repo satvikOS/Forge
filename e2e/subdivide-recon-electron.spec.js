@@ -5,7 +5,7 @@
  *
  * Measures baseline pinching and shading-error metrics for the existing
  * Loop subdivision implementation (foundation/LoopSubdivision.js) on a
- * coarse cube tessellation obtained via the OCCT B-rep kernel.
+ * coarse cube tessellation obtained via the ArchDisc B-rep kernel.
  *
  * Metrics recorded:
  *   cornerPinch   — max distance from each nominal cube corner to the
@@ -92,7 +92,7 @@ test('Sub-project C — subdivision baseline recon (pinching + shading metrics)'
       return len(d);
     }
 
-    // ── 1. Build cube via OCCT and tessellate ──────────────────────────────────
+    // ── 1. Build cube via kernel and tessellate ──────────────────────────────────
     const box = await kernel.brep.makeBox(20, 20, 20);
     // tessellate takes the BrepShape wrapper object, not the raw .shape property.
     const tess = await kernel.brep.tessellate(box, 0.5);

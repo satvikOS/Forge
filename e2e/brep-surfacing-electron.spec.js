@@ -1,7 +1,7 @@
 /**
  * brep-surfacing-electron.spec.js
  *
- * Real-user-workflow tests for OCCT surfacing operations.
+ * Real-user-workflow tests for surfacing operations.
  * Every geometry op is invoked by clicking the real ribbon tool button
  * (Part tab, Create group) and filling the ToolParamDialog — NOT by
  * calling kernel APIs directly.
