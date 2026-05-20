@@ -1,7 +1,7 @@
-# OCCT API Reachability — Sub-project G (opencascade.js@2.0.0-beta.b5ff984)
+# kernel API Reachability — Sub-project G (opencascade.js@2.0.0-beta.b5ff984)
 
 Empirical verdicts from `e2e/brep-g-recon-electron.spec.js` (GREEN on first run).
-Raw data in `docs/superpowers/notes/occt-api-G-recon.json`.
+Raw data in `docs/superpowers/notes/kernel-api-G-recon.json`.
 
 ---
 
@@ -13,7 +13,7 @@ Raw data in `docs/superpowers/notes/occt-api-G-recon.json`.
 | 2. Closest-Point Projection (`GeomAPI_ProjectPointOnSurf`) | **REACHABLE** |
 | 3. Auto-trimming NURBS face | **REACHABLE** (Path B — parametric bounds on handle) |
 
-All three OCCT-dependent G capabilities are reachable in this build.
+All three the kernel-dependent G capabilities are reachable in this build.
 
 ---
 
@@ -90,13 +90,13 @@ cylSurfHandle.delete();
 
 ### Notes on intersection result
 
-The cube flat face (a `Geom_Plane`) intersects the cylinder lateral surface (`Geom_CylindricalSurface`). OCCT reports this as **2 `Geom_Line`** intersection curves (not circular arcs). This is the analytic result — the intersection of a plane with a cylinder of r=15 is a pair of lines in the degenerate case where the cutting plane is the xy-plane (the base plane of the cylinder). The cube face index 0 happens to be a face coincident with or parallel to the cylinder axis — the intersection topology is geometry-dependent.
+The cube flat face (a `Geom_Plane`) intersects the cylinder lateral surface (`Geom_CylindricalSurface`). the kernel reports this as **2 `Geom_Line`** intersection curves (not circular arcs). This is the analytic result — the intersection of a plane with a cylinder of r=15 is a pair of lines in the degenerate case where the cutting plane is the xy-plane (the base plane of the cylinder). The cube face index 0 happens to be a face coincident with or parallel to the cylinder axis — the intersection topology is geometry-dependent.
 
 For non-degenerate intersections (a tilted plane vs cylinder), the result would be `Geom_Ellipse` or other conic sections. The API is confirmed REACHABLE for all planar surfaces; the specific intersection type depends on the input geometry.
 
 ### Gotcha: `Geom_Line` parametric domain
 
-`FirstParameter()` = `-2e+100`, `LastParameter()` = `2e+100` — this is OCCT's infinite-line parametric convention. Sampling at the boundary values produces valid (finite) points only at `u=0` (the line passes through `(0, -15, 0)`). For practical use, bound the parameter range by intersecting with the face's actual domain.
+`FirstParameter()` = `-2e+100`, `LastParameter()` = `2e+100` — this is the kernel's infinite-line parametric convention. Sampling at the boundary values produces valid (finite) points only at `u=0` (the line passes through `(0, -15, 0)`). For practical use, bound the parameter range by intersecting with the face's actual domain.
 
 ---
 
@@ -139,7 +139,7 @@ np.delete();
 console.log(pp.Distance(1));         // 5.0  (exact: ||(25,0,20) - (20,0,20)||)
 
 // Parameters: available but pass-by-ref
-pp.Parameters(1, 0, 0);  // parameters on surface at projection point (OCCT pass-by-ref — see below)
+pp.Parameters(1, 0, 0);  // parameters on surface at projection point (the kernel pass-by-ref — see below)
 
 // Cleanup
 pp.delete();
@@ -257,9 +257,9 @@ Other suffixes map to specific analytic primitive types:
 
 ---
 
-## Sub-project G OCCT-dependent deliverable scope
+## Sub-project G the kernel-dependent deliverable scope
 
-Based on these recon results, all three OCCT-dependent G Tasks are buildable:
+Based on these recon results, all three the kernel-dependent G Tasks are buildable:
 
 ### Task 3 — NURBS Surface-Surface Intersection (`BrepNurbsSSI.js`)
 

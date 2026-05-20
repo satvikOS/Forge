@@ -1,9 +1,9 @@
-# OCCT API Reconnaissance — Phase A1
+# kernel API Reconnaissance — Phase A1
 
 **Date:** 2026-05-19
 **Package:** `opencascade.js@2.0.0-beta.b5ff984`
 **Source:** `e2e/brep-a1-recon-electron.spec.js` run against the real Electron app
-**Raw output:** `docs/superpowers/notes/occt-api-A1-recon.json`
+**Raw output:** `docs/superpowers/notes/kernel-api-A1-recon.json`
 **Status:** ALL 13 ITEMS EMPIRICALLY VERIFIED — spec passes GREEN
 
 All call signatures below were confirmed by executing them inside the Electron app's

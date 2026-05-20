@@ -1,9 +1,9 @@
-# OCCT API Reconnaissance — Phase A5
+# kernel API Reconnaissance — Phase A5
 
 **Date:** 2026-05-19
 **Package:** `opencascade.js@2.0.0-beta.b5ff984`
 **Source:** `e2e/brep-a5-recon-electron.spec.js` run against the real Electron app
-**Raw output:** `docs/superpowers/notes/occt-api-A5-recon.json`
+**Raw output:** `docs/superpowers/notes/kernel-api-A5-recon.json`
 **Status:** ALL CAPABILITIES EMPIRICALLY VERIFIED — spec passes GREEN (1 passed, ~16s)
 
 ---
@@ -22,7 +22,7 @@
 
 **Verdict: REACHABLE**
 
-**Evidence:** The complete API chain for `BRepOffsetAPI_MakeFilling` with `GeomAbs_C2` continuity is fully callable. The constructor exists, `Add_1(edge, GeomAbs_C2, false)` accepts C2 constraints without error, and `Build(pr)` executes (returns an OCCT status, not a BindingError). The geometry error encountered in the recon test is a test-setup issue (box edges form closed faces, not an open boundary region) — not an API limitation.
+**Evidence:** The complete API chain for `BRepOffsetAPI_MakeFilling` with `GeomAbs_C2` continuity is fully callable. The constructor exists, `Add_1(edge, GeomAbs_C2, false)` accepts C2 constraints without error, and `Build(pr)` executes (returns an the kernel status, not a BindingError). The geometry error encountered in the recon test is a test-setup issue (box edges form closed faces, not an open boundary region) — not an API limitation.
 
 ### Constructor
 
@@ -91,7 +91,7 @@ if (filling.IsDone()) {
 filling.delete();
 ```
 
-**Important:** `Build(pr)` returns an OCCT status integer (not void). If `IsDone()` is false after Build, use `Check()` to diagnose. The filling surface requires edges that form a proper OPEN boundary region — edges from a closed solid face will fail geometry computation (OCCT error, not a BindingError).
+**Important:** `Build(pr)` returns an the kernel status integer (not void). If `IsDone()` is false after Build, use `Check()` to diagnose. The filling surface requires edges that form a proper OPEN boundary region — edges from a closed solid face will fail geometry computation (the kernel error, not a BindingError).
 
 **Correct usage pattern:** Provide boundary edges from a shell with a hole (or from free curves), not edges from a complete closed solid face.
 
@@ -197,7 +197,7 @@ for (const e of edges) e.delete();
 | 18 | true | 6609.4 | 7 | Fillet spans 90% of face |
 | **19.5** | **true** | **6368.0** | **7** | **Max tested — 97.5% of face** |
 
-**Finding:** OCCT's `BRepFilletAPI_MakeFillet` handles very large radii robustly. The fillet face expands to consume a large portion of adjacent faces without failing. The upper limit (r > 19.5mm on a 20mm box, where the fillet would geometrically require more room than available) was not tested — the spec stops at 19.5 mm. Radii ≥ 20mm would cause the fillet to geometrically exhaust the adjacent face and likely fail `IsDone()`.
+**Finding:** the kernel's `BRepFilletAPI_MakeFillet` handles very large radii robustly. The fillet face expands to consume a large portion of adjacent faces without failing. The upper limit (r > 19.5mm on a 20mm box, where the fillet would geometrically require more room than available) was not tested — the spec stops at 19.5 mm. Radii ≥ 20mm would cause the fillet to geometrically exhaust the adjacent face and likely fail `IsDone()`.
 
 ---
 
@@ -205,7 +205,7 @@ for (const e of edges) e.delete();
 
 **Verdict: REACHABLE**
 
-**Evidence:** Filleting all 12 edges of a 20×20×20 mm box at r=3mm produces `IsDone()=true`, volume≈7572 mm³ (positive), and **26 faces** (vs. 6 for an unfilleted box). The 26 faces decompose as: 6 original flat faces (trimmed) + 12 cylindrical fillet edge faces + 8 spherical corner patches = 26. OCCT automatically resolves all 8 corners where 3 fillets meet.
+**Evidence:** Filleting all 12 edges of a 20×20×20 mm box at r=3mm produces `IsDone()=true`, volume≈7572 mm³ (positive), and **26 faces** (vs. 6 for an unfilleted box). The 26 faces decompose as: 6 original flat faces (trimmed) + 12 cylindrical fillet edge faces + 8 spherical corner patches = 26. the kernel automatically resolves all 8 corners where 3 fillets meet.
 
 ### Verified Call Sequence
 
@@ -239,7 +239,7 @@ for (const e of edges) {
   fillet.Add_2(3.0, e);  // 3mm radius, all edges
 }
 
-// Build — OCCT automatically resolves all 8 corners
+// Build — the kernel automatically resolves all 8 corners
 const pr = new oc.Message_ProgressRange_1();
 fillet.Build(pr);
 pr.delete();
@@ -261,7 +261,7 @@ for (const e of edges) e.delete();
 
 ### Corner Mitering Details
 
-A box has 8 vertices where 3 edges meet. When all 3 edges at a vertex are filleted, OCCT must create a corner patch (spherical blend). The face count of 26 confirms this:
+A box has 8 vertices where 3 edges meet. When all 3 edges at a vertex are filleted, the kernel must create a corner patch (spherical blend). The face count of 26 confirms this:
 
 | Face type | Count | Notes |
 |-----------|-------|-------|
@@ -293,7 +293,7 @@ Based on the recon, later A5 tasks should implement:
 ### 3. Corner Mitering / All-Edges Fillet
 - **Scope:** UI and kernel support for filleting ALL edges of a shape in one operation (current UI may only fillet selected individual edges).
 - **Verified entry point:** Collect all unique edges via `TopExp_Explorer_2` → add all via `Add_2(r, e)` loop → single `Build(pr)`.
-- **Corner resolution is automatic** — OCCT handles the 8-corner spherical patches without any extra calls.
+- **Corner resolution is automatic** — the kernel handles the 8-corner spherical patches without any extra calls.
 - **Key datum:** A 20mm box with all-edges fillet at r=3 produces exactly 26 faces. Assertions in production tests should use `expect(faceCount).toBeGreaterThan(6)` and `expect(faceCount).toBe(26)` for this specific geometry.
 
 ---
@@ -318,7 +318,7 @@ Based on the recon, later A5 tasks should implement:
 
 All results above are empirically confirmed by running `e2e/brep-a5-recon-electron.spec.js`
 inside the real Electron/WASM context. The spec passes GREEN (1 passed, ~16s).
-Raw JSON output is in `docs/superpowers/notes/occt-api-A5-recon.json`.
+Raw JSON output is in `docs/superpowers/notes/kernel-api-A5-recon.json`.
 
 ---
 
@@ -335,7 +335,7 @@ All three A5 capabilities are reachable with the prebuilt `opencascade.js@2.0.0-
 #### 1. `blendG2(holeBoxSize = 6)` — Planar Fill Face
 
 Constructs a closed planar square wire (side `holeBoxSize` mm at z=10) and fills it with a single
-OCCT face via `BRepBuilderAPI_MakeFace_15(wire, isPlanar=true)`.
+the kernel face via `BRepBuilderAPI_MakeFace_15(wire, isPlanar=true)`.
 
 **Measured (holeBoxSize=6):**
 - volume = 0 (a face, not a solid — correct)
@@ -348,14 +348,14 @@ OCCT face via `BRepBuilderAPI_MakeFace_15(wire, isPlanar=true)`.
 
 **Honest limitation — `BRepOffsetAPI_MakeFilling` not used:**
 The A5 recon correctly identified `BRepOffsetAPI_MakeFilling` as constructible and `Add_1(edge,
-GeomAbs_C2, false)` as accepted without binding error. However, `Build(pr)` throws a raw OCCT C++
+GeomAbs_C2, false)` as accepted without binding error. However, `Build(pr)` throws a raw the kernel C++
 exception (integer pointer, not a JS Error — e.g. `18945296`) for **every** boundary geometry
 tested: planar 4-edge linear wire, non-planar 4-edge linear wire, single circular arc, triangular
 3-edge linear wire. The recon classified this as "geometry error due to test geometry (box edges
 are closed faces)". In practice, the variational solver in this WASM build crashes unconditionally
 on all inputs — it is not usable.
 
-`BRepBuilderAPI_MakeFace_15` is the correct OCCT API for planar face filling and produces the
+`BRepBuilderAPI_MakeFace_15` is the correct kernel API for planar face filling and produces the
 verified result. The `blendG2` implementation uses it. The A5 tag "C2 fill" refers to the
 `BRepOffsetAPI_MakeFilling` API investigation; the delivered operation is a planar fill face,
 which proves the wire-to-face construction path (the prerequisite for any filling workflow).
@@ -376,7 +376,7 @@ enforcement. The recon confirmed radii up to 97.5% of the adjacent face dimensio
 
 #### 3. `mitreCorner(brepShape, radius)` — All-Edge Fillet with Corner Resolution
 
-Fillets all unique edges at `radius`, letting OCCT automatically resolve every vertex
+Fillets all unique edges at `radius`, letting the kernel automatically resolve every vertex
 where 3+ fillets meet (spherical corner patch inserted). Mechanically overlaps with
 `filletAll` — exists as the distinct §3.1-named ribbon op ("Corner Mitering").
 
@@ -394,7 +394,7 @@ where 3+ fillets meet (spherical corner patch inserted). Mechanically overlaps w
    build for all inputs. Root cause is unknown (possible WASM/Emscripten build limitation or
    missing dependency). Any G2 blend workflow that requires `MakeFilling` (e.g. filling a hole
    boundary in a solid with curvature-continuity) is blocked until this is resolved or an
-   alternative OCCT build is used.
+   alternative the kernel build is used.
 
 2. **Edge-selective cliff/mitre.** Both `cliffEdgeBlend` and `mitreCorner` operate on ALL unique
    edges. Selective edge fillet (specific edges by index, proximity, or feature type) requires a

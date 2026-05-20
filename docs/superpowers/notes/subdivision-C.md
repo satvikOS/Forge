@@ -3,7 +3,7 @@
 ## Context
 
 Goal: eliminate pinching at cube corners and shading errors at feature edges when
-applying Loop subdivision to OCCT-tessellated triangle meshes.
+applying Loop subdivision to the kernel-tessellated triangle meshes.
 
 Recon spec: `e2e/subdivide-recon-electron.spec.js`
 Data file:  `docs/superpowers/notes/subdivision-C-recon.json`
@@ -13,18 +13,18 @@ Measured:   2026-05-19 against `frontend/src/foundation/LoopSubdivision.js` (pur
 
 ## Baseline Measurements (20×20×20 mm cube)
 
-### Pre-subdivision (OCCT tessellate, deflection=0.5)
+### Pre-subdivision (the kernel tessellate, deflection=0.5)
 
 | Metric | Value | Notes |
 |--------|-------|-------|
 | Vertex count | 24 | 4 verts/face × 6 faces — vertices are duplicated per face |
 | Triangle count | 12 | 2 triangles/face × 6 faces |
 | baseCornerPinch | **0 mm** | Corners exactly at nominal positions |
-| baseEdgeDrift | **28.28 mm** (= 20√2) | Artifact: cube corners at t=1 on an adjacent edge project onto the edge endpoint but are 20√2 away perpendicularly. Because OCCT duplicates vertices per face, the base mesh has no shared topology between different cube faces. |
+| baseEdgeDrift | **28.28 mm** (= 20√2) | Artifact: cube corners at t=1 on an adjacent edge project onto the edge endpoint but are 20√2 away perpendicularly. Because the kernel duplicates vertices per face, the base mesh has no shared topology between different cube faces. |
 | baseKinkCount | **0** | Vertex duplication per face means no shared edges exist between different cube faces — so no adjacent-face triangle pairs are detected. |
 
 **Interpretation of base-mesh anomalies:**
-The OCCT BRepMesh tessellation with deflection=0.5 produces a per-face vertex layout:
+The the kernel BRepMesh tessellation with deflection=0.5 produces a per-face vertex layout:
 each of the 6 cube faces contributes 4 independent vertices (even though cube corners
 are shared in 3D space, they are duplicated in the mesh arrays). As a result:
 - Triangles on different faces share no mesh edges. `baseKinkCount = 0` even though
@@ -49,7 +49,7 @@ are shared in 3D space, they are duplicated in the mesh arrays). As a result:
    vertices (valence ≠ 6) using smooth β-rules. Cube corners have valence 3 in the
    tessellation, making them extraordinary. The smooth rule pulls them significantly
    inward, producing the characteristic "rounded cube" with 4.42 mm corner recession.
-2. **Edge destruction (edgeDrift ≈ 28 mm):** The OCCT tessellation produces duplicated
+2. **Edge destruction (edgeDrift ≈ 28 mm):** The the kernel tessellation produces duplicated
    vertices per face; Loop subdivision treats each copy independently and smooths them.
    Feature edges are not preserved — they dissolve into smooth curves.
 3. **kinkCount = 0 (false green):** Subdivision smooths away the face-normal
@@ -83,7 +83,7 @@ For each edge shared by two triangles:
 Default threshold: 30° (cos 30° ≈ 0.866). This correctly marks the 12 cube edges
 as sharp (face normals are perpendicular: cos 90° = 0 < 0.866).
 
-For the OCCT tessellation with per-face vertex duplication, the edge is identified
+For the the kernel tessellation with per-face vertex duplication, the edge is identified
 by matching vertex positions (not topology) to detect which edges are geometrically
 shared between different cube faces.
 
@@ -112,7 +112,7 @@ Count the number of incident SHARP edges `k`:
 - Boundary vertex (mesh boundary, not sharp): standard boundary rule
   `v' = 3/4·v + 1/8·(b0 + b1)`
 
-**Fix for OCCT per-face vertex duplication:**
+**Fix for the kernel per-face vertex duplication:**
 Before applying crease detection, the mesh must be "welded" — vertices within
 epsilon (e.g. 1e-6 mm) of each other are merged into shared vertices so that
 topological edges are correctly identified. After subdivision, vertices may be
@@ -186,7 +186,7 @@ triggering `v' = v` (fixed). After 2 levels, corners remain at their nominal pos
 |--------|------------------------|--------------------------|-----|
 | cornerPinch | **4.42 mm** (22% of edge) | **< 0.01 mm** (corners held exactly) | k≥3 corner rule — v' = v |
 | creaseEdges detected | 0 (unwelded mesh, no shared topology) | **12** (all cube edges, dihedral 90° >> 30° threshold) | weldMesh + detectCreases |
-| weldedVerts | 24 (OCCT per-face duplicates) | **8** (8 true cube corners) | weldMesh tolerance 1e-4 mm |
+| weldedVerts | 24 (the kernel per-face duplicates) | **8** (8 true cube corners) | weldMesh tolerance 1e-4 mm |
 | baseTris → refinedTris | 12 → 192 (×16 in 2 steps) | same, plus crease fidelity | Loop 4× per step |
 | bbox dx/dy/dz | ~11.2 mm (corners pulled in 4.42mm each side) | **≥ 19.98 mm** (>99.9% of 20mm) | corner + crease rules |
 | kinkCount | 0 (false green — edges destroyed) | 0 (true: edges preserved, limit-normal shading) | limit-normal tangent masks |
@@ -210,11 +210,11 @@ new subdivide-surface spec), 5.6 minutes, no flakes.
 ### Honest gaps
 
 - No class-A modelling workflow (Catmull-Clark for quad meshes not delivered — Loop
-  is correct for the triangle meshes OCCT tessellation produces).
+  is correct for the triangle meshes the kernel tessellation produces).
 - Sharpness value fixed at 1.0 per crease level (semi-sharp with s>1 requires a
   subsequent pass that scales sharpness; the decay infrastructure is in place in
   `loopStep` but `detectCreases` always emits 1.0). Callers who need s>1 semi-sharp
   can pass a scaled map directly to `loopSubdivide`.
 - Subdivision is applied to the tessellation, not the B-rep parametric domain —
   crease detection uses dihedral on triangle faces, not analytic face-normal
-  continuity from OCCT. This is correct and practical for the use-case.
+  continuity from the kernel. This is correct and practical for the use-case.

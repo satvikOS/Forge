@@ -1,9 +1,9 @@
-# OCCT API Reconnaissance — Phase A3
+# kernel API Reconnaissance — Phase A3
 
 **Date:** 2026-05-19
 **Package:** `opencascade.js@2.0.0-beta.b5ff984`
 **Source:** `e2e/brep-a3-recon-electron.spec.js` run against the real Electron app
-**Raw output:** `docs/superpowers/notes/occt-api-A3-recon.json`
+**Raw output:** `docs/superpowers/notes/kernel-api-A3-recon.json`
 **Status:** Items 3, 4, 5 FULLY VERIFIED. Items 1, 2 PARTIAL — checker runs but result-reading types are unbound.
 
 ---

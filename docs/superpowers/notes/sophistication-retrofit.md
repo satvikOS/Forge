@@ -30,7 +30,7 @@ It returns a `Promise<{values, cancelled}>`.
     const metrics = await ArchDiscKernel.brep.measure(shape);
     return {
       status: 'success',
-      message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+      message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${metrics.volume.toFixed(0)} mm³ via exact B-rep kernel`,
     };
   } catch (err) {
     return { status: 'error', message: `Extrude Boss failed: ${err.message}` };
@@ -95,7 +95,7 @@ Key observations:
 
 ---
 
-## (iii) Unified retrofit pattern for every OCCT handler
+## (iii) Unified retrofit pattern for every the kernel handler
 
 ### Arity-0 (Primitives — no selection needed; dialog defines the shape entirely)
 
@@ -107,7 +107,7 @@ Key observations:
     const shape = await ArchDiscKernel.brep.makeBox(values.dx, values.dy, values.dz);
     await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
     const m = await ArchDiscKernel.brep.measure(shape);
-    return { status: 'success', message: `Box: ${values.dx}×${values.dy}×${values.dz} mm. V = ${m.volume.toFixed(0)} mm³ via OCCT` };
+    return { status: 'success', message: `Box: ${values.dx}×${values.dy}×${values.dz} mm. V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
   } catch (err) {
     return { status: 'error', message: 'Box: ' + err.message };
   }
@@ -131,7 +131,7 @@ No `_pickBodies` call. Dialog defines all geometry. If cancelled, return `status
     // 4. Render + report.
     await addBrepShapeToScene(scene, viewport, result);
     const m = await ArchDiscKernel.brep.measure(result);
-    return { status: 'success', message: `<Tool>: V = ${m.volume.toFixed(0)} mm³ via OCCT` };
+    return { status: 'success', message: `<Tool>: V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
   } catch (err) {
     return { status: err.message.startsWith('select') ? 'warn' : 'error', message: '<Tool>: ' + err.message };
   }
@@ -149,7 +149,7 @@ No `_pickBodies` call. Dialog defines all geometry. If cancelled, return `status
     const result = await ArchDiscKernel.brep.fuse(bodies[0], bodies[1]);
     await addBrepShapeToScene(scene, viewport, result, 0x4caf50);
     const m = await ArchDiscKernel.brep.measure(result);
-    return { status: 'success', message: `Combine: V = ${m.volume.toFixed(0)} mm³ via OCCT` };
+    return { status: 'success', message: `Combine: V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
   } catch (err) {
     return { status: err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine: ' + err.message };
   }
@@ -255,7 +255,7 @@ No dialog for pure-boolean ops (no params beyond the operands). Operand BrepShap
 
 | Spec | Tests | Artifact recipe | Commit |
 |---|---|---|---|
-| `brep-foundation-electron.spec.js` | 1 | Test cube (Box 40³) — foundational primitive, proves OCCT pipeline | `7320e27d` |
+| `brep-foundation-electron.spec.js` | 1 | Test cube (Box 40³) — foundational primitive, proves kernel pipeline | `7320e27d` |
 | `brep-check-electron.spec.js` | 6 (2 ribbon + 4 kernel-direct) | Rounded plate (Box+Fillet r=2) for Check Geometry; Bracket-vs-shaft (Box+Cylinder at origin) for Interference | `1fabc123` |
 | `brep-ribbon-electron.spec.js` | 5 | Test cube (Box), Shaft stub (Cylinder), Bearing ball (Sphere), Rounded plate (Fillet→26 faces, vol drop confirmed), Mounting block with boss (Combine) | `3af1dcdd` |
 

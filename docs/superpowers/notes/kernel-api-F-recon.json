@@ -1,7 +1,7 @@
 {
   "item1_nSidedPatching": {
     "verdict": "NOT_REACHABLE",
-    "verdictReason": "MakeFilling.Build() throws raw OCCT C++ exception (integer pointer) for all inputs. Confirms A5 honest outcome: variational solver crashes in this WASM build unconditionally. Errors: 4edge=18942920 5edge=18952888",
+    "verdictReason": "MakeFilling.Build() throws a raw WASM C++ exception (integer pointer) for all inputs. Confirms A5 honest outcome: variational solver crashes in this WASM build unconditionally. Errors: 4edge=18942920 5edge=18952888",
     "fillingKeys": [
       "BRepOffsetAPI_MakeFilling"
     ],

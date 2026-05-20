@@ -3,7 +3,7 @@
 ## Recon: Baseline Mesh Quality
 
 **Artifact:** Box(40×40×40 mm³) → Fillet(r=2 mm) — rounded plate  
-**Tessellation:** OCCT deflection 0.5 mm, welded with tolerance 1e-4 mm
+**Tessellation:** the kernel deflection 0.5 mm, welded with tolerance 1e-4 mm
 
 ### Baseline Metrics (from `retopology-D-recon.json`)
 
@@ -32,7 +32,7 @@
 
 **Observations:**
 
-- **Edge-length distribution is highly non-isotropic.** stddev / mean = 1.87 — well above the 0.4 threshold that distinguishes non-isotropic meshes. The OCCT tessellator produces very long quad-diagonal edges on flat faces combined with very short edges on curved fillets.
+- **Edge-length distribution is highly non-isotropic.** stddev / mean = 1.87 — well above the 0.4 threshold that distinguishes non-isotropic meshes. The the kernel tessellator produces very long quad-diagonal edges on flat faces combined with very short edges on curved fillets.
 - **Valence histogram is dominated by valence-6 (195 / 312 = 62.5%)**, which is a positive baseline. However, 35 valence-4 and 56 valence-7 extraordinary vertices indicate the mesh needs valence equalisation. A post-retopo mesh should shift these toward the valence-6 peak.
 - **minEdge (0.19 mm) vs maxEdge (50.9 mm):** a 260× spread — isotropic remeshing targets a ≤ 5/3 × L spread (where the theoretical ratio is (4/3)L / (4/5)L = 5/3 ≈ 1.67).
 
@@ -104,7 +104,7 @@ For each vertex `v`:
 
 This "tangential Laplacian" slides vertices along the local surface without pulling them off it (no normal component), producing a uniform vertex distribution.
 
-**Note:** This step does not reproject vertices onto the original B-rep surface. Vertices may drift slightly from the original surface during tangential relaxation, especially on high-curvature regions. Surface pull-back (reprojection via OCCT's `BRepExtrema_DistShapeShape`) is deferred to a future enhancement.
+**Note:** This step does not reproject vertices onto the original B-rep surface. Vertices may drift slightly from the original surface during tangential relaxation, especially on high-curvature regions. Surface pull-back (reprojection via ArchDisc Kernel's `BRepExtrema_DistShapeShape`) is deferred to a future enhancement.
 
 ### Repeat
 
@@ -221,7 +221,7 @@ assertion was conservative; in practice drift is zero for this closed solid.
    the drift is imperceptible (bbox preserved exactly) because the mesh is nearly smooth and
    iterations are limited. On high-curvature surfaces (tight fillets, sharp ridges) or with
    more iterations (N≥10), interior vertices may drift up to ~0.5 × L inward from the
-   original surface. Full surface pull-back (OCCT `BRepExtrema_DistShapeShape`) is the
+   original surface. Full surface pull-back (the kernel `BRepExtrema_DistShapeShape`) is the
    correct fix and is planned for a future sub-project.
 
 2. **Isotropic quality not directly measured in gate test.** The gate asserts mesh validity
@@ -233,7 +233,7 @@ assertion was conservative; in practice drift is zero for this closed solid.
    collapses to near the 5/3× theoretical bound), but this was not re-measured live in the gate.
 
 3. **Triangle count reduction.** The retopo'd mesh has 384 triangles vs. 628 baseline. This
-   is expected: the baseline OCCT tessellation over-samples flat faces (many tiny triangles
+   is expected: the baseline the kernel tessellation over-samples flat faces (many tiny triangles
    on curved fillet faces, very large triangles on flat faces). Isotropic remeshing equalises
    edge lengths, which for this artifact produces fewer but more uniform triangles (collapse
    dominates split in the first few iterations because the initial mesh is heavily non-uniform).

@@ -1,14 +1,14 @@
-# OCCT NURBS API Reachability — Sub-project E (opencascade.js@2.0.0-beta.b5ff984)
+# the kernel NURBS API Reachability — Sub-project E (opencascade.js@2.0.0-beta.b5ff984)
 
 Empirical verdicts from `e2e/brep-e-recon-electron.spec.js` (all GREEN).
-Raw data in `docs/superpowers/notes/occt-api-E-recon.json`.
+Raw data in `docs/superpowers/notes/kernel-api-E-recon.json`.
 
 ---
 
 ## Critical discovery: Handle vs Transient
 
 `Geom_BSplineSurface_1(...)` returns a **raw `Standard_Transient`** object.
-Every OCCT API that takes a surface parameter (MakeFace, SLProps, GeomConvert) requires
+Every kernel API that takes a surface parameter (MakeFace, SLProps, GeomConvert) requires
 a **`Handle_Geom_Surface`** — the smart-pointer wrapper — not the raw transient.
 
 In this build there is **no exposed constructor** `Handle_Geom_BSplineSurface(rawSurf)`.
@@ -263,7 +263,7 @@ console.log(raw.constructor.name);    // "Geom_CylindricalSurface"
 
 ### Note
 The extracted surface is a `Geom_CylindricalSurface` (analytic representation), not
-a `Geom_BSplineSurface`. This is expected — OCCT stores primitive faces as analytic
+a `Geom_BSplineSurface`. This is expected — the kernel stores primitive faces as analytic
 surfaces internally. The handle is nonetheless a valid `Handle_Geom_Surface` and can
 be passed to `GeomLProp_SLProps_1` and `BRepBuilderAPI_MakeFace_8`.
 
@@ -296,7 +296,7 @@ try {
 ### Verdict explanation
 - `oc.GeomConvert` exists and `hasSurfaceToBSplineSurface === true`
 - The method is listed in `GeomConvert` static methods
-- Attempt with `Handle_Geom_Surface` throws OCCT integer exception `18944264`
+- Attempt with `Handle_Geom_Surface` throws the kernel integer exception `18944264`
   (likely `Standard_NoSuchObject` or `Standard_ConstructionError` from C++ side)
 - Attempt with raw transient is rejected by the Embind binding layer
 - No third path is available in this build
@@ -337,7 +337,7 @@ Ops to use:
   extract handle, then evaluate curvature at arbitrary (u, v) parameters.
 
 ### Explicitly out of scope (NOT_REACHABLE)
-- `GeomConvert.SurfaceToBSplineSurface` — do not use; throws OCCT exception.
+- `GeomConvert.SurfaceToBSplineSurface` — do not use; throws the kernel exception.
   If analytic-to-NURBS conversion is needed, construct `Geom_BSplineSurface_1`
   directly with approximated control points.
 
@@ -389,7 +389,7 @@ the recon note — no Handle constructor is exposed for B-spline surfaces.
 
 All 4 tests pass under `--workers=1`. Under 6-worker parallel mode Test A is **flaky**
 (same canvas-screenshot timeout pattern as brep-boolean and brep-primitives — pre-existing
-resource contention when OCCT WASM boots simultaneously in 6 processes). Tests B/C/D
+resource contention when kernel WASM boots simultaneously in 6 processes). Tests B/C/D
 pass in both modes.
 
 ### What this is / isn't
@@ -401,7 +401,7 @@ geometry), not from a placeholder formula.
 
 **Is not:** A fully parametric BRep face backed by a Handle_Geom_Surface.
 The B-rep representation is a triangulated compound (200 planar triangles).
-Downstream OCCT operations (Fillet, Boolean, STEP export) on the NURBS patch
+Downstream the kernel operations (Fillet, Boolean, STEP export) on the NURBS patch
 will operate on the triangle mesh, not the analytic NURBS surface.
 For a fully analytic NURBS BRep you would need to expose `Handle_Geom_BSplineSurface`
 constructor in the opencascade.js binding layer (not possible in the
@@ -412,5 +412,5 @@ constructor in the opencascade.js binding layer (not possible in the
 The Handle/Transient constraint is a hard limit of this WASM build. A future
 sub-project could explore patching the opencascade.js binding (`.d.ts` + `embind`)
 to expose `Handle_Geom_BSplineSurface.create(transient)` — this is ~10 lines of
-C++ in `OCCT.d.ts` bindings and would unlock direct `BRepBuilderAPI_MakeFace_8`
+C++ in `the kernel.d.ts` bindings and would unlock direct `BRepBuilderAPI_MakeFace_8`
 usage. Until then, the triangulated-compound workaround is the only viable path.

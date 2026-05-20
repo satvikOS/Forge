@@ -593,7 +593,7 @@
     "item2_distance1": 5,
     "item3_usedPath": "B",
     "item3_trimmedArea": 1809.5573684677208,
-    "note": "Sub-project G recon — OCCT-binding-dependent capability verdicts. GREEN = investigation complete.",
+    "note": "Sub-project G recon — binding-dependent capability verdicts. GREEN = investigation complete.",
     "package": "opencascade.js@2.0.0-beta.b5ff984"
   }
 }

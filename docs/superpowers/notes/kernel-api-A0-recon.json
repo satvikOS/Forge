@@ -137,5 +137,16 @@
         3
       ]
     }
+  },
+  "orientationRecon": {
+    "oriValType": "object",
+    "oriValRaw": "{}",
+    "oriValDotValue": 1,
+    "reversedEnumType": "object",
+    "reversedEnumRaw": "{}",
+    "reversedEnumDotValue": 1,
+    "forwardEnumDotValue": 0,
+    "strictEqTest": true,
+    "dotValueEqTest": true
   }
 }

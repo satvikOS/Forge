@@ -1,9 +1,9 @@
-# OCCT API Reconnaissance — Phase A4
+# kernel API Reconnaissance — Phase A4
 
 **Date:** 2026-05-19
 **Package:** `opencascade.js@2.0.0-beta.b5ff984`
 **Source:** `e2e/brep-a4-recon-electron.spec.js` run against the real Electron app
-**Raw output:** `docs/superpowers/notes/occt-api-A4-recon.json`
+**Raw output:** `docs/superpowers/notes/kernel-api-A4-recon.json`
 **Status:** ALL ITEMS EMPIRICALLY VERIFIED — spec passes GREEN (1 passed, 15.9s)
 
 ---
@@ -119,7 +119,7 @@ boxB.delete();
 
 **Seam retention means:** `BRepAlgoAPI_Fuse_3` does NOT automatically merge coplanar
 faces from the two input boxes. The internal contact face and its edges remain in the
-B-rep. This is the correct/expected OCCT behavior — simplification must be applied
+B-rep. This is the correct/expected the kernel behavior — simplification must be applied
 explicitly via `ShapeUpgrade_UnifySameDomain`.
 
 ---
