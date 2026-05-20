@@ -5,13 +5,15 @@
  * Every geometry op is invoked by clicking the real ribbon tool button and
  * filling the ToolParamDialog — NOT by calling kernel APIs directly.
  *
+ * Each test builds a recognisable real-world engineering artifact.
+ *
  * Arity-0 (no selection):
- *   Thicken     : thicken( 60×40 sheet, 3 mm ) → V ≈ 7200 mm³
+ *   Thicken     : thicken( 60×40 sheet, 3 mm ) → V ≈ 7200 mm³  [metal plate]
  *
  * Arity-1 (build Box → select → click → fill dialog):
- *   Shell       : shell( 40³ box, t=3 )         → hollow shell, V in (3500, 62000)
- *   Offset Shape: offsetShape( 40³ box, +2 )    → V ≈ 70 400 mm³ (empirically measured)
- *   Draft       : draft( 40³ box, 5° )          → tapered, V < 64000
+ *   Shell       : shell( 40³ box, t=3 )         → hollow, V in (3500, 62000)  [open tray / housing]
+ *   Offset Shape: offsetShape( 40³ box, +2 )    → V ≈ 70 400 mm³              [padded block]
+ *   Draft       : draft( 40³ box, 5° )          → tapered, V < 64000          [draft-angle plug]
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
@@ -42,13 +44,14 @@ async function launch() {
 
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
-test('Shell: build 40³ box → select → ribbon click → t=3 → hollow, V in (3500, 62000)', async () => {
-  // Arity-1: build a Box (40³), select it, click Shell, accept thickness=3.
-  // Hollow box: outer 40³ = 64000, inner (40−6)³ = 34³ = 39304; V ≈ 24696 mm³.
-  // Wide tolerance: OCCT shell removes one face (open shell), so volume varies.
+test('Shell: thin-walled tray (open housing) — build 40³ box → select → ribbon click → t=3 → hollow, V in (3500, 62000)', async () => {
+  // Artifact: thin-walled tray (open housing)
+  // Arity-1: build a Box (40³ — the housing blank), select it, click Shell,
+  // accept thickness=3. Result: a thin-walled open tray like an electronics enclosure
+  // or oil-pan housing. OCCT shell removes one face (open shell).
   const { app, win, pageErrors } = await launch();
   try {
-    // 1. Build input body.
+    // 1. Build the housing blank (Box 40³).
     const boxId = await buildPrimitive(win, 'Box');
 
     // 2. Select for Shell op.
@@ -78,7 +81,7 @@ test('Shell: build 40³ box → select → ribbon click → t=3 → hollow, V in
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Shell: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Shell (open housing tray): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(3500);
     expect(m.volume).toBeLessThan(62000);
 
@@ -92,8 +95,10 @@ test('Shell: build 40³ box → select → ribbon click → t=3 → hollow, V in
 
 // ─── Thicken ─────────────────────────────────────────────────────────────────
 
-test('Thicken: ribbon click thickens 60×40 sheet by 3 mm, V in (6480, 7920)', async () => {
+test('Thicken: thickened sheet (metal plate) — ribbon click thickens 60×40 sheet by 3 mm, V in (6480, 7920)', async () => {
+  // Artifact: thickened sheet (metal plate)
   // Arity-0: no body selection needed. Dialog defaults: width=60, height=40, thickness=3.
+  // Produces a thin sheet-metal plate as used in brackets, flanges, or sheet-metal blanks.
   // 60×40×3 = 7200 mm³, ±10%.
   const { app, win, pageErrors } = await launch();
   try {
@@ -103,7 +108,7 @@ test('Thicken: ribbon click thickens 60×40 sheet by 3 mm, V in (6480, 7920)', a
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Thicken: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Thicken (metal plate): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // 60×40×3 = 7200 mm³, ±10%
     expect(m.volume).toBeGreaterThan(6480);
     expect(m.volume).toBeLessThan(7920);
@@ -118,13 +123,15 @@ test('Thicken: ribbon click thickens 60×40 sheet by 3 mm, V in (6480, 7920)', a
 
 // ─── Offset Shape ─────────────────────────────────────────────────────────────
 
-test('Offset Shape: build 40³ box → select → ribbon click → +2 mm → V in (63360, 77440)', async () => {
-  // Arity-1: build a Box (40³), select it, click Offset Shape, fill distance=2.
+test('Offset Shape: padded block (face-offset) — build 40³ box → select → ribbon click → +2 mm → V in (63360, 77440)', async () => {
+  // Artifact: padded block (face-offset)
+  // Arity-1: build a Box (40³ — the base block), select it, click Offset Shape,
+  // fill distance=2. Uniformly offsets all faces outward by 2 mm, producing a
+  // padded enclosure block (like adding material for machining stock allowance).
   // Empirically measured: 70400 mm³ (OCCT offsetShape result at +2mm offset).
-  // ±10% around 70400: (63360, 77440).
   const { app, win, pageErrors } = await launch();
   try {
-    // 1. Build input body.
+    // 1. Build the base block (Box 40³).
     const boxId = await buildPrimitive(win, 'Box');
 
     // 2. Select for Offset Shape op.
@@ -154,7 +161,7 @@ test('Offset Shape: build 40³ box → select → ribbon click → +2 mm → V i
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Offset Shape: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Offset Shape (padded block): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // Empirically measured: 70400 mm³, ±10%
     expect(m.volume).toBeGreaterThan(63360);
     expect(m.volume).toBeLessThan(77440);
@@ -169,13 +176,14 @@ test('Offset Shape: build 40³ box → select → ribbon click → +2 mm → V i
 
 // ─── Draft ────────────────────────────────────────────────────────────────────
 
-test('Draft: build 40³ box → select → ribbon click → 5° dialog → positive V < 64000, 6 faces', async () => {
-  // Arity-1: build a Box (40³), select it, click Draft, fill angleDeg=5.
-  // Draft tapers the side faces inward → V < 64000.
-  // The box keeps its 6 faces (draft angle modifies existing faces, not topology).
+test('Draft: draft-angle plug (mold-release shape) — build 40³ box → select → ribbon click → 5° dialog → positive V < 64000, 6 faces', async () => {
+  // Artifact: draft-angle plug (mold-release shape)
+  // Arity-1: build a Box (40³ — the plug blank), select it, click Draft, fill angleDeg=5.
+  // Tapers the side faces inward at 5° for mold-release, producing a plastic injection
+  // mold plug or die casting insert with the required draft angle.
   const { app, win, pageErrors } = await launch();
   try {
-    // 1. Build input body.
+    // 1. Build the plug blank (Box 40³).
     const boxId = await buildPrimitive(win, 'Box');
 
     // 2. Select for Draft op.
@@ -205,7 +213,7 @@ test('Draft: build 40³ box → select → ribbon click → 5° dialog → posit
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Draft: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Draft (mold-release plug): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(0);
     expect(m.volume).toBeLessThan(64000);
     expect(m.faceCount).toBe(6);
