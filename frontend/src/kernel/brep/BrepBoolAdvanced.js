@@ -54,3 +54,43 @@ export async function fuseNonManifold(a, b) {
   }
   return fuseAll([a, b]);
 }
+
+/**
+ * Robustly fuse two solids whose touching faces are coincident within a
+ * tolerance. Uses BRepAlgoAPI_Fuse_3 + SetFuzzyValue (before Build).
+ *
+ * Verified sequence: docs/superpowers/notes/occt-api-B.md Capability 2.
+ * BRepAlgoAPI_Fuse_3(shapeA, shapeB, pr1) constructs + does internal init,
+ * then SetFuzzyValue(tol) before Build(pr2) bridges near-coincident gaps.
+ * Evidence: gap=0.001mm, fuzzy=0.01 → faceCount 12→10, vol≈16000.27 ✓
+ *
+ * @param {BrepShape} a
+ * @param {BrepShape} b
+ * @param {number} [tolerance]  fuzzy tolerance (mm), default 0.01
+ * @returns {Promise<BrepShape>}
+ */
+export async function fuseCoincident(a, b, tolerance = 0.01) {
+  if (!a || !a.shape || !b || !b.shape) {
+    throw new Error('fuseCoincident: both operands must be BrepShapes with live shapes');
+  }
+  if (!(tolerance > 0)) throw new Error(`fuseCoincident: tolerance must be positive (got ${tolerance})`);
+  const oc = await getOCCT();
+  return withScope(() => {
+    // VERIFIED sequence — occt-api-B.md Capability 2, exact call order:
+    // 1. BRepAlgoAPI_Fuse_3(shapeA, shapeB, pr1) — 3-arg ctor (shape + pr)
+    // 2. SetFuzzyValue(tolerance) — BEFORE Build
+    // 3. Build(pr2)
+    // 4. IsDone() + HasErrors() + Shape()
+    const pr1 = track(new oc.Message_ProgressRange_1());
+    const fuse = track(new oc.BRepAlgoAPI_Fuse_3(a.shape, b.shape, pr1));
+
+    // Set fuzzy tolerance BEFORE Build — bridges the near-coincident gap
+    fuse.SetFuzzyValue(tolerance);
+
+    fuse.Build(track(new oc.Message_ProgressRange_1()));
+    if (!fuse.IsDone()) throw new Error('fuseCoincident: BRepAlgoAPI_Fuse did not complete');
+    const shape = fuse.Shape();
+    if (shape.IsNull()) throw new Error('fuseCoincident: OCCT produced a null shape');
+    return new BrepShape(shape, { op: 'fuseCoincident', params: { tolerance }, parents: [a.id, b.id] });
+  });
+}
