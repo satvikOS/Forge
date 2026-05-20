@@ -243,3 +243,57 @@ No dialog for pure-boolean ops (no params beyond the operands). Operand BrepShap
 | `Revolve Boss` | `brep.revolveRect(innerR, width, height, 360)` | 0 | `revolveSegs` (existing); _inner params hardcoded_ | Promote to sketch-selection |
 | `Sweep Boss` | `brep.sweep(radius, length)` | 0 | `radius`, `length` (mm) | Promote to wire-selection |
 | `Loft Boss` | `brep.loft(bottomSize, topSize, height)` | 0 | `bottomSize`, `topSize`, `height` (mm) | Promote to multi-section |
+
+---
+
+## Sophistication+Artifact Retrofit — Honest Outcome
+
+**Date:** 2026-05-20  
+**Dispatch:** Final three op specs (brep-foundation, brep-check, brep-ribbon)
+
+### Specs retrofitted (this dispatch)
+
+| Spec | Tests | Artifact recipe | Commit |
+|---|---|---|---|
+| `brep-foundation-electron.spec.js` | 1 | Test cube (Box 40³) — foundational primitive, proves OCCT pipeline | `7320e27d` |
+| `brep-check-electron.spec.js` | 6 (2 ribbon + 4 kernel-direct) | Rounded plate (Box+Fillet r=2) for Check Geometry; Bracket-vs-shaft (Box+Cylinder at origin) for Interference | `1fabc123` |
+| `brep-ribbon-electron.spec.js` | 5 | Test cube (Box), Shaft stub (Cylinder), Bearing ball (Sphere), Rounded plate (Fillet→26 faces, vol drop confirmed), Mounting block with boss (Combine) | `3af1dcdd` |
+
+**Total specs in this dispatch:** 3  
+**Total tests in this dispatch:** 12 (1 + 6 + 5)
+
+### Kernel-direct exemptions
+
+| Test | File | Reason |
+|---|---|---|
+| Leak guard (makeBox×20) | `brep-foundation` | No ribbon workflow probes WASM heap across 20 temporary shapes + dispose loop |
+| Self-intersection POSITIVE (overlapping compound) | `brep-check` | No ribbon workflow creates a self-intersecting compound via translate+makeCompound |
+| Clash POSITIVE (overlapping solids) | `brep-check` | No ribbon workflow positions two solids at a known overlap offset |
+| Clash NEGATIVE (disjoint pair) | `brep-check` | No ribbon workflow positions two solids at a specified clearance gap |
+| Leak guard (checkSelfIntersection×25) | `brep-check` | WASM lifecycle test — no user workflow repeats a check 25× in a loop |
+
+All exempt tests carry the canonical JSDoc: `// Heap leak guard — bypasses user workflow on purpose to probe WASM heap behaviour. Exempt from the user-workflow rule.` or `// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound / a disjoint-positioned pair...`.
+
+### Full suite result
+
+**51 passed / 51 total — 0 failures — 0 flakes** (run time: 6.5 min, 7 workers, Chromium)
+
+Specs included:
+`brep-occt-load`, `brep-a1-recon`, `brep-a2-recon`, `brep-a3-recon`, `brep-a4-recon`, `brep-a5-recon`,
+`brep-b-recon`, `subdivide-recon`, `brep-foundation`, `brep-ribbon`, `brep-primitives`,
+`brep-boolean`, `brep-features`, `brep-step`, `brep-localops`, `brep-surfacing`, `brep-varfillet`,
+`brep-check`, `brep-simplify`, `brep-blend`, `brep-b-advanced`, `subdivide-surface`,
+`thought-bubble-dismiss`.
+
+### Handler/schema fixes in this dispatch
+
+None required. All three specs passed on first run after the artifact-recipe retrofit.
+
+### Notable verified geometry values
+
+- Box 40³: vol=64000.00 mm³, 6 faces, 12 edges (exact)
+- Cylinder r=20 h=40: vol=50265 mm³, 3 faces, 3 edges
+- Sphere r=25: vol=65450 mm³, 1 face, 3 edges
+- Fillet r=2 on Box 40³: vol=63599 mm³ (drop confirmed), **26 faces** (6 flat + 12 cylindrical + 8 spherical corners)
+- Interference (Box 40³ + Cylinder r=20 h=40 at origin): clash=true, interferenceVolume=2356 mm³
+- Check Geometry (rounded plate): selfIntersects=false, valid=true
