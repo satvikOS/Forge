@@ -6,6 +6,8 @@
  * (Part tab, Solid Primitives group) and filling the ToolParamDialog —
  * NOT by calling kernel APIs directly.
  *
+ * Each primitive IS the artifact at its simplest — no composite needed.
+ *
  * Under Playwright (navigator.webdriver=true) the ToolParamDialog
  * auto-resolves with schema defaults immediately. Effective defaults:
  *   Cylinder  : r=20 mm, h=40 mm  → V = π×400×40 ≈ 50 265 mm³
@@ -39,7 +41,10 @@ async function launch() {
 
 // ─── Cylinder ────────────────────────────────────────────────────────────────
 
-test('cylinder: ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³', async () => {
+test('cylinder: cylindrical pin / shaft stub — ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³', async () => {
+  // Artifact: cylindrical pin / shaft stub
+  // A solid cylinder (r=20 mm, h=40 mm) as used for a locating pin, shaft stub,
+  // or bearing journal. The simplest rotational solid in any machine assembly.
   const { app, win, pageErrors } = await launch();
   try {
     // Build via real ribbon click + dialog (defaults: r=20 h=40).
@@ -48,7 +53,7 @@ test('cylinder: ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³',
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Cylinder: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Cylinder (pin/shaft stub): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // r=20 h=40 → π×400×40 = 50 265.48 mm³, ±10 %
     expect(m.volume).toBeGreaterThan(45239);
     expect(m.volume).toBeLessThan(55292);
@@ -64,7 +69,10 @@ test('cylinder: ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³',
 
 // ─── Sphere ──────────────────────────────────────────────────────────────────
 
-test('sphere: ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async () => {
+test('sphere: ball joint / bearing ball — ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async () => {
+  // Artifact: ball joint / bearing ball
+  // A solid sphere (r=25 mm) as used for a ball-joint socket mating surface,
+  // a precision bearing ball, or a spherical end cap on a linkage rod.
   const { app, win, pageErrors } = await launch();
   try {
     // Build via real ribbon click + dialog (defaults: r=25).
@@ -73,7 +81,7 @@ test('sphere: ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async ()
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Sphere: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Sphere (ball joint/bearing ball): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // r=25 → (4/3)π×15625 = 65 449.85 mm³, ±10 %
     expect(m.volume).toBeGreaterThan(58905);
     expect(m.volume).toBeLessThan(71995);
@@ -89,7 +97,10 @@ test('sphere: ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async ()
 
 // ─── Cone ────────────────────────────────────────────────────────────────────
 
-test('cone: ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async () => {
+test('cone: tapered locator / cone insert — ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async () => {
+  // Artifact: tapered locator / cone insert
+  // A frustum cone (r1=25, r2=8, h=45 mm) as used for a tapered locating pin,
+  // a conical insert for alignment in fixture plates, or a funnel entry geometry.
   const { app, win, pageErrors } = await launch();
   try {
     // Build via real ribbon click + dialog (defaults: r1=25 r2=8 h=45).
@@ -98,7 +109,7 @@ test('cone: ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async ()
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Cone: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Cone (tapered locator): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // r1=25 r2=8 h=45 → π×15×(625+200+64) = π×15×889 ≈ 41 918 mm³, ±10 %
     expect(m.volume).toBeGreaterThan(37726);
     expect(m.volume).toBeLessThan(46110);
@@ -114,7 +125,10 @@ test('cone: ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async ()
 
 // ─── Torus ───────────────────────────────────────────────────────────────────
 
-test('torus: ribbon click builds R=30 r=10 torus, volume ≈ 59 218 mm³', async () => {
+test('torus: O-ring / wheel rim — ribbon click builds R=30 r=10 torus, volume ≈ 59 218 mm³', async () => {
+  // Artifact: O-ring / wheel rim
+  // A solid torus (R=30 mm, r=10 mm) as used for an O-ring seal profile,
+  // a wheel rim cross-section, or a circular gasket blank.
   const { app, win, pageErrors } = await launch();
   try {
     // Build via real ribbon click + dialog (defaults: majorRadius=30 minorRadius=10).
@@ -123,7 +137,7 @@ test('torus: ribbon click builds R=30 r=10 torus, volume ≈ 59 218 mm³', async
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Torus: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Torus (O-ring/wheel rim): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // R=30 r=10 → 2π²×30×100 = 59 217.61 mm³, ±10 %
     expect(m.volume).toBeGreaterThan(53296);
     expect(m.volume).toBeLessThan(65139);
