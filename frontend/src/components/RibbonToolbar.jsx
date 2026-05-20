@@ -84,6 +84,9 @@ const TABS = {
         { name: 'Full Round Fillet', icon: '◡', key: 'part' },
         { name: 'Corner Mitre', icon: '◺', key: 'part' },
       ]},
+      { label: 'Surface', tools: [
+        { name: 'Thicken', icon: '⧈', key: 'surface' },
+      ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },
         { name: 'Subtract', icon: '−', key: 'part' },

@@ -495,11 +495,15 @@ async function _runInterferenceDemo() {
   // OCCT path: build two overlapping solids (box + cylinder) and run
   // ArchDiscKernel.brep.checkClash — returns clash verdict + interference
   // volume + min clearance distance. Analytical only — no geometry rendering.
+  // Mirrors result to window.__lastInterferenceResult for e2e tests.
   try {
     const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
     const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
     const r = await ArchDiscKernel.brep.checkClash(a, b);
     a.dispose(); b.dispose();
+    if (typeof window !== 'undefined') {
+      window.__lastInterferenceResult = r;
+    }
     if (r.clash) {
       return {
         status: 'warn',
@@ -511,6 +515,9 @@ async function _runInterferenceDemo() {
       message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
     };
   } catch (err) {
+    if (typeof window !== 'undefined') {
+      window.__lastInterferenceResult = { error: err.message };
+    }
     return { status: 'error', message: 'Interference (OCCT): ' + err.message };
   }
 }

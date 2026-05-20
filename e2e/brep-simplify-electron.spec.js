@@ -2,17 +2,24 @@
  * brep-simplify-electron.spec.js
  *
  * A4 gate — headed Electron e2e tests for geometry simplification.
- * Op under test: kernel.brep.simplify (ShapeUpgrade_UnifySameDomain).
- * Verified OCCT sequence: docs/superpowers/notes/occt-api-A4.md items 1-2.
+ * Op under test: Simplify Geometry ribbon tool (Direct Edit tab).
  *
- * Empirically verified before/after counts (from A4 recon):
- *   Fused two-box 40×20×20 bar:  10 faces / 20 unique edges, volume ≈ 16000
- *   After simplify:                6 faces / 12 unique edges, volume preserved
+ * All three tests drive the op via the ribbon tool:
+ *   Test 1 — ribbon click, assert face/edge reduction and volume preservation
+ *   Test 2 — ribbon click, assert renders correctly from all camera angles
+ *   Test 3 — same ribbon click (the original proven Test 3, kept for symmetry)
+ *
+ * Handler build (ToolExecutionEngine.js):
+ *   Simplify Geometry: fuse(20³ box, translated 20³ box) → simplify
+ *   Before: 10 faces / 20 edges, V ≈ 16000
+ *   After:   6 faces / 12 edges, V preserved
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+
+test.setTimeout(600000);
 
 async function launch() {
   const app = await electron.launch({
@@ -28,95 +35,80 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-test.setTimeout(600000);
+async function switchToDirectEditTab(win) {
+  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Direct Edit$/ });
+  await expect(tab).toBeVisible({ timeout: 30000 });
+  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+}
 
-// ─── Test 1 — simplify reduces faces, preserves volume ───────────────────────
+async function clickSimplifyGeometry(win) {
+  await win.evaluate(() => { window.__lastBrepShape = null; });
+  const re = /^Simplify Geometry$/;
+  const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
+    has: win.locator('.ribbon-tool-label', { hasText: re }),
+  }).first();
+  await expect(btn).toBeVisible({ timeout: 30000 });
+  await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
+}
 
-test('simplify: a fused two-box bar loses its internal seam (10 → 6 faces, volume preserved)', async () => {
+// ─── Test 1 — simplify reduces faces and edges, preserves volume ──────────────
+
+test('simplify: ribbon tool fuses two-box bar and loses its internal seam (10→6 faces, volume preserved)', async () => {
+  // Handler: fuse(20³ box, translate(20³ box, 20,0,0)) → simplify.
+  // Before: 10 faces / 20 edges; After: 6 faces / 12 edges. Volume ≈ 16000 mm³.
   const { app, win, pageErrors } = await launch();
-  const r = await win.evaluate(async () => {
-    const K = window.__archdiscKernel.kernel.brep;
-    const a = await K.makeBox(20, 20, 20);
-    const b = await K.translate(await K.makeBox(20, 20, 20), 20, 0, 0);
-    const fused = await K.fuse(a, b);
-    const before = await K.measure(fused);
-    const simplified = await K.simplify(fused);
-    const after = await K.measure(simplified);
-    return { before, after };
-  });
-  // Volume preserved within 0.1% (≈16000 mm³)
-  expect(Math.abs(r.after.volume - r.before.volume)).toBeLessThan(16);
-  expect(r.after.volume).toBeGreaterThan(15800);
-  // Seam is removed: before > after
-  expect(r.before.faceCount).toBeGreaterThan(r.after.faceCount);
-  // Verified exact counts from A4 recon: 10 → 6 faces, 20 → 12 edges
-  expect(r.before.faceCount).toBe(10);
-  expect(r.before.edgeCount).toBe(20);
-  expect(r.after.faceCount).toBe(6);
-  expect(r.after.edgeCount).toBe(12);
-  expect(pageErrors).toEqual([]);
-  await app.close();
+  try {
+    await switchToDirectEditTab(win);
+    await clickSimplifyGeometry(win);
+
+    const after = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(
+      `  Simplify (result): vol=${after.volume.toFixed(0)},` +
+      ` faces=${after.faceCount}, edges=${after.edgeCount}`
+    );
+    // Volume preserved ≈ 16000 mm³ (two 20³ boxes end-to-end = 40×20×20 bar)
+    expect(after.volume).toBeGreaterThan(15800);
+    expect(after.volume).toBeLessThan(16200);
+    // Seam merged → 6 faces / 12 edges
+    expect(after.faceCount).toBe(6);
+    expect(after.edgeCount).toBe(12);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await app.close();
+  }
 });
 
 // ─── Test 2 — simplified geometry renders correctly from all angles ───────────
 
-test('simplify: result renders correctly from all camera angles and zooms', async () => {
+test('simplify: ribbon result renders correctly from all camera angles and zooms', async () => {
   const { app, win, pageErrors } = await launch();
-  await win.evaluate(async () => {
-    const K = window.__archdiscKernel.kernel.brep;
-    const a = await K.makeBox(20, 20, 20);
-    const bBase = await K.makeBox(20, 20, 20);
-    const b = await K.translate(bBase, 20, 0, 0);
-    bBase.dispose();
-    const fused = await K.fuse(a, b);
-    a.dispose();
-    b.dispose();
-    const simplified = await K.simplify(fused);
-    fused.dispose();
-    await window.__archdiscKernel.renderShape(simplified);
-  });
-  const cap = await captureAllAngles(win, 'simplify', {
-    azimuths: [0, 60, 120, 180, 240, 300],
-    elevations: [-30, 30],
-    zooms: [0.6, 1.0, 1.8],
-  });
-  expect(cap.blanks).toEqual([]);
-  expect(pageErrors).toEqual([]);
-  await app.close();
+  try {
+    await switchToDirectEditTab(win);
+    await clickSimplifyGeometry(win);
+
+    const cap = await captureAllAngles(win, 'simplify', {
+      azimuths: [0, 60, 120, 180, 240, 300],
+      elevations: [-30, 30],
+      zooms: [0.6, 1.0, 1.8],
+    });
+    expect(cap.blanks).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await app.close();
+  }
 });
 
-// ─── Test 3 — the Simplify Geometry ribbon tool works ────────────────────────
+// ─── Test 3 — the Simplify Geometry ribbon tool works (end-to-end) ────────────
 
 test('ribbon: Simplify Geometry tool (Direct Edit tab) runs end-to-end', async () => {
   const { app, win, pageErrors } = await launch();
   try {
-    // Step 1: switch to the Direct Edit tab.
-    // The ribbon renders each tab as <button class="ribbon-tab ..."> with the tab label.
-    const directEditTab = win.locator('button.ribbon-tab').filter({ hasText: /^Direct Edit$/ });
-    await expect(directEditTab).toBeVisible({ timeout: 30000 });
-    await directEditTab.evaluate(el =>
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    );
+    await switchToDirectEditTab(win);
+    await clickSimplifyGeometry(win);
 
-    // Step 2: clear __lastBrepShape so the wait below is unambiguous.
-    await win.evaluate(() => { window.__lastBrepShape = null; });
-
-    // Step 3: click the Simplify Geometry tool button.
-    // The ribbon renders each tool as <button class="ribbon-tool ...">
-    // containing a <span class="ribbon-tool-label"> with the exact tool name.
-    const re = /^Simplify Geometry$/;
-    const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-      has: win.locator('.ribbon-tool-label', { hasText: re }),
-    }).first();
-    await expect(btn).toBeVisible({ timeout: 30000 });
-    await btn.evaluate(el =>
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    );
-
-    // Step 4: wait for the handler to set window.__lastBrepShape.
-    await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
-
-    // Step 5: measure the resulting shape — must be a real solid.
     const metrics = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
@@ -126,7 +118,6 @@ test('ribbon: Simplify Geometry tool (Direct Edit tab) runs end-to-end', async (
     );
     expect(metrics.volume).toBeGreaterThan(0);
     expect(metrics.faceCount).toBeGreaterThanOrEqual(6);
-
     expect(pageErrors).toEqual([]);
   } finally {
     await app.close();

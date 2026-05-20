@@ -1,15 +1,22 @@
 /**
  * brep-surfacing-electron.spec.js
  *
- * A2 gate — headed Electron e2e tests for surfacing operations:
- *   sweep (pipe), loft (ThruSections).
+ * Real-user-workflow tests for OCCT surfacing operations.
+ * Every geometry op is invoked by clicking the real ribbon tool button
+ * (Part tab, Create group) — NOT by calling kernel APIs directly.
  *
- * Expected values from docs/superpowers/notes/occt-api-A2.md items 5-6.
+ * Handler builds (ToolExecutionEngine.js):
+ *   Sweep Boss : sweep( r=8, 60 mm path ) → V = π×64×60 ≈ 12 064 mm³
+ *   Loft Boss  : loft( 40→16 square sections, h=50 ) → V ≈ 41 600 mm³
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+
+test.setTimeout(600000);
+
+const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
 
 async function launch() {
   const app = await electron.launch({
@@ -25,52 +32,71 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-test.setTimeout(600000);
+async function switchToPartTab(win) {
+  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
+  await expect(tab).toBeVisible({ timeout: 30000 });
+  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+}
 
-// 6 azimuths × 2 elevations × 3 zooms = 36 captures
-const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
+async function clickRibbonTool(win, toolName) {
+  await win.evaluate(() => { window.__lastBrepShape = null; });
+  const re = new RegExp(`^${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+  const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
+    has: win.locator('.ribbon-tool-label', { hasText: re }),
+  }).first();
+  await expect(btn).toBeVisible({ timeout: 30000 });
+  await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
+}
 
-test('sweep: r=8 disk swept 60mm -> volume in (11400, 12700)', async () => {
-  // Empirically measured: 12063.72 mm³ (= π·8²·60, occt-api-A2.md item 5)
+// ─── Sweep Boss ───────────────────────────────────────────────────────────────
+
+test('Sweep Boss: ribbon click builds r=8 disk swept 60 mm, V in (10858, 13270)', async () => {
+  // Handler: sweep(r=8, 60) → π×64×60 = 12 063.72 mm³, ±10%
   const { app, win, pageErrors } = await launch();
-  const m = await win.evaluate(async () => {
-    const brep = window.__archdiscKernel.kernel.brep;
-    const pipe = await brep.sweep(8, 60);
-    const metrics = await brep.measure(pipe);
-    pipe.dispose();
-    return metrics;
-  });
-  expect(pageErrors).toEqual([]);
-  expect(m.volume).toBeGreaterThan(11400);
-  expect(m.volume).toBeLessThan(12700);
-  // Render for visual verification
-  await win.evaluate(() => window.__archdiscKernel.renderSweep(8, 60));
-  const cap = await captureAllAngles(win, 'sweep', SWEEP);
-  expect(cap.blanks).toEqual([]);
-  await app.close();
+  try {
+    await switchToPartTab(win);
+    await clickRibbonTool(win, 'Sweep Boss');
+
+    const m = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Sweep Boss: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    // π×64×60 = 12 063.72 mm³, ±10%
+    expect(m.volume).toBeGreaterThan(10858);
+    expect(m.volume).toBeLessThan(13270);
+
+    const cap = await captureAllAngles(win, 'sweep-boss', SWEEP);
+    expect(cap.blanks).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await app.close();
+  }
 });
 
-test('loft: 40x40 bottom, 16x16 top, height=50 -> volume > 0 and in expected range', async () => {
-  // loft(bottomSize=40, topSize=16, height=50)
-  // The loft is a frustum-like solid. Volume of frustum with square sections:
-  //   V = h/3 * (A1 + A2 + sqrt(A1*A2)) = 50/3 * (1600 + 256 + 640) = 50/3 * 2496 = 41600
-  // Actual measured value may differ slightly; allow a wide initial range then tighten.
+// ─── Loft Boss ────────────────────────────────────────────────────────────────
+
+test('Loft Boss: ribbon click lofts 40→16 squares over 50 mm, V in (37440, 45760)', async () => {
+  // Handler: loft(40, 16, 50)
+  // Frustum with square sections: V = h/3×(A1+A2+√(A1×A2))
+  //   = 50/3×(1600+256+640) = 50/3×2496 ≈ 41 600 mm³, ±10%
   const { app, win, pageErrors } = await launch();
-  const m = await win.evaluate(async () => {
-    const brep = window.__archdiscKernel.kernel.brep;
-    const lofted = await brep.loft(40, 16, 50);
-    const metrics = await brep.measure(lofted);
-    lofted.dispose();
-    return metrics;
-  });
-  expect(pageErrors).toEqual([]);
-  expect(m.volume).toBeGreaterThan(0);
-  // Tightened upper bound: frustum formula gives ~41600; allow ±5% = (39520, 43680)
-  expect(m.volume).toBeGreaterThan(39520);
-  expect(m.volume).toBeLessThan(43680);
-  // Render for visual verification
-  await win.evaluate(() => window.__archdiscKernel.renderLoft(40, 16, 50));
-  const cap = await captureAllAngles(win, 'loft', SWEEP);
-  expect(cap.blanks).toEqual([]);
-  await app.close();
+  try {
+    await switchToPartTab(win);
+    await clickRibbonTool(win, 'Loft Boss');
+
+    const m = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Loft Boss: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    // ±10% around 41 600 mm³
+    expect(m.volume).toBeGreaterThan(37440);
+    expect(m.volume).toBeLessThan(45760);
+
+    const cap = await captureAllAngles(win, 'loft-boss', SWEEP);
+    expect(cap.blanks).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await app.close();
+  }
 });

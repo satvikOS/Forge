@@ -1,14 +1,22 @@
 /**
  * brep-varfillet-electron.spec.js
  *
- * A2 gate — headed Electron e2e test for variable-radius fillet.
+ * Real-user-workflow test for OCCT variable-radius fillet.
+ * Geometry is invoked by clicking the real ribbon tool button
+ * (Part tab, Modify group) — NOT by calling kernel APIs directly.
  *
- * Expected values from docs/superpowers/notes/occt-api-A2.md item 7.
+ * Handler build (ToolExecutionEngine.js):
+ *   Variable Radius Fillet: variableFillet(40³ box, r1=1, r2=4)
+ *   → V reduced from 64000 mm³, faceCount > 6
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+
+test.setTimeout(600000);
+
+const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
 
 async function launch() {
   const app = await electron.launch({
@@ -24,32 +32,44 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-test.setTimeout(600000);
+async function switchToPartTab(win) {
+  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
+  await expect(tab).toBeVisible({ timeout: 30000 });
+  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+}
 
-// 6 azimuths × 2 elevations × 3 zooms = 36 captures
-const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
+// ─── Variable Radius Fillet ───────────────────────────────────────────────────
 
-test('variableFillet: 20mm box r1=1->r2=4 on all edges -> volume in (6000, 8000), faceCount > 6', async () => {
-  // Empirically measured: 7969.16 mm³ (occt-api-A2.md item 7, ONE edge).
-  // variableFillet() fills ALL edges with variable radius r1->r2, so volume
-  // will be further below 8000 than the single-edge case.
+test('Variable Radius Fillet: ribbon click applies r1=1→r2=4 on 40³ box, V in (50000, 63900), faceCount > 6', async () => {
+  // Handler: no prior __lastBrepShape → variableFillet(makeBox(40,40,40), 1, 4).
+  // Variable-radius fillet on all edges: removes material from corners.
+  // V must be < 64000 (material removed) and > 50000 (partial removal only).
   const { app, win, pageErrors } = await launch();
-  const m = await win.evaluate(async () => {
-    const brep = window.__archdiscKernel.kernel.brep;
-    const box = await brep.makeBox(20, 20, 20);
-    const filleted = await brep.variableFillet(box, 1, 4);
-    box.dispose();
-    const metrics = await brep.measure(filleted);
-    filleted.dispose();
-    return metrics;
-  });
-  expect(pageErrors).toEqual([]);
-  expect(m.volume).toBeGreaterThan(6000);
-  expect(m.volume).toBeLessThan(8000);
-  expect(m.faceCount).toBeGreaterThan(6);
-  // Render for visual verification
-  await win.evaluate(() => window.__archdiscKernel.renderVariableFillet(20, 1, 4));
-  const cap = await captureAllAngles(win, 'varfillet', SWEEP);
-  expect(cap.blanks).toEqual([]);
-  await app.close();
+  try {
+    await switchToPartTab(win);
+    await win.evaluate(() => { window.__lastBrepShape = null; });
+
+    const re = /^Variable Radius Fillet$/;
+    const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
+      has: win.locator('.ribbon-tool-label', { hasText: re }),
+    }).first();
+    await expect(btn).toBeVisible({ timeout: 30000 });
+    await win.evaluate(() => { window.__lastBrepShape = null; });
+    await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
+
+    const m = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Variable Radius Fillet: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    expect(m.volume).toBeGreaterThan(50000);
+    expect(m.volume).toBeLessThan(63900);
+    expect(m.faceCount).toBeGreaterThan(6);
+
+    const cap = await captureAllAngles(win, 'varfillet', SWEEP);
+    expect(cap.blanks).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await app.close();
+  }
 });
