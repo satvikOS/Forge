@@ -9,7 +9,8 @@
  */
 import path from 'path';
 
-// ─── Regex helpers ────────────────────────────────────────────────────────────
+// ─── Regex helpers ─────────────────────────────────────────────────────────
+
 
 export function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -83,13 +84,17 @@ export async function fillDialog(win, values) {
  * Build a body by clicking a Part-tab primitive ribbon tool and filling its dialog.
  *
  * 1. Switches to the Part tab.
- * 2. Clicks the named primitive tool (e.g. 'Box', 'Cylinder', 'Sphere').
- * 3. Waits for the param dialog.
- * 4. Fills any supplied `params` (or accepts dialog defaults).
- * 5. Waits until `window.__lastBrepShape.id` changes.
- * 6. Returns the new body id.
+ * 2. (Optional) Injects `params` into `window.__archdiscPlanParams[toolName]` so
+ *    the ToolParamDialog bypass picks them up — this is the correct path under
+ *    Playwright (navigator.webdriver=true) where the dialog auto-bypasses.
+ * 3. Clicks the named primitive tool (e.g. 'Box', 'Cylinder', 'Sphere').
+ * 4. Waits until `window.__lastBrepShape.id` changes (tool executed).
+ * 5. Returns the new body id.
  *
- * `params` is optional — when omitted the dialog defaults are accepted.
+ * Note: Under Playwright `navigator.webdriver===true` → ToolParamDialog.js
+ * auto-resolves with defaults immediately (bypass). The dialog is never
+ * rendered. Specs should NOT call waitForDialog/fillDialog for these tools;
+ * instead pass custom values via `params` here so they land in planParams.
  *
  * @param {import('@playwright/test').Page} win
  * @param {string} toolName   e.g. 'Box'
@@ -100,17 +105,45 @@ export async function buildPrimitive(win, toolName, params) {
   const before = await win.evaluate(
     () => (window.__lastBrepShape && window.__lastBrepShape.id) || null,
   );
+  // Inject custom params before the click so the bypass picks them up.
+  if (params && Object.keys(params).length > 0) {
+    await win.evaluate(
+      ([name, vals]) => {
+        if (!window.__archdiscPlanParams) window.__archdiscPlanParams = {};
+        window.__archdiscPlanParams[name] = vals;
+      },
+      [toolName, params],
+    );
+  }
   await clickRibbonTab(win, 'Part');
   await win.waitForTimeout(120);
   await clickRibbonTool(win, toolName);
-  await waitForDialog(win);
-  await fillDialog(win, params);
   await win.waitForFunction(
     (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
     before,
     { timeout: 60000 },
   );
   return win.evaluate(() => window.__lastBrepShape.id);
+}
+
+/**
+ * Inject a one-shot params override for a named tool, consumed by the
+ * ToolParamDialog bypass on the next click. Use this when you need to
+ * pass non-default values for a multi-step op (arity-1, arity-2, etc.)
+ * where you call clickRibbonTool yourself rather than using buildPrimitive.
+ *
+ * @param {import('@playwright/test').Page} win
+ * @param {string} toolName   Exact tool name matching the schema key
+ * @param {object} params     Field values to override
+ */
+export async function injectToolParams(win, toolName, params) {
+  await win.evaluate(
+    ([name, vals]) => {
+      if (!window.__archdiscPlanParams) window.__archdiscPlanParams = {};
+      window.__archdiscPlanParams[name] = vals;
+    },
+    [toolName, params],
+  );
 }
 
 // ─── Body selection ───────────────────────────────────────────────────────────

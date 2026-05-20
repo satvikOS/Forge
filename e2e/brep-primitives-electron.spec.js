@@ -3,9 +3,11 @@
  *
  * Real-user-workflow tests for OCCT solid primitives.
  * Every geometry op is invoked by clicking the real ribbon tool button
- * (Part tab, Solid Primitives group) — NOT by calling kernel APIs directly.
+ * (Part tab, Solid Primitives group) and filling the ToolParamDialog —
+ * NOT by calling kernel APIs directly.
  *
- * Handler defaults (from ToolExecutionEngine.js):
+ * Under Playwright (navigator.webdriver=true) the ToolParamDialog
+ * auto-resolves with schema defaults immediately. Effective defaults:
  *   Cylinder  : r=20 mm, h=40 mm  → V = π×400×40 ≈ 50 265 mm³
  *   Sphere    : r=25 mm           → V = (4/3)π×15625 ≈ 65 450 mm³
  *   Cone      : r1=25 r2=8 h=45   → V = π×(45/3)×(625+200+64) ≈ 41 900 mm³
@@ -15,6 +17,7 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+import { buildPrimitive } from './helpers/uiWorkflow.js';
 
 test.setTimeout(600000);
 
@@ -34,44 +37,13 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-/**
- * Click a ribbon tool by exact label text and wait for __lastBrepShape to
- * update to a new value (or be set from null).
- * Tab must already be active before calling this.
- */
-async function clickRibbonTool(win, toolName) {
-  // Capture current shape id so we can detect the change reliably.
-  const prevId = await win.evaluate(() =>
-    window.__lastBrepShape ? window.__lastBrepShape.id : null
-  );
-  // Clear the slot so an absent previous id never creates ambiguity.
-  await win.evaluate(() => { window.__lastBrepShape = null; });
-
-  const re = new RegExp(`^${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
-  const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-    has: win.locator('.ribbon-tool-label', { hasText: re }),
-  }).first();
-  await expect(btn).toBeVisible({ timeout: 30000 });
-  await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-
-  // Wait for the handler to set __lastBrepShape.
-  await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
-}
-
-/** Switch the ribbon to the Part tab. */
-async function switchToPartTab(win) {
-  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
-  await expect(tab).toBeVisible({ timeout: 30000 });
-  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-}
-
 // ─── Cylinder ────────────────────────────────────────────────────────────────
 
 test('cylinder: ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³', async () => {
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Cylinder');
+    // Build via real ribbon click + dialog (defaults: r=20 h=40).
+    await buildPrimitive(win, 'Cylinder');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -95,8 +67,8 @@ test('cylinder: ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³',
 test('sphere: ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async () => {
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Sphere');
+    // Build via real ribbon click + dialog (defaults: r=25).
+    await buildPrimitive(win, 'Sphere');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -120,8 +92,8 @@ test('sphere: ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async ()
 test('cone: ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async () => {
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Cone');
+    // Build via real ribbon click + dialog (defaults: r1=25 r2=8 h=45).
+    await buildPrimitive(win, 'Cone');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -145,8 +117,8 @@ test('cone: ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async ()
 test('torus: ribbon click builds R=30 r=10 torus, volume ≈ 59 218 mm³', async () => {
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Torus');
+    // Build via real ribbon click + dialog (defaults: majorRadius=30 minorRadius=10).
+    await buildPrimitive(win, 'Torus');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
