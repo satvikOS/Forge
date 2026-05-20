@@ -3,9 +3,10 @@
  *
  * Real-user-workflow tests for OCCT surfacing operations.
  * Every geometry op is invoked by clicking the real ribbon tool button
- * (Part tab, Create group) — NOT by calling kernel APIs directly.
+ * (Part tab, Create group) and filling the ToolParamDialog — NOT by
+ * calling kernel APIs directly.
  *
- * Handler builds (ToolExecutionEngine.js):
+ * Arity-0 (no body selection, dialog defines geometry):
  *   Sweep Boss : sweep( r=8, 60 mm path ) → V = π×64×60 ≈ 12 064 mm³
  *   Loft Boss  : loft( 40→16 square sections, h=50 ) → V ≈ 41 600 mm³
  */
@@ -13,6 +14,7 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+import { buildPrimitive } from './helpers/uiWorkflow.js';
 
 test.setTimeout(600000);
 
@@ -32,31 +34,15 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-async function switchToPartTab(win) {
-  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
-  await expect(tab).toBeVisible({ timeout: 30000 });
-  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-}
-
-async function clickRibbonTool(win, toolName) {
-  await win.evaluate(() => { window.__lastBrepShape = null; });
-  const re = new RegExp(`^${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
-  const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-    has: win.locator('.ribbon-tool-label', { hasText: re }),
-  }).first();
-  await expect(btn).toBeVisible({ timeout: 30000 });
-  await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-  await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
-}
-
 // ─── Sweep Boss ───────────────────────────────────────────────────────────────
 
-test('Sweep Boss: ribbon click builds r=8 disk swept 60 mm, V in (10858, 13270)', async () => {
-  // Handler: sweep(r=8, 60) → π×64×60 = 12 063.72 mm³, ±10%
+test('Sweep Boss: ribbon click + dialog defaults → r=8 disk swept 60 mm, V in (10858, 13270)', async () => {
+  // Arity-0: no body selection. Dialog defaults: radius=8, length=60.
+  // sweep(r=8, 60) → π×64×60 = 12 063.72 mm³, ±10%
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Sweep Boss');
+    // Click Part tab → Sweep Boss → accept dialog defaults.
+    await buildPrimitive(win, 'Sweep Boss');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -76,14 +62,14 @@ test('Sweep Boss: ribbon click builds r=8 disk swept 60 mm, V in (10858, 13270)'
 
 // ─── Loft Boss ────────────────────────────────────────────────────────────────
 
-test('Loft Boss: ribbon click lofts 40→16 squares over 50 mm, V in (37440, 45760)', async () => {
-  // Handler: loft(40, 16, 50)
+test('Loft Boss: ribbon click + dialog defaults → 40→16 squares over 50 mm, V in (37440, 45760)', async () => {
+  // Arity-0: no body selection. Dialog defaults: bottomSize=40, topSize=16, height=50.
   // Frustum with square sections: V = h/3×(A1+A2+√(A1×A2))
   //   = 50/3×(1600+256+640) = 50/3×2496 ≈ 41 600 mm³, ±10%
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Loft Boss');
+    // Click Part tab → Loft Boss → accept dialog defaults.
+    await buildPrimitive(win, 'Loft Boss');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)

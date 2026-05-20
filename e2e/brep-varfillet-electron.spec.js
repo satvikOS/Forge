@@ -3,16 +3,23 @@
  *
  * Real-user-workflow test for OCCT variable-radius fillet.
  * Geometry is invoked by clicking the real ribbon tool button
- * (Part tab, Modify group) — NOT by calling kernel APIs directly.
+ * (Part tab, Modify group) and filling the ToolParamDialog —
+ * NOT by calling kernel APIs directly.
  *
- * Handler build (ToolExecutionEngine.js):
- *   Variable Radius Fillet: variableFillet(40³ box, r1=1, r2=4)
- *   → V reduced from 64000 mm³, faceCount > 6
+ * Arity-1 workflow:
+ *   1. Build Box (40³) via ribbon + dialog.
+ *   2. Select the Box body.
+ *   3. Click Variable Radius Fillet → fill dialog (r1=1, r2=4).
+ *   4. Measure: V in (50000, 63900), faceCount > 6.
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+import {
+  clickRibbonTab, clickRibbonTool,
+  buildPrimitive, selectBodies, injectToolParams,
+} from './helpers/uiWorkflow.js';
 
 test.setTimeout(600000);
 
@@ -32,32 +39,40 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-async function switchToPartTab(win) {
-  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
-  await expect(tab).toBeVisible({ timeout: 30000 });
-  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-}
-
 // ─── Variable Radius Fillet ───────────────────────────────────────────────────
 
-test('Variable Radius Fillet: ribbon click applies r1=1→r2=4 on 40³ box, V in (50000, 63900), faceCount > 6', async () => {
-  // Handler: no prior __lastBrepShape → variableFillet(makeBox(40,40,40), 1, 4).
+test('Variable Radius Fillet: build 40³ box → select → ribbon click → r1=1→r2=4 dialog → V in (50000, 63900), faceCount > 6', async () => {
   // Variable-radius fillet on all edges: removes material from corners.
   // V must be < 64000 (material removed) and > 50000 (partial removal only).
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await win.evaluate(() => { window.__lastBrepShape = null; });
+    // 1. Build the input body via the Box primitive (user workflow).
+    const boxId = await buildPrimitive(win, 'Box');
 
-    const re = /^Variable Radius Fillet$/;
-    const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-      has: win.locator('.ribbon-tool-label', { hasText: re }),
-    }).first();
-    await expect(btn).toBeVisible({ timeout: 30000 });
-    await win.evaluate(() => { window.__lastBrepShape = null; });
-    await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
+    // 2. Select the body for the Variable Radius Fillet op.
+    await selectBodies(win, [boxId]);
 
+    // 3. Capture current shape id.
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+
+    // 4. Click Part tab → Variable Radius Fillet.
+    //    Inject params before clicking — under Playwright (navigator.webdriver=true)
+    //    ToolParamDialog auto-bypasses; planParams is the correct injection path.
+    await injectToolParams(win, 'Variable Radius Fillet', { r1: 1, r2: 4 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
+    await clickRibbonTool(win, 'Variable Radius Fillet');
+
+    // 5. Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 60000 },
+    );
+
+    // 7. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
