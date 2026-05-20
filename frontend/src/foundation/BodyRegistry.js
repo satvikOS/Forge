@@ -16,36 +16,116 @@
 
 class BodyRegistry {
   constructor() {
-    this.bodies = [];      // [{ id, name, sourceTool, group, manifold, volume_mm3, createdAt, visible }]
+    this.bodies = [];      // [{ id, name, sourceTool, group, manifold, brepShapeRef, volume_mm3, createdAt, visible }]
     this._listeners = new Set();
     this._counter = 0;
-    this.selectedId = null;
+    this.selectedId = null;          // legacy single-select (backwards-compat)
+    this._selectedIds = new Set();   // multi-select set
   }
 
-  /** Mark a body as selected (drives PropertyManager). Pass null to clear. */
-  select(id) {
+  // ── Single-select (legacy, backwards-compat) ───────────────────────────────
+
+  /**
+   * Mark a body as selected (drives PropertyManager).
+   *
+   * Extended signature: `select(id, additive=false)`
+   * - If `additive` is false (default) the selection set is cleared first,
+   *   matching the original single-select behaviour.
+   * - If `additive` is true the id is added to the existing selection.
+   *
+   * Pass `null` to clear all selection.
+   */
+  select(id, additive = false) {
     if (id !== null && !this.bodies.some(b => b.id === id)) return false;
+    if (!additive) {
+      this._selectedIds.clear();
+    }
+    if (id !== null) {
+      this._selectedIds.add(id);
+    }
+    // Keep legacy selectedId in sync with the primary (first) selection.
     this.selectedId = id;
     this._notify();
     return true;
   }
 
-  /** Return the currently-selected body record (full, not snapshot). */
+  /** Return the first selected body record (full, not snapshot). Backwards-compat. */
   selectedBody() {
-    return this.bodies.find(b => b.id === this.selectedId) ?? null;
+    // Use _selectedIds so multi-select paths also populate this correctly.
+    const first = this._selectedIds.values().next().value ?? null;
+    return this.bodies.find(b => b.id === first) ?? null;
+  }
+
+  // ── Multi-select API ───────────────────────────────────────────────────────
+
+  /** Replace the current selection with the given ids. */
+  selectMany(ids) {
+    this._selectedIds = new Set(ids.filter(id => this.bodies.some(b => b.id === id)));
+    // Keep legacy selectedId pointing to the first selected body (or null).
+    const first = this._selectedIds.values().next().value ?? null;
+    this.selectedId = first;
+    this._notify();
+  }
+
+  /** Remove a single id from the selection without clearing others. */
+  deselect(id) {
+    this._selectedIds.delete(id);
+    if (this.selectedId === id) {
+      this.selectedId = this._selectedIds.values().next().value ?? null;
+    }
+    this._notify();
+  }
+
+  /** Empty the selection set. */
+  clearSelection() {
+    this._selectedIds.clear();
+    this.selectedId = null;
+    this._notify();
+  }
+
+  /** Return all currently-selected body ids. */
+  selectedIds() {
+    return [...this._selectedIds];
+  }
+
+  /** Return the full BodyEntry objects for all selected bodies. */
+  selectedBodies() {
+    return this.bodies.filter(b => this._selectedIds.has(b.id));
   }
 
   /**
-   * Register a manifold body.
+   * Return the live BrepShape objects for all selected bodies.
+   *
+   * Each BodyEntry may carry a `brepShapeRef` property stashed at registration
+   * time by `registerBody({ ..., brepShape })`. Falls back to
+   * `entry.group.userData.brepShapeRef` if the entry property is absent.
+   *
+   * Note: `addBrepShapeToScene` sets `group.userData.brepShape = true`
+   * (a boolean flag for picking), not the live object. The live BrepShape
+   * reference must be passed explicitly to `registerBody` as `brepShape`.
+   *
+   * @returns {Array} — array of BrepShape objects (may contain undefined entries
+   *   if a body was created before this API existed and has no ref stored).
+   */
+  selectedBrepShapes() {
+    return this.selectedBodies().map(
+      b => b.brepShapeRef ?? b.group?.userData?.brepShapeRef ?? undefined,
+    ).filter(Boolean);
+  }
+
+  /**
+   * Register a body.
    *
    * @param {object} args
-   * @param {THREE.Group} args.group       Three.js group already in the scene
-   * @param {object} args.manifold         manifold-3d Manifold
-   * @param {string=} args.sourceTool       which ribbon tool created it
-   * @param {string=} args.name             override default name
-   * @returns {string}                       generated body id
+   * @param {THREE.Group} args.group        Three.js group already in the scene
+   * @param {object} args.manifold          manifold-3d Manifold (or shim with volume())
+   * @param {object=} args.brepShape        live OCCT BrepShape (optional) — stored as
+   *                                         brepShapeRef for selectedBrepShapes()
+   * @param {string=} args.sourceTool        which ribbon tool created it
+   * @param {string=} args.name              override default name
+   * @returns {string}                        generated body id
    */
-  register({ group, manifold, sourceTool, name }) {
+  register({ group, manifold, brepShape, sourceTool, name }) {
     if (!group || !manifold) return null;
     const id = `body-${(++this._counter).toString().padStart(3, '0')}`;
     let volume_mm3 = null;
@@ -58,11 +138,15 @@ class BodyRegistry {
       sourceTool: sourceTool ?? null,
       group,
       manifold,
+      brepShapeRef: brepShape ?? null,
       volume_mm3,
       createdAt: new Date().toISOString(),
       visible: true,
     };
     group.userData.bodyId = id;
+    // Also store on group.userData so selectedBrepShapes can access it
+    // even without the BodyEntry in hand.
+    if (brepShape) group.userData.brepShapeRef = brepShape;
     this.bodies.push(entry);
     this._notify();
     return id;
@@ -74,7 +158,9 @@ class BodyRegistry {
     const [removed] = this.bodies.splice(i, 1);
     // Remove from scene as well
     if (removed.group?.parent) removed.group.parent.remove(removed.group);
+    // Clean from both selection stores
     if (this.selectedId === id) this.selectedId = null;
+    this._selectedIds.delete(id);
     this._notify();
     return true;
   }
@@ -120,6 +206,7 @@ class BodyRegistry {
     this.bodies = [];
     this._counter = 0;
     this.selectedId = null;
+    this._selectedIds.clear();
     this._notify();
   }
 
@@ -130,7 +217,8 @@ class BodyRegistry {
     const snapshot = this.bodies.map(b => ({
       id: b.id, name: b.name, sourceTool: b.sourceTool,
       volume_mm3: b.volume_mm3, createdAt: b.createdAt, visible: b.visible,
-      selected: b.id === this.selectedId,
+      // `selected` is true if in either the legacy single-select OR the multi-select set.
+      selected: this._selectedIds.has(b.id) || b.id === this.selectedId,
     }));
     for (const fn of this._listeners) {
       try { fn(snapshot); } catch (err) { console.warn('body registry listener', err); }

@@ -36,6 +36,228 @@
  */
 
 export const TOOL_PARAM_SCHEMAS = {
+
+  // ─── OCCT SOLID PRIMITIVES ────────────────────────────────────────────────
+  'Box': {
+    title: 'Box — Solid Primitive',
+    blurb: 'Create an axis-aligned box. Defaults: 40×40×40 mm.',
+    fields: [
+      { name: 'dx', label: 'Width (X)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'dy', label: 'Depth (Y)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'dz', label: 'Height (Z)', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+    ],
+  },
+
+  'Cylinder': {
+    title: 'Cylinder — Solid Primitive',
+    blurb: 'Create a cylinder along +Z. Defaults: r=20 mm, h=40 mm.',
+    fields: [
+      { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+    ],
+  },
+
+  'Sphere': {
+    title: 'Sphere — Solid Primitive',
+    blurb: 'Create a sphere centred at the origin. Default: r=25 mm.',
+    fields: [
+      { name: 'radius', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+    ],
+  },
+
+  'Cone': {
+    title: 'Cone — Solid Primitive',
+    blurb: 'Create a truncated cone along +Z. Defaults: r1=25 mm, r2=8 mm, h=45 mm.',
+    fields: [
+      { name: 'radius1', label: 'Base radius (r1)', type: 'number', default: 25, unit: 'mm', min: 0,   max: 1000, step: 1 },
+      { name: 'radius2', label: 'Top radius (r2)',  type: 'number', default: 8,  unit: 'mm', min: 0,   max: 1000, step: 1, hint: '0 = sharp apex' },
+      { name: 'height',  label: 'Height',           type: 'number', default: 45, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+    ],
+  },
+
+  'Torus': {
+    title: 'Torus — Solid Primitive',
+    blurb: 'Create a torus around +Z. Defaults: R=30 mm, r=10 mm.',
+    fields: [
+      { name: 'majorRadius', label: 'Major radius (R)', type: 'number', default: 30, unit: 'mm', min: 1, max: 1000, step: 1 },
+      { name: 'minorRadius', label: 'Minor radius (r)', type: 'number', default: 10, unit: 'mm', min: 0.1, max: 500, step: 1, hint: 'Must be < major radius' },
+    ],
+  },
+
+  // ─── OCCT FEATURES (arity 1) ──────────────────────────────────────────────
+  'Fillet': {
+    title: 'Fillet — Edge Blend',
+    blurb: 'Apply a constant-radius fillet to all edges of the selected body. Default: r=2 mm.',
+    fields: [
+      { name: 'radius', label: 'Radius', type: 'number', default: 2, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Chamfer': {
+    title: 'Chamfer — Edge Cut',
+    blurb: 'Apply a 45° chamfer to all edges of the selected body. Default: d=2 mm.',
+    fields: [
+      { name: 'distance', label: 'Distance', type: 'number', default: 2, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Variable Radius Fillet': {
+    title: 'Variable Radius Fillet',
+    blurb: 'Fillet that transitions from r1 to r2 along each edge. Defaults: r1=1 mm → r2=4 mm.',
+    fields: [
+      { name: 'r1', label: 'Start radius (r1)', type: 'number', default: 1, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+      { name: 'r2', label: 'End radius (r2)',   type: 'number', default: 4, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Shell': {
+    title: 'Shell — Hollow Solid',
+    blurb: 'Hollow the selected solid body, keeping a uniform wall. Default: t=3 mm.',
+    fields: [
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 3, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Draft': {
+    title: 'Draft — Mould Taper',
+    blurb: 'Apply a draft angle to the side faces of the selected body. Default: 5°.',
+    fields: [
+      { name: 'angleDeg', label: 'Draft angle', type: 'number', default: 5, unit: '°', min: 0.1, max: 30, step: 0.5 },
+    ],
+  },
+
+  'Offset Shape': {
+    title: 'Offset Shape',
+    blurb: 'Uniformly offset all faces of the selected body outward. Default: d=2 mm.',
+    fields: [
+      { name: 'distance', label: 'Offset distance', type: 'number', default: 2, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Face Fillet': {
+    title: 'Face Fillet — G2 Blend',
+    blurb: 'Build a C2-continuous fill surface over a planar wire boundary. Default: hole box side=6 mm.',
+    fields: [
+      { name: 'holeBoxSize', label: 'Boundary box size', type: 'number', default: 6, unit: 'mm', min: 1, max: 200, step: 1 },
+    ],
+  },
+
+  'Full Round Fillet': {
+    title: 'Full Round Fillet — Cliff-Edge Blend',
+    blurb: 'Large-radius blend on all edges of the selected body. Default: r=8 mm.',
+    fields: [
+      { name: 'radius', label: 'Blend radius', type: 'number', default: 8, unit: 'mm', min: 0.1, max: 200, step: 1 },
+    ],
+  },
+
+  'Corner Mitre': {
+    title: 'Corner Mitre',
+    blurb: 'Auto-mitre all corners by filleting every edge. Default: r=3 mm.',
+    fields: [
+      { name: 'radius', label: 'Mitre radius', type: 'number', default: 3, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Simplify Geometry': {
+    title: 'Simplify Geometry',
+    blurb: 'Merge coplanar/coaxial faces via OCCT ShapeUpgrade_UnifySameDomain. No parameters required.',
+    fields: [],
+  },
+
+  'Subdivide Surface': {
+    title: 'Subdivide Surface — Loop Subdivision',
+    blurb: 'Apply piecewise-smooth Loop subdivision to the selected body. Defaults: 2 levels, 30° crease threshold.',
+    fields: [
+      { name: 'levels',      label: 'Subdivision levels',    type: 'number', default: 2,   unit: '',    min: 1, max: 4,  step: 1,    hint: '1–4 levels; each level 4× triangles' },
+      { name: 'dihedralDeg', label: 'Crease threshold',      type: 'number', default: 30,  unit: '°',   min: 0, max: 90, step: 1,    hint: 'Edges sharper than this are treated as creases' },
+      { name: 'deflection',  label: 'Mesh deflection',       type: 'number', default: 0.5, unit: 'mm',  min: 0.01, max: 2, step: 0.01, hint: 'Controls initial OCCT tessellation quality' },
+    ],
+  },
+
+  // ─── OCCT BOOLEANS (arity 2 / Infinity) ──────────────────────────────────
+  // Combine, Subtract, Intersect, Combine (Non-Manifold), Lattice Fuse have
+  // no parameters — a schema entry with empty fields ensures the dialog
+  // can be future-extended and `requestToolParams` resolves immediately
+  // with an empty values object when bypass is active.
+
+  'Combine': {
+    title: 'Combine (Boolean Fuse)',
+    blurb: 'Fuse two selected bodies into one. Select two bodies then click Combine.',
+    fields: [],
+  },
+
+  'Subtract': {
+    title: 'Subtract (Boolean Cut)',
+    blurb: 'Subtract the second selected body from the first. Select tool body last.',
+    fields: [],
+  },
+
+  'Intersect': {
+    title: 'Intersect (Boolean Common)',
+    blurb: 'Keep only the volume common to both selected bodies.',
+    fields: [],
+  },
+
+  'Combine (Non-Manifold)': {
+    title: 'Combine (Non-Manifold)',
+    blurb: 'Multi-shell compound of two selected bodies sharing a face (non-manifold topology).',
+    fields: [],
+  },
+
+  'Combine (Coincident)': {
+    title: 'Combine (Coincident) — Fuzzy Fuse',
+    blurb: 'Fuse two selected bodies that are nearly touching within a tolerance. Default: tol=0.01 mm.',
+    fields: [
+      { name: 'tolerance', label: 'Fuzzy tolerance', type: 'number', default: 0.01, unit: 'mm', min: 0.0001, max: 1, step: 0.001 },
+    ],
+  },
+
+  'Lattice Fuse': {
+    title: 'Lattice Fuse — N-ary Boolean',
+    blurb: 'Single-pass fuse of all selected bodies (≥2). Efficient for lattice structures.',
+    fields: [],
+  },
+
+  // ─── TOPOLOGY / DIRECT EDIT ───────────────────────────────────────────────
+  'Replace Face': {
+    title: 'Replace Face',
+    blurb: 'Rewrite a single face of the selected body via BRepTools_ReShape. Default: face #1.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to replace' },
+    ],
+  },
+
+  // ─── SURFACING (arity 0 — internal profile) ───────────────────────────────
+  'Thicken': {
+    title: 'Thicken — Sheet to Solid',
+    blurb: 'Thicken a planar sheet into a solid slab. Defaults: 60×40 mm × 3 mm thick.',
+    fields: [
+      { name: 'width',     label: 'Width',     type: 'number', default: 60, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'height',    label: 'Height',    type: 'number', default: 40, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'thickness', label: 'Thickness', type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Sweep Boss': {
+    title: 'Sweep Boss',
+    blurb: 'Sweep a circular profile along a straight path. Defaults: r=8 mm, length=60 mm.',
+    fields: [
+      { name: 'radius', label: 'Profile radius', type: 'number', default: 8,  unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'length', label: 'Path length',    type: 'number', default: 60, unit: 'mm', min: 1,   max: 5000, step: 1 },
+    ],
+  },
+
+  'Loft Boss': {
+    title: 'Loft Boss',
+    blurb: 'Loft between a square bottom section and a square top section. Defaults: bottom=40 mm, top=16 mm, h=50 mm.',
+    fields: [
+      { name: 'bottomSize', label: 'Bottom section side', type: 'number', default: 40, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'topSize',    label: 'Top section side',    type: 'number', default: 16, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'height',     label: 'Height',              type: 'number', default: 50, unit: 'mm', min: 1, max: 5000, step: 1 },
+    ],
+  },
+
+  // ─── THERMODYNAMIC / ROTATING MACHINERY ───────────────────────────────────
   'Brayton Cycle': {
     title: 'Brayton Cycle — Turbofan Inputs',
     blurb: 'Define the engine cycle. Defaults match Rolls-Royce Trent XWB at FL350.',

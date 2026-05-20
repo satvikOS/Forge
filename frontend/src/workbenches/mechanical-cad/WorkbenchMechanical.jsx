@@ -414,6 +414,14 @@ function WorkbenchMechanical() {
         return () => { delete window.__archdiscSetSelection; };
     }, [setSelection]);
 
+    // Expose the BodyRegistry on window so e2e specs and _pickBodies can
+    // programmatically select bodies without needing viewport picking.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscRegistry = getBodyRegistry();
+        return () => { delete window.__archdiscRegistry; };
+    }, []);
+
     const [aiSettingsOpen, setAISettingsOpen] = useState(false);
     const [aiChatOpen, setAIChatOpen] = useState(false);
     const [ribbonTab, setRibbonTab] = useState('part');

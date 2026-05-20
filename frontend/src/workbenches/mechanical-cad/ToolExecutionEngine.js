@@ -522,6 +522,50 @@ async function _runInterferenceDemo() {
   }
 }
 
+// --- _pickBodies helper ---
+
+/**
+ * Resolve the `arity` BrepShapes the next tool operates on.
+ *
+ * Priority order:
+ *   1. `window.__archdiscRegistry.selectedBrepShapes()` — bodies the user has
+ *      explicitly selected in the Part Browser or via e2e `selectBodies()`.
+ *   2. (arity === 1 only) `window.__lastBrepShape` — the last body created by
+ *      any ribbon tool (convenient fallback for single-body workflows where the
+ *      user just built a primitive and immediately applies a feature to it).
+ *
+ * If insufficient bodies are available, throws an error whose message starts
+ * with "select" so the handler's catch block can surface it as `status:'warn'`
+ * (user guidance) rather than `status:'error'` (bug).
+ *
+ * @param {number|Infinity} arity  0 = primitives (no selection), 1 = one body,
+ *                                  2 = two bodies, Infinity = all selected (≥2).
+ * @returns {BrepShape[]}  Array of live BrepShape objects.
+ */
+function _pickBodies(arity) {
+  const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+  let selected = [];
+  if (reg && typeof reg.selectedBrepShapes === 'function') {
+    selected = reg.selectedBrepShapes().filter(s => s && s.shape);
+  }
+  if (arity === 0) return [];
+  if (arity === 1) {
+    if (selected.length >= 1) return [selected[0]];
+    // Convenient single-body fallback: the last body any ribbon tool created.
+    if (typeof window !== 'undefined' && window.__lastBrepShape && window.__lastBrepShape.shape) {
+      return [window.__lastBrepShape];
+    }
+    throw new Error('select a body first');
+  }
+  if (arity === 2) {
+    if (selected.length >= 2) return [selected[0], selected[1]];
+    throw new Error('select two bodies first');
+  }
+  // arity === Infinity: all selected, minimum 2.
+  if (selected.length >= 2) return selected;
+  throw new Error('select at least 2 bodies first');
+}
+
 // --- Tool Handlers ---
 
 const TOOL_HANDLERS = {
