@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Retrofit every OCCT ribbon handler shipped in Sub-projects A0–C to be **selection-driven + param-dialog-driven** instead of hardcoded-demonstrative — so each tool accepts real user inputs (selected bodies, dialog params) and runs in the same workflow a CAD user expects. Per user directives in `feedback_sophisticated_integrations` and `feedback_fully_sophisticated` (effort: max).
+**Goal:** Retrofit every the kernel ribbon handler shipped in Sub-projects A0–C to be **selection-driven + param-dialog-driven** instead of hardcoded-demonstrative — so each tool accepts real user inputs (selected bodies, dialog params) and runs in the same workflow a CAD user expects. Per user directives in `feedback_sophisticated_integrations` and `feedback_fully_sophisticated` (effort: max).
 
-**Reinforcement (2026-05-19) — explicit user order:** "NOT to input any hardcoded stuff during the tests and in the platform, everything should be fresh groundup with workflows similar to human user (clicking, dragging, sketching, designing, rendering etc)". **No handler may fabricate its own input geometry. No e2e test may call `kernel.brep.*` to construct inputs.** All inputs come from real UI actions (clicking ribbon tools, sketching, dragging, dialog inputs). Recon specs are the single exception (they probe OCCT bindings directly).
+**Reinforcement (2026-05-19) — explicit user order:** "NOT to input any hardcoded stuff during the tests and in the platform, everything should be fresh groundup with workflows similar to human user (clicking, dragging, sketching, designing, rendering etc)". **No handler may fabricate its own input geometry. No e2e test may call `kernel.brep.*` to construct inputs.** All inputs come from real UI actions (clicking ribbon tools, sketching, dragging, dialog inputs). Recon specs are the single exception (they probe the kernel bindings directly).
 
-**Architecture:** Reuse the existing `ToolParamDialog` + `requestToolParams(toolName)` + `ToolParamSchemas.js` infrastructure (already used by `Extrude Boss`, `Revolve Boss`, etc.). Reuse the existing `BodyRegistry` (`getBodyRegistry()`, `selectedBody()`, `selectedBodies()`) + selection state in `WorkbenchMechanical.jsx` for multi-body inputs. Every OCCT handler retrofitted to: read selection → ask for params via dialog → run op → render. Hardcoded demo inputs are removed. e2e tests retrofitted to the matching real-user workflow (create bodies via clicks → select → click op → fill dialog → assert).
+**Architecture:** Reuse the existing `ToolParamDialog` + `requestToolParams(toolName)` + `ToolParamSchemas.js` infrastructure (already used by `Extrude Boss`, `Revolve Boss`, etc.). Reuse the existing `BodyRegistry` (`getBodyRegistry()`, `selectedBody()`, `selectedBodies()`) + selection state in `WorkbenchMechanical.jsx` for multi-body inputs. Every the kernel handler retrofitted to: read selection → ask for params via dialog → run op → render. Hardcoded demo inputs are removed. e2e tests retrofitted to the matching real-user workflow (create bodies via clicks → select → click op → fill dialog → assert).
 
 **Tech Stack:** Unchanged. Vite 7 / React 19 / Three.js 0.181 / Electron 42 / Playwright 1.59.
 
@@ -34,8 +34,8 @@
 
 | File | Responsibility |
 |---|---|
-| `frontend/src/foundation/ToolParamSchemas.js` | Modify — add schemas for every OCCT op missing one |
-| `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | Modify — retrofit every OCCT handler to be selection + dialog driven; add a shared `_pickBodies(n)` helper that reads `BodyRegistry`/selection |
+| `frontend/src/foundation/ToolParamSchemas.js` | Modify — add schemas for every the kernel op missing one |
+| `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | Modify — retrofit every the kernel handler to be selection + dialog driven; add a shared `_pickBodies(n)` helper that reads `BodyRegistry`/selection |
 | `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` | Modify (small) — expose `window.__archdiscRegistry = getBodyRegistry()` for e2e if not already; ensure `window.__archdiscSetSelection` accepts an array for multi-select |
 | `e2e/helpers/orbitCapture.js`, `e2e/helpers/uiWorkflow.js` (NEW) | Create `uiWorkflow.js` — shared `clickRibbonTab`, `clickRibbonTool`, `selectBodies`, `fillDialog` helpers so every retrofitted spec uses the same pattern |
 | `e2e/brep-*.spec.js` (many) | Modify — retrofit each op's tests to the new workflow |
@@ -55,13 +55,13 @@ Read these files top-to-bottom and produce a short note in `docs/superpowers/not
 - `frontend/src/foundation/ToolParamSchemas.js`
 - `frontend/src/foundation/BodyRegistry.js`
 - `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` (the selection state + the existing window hooks)
-- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (the existing OCCT handlers — `Combine`, `Fillet`, `Box`, `Subdivide Surface`, etc.)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (the existing the kernel handlers — `Combine`, `Fillet`, `Box`, `Subdivide Surface`, etc.)
 - one existing dialog-using handler — read `Extrude Boss` (around line 718 of ToolExecutionEngine) for the canonical pattern: `const { values, cancelled } = await requestToolParams('Extrude Boss'); if (cancelled) return { status:'warn', message: '... cancelled' };`.
 
 In the note: write
 - The exact `requestToolParams` shape + how the dialog fields are wired.
 - The exact BodyRegistry API for reading the current selection + the multi-select mechanism (if any). If multi-select isn't supported by the registry, document how it COULD be added (e.g. a `Set<bodyId>` plus toggle on shift+click); flag whether it exists and document either the real path or the addition plan.
-- A complete unified RETROFIT pattern for any OCCT handler:
+- A complete unified RETROFIT pattern for any the kernel handler:
   ```js
   '<Tool>': async (scene, viewport) => {
     try {
@@ -83,7 +83,7 @@ In the note: write
   ```
   with the variant for `arity === 0` (no selection — op generates its own input, e.g. primitives) and the variant for `arity === 1` (single body — read selection else `window.__lastBrepShape`, else `{status:'warn', message:'select a body first'}`).
 
-- A per-tool table: every OCCT-wired ribbon tool name, its kernel op, its required selection arity (0 / 1 / 2), and its dialog schema fields. The full list from Sub-projects A0-C:
+- A per-tool table: every the kernel-wired ribbon tool name, its kernel op, its required selection arity (0 / 1 / 2), and its dialog schema fields. The full list from Sub-projects A0-C:
   - **Primitives (arity 0):** `Box`, `Cylinder`, `Sphere`, `Cone`, `Torus`. Each gets a dialog for its size params (Box: dx, dy, dz; Cylinder: r, h; Sphere: r; Cone: r1, r2, h; Torus: R, r). Removes the current hardcoded defaults — defaults stay as schema defaults so the user can just click Run.
   - **Features (arity 1):** `Extrude Boss` (already dialog-driven — confirm; arity 0 actually, builds its profile), `Revolve Boss` (same), `Fillet`, `Chamfer`, `Variable Radius Fillet`, `Shell`, `Draft`, `Thicken` (Surface, arity 0 currently — leave 0 or move to 1 with a sheet input later), `Offset Shape`, `Face Fillet` (G2), `Full Round Fillet` (cliff), `Corner Mitre`, `Simplify Geometry`, `Subdivide Surface`. Each on a single selected body + a dialog for its scalar params.
   - **Booleans (arity 2):** `Combine`, `Subtract`, `Intersect`, `Combine (Non-Manifold)`, `Combine (Coincident)` (also a tolerance dialog), `Lattice Fuse` (arity ≥4 — actually a multi-body op; document special handling: select N bodies, fuse them).
@@ -160,7 +160,7 @@ git commit -m "docs: sophistication-retrofit pattern + shared e2e workflow helpe
 
 **Files:** modify `frontend/src/foundation/ToolParamSchemas.js`, `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx`, `frontend/src/foundation/BodyRegistry.js` (if multi-select is missing), `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (add the helper, do not yet retrofit handlers).
 
-- [ ] **Step 1: Add ToolParamSchemas for every OCCT op missing one**
+- [ ] **Step 1: Add ToolParamSchemas for every the kernel op missing one**
 
 Add entries to `ToolParamSchemas.js` for: `Box`, `Cylinder`, `Sphere`, `Cone`, `Torus`, `Fillet` (radius), `Chamfer` (distance), `Variable Radius Fillet` (r1, r2), `Shell` (thickness), `Draft` (angleDeg), `Thicken` (w, h, thickness), `Offset Shape` (distance), `Face Fillet` (G2 — holeBoxSize), `Full Round Fillet` (cliff radius), `Corner Mitre` (radius), `Simplify Geometry` (no params or a `dihedralDeg` and `aggressive` toggle), `Subdivide Surface` (levels: integer 1..4, dihedralDeg: 0..90 default 30, deflection: 0.01..2 default 0.5), `Combine`/`Subtract`/`Intersect` (no params; bodies come from selection), `Combine (Non-Manifold)` (no params), `Combine (Coincident)` (tolerance), `Lattice Fuse` (no params — N from selection), `Replace Face` (faceIndex). Reasonable defaults that produce the current demo values when accepted as-is, so existing tests still pass after dialog-fill.
 

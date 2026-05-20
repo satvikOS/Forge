@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Cover the six "next-horizon" capabilities documented at the end of Sub-project F: auto-trimming NURBS B-rep faces, class-A modelling workflow, true G2 (curvature-continuous) surface blends, NURBS surface-surface intersection (SSI), surface-pull-back in retopology, and Catmull-Clark subdivision for quad meshes. Recon-first to lock OCCT-binding scope; pure-JS items implemented from scratch using well-known algorithms.
+**Goal:** Cover the six "next-horizon" capabilities documented at the end of Sub-project F: auto-trimming NURBS B-rep faces, class-A modelling workflow, true G2 (curvature-continuous) surface blends, NURBS surface-surface intersection (SSI), surface-pull-back in retopology, and Catmull-Clark subdivision for quad meshes. Recon-first to lock the kernel-binding scope; pure-JS items implemented from scratch using well-known algorithms.
 
 **Architecture:** Two paths converge —
-1. **OCCT-binding-dependent items** (NURBS SSI via `GeomAPI_IntSS`, surface-pull-back via `GeomAPI_ProjectPointOnSurf`, auto-trimming NURBS B-rep via `BRepBuilderAPI_MakeFace(surface, wire)` / `Geom_RectangularTrimmedSurface`) — recon-verified, ship as kernel ops behind `ArchDiscKernel.brep.*` + ribbon tools.
-2. **Pure-JS items** (Catmull-Clark in `foundation/CatmullClarkSubdivision.js`; G2 blend NURBS fitting in `foundation/G2BlendSurface.js`; class-A workflow as a curvature-comb + zebra-stripe analysis + G2-blend integration tool) — implemented from scratch following standard algorithms; no OCCT-binding dependency.
+1. **the kernel-binding-dependent items** (NURBS SSI via `GeomAPI_IntSS`, surface-pull-back via `GeomAPI_ProjectPointOnSurf`, auto-trimming NURBS B-rep via `BRepBuilderAPI_MakeFace(surface, wire)` / `Geom_RectangularTrimmedSurface`) — recon-verified, ship as kernel ops behind `ArchDiscKernel.brep.*` + ribbon tools.
+2. **Pure-JS items** (Catmull-Clark in `foundation/CatmullClarkSubdivision.js`; G2 blend NURBS fitting in `foundation/G2BlendSurface.js`; class-A workflow as a curvature-comb + zebra-stripe analysis + G2-blend integration tool) — implemented from scratch following standard algorithms; no the kernel-binding dependency.
 
 Every reachable item: facade-exposed, ribbon-integrated, e2e-verified via real ribbon clicks + real param dialogs + a real-world artifact recipe + all-camera-angle/zoom capture. All directives in `MEMORY.md` feedback files (`feedback_sophisticated_integrations`, `feedback_complex_e2e_models`, `feedback_e2e_user_workflows`, `feedback_e2e_all_angles`, `feedback_fully_sophisticated`, `feedback_no_floating_panels`) hold throughout.
 
 **Tech Stack:** `opencascade.js@2.0.0-beta.b5ff984` (pinned), Vite 7, React 19, Electron 42, Playwright 1.59 (headed, `_electron`).
 
-**Reference:** spec `docs/superpowers/specs/2026-05-18-occt-kernel-integration-foundation-design.md` §3.1 (G2 blending), §3.3 (advanced surfacing), §3.5 (convergent modelling, healing); the kernel program memory `project_occt_kernel`; existing foundation NURBS fragments (memory: `NURBSSurface`, `BlendSurface`, `SurfaceCurvature` already exist in `frontend/src/foundation/` — read them before building G2 blends).
+**Reference:** spec `docs/superpowers/specs/2026-05-18-kernel-integration-foundation-design.md` §3.1 (G2 blending), §3.3 (advanced surfacing), §3.5 (convergent modelling, healing); the kernel program memory `project_occt_kernel`; existing foundation NURBS fragments (memory: `NURBSSurface`, `BlendSurface`, `SurfaceCurvature` already exist in `frontend/src/foundation/` — read them before building G2 blends).
 
 ---
 
@@ -43,20 +43,20 @@ Every reachable item: facade-exposed, ribbon-integrated, e2e-verified via real r
 | `frontend/src/foundation/ToolParamSchemas.js` | Modify — schemas for G ribbon tools |
 | `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | Modify — ribbon handlers |
 | `frontend/src/components/RibbonToolbar.jsx`, `WorkbenchMechanical.jsx` | Modify — ribbon entries |
-| `docs/superpowers/notes/occt-api-G.md` | Create (Task 1) — recon verdict per OCCT-dependent G item |
+| `docs/superpowers/notes/kernel-api-G.md` | Create (Task 1) — recon verdict per the kernel-dependent G item |
 | `docs/superpowers/notes/catmull-clark-G.md`, `g2-blend-G.md` | Create — pure-JS algorithm notes |
 | `e2e/brep-g-recon-electron.spec.js` | Create (Task 1) — recon |
 | `e2e/brep-g-{ssi,trim,pullback,catmull,g2blend,classa}-electron.spec.js` | Create — per-op e2e gates |
 
 ---
 
-## Task 1: Recon — OCCT-binding-dependent items
+## Task 1: Recon — the kernel-binding-dependent items
 
-Empirical reachability verdict for the three OCCT-dependent capabilities. Pure-JS items don't need recon.
+Empirical reachability verdict for the three the kernel-dependent capabilities. Pure-JS items don't need recon.
 
 Items:
 
-1. **NURBS SSI — `GeomAPI_IntSS`**. Build two NURBS surfaces (use the verified `Geom_BSplineSurface_1` from E recon, or build via `oc.Geom_BSplineSurface_1(...)` directly). Or simpler: extract two surfaces from two intersecting OCCT primitives — a `MakeCylinder` and a `MakeBox` produce a cylinder side surface and a box face that intersect. Use `BRep_Tool.Surface_2(face)` (E verified) to extract surfaces. Construct `new oc.GeomAPI_IntSS_*(s1, s2, tolerance)` (probe suffixes). Read intersection curves via `.NbLines()` + `.Line(i)`. Confirm at least one intersection curve is produced. Record the verified call sequence.
+1. **NURBS SSI — `GeomAPI_IntSS`**. Build two NURBS surfaces (use the verified `Geom_BSplineSurface_1` from E recon, or build via `oc.Geom_BSplineSurface_1(...)` directly). Or simpler: extract two surfaces from two intersecting the kernel primitives — a `MakeCylinder` and a `MakeBox` produce a cylinder side surface and a box face that intersect. Use `BRep_Tool.Surface_2(face)` (E verified) to extract surfaces. Construct `new oc.GeomAPI_IntSS_*(s1, s2, tolerance)` (probe suffixes). Read intersection curves via `.NbLines()` + `.Line(i)`. Confirm at least one intersection curve is produced. Record the verified call sequence.
 
 2. **Closest-point projection — `GeomAPI_ProjectPointOnSurf`**. Given a `Handle_Geom_Surface` (from `BRep_Tool.Surface_2`) and a `gp_Pnt` near but not on the surface, construct `new oc.GeomAPI_ProjectPointOnSurf_*(pnt, surface)` (probe suffixes). Read the nearest point via `.NearestPoint()`, parameters via `.Parameters()`. Used by retopo surface pull-back. Test with a `BRepPrimAPI_MakeCylinder_1(20,40).Shape()` cylinder face + a query point at `(25, 0, 20)` (5mm outside the radius=20 cylinder); the nearest point should be `(20, 0, 20)` (cylinder surface). Record.
 
@@ -66,7 +66,7 @@ For each: verdict + verified COMPLETE copy-pasteable sequence (REACHABLE) or hon
 
 - [ ] **Step 1: Write recon spec `e2e/brep-g-recon-electron.spec.js`**
 
-Pattern: `e2e/brep-e-recon-electron.spec.js`, `e2e/brep-f-recon-electron.spec.js`. `test.setTimeout(600000)`. `.delete()` every OCCT object. Spec PASSES when verdicts are recorded.
+Pattern: `e2e/brep-e-recon-electron.spec.js`, `e2e/brep-f-recon-electron.spec.js`. `test.setTimeout(600000)`. `.delete()` every the kernel object. Spec PASSES when verdicts are recorded.
 
 - [ ] **Step 2: Build + run; iterate until GREEN**
 
@@ -74,14 +74,14 @@ Pattern: `e2e/brep-e-recon-electron.spec.js`, `e2e/brep-f-recon-electron.spec.js
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-g-recon-electron.spec.js --project=chromium
 ```
 
-- [ ] **Step 3: Write `docs/superpowers/notes/occt-api-G.md`**
+- [ ] **Step 3: Write `docs/superpowers/notes/kernel-api-G.md`**
 
-Per-item verdict + verified call sequences (REACHABLE) or honest explanation (NOT_REACHABLE). Add a "Sub-project G OCCT-dependent deliverable scope" section listing which ops Tasks 2/4/5 will build.
+Per-item verdict + verified call sequences (REACHABLE) or honest explanation (NOT_REACHABLE). Add a "Sub-project G the kernel-dependent deliverable scope" section listing which ops Tasks 2/4/5 will build.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add e2e/brep-g-recon-electron.spec.js docs/superpowers/notes/occt-api-G.md docs/superpowers/notes/occt-api-G-recon.json
+git add e2e/brep-g-recon-electron.spec.js docs/superpowers/notes/kernel-api-G.md docs/superpowers/notes/kernel-api-G-recon.json
 git commit -m "test(kernel): G recon — NURBS SSI / surface projection / trimmed face reachability"
 ```
 
@@ -150,7 +150,7 @@ Honest note: if the parametric trim wire path is unreachable, ship the simpler `
 
 ---
 
-## Task 6: True G2 surface blend (pure JS, no OCCT dependency)
+## Task 6: True G2 surface blend (pure JS, no the kernel dependency)
 
 `frontend/src/foundation/G2BlendSurface.js`. Algorithm: given two boundary curves with sampled position, tangent, and curvature data along each, fit a bicubic NURBS surface that interpolates positions at both boundaries AND matches tangent + curvature continuity (G2). Standard technique: a degree-5 NURBS surface in v (so each isoparametric u-curve has 6 control points: 3 fixed by position + tangent + curvature at v=0, 3 at v=1, fully determined by the boundary data); degree 3 in u with control-points-from-boundary-fitting.
 
@@ -158,7 +158,7 @@ Read existing fragments `frontend/src/foundation/NURBSSurface.js`, `BlendSurface
 
 Export `g2Blend(boundary0, boundary1, opts)` where each boundary is `{points: [[x,y,z],...], tangents: [[tx,ty,tz],...], curvatures: [[kx,ky,kz],...]}` (or compute tangent+curvature from positions via finite-difference if opts.computeFromPositions=true).
 
-Tessellate the resulting NURBS surface to a triangle mesh for rendering (re-use the existing OCCT tessellation path is wrong here — this is pure JS; sample the surface at a u-v grid and emit triangles).
+Tessellate the resulting NURBS surface to a triangle mesh for rendering (re-use the existing the kernel tessellation path is wrong here — this is pure JS; sample the surface at a u-v grid and emit triangles).
 
 Kernel facade `frontend/src/kernel/brep/BrepBlendG2.js` — `g2BlendBetweenEdges(brepShape, edgeIdxA, edgeIdxB, opts)`: extract two edges from a B-rep (via `TopExp_Explorer_2` + `oc.TopoDS.Edge_1`), sample positions + tangents along each, compute curvatures, call `g2Blend` from the pure-JS module. Return a `BrepShape` wrapping the tessellated result (use the existing `addBrepShapeToScene` rendering path; mesh-only, not a true B-rep face — documented limitation).
 
@@ -188,13 +188,13 @@ Make sure barrel/facade/ribbon entries are coherent for every G op shipped. Run 
 ./node_modules/.bin/playwright test e2e/brep-occt-load-electron.spec.js e2e/brep-a1-recon-electron.spec.js e2e/brep-a2-recon-electron.spec.js e2e/brep-a3-recon-electron.spec.js e2e/brep-a4-recon-electron.spec.js e2e/brep-a5-recon-electron.spec.js e2e/brep-b-recon-electron.spec.js e2e/brep-e-recon-electron.spec.js e2e/brep-f-recon-electron.spec.js e2e/brep-g-recon-electron.spec.js e2e/subdivide-recon-electron.spec.js e2e/retopo-recon-electron.spec.js e2e/brep-foundation-electron.spec.js e2e/brep-ribbon-electron.spec.js e2e/brep-primitives-electron.spec.js e2e/brep-boolean-electron.spec.js e2e/brep-features-electron.spec.js e2e/brep-step-electron.spec.js e2e/brep-localops-electron.spec.js e2e/brep-surfacing-electron.spec.js e2e/brep-varfillet-electron.spec.js e2e/brep-check-electron.spec.js e2e/brep-simplify-electron.spec.js e2e/brep-blend-electron.spec.js e2e/brep-b-advanced-electron.spec.js e2e/subdivide-surface-electron.spec.js e2e/retopo-surface-electron.spec.js e2e/brep-nurbs-electron.spec.js e2e/brep-final-electron.spec.js e2e/brep-g-*-electron.spec.js e2e/thought-bubble-dismiss-electron.spec.js e2e/catmull-clark-electron.spec.js --project=chromium
 ```
 
-All must pass. Append "Sub-project G — honest outcome" sections to each of the relevant notes (catmull-clark-G.md, g2-blend-G.md, occt-api-G.md) detailing measured values, dropped ops, and honest limitations.
+All must pass. Append "Sub-project G — honest outcome" sections to each of the relevant notes (catmull-clark-G.md, g2-blend-G.md, kernel-api-G.md) detailing measured values, dropped ops, and honest limitations.
 
 ---
 
 ## Self-review notes
 
-- Each item recon-first where applicable (3 OCCT-dependent items); pure-JS items have their own algorithm doc notes for traceability.
+- Each item recon-first where applicable (3 the kernel-dependent items); pure-JS items have their own algorithm doc notes for traceability.
 - Hardcoded inputs forbidden anywhere — every handler/test drives via real ribbon clicks + dialogs + real-world artifact.
 - Honest gaps openly documented per item — no silent fakery.
-- After G: remaining open frontier (genuinely needs a different OCCT WASM build or a different geometry kernel) is auto-trimming complex B-rep with G2 fillets producing a true class-A B-rep solid; explicit roadmap item beyond this.
+- After G: remaining open frontier (genuinely needs a different kernel WASM build or a different geometry kernel) is auto-trimming complex B-rep with G2 fillets producing a true class-A B-rep solid; explicit roadmap item beyond this.

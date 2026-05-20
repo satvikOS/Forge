@@ -7,14 +7,14 @@
 **Architecture:** Builds on `frontend/src/foundation/LoopSubdivision.js`, which already implements correct Loop math for triangle meshes (the C¹-at-extraordinary-vertices guarantee). This sub-project adds:
 1. **Piecewise-smooth subdivision (Hoppe et al.)** — per-edge sharpness flags so feature edges follow crease/boundary rules instead of smooth interior rules. Eliminates "pinching" of sharp features (cube corners, fillet seams).
 2. **Limit-normal evaluation** — compute proper vertex normals via Loop tangent masks at irregular topology rather than face-normal averaging. Eliminates shading discontinuities.
-3. **Auto-crease detection by dihedral angle** — feature edges of an OCCT-tessellated body are detected by sharp dihedral angle and marked as creases automatically.
+3. **Auto-crease detection by dihedral angle** — feature edges of an the kernel-tessellated body are detected by sharp dihedral angle and marked as creases automatically.
 4. **Ribbon tool `Subdivide Surface`** — clicks through the real platform: take the current body's tessellation, auto-detect creases, Loop-subdivide N steps with crease handling, render with limit normals.
 
 Each task: recon → implement → integrate → e2e via real ribbon click + all-angles capture (per `feedback_e2e_user_workflows`).
 
-**Tech Stack:** Pure JS mesh work (no OCCT API beyond using the existing OCCT-tessellated mesh as input). Vite 7, React 19, Electron 42, Playwright 1.59 (headed).
+**Tech Stack:** Pure JS mesh work (no kernel API beyond using the existing the kernel-tessellated mesh as input). Vite 7, React 19, Electron 42, Playwright 1.59 (headed).
 
-**Reference:** ArchDisc memory `project_occt_kernel` ("Loop subdivision FIXED — foundation/LoopSubdivision.js correct triangle scheme"). The roadmap §3 doesn't list subdivision (it's beyond the OCCT B-rep capability set) — this sub-project is per direct user direction.
+**Reference:** ArchDisc memory `project_occt_kernel` ("Loop subdivision FIXED — foundation/LoopSubdivision.js correct triangle scheme"). The roadmap §3 doesn't list subdivision (it's beyond the B-rep capability set) — this sub-project is per direct user direction.
 
 ---
 
@@ -22,8 +22,8 @@ Each task: recon → implement → integrate → e2e via real ribbon click + all
 
 - **Read first:** `frontend/src/foundation/LoopSubdivision.js` (the existing implementation — its header documents Loop's β-rule and weighting). Read also the memory entries `feedback_e2e_user_workflows`, `feedback_e2e_all_angles`, `feedback_no_floating_panels`, `feedback_occt_deep_integration`.
 - **Existing exports** in `LoopSubdivision.js`: `loopSubdivide(mesh, levels)`, `loopStep({vertices,triangles})`, `manifoldMeshToArrays(mesh)`, `subdivideManifold(manifold, levels, getManifoldFn)`.
-- **OCCT tessellation pipeline:** `kernel/brep/BrepTessellate.js` already converts an OCCT shape into `{positions: Float32Array, normals: Float32Array, indices: Uint32Array}`. Sub-project C's ribbon tool takes a tessellated OCCT body and runs subdivision on its triangle data, then re-renders.
-- **Op pattern (mesh side, NOT OCCT):** plain JS, no `withScope`/`track()`. Subdivision functions take mesh dicts (`{vertices, triangles}`) and return new mesh dicts.
+- **the kernel tessellation pipeline:** `kernel/brep/BrepTessellate.js` already converts an kernel shape into `{positions: Float32Array, normals: Float32Array, indices: Uint32Array}`. Sub-project C's ribbon tool takes a tessellated the kernel body and runs subdivision on its triangle data, then re-renders.
+- **Op pattern (mesh side, NOT the kernel):** plain JS, no `withScope`/`track()`. Subdivision functions take mesh dicts (`{vertices, triangles}`) and return new mesh dicts.
 - **e2e methodology:** drive via real ribbon click. Subdivision produces visual mesh refinement — verify numerically (vertex/triangle count growth, sharp-edge preservation) AND from many camera angles/zooms.
 - Work on branch `archdisc`. Commit after every task. Do NOT create branches.
 
@@ -346,7 +346,7 @@ git commit -m "feat(subdivision): Loop limit-normal evaluator (tangent masks)"
 
 ```js
 /**
- * ArchDisc Kernel — subdivision-surface facade. Takes an OCCT BrepShape,
+ * ArchDisc Kernel — subdivision-surface facade. Takes an the kernel BrepShape,
  * tessellates it, applies piecewise-smooth Loop subdivision with auto-detected
  * creases, computes limit normals, and returns the refined mesh ready for
  * Three.js. No pinching at sharp features; no shading kinks at extraordinary
@@ -431,7 +431,7 @@ In `RibbonToolbar.jsx` add a `Subdivide Surface` tool entry to the Surface tab's
   }
 }
 ```
-Read an existing OCCT geometry-op handler (e.g. `Fillet`) to get the exact rendering pattern. The subdivided mesh is a Three.js `BufferGeometry` — render it as a `THREE.Mesh` in a 0.001-scaled `THREE.Group`, register it as the current body so subsequent ribbon tools can pick it up (or simply add to the scene and set `window.__lastSubdivMesh` for the e2e). Dispose any fallback `BrepShape`.
+Read an existing the kernel geometry-op handler (e.g. `Fillet`) to get the exact rendering pattern. The subdivided mesh is a Three.js `BufferGeometry` — render it as a `THREE.Mesh` in a 0.001-scaled `THREE.Group`, register it as the current body so subsequent ribbon tools can pick it up (or simply add to the scene and set `window.__lastSubdivMesh` for the e2e). Dispose any fallback `BrepShape`.
 
 - [ ] **Step 4: Create the e2e gate `e2e/subdivide-surface-electron.spec.js`**
 

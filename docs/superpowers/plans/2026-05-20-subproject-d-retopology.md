@@ -4,9 +4,9 @@
 
 **Goal:** Add an isotropic-remeshing retopology pipeline to ArchDisc — take an arbitrary input triangle mesh and produce a clean, uniformly-sized triangle mesh (regular valence, consistent edge length, smooth vertex distribution). Wire as a "Retopo Surface" ribbon tool driven by a real-world artifact e2e test.
 
-**Architecture:** Pure-JS mesh work, mirroring Sub-project C's structure. Inputs come from OCCT tessellation (any kernel body → `tessellate(...)` → triangle mesh → retopo). New file `frontend/src/foundation/IsotropicRemesh.js` implements the algorithm; `frontend/src/kernel/brep/BrepRetopo.js` is the facade entry that orchestrates tessellate → weld → retopo → limit-normal → Three.js-ready arrays. Wire into a ribbon tool in the Part tab. Real user workflow + real artifact (filleted bracket) + all-angles capture.
+**Architecture:** Pure-JS mesh work, mirroring Sub-project C's structure. Inputs come from the kernel tessellation (any kernel body → `tessellate(...)` → triangle mesh → retopo). New file `frontend/src/foundation/IsotropicRemesh.js` implements the algorithm; `frontend/src/kernel/brep/BrepRetopo.js` is the facade entry that orchestrates tessellate → weld → retopo → limit-normal → Three.js-ready arrays. Wire into a ribbon tool in the Part tab. Real user workflow + real artifact (filleted bracket) + all-angles capture.
 
-**Tech Stack:** Pure JS (no OCCT API beyond using its tessellation). Vite 7 / React 19 / Three.js 0.181 / Electron 42 / Playwright 1.59.
+**Tech Stack:** Pure JS (no kernel API beyond using its tessellation). Vite 7 / React 19 / Three.js 0.181 / Electron 42 / Playwright 1.59.
 
 **Reference:** [Botsch & Kobbelt, "A Remeshing Approach to Multiresolution Modeling" (2004)] — the canonical isotropic-remeshing algorithm (split-long → collapse-short → tangential relax → flip-improve-valence, iterated). Also memory `feedback_complex_e2e_models` (real-world artifacts), `feedback_sophisticated_integrations`, `feedback_e2e_user_workflows`, `feedback_e2e_all_angles`, `feedback_fully_sophisticated`.
 
@@ -140,7 +140,7 @@ git commit -m "feat(retopo): isotropic remeshing (Botsch-Kobbelt 2004)"
 ```js
 /**
  * ArchDisc Kernel — retopology facade.
- * 1. Tessellate the OCCT B-rep to a triangle mesh.
+ * 1. Tessellate the B-rep to a triangle mesh.
  * 2. Weld duplicate vertices.
  * 3. Isotropic remesh (Botsch-Kobbelt 2004).
  * 4. Compute per-vertex normals via Loop limit-normal evaluator (re-use C's

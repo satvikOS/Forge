@@ -1,4 +1,4 @@
-# Sub-project A — OCCT Kernel Integration Foundation — Design
+# Sub-project A — the kernel Kernel Integration Foundation — Design
 
 > **Spec.** Written 2026-05-18. This is Sub-project A of the ArchDisc kernel
 > program defined in `docs/ARCHDISC_VISION_AND_ROADMAP.md` §8 Step 0. It is
@@ -13,7 +13,7 @@ NURBS geometry kernel**; its working engine is `manifold-3d`, a mesh-boolean
 kernel that cannot produce exact NURBS surfaces, exact trimmed topology, or
 exact fillets (roadmap §0, §6, §7).
 
-Sub-project A resolves Step 0 by **integrating OpenCASCADE (OCCT)** into
+Sub-project A resolves Step 0 by **integrating the underlying B-rep kernel** into
 ArchDisc as its exact B-rep kernel and building a substantial slice of the
 ACIS/Parasolid parity capability set (roadmap §3) on top of it.
 
@@ -26,13 +26,13 @@ This is the first sub-project of a multi-day kernel program. Sub-projects B+
 These were settled during brainstorming and are **not** open for
 re-litigation inside this spec:
 
-- **Kernel:** OpenCASCADE via the prebuilt `opencascade.js` WASM package.
+- **Kernel:** the underlying B-rep kernel via the prebuilt `opencascade.js` WASM package.
   It is the only mature open-source exact B-rep kernel with a working WASM
   build for an Electron/Vite renderer. LGPL; large WASM payload accepted as a
   known, deferred optimization.
-- **Architecture:** one unified **ArchDisc Kernel** facade. OCCT is the exact
+- **Architecture:** one unified **ArchDisc Kernel** facade. the kernel is the exact
   B-rep engine under the hood; `manifold-3d` is kept behind the same facade
-  for existing mesh features. New parity work targets OCCT. The existing
+  for existing mesh features. New parity work targets the kernel. The existing
   ~388 e2e tests must not regress.
 - **Integration approach:** thin facade over the prebuilt full
   `opencascade.js` (no custom slim WASM build in this sub-project).
@@ -45,10 +45,10 @@ re-litigation inside this spec:
 
 ### 3.1 In scope (delivered, phased — see §6)
 
-- OCCT WASM loaded into the Vite/Electron renderer.
-- A unified ArchDisc Kernel facade (`kernel/brep/`) with OCCT lifecycle /
+- kernel WASM loaded into the Vite/Electron renderer.
+- A unified ArchDisc Kernel facade (`kernel/brep/`) with the kernel lifecycle /
   disposal management.
-- OCCT → Three.js tessellation and live viewport display.
+- the kernel → Three.js tessellation and live viewport display.
 - A "B-rep Lab" workbench panel and a `window.__archdiscKernel` hook.
 - Operation set:
   - **Core:** box, cylinder, sphere, cone, torus primitives; exact boolean
@@ -71,9 +71,9 @@ re-litigation inside this spec:
 - N-sided patching; non-manifold booleans; coplanar/coincident-face
   booleans; high-density lattice intersections; local face replacement;
   tolerant modeling / stitching; convergent modeling.
-- A custom slim OCCT WASM build (bundle-size optimization).
-- Migrating existing `manifold-3d` features onto OCCT.
-- Wiring the existing sketch-constraint solver to the OCCT kernel.
+- A custom slim kernel WASM build (bundle-size optimization).
+- Migrating existing `manifold-3d` features onto the kernel.
+- Wiring the existing sketch-constraint solver to the kernel.
 - Simulation, MCQ engine, swarm orchestration, publishing (roadmap §1, §4).
 
 ## 4. Architecture
@@ -83,7 +83,7 @@ re-litigation inside this spec:
 | Module | Responsibility |
 |---|---|
 | `occtKernel.js` | Singleton WASM loader `getOCCT()`. Mirrors `foundation/manifoldKernel.js`: loads the prebuilt `opencascade.js` module once, caches the promise, resolves the `.wasm` asset via a Vite `?url` import. `_reset()` for tests. |
-| `BrepShape.js` | Wrapper over an OCCT `TopoDS_Shape`: a stable string id, construction metadata (op name, params, parent ids), and `dispose()`. Plus `withScope(fn)` — a disposal arena that frees every intermediate OCCT/Embind object allocated inside `fn` on exit, except the `BrepShape`(s) `fn` returns. |
+| `BrepShape.js` | Wrapper over an the kernel `TopoDS_Shape`: a stable string id, construction metadata (op name, params, parent ids), and `dispose()`. Plus `withScope(fn)` — a disposal arena that frees every intermediate the kernel/Embind object allocated inside `fn` on exit, except the `BrepShape`(s) `fn` returns. |
 | `BrepPrimitives.js` | `makeBox / makeCylinder / makeSphere / makeCone / makeTorus`. |
 | `BrepBoolean.js` | Exact `fuse / cut / common` (`BRepAlgoAPI_Fuse/Cut/Common`). |
 | `BrepFeatures.js` | `extrude` (`BRepPrimAPI_MakePrism`), `revolve` (`BRepPrimAPI_MakeRevol`), `fillet` (constant-radius, edge-selectable, `BRepFilletAPI_MakeFillet`), `filletVariable` (variable-radius via the same class), `chamfer` (`BRepFilletAPI_MakeChamfer`). |
@@ -99,11 +99,11 @@ re-litigation inside this spec:
 
 ### 4.2 Lifecycle & memory
 
-OCCT objects are Embind-wrapped C++ objects; like `manifold-3d` they leak the
+kernel objects are Embind-wrapped C++ objects; like `manifold-3d` they leak the
 WASM heap unless explicitly freed (memory note: the manifold heap-exhaustion
 fix). Rules:
 
-- Every kernel op runs its OCCT work inside `withScope()`. Intermediates
+- Every kernel op runs its the kernel work inside `withScope()`. Intermediates
   (builders, sub-shapes, transient `TopoDS_Shape`s) are tracked and freed on
   scope exit; only the returned `BrepShape`(s) survive.
 - `BrepShape.dispose()` frees the underlying `TopoDS_Shape` and any cached
@@ -130,7 +130,7 @@ fix). Rules:
 - `opencascade.js` added to `frontend/package.json` dependencies.
 - The `.wasm` asset is resolved via a `?url` import (the pattern already used
   for `manifold-3d/manifold.wasm?url`); Vite copies it to the build output.
-- `base: './'` is already set for Electron — the OCCT wasm URL must resolve
+- `base: './'` is already set for Electron — the the kernel wasm URL must resolve
   correctly under that base in both `vite dev` and the Electron build.
 
 ## 5. Data flow
@@ -138,7 +138,7 @@ fix). Rules:
 ```
 B-rep Lab button click  ──►  ArchDiscKernel.brep.<op>(params)
         │                          │
-        │                    withScope:  getOCCT() ──► OCCT API ──► TopoDS_Shape
+        │                    withScope:  getOCCT() ──► kernel API ──► TopoDS_Shape
         │                          │
         │                    new BrepShape(shape, meta)
         ▼                          ▼
@@ -153,7 +153,7 @@ window.__archdiscKernel      BrepTessellate ──► {positions,normals,indices
 ## 6. Build phases (each fully e2e-green before the next)
 
 - **Phase A0 — Integration foundation.** Install `opencascade.js`; write
-  `occtKernel.js`; "hello box" smoke test — load OCCT, make one box,
+  `occtKernel.js`; "hello box" smoke test — load the kernel, make one box,
   tessellate it, render it, see it in a headed run. Then `BrepShape` +
   `withScope`, `BrepTessellate`, `BrepMeasure`, `ArchDiscKernel` facade,
   B-rep Lab panel shell, `window.__archdiscKernel` hook. *This phase
@@ -167,7 +167,7 @@ window.__archdiscKernel      BrepTessellate ──► {positions,normals,indices
 - **Phase A4 — Geometry simplification.** Sliver/tiny-face/small-edge
   removal.
 - **Phase A5 — Hard blending (research-grade).** G2, cliff-edge, corner
-  mitering. Honest expectation: these are not one-class OCCT operations;
+  mitering. Honest expectation: these are not one-class the kernel operations;
   this phase may produce partial results and/or spill into a follow-on
   sub-project. That outcome is acceptable and will be reported honestly,
   not disguised — consistent with the roadmap's honesty principle.
@@ -177,10 +177,10 @@ window.__archdiscKernel      BrepTessellate ──► {positions,normals,indices
 - `getOCCT()` failure (WASM fetch / instantiate) surfaces a clear error in
   the B-rep Lab panel; the kernel facade rejects rather than silently
   falling back to mesh geometry.
-- OCCT op failures (`IsDone() === false`, null shapes, boolean failures) are
-  caught in the facade, the partial OCCT state is disposed via `withScope`,
+- the kernel op failures (`IsDone() === false`, null shapes, boolean failures) are
+  caught in the facade, the partial the kernel state is disposed via `withScope`,
   and a descriptive error is thrown — no silent empty-shape returns.
-- STEP import of malformed text reports the OCCT reader status verbatim.
+- STEP import of malformed text reports the the kernel reader status verbatim.
 - `withScope` frees intermediates even when `fn` throws (try/finally).
 
 ## 8. Testing strategy
@@ -197,7 +197,7 @@ desktop product before the next op is built.
   `canvas` and for `window.__archdiscKernel` to register.
 - **Build prerequisite:** the Electron app in production mode loads
   `frontend/dist/index.html`, so each spec run requires a fresh
-  `cd frontend && npx vite build` first (the OCCT `.wasm` asset must be
+  `cd frontend && npx vite build` first (the the kernel `.wasm` asset must be
   present in `dist/`). The plan will wire this into the e2e workflow.
 - Each spec: launch the Electron app → drive the op via its real B-rep Lab
   button (`dispatchEvent('click')` where a scroll container would intercept
@@ -223,14 +223,14 @@ desktop product before the next op is built.
 |---|---|
 | WASM bundle size (~25–35 MB) | Accepted; deferred to a later custom-slim-build sub-project. |
 | `opencascade.js` Vite/Embind integration friction | Phase A0 "hello box" smoke test de-risks it before anything else is built. |
-| Low-level Embind API ergonomics | The `kernel/brep/` facade fully absorbs raw OCCT; no OCCT types leak past `ArchDiscKernel`. |
+| Low-level Embind API ergonomics | The `kernel/brep/` facade fully absorbs raw the kernel; no the kernel types leak past `ArchDiscKernel`. |
 | WASM heap leaks | `withScope` disposal arena + per-spec leak guard. |
 | Hard blending (A5) harder than one sub-project | Honestly flagged in §6; partial delivery is an acceptable, openly-reported outcome. |
-| Regression of existing 388 e2e tests | Coexistence architecture — OCCT is additive; existing manifold path untouched. |
+| Regression of existing 388 e2e tests | Coexistence architecture — the kernel is additive; existing manifold path untouched. |
 
 ## 10. Definition of done
 
-- `opencascade.js` integrated; OCCT loads in both `vite dev` and the
+- `opencascade.js` integrated; the kernel loads in both `vite dev` and the
   Electron build.
 - Every operation in §3.1 has: a facade method, a B-rep Lab button, a
   `window.__archdiscKernel` entry, and a **green headed Electron-app

@@ -13,7 +13,7 @@
 
 **Tech Stack:** `opencascade.js@2.0.0-beta.b5ff984` (pinned), Vite 7, React 19, Electron 42, Playwright 1.59 (headed, `_electron`).
 
-**Reference spec:** `docs/superpowers/specs/2026-05-18-occt-kernel-integration-foundation-design.md` §3.3 + §3.5.
+**Reference spec:** `docs/superpowers/specs/2026-05-18-kernel-integration-foundation-design.md` §3.3 + §3.5.
 
 ---
 
@@ -35,7 +35,7 @@
 | `frontend/src/foundation/ToolParamSchemas.js` | Modify — add schemas |
 | `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | Modify — ribbon handlers |
 | `frontend/src/components/RibbonToolbar.jsx` + `WorkbenchMechanical.jsx` | Modify — ribbon tool entries |
-| `docs/superpowers/notes/occt-api-F.md` | Create (Task 1) — verdict + verified API |
+| `docs/superpowers/notes/kernel-api-F.md` | Create (Task 1) — verdict + verified API |
 | `e2e/brep-f-recon-electron.spec.js` | Create (Task 1) — recon |
 | `e2e/brep-final-electron.spec.js` | Create (Task 3) — e2e gate |
 
@@ -43,7 +43,7 @@
 
 ## Task 1: Recon — reachability verdict per capability
 
-Investigate the OCCT APIs for the 5 items. For each: try the calls inside the real Electron app, record `REACHABLE` (with verified call sequence + a small geometric assertion) or `NOT_REACHABLE` (with the error and what was tried). `expect(...)` each item has a recorded verdict — spec PASSES when investigation complete.
+Investigate the kernel APIs for the 5 items. For each: try the calls inside the real Electron app, record `REACHABLE` (with verified call sequence + a small geometric assertion) or `NOT_REACHABLE` (with the error and what was tried). `expect(...)` each item has a recorded verdict — spec PASSES when investigation complete.
 
 Items to verify:
 
@@ -55,13 +55,13 @@ Items to verify:
 
 4. **Tolerant Stitching** — `BRepBuilderAPI_Sewing`. Construct: `new oc.BRepBuilderAPI_Sewing_1(tolerance=0.1, optionsBitsOrShape=true...)` — find the exact arity. `.Add(face)` per face; `.Perform()`; `.SewedShape()` returns the result. Test: build 2 planar faces (via `BRepBuilderAPI_MakeFace_15` from rectangular wires) that share a common edge but with a small gap (positioned at +/- 0.05 mm), call Sewing with tolerance 0.1; assert the result is a single shell (`TopAbs_SHELL`) containing both faces stitched. Record.
 
-5. **Convergent Modeling** — direct B-rep ops on mesh/facet data. The cleanest OCCT path: `BRepBuilderAPI_MakePolygon` builds a wire from `gp_Pnt` sequences; for a true facet→B-rep conversion the canonical path is to build a `Poly_Triangulation` and ATTACH it to a face via `BRep_Tool` static methods — but this typically isn't a building op, it's a property of an existing face. The more achievable interpretation: use `BRepBuilderAPI_MakeFace_15` from triangle wires + Sewing to build a "mesh-derived" B-rep solid. Test: create 8 triangle face wires from cube-mesh data (the 12 triangles of a cube mesh, but as wire+face per triangle), sew them with Sewing, then convert to solid via `BRepBuilderAPI_MakeSolid(shell)`. Verify a non-null solid with positive volume. Record. If this proves too contrived to write a "real" op, document the available primitives (MakePolygon, MakeFace_15, Sewing, MakeSolid) and ship convergent modeling as a documentation-only honest gap.
+5. **Convergent Modeling** — direct B-rep ops on mesh/facet data. The cleanest the kernel path: `BRepBuilderAPI_MakePolygon` builds a wire from `gp_Pnt` sequences; for a true facet→B-rep conversion the canonical path is to build a `Poly_Triangulation` and ATTACH it to a face via `BRep_Tool` static methods — but this typically isn't a building op, it's a property of an existing face. The more achievable interpretation: use `BRepBuilderAPI_MakeFace_15` from triangle wires + Sewing to build a "mesh-derived" B-rep solid. Test: create 8 triangle face wires from cube-mesh data (the 12 triangles of a cube mesh, but as wire+face per triangle), sew them with Sewing, then convert to solid via `BRepBuilderAPI_MakeSolid(shell)`. Verify a non-null solid with positive volume. Record. If this proves too contrived to write a "real" op, document the available primitives (MakePolygon, MakeFace_15, Sewing, MakeSolid) and ship convergent modeling as a documentation-only honest gap.
 
 For each item record verdict + verified sequence (if REACHABLE) or honest explanation (if NOT_REACHABLE).
 
 - [ ] **Step 1: Write recon spec**
 
-Create `e2e/brep-f-recon-electron.spec.js` modeled on `e2e/brep-b-recon-electron.spec.js`. Use `getOCCT()` directly inside `win.evaluate` to introspect + probe. `.delete()` every OCCT object. Write `verified` JSON to `docs/superpowers/notes/occt-api-F-recon.json`. `expect(...)` each item has a verdict. `test.setTimeout(600000)`.
+Create `e2e/brep-f-recon-electron.spec.js` modeled on `e2e/brep-b-recon-electron.spec.js`. Use `getOCCT()` directly inside `win.evaluate` to introspect + probe. `.delete()` every the kernel object. Write `verified` JSON to `docs/superpowers/notes/kernel-api-F-recon.json`. `expect(...)` each item has a verdict. `test.setTimeout(600000)`.
 
 - [ ] **Step 2: Build + run, iterate until GREEN**
 
@@ -69,14 +69,14 @@ Create `e2e/brep-f-recon-electron.spec.js` modeled on `e2e/brep-b-recon-electron
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-f-recon-electron.spec.js --project=chromium
 ```
 
-- [ ] **Step 3: Write `docs/superpowers/notes/occt-api-F.md`**
+- [ ] **Step 3: Write `docs/superpowers/notes/kernel-api-F.md`**
 
 For each item: verdict + verified COMPLETE copy-pasteable sequence (REACHABLE) or honest explanation (NOT_REACHABLE). Add a "Sub-project F deliverable scope" section listing the ops Tasks 2-3 will build.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add e2e/brep-f-recon-electron.spec.js docs/superpowers/notes/occt-api-F.md docs/superpowers/notes/occt-api-F-recon.json
+git add e2e/brep-f-recon-electron.spec.js docs/superpowers/notes/kernel-api-F.md docs/superpowers/notes/kernel-api-F-recon.json
 git commit -m "test(kernel): F recon — final §3 capability reachability verdict per item"
 ```
 
@@ -120,7 +120,7 @@ Real-world artifacts via real ribbon clicks. Per shipped op:
 
 Each test: `captureAllAngles` with default sweep, assert blanks empty, pageErrors empty.
 
-Run the full brep+UX suite. Append "Sub-project F — honest outcome" section to `occt-api-F.md` with measured values + dropped ops (e.g. N-Sided Patching = MakeFilling.Build unreachable, per A5).
+Run the full brep+UX suite. Append "Sub-project F — honest outcome" section to `kernel-api-F.md` with measured values + dropped ops (e.g. N-Sided Patching = MakeFilling.Build unreachable, per A5).
 
 Commit per shipped op + final docs commit.
 
@@ -131,4 +131,4 @@ Commit per shipped op + final docs commit.
 - Recon-first locks scope honestly. NOT_REACHABLE items are skipped openly (no faking).
 - Every shipped op gets a real-world artifact e2e via ribbon clicks + dialogs + all-angle capture — consistent with all directives.
 - Aligns with [[feedback_sophisticated_integrations]], [[feedback_complex_e2e_models]], [[feedback_e2e_user_workflows]], [[feedback_e2e_all_angles]], [[feedback_fully_sophisticated]], [[feedback_no_floating_panels]].
-- After F: the §3 capability set is meaningfully closed in this prebuilt `opencascade.js`; further capabilities (auto-trimming B-rep, class-A modelling) genuinely need a custom OCCT build and are documented as such in the roadmap.
+- After F: the §3 capability set is meaningfully closed in this prebuilt `opencascade.js`; further capabilities (auto-trimming B-rep, class-A modelling) genuinely need a custom the kernel build and are documented as such in the roadmap.

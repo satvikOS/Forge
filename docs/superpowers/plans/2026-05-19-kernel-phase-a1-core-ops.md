@@ -1,26 +1,26 @@
-# OCCT Phase A1 — Core Exact-B-rep Operations — Implementation Plan
+# Kernel Phase A1 — Core Exact-B-rep Operations — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the core exact-B-rep operation set to the ArchDisc Kernel — primitives (cylinder/sphere/cone/torus), exact booleans (fuse/cut/common), extrude, revolve, exact fillet & chamfer, and native STEP import/export — each verified by a headed Electron e2e test.
 
-**Architecture:** Extends the `frontend/src/kernel/brep/` subtree built in Phase A0. Every operation is an OCCT call sequence wrapped in the `withScope()` disposal arena, returning a `BrepShape`. All ops are exposed through the `ArchDiscKernel` facade and the `window.__archdiscKernel` hook, with a B-rep Lab button each. Phase A1 leads with an empirical OCCT API reconnaissance task because A1's bindings (booleans, prism, revol, fillet, STEP via the Emscripten virtual filesystem) are not yet verified.
+**Architecture:** Extends the `frontend/src/kernel/brep/` subtree built in Phase A0. Every operation is an the kernel call sequence wrapped in the `withScope()` disposal arena, returning a `BrepShape`. All ops are exposed through the `ArchDiscKernel` facade and the `window.__archdiscKernel` hook, with a B-rep Lab button each. Phase A1 leads with an empirical kernel API reconnaissance task because A1's bindings (booleans, prism, revol, fillet, STEP via the Emscripten virtual filesystem) are not yet verified.
 
-**Tech Stack:** `opencascade.js@2.0.0-beta.b5ff984` (OCCT WASM), Vite 7, React 19, Three.js 0.181, Electron 42, Playwright 1.59 (headed, `_electron` launch).
+**Tech Stack:** `opencascade.js@2.0.0-beta.b5ff984` (kernel WASM), Vite 7, React 19, Three.js 0.181, Electron 42, Playwright 1.59 (headed, `_electron` launch).
 
-**Reference spec:** `docs/superpowers/specs/2026-05-18-occt-kernel-integration-foundation-design.md` (§3.1, §6 Phase A1).
+**Reference spec:** `docs/superpowers/specs/2026-05-18-kernel-integration-foundation-design.md` (§3.1, §6 Phase A1).
 
 ---
 
 ## Important context for the implementer
 
-- **Read first:** the spec above, the Phase A0 plan `docs/superpowers/plans/2026-05-18-occt-phase-a0-integration-foundation.md`, and the verified A0 API note `docs/superpowers/notes/occt-api-A0.md`.
+- **Read first:** the spec above, the Phase A0 plan `docs/superpowers/plans/2026-05-18-kernel-phase-a0-integration-foundation.md`, and the verified A0 API note `docs/superpowers/notes/kernel-api-A0.md`.
 - **Phase A0 is done.** `frontend/src/kernel/brep/` already contains: `occtKernel.js` (`getOCCT()`), `BrepShape.js` (`BrepShape`, `withScope`, `track`), `BrepPrimitives.js` (`makeBox`), `BrepTessellate.js` (`tessellate`), `BrepMeasure.js` (`volume`, `area`, `faceCount`, `edgeCount`, `boundingBox`), `brepToMesh.js`, `ArchDiscKernel.js` (facade), `index.js`. The B-rep Lab panel is `frontend/src/components/BrepLabPanel.jsx`; the hook is registered in `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx`.
 - **Established patterns to follow exactly:**
   - Every op: `const oc = await getOCCT(); return withScope(() => { ... });`
-  - `track()` EVERY transient OCCT object (builders, sub-shapes, points, vectors, handles). The arena frees them on scope exit; only the shape inside the returned `BrepShape` survives.
-  - OCCT Embind objects leak the WASM heap unless freed — this is non-negotiable.
-  - Throw a descriptive `Error` on OCCT failure (`IsNull()` shape, builder not done) — never return a silent empty shape.
+  - `track()` EVERY transient the kernel object (builders, sub-shapes, points, vectors, handles). The arena frees them on scope exit; only the shape inside the returned `BrepShape` survives.
+  - kernel Embind objects leak the WASM heap unless freed — this is non-negotiable.
+  - Throw a descriptive `Error` on the kernel failure (`IsNull()` shape, builder not done) — never return a silent empty shape.
 - **opencascade.js binding convention:** overloaded C++ constructors/methods get `_1`, `_2`, … suffixes in declaration order (`_1` is usually the no-arg/simplest). Exact suffixes are version-specific — **Task 1 verifies them all empirically.**
 - **e2e:** every op is verified by a headed Playwright test launching the genuine Electron app (`_electron.launch(['electron/main.js'])`). The app loads `frontend/dist/index.html`, so `cd frontend && npx vite build` runs before each spec. Run Playwright via `./node_modules/.bin/playwright` (1.59), never `npx`. Spec files must not import from `node:*` — use bare `import fs from 'fs'`.
 - Work on branch `archdisc`. Commit after every task. Do NOT create branches.
@@ -39,7 +39,7 @@
 | `frontend/src/kernel/brep/index.js` | Modify — barrel exports for the new modules |
 | `frontend/src/components/BrepLabPanel.jsx` | Modify — a button per A1 op |
 | `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` | Modify — extend `window.__archdiscKernel` with A1 op drivers |
-| `docs/superpowers/notes/occt-api-A1.md` | Create (Task 1) — verified OCCT API for A1 ops |
+| `docs/superpowers/notes/kernel-api-A1.md` | Create (Task 1) — verified kernel API for A1 ops |
 | `e2e/brep-a1-recon-electron.spec.js` | Create (Task 1) — empirical recon spec |
 | `e2e/brep-primitives-electron.spec.js` | Create (Task 8) — primitives e2e |
 | `e2e/brep-boolean-electron.spec.js` | Create (Task 8) — booleans e2e |
@@ -48,17 +48,17 @@
 
 ---
 
-## Task 1: A1 OCCT API reconnaissance (de-risk)
+## Task 1: A1 kernel API reconnaissance (de-risk)
 
 **Files:**
 - Create: `e2e/brep-a1-recon-electron.spec.js`
-- Create: `docs/superpowers/notes/occt-api-A1.md`
+- Create: `docs/superpowers/notes/kernel-api-A1.md`
 
 This task empirically verifies — inside the real Electron app — the exact opencascade.js call sequence for every A1 operation, before any kernel code is written. It mirrors the A0 recon (`e2e/brep-occt-load-electron.spec.js`).
 
 - [ ] **Step 1: Write the recon spec**
 
-Create `e2e/brep-a1-recon-electron.spec.js`. It launches the Electron app, gets `oc` via `window.__archdiscKernel.getOCCT()`, and inside `win.evaluate(...)` empirically determines, for each item below, the exact working call. For every attempt: wrap in try/catch, record the error on failure, try the alternative. `.delete()` every OCCT object created (no leaks in the recon). Write the structured findings to `docs/superpowers/notes/occt-api-A1-recon.json` and `console.log` them. The spec must `expect(...)` that each item's `working` flag is true and PASS green.
+Create `e2e/brep-a1-recon-electron.spec.js`. It launches the Electron app, gets `oc` via `window.__archdiscKernel.getOCCT()`, and inside `win.evaluate(...)` empirically determines, for each item below, the exact working call. For every attempt: wrap in try/catch, record the error on failure, try the alternative. `.delete()` every the kernel object created (no leaks in the recon). Write the structured findings to `docs/superpowers/notes/kernel-api-A1-recon.json` and `console.log` them. The spec must `expect(...)` that each item's `working` flag is true and PASS green.
 
 Items to verify (build each, then measure with the A0-verified `GProp`/`TopExp` calls to confirm it is a real solid):
 
@@ -88,13 +88,13 @@ Iterate (adjust suffixes, read errors) until every item is confirmed and the spe
 
 - [ ] **Step 3: Write the verified API note**
 
-Create `docs/superpowers/notes/occt-api-A1.md`. For each of items 1–13, give the EXACT verified, copy-pasteable JavaScript call sequence (constructor suffixes, method names, enum access paths). Mark it verified against `opencascade.js@2.0.0-beta.b5ff984`. Tasks 2–6 reference this note.
+Create `docs/superpowers/notes/kernel-api-A1.md`. For each of items 1–13, give the EXACT verified, copy-pasteable JavaScript call sequence (constructor suffixes, method names, enum access paths). Mark it verified against `opencascade.js@2.0.0-beta.b5ff984`. Tasks 2–6 reference this note.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add e2e/brep-a1-recon-electron.spec.js docs/superpowers/notes/occt-api-A1.md docs/superpowers/notes/occt-api-A1-recon.json
-git commit -m "test(kernel): empirical OCCT API recon for Phase A1 ops"
+git add e2e/brep-a1-recon-electron.spec.js docs/superpowers/notes/kernel-api-A1.md docs/superpowers/notes/kernel-api-A1-recon.json
+git commit -m "test(kernel): empirical kernel API recon for Phase A1 ops"
 ```
 
 ---
@@ -104,7 +104,7 @@ git commit -m "test(kernel): empirical OCCT API recon for Phase A1 ops"
 **Files:**
 - Modify: `frontend/src/kernel/brep/BrepPrimitives.js`
 
-> Reference `docs/superpowers/notes/occt-api-A1.md` Items 1–4 for the verified constructor suffixes. The code below uses the most likely opencascade.js 2.0 suffixes — reconcile each against the note and adjust if it differs.
+> Reference `docs/superpowers/notes/kernel-api-A1.md` Items 1–4 for the verified constructor suffixes. The code below uses the most likely opencascade.js 2.0 suffixes — reconcile each against the note and adjust if it differs.
 
 - [ ] **Step 1: Add the four primitives**
 
@@ -124,7 +124,7 @@ export async function makeCylinder(radius, height) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeCylinder_1(radius, height));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeCylinder: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeCylinder: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeCylinder', params: { radius, height } });
   });
 }
@@ -140,7 +140,7 @@ export async function makeSphere(radius) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeSphere_1(radius));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeSphere: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeSphere: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeSphere', params: { radius } });
   });
 }
@@ -160,7 +160,7 @@ export async function makeCone(radius1, radius2, height) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeCone_1(radius1, radius2, height));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeCone: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeCone: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeCone', params: { radius1, radius2, height } });
   });
 }
@@ -179,7 +179,7 @@ export async function makeTorus(majorRadius, minorRadius) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeTorus_1(majorRadius, minorRadius));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeTorus: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeTorus: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeTorus', params: { majorRadius, minorRadius } });
   });
 }
@@ -207,21 +207,21 @@ git commit -m "feat(kernel): add cylinder/sphere/cone/torus primitives"
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepBoolean.js`
 
-> Reference `docs/superpowers/notes/occt-api-A1.md` Items 5–7. Reconcile the `BRepAlgoAPI_Fuse/Cut/Common` constructor suffix and whether `.Build()` must be called explicitly against the verified note.
+> Reference `docs/superpowers/notes/kernel-api-A1.md` Items 5–7. Reconcile the `BRepAlgoAPI_Fuse/Cut/Common` constructor suffix and whether `.Build()` must be called explicitly against the verified note.
 
 - [ ] **Step 1: Create BrepBoolean.js**
 
 Create `frontend/src/kernel/brep/BrepBoolean.js`:
 ```js
 /**
- * ArchDisc Kernel — exact boolean operations (OCCT BRepAlgoAPI).
+ * ArchDisc Kernel — exact boolean operations (the kernel BRepAlgoAPI).
  * Operate on TopoDS_Shape solids; produce exact B-rep results.
  */
 
 import { getOCCT } from './occtKernel.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
-/** Shared boolean runner. `Ctor` is an OCCT BRepAlgoAPI_* class. */
+/** Shared boolean runner. `Ctor` is an the kernel BRepAlgoAPI_* class. */
 async function runBoolean(opName, Ctor, a, b) {
   if (!a || !a.shape || !b || !b.shape) {
     throw new Error(`${opName}: both operands must be BrepShapes with live shapes`);
@@ -229,14 +229,14 @@ async function runBoolean(opName, Ctor, a, b) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new Ctor(a.shape, b.shape));
-    // Reconcile against occt-api-A1.md: call .Build() only if the note says
+    // Reconcile against kernel-api-A1.md: call .Build() only if the note says
     // the constructor does not build implicitly.
     if (typeof maker.Build === 'function' && !maker.IsDone()) {
       maker.Build(new oc.Message_ProgressRange_1());
     }
-    if (!maker.IsDone()) throw new Error(`${opName}: OCCT boolean did not complete`);
+    if (!maker.IsDone()) throw new Error(`${opName}: the kernel boolean did not complete`);
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error(`${opName}: OCCT produced a null shape`);
+    if (shape.IsNull()) throw new Error(`${opName}: the kernel produced a null shape`);
     return new BrepShape(shape, { op: opName, parents: [a.id, b.id] });
   });
 }
@@ -284,14 +284,14 @@ git commit -m "feat(kernel): add exact boolean operations (fuse/cut/common)"
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepFeatures.js`
 
-> Reference `docs/superpowers/notes/occt-api-A1.md` Items 8–9 for the verified face-building and prism/revol chains. Reconcile every suffix.
+> Reference `docs/superpowers/notes/kernel-api-A1.md` Items 8–9 for the verified face-building and prism/revol chains. Reconcile every suffix.
 
 - [ ] **Step 1: Create BrepFeatures.js with a face helper, extrudeRect and revolveRect**
 
 Create `frontend/src/kernel/brep/BrepFeatures.js`:
 ```js
 /**
- * ArchDisc Kernel — feature operations (OCCT): extrude, revolve, fillet,
+ * ArchDisc Kernel — feature operations (the kernel): extrude, revolve, fillet,
  * chamfer. A1 extrude/revolve operate on an internally-built rectangular
  * profile; sketch-driven profiles are a later sub-project.
  */
@@ -301,7 +301,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 
 /**
  * Build a planar rectangular face in the XY plane (z=0), corner at origin.
- * Returns the OCCT TopoDS_Face (already track()ed in the current scope).
+ * Returns the the kernel TopoDS_Face (already track()ed in the current scope).
  * @param {object} oc
  * @param {number} w  width  (mm, +X)
  * @param {number} h  height (mm, +Y)
@@ -339,7 +339,7 @@ export async function extrudeRect(w, h, depth) {
     const dir = track(new oc.gp_Vec_4(0, 0, depth));
     const maker = track(new oc.BRepPrimAPI_MakePrism_1(face, dir, false, true));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('extrudeRect: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('extrudeRect: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'extrudeRect', params: { w, h, depth } });
   });
 }
@@ -378,7 +378,7 @@ export async function revolveRect(innerR, width, height, angleDeg) {
     const angleRad = angleDeg * Math.PI / 180;
     const maker = track(new oc.BRepPrimAPI_MakeRevol_1(face, axis, angleRad, false));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('revolveRect: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('revolveRect: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'revolveRect', params: { innerR, width, height, angleDeg } });
   });
 }
@@ -408,7 +408,7 @@ git commit -m "feat(kernel): add extrude and revolve features"
 **Files:**
 - Modify: `frontend/src/kernel/brep/BrepFeatures.js`
 
-> Reference `docs/superpowers/notes/occt-api-A1.md` Items 10–11. Reconcile the `BRepFilletAPI_MakeFillet`/`MakeChamfer` constructor and the `.Add(...)` overload (it has several — the `(radius, edge)` / `(distance, edge)` forms) against the verified note.
+> Reference `docs/superpowers/notes/kernel-api-A1.md` Items 10–11. Reconcile the `BRepFilletAPI_MakeFillet`/`MakeChamfer` constructor and the `.Add(...)` overload (it has several — the `(radius, edge)` / `(distance, edge)` forms) against the verified note.
 
 - [ ] **Step 1: Add filletAll and chamferAll**
 
@@ -446,9 +446,9 @@ export async function filletAll(brepShape, radius) {
       brepShape.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
     forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(radius, edge); });
     maker.Build(new oc.Message_ProgressRange_1());
-    if (!maker.IsDone()) throw new Error('filletAll: OCCT fillet did not complete');
+    if (!maker.IsDone()) throw new Error('filletAll: the kernel fillet did not complete');
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('filletAll: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('filletAll: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'filletAll', params: { radius }, parents: [brepShape.id] });
   });
 }
@@ -467,9 +467,9 @@ export async function chamferAll(brepShape, distance) {
     const maker = track(new oc.BRepFilletAPI_MakeChamfer(brepShape.shape));
     forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(distance, edge); });
     maker.Build(new oc.Message_ProgressRange_1());
-    if (!maker.IsDone()) throw new Error('chamferAll: OCCT chamfer did not complete');
+    if (!maker.IsDone()) throw new Error('chamferAll: the kernel chamfer did not complete');
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('chamferAll: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('chamferAll: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'chamferAll', params: { distance }, parents: [brepShape.id] });
   });
 }
@@ -499,14 +499,14 @@ git commit -m "feat(kernel): add exact fillet and chamfer"
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepStep.js`
 
-> Reference `docs/superpowers/notes/occt-api-A1.md` Items 12–13. The Emscripten virtual-FS access (`oc.FS.readFile`/`writeFile`) and the `STEPControl_StepModelType` value MUST match the verified note.
+> Reference `docs/superpowers/notes/kernel-api-A1.md` Items 12–13. The Emscripten virtual-FS access (`oc.FS.readFile`/`writeFile`) and the `STEPControl_StepModelType` value MUST match the verified note.
 
 - [ ] **Step 1: Create BrepStep.js**
 
 Create `frontend/src/kernel/brep/BrepStep.js` with this content:
 ```js
 /**
- * ArchDisc Kernel — native STEP I/O via OCCT (STEPControl_*).
+ * ArchDisc Kernel — native STEP I/O via ArchDisc Kernel (STEPControl_*).
  * STEP read/write goes through the Emscripten virtual filesystem (oc.FS).
  */
 
@@ -531,7 +531,7 @@ export async function exportStep(brepShape) {
       true, new oc.Message_ProgressRange_1());
     // IFSelect_RetDone is the success status.
     if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
-      throw new Error(`exportStep: OCCT transfer failed (status ${status})`);
+      throw new Error(`exportStep: the kernel transfer failed (status ${status})`);
     }
     writer.Write(STEP_TMP);
     const text = oc.FS.readFile(STEP_TMP, { encoding: 'utf8' });
@@ -558,12 +558,12 @@ export async function importStep(stepText) {
     const reader = track(new oc.STEPControl_Reader_1());
     const readStatus = reader.ReadFile(STEP_TMP);
     if (readStatus !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
-      throw new Error(`importStep: OCCT ReadFile failed (status ${readStatus})`);
+      throw new Error(`importStep: the kernel ReadFile failed (status ${readStatus})`);
     }
     reader.TransferRoots(new oc.Message_ProgressRange_1());
     const shape = reader.OneShape();
     try { oc.FS.unlink(STEP_TMP); } catch { /* fine */ }
-    if (shape.IsNull()) throw new Error('importStep: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('importStep: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'importStep' });
   });
 }
@@ -600,7 +600,7 @@ git commit -m "feat(kernel): add native STEP import/export"
 
 Replace the contents of `frontend/src/kernel/brep/index.js`:
 ```js
-/** ArchDisc Kernel — B-rep (OCCT) subtree barrel export. */
+/** ArchDisc Kernel — B-rep (the kernel) subtree barrel export. */
 export { getOCCT, _reset } from './occtKernel.js';
 export { BrepShape, withScope, track } from './BrepShape.js';
 export {
@@ -654,7 +654,7 @@ In `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx`, inside the
                 window.__archdiscFocusOnObject(group);
             }
             const metrics = await ArchDiscKernel.brep.measure(shape);
-            // __lastBrepShape holds live OCCT memory owned by this closure;
+            // __lastBrepShape holds live the kernel memory owned by this closure;
             // dispose the previous before replacing. External code must not
             // dispose it.
             if (window.__lastBrepShape) { window.__lastBrepShape.dispose(); }
@@ -707,10 +707,10 @@ import React, { useState } from 'react';
 import './BrepLabPanel.css';
 
 /**
- * B-rep Lab — drives the OCCT-backed ArchDisc Kernel. One button per op.
+ * B-rep Lab — drives the the kernel-backed ArchDisc Kernel. One button per op.
  */
 export default function BrepLabPanel() {
-  const [status, setStatus] = useState('OCCT B-rep kernel ready');
+  const [status, setStatus] = useState('B-rep kernel ready');
   const [busy, setBusy] = useState(false);
 
   const run = (label, fn) => async () => {
@@ -742,7 +742,7 @@ export default function BrepLabPanel() {
 
   return (
     <div className="brep-lab-panel" data-testid="brep-lab-panel">
-      <div className="brep-lab-title">B-rep Lab (OCCT)</div>
+      <div className="brep-lab-title">B-rep Lab (the kernel)</div>
       {ops.map(([id, label, fn]) => (
         <button
           key={id}
@@ -865,7 +865,7 @@ Run:
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-primitives-electron.spec.js --project=chromium
 ```
-Expected: 4 tests PASS. If a volume is wrong, reconcile the primitive's OCCT call against `docs/superpowers/notes/occt-api-A1.md`. Do not proceed until green.
+Expected: 4 tests PASS. If a volume is wrong, reconcile the primitive's the kernel call against `docs/superpowers/notes/kernel-api-A1.md`. Do not proceed until green.
 
 - [ ] **Step 3: Booleans e2e**
 
@@ -954,7 +954,7 @@ Run:
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-boolean-electron.spec.js --project=chromium
 ```
-Expected: 3 tests PASS. Reconcile against `occt-api-A1.md` Items 5–7 on failure. Do not proceed until green.
+Expected: 3 tests PASS. Reconcile against `kernel-api-A1.md` Items 5–7 on failure. Do not proceed until green.
 
 - [ ] **Step 5: Features e2e (extrude, revolve, fillet, chamfer)**
 
@@ -1027,7 +1027,7 @@ Run:
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-features-electron.spec.js --project=chromium
 ```
-Expected: 4 tests PASS. Reconcile against `occt-api-A1.md` Items 8–11 on failure. Do not proceed until green.
+Expected: 4 tests PASS. Reconcile against `kernel-api-A1.md` Items 8–11 on failure. Do not proceed until green.
 
 - [ ] **Step 7: STEP round-trip e2e**
 
@@ -1079,7 +1079,7 @@ Run:
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-step-electron.spec.js --project=chromium
 ```
-Expected: PASS. Reconcile against `occt-api-A1.md` Items 12–13 on failure. Do not proceed until green.
+Expected: PASS. Reconcile against `kernel-api-A1.md` Items 12–13 on failure. Do not proceed until green.
 
 - [ ] **Step 9: Run the full A1 + A0 brep suite together**
 
@@ -1100,8 +1100,8 @@ git commit -m "test(kernel): A1 gate — headed Electron e2e for primitives, boo
 
 ## Self-review notes
 
-- **Spec coverage (§3.1 / §6 Phase A1):** primitives cylinder/sphere/cone/torus (Task 2) ✓; exact booleans fuse/cut/common (Task 3) ✓; extrude (Task 4) ✓; revolve (Task 4) ✓; exact fillet (Task 5) ✓; exact chamfer (Task 5) ✓; native STEP I/O (Task 6) ✓; facade + UI + hook (Task 7) ✓; headed Electron e2e per op (Task 8) ✓; OCCT API de-risk (Task 1) ✓.
+- **Spec coverage (§3.1 / §6 Phase A1):** primitives cylinder/sphere/cone/torus (Task 2) ✓; exact booleans fuse/cut/common (Task 3) ✓; extrude (Task 4) ✓; revolve (Task 4) ✓; exact fillet (Task 5) ✓; exact chamfer (Task 5) ✓; native STEP I/O (Task 6) ✓; facade + UI + hook (Task 7) ✓; headed Electron e2e per op (Task 8) ✓; kernel API de-risk (Task 1) ✓.
 - **Deferred (correctly out of this plan):** A2 local/surfacing ops, A3 evaluation, A4 simplification, A5 blending; sketch-driven extrude/revolve profiles (A1 uses internal rectangular profiles); edge-selective fillet (A1 fillets all edges); a `translate` op (noted in Task 8 — richer boolean cases wait for it).
 - **Placeholder scan:** no `TBD`/`TODO`; every code step has complete code. The "best-guess suffix" notes are paired with the Task 1 verified-API note, not left open.
 - **Type consistency:** facade method names (`makeCylinder`, `makeSphere`, `makeCone`, `makeTorus`, `fuse`, `cut`, `common`, `extrudeRect`, `revolveRect`, `filletAll`, `chamferAll`, `exportStep`, `importStep`) are identical across Tasks 2–7 and the barrel; `window.__archdiscKernel.render*` driver names match between Task 7 and the Task 8 specs; `data-testid="brep-lab-<id>"` ids match between the Task 7 panel and any UI-driven assertions.
-- **opencascade.js API risk:** every implementation task explicitly reconciles against `docs/superpowers/notes/occt-api-A1.md`, which Task 1 produces by empirical verification inside the Electron app — the same de-risking flow that made Phase A0 succeed.
+- **opencascade.js API risk:** every implementation task explicitly reconciles against `docs/superpowers/notes/kernel-api-A1.md`, which Task 1 produces by empirical verification inside the Electron app — the same de-risking flow that made Phase A0 succeed.

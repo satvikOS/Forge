@@ -1,28 +1,28 @@
-# OCCT Phase A0 — Integration Foundation — Implementation Plan
+# Kernel Phase A0 — Integration Foundation — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Integrate the OpenCASCADE (OCCT) WASM kernel into ArchDisc far enough to make a box, tessellate it, measure it, render it in the live Electron viewport, and verify the whole pipeline with a headed Electron e2e test.
+**Goal:** Integrate the the underlying B-rep kernel WASM kernel into ArchDisc far enough to make a box, tessellate it, measure it, render it in the live Electron viewport, and verify the whole pipeline with a headed Electron e2e test.
 
-**Architecture:** A new `frontend/src/kernel/brep/` subtree wraps `opencascade.js` behind a unified `ArchDiscKernel` facade. OCCT objects (Embind) are lifecycle-managed via a `withScope()` disposal arena. Results are tessellated to plain triangle data and rendered as a Three.js mesh in the existing mechanical workbench, driven by a new `window.__archdiscKernel` hook. This phase de-risks the WASM/Embind/Vite/Electron integration before any real op set is built.
+**Architecture:** A new `frontend/src/kernel/brep/` subtree wraps `opencascade.js` behind a unified `ArchDiscKernel` facade. kernel objects (Embind) are lifecycle-managed via a `withScope()` disposal arena. Results are tessellated to plain triangle data and rendered as a Three.js mesh in the existing mechanical workbench, driven by a new `window.__archdiscKernel` hook. This phase de-risks the WASM/Embind/Vite/Electron integration before any real op set is built.
 
-**Tech Stack:** `opencascade.js` (OCCT WASM), Vite 7, React 19, Three.js 0.181, Electron 42, Playwright 1.59 (headed, `_electron` launch).
+**Tech Stack:** `opencascade.js` (kernel WASM), Vite 7, React 19, Three.js 0.181, Electron 42, Playwright 1.59 (headed, `_electron` launch).
 
-**Reference spec:** `docs/superpowers/specs/2026-05-18-occt-kernel-integration-foundation-design.md`
+**Reference spec:** `docs/superpowers/specs/2026-05-18-kernel-integration-foundation-design.md`
 
 ---
 
 ## Important context for the implementer
 
-- **You do not know the codebase.** Read `docs/superpowers/specs/2026-05-18-occt-kernel-integration-foundation-design.md` first.
-- **manifold-3d loader pattern to mirror:** `frontend/src/foundation/manifoldKernel.js` — a singleton WASM loader. The OCCT loader copies this shape exactly.
-- **Window-hook pattern to mirror:** `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` lines ~412–440 register `window.__archdiscAtomic` in a `useEffect` keyed on `viewport`. The OCCT hook follows the same pattern.
+- **You do not know the codebase.** Read `docs/superpowers/specs/2026-05-18-kernel-integration-foundation-design.md` first.
+- **manifold-3d loader pattern to mirror:** `frontend/src/foundation/manifoldKernel.js` — a singleton WASM loader. The the kernel loader copies this shape exactly.
+- **Window-hook pattern to mirror:** `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` lines ~412–440 register `window.__archdiscAtomic` in a `useEffect` keyed on `viewport`. The the kernel hook follows the same pattern.
 - **Scene units:** the Three.js scene is in **meters**; geometry data is in **mm**. A rendered body is wrapped in a `THREE.Group` scaled by `0.001` (see `addFoundationManifoldToScene` in `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js:226`).
 - **e2e runs the real Electron app:** specs use `import { _electron as electron } from '@playwright/test'`, launch `electron/main.js`, which loads `frontend/dist/index.html` — so **`cd frontend && npx vite build` must run before each Electron spec**. Example to copy: `e2e/atomic-sculpt-bracket-electron.spec.js`.
 - **e2e gotcha (project memory):** spec files must NOT `import` from `node:*` — use bare `import fs from 'fs'`.
 - **Run Playwright via** `./node_modules/.bin/playwright` (1.59), never `npx` (pulls 1.60).
-- **WASM heap discipline:** OCCT Embind objects leak unless `.delete()`d — the `withScope()` arena (Task 4) handles this.
-- **opencascade.js API uncertainty:** the exact Embind binding names (overload suffixes like `_2`, triangulation accessors) are version-specific. **Task 3 performs API reconnaissance and records the verified surface to `docs/superpowers/notes/occt-api-A0.md`.** Tasks 5–7 reference that note; the code blocks below target the `opencascade.js` 2.0 beta API and must be reconciled with the recorded surface.
+- **WASM heap discipline:** kernel Embind objects leak unless `.delete()`d — the `withScope()` arena (Task 4) handles this.
+- **opencascade.js API uncertainty:** the exact Embind binding names (overload suffixes like `_2`, triangulation accessors) are version-specific. **Task 3 performs API reconnaissance and records the verified surface to `docs/superpowers/notes/kernel-api-A0.md`.** Tasks 5–7 reference that note; the code blocks below target the `opencascade.js` 2.0 beta API and must be reconciled with the recorded surface.
 - Work on branch `archdisc`. Commit after every task.
 
 ---
@@ -42,7 +42,7 @@
 | `frontend/src/kernel/brep/brepToMesh.js` | Create — tessellation → `THREE.Mesh` |
 | `frontend/src/components/BrepLabPanel.jsx` + `.css` | Create — minimal B-rep Lab UI panel |
 | `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` | Modify — register `window.__archdiscKernel`, mount `BrepLabPanel` |
-| `docs/superpowers/notes/occt-api-A0.md` | Create — recorded OCCT API surface (Task 3) |
+| `docs/superpowers/notes/kernel-api-A0.md` | Create — recorded kernel API surface (Task 3) |
 | `e2e/brep-occt-load-electron.spec.js` | Create — Task 3 recon + load test |
 | `e2e/brep-foundation-electron.spec.js` | Create — Task 10 full A0 gate |
 
@@ -81,12 +81,12 @@ Expected: both `opencascade.full.js` and `opencascade.full.wasm` are listed. If 
 
 ```bash
 git add frontend/package.json frontend/package-lock.json
-git commit -m "build: add opencascade.js (OCCT WASM kernel) dependency"
+git commit -m "build: add opencascade.js (kernel WASM kernel) dependency"
 ```
 
 ---
 
-## Task 2: OCCT WASM loader
+## Task 2: kernel WASM loader
 
 **Files:**
 - Create: `frontend/src/kernel/brep/occtKernel.js`
@@ -97,9 +97,9 @@ git commit -m "build: add opencascade.js (OCCT WASM kernel) dependency"
 Create `frontend/src/kernel/brep/occtKernel.js`:
 ```js
 /**
- * ArchDisc Kernel — OpenCASCADE (OCCT) WASM singleton loader.
+ * ArchDisc Kernel — the underlying B-rep kernel WASM singleton loader.
  *
- * OCCT is ArchDisc's exact B-rep / NURBS kernel. It ships as a large
+ * ArchDisc's exact B-rep / NURBS kernel. It ships as a large
  * Emscripten WASM module; we load it once and cache the promise. Mirrors
  * `foundation/manifoldKernel.js`. All `kernel/brep/` code awaits this.
  *
@@ -115,8 +115,8 @@ let cachedModule = null;
 let loadPromise = null;
 
 /**
- * Load (or return cached) the OCCT WASM module.
- * @returns {Promise<object>} the `oc` API object (all OCCT classes).
+ * Load (or return cached) the kernel WASM module.
+ * @returns {Promise<object>} the `oc` API object (all kernel classes).
  */
 export async function getOCCT() {
   if (cachedModule) return cachedModule;
@@ -141,7 +141,7 @@ export function _reset() {
 
 Create `frontend/src/kernel/brep/index.js`:
 ```js
-/** ArchDisc Kernel — B-rep (OCCT) subtree barrel export. */
+/** ArchDisc Kernel — B-rep (the kernel) subtree barrel export. */
 export { getOCCT, _reset } from './occtKernel.js';
 ```
 
@@ -157,17 +157,17 @@ Expected: build succeeds (the `opencascade.full.wasm` asset is emitted to `dist/
 
 ```bash
 git add frontend/src/kernel/brep/occtKernel.js frontend/src/kernel/brep/index.js
-git commit -m "feat(kernel): add OCCT WASM singleton loader"
+git commit -m "feat(kernel): add kernel WASM singleton loader"
 ```
 
 ---
 
-## Task 3: Register the kernel hook + OCCT API reconnaissance
+## Task 3: Register the kernel hook + kernel API reconnaissance
 
 **Files:**
 - Modify: `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx`
 - Create: `e2e/brep-occt-load-electron.spec.js`
-- Create: `docs/superpowers/notes/occt-api-A0.md`
+- Create: `docs/superpowers/notes/kernel-api-A0.md`
 
 - [ ] **Step 1: Register a minimal `window.__archdiscKernel` hook**
 
@@ -177,7 +177,7 @@ import { getOCCT } from '../../kernel/brep/occtKernel.js';
 ```
 Then add a new `useEffect` immediately after the `window.__archdiscComponents` effect (after line 467):
 ```js
-    // Expose the OCCT-backed ArchDisc Kernel so headed Electron e2e specs
+    // Expose the the kernel-backed ArchDisc Kernel so headed Electron e2e specs
     // (and the B-rep Lab panel) can drive exact B-rep geometry.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
@@ -194,7 +194,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
-test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes', async () => {
+test('kernel WASM loads inside the ArchDisc Electron app and exposes B-rep classes', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -206,7 +206,7 @@ test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes
   await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
   await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
 
-  // Load OCCT and introspect the binding surface this version exposes.
+  // Load the kernel and introspect the binding surface this version exposes.
   const recon = await win.evaluate(async () => {
     const oc = await window.__archdiscKernel.getOCCT();
     const names = Object.getOwnPropertyNames(oc);
@@ -224,10 +224,10 @@ test('OCCT WASM loads inside the ArchDisc Electron app and exposes B-rep classes
 
   fs.mkdirSync(path.join(__dirname, '..', 'docs', 'superpowers', 'notes'), { recursive: true });
   fs.writeFileSync(
-    path.join(__dirname, '..', 'docs', 'superpowers', 'notes', 'occt-api-A0-recon.json'),
+    path.join(__dirname, '..', 'docs', 'superpowers', 'notes', 'kernel-api-A0-recon.json'),
     JSON.stringify(recon, null, 2),
   );
-  console.log('OCCT recon:', JSON.stringify(recon, null, 2));
+  console.log('kernel recon:', JSON.stringify(recon, null, 2));
 
   expect(recon.hasMakeBox.length).toBeGreaterThan(0);
   expect(recon.hasMesh.length).toBeGreaterThan(0);
@@ -244,17 +244,17 @@ Run:
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-occt-load-electron.spec.js --project=chromium
 ```
-Expected: the test PASSES (OCCT loads, classes found). If it fails on `__archdiscKernel` undefined, Step 1 was not applied. If it fails because OCCT did not load, inspect the printed `pageErrors` and the wasm asset path before proceeding — **do not continue until this is green.**
+Expected: the test PASSES (the kernel loads, classes found). If it fails on `__archdiscKernel` undefined, Step 1 was not applied. If it fails because the kernel did not load, inspect the printed `pageErrors` and the wasm asset path before proceeding — **do not continue until this is green.**
 
 - [ ] **Step 4: Record the verified API surface**
 
-Create `docs/superpowers/notes/occt-api-A0.md` and fill it from the console output + `occt-api-A0-recon.json` produced by Step 3. Record the exact names found for: the box constructor (e.g. `BRepPrimAPI_MakeBox_2`), the incremental mesher, `BRep_Tool`, `GProp`/`BRepGProp`, `TopExp_Explorer`. Tasks 5–7 reference this file.
+Create `docs/superpowers/notes/kernel-api-A0.md` and fill it from the console output + `kernel-api-A0-recon.json` produced by Step 3. Record the exact names found for: the box constructor (e.g. `BRepPrimAPI_MakeBox_2`), the incremental mesher, `BRep_Tool`, `GProp`/`BRepGProp`, `TopExp_Explorer`. Tasks 5–7 reference this file.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx e2e/brep-occt-load-electron.spec.js docs/superpowers/notes/occt-api-A0.md docs/superpowers/notes/occt-api-A0-recon.json
-git commit -m "feat(kernel): register __archdiscKernel hook + verify OCCT loads in Electron"
+git add frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx e2e/brep-occt-load-electron.spec.js docs/superpowers/notes/kernel-api-A0.md docs/superpowers/notes/kernel-api-A0-recon.json
+git commit -m "feat(kernel): register __archdiscKernel hook + verify the kernel loads in Electron"
 ```
 
 ---
@@ -269,11 +269,11 @@ git commit -m "feat(kernel): register __archdiscKernel hook + verify OCCT loads 
 Create `frontend/src/kernel/brep/BrepShape.js`:
 ```js
 /**
- * ArchDisc Kernel — BrepShape: a managed wrapper over an OCCT TopoDS_Shape.
+ * ArchDisc Kernel — BrepShape: a managed wrapper over an the kernel TopoDS_Shape.
  *
- * OCCT objects are Embind-wrapped C++ objects; they leak the WASM heap
+ * kernel objects are Embind-wrapped C++ objects; they leak the WASM heap
  * unless `.delete()`d. Every kernel op runs inside `withScope()`, which
- * frees every OCCT object allocated during the op except the BrepShape(s)
+ * frees every the kernel object allocated during the op except the BrepShape(s)
  * the op returns.
  */
 
@@ -281,7 +281,7 @@ let _idCounter = 0;
 
 export class BrepShape {
   /**
-   * @param {object} shape  an OCCT TopoDS_Shape
+   * @param {object} shape  an the kernel TopoDS_Shape
    * @param {object} [meta] construction metadata { op, params, parents }
    */
   constructor(shape, meta = {}) {
@@ -292,7 +292,7 @@ export class BrepShape {
     this._triangulation = null; // cached {positions,normals,indices}
   }
 
-  /** Free the underlying OCCT shape and any cached triangulation. */
+  /** Free the underlying kernel shape and any cached triangulation. */
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
@@ -306,8 +306,8 @@ export class BrepShape {
 const _scopeStack = [];
 
 /**
- * Track an OCCT Embind object for disposal at the end of the current scope.
- * Called by kernel ops for every transient OCCT object (builders, sub-shapes).
+ * Track an kernel Embind object for disposal at the end of the current scope.
+ * Called by kernel ops for every transient the kernel object (builders, sub-shapes).
  * @template T
  * @param {T} ocObject
  * @returns {T} the same object, for chaining
@@ -369,14 +369,14 @@ git commit -m "feat(kernel): add BrepShape wrapper + withScope disposal arena"
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepPrimitives.js`
 
-> Reference `docs/superpowers/notes/occt-api-A0.md` (Task 3) for the verified box-constructor binding name. The code below uses `BRepPrimAPI_MakeBox_2` (the three-double overload in opencascade.js 2.0 beta). If the recon note shows a different suffix, use that.
+> Reference `docs/superpowers/notes/kernel-api-A0.md` (Task 3) for the verified box-constructor binding name. The code below uses `BRepPrimAPI_MakeBox_2` (the three-double overload in opencascade.js 2.0 beta). If the recon note shows a different suffix, use that.
 
 - [ ] **Step 1: Create BrepPrimitives with makeBox**
 
 Create `frontend/src/kernel/brep/BrepPrimitives.js`:
 ```js
 /**
- * ArchDisc Kernel — B-rep primitive solids (OCCT-backed).
+ * ArchDisc Kernel — B-rep primitive solids (the kernel-backed).
  * A0 scope: box only. A1 adds cylinder/sphere/cone/torus.
  */
 
@@ -397,7 +397,7 @@ export async function makeBox(dx, dy, dz) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeBox_2(dx, dy, dz));
-    if (!maker.IsDone()) throw new Error('makeBox: OCCT BRepPrimAPI_MakeBox failed');
+    if (!maker.IsDone()) throw new Error('makeBox: the kernel BRepPrimAPI_MakeBox failed');
     const shape = maker.Shape(); // survives — owned by the returned BrepShape
     return new BrepShape(shape, { op: 'makeBox', params: { dx, dy, dz } });
   });
@@ -416,7 +416,7 @@ Expected: build succeeds.
 
 ```bash
 git add frontend/src/kernel/brep/BrepPrimitives.js
-git commit -m "feat(kernel): add OCCT makeBox primitive"
+git commit -m "feat(kernel): add the kernel makeBox primitive"
 ```
 
 ---
@@ -426,14 +426,14 @@ git commit -m "feat(kernel): add OCCT makeBox primitive"
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepTessellate.js`
 
-> The OCCT triangulation read API is version-sensitive. Reconcile the accessor names (`Triangulation`, `Node`, `Triangle`, `Value`, `Orientation`) against `docs/superpowers/notes/occt-api-A0.md`. The code below targets opencascade.js 2.0 beta. If `BRep_Tool.Triangulation` arity differs, adjust the call.
+> The the kernel triangulation read API is version-sensitive. Reconcile the accessor names (`Triangulation`, `Node`, `Triangle`, `Value`, `Orientation`) against `docs/superpowers/notes/kernel-api-A0.md`. The code below targets opencascade.js 2.0 beta. If `BRep_Tool.Triangulation` arity differs, adjust the call.
 
 - [ ] **Step 1: Create BrepTessellate**
 
 Create `frontend/src/kernel/brep/BrepTessellate.js`:
 ```js
 /**
- * ArchDisc Kernel — tessellate an OCCT shape into plain triangle data
+ * ArchDisc Kernel — tessellate an kernel shape into plain triangle data
  * ready for a Three.js BufferGeometry. Positions are in mm.
  */
 
@@ -529,7 +529,7 @@ Expected: build succeeds.
 
 ```bash
 git add frontend/src/kernel/brep/BrepTessellate.js
-git commit -m "feat(kernel): add OCCT shape tessellation"
+git commit -m "feat(kernel): add kernel shape tessellation"
 ```
 
 ---
@@ -539,14 +539,14 @@ git commit -m "feat(kernel): add OCCT shape tessellation"
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepMeasure.js`
 
-> Reconcile `GProp_GProps`, `BRepGProp.VolumeProperties`/`SurfaceProperties`, and `TopExp_Explorer` names against `docs/superpowers/notes/occt-api-A0.md`.
+> Reconcile `GProp_GProps`, `BRepGProp.VolumeProperties`/`SurfaceProperties`, and `TopExp_Explorer` names against `docs/superpowers/notes/kernel-api-A0.md`.
 
 - [ ] **Step 1: Create BrepMeasure**
 
 Create `frontend/src/kernel/brep/BrepMeasure.js`:
 ```js
 /**
- * ArchDisc Kernel — geometry measurement for OCCT shapes. Drives the
+ * ArchDisc Kernel — geometry measurement for kernel shapes. Drives the
  * numeric assertions in e2e specs. All values in mm / mm² / mm³.
  */
 
@@ -577,7 +577,7 @@ export async function area(brepShape) {
  * Count UNIQUE sub-shapes of a given TopAbs kind. A raw TopExp_Explorer
  * DOUBLE-COUNTS shared sub-shapes: a box edge is visited once per adjacent
  * face, so TopAbs_EDGE yields 24 hits for 12 real edges (empirically
- * verified — see docs/superpowers/notes/occt-api-A0.md, Item 3). We
+ * verified — see docs/superpowers/notes/kernel-api-A0.md, Item 3). We
  * deduplicate with TopoDS_Shape.IsSame(). (A1+ may switch to
  * TopExp.MapShapes for O(n) counting on large shapes; IsSame dedup is
  * sufficient at A0 scope — box only.)
@@ -636,7 +636,7 @@ Expected: build succeeds.
 
 ```bash
 git add frontend/src/kernel/brep/BrepMeasure.js
-git commit -m "feat(kernel): add OCCT geometry measurement"
+git commit -m "feat(kernel): add the kernel geometry measurement"
 ```
 
 ---
@@ -688,7 +688,7 @@ Create `frontend/src/kernel/brep/ArchDiscKernel.js`:
 ```js
 /**
  * ArchDisc Kernel — the unified facade. The single entry point for exact
- * B-rep geometry. OCCT internals never leak past this module. A0 scope:
+ * B-rep geometry. the kernel internals never leak past this module. A0 scope:
  * makeBox + measurement + tessellation. A1+ extend `brep`.
  */
 
@@ -699,7 +699,7 @@ import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
 
 export const ArchDiscKernel = {
-  /** Ensure the OCCT WASM module is loaded. */
+  /** Ensure the kernel WASM module is loaded. */
   init: getOCCT,
   /** Exact B-rep operations. */
   brep: {
@@ -729,7 +729,7 @@ export const ArchDiscKernel = {
 
 Replace the contents of `frontend/src/kernel/brep/index.js`:
 ```js
-/** ArchDisc Kernel — B-rep (OCCT) subtree barrel export. */
+/** ArchDisc Kernel — B-rep (the kernel) subtree barrel export. */
 export { getOCCT, _reset } from './occtKernel.js';
 export { BrepShape, withScope, track } from './BrepShape.js';
 export { makeBox } from './BrepPrimitives.js';
@@ -750,7 +750,7 @@ import * as THREE from 'three';
 
 Then replace the `window.__archdiscKernel` `useEffect` from Task 3 with this version (it must be keyed on `viewport` so it has the scene):
 ```js
-    // Expose the OCCT-backed ArchDisc Kernel so headed Electron e2e specs
+    // Expose the the kernel-backed ArchDisc Kernel so headed Electron e2e specs
     // (and the B-rep Lab panel) can drive exact B-rep geometry and see it
     // render in the live viewport.
     useEffect(() => {
@@ -819,11 +819,11 @@ import React, { useState } from 'react';
 import './BrepLabPanel.css';
 
 /**
- * B-rep Lab — minimal panel that drives the OCCT-backed ArchDisc Kernel.
+ * B-rep Lab — minimal panel that drives the the kernel-backed ArchDisc Kernel.
  * A0 scope: a single "Box" button. A1+ add a button per operation.
  */
 export default function BrepLabPanel() {
-  const [status, setStatus] = useState('OCCT B-rep kernel ready');
+  const [status, setStatus] = useState('B-rep kernel ready');
   const [busy, setBusy] = useState(false);
 
   const makeBox = async () => {
@@ -842,7 +842,7 @@ export default function BrepLabPanel() {
 
   return (
     <div className="brep-lab-panel" data-testid="brep-lab-panel">
-      <div className="brep-lab-title">B-rep Lab (OCCT)</div>
+      <div className="brep-lab-title">B-rep Lab (the kernel)</div>
       <button
         type="button"
         className="brep-lab-btn"
@@ -929,7 +929,7 @@ import path from 'path';
 
 const SHOT = path.resolve(__dirname, 'screenshots');
 
-test('A0 gate: OCCT box builds, measures, renders, and leak-guards in the Electron app', async () => {
+test('A0 gate: the kernel box builds, measures, renders, and leak-guards in the Electron app', async () => {
   fs.mkdirSync(SHOT, { recursive: true });
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
@@ -989,7 +989,7 @@ Run:
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-foundation-electron.spec.js --project=chromium
 ```
-Expected: PASS — box builds, metrics correct, canvas non-blank, heap bounded, zero page errors. If the leak guard fails, check that `withScope`/`dispose` free the maker and shape. If metrics are wrong, reconcile the OCCT API names against `docs/superpowers/notes/occt-api-A0.md`. **Do not mark A0 done until this is green.**
+Expected: PASS — box builds, metrics correct, canvas non-blank, heap bounded, zero page errors. If the leak guard fails, check that `withScope`/`dispose` free the maker and shape. If metrics are wrong, reconcile the kernel API names against `docs/superpowers/notes/kernel-api-A0.md`. **Do not mark A0 done until this is green.**
 
 - [ ] **Step 3: Regression check — existing e2e suite still passes**
 
@@ -997,20 +997,20 @@ Run:
 ```bash
 ./node_modules/.bin/playwright test --project=chromium 2>&1 | tail -15
 ```
-Expected: the pre-existing ~388 tests still pass (no regression — OCCT is purely additive).
+Expected: the pre-existing ~388 tests still pass (no regression — the kernel is purely additive).
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add e2e/brep-foundation-electron.spec.js e2e/screenshots/brep-a0-box.png
-git commit -m "test(kernel): A0 gate — headed Electron e2e for OCCT box pipeline"
+git commit -m "test(kernel): A0 gate — headed Electron e2e for the kernel box pipeline"
 ```
 
 ---
 
 ## Self-review notes
 
-- **Spec coverage (A0 scope of §6):** OCCT loaded (Tasks 1–3) ✓; `kernel/brep/` facade + lifecycle/`withScope` (Tasks 4, 8) ✓; tessellation (Task 6) ✓; viewport render (Task 8) ✓; B-rep Lab panel shell (Task 9) ✓; `window.__archdiscKernel` hook (Tasks 3, 8) ✓; `BrepMeasure` (Task 7) ✓; headed Electron e2e + leak guard + regression (Tasks 3, 10) ✓.
+- **Spec coverage (A0 scope of §6):** the kernel loaded (Tasks 1–3) ✓; `kernel/brep/` facade + lifecycle/`withScope` (Tasks 4, 8) ✓; tessellation (Task 6) ✓; viewport render (Task 8) ✓; B-rep Lab panel shell (Task 9) ✓; `window.__archdiscKernel` hook (Tasks 3, 8) ✓; `BrepMeasure` (Task 7) ✓; headed Electron e2e + leak guard + regression (Tasks 3, 10) ✓.
 - **Deferred to A1+ (correctly out of this plan):** cylinder/sphere/cone/torus, booleans, extrude/revolve, fillet/chamfer, STEP I/O, and Phases A2–A5. Each gets its own plan written after the preceding phase is verified green.
-- **opencascade.js API risk:** handled by the Task 3 reconnaissance + `docs/superpowers/notes/occt-api-A0.md`; Tasks 5–7 explicitly reconcile against it.
+- **opencascade.js API risk:** handled by the Task 3 reconnaissance + `docs/superpowers/notes/kernel-api-A0.md`; Tasks 5–7 explicitly reconcile against it.
 - **Type consistency:** `BrepShape`, `withScope`, `track` (Task 4) are used unchanged in Tasks 5–8; `ArchDiscKernel.brep.*` method names match between Task 8's facade and Task 10's spec; `renderBox`, `__lastBrepMetrics`, `data-testid="brep-lab-box"` match between Tasks 8, 9, 10.

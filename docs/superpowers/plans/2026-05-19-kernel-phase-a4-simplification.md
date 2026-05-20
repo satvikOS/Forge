@@ -1,23 +1,23 @@
-# OCCT Phase A4 — Geometry Simplification — Implementation Plan
+# Kernel Phase A4 — Geometry Simplification — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add OCCT-backed geometry simplification to the ArchDisc Kernel — merging redundant coplanar faces and removing the now-redundant seam edges (and small edges) — wired into the workbench ribbon and verified by a headed Electron e2e test.
+**Goal:** Add the kernel-backed geometry simplification to the ArchDisc Kernel — merging redundant coplanar faces and removing the now-redundant seam edges (and small edges) — wired into the workbench ribbon and verified by a headed Electron e2e test.
 
-**Architecture:** Extends the `frontend/src/kernel/brep/` OCCT kernel (phases A0–A3). `simplify` consumes a `BrepShape` and returns a new, simplified `BrepShape` (an OCCT `ShapeUpgrade_UnifySameDomain` pass), wrapped in `withScope`, exposed on the `ArchDiscKernel` facade, wired into an existing ribbon healing/cleanup tool. Phase A4 leads with an empirical OCCT API reconnaissance task.
+**Architecture:** Extends the `frontend/src/kernel/brep/` the kernel (phases A0–A3). `simplify` consumes a `BrepShape` and returns a new, simplified `BrepShape` (an the kernel `ShapeUpgrade_UnifySameDomain` pass), wrapped in `withScope`, exposed on the `ArchDiscKernel` facade, wired into an existing ribbon healing/cleanup tool. Phase A4 leads with an empirical kernel API reconnaissance task.
 
 **Tech Stack:** `opencascade.js@2.0.0-beta.b5ff984` (pinned), Vite 7, React 19, Electron 42, Playwright 1.59 (headed, `_electron`).
 
-**Reference spec:** `docs/superpowers/specs/2026-05-18-occt-kernel-integration-foundation-design.md` (§3.5, §6 Phase A4).
+**Reference spec:** `docs/superpowers/specs/2026-05-18-kernel-integration-foundation-design.md` (§3.5, §6 Phase A4).
 
 ---
 
 ## Important context for the implementer
 
-- **Read first:** the spec, the A3 plan, and the verified API notes `docs/superpowers/notes/occt-api-A0.md` … `A3.md`.
+- **Read first:** the spec, the A3 plan, and the verified API notes `docs/superpowers/notes/kernel-api-A0.md` … `A3.md`.
 - **A0–A3 are done.** `frontend/src/kernel/brep/` has `occtKernel.js` (`getOCCT()`), `BrepShape.js` (`BrepShape`, `withScope`, `track`), `BrepPrimitives.js`, `BrepBoolean.js` (`fuse`/`cut`/`common`), `BrepFeatures.js`, `BrepLocalOps.js`, `BrepSurfacing.js`, `BrepCheck.js`, `BrepTransform.js`, `BrepStep.js`, `BrepTessellate.js`, `BrepMeasure.js` (`volume`, `faceCount`, `edgeCount`, …), `brepToMesh.js`, `ArchDiscKernel.js`, `index.js`.
-- **Op pattern:** `const oc = await getOCCT(); return withScope(() => { ...track() every transient OCCT object...; if (shape.IsNull()) throw ...; return new BrepShape(shape, meta); });`. OCCT Embind objects leak the WASM heap unless `track()`d.
-- **Ribbon integration:** `ToolExecutionEngine.js` has OCCT-wired `TOOL_HANDLERS` returning `{ status, message }`; `addBrepShapeToScene(scene, viewport, brepShape, color)` renders an OCCT result. `window.__lastBrepShape` holds the current OCCT body.
+- **Op pattern:** `const oc = await getOCCT(); return withScope(() => { ...track() every transient the kernel object...; if (shape.IsNull()) throw ...; return new BrepShape(shape, meta); });`. kernel Embind objects leak the WASM heap unless `track()`d.
+- **Ribbon integration:** `ToolExecutionEngine.js` has the kernel-wired `TOOL_HANDLERS` returning `{ status, message }`; `addBrepShapeToScene(scene, viewport, brepShape, color)` renders an the kernel result. `window.__lastBrepShape` holds the current the kernel body.
 - **e2e:** headed Playwright launching the real Electron app; geometry-producing ops are verified from many camera angles + zoom levels via `e2e/helpers/orbitCapture.js` (`captureAllAngles(win, label, opts)`).
 - Work on branch `archdisc`. Commit after every task. Do NOT create branches.
 
@@ -32,25 +32,25 @@
 | `frontend/src/kernel/brep/index.js` | Modify — barrel export |
 | `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | Modify — wire `simplify` into a ribbon cleanup/healing tool |
 | `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` | Modify (only if a `renderSimplify` driver is needed) |
-| `docs/superpowers/notes/occt-api-A4.md` | Create (Task 1) — verified OCCT API |
+| `docs/superpowers/notes/kernel-api-A4.md` | Create (Task 1) — verified kernel API |
 | `e2e/brep-a4-recon-electron.spec.js` | Create (Task 1) — empirical recon |
 | `e2e/brep-simplify-electron.spec.js` | Create (Task 4) — A4 e2e gate |
 
 ---
 
-## Task 1: A4 OCCT API reconnaissance (de-risk)
+## Task 1: A4 kernel API reconnaissance (de-risk)
 
 **Files:**
 - Create: `e2e/brep-a4-recon-electron.spec.js`
-- Create: `docs/superpowers/notes/occt-api-A4.md`
+- Create: `docs/superpowers/notes/kernel-api-A4.md`
 
-Empirically verifies, inside the real Electron app, the working call sequence for OCCT geometry simplification. Mirrors `e2e/brep-a3-recon-electron.spec.js`.
+Empirically verifies, inside the real Electron app, the working call sequence for the kernel geometry simplification. Mirrors `e2e/brep-a3-recon-electron.spec.js`.
 
 - [ ] **Step 1: Write the recon spec**
 
-Create `e2e/brep-a4-recon-electron.spec.js`. Launch the Electron app, get `oc` via `window.__archdiscKernel.getOCCT()`, and inside `win.evaluate(...)` empirically determine the COMPLETE working call sequence for each item. try/catch each; on failure record the error and try alternatives (suffixes, arg counts, prototype introspection). `.delete()` every OCCT object. Write findings to `docs/superpowers/notes/occt-api-A4-recon.json`, `console.log` them, `expect(...)` each item confirmed so the spec PASSES green. `test.setTimeout(600000)`.
+Create `e2e/brep-a4-recon-electron.spec.js`. Launch the Electron app, get `oc` via `window.__archdiscKernel.getOCCT()`, and inside `win.evaluate(...)` empirically determine the COMPLETE working call sequence for each item. try/catch each; on failure record the error and try alternatives (suffixes, arg counts, prototype introspection). `.delete()` every the kernel object. Write findings to `docs/superpowers/notes/kernel-api-A4-recon.json`, `console.log` them, `expect(...)` each item confirmed so the spec PASSES green. `test.setTimeout(600000)`.
 
-Build inputs with `new oc.BRepPrimAPI_MakeBox_2(dx,dy,dz)` and the verified boolean `new oc.BRepAlgoAPI_Fuse_3(a,b,pr)` + `.Build(pr2)` + `.Shape()` (see occt-api-A1.md). Count faces/edges with `new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE / TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE)` (dedup edges with `.IsSame()` per occt-api-A0.md). Volume via `GProp_GProps_1` + `BRepGProp.VolumeProperties_1`.
+Build inputs with `new oc.BRepPrimAPI_MakeBox_2(dx,dy,dz)` and the verified boolean `new oc.BRepAlgoAPI_Fuse_3(a,b,pr)` + `.Build(pr2)` + `.Shape()` (see kernel-api-A1.md). Count faces/edges with `new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE / TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE)` (dedup edges with `.IsSame()` per kernel-api-A0.md). Volume via `GProp_GProps_1` + `BRepGProp.VolumeProperties_1`.
 
 1. **A shape with redundant faces — the simplification input.** Build two 20×20×20 boxes, the second translated by (20,0,0) so they ABUT face-to-face, and `fuse` them. The fused solid is a 40×20×20 bar — but its B-rep retains the internal seam: extra coplanar face fragments and seam edges. Measure the fused result's face count and edge count and volume; record them (expect more than the 6 faces / 12 edges of a clean bar). This is the test input for simplification.
 2. **ShapeUpgrade_UnifySameDomain.** Determine: the constructor — likely `new oc.ShapeUpgrade_UnifySameDomain_2(shape, unifyEdges, unifyFaces, concatBSplines)` (4-arg) or `_1(shape)`; introspect for the right overload. Then `.Build()`; the result reader `.Shape()`. Run it on the fused bar from item 1. Confirm the simplified result has FEWER faces and edges than the input but the SAME volume (the seam was removed; a clean 40×20×20 bar is 6 faces / 12 edges). Record the COMPLETE verified sequence and the face/edge counts before vs after.
@@ -66,13 +66,13 @@ cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2
 
 - [ ] **Step 3: Write the verified API note**
 
-Create `docs/superpowers/notes/occt-api-A4.md` — for items 1–3, the COMPLETE verified copy-pasteable JavaScript call sequences, plus the measured before/after face & edge counts for the fused-bar simplification. Mark it verified against `opencascade.js@2.0.0-beta.b5ff984`.
+Create `docs/superpowers/notes/kernel-api-A4.md` — for items 1–3, the COMPLETE verified copy-pasteable JavaScript call sequences, plus the measured before/after face & edge counts for the fused-bar simplification. Mark it verified against `opencascade.js@2.0.0-beta.b5ff984`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add e2e/brep-a4-recon-electron.spec.js docs/superpowers/notes/occt-api-A4.md docs/superpowers/notes/occt-api-A4-recon.json
-git commit -m "test(kernel): empirical OCCT API recon for Phase A4 simplification"
+git add e2e/brep-a4-recon-electron.spec.js docs/superpowers/notes/kernel-api-A4.md docs/superpowers/notes/kernel-api-A4-recon.json
+git commit -m "test(kernel): empirical kernel API recon for Phase A4 simplification"
 ```
 
 ---
@@ -82,17 +82,17 @@ git commit -m "test(kernel): empirical OCCT API recon for Phase A4 simplificatio
 **Files:**
 - Create: `frontend/src/kernel/brep/BrepHeal.js`
 
-> Fill the `withScope` body with the verified `ShapeUpgrade_UnifySameDomain` sequence from `docs/superpowers/notes/occt-api-A4.md` item 2. `track()` every transient OCCT object.
+> Fill the `withScope` body with the verified `ShapeUpgrade_UnifySameDomain` sequence from `docs/superpowers/notes/kernel-api-A4.md` item 2. `track()` every transient the kernel object.
 
 - [ ] **Step 1: Create BrepHeal.js**
 
 Create `frontend/src/kernel/brep/BrepHeal.js`:
 ```js
 /**
- * ArchDisc Kernel — geometry healing & simplification (OCCT).
+ * ArchDisc Kernel — geometry healing & simplification (the kernel).
  * `simplify` merges adjacent faces lying on the same underlying surface
  * and removes the now-redundant seam/small edges (ShapeUpgrade_UnifySameDomain).
- * Verified OCCT sequence: docs/superpowers/notes/occt-api-A4.md item 2.
+ * Verified kernel sequences: docs/superpowers/notes/kernel-api-A4.md item 2.
  */
 
 import { getOCCT } from './occtKernel.js';
@@ -108,10 +108,10 @@ export async function simplify(brepShape) {
   if (!brepShape || !brepShape.shape) throw new Error('simplify: needs a BrepShape');
   const oc = await getOCCT();
   return withScope(() => {
-    /* verified ShapeUpgrade_UnifySameDomain sequence from occt-api-A4.md item 2:
+    /* verified ShapeUpgrade_UnifySameDomain sequence from kernel-api-A4.md item 2:
        construct the unifier on brepShape.shape with edge+face unification on,
        .Build(), read .Shape() → `const shape`. track() every transient. */
-    if (shape.IsNull()) throw new Error('simplify: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('simplify: the kernel produced a null shape');
     return new BrepShape(shape, { op: 'simplify', parents: [brepShape.id] });
   });
 }
@@ -156,11 +156,11 @@ In `frontend/src/kernel/brep/ArchDiscKernel.js`, add the import `import { simpli
 
 In `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js`, wire a ribbon tool to `simplify`. READ `frontend/src/components/RibbonToolbar.jsx` to find a suitable existing tool — the Direct Edit tab's Import-Repair group has cleanup tools (e.g. `Remove Duplicates`, `Heal Faces`, `Simplify`). Pick the best-fitting existing tool name (prefer one literally about simplification/cleanup); if none fits, add a `Simplify Geometry` tool to that group in BOTH `RibbonToolbar.jsx` and `WorkbenchMechanical.jsx` `TOOL_GROUPS`.
 
-The handler (follow the existing OCCT handler pattern — read e.g. the `Fillet` handler):
+The handler (follow the existing the kernel handler pattern — read e.g. the `Fillet` handler):
 - body = `window.__lastBrepShape` if present, else build a representative redundant-face shape: `fuse` two abutting 20mm boxes (`makeBox(20,20,20)` + a `translate(makeBox(20,20,20), 20,0,0)` then `fuse`) so the simplification has something to do. Dispose the intermediate operands.
 - `const result = await ArchDiscKernel.brep.simplify(body);`
 - render it: `await addBrepShapeToScene(scene, viewport, result);`
-- measure before/after face counts where possible and return `{ status:'success', message: 'Simplify: <n> → <m> faces (volume preserved) via OCCT ShapeUpgrade_UnifySameDomain' }`.
+- measure before/after face counts where possible and return `{ status:'success', message: 'Simplify: <n> → <m> faces (volume preserved) via ArchDisc Kernel ShapeUpgrade_UnifySameDomain' }`.
 - try/catch; return `{ status:'error', message }` on failure.
 
 If a `render*` driver is the cleaner path (consistent with other ops), add `renderSimplify` to the `window.__archdiscKernel` hook in `WorkbenchMechanical.jsx` following the existing `render*` pattern, and have the ribbon handler call it.
@@ -235,7 +235,7 @@ test('simplify: result renders correctly from all camera angles and zooms', asyn
   await app.close();
 });
 ```
-> If `r.after.faceCount` is not exactly 6 / `edgeCount` not exactly 12 (OCCT may leave some structure depending on how `UnifySameDomain` was configured in Task 2), reconcile: the simplified count MUST be strictly less than the un-simplified `before` count and the volume preserved; set the exact-count asserts to the real verified post-simplify counts from `occt-api-A4.md` item 2. Do NOT weaken to a trivial bound — assert the real reduced counts.
+> If `r.after.faceCount` is not exactly 6 / `edgeCount` not exactly 12 (the kernel may leave some structure depending on how `UnifySameDomain` was configured in Task 2), reconcile: the simplified count MUST be strictly less than the un-simplified `before` count and the volume preserved; set the exact-count asserts to the real verified post-simplify counts from `kernel-api-A4.md` item 2. Do NOT weaken to a trivial bound — assert the real reduced counts.
 > The dynamic `import('./helpers/orbitCapture.js')` mirrors how other retrofitted specs import the helper; if those specs use a static top-of-file import instead, match that style.
 
 - [ ] **Step 2: Build and run the A4 gate spec**
@@ -243,7 +243,7 @@ test('simplify: result renders correctly from all camera angles and zooms', asyn
 ```bash
 cd frontend && npx vite build && cd .. && ./node_modules/.bin/playwright test e2e/brep-simplify-electron.spec.js --project=chromium
 ```
-Expected: 2 tests PASS. Reconcile against `occt-api-A4.md` on failure. Do not weaken assertions.
+Expected: 2 tests PASS. Reconcile against `kernel-api-A4.md` on failure. Do not weaken assertions.
 
 - [ ] **Step 3: Run the full brep e2e suite (regression)**
 
@@ -263,7 +263,7 @@ git commit -m "test(kernel): A4 gate — headed Electron e2e for geometry simpli
 
 ## Self-review notes
 
-- **Spec coverage (§3.5 / §6 Phase A4):** geometry simplification — removing redundant/sliver faces and small/seam edges (Tasks 2, 4) ✓; facade + ribbon wiring (Task 3) ✓; headed Electron e2e incl. all-angles capture (Task 4) ✓; OCCT API de-risk (Task 1) ✓.
+- **Spec coverage (§3.5 / §6 Phase A4):** geometry simplification — removing redundant/sliver faces and small/seam edges (Tasks 2, 4) ✓; facade + ribbon wiring (Task 3) ✓; headed Electron e2e incl. all-angles capture (Task 4) ✓; kernel API de-risk (Task 1) ✓.
 - **Deferred (correctly out of this plan):** tolerant modeling / stitching and convergent modeling (§3.5) — deferred to later sub-projects per the spec; A5 hard blending; feature-level defeaturing beyond same-domain unification.
-- **Placeholder note:** the single `/* verified ... */` marker in Task 2 is filled from Task 1's empirically-verified `occt-api-A4.md` — the proven A0–A3 de-risk flow. Every other code block is complete.
+- **Placeholder note:** the single `/* verified ... */` marker in Task 2 is filled from Task 1's empirically-verified `kernel-api-A4.md` — the proven A0–A3 de-risk flow. Every other code block is complete.
 - **Type consistency:** `simplify` is the single new op name, consistent across the barrel, facade, ribbon handler, and e2e. Verdict: `simplify` returns a `BrepShape` (geometry op), so the e2e measures it and sweeps all angles.
