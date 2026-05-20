@@ -6,11 +6,17 @@
  * (Part tab, Modify group) and filling the ToolParamDialog —
  * NOT by calling kernel APIs directly.
  *
+ * Artifact: phone-case edge (variable radius)
+ *
  * Arity-1 workflow:
- *   1. Build Box (40³) via ribbon + dialog.
+ *   1. Build Box (40³) via ribbon + dialog — the case blank.
  *   2. Select the Box body.
  *   3. Click Variable Radius Fillet → fill dialog (r1=1, r2=4).
  *   4. Measure: V in (50000, 63900), faceCount > 6.
+ *
+ * Variable-radius fillet simulates the ergonomic edge treatment on a
+ * consumer electronics housing — tight radius (r1=1) at corners,
+ * looser radius (r2=4) along the long edges.
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
@@ -41,12 +47,15 @@ async function launch() {
 
 // ─── Variable Radius Fillet ───────────────────────────────────────────────────
 
-test('Variable Radius Fillet: build 40³ box → select → ribbon click → r1=1→r2=4 dialog → V in (50000, 63900), faceCount > 6', async () => {
-  // Variable-radius fillet on all edges: removes material from corners.
-  // V must be < 64000 (material removed) and > 50000 (partial removal only).
+test('Variable Radius Fillet: phone-case edge (variable radius) — build 40³ box → select → ribbon click → r1=1→r2=4 dialog → V in (50000, 63900), faceCount > 6', async () => {
+  // Artifact: phone-case edge (variable radius)
+  // A 40×40×40 mm case blank (Box) with variable-radius edge treatment:
+  // tight radius (r1=1 mm) at the tight corners, flowing to a larger radius
+  // (r2=4 mm) along the long edges — mimicking the ergonomic edge of a
+  // consumer electronics housing or hand-held device body.
   const { app, win, pageErrors } = await launch();
   try {
-    // 1. Build the input body via the Box primitive (user workflow).
+    // 1. Build the case blank (Box 40³) via the Box primitive (user workflow).
     const boxId = await buildPrimitive(win, 'Box');
 
     // 2. Select the body for the Variable Radius Fillet op.
@@ -76,7 +85,7 @@ test('Variable Radius Fillet: build 40³ box → select → ribbon click → r1=
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Variable Radius Fillet: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Variable Radius Fillet (phone-case edge): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(50000);
     expect(m.volume).toBeLessThan(63900);
     expect(m.faceCount).toBeGreaterThan(6);
