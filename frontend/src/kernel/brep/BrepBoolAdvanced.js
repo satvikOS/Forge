@@ -94,3 +94,21 @@ export async function fuseCoincident(a, b, tolerance = 0.01) {
     return new BrepShape(shape, { op: 'fuseCoincident', params: { tolerance }, parents: [a.id, b.id] });
   });
 }
+
+/**
+ * Fuse N lattice members into one solid via a single BOPAlgo_Builder pass.
+ * Mechanically delegates to fuseAll; the dedicated name surfaces the
+ * lattice-intersection capability and validates ≥4 members.
+ *
+ * Verified: occt-api-B.md Capability 3 — 8-shape single-pass fuse,
+ * vol=720 mm³ exactly in 42ms (non-overlapping 2×2×2 grid of 10×3×3 boxes).
+ *
+ * @param {BrepShape[]} members
+ * @returns {Promise<BrepShape>}
+ */
+export async function fuseLattice(members) {
+  if (!Array.isArray(members) || members.length < 4) {
+    throw new Error('fuseLattice: needs at least 4 lattice member BrepShapes');
+  }
+  return fuseAll(members);
+}
