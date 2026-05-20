@@ -174,6 +174,15 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  'Retopo Surface': {
+    title: 'Retopo Surface — Isotropic Remeshing',
+    blurb: 'Retopologise the selected body via Botsch-Kobbelt 2004 isotropic remeshing (split/collapse/flip/tangential-relax). Set targetEdgeLength=0 to use auto (mean baseline edge length).',
+    fields: [
+      { name: 'targetEdgeLength', label: 'Target edge length', type: 'number', default: 0, unit: 'mm', min: 0, max: 100, step: 0.1, hint: '0 = auto (mean edge length of input mesh)' },
+      { name: 'iterations',       label: 'Iterations',         type: 'number', default: 5, unit: '',   min: 1, max: 10,  step: 1,   hint: '1–10 iterations of split/collapse/flip/relax' },
+    ],
+  },
+
   // ─── OCCT BOOLEANS (arity 2 / Infinity) ──────────────────────────────────
   // Combine, Subtract, Intersect, Combine (Non-Manifold), Lattice Fuse have
   // no parameters — a schema entry with empty fields ensures the dialog

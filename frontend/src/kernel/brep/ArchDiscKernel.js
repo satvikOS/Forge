@@ -24,6 +24,7 @@ import { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 import { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
 import { replaceFace } from './BrepRewrite.js';
 import { subdivideShape } from './BrepSubdivide.js';
+import { retopoShape } from './BrepRetopo.js';
 
 export const ArchDiscKernel = {
   /** Ensure the OCCT WASM module is loaded. */
@@ -43,6 +44,7 @@ export const ArchDiscKernel = {
     fuseAll, fuseNonManifold, fuseCoincident, fuseLattice,
     replaceFace,
     subdivideShape,
+    retopoShape,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,

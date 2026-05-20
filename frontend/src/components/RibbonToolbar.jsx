@@ -87,6 +87,7 @@ const TABS = {
       { label: 'Surface', tools: [
         { name: 'Thicken', icon: '⧈', key: 'surface' },
         { name: 'Subdivide Surface', icon: '◈', key: 'surface' },
+        { name: 'Retopo Surface',    icon: '⬡', key: 'surface' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

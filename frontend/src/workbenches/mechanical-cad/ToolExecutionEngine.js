@@ -297,12 +297,12 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
     console.warn('addBrepShapeToScene: body registry register failed', err);
   }
 
-  // Mirror last OCCT shape onto window — dispose the previous live shape
-  // first to release OCCT WASM heap.
+  // Mirror last OCCT shape onto window.
+  // NOTE: do NOT dispose the previous window.__lastBrepShape here.
+  // The previous shape may be live in the BodyRegistry (multi-body ops
+  // like Combine/Subtract/Intersect read selectedBrepShapes() which
+  // references registry entries). Registry owns shape lifetime.
   if (typeof window !== 'undefined') {
-    if (window.__lastBrepShape && typeof window.__lastBrepShape.dispose === 'function') {
-      window.__lastBrepShape.dispose();
-    }
     window.__lastBrepShape = brepShape;
     window.__lastBrepGroup = group;
     if (typeof window.__archdiscFocusOnObject === 'function') {
@@ -1464,6 +1464,64 @@ const TOOL_HANDLERS = {
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Subdivide Surface: ' + err.message };
+      }
+    },
+
+    'Retopo Surface': async (scene, viewport) => {
+      // Isotropic remeshing (Botsch-Kobbelt 2004) — arity 1, requires selected body.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Retopo Surface');
+        if (cancelled) return { status: 'warn', message: 'Retopo Surface: cancelled' };
+
+        const tgt = (values.targetEdgeLength > 0) ? values.targetEdgeLength : undefined;
+        const mesh = await ArchDiscKernel.brep.retopoShape(body, {
+          targetEdgeLength: tgt,
+          iterations: Math.round(values.iterations),
+        });
+
+        // Build Three.js BufferGeometry from the retopo'd typed arrays.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(mesh.normals, 3));
+        geom.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x9aa3ad,
+          metalness: 0.3,
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+        });
+        const m3 = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);   // mm → m
+        group.add(m3);
+        group.userData.pickable       = true;
+        group.userData.generatedModel = true;
+        group.userData.retopo         = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(group);
+        }
+        // Mirror retopo'd mesh data onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastRetopoMesh = {
+            positions: mesh.positions,
+            normals:   mesh.normals,
+            indices:   mesh.indices,
+            stats:     mesh.stats,
+          };
+        }
+
+        const s = mesh.stats;
+        return {
+          status: 'success',
+          message: `Retopo Surface: ${s.baseTris}→${s.retopoTris} tris (target L = ${tgt ?? 'auto'}, ${Math.round(values.iterations)} iter) via isotropic remeshing`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Retopo Surface: ' + err.message };
       }
     },
   },
