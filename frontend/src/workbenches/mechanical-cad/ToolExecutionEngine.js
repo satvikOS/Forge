@@ -268,7 +268,7 @@ export function addFoundationManifoldToScene(scene, viewport, manifold, color = 
   return group;
 }
 
-// Helper: take an OCCT BrepShape, build a Three.js mesh via ArchDiscKernel,
+// Helper: take a BrepShape, build a Three.js mesh via ArchDiscKernel,
 // add to scene, register the body in the Part Browser, and return the group.
 // Mirrors the addFoundationManifoldToScene pattern — same scale (0.001 mm→m),
 // same userData flags, same auto-frame and window mirror behaviour.
@@ -284,7 +284,7 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
   group.updateMatrixWorld(true);
 
   // Register in the body registry so the Part Browser can list it.
-  // registerBody expects { group, manifold, sourceTool }. OCCT bodies
+  // registerBody expects { group, manifold, sourceTool }. B-rep bodies
   // don't have a manifold-3d Manifold; we pass a minimal shim that
   // exposes a volume() method so the registry can record the volume.
   try {
@@ -297,7 +297,7 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
     console.warn('addBrepShapeToScene: body registry register failed', err);
   }
 
-  // Mirror last OCCT shape onto window.
+  // Mirror last B-rep shape onto window.
   // NOTE: do NOT dispose the previous window.__lastBrepShape here.
   // The previous shape may be live in the BodyRegistry (multi-body ops
   // like Combine/Subtract/Intersect read selectedBrepShapes() which
@@ -488,11 +488,11 @@ function removeSelectedFromScene(scene, viewport) {
 // --- Shared handler helpers ---
 
 /**
- * Run an OCCT clash check between a 30mm box and a 10r×40h cylinder.
+ * Run a kernel clash check between a 30mm box and a 10r×40h cylinder.
  * Shared by the 'Interference' and 'Interference Detection' ribbon entries.
  */
 async function _runInterferenceDemo() {
-  // OCCT path: build two overlapping solids (box + cylinder) and run
+  // Kernel path: build two overlapping solids (box + cylinder) and run
   // ArchDiscKernel.brep.checkClash — returns clash verdict + interference
   // volume + min clearance distance. Analytical only — no geometry rendering.
   // Mirrors result to window.__lastInterferenceResult for e2e tests.
@@ -507,18 +507,18 @@ async function _runInterferenceDemo() {
     if (r.clash) {
       return {
         status: 'warn',
-        message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via OCCT)',
+        message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via ArchDisc Kernel)',
       };
     }
     return {
       status: 'success',
-      message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via OCCT)',
+      message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via ArchDisc Kernel)',
     };
   } catch (err) {
     if (typeof window !== 'undefined') {
       window.__lastInterferenceResult = { error: err.message };
     }
-    return { status: 'error', message: 'Interference (OCCT): ' + err.message };
+    return { status: 'error', message: 'Interference: ' + err.message };
   }
 }
 
@@ -843,7 +843,7 @@ const TOOL_HANDLERS = {
     },
 
     'Extrude Boss': async (scene, viewport) => {
-      // OCCT exact B-rep path: extrude a rectangular profile via the
+      // Exact B-rep path: extrude a rectangular profile via the
       // ArchDiscKernel exact kernel. Parametric — orchestration plans
       // supply { width, depth, height }; defaults give 80×50×25 mm.
       const { values, cancelled } = await requestToolParams('Extrude Boss');
@@ -857,7 +857,7 @@ const TOOL_HANDLERS = {
         const metrics = await ArchDiscKernel.brep.measure(shape);
         return {
           status: 'success',
-          message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+          message: `Extrude Boss: ${width}×${depth} rectangle × ${height} mm. V = ${metrics.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: 'error', message: `Extrude Boss failed: ${err.message}` };
@@ -938,7 +938,7 @@ const TOOL_HANDLERS = {
     },
 
     'Revolve Boss': async (scene, viewport) => {
-      // OCCT exact B-rep path: revolve a rectangular ring profile 360°
+      // Exact B-rep path: revolve a rectangular ring profile 360°
       // around the axis via ArchDiscKernel.brep.revolveRect. Parametric
       // — orchestration plans supply { innerR, width, height }; defaults
       // give innerR=12, width=18, height=40 mm (a stepped-shaft ring).
@@ -953,7 +953,7 @@ const TOOL_HANDLERS = {
         const metrics = await ArchDiscKernel.brep.measure(shape);
         return {
           status: 'success',
-          message: `Revolve Boss: innerR=${innerR} mm, width=${width} mm, height=${height} mm, 360°. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+          message: `Revolve Boss: innerR=${innerR} mm, width=${width} mm, height=${height} mm, 360°. V = ${metrics.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: 'error', message: `Revolve Boss failed: ${err.message}` };
@@ -981,7 +981,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.loft(values.bottomSize, values.topSize, values.height);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Loft Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Loft Boss: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Loft Boss: ' + err.message };
       }
@@ -994,7 +994,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.sweep(values.radius, values.length);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Sweep Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Sweep Boss: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Sweep Boss: ' + err.message };
       }
@@ -1008,7 +1008,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.filletAll(body, values.radius);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Fillet: ' + err.message };
       }
@@ -1022,7 +1022,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.chamferAll(body, values.distance);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Chamfer: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Chamfer: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Chamfer: ' + err.message };
       }
@@ -1056,7 +1056,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.shell(body, values.thickness);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Shell: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Shell: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Shell: ' + err.message };
       }
@@ -1070,7 +1070,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.draft(body, values.angleDeg);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Draft: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Draft: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Draft: ' + err.message };
       }
@@ -1086,7 +1086,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Variable Radius Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel`,
+          message: `Variable Radius Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Variable Radius Fillet: ' + err.message };
@@ -1109,7 +1109,7 @@ const TOOL_HANDLERS = {
         } catch (_) { /* area not critical */ }
         return {
           status: 'success',
-          message: `Face Fillet: G2 fill face built${areaStr} via OCCT exact B-rep kernel`,
+          message: `Face Fillet: G2 fill face built${areaStr} via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: 'error', message: 'Face Fillet: ' + err.message };
@@ -1124,7 +1124,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.cliffEdgeBlend(body, values.radius);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Full Round Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Full Round Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Full Round Fillet: ' + err.message };
       }
@@ -1138,7 +1138,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.mitreCorner(body, values.radius);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Corner Mitre: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Corner Mitre: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Corner Mitre: ' + err.message };
       }
@@ -1152,7 +1152,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.offsetShape(body, values.distance);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Offset Shape: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Offset Shape: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Offset Shape: ' + err.message };
       }
@@ -1199,7 +1199,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.fuse(a, b);
         await addBrepShapeToScene(scene, viewport, result, 0x4caf50);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Combine: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Combine: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine: ' + err.message };
       }
@@ -1213,7 +1213,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.cut(a, b);
         await addBrepShapeToScene(scene, viewport, result, 0xff9800);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Subtract: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Subtract: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Subtract: ' + err.message };
       }
@@ -1227,7 +1227,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.common(a, b);
         await addBrepShapeToScene(scene, viewport, result, 0x9c27b0);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Intersect: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Intersect: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Intersect: ' + err.message };
       }
@@ -1241,7 +1241,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.fuseNonManifold(a, b);
         await addBrepShapeToScene(scene, viewport, result);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Combine (Non-Manifold): V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo` };
+        return { status: 'success', message: `Combine (Non-Manifold): V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine (Non-Manifold): ' + err.message };
       }
@@ -1255,7 +1255,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.fuseCoincident(a, b, values.tolerance);
         await addBrepShapeToScene(scene, viewport, result);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Combine (Coincident): V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_Fuse SetFuzzyValue` };
+        return { status: 'success', message: `Combine (Coincident): V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine (Coincident): ' + err.message };
       }
@@ -1269,13 +1269,13 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.fuseLattice(members);
         await addBrepShapeToScene(scene, viewport, result);
         const meas = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Lattice Fuse: ${members.length} members → V = ${meas.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo` };
+        return { status: 'success', message: `Lattice Fuse: ${members.length} members → V = ${meas.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Lattice Fuse: ' + err.message };
       }
     },
 
-    // ── OCCT Solid Primitives (Solid Primitives ribbon section) ──────────────
+    // ── Solid Primitives (Solid Primitives ribbon section) ──────────────
 
     'Box': async (scene, viewport) => {
       try {
@@ -1284,7 +1284,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.makeBox(values.dx, values.dy, values.dz);
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Box: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Box: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Box: ' + err.message };
       }
@@ -1297,7 +1297,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.makeCylinder(values.radius, values.height);
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Cylinder: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Cylinder: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Cylinder: ' + err.message };
       }
@@ -1310,7 +1310,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.makeSphere(values.radius);
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Sphere: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Sphere: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Sphere: ' + err.message };
       }
@@ -1323,7 +1323,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.makeCone(values.radius1, values.radius2, values.height);
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Cone: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Cone: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Cone: ' + err.message };
       }
@@ -1336,7 +1336,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.makeTorus(values.majorRadius, values.minorRadius);
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Torus: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Torus: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Torus: ' + err.message };
       }
@@ -1392,7 +1392,7 @@ const TOOL_HANDLERS = {
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // SURFACE — OCCT-wired surface/sheet operations
+  // SURFACE — exact B-rep surface/sheet operations
   // ═══════════════════════════════════════════════════════════════════════════
   surface: {
     'Thicken': async (scene, viewport) => {
@@ -1403,7 +1403,7 @@ const TOOL_HANDLERS = {
         const result = await ArchDiscKernel.brep.thicken(values.width, values.height, values.thickness);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Thicken: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
+        return { status: 'success', message: `Thicken: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
         return { status: 'error', message: 'Thicken: ' + err.message };
       }
@@ -1525,7 +1525,7 @@ const TOOL_HANDLERS = {
       }
     },
 
-    // ── NURBS operations (OCCT Geom_BSplineSurface) ────────────────────────
+    // ── NURBS operations (kernel Geom_BSplineSurface) ────────────────────────
 
     'NURBS Patch': async (scene, viewport) => {
       // Arity 0 — builds from dialog params only. No body selection needed.
@@ -1540,7 +1540,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `NURBS Patch: area = ${m.area.toFixed(1)} mm² — 4×4 clamped-cubic sail patch (size=${values.size} mm, crown=${values.crown} mm) via OCCT Geom_BSplineSurface`,
+          message: `NURBS Patch: area = ${m.area.toFixed(1)} mm² — 4×4 clamped-cubic sail patch (size=${values.size} mm, crown=${values.crown} mm) via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: 'error', message: 'NURBS Patch: ' + err.message };
@@ -1558,7 +1558,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Refine NURBS: area = ${m.area.toFixed(1)} mm² — knots inserted at 0.25, 0.5, 0.75 in u and v (h-refinement, shape preserved) via OCCT InsertUKnot/InsertVKnot`,
+          message: `Refine NURBS: area = ${m.area.toFixed(1)} mm² — knots inserted at 0.25, 0.5, 0.75 in u and v (h-refinement, shape preserved) via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Refine NURBS: ' + err.message };
@@ -1579,7 +1579,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Elevate NURBS: area = ${m.area.toFixed(1)} mm² — degree elevated to u=${values.uDegree}, v=${values.vDegree} (p-refinement, shape preserved) via OCCT IncreaseDegree`,
+          message: `Elevate NURBS: area = ${m.area.toFixed(1)} mm² — degree elevated to u=${values.uDegree}, v=${values.vDegree} (p-refinement, shape preserved) via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Elevate NURBS: ' + err.message };
@@ -1607,7 +1607,7 @@ const TOOL_HANDLERS = {
             `K_mean=${result.mean.toExponential(3)}, ` +
             `kMin=${result.kMin.toExponential(3)}, ` +
             `kMax=${result.kMax.toExponential(3)} ` +
-            `via OCCT GeomLProp_SLProps`,
+            `via ArchDisc exact B-rep kernel`,
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'NURBS Curvature: ' + err.message };
@@ -1630,7 +1630,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Sweep Tortuous: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel (BRepOffsetAPI_MakePipeShell)`,
+          message: `Sweep Tortuous: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel (BRepOffsetAPI_MakePipeShell)`,
         };
       } catch (err) {
         return { status: 'error', message: 'Sweep Tortuous: ' + err.message };
@@ -1654,7 +1654,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Loft Tangent: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel (BRepOffsetAPI_ThruSections + SetSmoothing)`,
+          message: `Loft Tangent: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel (BRepOffsetAPI_ThruSections + SetSmoothing)`,
         };
       } catch (err) {
         return { status: 'error', message: 'Loft Tangent: ' + err.message };
@@ -1676,7 +1676,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Stitch Faces: faces = ${m.faceCount} via OCCT exact B-rep kernel (BRepBuilderAPI_Sewing, tol=${values.tolerance} mm)`,
+          message: `Stitch Faces: faces = ${m.faceCount} via ArchDisc exact B-rep kernel (BRepBuilderAPI_Sewing, tol=${values.tolerance} mm)`,
         };
       } catch (err) {
         return { status: 'error', message: 'Stitch Faces: ' + err.message };
@@ -1696,7 +1696,7 @@ const TOOL_HANDLERS = {
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Convergent Solid: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel (12-triangle Sewing + MakeSolid_3)`,
+          message: `Convergent Solid: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel (12-triangle Sewing + MakeSolid_3)`,
         };
       } catch (err) {
         return { status: 'error', message: 'Convergent Solid: ' + err.message };
@@ -1884,7 +1884,7 @@ const TOOL_HANDLERS = {
         const out = await ArchDiscKernel.brep.replaceFace(body, values.faceIndex);
         await addBrepShapeToScene(scene, viewport, out);
         const m = await ArchDiscKernel.brep.measure(out);
-        return { status: 'success', message: `Replace Face: face #${values.faceIndex} rewritten via OCCT BRepTools_ReShape — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces` };
+        return { status: 'success', message: `Replace Face: face #${values.faceIndex} rewritten via ArchDisc Kernel — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces` };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Replace Face: ' + err.message };
       }
@@ -1900,7 +1900,7 @@ const TOOL_HANDLERS = {
         await addBrepShapeToScene(scene, viewport, result);
         return {
           status: 'success',
-          message: 'Simplify Geometry: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via OCCT ShapeUpgrade_UnifySameDomain',
+          message: 'Simplify Geometry: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via ArchDisc Kernel',
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Simplify Geometry: ' + err.message };
@@ -3069,7 +3069,7 @@ const TOOL_HANDLERS = {
     },
 
     'Check Geometry': async (scene, viewport) => {
-      // OCCT path: if an OCCT body is in scope, run BRepCheck_Analyzer
+      // Kernel path: if a B-rep body is in scope, run BRepCheck_Analyzer
       // self-intersection check via ArchDiscKernel.brep.checkSelfIntersection.
       // Returns a verdict only — no geometry rendering.
       try {
@@ -3084,15 +3084,15 @@ const TOOL_HANDLERS = {
           return {
             status: 'warn',
             message: 'Check Geometry: self-intersection detected — ' + r.count + ' intersecting solid pair(s)' +
-              (r.valid ? '' : ', invalid geometry') + ' (via OCCT BRepCheck_Analyzer)',
+              (r.valid ? '' : ', invalid geometry') + ' (via ArchDisc geometry checker)',
           };
         }
         return {
           status: 'success',
-          message: 'Check Geometry: no self-intersections — geometry is valid (via OCCT BRepCheck_Analyzer)',
+          message: 'Check Geometry: no self-intersections — geometry is valid (via ArchDisc geometry checker)',
         };
       } catch (occtErr) {
-        return { status: 'error', message: 'Check Geometry (OCCT): ' + occtErr.message };
+        return { status: 'error', message: 'Check Geometry: ' + occtErr.message };
       }
     },
 
