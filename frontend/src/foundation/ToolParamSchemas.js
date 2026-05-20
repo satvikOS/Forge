@@ -218,6 +218,51 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SUB-PROJECT F — FINAL §3 CAPABILITIES ────────────────────────────────
+
+  'Sweep Tortuous': {
+    title: 'Tortuous-path Sweep',
+    blurb: 'Sweep a circular profile along a tortuous polyline path.',
+    fields: [
+      { name: 'profileRadius', label: 'Profile radius', type: 'number', default: 4,  unit: 'mm', min: 0.1, max: 50,  step: 0.5, hint: 'Circular profile radius (mm)' },
+      { name: 'segLength',     label: 'Segment length', type: 'number', default: 20, unit: 'mm', min: 1,   max: 200, step: 1,   hint: 'Length of each polyline segment (mm)' },
+      { name: 'bendCount',     label: 'Bend count',     type: 'number', default: 2,  unit: '',   min: 1,   max: 6,   step: 1,   hint: 'Number of right-angle bends (1–6)' },
+    ],
+  },
+
+  'Loft Tangent': {
+    title: 'Tangent-Smoothed Loft',
+    blurb: 'Loft 3 square sections with tangent smoothing (SetSmoothing).',
+    fields: [
+      { name: 's0', label: 'Section 0 side', type: 'number', default: 40, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Side length of bottom section' },
+      { name: 's1', label: 'Section 1 side', type: 'number', default: 20, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Side length of middle section' },
+      { name: 's2', label: 'Section 2 side', type: 'number', default: 30, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Side length of top section' },
+      { name: 'z0', label: 'Z height 0',     type: 'number', default: 0,  unit: 'mm', min: 0, max: 200, step: 1, hint: 'Z position of bottom section' },
+      { name: 'z1', label: 'Z height 1',     type: 'number', default: 20, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Z position of middle section' },
+      { name: 'z2', label: 'Z height 2',     type: 'number', default: 40, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Z position of top section' },
+    ],
+  },
+
+  'Stitch Faces': {
+    title: 'Tolerant Stitching',
+    blurb: 'Stitch two planar panels across a small gap using BRepBuilderAPI_Sewing.',
+    fields: [
+      { name: 'gap',       label: 'Gap',        type: 'number', default: 0.05, unit: 'mm', min: 0,     max: 1,   step: 0.01, hint: 'Gap between panel edges (mm)' },
+      { name: 'tolerance', label: 'Tolerance',  type: 'number', default: 0.1,  unit: 'mm', min: 0.001, max: 1,   step: 0.01, hint: 'Sewing tolerance (must be > gap)' },
+      { name: 'panelW',    label: 'Panel width', type: 'number', default: 20,  unit: 'mm', min: 1,     max: 200, step: 1,    hint: 'Width of each panel (mm)' },
+      { name: 'panelH',    label: 'Panel height', type: 'number', default: 20, unit: 'mm', min: 1,     max: 200, step: 1,    hint: 'Height of each panel (mm)' },
+    ],
+  },
+
+  'Convergent Solid': {
+    title: 'Convergent Modeling (Facet→B-rep)',
+    blurb: 'Build a solid from a facet mesh via Sewing + MakeSolid_3 (convergent modeling pipeline).',
+    fields: [
+      { name: 'size',      label: 'Cube size',  type: 'number', default: 20,    unit: 'mm', min: 1,      max: 200, step: 1,     hint: 'Side length of the demo cube (mm)' },
+      { name: 'tolerance', label: 'Tolerance',  type: 'number', default: 0.001, unit: 'mm', min: 0.0001, max: 0.1, step: 0.001, hint: 'Sewing tolerance for triangle edge stitching' },
+    ],
+  },
+
   // ─── OCCT BOOLEANS (arity 2 / Infinity) ──────────────────────────────────
   // Combine, Subtract, Intersect, Combine (Non-Manifold), Lattice Fuse have
   // no parameters — a schema entry with empty fields ensures the dialog

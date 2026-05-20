@@ -21,3 +21,4 @@ export { replaceFace } from './BrepRewrite.js';
 export { subdivideShape } from './BrepSubdivide.js';
 export { retopoShape } from './BrepRetopo.js';
 export { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from './BrepNurbs.js';
+export { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './BrepFinal.js';

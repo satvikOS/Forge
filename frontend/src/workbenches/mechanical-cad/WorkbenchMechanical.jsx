@@ -172,7 +172,7 @@ const TOOL_GROUPS = {
             { header: 'Modify', items: [
                 'Trim Surface', 'Untrim Surface', 'Extend Surface',
                 'Blend Surface', 'Fillet Surface', 'Chamfer Surface',
-                'Thicken', 'Subdivide Surface', 'Retopo Surface', 'NURBS Patch', 'Refine NURBS', 'Elevate NURBS', 'NURBS Curvature', 'Knit Surface', 'Flatten', 'Deform Surface'
+                'Thicken', 'Subdivide Surface', 'Retopo Surface', 'NURBS Patch', 'Refine NURBS', 'Elevate NURBS', 'NURBS Curvature', 'Sweep Tortuous', 'Loft Tangent', 'Stitch Faces', 'Convergent Solid', 'Knit Surface', 'Flatten', 'Deform Surface'
             ]},
             { header: 'Analysis', items: [
                 'Curvature Analysis', 'Zebra Stripes', 'Draft Analysis',

@@ -92,6 +92,10 @@ const TABS = {
         { name: 'Refine NURBS',      icon: '⊡', key: 'surface' },
         { name: 'Elevate NURBS',     icon: '⤴', key: 'surface' },
         { name: 'NURBS Curvature',   icon: 'κ',  key: 'surface' },
+        { name: 'Sweep Tortuous',    icon: '↭',  key: 'surface' },
+        { name: 'Loft Tangent',      icon: '⋀',  key: 'surface' },
+        { name: 'Stitch Faces',      icon: '⊕',  key: 'surface' },
+        { name: 'Convergent Solid',  icon: '▣',  key: 'surface' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

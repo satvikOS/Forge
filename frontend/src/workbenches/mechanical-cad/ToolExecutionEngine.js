@@ -1613,6 +1613,95 @@ const TOOL_HANDLERS = {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'NURBS Curvature: ' + err.message };
       }
     },
+
+    // ── Sub-project F — Final §3 capabilities ─────────────────────────────
+
+    'Sweep Tortuous': async (scene, viewport) => {
+      // Arity 0 — builds tortuous pipe sweep from dialog params only.
+      try {
+        const { values, cancelled } = await requestToolParams('Sweep Tortuous');
+        if (cancelled) return { status: 'warn', message: 'Sweep Tortuous: cancelled' };
+        const result = await ArchDiscKernel.brep.pipeShellSweep({
+          profileRadius: Number(values.profileRadius) || 4,
+          segLength:     Number(values.segLength)     || 20,
+          bendCount:     Number(values.bendCount)     || 2,
+        });
+        await addBrepShapeToScene(scene, viewport, result);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Sweep Tortuous: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel (BRepOffsetAPI_MakePipeShell)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sweep Tortuous: ' + err.message };
+      }
+    },
+
+    'Loft Tangent': async (scene, viewport) => {
+      // Arity 0 — builds tangent-smoothed loft from dialog params only.
+      try {
+        const { values, cancelled } = await requestToolParams('Loft Tangent');
+        if (cancelled) return { status: 'warn', message: 'Loft Tangent: cancelled' };
+        const result = await ArchDiscKernel.brep.loftTangent({
+          s0: Number(values.s0) || 40,
+          s1: Number(values.s1) || 20,
+          s2: Number(values.s2) || 30,
+          z0: Number(values.z0) ?? 0,
+          z1: Number(values.z1) || 20,
+          z2: Number(values.z2) || 40,
+        });
+        await addBrepShapeToScene(scene, viewport, result);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Loft Tangent: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel (BRepOffsetAPI_ThruSections + SetSmoothing)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Loft Tangent: ' + err.message };
+      }
+    },
+
+    'Stitch Faces': async (scene, viewport) => {
+      // Arity 0 — builds demonstrative 2-panel stitched assembly from dialog params.
+      try {
+        const { values, cancelled } = await requestToolParams('Stitch Faces');
+        if (cancelled) return { status: 'warn', message: 'Stitch Faces: cancelled' };
+        const result = await ArchDiscKernel.brep.stitchFaces({
+          gap:       Number(values.gap)       ?? 0.05,
+          tolerance: Number(values.tolerance) || 0.1,
+          panelW:    Number(values.panelW)    || 20,
+          panelH:    Number(values.panelH)    || 20,
+        });
+        await addBrepShapeToScene(scene, viewport, result);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Stitch Faces: faces = ${m.faceCount} via OCCT exact B-rep kernel (BRepBuilderAPI_Sewing, tol=${values.tolerance} mm)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Stitch Faces: ' + err.message };
+      }
+    },
+
+    'Convergent Solid': async (scene, viewport) => {
+      // Arity 0 — builds facet-derived solid cube from dialog params only.
+      try {
+        const { values, cancelled } = await requestToolParams('Convergent Solid');
+        if (cancelled) return { status: 'warn', message: 'Convergent Solid: cancelled' };
+        const result = await ArchDiscKernel.brep.convergentSolid({
+          size:      Number(values.size)      || 20,
+          tolerance: Number(values.tolerance) || 0.001,
+        });
+        await addBrepShapeToScene(scene, viewport, result);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Convergent Solid: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel (12-triangle Sewing + MakeSolid_3)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Convergent Solid: ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

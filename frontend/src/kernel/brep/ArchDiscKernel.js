@@ -26,6 +26,7 @@ import { replaceFace } from './BrepRewrite.js';
 import { subdivideShape } from './BrepSubdivide.js';
 import { retopoShape } from './BrepRetopo.js';
 import { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from './BrepNurbs.js';
+import { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './BrepFinal.js';
 
 export const ArchDiscKernel = {
   /** Ensure the OCCT WASM module is loaded. */
@@ -47,6 +48,7 @@ export const ArchDiscKernel = {
     subdivideShape,
     retopoShape,
     buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature,
+    pipeShellSweep, loftTangent, stitchFaces, convergentSolid,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,
