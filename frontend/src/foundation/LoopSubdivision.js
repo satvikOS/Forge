@@ -31,29 +31,119 @@
  *
  * The limit surface is C² everywhere except at extraordinary
  * vertices, where it is C¹ — the standard Loop guarantee.
+ *
+ * Piecewise-smooth extension (Hoppe et al. 1994):
+ *   Pass a sharpness Map<edgeKey, number> (edgeKey = "a_b" with a<b)
+ *   to loopStep / loopSubdivide. Sharpness ≥ 1 triggers:
+ *   - Sharp edge point:  e = (v0+v1)/2  (midpoint, no smooth blend)
+ *   - Vertex rule by k = count of incident sharp edges:
+ *       k ≤ 1 → smooth β-rule (unchanged)
+ *       k = 2 → crease:  v' = (6v + n0 + n1) / 8
+ *       k ≥ 3 → corner:  v' = v  (held exactly at position)
+ *   Sharpness decays by 1 per subdivision level (semi-sharp: sharp
+ *   for floor(s) levels, then becomes smooth).
+ *   Backward-compat: when sharpness is omitted/empty the output is
+ *   bit-identical to the previous implementation.
  */
+
+// ── Edge key format ───────────────────────────────────────────────────────────
+// The public sharpness map uses "a_b" (underscore, a<b) — used in both
+// loopStep and SubdivisionCreases.js. Internal edge-table key uses "a,b"
+// (comma) to avoid collision. Both are normalised to min_max.
+const _sharpKey = (i, j) => (i < j ? `${i}_${j}` : `${j}_${i}`);
+
+/**
+ * Weld duplicate vertices in a triangle mesh.
+ *
+ * OCCT BRepMesh tessellation duplicates vertices per face (24 verts
+ * for a cube instead of 8). weldMesh merges vertices within `tol` mm
+ * in all three coordinates so that adjacent triangles share indices —
+ * a prerequisite for dihedral-based crease detection.
+ *
+ * Implementation: spatial hash keyed on rounded coordinates for O(n)
+ * welding. Triangles are re-indexed.
+ *
+ * @param {{vertices: number[][], triangles: number[][]}} mesh
+ * @param {number} [tol=1e-6]  merge tolerance in mm
+ * @returns {{vertices: number[][], triangles: number[][]}}
+ */
+export function weldMesh(mesh, tol = 1e-6) {
+  const inv = 1 / tol;
+  const { vertices, triangles } = mesh;
+  const map = new Map();          // hash → canonical index in newVerts
+  const remap = new Array(vertices.length);
+  const newVerts = [];
+
+  for (let i = 0; i < vertices.length; i++) {
+    const v = vertices[i];
+    // Round to grid to form a deterministic hash key
+    const hx = Math.round(v[0] * inv);
+    const hy = Math.round(v[1] * inv);
+    const hz = Math.round(v[2] * inv);
+    const key = `${hx},${hy},${hz}`;
+    if (map.has(key)) {
+      remap[i] = map.get(key);
+    } else {
+      const idx = newVerts.length;
+      map.set(key, idx);
+      newVerts.push(v.slice());
+      remap[i] = idx;
+    }
+  }
+
+  // Re-index triangles; skip degenerate tris that collapsed to a line/point.
+  const newTris = [];
+  for (const [a, b, c] of triangles) {
+    const ra = remap[a], rb = remap[b], rc = remap[c];
+    if (ra !== rb && rb !== rc && ra !== rc) {
+      newTris.push([ra, rb, rc]);
+    }
+  }
+
+  return { vertices: newVerts, triangles: newTris };
+}
 
 /**
  * Subdivide a triangle mesh `levels` times with Loop subdivision.
  *
+ * When sharpness is omitted or empty the output is bit-identical to
+ * the original pure-smooth implementation — backward compatible with
+ * all existing callers (subdivideManifold etc.).
+ *
  * @param {{vertices: number[][], triangles: number[][]}} mesh
- * @param {number} levels   number of subdivision steps (default 1)
- * @returns {{vertices: number[][], triangles: number[][]}}
+ * @param {number} [levels=1]   number of subdivision steps
+ * @param {Map<string,number>} [sharpness]  per-edge sharpness map (edgeKey "a_b", a<b)
+ * @returns {{vertices: number[][], triangles: number[][], sharpness: Map<string,number>}}
  */
-export function loopSubdivide(mesh, levels = 1) {
+export function loopSubdivide(mesh, levels = 1, sharpness) {
+  // Normalise: empty/missing sharpness → new Map() for consistent threading.
+  let sh = (sharpness instanceof Map && sharpness.size > 0) ? sharpness : new Map();
   let m = { vertices: mesh.vertices.map(v => v.slice()), triangles: mesh.triangles.map(t => t.slice()) };
   for (let i = 0; i < Math.max(1, levels | 0); i++) {
-    m = loopStep(m);
+    const result = loopStep({ vertices: m.vertices, triangles: m.triangles, sharpness: sh });
+    m = result;
+    sh = result.sharpness || new Map();
   }
   return m;
 }
 
-/** One Loop subdivision step. */
-export function loopStep({ vertices, triangles }) {
+/**
+ * One Loop subdivision step.
+ *
+ * Signature extended to accept an optional sharpness map.
+ * When sharpness is empty/undefined, behaviour is IDENTICAL to
+ * the original implementation.
+ *
+ * @param {{vertices: number[][], triangles: number[][], sharpness?: Map<string,number>}} param
+ * @returns {{vertices: number[][], triangles: number[][], sharpness: Map<string,number>}}
+ */
+export function loopStep({ vertices, triangles, sharpness }) {
+  // Backward-compat guarantee: empty or missing sharpness → pure smooth.
+  const hasCreases = sharpness instanceof Map && sharpness.size > 0;
   const V = vertices.length;
 
   // ── Edge table ────────────────────────────────────────────
-  // key "min,max" → { a, b, tris: [opposite vertex per adjacent tri] }
+  // key "min,max" (comma) → { a, b, opp: [] }
   const edges = new Map();
   const ekey = (i, j) => (i < j ? `${i},${j}` : `${j},${i}`);
   for (const [a, b, c] of triangles) {
@@ -79,13 +169,35 @@ export function loopStep({ vertices, triangles }) {
     }
   }
 
+  // ── Per-vertex sharp-edge incident count (Hoppe crease classification) ─────
+  // sharpIncident[v] = list of OTHER endpoints of sharp edges incident to v.
+  const sharpNbr = Array.from({ length: V }, () => []);
+  if (hasCreases) {
+    for (const [sk, s] of sharpness) {
+      if (s <= 0) continue;
+      // sk format is "a_b" (underscore, a<b)
+      const us = sk.indexOf('_');
+      const a = parseInt(sk.slice(0, us), 10);
+      const b = parseInt(sk.slice(us + 1), 10);
+      if (a < V && b < V) {
+        sharpNbr[a].push(b);
+        sharpNbr[b].push(a);
+      }
+    }
+  }
+
   // ── Edge points ───────────────────────────────────────────
   const edgePointIndex = new Map();
   const newVerts = vertices.map(v => v.slice());   // start with originals (repositioned below)
   for (const e of edges.values()) {
     const v0 = vertices[e.a], v1 = vertices[e.b];
     let p;
-    if (e.opp.length >= 2) {
+    const sk = _sharpKey(e.a, e.b);
+    const edgeSharp = hasCreases ? (sharpness.get(sk) || 0) : 0;
+    if (edgeSharp > 0) {
+      // Sharp edge point: simple midpoint (Hoppe boundary/crease rule).
+      p = [0.5 * (v0[0] + v1[0]), 0.5 * (v0[1] + v1[1]), 0.5 * (v0[2] + v1[2])];
+    } else if (e.opp.length >= 2) {
       const vL = vertices[e.opp[0]], vR = vertices[e.opp[1]];
       p = [
         0.375 * (v0[0] + v1[0]) + 0.125 * (vL[0] + vR[0]),
@@ -102,7 +214,22 @@ export function loopStep({ vertices, triangles }) {
   // ── Reposition original vertices ──────────────────────────
   for (let v = 0; v < V; v++) {
     const orig = vertices[v];
-    if (onBoundary[v]) {
+    const k = sharpNbr[v].length; // number of incident sharp edges
+
+    if (hasCreases && k >= 3) {
+      // Corner rule: vertex stays exactly in place.
+      newVerts[v] = orig.slice();
+    } else if (hasCreases && k === 2) {
+      // Crease rule: v' = (6v + n0 + n1) / 8
+      const n0 = vertices[sharpNbr[v][0]];
+      const n1 = vertices[sharpNbr[v][1]];
+      newVerts[v] = [
+        (6 * orig[0] + n0[0] + n1[0]) / 8,
+        (6 * orig[1] + n0[1] + n1[1]) / 8,
+        (6 * orig[2] + n0[2] + n1[2]) / 8,
+      ];
+    } else if (onBoundary[v]) {
+      // Boundary smooth rule
       const bn = boundaryNbr[v];
       if (bn.length === 2) {
         newVerts[v] = [
@@ -113,13 +240,14 @@ export function loopStep({ vertices, triangles }) {
       }
       // valence-≠2 boundary vertex (corner) → keep fixed.
     } else {
+      // Smooth interior rule (Loop β-formula) — unchanged from original.
       const nb = [...neighbours[v]];
       const n = nb.length;
       if (n === 0) continue;
       const t = 0.375 + 0.25 * Math.cos((2 * Math.PI) / n);
       const beta = (1 / n) * (0.625 - t * t);
       let sx = 0, sy = 0, sz = 0;
-      for (const k of nb) { sx += vertices[k][0]; sy += vertices[k][1]; sz += vertices[k][2]; }
+      for (const kk of nb) { sx += vertices[kk][0]; sy += vertices[kk][1]; sz += vertices[kk][2]; }
       newVerts[v] = [
         (1 - n * beta) * orig[0] + beta * sx,
         (1 - n * beta) * orig[1] + beta * sy,
@@ -140,7 +268,27 @@ export function loopStep({ vertices, triangles }) {
     newTris.push([eab, ebc, eca]);
   }
 
-  return { vertices: newVerts, triangles: newTris };
+  // ── Sharpness propagation (Hoppe semi-sharp decay) ─────────
+  // Each parent edge (a,b) with sharpness s → two child edges
+  // (a, e_ab) and (e_ab, b), each with sharpness max(s-1, 0).
+  const newSharpness = new Map();
+  if (hasCreases) {
+    for (const [sk, s] of sharpness) {
+      if (s <= 0) continue;
+      const childS = Math.max(s - 1, 0);
+      if (childS <= 0) continue; // fully decayed — omit from map (smooth)
+      const us = sk.indexOf('_');
+      const a = parseInt(sk.slice(0, us), 10);
+      const b = parseInt(sk.slice(us + 1), 10);
+      // The edge-point index was stored under the comma key
+      const ep = edgePointIndex.get(ekey(a, b));
+      if (ep === undefined) continue;
+      newSharpness.set(_sharpKey(a, ep), childS);
+      newSharpness.set(_sharpKey(ep, b), childS);
+    }
+  }
+
+  return { vertices: newVerts, triangles: newTris, sharpness: newSharpness };
 }
 
 /**
