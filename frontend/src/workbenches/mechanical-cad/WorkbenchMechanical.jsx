@@ -17,7 +17,7 @@ import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculp
 import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
 import { requestManifest } from '../../ai/sculptor/ComponentManifest.js';
 import { ComponentLibrary, partToStep } from '../../ai/sculptor/ComponentLibrary.js';
-import { loopSubdivide, loopStep } from '../../foundation/LoopSubdivision.js';
+import { loopSubdivide, loopStep, weldMesh } from '../../foundation/LoopSubdivision.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -633,7 +633,7 @@ function WorkbenchMechanical() {
     // bundling the module separately. Mirror pattern: __archdiscKernel above.
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
-        window.__archdiscSubdiv = { loopSubdivide, loopStep };
+        window.__archdiscSubdiv = { loopSubdivide, loopStep, weldMesh };
         return () => { delete window.__archdiscSubdiv; };
     }, []);
 

@@ -1,0 +1,21 @@
+{
+  "artifact": "Box(40³) → Fillet(r=2) — rounded plate",
+  "vertexCount": 312,
+  "triangleCount": 620,
+  "edgeCount": 930,
+  "minEdge": 0.19336182675228128,
+  "maxEdge": 50.91168824543142,
+  "meanEdge": 7.715617105815712,
+  "stddevEdge": 14.43212484349879,
+  "stddevOverMean": 1.8705081713581218,
+  "valenceHistogram": {
+    "4": 35,
+    "5": 18,
+    "6": 195,
+    "7": 56,
+    "8": 5,
+    "9": 2,
+    "10": 1
+  },
+  "_note": "Sub-project D baseline recon. Values are the deliverable — GREEN means measurements recorded, not that values are good."
+}
