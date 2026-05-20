@@ -6,6 +6,8 @@
  * (Part tab) and filling the ToolParamDialog — NOT by calling kernel APIs
  * directly.
  *
+ * Each test builds a recognisable real-world engineering artifact.
+ *
  * Under Playwright (navigator.webdriver=true) the ToolParamDialog
  * auto-resolves with schema defaults immediately. Effective defaults:
  *   Extrude Boss : width=80 depth=50 height=25 → V = 80×50×25 = 100 000 mm³
@@ -42,9 +44,11 @@ async function launch() {
 
 // ─── Extrude Boss ─────────────────────────────────────────────────────────────
 
-test('Extrude Boss: ribbon click + dialog defaults → 80×50×25 mm, V = 100 000 mm³', async () => {
+test('Extrude Boss: extruded structural beam — ribbon click + dialog defaults → 80×50×25 mm, V = 100 000 mm³', async () => {
+  // Artifact: extruded structural beam
   // Arity-0: no body selection needed. The ToolParamDialog auto-resolves under
   // Playwright with defaults: width=80, depth=50, height=25.
+  // Produces a rectangular prismatic beam cross-section (like a steel I-beam blank).
   const { app, win, pageErrors } = await launch();
   try {
     // Click Part tab → Extrude Boss → accept dialog defaults.
@@ -53,7 +57,7 @@ test('Extrude Boss: ribbon click + dialog defaults → 80×50×25 mm, V = 100 00
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Extrude Boss: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Extrude Boss (structural beam): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // 80×50×25 = 100 000 mm³, ±10%
     expect(m.volume).toBeGreaterThan(90000);
     expect(m.volume).toBeLessThan(110000);
@@ -69,9 +73,10 @@ test('Extrude Boss: ribbon click + dialog defaults → 80×50×25 mm, V = 100 00
 
 // ─── Revolve Boss ─────────────────────────────────────────────────────────────
 
-test('Revolve Boss: ribbon click + dialog defaults → innerR=12 w=18 h=40, positive volume', async () => {
+test('Revolve Boss: rotational shaft — ribbon click + dialog defaults → innerR=12 w=18 h=40, positive volume', async () => {
+  // Artifact: rotational shaft (revolved)
   // Arity-0: no body selection needed. Handler defaults: innerR=12, width=18,
-  // height=40 — revolves a ring 360°.
+  // height=40 — revolves a ring 360°, producing an annular shaft/hub profile.
   // Volume = π×40×((12+18)²−12²) = π×40×(900−144) = π×40×756 ≈ 95 034 mm³
   const { app, win, pageErrors } = await launch();
   try {
@@ -81,7 +86,7 @@ test('Revolve Boss: ribbon click + dialog defaults → innerR=12 w=18 h=40, posi
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Revolve Boss: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Revolve Boss (rotational shaft): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // Annular ring: outerR=innerR+width=30, innerR=12, height=40
     // V = π×h×(R²−r²) = π×40×(900−144) ≈ 95 034 mm³, ±15% (OCCT approximation)
     expect(m.volume).toBeGreaterThan(50000);
@@ -97,12 +102,13 @@ test('Revolve Boss: ribbon click + dialog defaults → innerR=12 w=18 h=40, posi
 
 // ─── Fillet ───────────────────────────────────────────────────────────────────
 
-test('Fillet: build 40³ box → select → ribbon click → r=2 dialog → V in (58000, 64000)', async () => {
-  // Arity-1 workflow: build a Box (40³), select it, click Fillet, fill radius=2.
-  // Fillet removes material from corners → V < 64000 and > 0.
+test('Fillet: rounded plate — build 40³ box → select → ribbon click → r=2 dialog → V in (58000, 64000)', async () => {
+  // Artifact: rounded plate
+  // Arity-1 workflow: build a Box (40³ — the plate blank), select it, click Fillet,
+  // fill radius=2. Fillet removes material from all edges, rounding the plate corners.
   const { app, win, pageErrors } = await launch();
   try {
-    // 1. Build the input body via the Box primitive (user workflow).
+    // 1. Build the plate blank (Box 40³) via the Box primitive (user workflow).
     const boxId = await buildPrimitive(win, 'Box');
 
     // 2. Select the body for the Fillet op.
@@ -132,7 +138,7 @@ test('Fillet: build 40³ box → select → ribbon click → r=2 dialog → V in
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Fillet: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Fillet (rounded plate): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(58000); // r=2 on 40³ box → small material removal
     expect(m.volume).toBeLessThan(64000);
     expect(m.faceCount).toBeGreaterThan(6);  // filleted box has curved faces
@@ -147,12 +153,13 @@ test('Fillet: build 40³ box → select → ribbon click → r=2 dialog → V in
 
 // ─── Chamfer ──────────────────────────────────────────────────────────────────
 
-test('Chamfer: build 40³ box → select → ribbon click → d=2 dialog → V in (55000, 64000)', async () => {
-  // Arity-1 workflow: build a Box (40³), select it, click Chamfer, fill distance=2.
-  // Chamfer removes material from corners → V < 64000 and > 0.
+test('Chamfer: chamfered-edge plate — build 40³ box → select → ribbon click → d=2 dialog → V in (55000, 64000)', async () => {
+  // Artifact: chamfered-edge plate
+  // Arity-1 workflow: build a Box (40³ — the plate blank), select it, click Chamfer,
+  // fill distance=2. Chamfer cuts 45° bevels on all edges of the plate.
   const { app, win, pageErrors } = await launch();
   try {
-    // 1. Build the input body via the Box primitive (user workflow).
+    // 1. Build the plate blank (Box 40³) via the Box primitive (user workflow).
     const boxId = await buildPrimitive(win, 'Box');
 
     // 2. Select the body for the Chamfer op.
@@ -182,7 +189,7 @@ test('Chamfer: build 40³ box → select → ribbon click → d=2 dialog → V i
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Chamfer: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Chamfer (chamfered-edge plate): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(55000); // d=2 chamfer on 40³ box
     expect(m.volume).toBeLessThan(64000);
     expect(m.faceCount).toBeGreaterThan(6);  // chamfered box has extra faces
