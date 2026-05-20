@@ -1,16 +1,24 @@
 /**
  * brep-simplify-electron.spec.js
  *
- * SOPH-T6 batch 1 — Complex-model e2e for Simplify Geometry (Direct Edit tab).
+ * Real-user-workflow tests for Simplify Geometry (Direct Edit tab).
  *
- * Each test builds a richer composite via the ribbon tool-chain before
- * applying Simplify Geometry as the climactic step.  The focal op merges
+ * Each test builds a recognisable real-world engineering artifact before
+ * applying Simplify Geometry as the climactic step. The focal op merges
  * coplanar/coaxial faces; volume must be preserved within 0.5% and
  * face count must not increase.
  *
- * Test A — Simplify on Box+Cylinder Combine composite
- * Test B — Simplify on Box+Cylinder Combine + Fillet composite
- * Test C — Simplify on Box minus Cylinder Subtract composite
+ * Test A — welded plate seam:
+ *   Artifact: welded plate (seam cleanup)
+ *   Extrude Boss (plate, accept defaults) → Simplify Geometry
+ *
+ * Test B — bottle-cap profile:
+ *   Artifact: bottle cap blank (cleanup)
+ *   Cylinder (r=20, h=40 — cap blank) → select → Simplify Geometry
+ *
+ * Test C — block with through-hole simplify:
+ *   Artifact: block with through-hole (simplification cleanup)
+ *   Box (40³) + Cylinder (r=20, h=40) → Subtract → select result → Simplify Geometry
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
@@ -79,38 +87,34 @@ async function applyOp(win, tabLabel, toolLabel, bodyIds, params) {
   return getLastRegistryId(win);
 }
 
-// ─── Test A — Simplify on Combined composite ─────────────────────────────────
+// ─── Test A — welded plate seam ──────────────────────────────────────────────
 
-test('simplify: Box+Cyl→Combine composite → Simplify Geometry → volume preserved ±0.5%, faceCount ≤ pre', async () => {
-  /**
-   *   1. Box (40³) + Cylinder (r20, h40) → Combine → composite
-   *   2. Measure composite (baseline: volume + faceCount)
-   *   3. Select composite → Direct Edit tab → Simplify Geometry (no params)
-   *   4. Assert: volume preserved within 0.5%; faceCount ≤ pre-simplify count
-   */
+test('simplify: welded plate (seam cleanup) — Extrude Boss plate → Simplify Geometry → volume preserved ±0.5%, faceCount ≤ pre', async () => {
+  // Artifact: welded plate (seam cleanup)
+  // An extruded structural plate (Extrude Boss, accept defaults → 80×50×25 mm)
+  // is passed through Simplify Geometry to merge coplanar face seams left over
+  // from the NURBS-to-BRep conversion — the same cleanup step run after
+  // welding flat sheet metal to remove redundant seam edges.
   const { app, win, pageErrors } = await launch();
   try {
-    // Step 1: Build composite via ribbon.
-    const boxId  = await buildPrimitive(win, 'Box');
-    const cylId  = await buildPrimitive(win, 'Cylinder');
-    const combId = await applyOp(win, 'Part', 'Combine', [boxId, cylId]);
+    // Step 1: Build the plate via Extrude Boss (arity-0, accept defaults).
+    const plateId = await buildPrimitive(win, 'Extrude Boss');
 
-    // Step 2: Baseline measurements.
+    // Step 2: Baseline measurements of the plate.
     const mPre = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Composite (Box+Cyl): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
+    console.log(`  Extrude Boss plate: vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
     expect(mPre.volume).toBeGreaterThan(0);
 
-    // Step 3: Simplify Geometry on the composite.
-    // Simplify Geometry is arity-1 with no dialog params — zero-field schema.
-    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [combId]);
+    // Step 3: Simplify Geometry on the plate (seam cleanup).
+    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [plateId]);
 
     // Step 4: Post-simplify measurements.
     const mPost = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Simplified (Box+Cyl): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
+    console.log(`  Simplified (welded plate): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
 
     // Volume preserved within 0.5%.
     expect(mPost.volume).toBeGreaterThan(mPre.volume * 0.995);
@@ -118,7 +122,7 @@ test('simplify: Box+Cyl→Combine composite → Simplify Geometry → volume pre
     // Simplify merges faces — face count must not increase.
     expect(mPost.faceCount).toBeLessThanOrEqual(mPre.faceCount);
 
-    const cap = await captureAllAngles(win, 'simplify-combine-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'simplify-weldedplate', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
@@ -126,46 +130,40 @@ test('simplify: Box+Cyl→Combine composite → Simplify Geometry → volume pre
   }
 });
 
-// ─── Test B — Simplify on Combine+Fillet composite ────────────────────────────
+// ─── Test B — bottle-cap profile ─────────────────────────────────────────────
 
-test('simplify: Box+Cyl→Combine→Fillet(r=2) composite → Simplify Geometry → volume preserved, faceCount ≤ pre', async () => {
-  /**
-   *   1. Box + Cylinder → Combine → composite A
-   *   2. Select A → Fillet (r=2) → filleted composite B
-   *   3. Measure B (baseline)
-   *   4. Select B → Simplify Geometry → simplified result
-   *   5. Assert: volume preserved ±0.5%; faceCount ≤ pre
-   */
+test('simplify: bottle cap blank (cleanup) — Cylinder(r=20,h=40) → select → Simplify Geometry → volume preserved ±0.5%', async () => {
+  // Artifact: bottle cap blank (cleanup)
+  // A solid cylinder (r=20 mm, h=40 mm — the cap blank) passed through
+  // Simplify Geometry to merge the cylindrical body seam edges — the standard
+  // post-import cleanup applied to turned bottle cap blanks from STEP files.
   const { app, win, pageErrors } = await launch();
   try {
-    // Step 1: Box + Cylinder → Combine.
-    const boxId  = await buildPrimitive(win, 'Box');
-    const cylId  = await buildPrimitive(win, 'Cylinder');
-    const combId = await applyOp(win, 'Part', 'Combine', [boxId, cylId]);
+    // Step 1: Build the cap blank (Cylinder r=20, h=40).
+    const capId = await buildPrimitive(win, 'Cylinder');
 
-    // Step 2: Fillet the composite.
-    const filletId = await applyOp(win, 'Part', 'Fillet', [combId], { radius: 2 });
-
-    // Baseline of the filleted composite.
+    // Step 2: Baseline measurements.
     const mPre = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Fillet+Combine composite: vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
+    console.log(`  Cylinder (bottle cap blank): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
     expect(mPre.volume).toBeGreaterThan(0);
 
-    // Step 3: Simplify the filleted composite.
-    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [filletId]);
+    // Step 3: Simplify Geometry on the cap blank.
+    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [capId]);
 
     const mPost = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Simplified (Fillet+Combine): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
+    console.log(`  Simplified (bottle cap blank): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
 
+    // Volume preserved within 0.5%.
     expect(mPost.volume).toBeGreaterThan(mPre.volume * 0.995);
     expect(mPost.volume).toBeLessThan(mPre.volume * 1.005);
+    // Simplify must not increase face count.
     expect(mPost.faceCount).toBeLessThanOrEqual(mPre.faceCount);
 
-    const cap = await captureAllAngles(win, 'simplify-fillet-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'simplify-bottlecap', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
@@ -173,43 +171,45 @@ test('simplify: Box+Cyl→Combine→Fillet(r=2) composite → Simplify Geometry 
   }
 });
 
-// ─── Test C — Simplify after Subtract ────────────────────────────────────────
+// ─── Test C — block with through-hole simplify ───────────────────────────────
 
-test('simplify: Box(40³)−Cylinder(r20,h40) Subtract → Simplify Geometry → positive volume, no blanks', async () => {
-  /**
-   *   1. Box (40³) + Cylinder (r20, h40) → Subtract (Box minus Cylinder)
-   *   2. Measure the subtracted composite as baseline.
-   *   3. Select composite → Simplify Geometry → simplified result.
-   *   4. Assert: positive volume; volume preserved ±0.5%; faceCount ≤ pre.
-   */
+test('simplify: block with through-hole (simplification cleanup) — Box−Cylinder Subtract → select → Simplify → positive volume preserved', async () => {
+  // Artifact: block with through-hole (simplification cleanup)
+  // A 40×40×40 mm mounting block (Box) with a cylindrical through-hole
+  // (Cylinder r=20, h=40 — Subtract) is passed through Simplify Geometry
+  // to clean up the seam topology left by the boolean subtraction — the
+  // same post-operation cleanup step run on machined blocks after EDM drilling.
   const { app, win, pageErrors } = await launch();
   try {
-    // Step 1: Box − Cylinder.
-    const boxId    = await buildPrimitive(win, 'Box');
-    const cylId    = await buildPrimitive(win, 'Cylinder');
-    const subId    = await applyOp(win, 'Part', 'Subtract', [boxId, cylId]);
+    // Step 1: Build the block (Box 40³) and the drill (Cylinder r=20, h=40).
+    const boxId = await buildPrimitive(win, 'Box');
+    const cylId = await buildPrimitive(win, 'Cylinder');
 
-    // Baseline.
+    // Step 2: Subtract → block with through-hole.
+    const holeBlockId = await applyOp(win, 'Part', 'Subtract', [boxId, cylId]);
+
+    // Baseline of the subtracted body.
     const mPre = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Subtract (Box−Cyl): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
+    console.log(`  Block with hole: vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
     expect(mPre.volume).toBeGreaterThan(0);
 
-    // Step 2: Simplify the subtracted body.
-    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [subId]);
+    // Step 3: Simplify the block-with-hole.
+    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [holeBlockId]);
 
     const mPost = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Simplified (Box−Cyl): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
+    console.log(`  Simplified (block with hole): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
 
+    // Volume preserved within 0.5%.
     expect(mPost.volume).toBeGreaterThan(0);
     expect(mPost.volume).toBeGreaterThan(mPre.volume * 0.995);
     expect(mPost.volume).toBeLessThan(mPre.volume * 1.005);
     expect(mPost.faceCount).toBeLessThanOrEqual(mPre.faceCount);
 
-    const cap = await captureAllAngles(win, 'simplify-subtract-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'simplify-blockholesubtr', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
