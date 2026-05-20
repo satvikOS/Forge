@@ -3,19 +3,24 @@
  *
  * Real-user-workflow tests for OCCT feature operations.
  * Every geometry op is invoked by clicking the real ribbon tool button
- * (Part tab) — NOT by calling kernel APIs directly.
+ * (Part tab) and filling the ToolParamDialog — NOT by calling kernel APIs
+ * directly.
  *
- * The ToolParamDialog auto-resolves with schema defaults when
- * navigator.webdriver is true (Playwright sets this). Effective defaults:
+ * Under Playwright (navigator.webdriver=true) the ToolParamDialog
+ * auto-resolves with schema defaults immediately. Effective defaults:
  *   Extrude Boss : width=80 depth=50 height=25 → V = 80×50×25 = 100 000 mm³
  *   Revolve Boss : innerR=12 width=18 height=40 → ring torus-like solid
- *   Fillet       : radius=2 on default 40³ box (no prior __lastBrepShape)
- *   Chamfer      : distance=2 on default 40³ box (no prior __lastBrepShape)
+ *   Fillet       : build Box (40³) → select → click Fillet → radius=2 → V < 64000
+ *   Chamfer      : build Box (40³) → select → click Chamfer → distance=2 → V < 64000
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+import {
+  clickRibbonTab, clickRibbonTool,
+  buildPrimitive, selectBodies, injectToolParams,
+} from './helpers/uiWorkflow.js';
 
 test.setTimeout(600000);
 
@@ -35,32 +40,15 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-async function switchToPartTab(win) {
-  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
-  await expect(tab).toBeVisible({ timeout: 30000 });
-  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-}
-
-async function clickRibbonTool(win, toolName) {
-  await win.evaluate(() => { window.__lastBrepShape = null; });
-  const re = new RegExp(`^${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
-  const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-    has: win.locator('.ribbon-tool-label', { hasText: re }),
-  }).first();
-  await expect(btn).toBeVisible({ timeout: 30000 });
-  await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-  await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
-}
-
 // ─── Extrude Boss ─────────────────────────────────────────────────────────────
 
-test('Extrude Boss: ribbon click + dialog auto-defaults → 80×50×25 mm, V = 100 000 mm³', async () => {
-  // The ToolParamDialog auto-resolves under Playwright (navigator.webdriver=true)
-  // with defaults: width=80, depth=50, height=25.
+test('Extrude Boss: ribbon click + dialog defaults → 80×50×25 mm, V = 100 000 mm³', async () => {
+  // Arity-0: no body selection needed. The ToolParamDialog auto-resolves under
+  // Playwright with defaults: width=80, depth=50, height=25.
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Extrude Boss');
+    // Click Part tab → Extrude Boss → accept dialog defaults.
+    await buildPrimitive(win, 'Extrude Boss');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -81,14 +69,14 @@ test('Extrude Boss: ribbon click + dialog auto-defaults → 80×50×25 mm, V = 1
 
 // ─── Revolve Boss ─────────────────────────────────────────────────────────────
 
-test('Revolve Boss: ribbon click + dialog auto-defaults → innerR=12 w=18 h=40, positive volume', async () => {
-  // The ToolParamDialog auto-resolves under Playwright.
-  // Handler defaults: innerR=12, width=18, height=40 — revolves a ring 360°.
+test('Revolve Boss: ribbon click + dialog defaults → innerR=12 w=18 h=40, positive volume', async () => {
+  // Arity-0: no body selection needed. Handler defaults: innerR=12, width=18,
+  // height=40 — revolves a ring 360°.
   // Volume = π×40×((12+18)²−12²) = π×40×(900−144) = π×40×756 ≈ 95 034 mm³
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await clickRibbonTool(win, 'Revolve Boss');
+    // Click Part tab → Revolve Boss → accept dialog defaults.
+    await buildPrimitive(win, 'Revolve Boss');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -109,17 +97,38 @@ test('Revolve Boss: ribbon click + dialog auto-defaults → innerR=12 w=18 h=40,
 
 // ─── Fillet ───────────────────────────────────────────────────────────────────
 
-test('Fillet: ribbon click + dialog auto-defaults → r=2 on 40³ box, volume < 64000', async () => {
-  // The ToolParamDialog auto-resolves under Playwright.
-  // Handler: no prior __lastBrepShape → creates a 40³ box, fillets all edges r=2.
+test('Fillet: build 40³ box → select → ribbon click → r=2 dialog → V in (58000, 64000)', async () => {
+  // Arity-1 workflow: build a Box (40³), select it, click Fillet, fill radius=2.
   // Fillet removes material from corners → V < 64000 and > 0.
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    // Ensure no prior OCCT body so the handler builds its own 40³ box.
-    await win.evaluate(() => { window.__lastBrepShape = null; });
+    // 1. Build the input body via the Box primitive (user workflow).
+    const boxId = await buildPrimitive(win, 'Box');
+
+    // 2. Select the body for the Fillet op.
+    await selectBodies(win, [boxId]);
+
+    // 3. Capture current shape id so we can detect the new result.
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+
+    // 4. Click Part tab → Fillet tool.
+    //    Inject params before clicking — under Playwright (navigator.webdriver=true)
+    //    ToolParamDialog auto-bypasses; planParams is the correct injection path.
+    await injectToolParams(win, 'Fillet', { radius: 2 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
     await clickRibbonTool(win, 'Fillet');
 
+    // 5. Wait for the new result body.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 60000 },
+    );
+
+    // 7. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
@@ -138,16 +147,38 @@ test('Fillet: ribbon click + dialog auto-defaults → r=2 on 40³ box, volume < 
 
 // ─── Chamfer ──────────────────────────────────────────────────────────────────
 
-test('Chamfer: ribbon click + dialog auto-defaults → d=2 on 40³ box, volume < 64000', async () => {
-  // The ToolParamDialog auto-resolves under Playwright.
-  // Handler: no prior __lastBrepShape → creates a 40³ box, chamfers all edges d=2.
+test('Chamfer: build 40³ box → select → ribbon click → d=2 dialog → V in (55000, 64000)', async () => {
+  // Arity-1 workflow: build a Box (40³), select it, click Chamfer, fill distance=2.
   // Chamfer removes material from corners → V < 64000 and > 0.
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await win.evaluate(() => { window.__lastBrepShape = null; });
+    // 1. Build the input body via the Box primitive (user workflow).
+    const boxId = await buildPrimitive(win, 'Box');
+
+    // 2. Select the body for the Chamfer op.
+    await selectBodies(win, [boxId]);
+
+    // 3. Capture current shape id.
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+
+    // 4. Click Part tab → Chamfer tool.
+    //    Inject params before clicking — under Playwright (navigator.webdriver=true)
+    //    ToolParamDialog auto-bypasses; planParams is the correct injection path.
+    await injectToolParams(win, 'Chamfer', { distance: 2 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
     await clickRibbonTool(win, 'Chamfer');
 
+    // 5. Wait for the new result body.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 60000 },
+    );
+
+    // 7. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
