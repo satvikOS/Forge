@@ -1,5 +1,5 @@
 /**
- * ArchDisc Kernel — native STEP I/O via OCCT (STEPControl_*).
+ * ArchDisc Kernel — native STEP I/O (STEPControl_*).
  * STEP read/write goes through the Emscripten virtual filesystem (oc.FS).
  * Verified API: docs/superpowers/notes/occt-api-A1.md items 12-13.
  */
@@ -29,12 +29,12 @@ export async function exportStep(brepShape) {
     );
     // transferRet is an Embind object; .value === 1 means IFSelect_RetDone (verified: item 12)
     if (transferRet.value !== 1) {
-      throw new Error(`exportStep: OCCT transfer failed (status ${transferRet.value})`);
+      throw new Error(`exportStep: kernel transfer failed (status ${transferRet.value})`);
     }
     const writeRet = writer.Write(STEP_TMP);
     // writeRet is an Embind object; .value === 1 means IFSelect_RetDone (same convention)
     if (writeRet.value !== 1) {
-      throw new Error('exportStep: OCCT Write failed');
+      throw new Error('exportStep: kernel Write failed');
     }
     try {
       const text = oc.FS.readFile(STEP_TMP, { encoding: 'utf8' });
@@ -65,11 +65,11 @@ export async function importStep(stepText) {
       const readStatus = reader.ReadFile(STEP_TMP);
       // readStatus is an Embind object; .value === 1 means IFSelect_RetDone (verified: item 13)
       if (readStatus.value !== 1) {
-        throw new Error(`importStep: OCCT ReadFile failed (status ${readStatus.value})`);
+        throw new Error(`importStep: kernel ReadFile failed (status ${readStatus.value})`);
       }
       reader.TransferRoots(track(new oc.Message_ProgressRange_1()));
       const shape = reader.OneShape();
-      if (shape.IsNull()) throw new Error('importStep: OCCT produced a null shape');
+      if (shape.IsNull()) throw new Error('importStep: kernel produced a null shape');
       return new BrepShape(shape, { op: 'importStep' });
     } finally {
       try { oc.FS.unlink(STEP_TMP); } catch { /* fine */ }

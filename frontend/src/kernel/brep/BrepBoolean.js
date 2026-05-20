@@ -1,5 +1,5 @@
 /**
- * ArchDisc Kernel — exact boolean operations (OCCT BRepAlgoAPI).
+ * ArchDisc Kernel — exact boolean operations.
  * Operate on TopoDS_Shape solids; produce exact B-rep results.
  *
  * Verified API (docs/superpowers/notes/occt-api-A1.md items 5-7):
@@ -10,7 +10,7 @@
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
-/** Shared boolean runner. `Ctor` is an OCCT BRepAlgoAPI_*_3 class. */
+/** Shared boolean runner. `Ctor` is a kernel BRepAlgoAPI_*_3 class. */
 async function runBoolean(opName, Ctor, a, b) {
   if (!a || !a.shape || !b || !b.shape) {
     throw new Error(`${opName}: both operands must be BrepShapes with live shapes`);
@@ -20,9 +20,9 @@ async function runBoolean(opName, Ctor, a, b) {
     const maker = track(new Ctor(
       a.shape, b.shape, track(new oc.Message_ProgressRange_1())));
     maker.Build(track(new oc.Message_ProgressRange_1()));
-    if (!maker.IsDone()) throw new Error(`${opName}: OCCT boolean did not complete`);
+    if (!maker.IsDone()) throw new Error(`${opName}: kernel boolean did not complete`);
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error(`${opName}: OCCT produced a null shape`);
+    if (shape.IsNull()) throw new Error(`${opName}: kernel produced a null shape`);
     return new BrepShape(shape, { op: opName, parents: [a.id, b.id] });
   });
 }

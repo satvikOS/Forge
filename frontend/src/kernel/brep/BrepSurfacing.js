@@ -1,7 +1,7 @@
 /**
- * ArchDisc Kernel — surfacing operations (OCCT): sweep along a path,
+ * ArchDisc Kernel — surfacing operations: sweep along a path,
  * loft through sections. A2 builds profiles/sections internally.
- * Verified OCCT sequences: docs/superpowers/notes/occt-api-A2.md items 5-6.
+ * Verified kernel sequences: docs/superpowers/notes/kernel-api-A2.md items 5-6.
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -18,7 +18,7 @@ export async function sweep(r, length) {
   if (!(r > 0 && length > 0)) throw new Error(`sweep: r and length must be positive (got ${r}, ${length})`);
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from occt-api-A2.md item 5
+    // verified sequence from kernel-api-A2.md item 5
 
     // Step 1: Build circular profile FACE (disk)
     // gp_Ax2_2(origin, N, Vx) — 3 args: (gp_Pnt, gp_Dir, gp_Dir)
@@ -58,7 +58,7 @@ export async function sweep(r, length) {
     const pipe  = track(new oc.BRepOffsetAPI_MakePipe_1(pathWire, profileFace));
     const shape = pipe.Shape();
 
-    if (shape.IsNull()) throw new Error('sweep: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('sweep: kernel produced a null shape');
     return new BrepShape(shape, { op: 'sweep', params: { r, length } });
   });
 }
@@ -77,7 +77,7 @@ export async function loft(bottomSize, topSize, height) {
   }
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from occt-api-A2.md item 6
+    // verified sequence from kernel-api-A2.md item 6
 
     // Step 1: Build section wires (A1 verified chain: gp_Pnt_3 → MakeEdge_3 → MakeWire_1 + Add_1)
     // Helper: build a closed square wire of given side at height z
@@ -114,7 +114,7 @@ export async function loft(bottomSize, topSize, height) {
     if (!loftOp.IsDone()) throw new Error('loft: BRepOffsetAPI_ThruSections did not complete');
     const shape = loftOp.Shape();
 
-    if (shape.IsNull()) throw new Error('loft: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('loft: kernel produced a null shape');
     return new BrepShape(shape, { op: 'loft', params: { bottomSize, topSize, height } });
   });
 }

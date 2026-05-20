@@ -1,5 +1,5 @@
 /**
- * ArchDisc Kernel — tessellate an OCCT shape into plain triangle data
+ * ArchDisc Kernel — tessellate a B-rep shape into plain triangle data
  * ready for a Three.js BufferGeometry. Positions are in mm.
  */
 
@@ -87,7 +87,7 @@ export async function tessellate(brepShape, deflection = 0.1) {
     // Cache on the shape BEFORE returning so subsequent calls return from cache.
     brepShape._triangulation = result;
     // withScope returns whatever fn returns; no BrepShape is returned so all
-    // tracked OCCT objects are freed. The result is a plain JS object — safe.
+    // tracked kernel objects are freed. The result is a plain JS object — safe.
     return result;
   });
 }

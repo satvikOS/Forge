@@ -1,5 +1,5 @@
 /**
- * ArchDisc Kernel — feature operations (OCCT): extrude, revolve, fillet,
+ * ArchDisc Kernel — feature operations: extrude, revolve, fillet,
  * chamfer. A1 extrude/revolve operate on an internally-built rectangular
  * profile; sketch-driven profiles are a later sub-project.
  */
@@ -9,7 +9,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 
 /**
  * Build a planar rectangular face in the XY plane (z=0), corner at origin.
- * Returns the OCCT TopoDS_Face. All transient objects are track()ed in the
+ * Returns the kernel TopoDS_Face. All transient objects are track()ed in the
  * caller's scope.
  * @param {object} oc
  * @param {number} w  width  (mm, +X)
@@ -48,7 +48,7 @@ export async function extrudeRect(w, h, depth) {
     const dir = track(new oc.gp_Vec_4(0, 0, depth));
     const maker = track(new oc.BRepPrimAPI_MakePrism_1(face, dir, false, true));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('extrudeRect: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('extrudeRect: kernel produced a null shape');
     return new BrepShape(shape, { op: 'extrudeRect', params: { w, h, depth } });
   });
 }
@@ -87,7 +87,7 @@ export async function revolveRect(innerR, width, height, angleDeg) {
     const angleRad = angleDeg * Math.PI / 180;
     const maker = track(new oc.BRepPrimAPI_MakeRevol_1(face, axis, angleRad, false));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('revolveRect: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('revolveRect: kernel produced a null shape');
     return new BrepShape(shape, { op: 'revolveRect', params: { innerR, width, height, angleDeg } });
   });
 }
@@ -124,9 +124,9 @@ export async function filletAll(brepShape, radius) {
       brepShape.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
     forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(radius, edge); });
     maker.Build(track(new oc.Message_ProgressRange_1()));
-    if (!maker.IsDone()) throw new Error('filletAll: OCCT fillet did not complete');
+    if (!maker.IsDone()) throw new Error('filletAll: fillet did not complete');
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('filletAll: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('filletAll: kernel produced a null shape');
     return new BrepShape(shape, { op: 'filletAll', params: { radius }, parents: [brepShape.id] });
   });
 }
@@ -145,9 +145,9 @@ export async function chamferAll(brepShape, distance) {
     const maker = track(new oc.BRepFilletAPI_MakeChamfer(brepShape.shape));
     forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(distance, edge); });
     maker.Build(track(new oc.Message_ProgressRange_1()));
-    if (!maker.IsDone()) throw new Error('chamferAll: OCCT chamfer did not complete');
+    if (!maker.IsDone()) throw new Error('chamferAll: chamfer did not complete');
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('chamferAll: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('chamferAll: kernel produced a null shape');
     return new BrepShape(shape, { op: 'chamferAll', params: { distance }, parents: [brepShape.id] });
   });
 }
@@ -169,9 +169,9 @@ export async function variableFillet(brepShape, r1, r2) {
       brepShape.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
     forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_3(r1, r2, edge); });
     maker.Build(track(new oc.Message_ProgressRange_1()));
-    if (!maker.IsDone()) throw new Error('variableFillet: OCCT fillet did not complete');
+    if (!maker.IsDone()) throw new Error('variableFillet: fillet did not complete');
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('variableFillet: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('variableFillet: kernel produced a null shape');
     return new BrepShape(shape, { op: 'variableFillet', params: { r1, r2 }, parents: [brepShape.id] });
   });
 }

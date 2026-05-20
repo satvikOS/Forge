@@ -10,7 +10,7 @@
  *   convergentSolid(opts)   — facet-mesh → B-rep solid via Sewing + MakeSolid_3
  *
  * NOT_REACHABLE in this build:
- *   N-Sided Patching — BRepOffsetAPI_MakeFilling.Build() throws raw OCCT C++
+ *   N-Sided Patching — BRepOffsetAPI_MakeFilling.Build() throws a raw WASM C++
  *   exception for ALL inputs; variational solver not functional in this WASM build.
  */
 

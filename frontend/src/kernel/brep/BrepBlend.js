@@ -1,7 +1,7 @@
 /**
- * ArchDisc Kernel — hard blending (OCCT). G2 (curvature-continuous) blending
+ * ArchDisc Kernel — hard blending operations. G2 (curvature-continuous) blending
  * via BRepOffsetAPI_MakeFilling; cliff-edge blends; corner mitering.
- * Verified OCCT sequences: docs/superpowers/notes/occt-api-A5.md.
+ * Verified kernel sequences: docs/superpowers/notes/kernel-api-A5.md.
  * The Phase A5 recon confirmed all three capabilities reachable with the
  * prebuilt opencascade.js.
  */
@@ -60,14 +60,14 @@ function bboxMinDim(oc, shape) {
  *
  * Background: the A5 recon confirmed that `BRepOffsetAPI_MakeFilling` is
  * constructible and `Add_1(edge, GeomAbs_C2, false)` is accepted without
- * error, but `Build(pr)` consistently throws a raw OCCT C++ exception
+ * error, but `Build(pr)` consistently throws a raw WASM C++ exception
  * (integer pointer — not a JS Error) for all boundary geometries tested:
  * planar 4-edge, non-planar 4-edge, single circle arc, triangular 3-edge.
  * The exception is not geometry-specific; it indicates the variational solver
- * crashes in this OCCT WASM build for all inputs. `BRepBuilderAPI_MakeFace_15`
- * (the standard OCCT planar-fill API) succeeds and gives the correct area.
+ * crashes in this WASM build for all inputs. `BRepBuilderAPI_MakeFace_15`
+ * (the standard planar-fill API) succeeds and gives the correct area.
  *
- * The resulting shape is a single OCCT face (faceCount=1); its area equals
+ * The resulting shape is a single kernel face (faceCount=1); its area equals
  * holeBoxSize² mm² exactly for a flat square.
  *
  * @param {number} [holeBoxSize=6]  side length of the square fill region (mm).
@@ -105,8 +105,8 @@ export async function blendG2(holeBoxSize = 6) {
     const wire = track(wm.Wire());
 
     // BRepBuilderAPI_MakeFace_15(wire, isPlanar=true) — fills a planar closed
-    // wire with a flat face. This is the correct OCCT API for planar fill.
-    // BRepOffsetAPI_MakeFilling.Build() throws a raw OCCT C++ exception
+    // wire with a flat face. This is the correct API for planar fill.
+    // BRepOffsetAPI_MakeFilling.Build() throws a raw WASM C++ exception
     // (integer pointer, not JS Error) for all tested boundary geometries in
     // this opencascade.js WASM build — it is not usable.
     const fm = track(new oc.BRepBuilderAPI_MakeFace_15(wire, true));
@@ -118,7 +118,7 @@ export async function blendG2(holeBoxSize = 6) {
     }
 
     const shape = fm.Face();
-    if (shape.IsNull()) throw new Error('blendG2: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('blendG2: kernel produced a null shape');
 
     return new BrepShape(shape, {
       op: 'blendG2',
@@ -140,7 +140,7 @@ export async function blendG2(holeBoxSize = 6) {
  *
  * The recon proved radii up to 97.5% of the adjacent face dimension succeed
  * (`IsDone()=true`, positive volume) — standard `BRepFilletAPI_MakeFillet`
- * handles large radii robustly without any additional OCCT infrastructure.
+ * handles large radii robustly without any additional kernel infrastructure.
  *
  * @param {BrepShape} brepShape  input solid
  * @param {number}    radius     fillet radius (mm); must be ≥ 20% of bbox min dim
@@ -177,13 +177,13 @@ export async function cliffEdgeBlend(brepShape, radius) {
 
     if (!maker.IsDone()) {
       throw new Error(
-        `cliffEdgeBlend: OCCT fillet did not complete for radius=${radius} mm. ` +
+        `cliffEdgeBlend: fillet did not complete for radius=${radius} mm. ` +
         'The radius may exceed the available face geometry (> ~97.5% of face dim).'
       );
     }
 
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('cliffEdgeBlend: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('cliffEdgeBlend: kernel produced a null shape');
 
     return new BrepShape(shape, {
       op: 'cliffEdgeBlend',
@@ -199,11 +199,11 @@ export async function cliffEdgeBlend(brepShape, radius) {
 
 /**
  * Fillet every unique edge of the input solid at `radius`, producing a result
- * where every corner vertex is automatically mitred by OCCT (spherical corner
+ * where every corner vertex is automatically mitred by the kernel (spherical corner
  * patches are inserted wherever three or more filleted edges meet).
  *
  * This is the §3.1-named "corner mitering" capability: no manual corner
- * specification is required — OCCT resolves all corners in a single Build()
+ * specification is required — the kernel resolves all corners in a single Build()
  * call. For a 20mm box at r=3mm, the result has 26 faces (6 flat + 12
  * cylindrical edge faces + 8 spherical corner patches) — empirically verified
  * in the A5 recon.
@@ -237,12 +237,12 @@ export async function mitreCorner(brepShape, radius) {
 
     if (!maker.IsDone()) {
       throw new Error(
-        `mitreCorner: OCCT fillet did not complete for radius=${radius} mm`
+        `mitreCorner: fillet did not complete for radius=${radius} mm`
       );
     }
 
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('mitreCorner: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('mitreCorner: kernel produced a null shape');
 
     return new BrepShape(shape, {
       op: 'mitreCorner',

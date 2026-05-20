@@ -1,6 +1,6 @@
 /**
- * ArchDisc Kernel — topology rewriting (OCCT BRepTools_ReShape).
- * Verified OCCT sequence: docs/superpowers/notes/occt-api-B.md Capability 4.
+ * ArchDisc Kernel — topology rewriting.
+ * Verified kernel sequence: docs/superpowers/notes/kernel-api-B.md Capability 4.
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -11,7 +11,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
  * via BRepTools_ReShape — demonstrates local face replacement. The result is
  * a valid solid with the original face count and volume.
  *
- * Verified sequence (occt-api-B.md Capability 4):
+ * Verified sequence (kernel-api-B.md Capability 4):
  *  1. Walk faces with TopExp_Explorer_2 (TopAbs_FACE, TopAbs_SHAPE) to the
  *     faceIndex-th face (1-based). Deduplicate via IsSame to avoid counting
  *     the same face twice.
@@ -69,7 +69,7 @@ export async function replaceFace(brepShape, faceIndex = 1) {
     // MUST pass TopAbs_SHAPE as second arg — 1-arg Apply throws BindingError
     const shape = reshape.Apply(brepShape.shape, ANY);
 
-    if (shape.IsNull()) throw new Error('replaceFace: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('replaceFace: kernel produced a null shape');
     return new BrepShape(shape, { op: 'replaceFace', params: { faceIndex }, parents: [brepShape.id] });
   });
 }

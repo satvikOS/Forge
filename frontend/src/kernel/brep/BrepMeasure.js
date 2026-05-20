@@ -1,5 +1,5 @@
 /**
- * ArchDisc Kernel — geometry measurement for OCCT shapes. Drives the
+ * ArchDisc Kernel — geometry measurement for B-rep shapes. Drives the
  * numeric assertions in e2e specs. All values in mm / mm² / mm³.
  */
 

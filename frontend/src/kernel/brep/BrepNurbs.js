@@ -1,11 +1,11 @@
 /**
- * ArchDisc Kernel — NURBS surface operations via OCCT.
+ * ArchDisc Kernel — NURBS surface operations.
  *
- * Verified OCCT sequences: docs/superpowers/notes/occt-api-E.md
+ * Verified kernel sequences: docs/superpowers/notes/kernel-api-E.md
  *
  * ARCHITECTURAL CONSTRAINT (Handle vs Transient):
  *   `Geom_BSplineSurface_1(...)` returns a raw `Standard_Transient`.
- *   All OCCT APIs that take surfaces (BRepBuilderAPI_MakeFace_8,
+ *   All kernel APIs that take surfaces (BRepBuilderAPI_MakeFace_8,
  *   GeomLProp_SLProps_1, BRep_Builder.UpdateFace, etc.) require a
  *   `Handle_Geom_Surface`. `BRep_Tool.Surface_2(face)` is the ONLY
  *   way to get a Handle — but to build a face we need a Handle first.
@@ -78,7 +78,7 @@ function _buildBSplineTransient(oc, polesFn) {
 
 /**
  * Evaluate a point on the NURBS surface at (u, v) using D0.
- * Returns a plain JS object { x, y, z } — not an OCCT object.
+ * Returns a plain JS object { x, y, z } — not a kernel object.
  */
 function _evalPt(oc, surf, u, v) {
   const p = track(new oc.gp_Pnt_3(0, 0, 0));
@@ -167,7 +167,7 @@ function _addTriFace(oc, builder, compound, a, b, c) {
       builder.Add(compound, face);
     }
   } catch {
-    // Skip problematic triangles — OCCT sometimes rejects near-degenerate ones.
+    // Skip problematic triangles — the kernel sometimes rejects near-degenerate ones.
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * ArchDisc Kernel — B-rep primitive solids (OCCT-backed).
+ * ArchDisc Kernel — B-rep primitive solids.
  * A0 scope: box only. A1 adds cylinder/sphere/cone/torus.
  */
 
@@ -24,7 +24,7 @@ export async function makeBox(dx, dy, dz) {
     // Shape() is called (the build happens lazily). Check the shape instead.
     const shape = maker.Shape();
     if (!shape || shape.IsNull()) {
-      throw new Error('makeBox: OCCT BRepPrimAPI_MakeBox produced a null shape');
+      throw new Error('makeBox: kernel BRepPrimAPI_MakeBox produced a null shape');
     }
     return new BrepShape(shape, { op: 'makeBox', params: { dx, dy, dz } });
   });
@@ -44,7 +44,7 @@ export async function makeCylinder(radius, height) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeCylinder_1(radius, height));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeCylinder: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeCylinder: kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeCylinder', params: { radius, height } });
   });
 }
@@ -60,7 +60,7 @@ export async function makeSphere(radius) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeSphere_1(radius));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeSphere: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeSphere: kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeSphere', params: { radius } });
   });
 }
@@ -80,7 +80,7 @@ export async function makeCone(radius1, radius2, height) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeCone_1(radius1, radius2, height));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeCone: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeCone: kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeCone', params: { radius1, radius2, height } });
   });
 }
@@ -99,7 +99,7 @@ export async function makeTorus(majorRadius, minorRadius) {
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeTorus_1(majorRadius, minorRadius));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeTorus: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('makeTorus: kernel produced a null shape');
     return new BrepShape(shape, { op: 'makeTorus', params: { majorRadius, minorRadius } });
   });
 }

@@ -1,8 +1,8 @@
 /**
  * ArchDisc Kernel — retopology facade (Botsch-Kobbelt 2004 isotropic remeshing).
  *
- * 1. Tessellate the OCCT B-rep to a triangle mesh (mm).
- * 2. Weld duplicate vertices (OCCT tessellation duplicates per-face).
+ * 1. Tessellate the B-rep to a triangle mesh (mm).
+ * 2. Weld duplicate vertices (tessellation duplicates per-face).
  * 3. Isotropic remeshing — split/collapse/flip/tangential-relax.
  * 4. Compute per-vertex normals via Loop limit-normal evaluator.
  * 5. Return Three.js-ready typed arrays + stats.
@@ -14,13 +14,13 @@ import { isotropicRemesh } from '../../foundation/IsotropicRemesh.js';
 import { loopLimitNormals } from '../../foundation/SubdivisionNormals.js';
 
 /**
- * Retopologise an OCCT B-rep shape via isotropic remeshing.
+ * Retopologise a B-rep shape via isotropic remeshing.
  *
  * @param {import('./BrepShape.js').BrepShape} brepShape
  * @param {object} [opts]
  * @param {number}  [opts.targetEdgeLength]   Target edge length L (mm). Omit or 0 for auto (mean).
  * @param {number}  [opts.iterations=5]       Number of B-K iterations (1–10).
- * @param {number}  [opts.deflection=0.5]     OCCT tessellation deflection (mm).
+ * @param {number}  [opts.deflection=0.5]     tessellation deflection (mm).
  * @returns {Promise<{
  *   positions: Float32Array,
  *   normals: Float32Array,
@@ -42,7 +42,7 @@ export async function retopoShape(brepShape, opts = {}) {
     throw new Error(`retopoShape: iterations must be a positive integer (got ${iterations})`);
   }
 
-  // 1. Tessellate OCCT B-rep → triangle mesh (positions in mm).
+  // 1. Tessellate B-rep → triangle mesh (positions in mm).
   const tess = await tessellate(brepShape, deflection);
   const baseVertices = [];
   for (let i = 0; i < tess.positions.length; i += 3) {
@@ -54,7 +54,7 @@ export async function retopoShape(brepShape, opts = {}) {
   }
   const baseStats = { baseVerts: baseVertices.length, baseTris: baseTriangles.length };
 
-  // 2. Weld duplicate vertices — OCCT tessellation gives one copy per face.
+  // 2. Weld duplicate vertices — tessellation gives one copy per face.
   const welded = weldMesh({ vertices: baseVertices, triangles: baseTriangles }, 1e-4);
 
   // 3. Isotropic remeshing (Botsch-Kobbelt 2004).

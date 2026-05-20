@@ -1,8 +1,8 @@
 /**
  * ArchDisc Kernel — sophisticated subdivision-surface facade.
  *
- * 1. Tessellate the OCCT B-rep to a triangle mesh (mm).
- * 2. Weld duplicate vertices (OCCT tessellation duplicates per-face) so
+ * 1. Tessellate the B-rep to a triangle mesh (mm).
+ * 2. Weld duplicate vertices (tessellation duplicates per-face) so
  *    adjacent triangles share indices.
  * 3. Auto-detect crease edges by dihedral threshold.
  * 4. Piecewise-smooth Loop subdivision for `levels` steps — preserves
@@ -19,13 +19,13 @@ import { detectCreases } from '../../foundation/SubdivisionCreases.js';
 import { loopLimitNormals } from '../../foundation/SubdivisionNormals.js';
 
 /**
- * Subdivide an OCCT B-rep shape with piecewise-smooth Loop subdivision.
+ * Subdivide a B-rep shape with piecewise-smooth Loop subdivision.
  *
  * @param {import('./BrepShape.js').BrepShape} brepShape
  * @param {object} [opts]
  * @param {number} [opts.levels=2]         Number of Loop subdivision steps.
  * @param {number} [opts.dihedralDeg=30]   Dihedral angle threshold for crease detection.
- * @param {number} [opts.deflection=0.5]   OCCT tessellation deflection (mm).
+ * @param {number} [opts.deflection=0.5]   tessellation deflection (mm).
  * @returns {Promise<{
  *   positions: Float32Array,
  *   normals: Float32Array,
@@ -47,7 +47,7 @@ export async function subdivideShape(brepShape, opts = {}) {
     throw new Error(`subdivideShape: levels must be a positive integer (got ${levels})`);
   }
 
-  // 1. Tessellate OCCT B-rep → triangle mesh (positions in mm).
+  // 1. Tessellate B-rep → triangle mesh (positions in mm).
   const tess = await tessellate(brepShape, deflection);
   const baseVertices = [];
   for (let i = 0; i < tess.positions.length; i += 3) {
@@ -59,11 +59,11 @@ export async function subdivideShape(brepShape, opts = {}) {
   }
   const baseStats = { baseVerts: baseVertices.length, baseTris: baseTriangles.length };
 
-  // 2. Weld duplicate vertices — OCCT tessellation gives one copy per face
+  // 2. Weld duplicate vertices — tessellation gives one copy per face
   //    (e.g. 24 verts for a cube instead of 8).  After welding the 8 cube
   //    corners are shared, so dihedral-based crease detection can see the
   //    90° face-angle on every cube edge.  Tolerance 1e-4 mm is wide enough
-  //    for OCCT tessellation coordinate noise while tight enough not to merge
+  //    for tessellation coordinate noise while tight enough not to merge
   //    distinct vertices on small features.
   const welded = weldMesh({ vertices: baseVertices, triangles: baseTriangles }, 1e-4);
 

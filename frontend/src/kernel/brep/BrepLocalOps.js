@@ -1,7 +1,7 @@
 /**
- * ArchDisc Kernel — local operations (OCCT BRepOffsetAPI):
+ * ArchDisc Kernel — local operations:
  * shell/hollow, thicken sheet, offset, draft.
- * Verified OCCT sequences: docs/superpowers/notes/occt-api-A2.md items 1-4.
+ * Verified kernel sequences: docs/superpowers/notes/kernel-api-A2.md items 1-4.
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -18,7 +18,7 @@ export async function shell(brepShape, thickness) {
   if (!(thickness > 0)) throw new Error(`shell: thickness must be positive (got ${thickness})`);
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from occt-api-A2.md item 1
+    // verified sequence from kernel-api-A2.md item 1
     const inputShape = brepShape.shape;
 
     // Step 1: Collect all faces via TopExp_Explorer
@@ -62,7 +62,7 @@ export async function shell(brepShape, thickness) {
     if (!thickSolid.IsDone()) throw new Error('shell: MakeThickSolidByJoin did not complete');
     const shape = track(thickSolid.Shape());
 
-    if (shape.IsNull()) throw new Error('shell: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('shell: kernel produced a null shape');
     return new BrepShape(shape, { op: 'shell', params: { thickness }, parents: [brepShape.id] });
   });
 }
@@ -80,7 +80,7 @@ export async function thicken(w, h, thickness) {
   }
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from occt-api-A2.md item 2
+    // verified sequence from kernel-api-A2.md item 2
     // Step 1: Build w×h planar face (four corners → edges → wire → face)
     const p0 = track(new oc.gp_Pnt_3( 0,  0, 0));
     const p1 = track(new oc.gp_Pnt_3( w,  0, 0));
@@ -115,7 +115,7 @@ export async function thicken(w, h, thickness) {
     if (!thickObj.IsDone()) throw new Error('thicken: MakeThickSolidBySimple did not complete');
     const rawShape = track(thickObj.Shape());
 
-    if (rawShape.IsNull()) throw new Error('thicken: OCCT produced a null shape');
+    if (rawShape.IsNull()) throw new Error('thicken: kernel produced a null shape');
 
     // MakeThickSolidBySimple may produce an inward-oriented solid whose
     // VolumeProperties returns a negative value. Reversing the orientation
@@ -137,7 +137,7 @@ export async function offsetShape(brepShape, distance) {
   if (!(distance > 0)) throw new Error(`offsetShape: distance must be positive (got ${distance})`);
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from occt-api-A2.md item 3
+    // verified sequence from kernel-api-A2.md item 3
     // BRepOffsetAPI_MakeOffsetShape (undecorated, no-arg constructor)
     const algo = track(new oc.BRepOffsetAPI_MakeOffsetShape());
 
@@ -150,7 +150,7 @@ export async function offsetShape(brepShape, distance) {
     if (!algo.IsDone()) throw new Error('offsetShape: PerformBySimple did not complete');
     const shape = track(algo.Shape());
 
-    if (shape.IsNull()) throw new Error('offsetShape: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('offsetShape: kernel produced a null shape');
     return new BrepShape(shape, { op: 'offsetShape', params: { distance }, parents: [brepShape.id] });
   });
 }
@@ -166,7 +166,7 @@ export async function draft(brepShape, angleDeg) {
   if (!(angleDeg > 0 && angleDeg < 90)) throw new Error(`draft: angle must be 0-90° (got ${angleDeg})`);
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from occt-api-A2.md item 4
+    // verified sequence from kernel-api-A2.md item 4
     const inputShape = brepShape.shape;
     const angleRad   = angleDeg * Math.PI / 180;
 
@@ -236,7 +236,7 @@ export async function draft(brepShape, angleDeg) {
     if (!draftObj.IsDone()) throw new Error('draft: BRepOffsetAPI_DraftAngle did not complete');
     const shape = track(draftObj.Shape());
 
-    if (shape.IsNull()) throw new Error('draft: OCCT produced a null shape');
+    if (shape.IsNull()) throw new Error('draft: kernel produced a null shape');
     return new BrepShape(shape, { op: 'draft', params: { angleDeg }, parents: [brepShape.id] });
   });
 }

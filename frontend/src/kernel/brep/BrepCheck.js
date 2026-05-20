@@ -1,9 +1,9 @@
 /**
  * ArchDisc Kernel — evaluation & checking (analytical, no new geometry):
  * self-intersection detection and clash / interference detection.
- * Verified OCCT sequences: docs/superpowers/notes/occt-api-A3.md.
+ * Verified kernel sequences: docs/superpowers/notes/kernel-api-A3.md.
  *
- * Note: OCCT's BOPAlgo_CheckerSI is unbound in this opencascade.js build.
+ * Note: BOPAlgo_CheckerSI is unbound in this build.
  * checkSelfIntersection uses BRepCheck_Analyzer validity + pairwise
  * solid-overlap, the verified reachable approach.
  */
@@ -11,7 +11,7 @@
 import { getOCCT } from './kernelLoader.js';
 import { withScope, track } from './BrepShape.js';
 
-/** Volume of an OCCT shape (mm³). Helper — caller is inside a withScope. */
+/** Volume of a B-rep shape (mm³). Helper — caller is inside a withScope. */
 function shapeVolume(oc, shape) {
   const props = track(new oc.GProp_GProps_1());
   oc.BRepGProp.VolumeProperties_1(shape, props, false, false, false);
@@ -69,7 +69,7 @@ function commonVolume(oc, sA, sB) {
  *
  * Limitation: this uses BRepCheck_Analyzer for intrinsic validity and pairwise
  * solid-overlap via BRepAlgoAPI_Common. It does NOT detect face-level
- * self-intersection within a single solid because OCCT BOPAlgo_CheckerSI is
+ * self-intersection within a single solid because BOPAlgo_CheckerSI is
  * unbound in this opencascade.js build.
  *
  * @param {import('./BrepShape.js').BrepShape} brepShape
@@ -80,16 +80,16 @@ export async function checkSelfIntersection(brepShape) {
   const oc = await getOCCT();
   return withScope(() => {
     // Step 1: intrinsic validity via BRepCheck_Analyzer(shape, isGeomCtrled, isParallelMode)
-    // Per occt-api-A3.md Item 6: 3-arg constructor (no _N suffix), IsValid_2() = whole shape
+    // Per kernel-api-A3.md Item 6: 3-arg constructor (no _N suffix), IsValid_2() = whole shape
     const analyzer = track(new oc.BRepCheck_Analyzer(brepShape.shape, true, false));
     const valid = analyzer.IsValid_2();
 
     // Step 2: collect all SOLID sub-shapes via TopExp_Explorer_2
-    // Per occt-api-A3.md Item 7: _2(shape, solidEnum, shapeEnum), Current() usable directly
+    // Per kernel-api-A3.md Item 7: _2(shape, solidEnum, shapeEnum), Current() usable directly
     const solids = collectSolids(oc, brepShape.shape);
 
     // Step 3: for every pair (i < j), compute Boolean Common volume
-    // Per occt-api-A3.md Item 8: BRepAlgoAPI_Common_3 + pairwise volume > epsilon → overlap
+    // Per kernel-api-A3.md Item 8: BRepAlgoAPI_Common_3 + pairwise volume > epsilon → overlap
     let count = 0;
     const epsilon = 1e-6;
     for (let i = 0; i < solids.length; i++) {
@@ -123,7 +123,7 @@ export async function checkClash(a, b) {
   const oc = await getOCCT();
   return withScope(() => {
     // interferenceVolume via BRepAlgoAPI_Common_3
-    // Per occt-api-A3.md Item 4: _3(shapeA, shapeB, pr) + Build(pr2) + Shape() + VolumeProperties
+    // Per kernel-api-A3.md Item 4: _3(shapeA, shapeB, pr) + Build(pr2) + Shape() + VolumeProperties
     let interferenceVolume = 0;
     const pr1 = track(new oc.Message_ProgressRange_1());
     const algo = track(new oc.BRepAlgoAPI_Common_3(a.shape, b.shape, pr1));
@@ -137,7 +137,7 @@ export async function checkClash(a, b) {
     }
 
     // minDistance via BRepExtrema_DistShapeShape_1
-    // Per occt-api-A3.md Item 5: no-arg _1() + LoadS1/LoadS2 + Perform(pr) + Value()
+    // Per kernel-api-A3.md Item 5: no-arg _1() + LoadS1/LoadS2 + Perform(pr) + Value()
     let minDistance = 0;
     const distAlgo = track(new oc.BRepExtrema_DistShapeShape_1());
     distAlgo.LoadS1(a.shape);
