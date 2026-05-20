@@ -3,7 +3,7 @@
  * numeric assertions in e2e specs. All values in mm / mm² / mm³.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { withScope, track } from './BrepShape.js';
 
 /** Solid volume (mm³). */

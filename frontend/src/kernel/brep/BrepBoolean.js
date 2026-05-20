@@ -7,7 +7,7 @@
  * and an explicit .Build(progressRange) call is required.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 /** Shared boolean runner. `Ctor` is an OCCT BRepAlgoAPI_*_3 class. */

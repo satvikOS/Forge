@@ -1,8 +1,8 @@
 /**
- * ArchDisc Kernel — OpenCASCADE (OCCT) WASM singleton loader.
+ * ArchDisc Kernel — exact B-rep WASM singleton loader.
  *
- * OCCT is ArchDisc's exact B-rep / NURBS kernel. It ships as a large
- * Emscripten WASM module; we load it once and cache the promise. Mirrors
+ * ArchDisc's exact B-rep / NURBS kernel ships as a large Emscripten WASM
+ * module; we load it once and cache the promise. Mirrors
  * `foundation/manifoldKernel.js`. All `kernel/brep/` code awaits this.
  *
  * NOTE: the dist filenames are confirmed in Task 1 Step 3. If they are not
@@ -17,10 +17,10 @@ let cachedModule = null;
 let loadPromise = null;
 
 /**
- * Load (or return cached) the OCCT WASM module.
- * @returns {Promise<object>} the `oc` API object (all OCCT classes).
+ * Load (or return cached) the ArchDisc B-rep kernel WASM module.
+ * @returns {Promise<object>} the `oc` API object (all kernel classes).
  */
-export async function getOCCT() {
+export async function getKernel() {
   if (cachedModule) return cachedModule;
   if (!loadPromise) {
     loadPromise = (async () => {
@@ -31,6 +31,9 @@ export async function getOCCT() {
   }
   return loadPromise;
 }
+
+/** Backward-compatible alias — existing callers and e2e specs use getOCCT(). */
+export const getOCCT = getKernel;
 
 /** Reset cache — for tests that verify load-from-scratch behavior. */
 export function _reset() {

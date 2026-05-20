@@ -8,7 +8,7 @@ import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
 import { addFoundationManifoldToScene } from './ToolExecutionEngine';
-import { getOCCT } from '../../kernel/brep/occtKernel.js';
+import { getKernel } from '../../kernel/brep/kernelLoader.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import * as THREE from 'three';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
@@ -523,7 +523,8 @@ function WorkbenchMechanical() {
             return metrics;
         };
         window.__archdiscKernel = {
-            getOCCT,
+            getKernel,
+            getOCCT: getKernel,  // backward-compatible alias for existing e2e specs
             kernel: ArchDiscKernel,
             renderShape,
             renderBox: async (dx, dy, dz) =>

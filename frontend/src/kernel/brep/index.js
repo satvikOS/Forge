@@ -1,5 +1,5 @@
-/** ArchDisc Kernel — B-rep (OCCT) subtree barrel export. */
-export { getOCCT, _reset } from './occtKernel.js';
+/** ArchDisc Kernel — B-rep subtree barrel export. */
+export { getKernel, getOCCT, _reset } from './kernelLoader.js';
 export { BrepShape, withScope, track } from './BrepShape.js';
 export {
   makeBox, makeCylinder, makeSphere, makeCone, makeTorus,

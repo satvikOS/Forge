@@ -14,7 +14,7 @@
  *   exception for ALL inputs; variational solver not functional in this WASM build.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 // ---------------------------------------------------------------------------

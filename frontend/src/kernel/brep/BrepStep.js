@@ -4,7 +4,7 @@
  * Verified API: docs/superpowers/notes/occt-api-A1.md items 12-13.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 // Emscripten virtual-FS filenames must be RELATIVE (no leading slash).

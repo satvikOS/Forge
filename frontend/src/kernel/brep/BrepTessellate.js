@@ -3,7 +3,7 @@
  * ready for a Three.js BufferGeometry. Positions are in mm.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { track, withScope } from './BrepShape.js';
 
 /**

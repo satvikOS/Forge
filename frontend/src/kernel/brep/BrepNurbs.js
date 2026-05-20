@@ -33,7 +33,7 @@
  *   nurbsCurvature(brepShape, u, v)     — sample curvature at (u,v)
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 /** Grid resolution for mesh approximation. 10×10 = 200 triangles, fast enough. */

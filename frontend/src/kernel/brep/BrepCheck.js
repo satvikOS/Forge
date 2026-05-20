@@ -8,7 +8,7 @@
  * solid-overlap, the verified reachable approach.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { withScope, track } from './BrepShape.js';
 
 /** Volume of an OCCT shape (mm³). Helper — caller is inside a withScope. */

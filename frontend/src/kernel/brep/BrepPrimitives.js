@@ -3,7 +3,7 @@
  * A0 scope: box only. A1 adds cylinder/sphere/cone/torus.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 /**

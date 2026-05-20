@@ -3,7 +3,7 @@
  * Verified OCCT sequence: docs/superpowers/notes/occt-api-B.md Capability 4.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 /**

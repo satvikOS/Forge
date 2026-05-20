@@ -1,11 +1,11 @@
 /**
  * ArchDisc Kernel — the unified facade. The single entry point for exact
- * B-rep geometry. OCCT internals never leak past this module. A0 scope:
+ * B-rep geometry. Kernel internals never leak past this module. A0 scope:
  * makeBox + measurement + tessellation. A1 scope: all primitives, booleans,
  * features (extrude/revolve/fillet/chamfer), and STEP import/export.
  */
 
-import { getOCCT } from './occtKernel.js';
+import { getKernel } from './kernelLoader.js';
 import {
   makeBox, makeCylinder, makeSphere, makeCone, makeTorus,
 } from './BrepPrimitives.js';
@@ -29,8 +29,8 @@ import { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from
 import { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './BrepFinal.js';
 
 export const ArchDiscKernel = {
-  /** Ensure the OCCT WASM module is loaded. */
-  init: getOCCT,
+  /** Ensure the B-rep kernel WASM module is loaded. */
+  init: getKernel,
   /** Exact B-rep operations. */
   brep: {
     makeBox,
