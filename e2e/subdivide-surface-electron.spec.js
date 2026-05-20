@@ -1,20 +1,23 @@
 /**
  * subdivide-surface-electron.spec.js
  *
- * SOPH-T6 batch 1 — Complex-model e2e for Loop subdivision on a composite.
+ * Real-user-workflow test for Loop subdivision on a recognisable engineering artifact.
  *
- * Input: Box + Cylinder → Combine → composite A (non-trivial shape with seam
- * edges that subdivision can do real work on).
+ * Artifact: ergonomic handle (smooth-organic from prismatic Extrude Boss)
+ *
+ * Input: Extrude Boss (accept dialog defaults → 80×50×25 mm prismatic plate/beam)
+ *   The Extrude Boss produces a prismatic solid — a structural beam cross-section
+ *   that serves as the blank for an ergonomic handle grip. Subdivision smooths
+ *   the prismatic blank into the organic curved form of a moulded handle.
  *
  * Focal op: Part tab → Subdivide Surface (levels=2, dihedralDeg=30, deflection=0.5)
  *
  * Assertions:
  *   - refinedTris > baseTris × 8  (≥8× growth after 2 Loop steps)
  *   - weldedVerts < baseVerts      (OCCT per-face duplicates were merged)
- *   - creaseEdges ≥ 12             (sharp seams of the Box and seam between Box
- *                                   and Cyl detected at 30° threshold)
- *   - post-subdivide bbox ≥ 95% of pre-subdivide composite bbox in each axis
- *     (no excess pinching; features preserved)
+ *   - creaseEdges ≥ 12             (sharp prismatic edges of the Extrude Boss
+ *                                   detected at 30° dihedral threshold)
+ *   - post-subdivide bbox ≥ 10% of max axis in each axis (no severe pinching)
  *   - captureAllAngles blanks empty, pageErrors empty
  */
 
@@ -55,48 +58,26 @@ async function getLastRegistryId(win) {
   });
 }
 
-/**
- * Apply a ribbon op that takes bodies.
- * Selects bodies, injects params, clicks the tab+tool, waits for new shape.
- * Returns the new body-registry id.
- */
-async function applyOp(win, tabLabel, toolLabel, bodyIds, params) {
-  const before = await win.evaluate(() =>
-    window.__lastBrepShape && window.__lastBrepShape.id
-  );
-  if (bodyIds && bodyIds.length > 0) {
-    await selectBodies(win, bodyIds);
-  }
-  if (params && Object.keys(params).length > 0) {
-    await injectToolParams(win, toolLabel, params);
-  }
-  await clickRibbonTab(win, tabLabel);
-  await win.waitForTimeout(120);
-  await clickRibbonTool(win, toolLabel);
-  await win.waitForFunction(
-    (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
-    before,
-    { timeout: 60000 },
-  );
-  return getLastRegistryId(win);
-}
-
 // ─── Main gate test ──────────────────────────────────────────────────────────
 
-test('Subdivide Surface: Box+Cyl→Combine composite → 2 Loop steps — no pinching, all angles render', async () => {
+test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude Boss) — Extrude Boss → 2 Loop steps — no pinching, all angles render', async () => {
+  // Artifact: ergonomic handle (smooth-organic from prismatic Extrude Boss)
+  // An Extrude Boss (80×50×25 mm — the handle blank) is subdivided with Loop
+  // subdivision (levels=2) to produce the smooth organic form of a moulded
+  // ergonomic grip handle. Crease edges at the prismatic transitions (dihedral ≥ 30°)
+  // preserve the handle's structural ridge lines while the flat faces are smoothed.
   const { app, win, pageErrors } = await launch();
   try {
-    // ── Step 1: Build Box + Cylinder → Combine composite ──────────────────────
-    const boxId  = await buildPrimitive(win, 'Box');       // 40×40×40 mm
-    const cylId  = await buildPrimitive(win, 'Cylinder');  // r=20, h=40 mm
-    const combId = await applyOp(win, 'Part', 'Combine', [boxId, cylId]);
+    // ── Step 1: Build Extrude Boss (handle blank, accept defaults) ─────────────
+    // Extrude Boss is arity-0: no body selection needed.
+    // Defaults: width=80, depth=50, height=25 → 80×50×25 mm prismatic plate.
+    const handleId = await buildPrimitive(win, 'Extrude Boss');
 
-    // ── Step 2: Compute the composite bbox (pre-subdivide) via OCCT ───────────
+    // ── Step 2: Compute the Extrude Boss bbox (pre-subdivide) via OCCT ─────────
     // This gives us the reference bbox to check for no-pinching after subdivision.
     const preBbox = await win.evaluate(async () => {
       const m = await window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape);
-      // measure() returns {volume, area, faceCount, edgeCount, bbox: {xmin,xmax,ymin,ymax,zmin,zmax}}
-      // Fall back to the tessellation bbox if the measure doesn't include bbox.
+      // measure() may return {volume, area, faceCount, edgeCount, bbox: {xmin,xmax,...}}
       const bb = m.bbox;
       if (bb) {
         return {
@@ -105,25 +86,24 @@ test('Subdivide Surface: Box+Cyl→Combine composite → 2 Loop steps — no pin
           dz: bb.zmax - bb.zmin,
         };
       }
-      // If bbox not available from measure, use defaults based on expected geometry.
-      // Box=40, Cyl r=20 h=40 — combined bbox is at least 40mm in each axis.
-      return { dx: 40, dy: 40, dz: 40 };
+      // Extrude Boss defaults: 80×50×25mm → fallback expected bbox.
+      return { dx: 80, dy: 50, dz: 25 };
     });
-    console.log(`  Composite bbox: dx=${preBbox.dx.toFixed(1)}, dy=${preBbox.dy.toFixed(1)}, dz=${preBbox.dz.toFixed(1)}`);
+    console.log(`  Extrude Boss bbox: dx=${preBbox.dx.toFixed(1)}, dy=${preBbox.dy.toFixed(1)}, dz=${preBbox.dz.toFixed(1)}`);
 
-    // ── Step 3: Clear stale subdivision result, inject params, subdivide ──────
+    // ── Step 3: Clear stale subdivision result, inject params, subdivide ───────
     await win.evaluate(() => { window.__lastSubdivMesh = null; });
-    await selectBodies(win, [combId]);
+    await selectBodies(win, [handleId]);
     await injectToolParams(win, 'Subdivide Surface', { levels: 2, dihedralDeg: 30, deflection: 0.5 });
 
     await clickRibbonTab(win, 'Part');
     await win.waitForTimeout(120);
     await clickRibbonTool(win, 'Subdivide Surface');
 
-    // ── Step 4: Wait for __lastSubdivMesh ────────────────────────────────────
+    // ── Step 4: Wait for __lastSubdivMesh ───────────────────────────────────────
     await win.waitForFunction(() => !!window.__lastSubdivMesh, null, { timeout: 120000 });
 
-    // ── Step 5: Triangle-count growth ────────────────────────────────────────
+    // ── Step 5: Triangle-count growth ──────────────────────────────────────────
     const stats = await win.evaluate(() => window.__lastSubdivMesh.stats);
     console.log(`  Subdiv stats: baseTris=${stats.baseTris}, refinedTris=${stats.refinedTris}, weldedVerts=${stats.weldedVerts}, baseVerts=${stats.baseVerts}, creaseEdges=${stats.creaseEdges}`);
 
@@ -133,13 +113,12 @@ test('Subdivide Surface: Box+Cyl→Combine composite → 2 Loop steps — no pin
     // OCCT tessellates per-face with duplicate boundary verts; welding must reduce count.
     expect(stats.weldedVerts).toBeLessThan(stats.baseVerts);
 
-    // The Box has 12 sharp edges; the Box+Cylinder seam adds more — all must be
-    // detected at 30° dihedral threshold.
+    // The Extrude Boss has 12 sharp prismatic edges — all detected at 30° threshold.
     expect(stats.creaseEdges).toBeGreaterThanOrEqual(12);
 
-    // ── Step 6: No-pinching bbox check ───────────────────────────────────────
-    // The subdivided mesh positions must span ≥ 95% of the pre-subdivide composite
-    // bbox in each axis. This guards against corner collapse that halves the bbox.
+    // ── Step 6: No-pinching bbox check ─────────────────────────────────────────
+    // The subdivided mesh positions must span ≥ 10% of the max axis extent in
+    // each axis. This guards against corner collapse that halves the bbox.
     const postBbox = await win.evaluate(() => {
       const p = window.__lastSubdivMesh.positions;
       const mn = [Infinity,  Infinity,  Infinity];
@@ -154,19 +133,15 @@ test('Subdivide Surface: Box+Cyl→Combine composite → 2 Loop steps — no pin
     });
     console.log(`  Post-subdiv bbox: dx=${postBbox.dx.toFixed(3)}, dy=${postBbox.dy.toFixed(3)}, dz=${postBbox.dz.toFixed(3)}`);
 
-    // Subdivided bbox must be ≥ 95% of the composite's pre-subdivide bbox in each axis.
-    // (OCCT scale: the mesh positions are in meters (0.001× scale); compare relative.)
-    // We compare postBbox axis sizes against preBbox * 0.95 * 0.001 (meter conversion)
-    // OR just ensure each axis is > 0 and reasonably large relative to each other.
-    // Safe approach: each axis must be > 0 (non-degenerate) and ≥ 95% relative to
-    // the largest axis (no severe pinching in any single direction).
+    // Each axis must be > 0 (non-degenerate) and ≥ 10% of the max axis
+    // (no severe pinching in any single direction).
     const maxAxis = Math.max(postBbox.dx, postBbox.dy, postBbox.dz);
     expect(postBbox.dx).toBeGreaterThan(maxAxis * 0.10); // no axis collapsed > 90%
     expect(postBbox.dy).toBeGreaterThan(maxAxis * 0.10);
     expect(postBbox.dz).toBeGreaterThan(maxAxis * 0.10);
 
-    // ── Step 7: Multi-angle render — no blank frames, no page errors ──────────
-    const cap = await captureAllAngles(win, 'subdivide-composite', {
+    // ── Step 7: Multi-angle render — no blank frames, no page errors ────────────
+    const cap = await captureAllAngles(win, 'subdivide-handle', {
       azimuths:   [0, 60, 120, 180, 240, 300],
       elevations: [-30, 30],
       zooms:      [0.6, 1.0, 1.8],
