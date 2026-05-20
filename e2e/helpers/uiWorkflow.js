@@ -102,6 +102,11 @@ export async function fillDialog(win, values) {
  * @returns {Promise<string>} the new body id from window.__lastBrepShape.id
  */
 export async function buildPrimitive(win, toolName, params) {
+  // Snapshot the current registry body count so we can detect the new entry.
+  const regCountBefore = await win.evaluate(
+    () => (window.__archdiscRegistry && window.__archdiscRegistry.bodies
+      ? window.__archdiscRegistry.bodies.length : 0),
+  );
   const before = await win.evaluate(
     () => (window.__lastBrepShape && window.__lastBrepShape.id) || null,
   );
@@ -123,7 +128,18 @@ export async function buildPrimitive(win, toolName, params) {
     before,
     { timeout: 60000 },
   );
-  return win.evaluate(() => window.__lastBrepShape.id);
+  // Return the BodyRegistry ID (body-001 format) so selectBodies can find
+  // the entry by the registry's own key — NOT the BrepShape brep-N id.
+  // addBrepShapeToScene calls registerBody() before setting __lastBrepShape,
+  // so the registry has the new entry by the time waitForFunction above resolves.
+  return win.evaluate((countBefore) => {
+    const reg = window.__archdiscRegistry;
+    if (reg && reg.bodies && reg.bodies.length > countBefore) {
+      return reg.bodies[reg.bodies.length - 1].id;
+    }
+    // Fallback: return brepShape id (may not work with selectBodies)
+    return window.__lastBrepShape && window.__lastBrepShape.id;
+  }, regCountBefore);
 }
 
 /**
