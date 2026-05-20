@@ -292,7 +292,7 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
     const manifoldShim = {
       volume: () => metrics.volume,
     };
-    registerBody({ group, manifold: manifoldShim, sourceTool: _activeToolName });
+    registerBody({ group, manifold: manifoldShim, sourceTool: _activeToolName, brepShape });
   } catch (err) {
     console.warn('addBrepShapeToScene: body registry register failed', err);
   }
@@ -975,96 +975,56 @@ const TOOL_HANDLERS = {
     },
 
     'Loft Boss': async (scene, viewport) => {
-      // OCCT exact B-rep path: loft a 40×40 square section at z=0 to a
-      // 16×16 square section at z=50 mm via BRepOffsetAPI_ThruSections.
       try {
-        const result = await ArchDiscKernel.brep.loft(40, 16, 50);
+        const { values, cancelled } = await requestToolParams('Loft Boss');
+        if (cancelled) return { status: 'warn', message: 'Loft Boss: cancelled' };
+        const result = await ArchDiscKernel.brep.loft(values.bottomSize, values.topSize, values.height);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Loft Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Loft Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Loft Boss failed: ${err.message}` };
+        return { status: 'error', message: 'Loft Boss: ' + err.message };
       }
     },
 
     'Sweep Boss': async (scene, viewport) => {
-      // OCCT exact B-rep path: sweep a circular profile of radius 8 mm
-      // along a 60 mm straight path via BRepOffsetAPI_MakePipe.
       try {
-        const result = await ArchDiscKernel.brep.sweep(8, 60);
+        const { values, cancelled } = await requestToolParams('Sweep Boss');
+        if (cancelled) return { status: 'warn', message: 'Sweep Boss: cancelled' };
+        const result = await ArchDiscKernel.brep.sweep(values.radius, values.length);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Sweep Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Sweep Boss: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Sweep Boss failed: ${err.message}` };
+        return { status: 'error', message: 'Sweep Boss: ' + err.message };
       }
     },
 
     'Fillet': async (scene, viewport) => {
-      // OCCT exact B-rep path: filletAll on the current OCCT body (if
-      // one is stored in window.__lastBrepShape) or a default 40×40×40
-      // box. Uses ArchDiscKernel.brep.filletAll with a radius from the
-      // tool param dialog (default 2 mm).
-      const { values, cancelled } = await requestToolParams('Fillet');
-      if (cancelled) return { status: 'warn', message: 'Fillet cancelled' };
       try {
-        const radius = values.radius ?? 2;
-        let body;
-        let ownedBody = false;
-        if (window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-          ownedBody = true;
-        }
-        const shape = await ArchDiscKernel.brep.filletAll(body, radius);
-        // If we created a temporary box, dispose it now (the filletAll
-        // result is the shape we keep; the input box is no longer needed).
-        if (ownedBody) body.dispose();
-        await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Fillet: radius=${radius} mm on all edges. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Fillet');
+        if (cancelled) return { status: 'warn', message: 'Fillet: cancelled' };
+        const result = await ArchDiscKernel.brep.filletAll(body, values.radius);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Fillet failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Fillet: ' + err.message };
       }
     },
 
     'Chamfer': async (scene, viewport) => {
-      // OCCT exact B-rep path: chamferAll on the current OCCT body (if
-      // one is stored in window.__lastBrepShape) or a default 40×40×40
-      // box. Uses ArchDiscKernel.brep.chamferAll with a distance from
-      // the tool param dialog (default 2 mm). Mirrors the Fillet handler.
-      const { values, cancelled } = await requestToolParams('Chamfer');
-      if (cancelled) return { status: 'warn', message: 'Chamfer cancelled' };
       try {
-        const distance = values.distance ?? 2;
-        let body;
-        let ownedBody = false;
-        if (window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-          ownedBody = true;
-        }
-        const shape = await ArchDiscKernel.brep.chamferAll(body, distance);
-        if (ownedBody) body.dispose();
-        await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Chamfer: distance=${distance} mm on all edges. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Chamfer');
+        if (cancelled) return { status: 'warn', message: 'Chamfer: cancelled' };
+        const result = await ArchDiscKernel.brep.chamferAll(body, values.distance);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Chamfer: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Chamfer failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Chamfer: ' + err.message };
       }
     },
 
@@ -1089,87 +1049,58 @@ const TOOL_HANDLERS = {
     },
 
     'Shell': async (scene, viewport) => {
-      // OCCT exact B-rep path: hollow a solid via BRepOffsetAPI_MakeThickSolid.
-      // Uses the last OCCT body if available, else creates a 40×40×40 default box.
       try {
-        let body;
-        let ownedBody = false;
-        if (typeof window !== 'undefined' && window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-          ownedBody = true;
-        }
-        const result = await ArchDiscKernel.brep.shell(body, 3);
-        if (ownedBody) body.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Shell');
+        if (cancelled) return { status: 'warn', message: 'Shell: cancelled' };
+        const result = await ArchDiscKernel.brep.shell(body, values.thickness);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Shell: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Shell: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Shell failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Shell: ' + err.message };
       }
     },
 
     'Draft': async (scene, viewport) => {
-      // OCCT exact B-rep path: apply a 5° draft angle to the side faces
-      // of the last OCCT body (or a default 40×40×40 box).
       try {
-        let body;
-        let ownedBody = false;
-        if (typeof window !== 'undefined' && window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-          ownedBody = true;
-        }
-        const result = await ArchDiscKernel.brep.draft(body, 5);
-        if (ownedBody) body.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Draft');
+        if (cancelled) return { status: 'warn', message: 'Draft: cancelled' };
+        const result = await ArchDiscKernel.brep.draft(body, values.angleDeg);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Draft: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Draft: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Draft failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Draft: ' + err.message };
       }
     },
 
     'Variable Radius Fillet': async (scene, viewport) => {
-      // OCCT exact B-rep path: variable-radius fillet (r1=1 mm → r2=4 mm)
-      // applied to all edges of the last OCCT body or a default 40×40×40 box.
       try {
-        let body;
-        let ownedBody = false;
-        if (typeof window !== 'undefined' && window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-          ownedBody = true;
-        }
-        const result = await ArchDiscKernel.brep.variableFillet(body, 1, 4);
-        if (ownedBody) body.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Variable Radius Fillet');
+        if (cancelled) return { status: 'warn', message: 'Variable Radius Fillet: cancelled' };
+        const result = await ArchDiscKernel.brep.variableFillet(body, values.r1, values.r2);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
-          message: `Variable Radius Fillet: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
+          message: `Variable Radius Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel`,
         };
       } catch (err) {
-        return { status: 'error', message: `Variable Radius Fillet failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Variable Radius Fillet: ' + err.message };
       }
     },
 
     // ── A5 Blending ops ─────────────────────────────────────────────────────
 
     'Face Fillet': async (scene, viewport) => {
-      // OCCT exact B-rep path: G2 (C2) fill face built via
-      // BRepOffsetAPI_MakeFilling on a planar square wire (z=10, side=6 mm).
+      // Surfacing arity 0 — uses dialog-supplied boundary box size only.
       try {
-        const result = await ArchDiscKernel.brep.blendG2(6);
+        const { values, cancelled } = await requestToolParams('Face Fillet');
+        if (cancelled) return { status: 'warn', message: 'Face Fillet: cancelled' };
+        const result = await ArchDiscKernel.brep.blendG2(values.holeBoxSize);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         let areaStr = '';
         try {
@@ -1178,85 +1109,52 @@ const TOOL_HANDLERS = {
         } catch (_) { /* area not critical */ }
         return {
           status: 'success',
-          message: `G2 Blend: C2 fill face built${areaStr} (via OCCT BRepOffsetAPI_MakeFilling)`,
+          message: `Face Fillet: G2 fill face built${areaStr} via OCCT exact B-rep kernel`,
         };
       } catch (err) {
-        return { status: 'error', message: `Face Fillet (G2 Blend) failed: ${err.message}` };
+        return { status: 'error', message: 'Face Fillet: ' + err.message };
       }
     },
 
     'Full Round Fillet': async (scene, viewport) => {
-      // OCCT exact B-rep path: large-radius cliff-edge blend (r=8 mm) applied
-      // to all unique edges. Uses the last OCCT body or a default 20×20×20 box.
       try {
-        let body;
-        let ownedBody = false;
-        if (typeof window !== 'undefined' && window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-          ownedBody = true;
-        }
-        const result = await ArchDiscKernel.brep.cliffEdgeBlend(body, 8);
-        if (ownedBody) body.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Full Round Fillet');
+        if (cancelled) return { status: 'warn', message: 'Full Round Fillet: cancelled' };
+        const result = await ArchDiscKernel.brep.cliffEdgeBlend(body, values.radius);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Cliff-Edge Blend: r=8mm — V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Full Round Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Full Round Fillet (Cliff-Edge Blend) failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Full Round Fillet: ' + err.message };
       }
     },
 
     'Corner Mitre': async (scene, viewport) => {
-      // OCCT exact B-rep path: auto-mitre all corners via filleting every
-      // edge (r=3 mm). Uses the last OCCT body or a default 20×20×20 box.
       try {
-        let body;
-        let ownedBody = false;
-        if (typeof window !== 'undefined' && window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-          ownedBody = true;
-        }
-        const result = await ArchDiscKernel.brep.mitreCorner(body, 3);
-        if (ownedBody) body.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Corner Mitre');
+        if (cancelled) return { status: 'warn', message: 'Corner Mitre: cancelled' };
+        const result = await ArchDiscKernel.brep.mitreCorner(body, values.radius);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Corner Mitre: r=3mm — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Corner Mitre: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Corner Mitre failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Corner Mitre: ' + err.message };
       }
     },
 
     'Offset Shape': async (scene, viewport) => {
-      // OCCT exact B-rep path: offset every face of the last OCCT body
-      // outward by 2 mm (or a default 40×40×40 box).
       try {
-        let body;
-        let ownedBody = false;
-        if (typeof window !== 'undefined' && window.__lastBrepShape) {
-          body = window.__lastBrepShape;
-        } else {
-          body = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-          ownedBody = true;
-        }
-        const result = await ArchDiscKernel.brep.offsetShape(body, 2);
-        if (ownedBody) body.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Offset Shape');
+        if (cancelled) return { status: 'warn', message: 'Offset Shape: cancelled' };
+        const result = await ArchDiscKernel.brep.offsetShape(body, values.distance);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Offset Shape: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Offset Shape: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Offset Shape failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Offset Shape: ' + err.message };
       }
     },
 
@@ -1294,129 +1192,86 @@ const TOOL_HANDLERS = {
     },
 
     'Combine': async (scene, viewport) => {
-      // OCCT exact B-rep path: fuse a 30×30×30 box with a Ø24×40 cylinder.
-      // Dispose the two operand BrepShapes after the fuse.
       try {
-        const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
-        const b = await ArchDiscKernel.brep.makeCylinder(12, 40);
+        const [a, b] = _pickBodies(2);
+        const { cancelled } = await requestToolParams('Combine');
+        if (cancelled) return { status: 'warn', message: 'Combine: cancelled' };
         const result = await ArchDiscKernel.brep.fuse(a, b);
-        a.dispose();
-        b.dispose();
         await addBrepShapeToScene(scene, viewport, result, 0x4caf50);
-        const metrics = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Combine (fuse): 30³ box ∪ Ø24×40 cylinder. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Combine: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Combine failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine: ' + err.message };
       }
     },
 
     'Subtract': async (scene, viewport) => {
-      // OCCT exact B-rep path: cut a Ø24×40 cylinder from a 40×40×40 box.
-      // Dispose the two operand BrepShapes after the cut.
       try {
-        const base = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-        const tool = await ArchDiscKernel.brep.makeCylinder(12, 40);
-        const result = await ArchDiscKernel.brep.cut(base, tool);
-        base.dispose();
-        tool.dispose();
+        const [a, b] = _pickBodies(2);
+        const { cancelled } = await requestToolParams('Subtract');
+        if (cancelled) return { status: 'warn', message: 'Subtract: cancelled' };
+        const result = await ArchDiscKernel.brep.cut(a, b);
         await addBrepShapeToScene(scene, viewport, result, 0xff9800);
-        const metrics = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Subtract: 40³ box − Ø24×40 cylinder. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Subtract: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Subtract failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Subtract: ' + err.message };
       }
     },
 
     'Intersect': async (scene, viewport) => {
-      // OCCT exact B-rep path: common of a 40×40×40 box and a sphere r=26.
-      // Dispose the two operand BrepShapes after the common operation.
       try {
-        const box = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-        const ball = await ArchDiscKernel.brep.makeSphere(26);
-        const result = await ArchDiscKernel.brep.common(box, ball);
-        box.dispose();
-        ball.dispose();
+        const [a, b] = _pickBodies(2);
+        const { cancelled } = await requestToolParams('Intersect');
+        if (cancelled) return { status: 'warn', message: 'Intersect: cancelled' };
+        const result = await ArchDiscKernel.brep.common(a, b);
         await addBrepShapeToScene(scene, viewport, result, 0x9c27b0);
-        const metrics = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Intersect: 40³ box ∩ sphere r=26 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Intersect: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Intersect failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Intersect: ' + err.message };
       }
     },
 
     'Combine (Non-Manifold)': async (scene, viewport) => {
-      // OCCT multi-arg boolean (BRepAlgoAPI_BuilderAlgo_1) on two adjacent
-      // 20×20×20 boxes — they share a 20×20 face (non-manifold topology).
       try {
-        const a = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const bRaw = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const b = await ArchDiscKernel.brep.translate(bRaw, 20, 0, 0);
+        const [a, b] = _pickBodies(2);
+        const { cancelled } = await requestToolParams('Combine (Non-Manifold)');
+        if (cancelled) return { status: 'warn', message: 'Combine (Non-Manifold): cancelled' };
         const result = await ArchDiscKernel.brep.fuseNonManifold(a, b);
-        a.dispose(); bRaw.dispose(); b.dispose();
         await addBrepShapeToScene(scene, viewport, result);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Combine (Non-Manifold): V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo`,
-        };
+        return { status: 'success', message: `Combine (Non-Manifold): V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo` };
       } catch (err) {
-        return { status: 'error', message: `Combine (Non-Manifold) failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine (Non-Manifold): ' + err.message };
       }
     },
 
     'Combine (Coincident)': async (scene, viewport) => {
-      // Two 20×20×20 boxes with a 0.001 mm gap; fuzzy fuse bridges the gap.
       try {
-        const a = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const bRaw = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const b = await ArchDiscKernel.brep.translate(bRaw, 20.001, 0, 0);
-        const result = await ArchDiscKernel.brep.fuseCoincident(a, b, 0.01);
-        a.dispose(); bRaw.dispose(); b.dispose();
+        const [a, b] = _pickBodies(2);
+        const { values, cancelled } = await requestToolParams('Combine (Coincident)');
+        if (cancelled) return { status: 'warn', message: 'Combine (Coincident): cancelled' };
+        const result = await ArchDiscKernel.brep.fuseCoincident(a, b, values.tolerance);
         await addBrepShapeToScene(scene, viewport, result);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Combine (Coincident): fuzzy fuse (tol=0.01mm). V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_Fuse SetFuzzyValue`,
-        };
+        return { status: 'success', message: `Combine (Coincident): V = ${m.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_Fuse SetFuzzyValue` };
       } catch (err) {
-        return { status: 'error', message: `Combine (Coincident) failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Combine (Coincident): ' + err.message };
       }
     },
 
     'Lattice Fuse': async (scene, viewport) => {
-      // 8 × 10×3×3 mm boxes in a 2×2×2 non-overlapping grid — single-pass
-      // BRepAlgoAPI_BuilderAlgo fuse. Expected vol = 8 × 90 = 720 mm³.
       try {
-        const offsets = [
-          [0, 0, 0], [0, 0, 5], [0, 5, 0], [0, 5, 5],
-          [10, 0, 0], [10, 0, 5], [10, 5, 0], [10, 5, 5],
-        ];
-        const members = [];
-        for (const [dx, dy, dz] of offsets) {
-          const raw = await ArchDiscKernel.brep.makeBox(10, 3, 3);
-          const placed = await ArchDiscKernel.brep.translate(raw, dx, dy, dz);
-          raw.dispose();
-          members.push(placed);
-        }
+        const members = _pickBodies(Infinity);
+        const { cancelled } = await requestToolParams('Lattice Fuse');
+        if (cancelled) return { status: 'warn', message: 'Lattice Fuse: cancelled' };
         const result = await ArchDiscKernel.brep.fuseLattice(members);
-        for (const m of members) m.dispose();
         await addBrepShapeToScene(scene, viewport, result);
         const meas = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Lattice Fuse: 8 members, single-pass. V = ${meas.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo`,
-        };
+        return { status: 'success', message: `Lattice Fuse: ${members.length} members → V = ${meas.volume.toFixed(0)} mm³ via OCCT BRepAlgoAPI_BuilderAlgo` };
       } catch (err) {
-        return { status: 'error', message: `Lattice Fuse failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Lattice Fuse: ' + err.message };
       }
     },
 
@@ -1424,71 +1279,66 @@ const TOOL_HANDLERS = {
 
     'Box': async (scene, viewport) => {
       try {
-        const shape = await ArchDiscKernel.brep.makeBox(40, 40, 40);
-        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Box: 40×40×40 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const { values, cancelled } = await requestToolParams('Box');
+        if (cancelled) return { status: 'warn', message: 'Box: cancelled' };
+        const result = await ArchDiscKernel.brep.makeBox(values.dx, values.dy, values.dz);
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Box: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Box failed: ${err.message}` };
+        return { status: 'error', message: 'Box: ' + err.message };
       }
     },
 
     'Cylinder': async (scene, viewport) => {
       try {
-        const shape = await ArchDiscKernel.brep.makeCylinder(20, 40);
-        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Cylinder: r=20 mm, h=40 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const { values, cancelled } = await requestToolParams('Cylinder');
+        if (cancelled) return { status: 'warn', message: 'Cylinder: cancelled' };
+        const result = await ArchDiscKernel.brep.makeCylinder(values.radius, values.height);
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Cylinder: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Cylinder failed: ${err.message}` };
+        return { status: 'error', message: 'Cylinder: ' + err.message };
       }
     },
 
     'Sphere': async (scene, viewport) => {
       try {
-        const shape = await ArchDiscKernel.brep.makeSphere(25);
-        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Sphere: r=25 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const { values, cancelled } = await requestToolParams('Sphere');
+        if (cancelled) return { status: 'warn', message: 'Sphere: cancelled' };
+        const result = await ArchDiscKernel.brep.makeSphere(values.radius);
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Sphere: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Sphere failed: ${err.message}` };
+        return { status: 'error', message: 'Sphere: ' + err.message };
       }
     },
 
     'Cone': async (scene, viewport) => {
       try {
-        const shape = await ArchDiscKernel.brep.makeCone(25, 8, 45);
-        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Cone: r1=25 mm, r2=8 mm, h=45 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const { values, cancelled } = await requestToolParams('Cone');
+        if (cancelled) return { status: 'warn', message: 'Cone: cancelled' };
+        const result = await ArchDiscKernel.brep.makeCone(values.radius1, values.radius2, values.height);
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Cone: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Cone failed: ${err.message}` };
+        return { status: 'error', message: 'Cone: ' + err.message };
       }
     },
 
     'Torus': async (scene, viewport) => {
       try {
-        const shape = await ArchDiscKernel.brep.makeTorus(30, 10);
-        await addBrepShapeToScene(scene, viewport, shape, 0x4a90d9);
-        const metrics = await ArchDiscKernel.brep.measure(shape);
-        return {
-          status: 'success',
-          message: `Torus: R=30 mm, r=10 mm. V = ${metrics.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        const { values, cancelled } = await requestToolParams('Torus');
+        if (cancelled) return { status: 'warn', message: 'Torus: cancelled' };
+        const result = await ArchDiscKernel.brep.makeTorus(values.majorRadius, values.minorRadius);
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return { status: 'success', message: `Torus: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Torus failed: ${err.message}` };
+        return { status: 'error', message: 'Torus: ' + err.message };
       }
     },
 
@@ -1546,42 +1396,30 @@ const TOOL_HANDLERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   surface: {
     'Thicken': async (scene, viewport) => {
-      // OCCT exact B-rep path: thicken a 60×40 mm planar sheet into a
-      // 3 mm solid slab via BRepOffsetAPI_MakeThickSolid.
+      // Surfacing arity 0 — uses dialog-supplied dimensions only.
       try {
-        const result = await ArchDiscKernel.brep.thicken(60, 40, 3);
+        const { values, cancelled } = await requestToolParams('Thicken');
+        if (cancelled) return { status: 'warn', message: 'Thicken: cancelled' };
+        const result = await ArchDiscKernel.brep.thicken(values.width, values.height, values.thickness);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
-        return {
-          status: 'success',
-          message: `Thicken: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel`,
-        };
+        return { status: 'success', message: `Thicken: V = ${m.volume.toFixed(0)} mm³ via OCCT exact B-rep kernel` };
       } catch (err) {
-        return { status: 'error', message: `Thicken failed: ${err.message}` };
+        return { status: 'error', message: 'Thicken: ' + err.message };
       }
     },
 
     'Subdivide Surface': async (scene, viewport) => {
-      // Piecewise-smooth Loop subdivision facade (Sub-project C):
-      // 1. Take the current OCCT body (or fall back to a fresh 20mm cube).
-      // 2. Weld per-face-duplicated OCCT vertices.
-      // 3. Auto-detect crease edges by dihedral angle (30° threshold).
-      // 4. Apply 2 levels of piecewise-smooth Loop (Hoppe 1994):
-      //    - k≥3 incident sharp edges → corner rule (v stays fixed).
-      //    - k=2  → crease rule (v'=(6v+n0+n1)/8).
-      //    - k≤1  → smooth β-rule (unchanged).
-      // 5. Compute Loop limit-normals via tangent masks.
-      // 6. Render as a Three.js mesh (mm → m scale 0.001).
+      // Piecewise-smooth Loop subdivision (arity 1 — requires selected body).
       try {
-        const ownFallback = !(typeof window !== 'undefined' && window.__lastBrepShape);
-        const body = (typeof window !== 'undefined' && window.__lastBrepShape)
-          ? window.__lastBrepShape
-          : await ArchDiscKernel.brep.makeBox(20, 20, 20);
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Subdivide Surface');
+        if (cancelled) return { status: 'warn', message: 'Subdivide Surface: cancelled' };
 
         const mesh = await ArchDiscKernel.brep.subdivideShape(body, {
-          levels: 2,
-          dihedralDeg: 30,
-          deflection: 0.5,
+          levels: values.levels,
+          dihedralDeg: values.dihedralDeg,
+          deflection: values.deflection,
         });
 
         // Build Three.js BufferGeometry from the refined typed arrays.
@@ -1619,15 +1457,13 @@ const TOOL_HANDLERS = {
           };
         }
 
-        if (ownFallback && typeof body.dispose === 'function') body.dispose();
-
         const s = mesh.stats;
         return {
           status: 'success',
           message: `Subdivide Surface: ${s.baseTris}→${s.refinedTris} tris, ${s.creaseEdges} crease edges, via Loop piecewise-smooth subdivision`,
         };
       } catch (err) {
-        return { status: 'error', message: 'Subdivide Surface: ' + err.message };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Subdivide Surface: ' + err.message };
       }
     },
   },
@@ -1805,45 +1641,33 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Delete Face: Removed face #${face.id} (Feature #${feature.id})` };
     },
     'Replace Face': async (scene, viewport) => {
-      // OCCT BRepTools_ReShape path: replace face #1 of a 20×20×20 box with
-      // an identity copy of itself — proves the Replace/Apply API works and
-      // produces a topologically-valid solid with identical volume + face count.
       try {
-        const box = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const out = await ArchDiscKernel.brep.replaceFace(box, 1);
-        box.dispose();
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Replace Face');
+        if (cancelled) return { status: 'warn', message: 'Replace Face: cancelled' };
+        const out = await ArchDiscKernel.brep.replaceFace(body, values.faceIndex);
         await addBrepShapeToScene(scene, viewport, out);
         const m = await ArchDiscKernel.brep.measure(out);
-        return {
-          status: 'success',
-          message: `Replace Face: face #1 rewritten via OCCT BRepTools_ReShape — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces`,
-        };
+        return { status: 'success', message: `Replace Face: face #${values.faceIndex} rewritten via OCCT BRepTools_ReShape — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces` };
       } catch (err) {
-        return { status: 'error', message: `Replace Face failed: ${err.message}` };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Replace Face: ' + err.message };
       }
     },
 
     'Simplify Geometry': async (scene, viewport) => {
-      // OCCT path: fuse two abutting 20mm boxes to create a redundant coplanar
-      // face, then run ShapeUpgrade_UnifySameDomain via ArchDiscKernel.brep.simplify
-      // to merge those faces. Reports the face count before and after.
+      // Simplify has no parameters (zero-field schema). Select a body, run simplify.
       try {
-        const a = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const bRaw = await ArchDiscKernel.brep.makeBox(20, 20, 20);
-        const b = await ArchDiscKernel.brep.translate(bRaw, 20, 0, 0);
-        const fused = await ArchDiscKernel.brep.fuse(a, b);
-        a.dispose(); bRaw.dispose(); b.dispose();
-        const before = await ArchDiscKernel.brep.measure(fused);
-        const result = await ArchDiscKernel.brep.simplify(fused);
-        fused.dispose();
+        const [body] = _pickBodies(1);
+        const before = await ArchDiscKernel.brep.measure(body);
+        const result = await ArchDiscKernel.brep.simplify(body);
         const after = await ArchDiscKernel.brep.measure(result);
         await addBrepShapeToScene(scene, viewport, result);
         return {
           status: 'success',
-          message: 'Simplify: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via OCCT ShapeUpgrade_UnifySameDomain',
+          message: 'Simplify Geometry: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via OCCT ShapeUpgrade_UnifySameDomain',
         };
       } catch (err) {
-        return { status: 'error', message: 'Simplify Geometry failed: ' + err.message };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Simplify Geometry: ' + err.message };
       }
     },
   },
