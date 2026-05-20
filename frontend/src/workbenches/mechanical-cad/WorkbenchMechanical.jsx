@@ -491,7 +491,7 @@ function WorkbenchMechanical() {
         return () => { delete window.__archdiscComponents; };
     }, []);
 
-    // Expose the OCCT-backed ArchDisc Kernel so headed Electron e2e specs
+    // Expose the ArchDisc Kernel so headed Electron e2e specs
     // (and the B-rep Lab panel) can drive exact B-rep geometry and see it
     // render in the live viewport.
     useEffect(() => {
@@ -514,7 +514,7 @@ function WorkbenchMechanical() {
                 window.__archdiscFocusOnObject(group);
             }
             const metrics = await ArchDiscKernel.brep.measure(shape);
-            // __lastBrepShape holds live OCCT memory owned by this closure;
+            // __lastBrepShape holds live kernel memory owned by this closure;
             // dispose the previous before replacing. External code must not
             // dispose it.
             if (window.__lastBrepShape) { window.__lastBrepShape.dispose(); }

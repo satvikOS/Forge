@@ -119,7 +119,7 @@ class BodyRegistry {
    * @param {object} args
    * @param {THREE.Group} args.group        Three.js group already in the scene
    * @param {object} args.manifold          manifold-3d Manifold (or shim with volume())
-   * @param {object=} args.brepShape        live OCCT BrepShape (optional) — stored as
+   * @param {object=} args.brepShape        live B-rep BrepShape (optional) — stored as
    *                                         brepShapeRef for selectedBrepShapes()
    * @param {string=} args.sourceTool        which ribbon tool created it
    * @param {string=} args.name              override default name

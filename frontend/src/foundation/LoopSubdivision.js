@@ -55,7 +55,7 @@ const _sharpKey = (i, j) => (i < j ? `${i}_${j}` : `${j}_${i}`);
 /**
  * Weld duplicate vertices in a triangle mesh.
  *
- * OCCT BRepMesh tessellation duplicates vertices per face (24 verts
+ * BRepMesh tessellation duplicates vertices per face (24 verts
  * for a cube instead of 8). weldMesh merges vertices within `tol` mm
  * in all three coordinates so that adjacent triangles share indices —
  * a prerequisite for dihedral-based crease detection.

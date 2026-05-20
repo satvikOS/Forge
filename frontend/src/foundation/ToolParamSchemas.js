@@ -37,7 +37,7 @@
 
 export const TOOL_PARAM_SCHEMAS = {
 
-  // ─── OCCT SOLID PRIMITIVES ────────────────────────────────────────────────
+  // ─── SOLID PRIMITIVES ────────────────────────────────────────────────────
   'Box': {
     title: 'Box — Solid Primitive',
     blurb: 'Create an axis-aligned box. Defaults: 40×40×40 mm.',
@@ -84,7 +84,7 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
-  // ─── OCCT FEATURES (arity 1) ──────────────────────────────────────────────
+  // ─── B-REP FEATURES (arity 1) ─────────────────────────────────────────────
   'Fillet': {
     title: 'Fillet — Edge Blend',
     blurb: 'Apply a constant-radius fillet to all edges of the selected body. Default: r=2 mm.',
@@ -160,7 +160,7 @@ export const TOOL_PARAM_SCHEMAS = {
 
   'Simplify Geometry': {
     title: 'Simplify Geometry',
-    blurb: 'Merge coplanar/coaxial faces via OCCT ShapeUpgrade_UnifySameDomain. No parameters required.',
+    blurb: 'Merge coplanar/coaxial faces via ShapeUpgrade_UnifySameDomain. No parameters required.',
     fields: [],
   },
 
@@ -170,7 +170,7 @@ export const TOOL_PARAM_SCHEMAS = {
     fields: [
       { name: 'levels',      label: 'Subdivision levels',    type: 'number', default: 2,   unit: '',    min: 1, max: 4,  step: 1,    hint: '1–4 levels; each level 4× triangles' },
       { name: 'dihedralDeg', label: 'Crease threshold',      type: 'number', default: 30,  unit: '°',   min: 0, max: 90, step: 1,    hint: 'Edges sharper than this are treated as creases' },
-      { name: 'deflection',  label: 'Mesh deflection',       type: 'number', default: 0.5, unit: 'mm',  min: 0.01, max: 2, step: 0.01, hint: 'Controls initial OCCT tessellation quality' },
+      { name: 'deflection',  label: 'Mesh deflection',       type: 'number', default: 0.5, unit: 'mm',  min: 0.01, max: 2, step: 0.01, hint: 'Controls initial tessellation quality' },
     ],
   },
 
@@ -263,7 +263,7 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
-  // ─── OCCT BOOLEANS (arity 2 / Infinity) ──────────────────────────────────
+  // ─── B-REP BOOLEANS (arity 2 / Infinity) ─────────────────────────────────
   // Combine, Subtract, Intersect, Combine (Non-Manifold), Lattice Fuse have
   // no parameters — a schema entry with empty fields ensures the dialog
   // can be future-extended and `requestToolParams` resolves immediately
