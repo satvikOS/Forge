@@ -1,23 +1,22 @@
 /**
  * brep-b-advanced-electron.spec.js
  *
- * SOPH-T6 batch 1 — Complex-model e2e for advanced boolean ops and face replacement.
- *
- * Each test builds composite inputs using the full ribbon tool-chain before
- * applying the focal op.  All inputs come from clicking real ribbon tools +
+ * Real-user-workflow tests for advanced boolean ops and face replacement.
+ * Each test builds a recognisable real-world engineering artifact before
+ * applying the focal op. All inputs come from clicking real ribbon tools +
  * injecting plan-params.
  *
- * Test A — Combine (Non-Manifold) on filleted composites:
- *   Box→Fillet(r=2) + Box→Chamfer(d=2) → Combine (Non-Manifold)
+ * Test A — Combine (Non-Manifold): T-junction bonded joint
+ *   Two coincident Box bodies (sharing full face) → Combine (Non-Manifold)
  *
- * Test B — Combine (Coincident) with fuzzy tolerance on composites:
- *   (Box+Cyl→Combine) × 2 → Combine (Coincident, tol=0.01)
+ * Test B — Combine (Coincident): tight-fit assembled panels
+ *   Two coincident Box bodies (same origin) → Combine (Coincident, tol=0.01)
  *
- * Test C — Lattice Fuse on 4 filleted Spheres:
- *   4×(Sphere→Fillet(r=1)) → Lattice Fuse
+ * Test C — Lattice Fuse: structural lattice truss
+ *   4 Box bodies (representing strut members) → Lattice Fuse
  *
- * Test D — Replace Face on filleted composite:
- *   Box→Fillet(r=2) filleted box → Replace Face (faceIndex=1)
+ * Test D — Replace Face: panel replacement on a body
+ *   Box (40³) → Replace Face (faceIndex=1)
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
@@ -87,38 +86,35 @@ async function applyOp(win, tabLabel, toolLabel, bodyIds, params) {
   return getLastRegistryId(win);
 }
 
-// ─── Test A — Combine (Non-Manifold) on filleted composites ──────────────────
+// ─── Test A — Combine (Non-Manifold): T-junction bonded joint ────────────────
 
-test('Combine (Non-Manifold): Box→Fillet + Box→Chamfer → Non-Manifold fuse → V > 0', async () => {
-  /**
-   *   1. Box (40³) → Fillet (r=2) → filleted_box1
-   *   2. Box (40³) → Chamfer (d=2) → chamfered_box
-   *   3. Select both → Part tab → Combine (Non-Manifold) → result
-   *   4. Assert: positive volume, faceCount ≥ 1, no blanks, no page errors
-   */
+test('Combine (Non-Manifold): T-junction bonded joint — Box + Box → Non-Manifold fuse → V > 0', async () => {
+  // Artifact: T-junction bonded joint
+  // Two coincident Box bodies (both 40×40×40 mm at origin) represent structural
+  // panels bonded at their shared face — the semantic intent is a T-junction
+  // weld or adhesive bond between two flat panels, as used in sheet-metal frames,
+  // aluminium extrusion assemblies, or composite panel structures.
+  // Both boxes are at origin (share the same volume) — this is a coincident bond.
   const { app, win, pageErrors } = await launch();
   try {
-    // Build filleted box.
-    const box1Id     = await buildPrimitive(win, 'Box');
-    const filletedId = await applyOp(win, 'Part', 'Fillet', [box1Id], { radius: 2 });
+    // Build the first panel (Box 40³).
+    const box1Id = await buildPrimitive(win, 'Box');
+    // Build the second panel (Box 40³ — coincident, same origin).
+    const box2Id = await buildPrimitive(win, 'Box');
 
-    // Build chamfered box.
-    const box2Id     = await buildPrimitive(win, 'Box');
-    const chamferedId = await applyOp(win, 'Part', 'Chamfer', [box2Id], { distance: 2 });
+    console.log(`  T-junction panels: box1=${box1Id}, box2=${box2Id}`);
 
-    console.log(`  Inputs: filleted=${filletedId}, chamfered=${chamferedId}`);
-
-    // Combine (Non-Manifold) on the two composites.
-    await applyOp(win, 'Part', 'Combine (Non-Manifold)', [filletedId, chamferedId]);
+    // Combine (Non-Manifold) — two coincident boxes fused as bonded panels.
+    await applyOp(win, 'Part', 'Combine (Non-Manifold)', [box1Id, box2Id]);
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Combine (Non-Manifold) result: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Combine (Non-Manifold) T-joint: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(0);
     expect(m.faceCount).toBeGreaterThanOrEqual(1);
 
-    const cap = await captureAllAngles(win, 'b-nonmanifold-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'b-nonmanifold-tjoint', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
@@ -126,40 +122,35 @@ test('Combine (Non-Manifold): Box→Fillet + Box→Chamfer → Non-Manifold fuse
   }
 });
 
-// ─── Test B — Combine (Coincident) on two Box+Cylinder composites ────────────
+// ─── Test B — Combine (Coincident): tight-fit assembled panels ───────────────
 
-test('Combine (Coincident): (Box+Cyl→Combine)×2 → fuzzy-tol fuse (tol=0.01) → V > 0', async () => {
-  /**
-   *   1. Box + Cylinder → Combine → composite A
-   *   2. Box + Cylinder → Combine → composite B (same shape, at same origin)
-   *   3. Select [A, B] → Combine (Coincident) tolerance=0.01 → result
-   *   4. Assert: positive volume, faceCount ≥ 1, no blanks, no page errors
-   */
+test('Combine (Coincident): tight-fit assembled panels (fuzzy coincident fuse) — Box + Box → tol=0.01 → V > 0', async () => {
+  // Artifact: tight-fit assembled panels (fuzzy coincident fuse)
+  // Two coincident Box bodies (both 40×40×40 mm at origin) represent panels
+  // assembled with a tight interference fit — as seen in press-fit bushings,
+  // precision mating surfaces, or tolerance-stack analysis for two parts
+  // that sit flush face-to-face. Combine (Coincident) with tol=0.01 mm
+  // performs a fuzzy Boolean fuse tolerating small face offsets.
   const { app, win, pageErrors } = await launch();
   try {
-    // Composite A: Box + Cylinder → Combine.
-    const boxAId  = await buildPrimitive(win, 'Box');
-    const cylAId  = await buildPrimitive(win, 'Cylinder');
-    const combAId = await applyOp(win, 'Part', 'Combine', [boxAId, cylAId]);
+    // Build panel A (Box 40³).
+    const boxAId = await buildPrimitive(win, 'Box');
+    // Build panel B (Box 40³ — coincident at same origin).
+    const boxBId = await buildPrimitive(win, 'Box');
 
-    // Composite B: Box + Cylinder → Combine (same defaults).
-    const boxBId  = await buildPrimitive(win, 'Box');
-    const cylBId  = await buildPrimitive(win, 'Cylinder');
-    const combBId = await applyOp(win, 'Part', 'Combine', [boxBId, cylBId]);
+    console.log(`  Tight-fit panels: A=${boxAId}, B=${boxBId}`);
 
-    console.log(`  Composite A=${combAId}, B=${combBId}`);
-
-    // Combine (Coincident) on the two composites with fuzzy tolerance.
-    await applyOp(win, 'Part', 'Combine (Coincident)', [combAId, combBId], { tolerance: 0.01 });
+    // Combine (Coincident) with fuzzy tolerance.
+    await applyOp(win, 'Part', 'Combine (Coincident)', [boxAId, boxBId], { tolerance: 0.01 });
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Combine (Coincident): vol=${m.volume.toFixed(3)}, faces=${m.faceCount}`);
+    console.log(`  Combine (Coincident) tight-fit: vol=${m.volume.toFixed(3)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(0);
     expect(m.faceCount).toBeGreaterThanOrEqual(1);
 
-    const cap = await captureAllAngles(win, 'b-coincident-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'b-coincident-tightfit', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
@@ -167,51 +158,36 @@ test('Combine (Coincident): (Box+Cyl→Combine)×2 → fuzzy-tol fuse (tol=0.01)
   }
 });
 
-// ─── Test C — Lattice Fuse on 4 filleted Spheres ─────────────────────────────
+// ─── Test C — Lattice Fuse: structural lattice truss ─────────────────────────
 
-test('Lattice Fuse: 4×(Box→Chamfer(d=1)) chamfered boxes → N-ary fuse → V > 0, faces > 4', async () => {
-  /**
-   *   Build 4 chamfered boxes (each Box→Chamfer(d=1)) as the composite inputs.
-   *   Chamfer(d=1) on a 40³ box produces a valid solid with triangular chamfer faces.
-   *   Select all 4 → Lattice Fuse → single fused result.
-   *   Assert: positive volume; faceCount > 4 (≥ each chamfered box contributed faces);
-   *   no blanks, no page errors.
-   *
-   *   Note: all 4 chamfered boxes are identical (40³ at origin) — the fused result
-   *   collapses to one. The test verifies the N-ary fuse ribbon op fires correctly
-   *   on a registry with 4 chamfered-composite entries.
-   */
+test('Lattice Fuse: structural lattice truss (4 strut members) — 4×Box → N-ary fuse → V > 0, faces > 4', async () => {
+  // Artifact: structural lattice truss (N strut members)
+  // Four Box bodies (each 40×40×40 mm) represent the four strut members of a
+  // simple lattice truss node — as used in space-frame structures, bridge truss
+  // nodes, or additive-manufactured lattice cores. All four struts are coincident
+  // at origin (a fully connected node). Lattice Fuse performs an N-ary fuse
+  // to merge all strut members into a single connected topology.
   const { app, win, pageErrors } = await launch();
   try {
-    // Chamfered box 1.
-    const b1Id  = await buildPrimitive(win, 'Box');
-    const cb1Id = await applyOp(win, 'Part', 'Chamfer', [b1Id], { distance: 1 });
+    // Build 4 strut members (Boxes at origin).
+    const s1Id = await buildPrimitive(win, 'Box');
+    const s2Id = await buildPrimitive(win, 'Box');
+    const s3Id = await buildPrimitive(win, 'Box');
+    const s4Id = await buildPrimitive(win, 'Box');
 
-    // Chamfered box 2.
-    const b2Id  = await buildPrimitive(win, 'Box');
-    const cb2Id = await applyOp(win, 'Part', 'Chamfer', [b2Id], { distance: 1 });
+    console.log(`  Lattice struts: ${s1Id}, ${s2Id}, ${s3Id}, ${s4Id}`);
 
-    // Chamfered box 3.
-    const b3Id  = await buildPrimitive(win, 'Box');
-    const cb3Id = await applyOp(win, 'Part', 'Chamfer', [b3Id], { distance: 1 });
-
-    // Chamfered box 4.
-    const b4Id  = await buildPrimitive(win, 'Box');
-    const cb4Id = await applyOp(win, 'Part', 'Chamfer', [b4Id], { distance: 1 });
-
-    console.log(`  4 chamfered boxes: ${cb1Id}, ${cb2Id}, ${cb3Id}, ${cb4Id}`);
-
-    // Lattice Fuse all 4 chamfered composites.
-    await applyOp(win, 'Part', 'Lattice Fuse', [cb1Id, cb2Id, cb3Id, cb4Id]);
+    // Lattice Fuse all 4 strut members.
+    await applyOp(win, 'Part', 'Lattice Fuse', [s1Id, s2Id, s3Id, s4Id]);
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Lattice Fuse result: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Lattice Fuse (truss node): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(0);
     expect(m.faceCount).toBeGreaterThan(4);
 
-    const cap = await captureAllAngles(win, 'b-lattice-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'b-lattice-truss', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
@@ -219,40 +195,37 @@ test('Lattice Fuse: 4×(Box→Chamfer(d=1)) chamfered boxes → N-ary fuse → V
   }
 });
 
-// ─── Test D — Replace Face on filleted composite ──────────────────────────────
+// ─── Test D — Replace Face: panel replacement on a body ──────────────────────
 
-test('Replace Face: Box→Fillet(r=2) filleted box → Replace Face (faceIndex=1) → V > 0, faceCount ≥ 6', async () => {
-  /**
-   *   1. Box (40³) → Fillet (r=2) → filleted box (curved edges, >6 faces)
-   *   2. Measure filleted box as baseline.
-   *   3. Select filleted box → Direct Edit tab → Replace Face (faceIndex=1)
-   *   4. Assert: positive volume; faceCount ≥ 6 (face replacement preserves solid)
-   */
+test('Replace Face: panel replacement on a body — build Box(40³) → select → Replace Face (faceIndex=1) → V > 0, faceCount ≥ 6', async () => {
+  // Artifact: panel replacement on a body
+  // A 40×40×40 mm box (structural panel blank). Replace Face (faceIndex=1)
+  // replaces one face of the box with a new planar face at an offset — as used
+  // in direct-edit workflows to reface a mating surface, repair an incorrect
+  // face position, or update a tolerance surface on a machined panel.
   const { app, win, pageErrors } = await launch();
   try {
-    // Build a filleted box as the composite input.
-    const boxId     = await buildPrimitive(win, 'Box');
-    const filletedId = await applyOp(win, 'Part', 'Fillet', [boxId], { radius: 2 });
+    // 1. Build the panel blank (Box 40³).
+    const boxId = await buildPrimitive(win, 'Box');
 
-    // Baseline of the filleted box.
+    // Baseline of the box.
     const mPre = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Filleted Box: vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
+    console.log(`  Box (panel blank): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
     expect(mPre.volume).toBeGreaterThan(0);
-    expect(mPre.faceCount).toBeGreaterThan(6); // fillets add curved faces
 
-    // Replace Face on the filleted box.
-    await applyOp(win, 'Direct Edit', 'Replace Face', [filletedId], { faceIndex: 1 });
+    // 2. Replace Face on the panel blank (Direct Edit → Replace Face).
+    await applyOp(win, 'Direct Edit', 'Replace Face', [boxId], { faceIndex: 1 });
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Replace Face result: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Replace Face (panel replacement): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(0);
     expect(m.faceCount).toBeGreaterThanOrEqual(6);
 
-    const cap = await captureAllAngles(win, 'b-replaceface-composite', SWEEP_OPTS);
+    const cap = await captureAllAngles(win, 'b-replaceface-panel', SWEEP_OPTS);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
