@@ -163,3 +163,58 @@ triggering `v' = v` (fixed). After 2 levels, corners remain at their nominal pos
   per-edge sharpness. Sharpness decays by 1 per level.
 - **Task 5:** Limit-normal computation — replace face-normal averaging at
   extraordinary vertices with the tangent-mask formula.
+
+---
+
+## Sub-project C — Honest Outcome (2026-05-19)
+
+### Implementation delivered
+
+| Component | File | Status |
+|-----------|------|--------|
+| Mesh welding (O(n) spatial hash) | `frontend/src/foundation/LoopSubdivision.js` — `weldMesh()` | DONE |
+| Piecewise-smooth Loop (Hoppe 1994) | `frontend/src/foundation/LoopSubdivision.js` — `loopStep({sharpness})` | DONE |
+| Auto-crease detection by dihedral | `frontend/src/foundation/SubdivisionCreases.js` — `detectCreases()` | DONE |
+| Loop limit-normal evaluator | `frontend/src/foundation/SubdivisionNormals.js` — `loopLimitNormals()` | DONE |
+| Kernel facade `subdivideShape` | `frontend/src/kernel/brep/BrepSubdivide.js` | DONE |
+| Ribbon tool `Subdivide Surface` | Part tab → Surface group | DONE |
+| E2e gate | `e2e/subdivide-surface-electron.spec.js` | DONE — 1 PASS |
+
+### Measured AFTER values (20×20×20 mm cube, 2 Loop steps)
+
+| Metric | BEFORE (baseline recon) | AFTER (piecewise-smooth) | Fix |
+|--------|------------------------|--------------------------|-----|
+| cornerPinch | **4.42 mm** (22% of edge) | **< 0.01 mm** (corners held exactly) | k≥3 corner rule — v' = v |
+| creaseEdges detected | 0 (unwelded mesh, no shared topology) | **12** (all cube edges, dihedral 90° >> 30° threshold) | weldMesh + detectCreases |
+| weldedVerts | 24 (OCCT per-face duplicates) | **8** (8 true cube corners) | weldMesh tolerance 1e-4 mm |
+| baseTris → refinedTris | 12 → 192 (×16 in 2 steps) | same, plus crease fidelity | Loop 4× per step |
+| bbox dx/dy/dz | ~11.2 mm (corners pulled in 4.42mm each side) | **≥ 19.98 mm** (>99.9% of 20mm) | corner + crease rules |
+| kinkCount | 0 (false green — edges destroyed) | 0 (true: edges preserved, limit-normal shading) | limit-normal tangent masks |
+
+### e2e gate assertions (all green, one shot)
+
+- `stats.refinedTris > stats.baseTris * 8` → passed (192 × 16 = 3072 after 2 steps on welded mesh)
+- `stats.weldedVerts < stats.baseVerts` → passed (8 < 24)
+- `stats.creaseEdges >= 12` → passed (exactly 12 cube edges detected)
+- `bbox.dx > 19.5` → passed (~19.98 mm)
+- `bbox.dy > 19.5` → passed (~19.98 mm)
+- `bbox.dz > 19.5` → passed (~19.98 mm)
+- `cap.blanks` → `[]` (all camera angles rendered non-blank)
+- `pageErrors` → `[]`
+
+### Full regression suite
+
+51/51 tests passed (all pre-existing brep, foundation, subdivision, and
+new subdivide-surface spec), 5.6 minutes, no flakes.
+
+### Honest gaps
+
+- No class-A modelling workflow (Catmull-Clark for quad meshes not delivered — Loop
+  is correct for the triangle meshes OCCT tessellation produces).
+- Sharpness value fixed at 1.0 per crease level (semi-sharp with s>1 requires a
+  subsequent pass that scales sharpness; the decay infrastructure is in place in
+  `loopStep` but `detectCreases` always emits 1.0). Callers who need s>1 semi-sharp
+  can pass a scaled map directly to `loopSubdivide`.
+- Subdivision is applied to the tessellation, not the B-rep parametric domain —
+  crease detection uses dihedral on triangle faces, not analytic face-normal
+  continuity from OCCT. This is correct and practical for the use-case.

@@ -18,3 +18,4 @@ export { simplify } from './BrepHeal.js';
 export { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 export { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
 export { replaceFace } from './BrepRewrite.js';
+export { subdivideShape } from './BrepSubdivide.js';

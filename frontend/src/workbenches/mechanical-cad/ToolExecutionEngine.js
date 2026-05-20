@@ -1516,6 +1516,76 @@ const TOOL_HANDLERS = {
         return { status: 'error', message: `Thicken failed: ${err.message}` };
       }
     },
+
+    'Subdivide Surface': async (scene, viewport) => {
+      // Piecewise-smooth Loop subdivision facade (Sub-project C):
+      // 1. Take the current OCCT body (or fall back to a fresh 20mm cube).
+      // 2. Weld per-face-duplicated OCCT vertices.
+      // 3. Auto-detect crease edges by dihedral angle (30° threshold).
+      // 4. Apply 2 levels of piecewise-smooth Loop (Hoppe 1994):
+      //    - k≥3 incident sharp edges → corner rule (v stays fixed).
+      //    - k=2  → crease rule (v'=(6v+n0+n1)/8).
+      //    - k≤1  → smooth β-rule (unchanged).
+      // 5. Compute Loop limit-normals via tangent masks.
+      // 6. Render as a Three.js mesh (mm → m scale 0.001).
+      try {
+        const ownFallback = !(typeof window !== 'undefined' && window.__lastBrepShape);
+        const body = (typeof window !== 'undefined' && window.__lastBrepShape)
+          ? window.__lastBrepShape
+          : await ArchDiscKernel.brep.makeBox(20, 20, 20);
+
+        const mesh = await ArchDiscKernel.brep.subdivideShape(body, {
+          levels: 2,
+          dihedralDeg: 30,
+          deflection: 0.5,
+        });
+
+        // Build Three.js BufferGeometry from the refined typed arrays.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(mesh.normals, 3));
+        geom.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x9aa3ad,
+          metalness: 0.3,
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+        });
+        const m3 = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);   // mm → m
+        group.add(m3);
+        group.userData.pickable       = true;
+        group.userData.generatedModel = true;
+        group.userData.subdiv         = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(group);
+        }
+        // Mirror refined mesh data onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastSubdivMesh = {
+            positions: mesh.positions,
+            normals:   mesh.normals,
+            indices:   mesh.indices,
+            stats:     mesh.stats,
+          };
+        }
+
+        if (ownFallback && typeof body.dispose === 'function') body.dispose();
+
+        const s = mesh.stats;
+        return {
+          status: 'success',
+          message: `Subdivide Surface: ${s.baseTris}→${s.refinedTris} tris, ${s.creaseEdges} crease edges, via Loop piecewise-smooth subdivision`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Subdivide Surface: ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
