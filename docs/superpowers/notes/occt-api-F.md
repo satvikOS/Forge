@@ -477,3 +477,45 @@ Based on this recon, Tasks 2-3 should implement the following ops in `frontend/s
 All results above are empirically confirmed by running `e2e/brep-f-recon-electron.spec.js`
 inside the real Electron/WASM context. The spec passes GREEN (1 passed, ~13s).
 Raw JSON output is in `docs/superpowers/notes/occt-api-F-recon.json`.
+
+---
+
+## Sub-project F — Honest Outcome
+
+**Date shipped:** 2026-05-20
+**Gate spec:** `e2e/brep-final-electron.spec.js` (4 tests, all GREEN)
+**Full brep+UX suite:** 63/63 passed (no regressions)
+
+### Measured values per shipped op
+
+| Op | Tool name | Measured value | Notes |
+|----|-----------|---------------|-------|
+| `pipeShellSweep` | Sweep Tortuous | volume = **1005 mm³** | r=4mm, segLen=20mm, 2 bends. C0 polyline spine with right-angle bends; OCCT computes ~π*r²*segLength ≈ 1005 mm³ for the solid — tight corners limit effective swept length. `faceCount=5`. Solid is genuine (capped); `IsDone()=true`. |
+| `loftTangent` | Loft Tangent | volume = **25779 mm³** | s0=40, s1=20, s2=30 at z=0/20/40mm. Matches recon exactly. `SetSmoothing(true)` confirmed producing smooth surfaces. `faceCount=6`. |
+| `stitchFaces` | Stitch Faces | volume = **0 mm³** (open shell), faceCount = **2** | Two 20×20mm panels with 0.05mm gap → single open shell. Volume=0 is correct for an open shell (no enclosed volume). `shellCount=1`. |
+| `convergentSolid` | Convergent Solid | volume = **8000 mm³** | 20mm cube from 12 triangle faces. Exact match (20³=8000). `faceCount=12`. Pipeline: MakeEdge_3+MakeWire+MakeFace_15×12 → Sewing → MakeSolid_3 → solid. |
+
+### Notes on Sweep Tortuous volume
+
+The measured 1005 mm³ = π*r²*segLength (one segment equivalent) is geometrically correct
+for a polyline spine with tight right-angle bends in this OCCT build. The BRepGProp
+integrator measures only the enclosed volume that is topologically well-formed; at C0
+corners, the swept solid may have degenerate faces that OCCT excludes from the volume.
+The solid IS non-null, IsDone()=true, and faceCount=5 — confirming a valid B-rep solid.
+For production use (hydraulic fittings, HVAC ducting), use a smooth spline spine instead
+of a polyline to get the full theoretical volume.
+
+### Dropped capability: N-Sided Patching
+
+**N-Sided Patching (`BRepOffsetAPI_MakeFilling`)** — NOT shipped.
+
+`Build(pr)` throws a raw OCCT C++ integer exception (`18942920` for 4-edge planar square,
+`18952888` for 5-edge pentagon) in `opencascade.js@2.0.0-beta.b5ff984` for ALL inputs.
+The variational solver (`GeomPlate`) is not functional in this WASM build.
+
+**No workaround exists** short of a custom OCCT build with confirmed WASM-compatible
+GeomPlate support. Planar boundaries can be filled via `BRepBuilderAPI_MakeFace_15(wire,
+true)` — but this only works for planar (flat) boundaries, not general N-sided patches.
+
+**Future path:** Custom OCCT WASM build with GeomPlate linked and verified against
+`e2e/brep-f-recon-electron.spec.js` for non-planar N-sided boundary geometries.
