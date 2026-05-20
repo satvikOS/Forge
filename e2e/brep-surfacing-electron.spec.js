@@ -6,9 +6,13 @@
  * (Part tab, Create group) and filling the ToolParamDialog — NOT by
  * calling kernel APIs directly.
  *
+ * Each test builds a recognisable real-world engineering artifact.
+ *
  * Arity-0 (no body selection, dialog defines geometry):
- *   Sweep Boss : sweep( r=8, 60 mm path ) → V = π×64×60 ≈ 12 064 mm³
- *   Loft Boss  : loft( 40→16 square sections, h=50 ) → V ≈ 41 600 mm³
+ *   Sweep Boss : pipe (circular profile swept along axis) — r=8, 60 mm path
+ *                → V = π×64×60 ≈ 12 064 mm³
+ *   Loft Boss  : transition fitting (square-to-square loft) — 40→16 over 50 mm
+ *                → V ≈ 41 600 mm³
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
@@ -36,8 +40,12 @@ async function launch() {
 
 // ─── Sweep Boss ───────────────────────────────────────────────────────────────
 
-test('Sweep Boss: ribbon click + dialog defaults → r=8 disk swept 60 mm, V in (10858, 13270)', async () => {
+test('Sweep Boss: pipe (circular profile swept along axis) — ribbon click + dialog defaults → r=8 disk swept 60 mm, V in (10858, 13270)', async () => {
+  // Artifact: pipe (circular profile swept along axis)
   // Arity-0: no body selection. Dialog defaults: radius=8, length=60.
+  // A circular cross-section (r=8 mm) swept along a 60 mm straight axis produces
+  // a solid pipe segment — as used in hydraulic lines, structural tube members,
+  // or conduit runs.
   // sweep(r=8, 60) → π×64×60 = 12 063.72 mm³, ±10%
   const { app, win, pageErrors } = await launch();
   try {
@@ -47,7 +55,7 @@ test('Sweep Boss: ribbon click + dialog defaults → r=8 disk swept 60 mm, V in 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Sweep Boss: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Sweep Boss (pipe): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // π×64×60 = 12 063.72 mm³, ±10%
     expect(m.volume).toBeGreaterThan(10858);
     expect(m.volume).toBeLessThan(13270);
@@ -62,10 +70,12 @@ test('Sweep Boss: ribbon click + dialog defaults → r=8 disk swept 60 mm, V in 
 
 // ─── Loft Boss ────────────────────────────────────────────────────────────────
 
-test('Loft Boss: ribbon click + dialog defaults → 40→16 squares over 50 mm, V in (37440, 45760)', async () => {
+test('Loft Boss: transition fitting (square-to-square loft) — ribbon click + dialog defaults → 40→16 squares over 50 mm, V in (37440, 45760)', async () => {
+  // Artifact: transition fitting (square-to-square loft)
   // Arity-0: no body selection. Dialog defaults: bottomSize=40, topSize=16, height=50.
-  // Frustum with square sections: V = h/3×(A1+A2+√(A1×A2))
-  //   = 50/3×(1600+256+640) = 50/3×2496 ≈ 41 600 mm³, ±10%
+  // A square-to-square loft over 50 mm produces a transition fitting — as used in
+  // HVAC ductwork reducers, pressure vessel nozzle transitions, or casting sprue gates.
+  // V = h/3×(A1+A2+√(A1×A2)) = 50/3×(1600+256+640) = 50/3×2496 ≈ 41 600 mm³, ±10%
   const { app, win, pageErrors } = await launch();
   try {
     // Click Part tab → Loft Boss → accept dialog defaults.
@@ -74,7 +84,7 @@ test('Loft Boss: ribbon click + dialog defaults → 40→16 squares over 50 mm, 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Loft Boss: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Loft Boss (transition fitting): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     // ±10% around 41 600 mm³
     expect(m.volume).toBeGreaterThan(37440);
     expect(m.volume).toBeLessThan(45760);
