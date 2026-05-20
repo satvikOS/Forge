@@ -20,3 +20,4 @@ export { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoo
 export { replaceFace } from './BrepRewrite.js';
 export { subdivideShape } from './BrepSubdivide.js';
 export { retopoShape } from './BrepRetopo.js';
+export { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from './BrepNurbs.js';

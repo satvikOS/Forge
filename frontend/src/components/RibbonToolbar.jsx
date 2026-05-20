@@ -88,6 +88,10 @@ const TABS = {
         { name: 'Thicken', icon: '⧈', key: 'surface' },
         { name: 'Subdivide Surface', icon: '◈', key: 'surface' },
         { name: 'Retopo Surface',    icon: '⬡', key: 'surface' },
+        { name: 'NURBS Patch',       icon: '〜', key: 'surface' },
+        { name: 'Refine NURBS',      icon: '⊡', key: 'surface' },
+        { name: 'Elevate NURBS',     icon: '⤴', key: 'surface' },
+        { name: 'NURBS Curvature',   icon: 'κ',  key: 'surface' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

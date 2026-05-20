@@ -1524,6 +1524,95 @@ const TOOL_HANDLERS = {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Retopo Surface: ' + err.message };
       }
     },
+
+    // ── NURBS operations (OCCT Geom_BSplineSurface) ────────────────────────
+
+    'NURBS Patch': async (scene, viewport) => {
+      // Arity 0 — builds from dialog params only. No body selection needed.
+      try {
+        const { values, cancelled } = await requestToolParams('NURBS Patch');
+        if (cancelled) return { status: 'warn', message: 'NURBS Patch: cancelled' };
+        const result = await ArchDiscKernel.brep.buildNurbsPatch({
+          size:  Number(values.size)  || 40,
+          crown: Number(values.crown) ?? 8,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `NURBS Patch: area = ${m.area.toFixed(1)} mm² — 4×4 clamped-cubic sail patch (size=${values.size} mm, crown=${values.crown} mm) via OCCT Geom_BSplineSurface`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'NURBS Patch: ' + err.message };
+      }
+    },
+
+    'Refine NURBS': async (scene, viewport) => {
+      // Arity 1 — requires a selected NURBS body.
+      try {
+        const [body] = _pickBodies(1);
+        const { cancelled } = await requestToolParams('Refine NURBS');
+        if (cancelled) return { status: 'warn', message: 'Refine NURBS: cancelled' };
+        const result = await ArchDiscKernel.brep.refineNurbs(body);
+        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Refine NURBS: area = ${m.area.toFixed(1)} mm² — knots inserted at 0.25, 0.5, 0.75 in u and v (h-refinement, shape preserved) via OCCT InsertUKnot/InsertVKnot`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Refine NURBS: ' + err.message };
+      }
+    },
+
+    'Elevate NURBS': async (scene, viewport) => {
+      // Arity 1 — requires a selected NURBS body.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Elevate NURBS');
+        if (cancelled) return { status: 'warn', message: 'Elevate NURBS: cancelled' };
+        const result = await ArchDiscKernel.brep.elevateNurbsDegree(body, {
+          uDegree: Number(values.uDegree) || 4,
+          vDegree: Number(values.vDegree) || 4,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd);
+        const m = await ArchDiscKernel.brep.measure(result);
+        return {
+          status: 'success',
+          message: `Elevate NURBS: area = ${m.area.toFixed(1)} mm² — degree elevated to u=${values.uDegree}, v=${values.vDegree} (p-refinement, shape preserved) via OCCT IncreaseDegree`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Elevate NURBS: ' + err.message };
+      }
+    },
+
+    'NURBS Curvature': async (scene, viewport) => {
+      // Arity 1 — requires a selected NURBS body. Analytical op — no render.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('NURBS Curvature');
+        if (cancelled) return { status: 'warn', message: 'NURBS Curvature: cancelled' };
+        const u = Number(values.u) ?? 0.5;
+        const v = Number(values.v) ?? 0.5;
+        const result = await ArchDiscKernel.brep.nurbsCurvature(body, u, v);
+        // Mirror curvature result onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsCurvature = result;
+        }
+        return {
+          status: 'success',
+          message:
+            `NURBS Curvature at (u=${u.toFixed(2)}, v=${v.toFixed(2)}): ` +
+            `K_gauss=${result.gaussian.toExponential(3)}, ` +
+            `K_mean=${result.mean.toExponential(3)}, ` +
+            `kMin=${result.kMin.toExponential(3)}, ` +
+            `kMax=${result.kMax.toExponential(3)} ` +
+            `via OCCT GeomLProp_SLProps`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'NURBS Curvature: ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

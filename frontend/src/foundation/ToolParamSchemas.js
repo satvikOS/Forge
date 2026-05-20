@@ -183,6 +183,41 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── NURBS SURFACE OPS ────────────────────────────────────────────────────
+
+  'NURBS Patch': {
+    title: 'NURBS Patch — sail-like control surface',
+    blurb: 'Build a 4×4 cubic NURBS sail-like patch (size × size base; inner crown height).',
+    fields: [
+      { name: 'size',  label: 'Base size',   type: 'number', default: 40, unit: 'mm', min: 10, max: 200, step: 1, hint: 'Footprint of the patch base (mm)' },
+      { name: 'crown', label: 'Crown height', type: 'number', default: 8,  unit: 'mm', min: 0,  max: 50,  step: 1, hint: 'Z-lift of the inner 2×2 control poles (0 = flat)' },
+    ],
+  },
+
+  'Refine NURBS': {
+    title: 'Refine NURBS — insert mid-knots',
+    blurb: 'Insert knots at u=0.25, 0.5, 0.75 and v=0.25, 0.5, 0.75. Preserves surface shape exactly (h-refinement).',
+    fields: [],
+  },
+
+  'Elevate NURBS': {
+    title: 'Elevate NURBS Degree',
+    blurb: 'Raise the polynomial degree of the NURBS surface (p-refinement). Does not change the shape.',
+    fields: [
+      { name: 'uDegree', label: 'U degree', type: 'number', default: 4, unit: '', min: 2, max: 8, step: 1, hint: 'Target u-degree (must be ≥ current, default cubic=3)' },
+      { name: 'vDegree', label: 'V degree', type: 'number', default: 4, unit: '', min: 2, max: 8, step: 1, hint: 'Target v-degree (must be ≥ current, default cubic=3)' },
+    ],
+  },
+
+  'NURBS Curvature': {
+    title: 'NURBS Curvature — sample point',
+    blurb: 'Sample principal/Gaussian/mean curvature at (u,v) on a NURBS face.',
+    fields: [
+      { name: 'u', label: 'u parameter', type: 'number', default: 0.5, unit: '', min: 0, max: 1, step: 0.05, hint: 'Parameter along u-direction [0, 1]' },
+      { name: 'v', label: 'v parameter', type: 'number', default: 0.5, unit: '', min: 0, max: 1, step: 0.05, hint: 'Parameter along v-direction [0, 1]' },
+    ],
+  },
+
   // ─── OCCT BOOLEANS (arity 2 / Infinity) ──────────────────────────────────
   // Combine, Subtract, Intersect, Combine (Non-Manifold), Lattice Fuse have
   // no parameters — a schema entry with empty fields ensures the dialog
