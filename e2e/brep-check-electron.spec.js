@@ -3,27 +3,25 @@
  *
  * A3 gate: geometry checking and interference detection.
  *
- * User-workflow tests (must use ribbon clicks):
- *   - Check Geometry: click ribbon tool in Manufacture tab →
- *     assert window.__lastGeometryCheck.selfIntersects === false
- *   - Interference: click ribbon tool in Assembly tab →
- *     assert window.__lastInterferenceResult.clash (box + cylinder do clash)
+ * User-workflow tests (ribbon clicks with real-world artifacts):
+ *   - Check Geometry (Manufacture tab): Box→Fillet → "rounded plate" → validate
+ *     Asserts window.__lastGeometryCheck.selfIntersects===false, valid===true
+ *   - Interference (Assembly tab): Box [bracket] + Cylinder [shaft] → clash check
+ *     Asserts window.__lastInterferenceResult.clash===true, interferenceVolume>0
  *
- * Kernel-direct tests (kept as-is — no ribbon workflow exists for constructing
- * self-intersecting compounds or positioned disjoint solids):
- *   - self-intersection POSITIVE: build overlapping compound via kernel API —
- *     this tests the OCCT BRepCheck_Analyzer binding, not user workflow
- *   - clash DISJOINT: build two non-overlapping boxes via translate — this tests
- *     the OCCT checkClash clearance path, not user workflow
- *   - leak guard: calls checkSelfIntersection 25× — tests WASM lifecycle
- *
- * Note: The compound/disjoint tests are kept kernel-direct because there is no
- * ribbon operation that creates a self-intersecting compound or two positioned
- * solids. These test OCCT kernel correctness, not UI routing.
+ * Kernel-direct tests (EXEMPT — no ribbon workflow can produce these inputs):
+ *   - self-intersection POSITIVE: overlapping-compound via translate+makeCompound
+ *   - clash POSITIVE: two translated overlapping solids
+ *   - clash NEGATIVE (disjoint): two solids with 30mm clearance gap
+ *   - leak guard: checkSelfIntersection 25× — WASM lifecycle
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
+import {
+  clickRibbonTab, clickRibbonTool,
+  buildPrimitive, selectBodies, injectToolParams,
+} from './helpers/uiWorkflow.js';
 
 test.setTimeout(600000);
 
@@ -43,21 +41,54 @@ async function launch() {
 
 // ─── Check Geometry via ribbon (Manufacture tab) ──────────────────────────────
 
-test('ribbon: Check Geometry tool (Manufacture tab) reports no self-intersection on default box', async () => {
-  // User workflow: open Manufacture tab → click Check Geometry.
-  // Handler builds a 40³ box (no prior __lastBrepShape) and runs
-  // checkSelfIntersection on it, mirroring the result to window.__lastGeometryCheck.
+test('ribbon: Check Geometry tool (Manufacture tab) reports no self-intersection on rounded plate', async () => {
+  // Artifact: validly-modelled rounded plate (Box + Fillet)
+  // User workflow: Part tab → Box → select → Fillet(radius:2) → Manufacture tab → Check Geometry.
+  // Checks a properly-modelled part (not a default internal box).
   const { app, win, pageErrors } = await launch();
   try {
-    // Pre-clear to avoid stale check result.
+    // 1. Build a 40³ box via ribbon.
+    const boxId = await buildPrimitive(win, 'Box');
+
+    // 2. Select the box and apply Fillet (radius=2) → rounded plate.
+    await selectBodies(win, [boxId]);
+    const idBeforeFillet = await win.evaluate(
+      () => window.__lastBrepShape && window.__lastBrepShape.id,
+    );
+    await injectToolParams(win, 'Fillet', { radius: 2 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
+    await clickRibbonTool(win, 'Fillet');
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeFillet,
+      { timeout: 60000 },
+    );
+    const filletedId = await win.evaluate(
+      () => window.__lastBrepShape && window.__lastBrepShape.id,
+    );
+
+    // 3. Pre-clear stale result.
     await win.evaluate(() => { window.__lastGeometryCheck = null; });
 
-    // Switch to Manufacture tab.
+    // 4. Select the filleted body and run Check Geometry (Manufacture tab).
+    const regLen = await win.evaluate(
+      () => window.__archdiscRegistry ? window.__archdiscRegistry.bodies.length : 0,
+    );
+    if (regLen > 0) {
+      await selectBodies(win, [
+        await win.evaluate(
+          () => window.__archdiscRegistry.bodies[window.__archdiscRegistry.bodies.length - 1].id,
+        ),
+      ]);
+    }
+
+    // 5. Switch to Manufacture tab.
     const mfgTab = win.locator('button.ribbon-tab').filter({ hasText: /^Manufacture$/ });
     await expect(mfgTab).toBeVisible({ timeout: 30000 });
     await mfgTab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // Click Check Geometry ribbon tool.
+    // 6. Click Check Geometry ribbon tool.
     const re = /^Check Geometry$/;
     const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
       has: win.locator('.ribbon-tool-label', { hasText: re }),
@@ -65,12 +96,12 @@ test('ribbon: Check Geometry tool (Manufacture tab) reports no self-intersection
     await expect(btn).toBeVisible({ timeout: 30000 });
     await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // Wait for the handler to set window.__lastGeometryCheck.
+    // 7. Wait for the handler to set window.__lastGeometryCheck.
     await win.waitForFunction(() => !!window.__lastGeometryCheck, null, { timeout: 120000 });
 
     const r = await win.evaluate(() => window.__lastGeometryCheck);
-    console.log(`  Check Geometry: selfIntersects=${r.selfIntersects}, valid=${r.valid}`);
-    // A freshly-created 40³ box must report clean geometry.
+    console.log(`  Check Geometry (rounded plate): selfIntersects=${r.selfIntersects}, valid=${r.valid}`);
+    // A Box + Fillet must report clean geometry.
     expect(r.selfIntersects).toBe(false);
     expect(r.valid).toBe(true);
     expect(pageErrors).toEqual([]);
@@ -81,20 +112,31 @@ test('ribbon: Check Geometry tool (Manufacture tab) reports no self-intersection
 
 // ─── Interference via ribbon (Assembly tab) ───────────────────────────────────
 
-test('ribbon: Interference tool (Assembly tab) detects clash between box + cylinder', async () => {
-  // User workflow: open Assembly tab → click Interference.
-  // Handler builds 30³ box + r=10 h=40 cylinder (overlapping) and runs
-  // checkClash, mirroring the result to window.__lastInterferenceResult.
+test('ribbon: Interference tool (Assembly tab) detects clash between bracket (box) and shaft (cylinder)', async () => {
+  // Artifact: bracket-vs-shaft assembly clash check
+  // User workflow: build Box(40³) [bracket mounting plate] + Cylinder(r=20,h=40) [shaft]
+  // via ribbon → select both → Assembly tab → Interference.
+  // Both solids start at origin so they necessarily overlap.
   const { app, win, pageErrors } = await launch();
   try {
+    // 1. Build the bracket (box) via ribbon.
+    const bracketId = await buildPrimitive(win, 'Box');
+
+    // 2. Build the shaft (cylinder) via ribbon.
+    const shaftId = await buildPrimitive(win, 'Cylinder');
+
+    // 3. Select both bodies.
+    await selectBodies(win, [bracketId, shaftId]);
+
+    // 4. Pre-clear stale result.
     await win.evaluate(() => { window.__lastInterferenceResult = null; });
 
-    // Switch to Assembly tab.
+    // 5. Switch to Assembly tab.
     const asmTab = win.locator('button.ribbon-tab').filter({ hasText: /^Assembly$/ });
     await expect(asmTab).toBeVisible({ timeout: 30000 });
     await asmTab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // Click Interference ribbon tool.
+    // 6. Click Interference ribbon tool.
     const re = /^Interference$/;
     const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
       has: win.locator('.ribbon-tool-label', { hasText: re }),
@@ -102,12 +144,12 @@ test('ribbon: Interference tool (Assembly tab) detects clash between box + cylin
     await expect(btn).toBeVisible({ timeout: 30000 });
     await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // Wait for the handler to set window.__lastInterferenceResult.
+    // 7. Wait for the handler to set window.__lastInterferenceResult.
     await win.waitForFunction(() => !!window.__lastInterferenceResult, null, { timeout: 120000 });
 
     const r = await win.evaluate(() => window.__lastInterferenceResult);
-    console.log(`  Interference: clash=${r.clash}, vol=${r.interferenceVolume?.toFixed(0)}`);
-    // 30³ box and r=10 h=40 cylinder both start at origin → they overlap.
+    console.log(`  Interference (bracket vs shaft): clash=${r.clash}, vol=${r.interferenceVolume?.toFixed(0)}`);
+    // Box(40³) and Cylinder(r=20,h=40) both at origin → they overlap.
     expect(r.clash).toBe(true);
     expect(r.interferenceVolume).toBeGreaterThan(0);
     expect(pageErrors).toEqual([]);
@@ -117,9 +159,9 @@ test('ribbon: Interference tool (Assembly tab) detects clash between box + cylin
 });
 
 // ─── Kernel-direct: self-intersection POSITIVE test ──────────────────────────
-// NOTE: kept kernel-direct because there is no ribbon operation that creates a
-// self-intersecting compound. This test validates the OCCT BRepCheck_Analyzer
-// binding, not a user workflow.
+// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound /
+// a disjoint-positioned pair; use the kernel-direct translate + makeCompound path.
+// Documented as kernel-API tests, not user-workflow tests.
 
 test('self-intersection: a compound of two overlapping boxes is detected (kernel-direct)', async () => {
   const { app, win, pageErrors } = await launch();
@@ -138,6 +180,9 @@ test('self-intersection: a compound of two overlapping boxes is detected (kernel
 });
 
 // ─── Kernel-direct: clash POSITIVE (overlapping) ─────────────────────────────
+// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound /
+// a disjoint-positioned pair; use the kernel-direct translate + makeCompound path.
+// Documented as kernel-API tests, not user-workflow tests.
 
 test('clash: two overlapping solids clash with positive interference volume (kernel-direct)', async () => {
   const { app, win, pageErrors } = await launch();
@@ -157,8 +202,9 @@ test('clash: two overlapping solids clash with positive interference volume (ker
 });
 
 // ─── Kernel-direct: clash NEGATIVE (disjoint) ────────────────────────────────
-// NOTE: kept kernel-direct because there is no ribbon operation that positions
-// two disjoint solids at a specific clearance gap. Tests the OCCT clearance path.
+// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound /
+// a disjoint-positioned pair; use the kernel-direct translate + makeCompound path.
+// Documented as kernel-API tests, not user-workflow tests.
 
 test('clash: two disjoint solids report no clash with a real clearance (kernel-direct)', async () => {
   const { app, win, pageErrors } = await launch();
@@ -178,6 +224,7 @@ test('clash: two disjoint solids report no clash with a real clearance (kernel-d
 });
 
 // ─── Leak guard ───────────────────────────────────────────────────────────────
+// Heap leak guard — bypasses user workflow on purpose to probe WASM heap behaviour. Exempt from the user-workflow rule.
 
 test('leak guard: checkSelfIntersection called 25x does not grow the WASM heap (C1)', async () => {
   const { app, win, pageErrors } = await launch();
