@@ -340,3 +340,77 @@ Ops to use:
 - `GeomConvert.SurfaceToBSplineSurface` — do not use; throws OCCT exception.
   If analytic-to-NURBS conversion is needed, construct `Geom_BSplineSurface_1`
   directly with approximated control points.
+
+---
+
+## Sub-project E — Honest outcome (2026-05-20)
+
+### What shipped
+
+| File | Role |
+|---|---|
+| `frontend/src/kernel/brep/BrepNurbs.js` | NURBS kernel ops (buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature) |
+| `frontend/src/kernel/brep/index.js` | Re-exports all 4 ops |
+| `frontend/src/kernel/brep/ArchDiscKernel.js` | Facade: `kernel.brep.buildNurbsPatch` etc. |
+| `frontend/src/foundation/ToolParamSchemas.js` | 4 schemas for dialog auto-resolve |
+| `frontend/src/components/RibbonToolbar.jsx` | 4 tools in Part → Surface group |
+| `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` | surface.Modify items list |
+| `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | 4 handlers |
+| `e2e/brep-nurbs-electron.spec.js` | Gate tests (4 real-artifact tests, all green) |
+
+### Architecture decision: triangulated compound
+
+The planned approach (BRepBuilderAPI_MakeFace_8 from a raw B-spline transient) failed
+at runtime: `BindingError: Expected null or instance of Handle_Geom_Surface, got an
+instance of Standard_Transient`. This is the fundamental constraint documented in
+the recon note — no Handle constructor is exposed for B-spline surfaces.
+
+**Final architecture:**
+1. Build `Geom_BSplineSurface_1` transient — used for D0/D2/InsertKnot/IncreaseDegree.
+2. Sample D0 on a 10×10 grid (200 triangles) → build `TopoDS_Compound` via
+   `BRep_Builder.MakeCompound + Add`, with each triangle built as
+   `BRepBuilderAPI_MakeEdge_3 → MakeWire_1 → MakeFace_15(wire, true)`.
+3. Store raw NURBS transient in `BrepShape.meta.nurbsSurf` (NOT tracked by `withScope`)
+   for downstream refine/elevate/curvature ops. `_attachNurbsDispose` extends
+   `BrepShape.dispose()` to delete it.
+4. Curvature: from `surf.D2(u,v,P,D1u,D1v,D2u,D2v,D2uv)` via classical differential
+   geometry (first + second fundamental forms) — bypasses `GeomLProp_SLProps_1`.
+5. Refine/elevate: `_cloneSurface` copies poles/knots/mults into a new transient,
+   then applies `InsertUKnot`/`InsertVKnot`/`IncreaseDegree`, then re-triangulates.
+
+### E2E results
+
+| Test | Status | Key measurement |
+|---|---|---|
+| A — NURBS Patch | GREEN | area = 1655.7 mm² ∈ [1500, 2800] mm²; faceCount = 200 |
+| B — Refine NURBS | GREEN | area preserved: 1655.6962 → 1655.6962 mm² (Δ < 1e-3 mm²) |
+| C — Elevate NURBS | GREEN | area preserved: 1655.6962 → 1655.6962 mm² (Δ < 1e-3 mm²) |
+| D — NURBS Curvature | GREEN | sail: gaussian=5.06e-4 ≠ 0; flat (crown=0): gaussian=0, mean=0 |
+
+All 4 tests pass under `--workers=1`. Under 6-worker parallel mode Test A is **flaky**
+(same canvas-screenshot timeout pattern as brep-boolean and brep-primitives — pre-existing
+resource contention when OCCT WASM boots simultaneously in 6 processes). Tests B/C/D
+pass in both modes.
+
+### What this is / isn't
+
+**Is:** A working 4×4 cubic NURBS patch with real h-refinement, p-elevation,
+and curvature sampling, driven by ribbon clicks in the CAD workbench.
+The curvature is computed from actual B-spline derivatives (D2 + differential
+geometry), not from a placeholder formula.
+
+**Is not:** A fully parametric BRep face backed by a Handle_Geom_Surface.
+The B-rep representation is a triangulated compound (200 planar triangles).
+Downstream OCCT operations (Fillet, Boolean, STEP export) on the NURBS patch
+will operate on the triangle mesh, not the analytic NURBS surface.
+For a fully analytic NURBS BRep you would need to expose `Handle_Geom_BSplineSurface`
+constructor in the opencascade.js binding layer (not possible in the
+@2.0.0-beta.b5ff984 build without recompiling the WASM).
+
+### Residual gap
+
+The Handle/Transient constraint is a hard limit of this WASM build. A future
+sub-project could explore patching the opencascade.js binding (`.d.ts` + `embind`)
+to expose `Handle_Geom_BSplineSurface.create(transient)` — this is ~10 lines of
+C++ in `OCCT.d.ts` bindings and would unlock direct `BRepBuilderAPI_MakeFace_8`
+usage. Until then, the triangulated-compound workaround is the only viable path.
