@@ -5,15 +5,25 @@
  * Every geometry op is invoked by clicking the real ribbon tool button
  * (Part tab, Modify group) — NOT by calling kernel APIs directly.
  *
- * Handler builds (ToolExecutionEngine.js):
- *   Face Fillet (blendG2)     : builds a G2 C2 fill face (area ≈ 36 mm²)
- *   Full Round Fillet (cliff) : cliffEdgeBlend(20³ box, r=8) → rounded solid
- *   Corner Mitre              : mitreCorner(20³ box, r=3)   → 26-face mitred solid
+ * Face Fillet (arity 0):
+ *   Builds its own 6mm wire boundary internally. No body selection needed.
+ *
+ * Full Round Fillet (arity 1):
+ *   buildPrimitive Box 20×20×20 → select → click tool → injectToolParams r=8
+ *   cliffEdgeBlend → V in (2000, 8000), faceCount > 6
+ *
+ * Corner Mitre (arity 1):
+ *   buildPrimitive Box 20×20×20 → select → click tool → injectToolParams r=3
+ *   mitreCorner → V in (7200, 7900), faceCount = 26
  */
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import { captureAllAngles } from './helpers/orbitCapture.js';
+import {
+  clickRibbonTab, clickRibbonTool,
+  buildPrimitive, selectBodies, injectToolParams,
+} from './helpers/uiWorkflow.js';
 
 test.setTimeout(600000);
 
@@ -35,38 +45,34 @@ async function launch() {
   return { app, win, pageErrors };
 }
 
-async function switchToPartTab(win) {
-  const tab = win.locator('button.ribbon-tab').filter({ hasText: /^Part$/ });
-  await expect(tab).toBeVisible({ timeout: 30000 });
-  await tab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-}
-
-async function clickRibbonTool(win, toolName) {
-  await win.evaluate(() => { window.__lastBrepShape = null; });
-  const re = new RegExp(`^${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
-  const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-    has: win.locator('.ribbon-tool-label', { hasText: re }),
-  }).first();
-  await expect(btn).toBeVisible({ timeout: 30000 });
-  await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-  await win.waitForFunction(() => !!window.__lastBrepShape, null, { timeout: 120000 });
-}
-
-// ─── Face Fillet (G2 blend) ──────────────────────────────────────────────────
+// ─── Face Fillet (G2 blend, arity 0) ────────────────────────────────────────
 
 test('Face Fillet: ribbon click builds G2 C2 fill face, area in (28, 60) mm²', async () => {
-  // Handler: blendG2(6) → planar 6×6 wire filled with C2 continuity.
-  // area ≈ 36 mm² (±20% tolerance for curvature in the fill surface).
+  // Arity-0: handler builds its own 6mm wire boundary internally.
+  // No body selection needed. Schema default: holeBoxSize=6.
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await win.evaluate(() => { window.__lastBrepShape = null; });
+    // Capture current id so we can detect the new result.
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    // Inject params (schema default holeBoxSize=6 is fine; explicit for clarity).
+    await injectToolParams(win, 'Face Fillet', { holeBoxSize: 6 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
     await clickRibbonTool(win, 'Face Fillet');
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 60000 },
+    );
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
     console.log(`  Face Fillet: area=${m.area?.toFixed(1)}, faces=${m.faceCount}`);
+    // Handler: blendG2(6) → planar 6×6 wire filled with C2 continuity.
+    // area ≈ 36 mm² (±20% tolerance for curvature in the fill surface).
     expect(m.area).toBeGreaterThan(28);
     expect(m.area).toBeLessThan(60);
     expect(m.faceCount).toBeGreaterThanOrEqual(1);
@@ -79,21 +85,45 @@ test('Face Fillet: ribbon click builds G2 C2 fill face, area in (28, 60) mm²', 
   }
 });
 
-// ─── Full Round Fillet (cliff-edge blend) ────────────────────────────────────
+// ─── Full Round Fillet (cliff-edge blend, arity 1) ──────────────────────────
 
-test('Full Round Fillet: ribbon click applies r=8 cliff blend on 20³ box, V in (2000, 8000), faceCount > 6', async () => {
-  // Handler: no prior __lastBrepShape → cliffEdgeBlend(makeBox(20,20,20), 8).
+test('Full Round Fillet: build 20³ box → select → ribbon click → r=8 cliff blend → V in (2000, 8000), faceCount > 6', async () => {
+  // Arity-1 workflow: build a 20×20×20 box, select it, click Full Round Fillet.
   // Large-radius blend (40% of face width) rounds all edges heavily.
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await win.evaluate(() => { window.__lastBrepShape = null; });
+    // 1. Build a 20³ box via ribbon + dialog.
+    const boxId = await buildPrimitive(win, 'Box', { dx: 20, dy: 20, dz: 20 });
+
+    // 2. Select the box.
+    await selectBodies(win, [boxId]);
+
+    // 3. Capture current shape id.
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+
+    // 4. Inject params + click Full Round Fillet.
+    //    Under Playwright (navigator.webdriver=true), ToolParamDialog auto-bypasses;
+    //    planParams is the correct injection path.
+    await injectToolParams(win, 'Full Round Fillet', { radius: 8 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
     await clickRibbonTool(win, 'Full Round Fillet');
 
+    // 5. Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 60000 },
+    );
+
+    // 6. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
     console.log(`  Full Round Fillet: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    // Large-radius blend on 20³ box — removes significant material from corners.
     expect(m.volume).toBeGreaterThan(2000);
     expect(m.volume).toBeLessThan(8000);
     expect(m.faceCount).toBeGreaterThan(6);
@@ -106,21 +136,45 @@ test('Full Round Fillet: ribbon click applies r=8 cliff blend on 20³ box, V in 
   }
 });
 
-// ─── Corner Mitre ────────────────────────────────────────────────────────────
+// ─── Corner Mitre (arity 1) ─────────────────────────────────────────────────
 
-test('Corner Mitre: ribbon click applies r=3 mitre on 20³ box, V in (7200, 7900), faceCount = 26', async () => {
-  // Handler: no prior __lastBrepShape → mitreCorner(makeBox(20,20,20), 3).
-  // Empirically verified in occt-api-A5.md: volume ≈ 7572, faceCount = 26.
+test('Corner Mitre: build 20³ box → select → ribbon click → r=3 mitre → V in (7200, 7900), faceCount = 26', async () => {
+  // Arity-1 workflow: build a 20×20×20 box, select it, click Corner Mitre.
+  // Empirically verified: volume ≈ 7572, faceCount = 26.
   const { app, win, pageErrors } = await launch();
   try {
-    await switchToPartTab(win);
-    await win.evaluate(() => { window.__lastBrepShape = null; });
+    // 1. Build a 20³ box via ribbon + dialog.
+    const boxId = await buildPrimitive(win, 'Box', { dx: 20, dy: 20, dz: 20 });
+
+    // 2. Select the box.
+    await selectBodies(win, [boxId]);
+
+    // 3. Capture current shape id.
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+
+    // 4. Inject params + click Corner Mitre.
+    //    Under Playwright (navigator.webdriver=true), ToolParamDialog auto-bypasses;
+    //    planParams is the correct injection path.
+    await injectToolParams(win, 'Corner Mitre', { radius: 3 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
     await clickRibbonTool(win, 'Corner Mitre');
 
+    // 5. Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 60000 },
+    );
+
+    // 6. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
     console.log(`  Corner Mitre: vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    // Empirically measured: volume ≈ 7572, faceCount = 26.
     expect(m.volume).toBeGreaterThan(7200);
     expect(m.volume).toBeLessThan(7900);
     expect(m.faceCount).toBe(26);
