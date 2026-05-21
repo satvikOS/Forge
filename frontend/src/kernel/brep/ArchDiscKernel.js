@@ -28,6 +28,7 @@ import { retopoShape } from './BrepRetopo.js';
 import { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from './BrepNurbs.js';
 import { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './BrepFinal.js';
 import { catmullClarkShape } from './BrepCatmullClark.js';
+import { intersectSurfaces } from './BrepNurbsSSI.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -51,6 +52,7 @@ export const ArchDiscKernel = {
     buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature,
     pipeShellSweep, loftTangent, stitchFaces, convergentSolid,
     catmullClarkShape,
+    intersectSurfaces,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,

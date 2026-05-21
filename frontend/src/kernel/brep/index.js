@@ -23,3 +23,4 @@ export { retopoShape } from './BrepRetopo.js';
 export { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from './BrepNurbs.js';
 export { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './BrepFinal.js';
 export { catmullClarkShape } from './BrepCatmullClark.js';
+export { intersectSurfaces } from './BrepNurbsSSI.js';
