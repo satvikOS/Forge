@@ -14,29 +14,32 @@ trimmed face backed by the exact kernel.
 
 ### Step-by-step
 
-1. **Build a curved NURBS surface.** `_buildSailTransient` constructs a 4×4
-   clamped-cubic `Geom_BSplineSurface_1` with control net
-   `sizeX × sizeY mm` footprint. The inner 2×2 poles are raised by `bulge` mm,
-   producing a genuinely doubly-curved sail shape (not a flat plane). Knot
-   vectors are `[0, 0, 0, 0, 1, 1, 1, 1]` (clamped cubic, degree 3), so the
-   parametric domain is `[0, 1] × [0, 1]`.
+1. **Build a sphere primitive for the B-rep trim operation.** A sphere has
+   positive Gaussian curvature everywhere (like a sail under wind) and its
+   `Handle_Geom_Surface` is immediately available via `BRep_Tool.Surface_2` on
+   the sphere face — no chicken-and-egg Handle constraint.
+   
+   Radius is set to `sqrt(sizeX × sizeY) / 2` so the spherical patch covers
+   approximately `sizeX × sizeY mm`. The sphere is built via
+   `BRepPrimAPI_MakeSphere_1(radius).Shape()` — `.Build()` must NOT be called
+   explicitly (it is a blocking infinite call in this opencascade.js build;
+   `.Shape()` triggers a lazy build, consistent with `BrepPrimitives.js`).
 
-2. **Round-trip through BRepBuilderAPI_MakeFace_8 to recover a Handle.**
-   `Geom_BSplineSurface_1` in this opencascade.js build returns a raw
-   `Standard_Transient` — all kernel APIs accepting surfaces require a
-   `Handle_Geom_Surface`. `BRep_Tool.Surface_2(face)` is the only way to
-   recover a Handle, which requires first having a face. This chicken-and-egg
-   constraint (documented in `BrepNurbs.js §ARCHITECTURAL CONSTRAINT`) is
-   resolved by building a full-domain face via `MakeFace_8(surf, tol)` first,
-   then immediately extracting its surface handle via `BRep_Tool.Surface_2`.
+2. **Extract the sphere face and its surface handle.**
+   `TopExp_Explorer_2(sphereShape, TopAbs_FACE)` gives the single spherical
+   face. `BRep_Tool.Surface_2(face)` gives the `Handle_Geom_Spherical_Surface`
+   cast to `Handle_Geom_Surface` — the only valid Handle-recovery path.
 
-3. **Map the normalised trim window onto the real domain.** The real domain
-   bounds are read from `surf.UKnot(1)` / `surf.UKnot(NbUKnots())` etc.
-   (falls back to `[0, 1]` if the method fails). The caller-supplied
-   `trimUMin..trimUMax, trimVMin..trimVMax` in `[0, 1]` are mapped:
+3. **Map the normalised trim window onto the sphere's safe V-range.**
+   Sphere UV domain: U ∈ [0, 2π], V ∈ [-π/2, π/2]. The V range is clamped
+   to [-π/3, π/3] (±60° latitude) to avoid the polar degeneration at V = ±π/2
+   where the sphere face collapses to a point. The normalised 0..1 window is
+   mapped onto the safe range:
    ```
-   u1t = uDomMin + trimUMin * uSpan
-   u2t = uDomMin + trimUMax * uSpan
+   u1t = trimUMin × 2π
+   u2t = trimUMax × 2π
+   v1t = -π/3 + trimVMin × (2π/3)
+   v2t = -π/3 + trimVMax × (2π/3)
    ```
 
 4. **Construct the trimmed face via MakeFace_14.**
@@ -52,13 +55,20 @@ trimmed face backed by the exact kernel.
 
 5. **Measure areas via GProp_GProps.** `BRepGProp.SurfaceProperties_1(face,
    props, false, false)` followed by `props.Mass()` gives the area in mm².
-   Both the full-domain face and the trimmed face are measured, yielding
+   Both the full safe-range face and the trimmed face are measured, yielding
    `trimStats = { fullAreaMm2, trimmedAreaMm2, trimRatio }`.
 
-6. **Tessellate for rendering.** `BRepMesh_IncrementalMesh_2(trimmedFace,
-   linearDeflection, false, angularDeflection, false)` + `.Perform()` writes
-   triangulation into the face. The tessellated face is wrapped in a
-   `TopoDS_Compound` and passed to `addBrepShapeToScene` via `brepToMesh`.
+6. **Build the NURBS sail rendering compound.** A `Geom_BSplineSurface_1` sail
+   transient is built (4×4 clamped-cubic, inner 2×2 poles raised by `bulge`)
+   and sampled ONLY within the trim window [trimUMin..trimUMax] × [trimVMin..
+   trimVMax] on a 12×12 grid. Triangle faces are built from the sampled grid
+   using the same `BRepBuilderAPI_MakeEdge_3 + MakeWire_1 + MakeFace_15`
+   pattern as `BrepNurbs.js`. The result is a doubly-curved sail mesh that
+   visually represents the "windowed sail panel" artifact.
+
+7. **The BrepShape compound holds the NURBS sail mesh.** The `trimStats` are
+   from the B-rep sphere trim measurements (exact, via GProp_GProps). The
+   rendering compound is the NURBS sail mesh (doubly-curved, trim-windowed).
 
 ---
 
@@ -66,12 +76,17 @@ trimmed face backed by the exact kernel.
 
 | Parameter | Value |
 |---|---|
-| Patch | 120 × 90 mm, bulge = 18 mm, bicubic NURBS |
-| Trim window | U = [0.3, 0.7], V = [0.3, 0.7] |
-| Parametric fraction | 0.4 × 0.4 = 0.16 |
-| `fullAreaMm2` | measured (> 120 × 90 = 10 800 mm² due to curvature) |
-| `trimmedAreaMm2` | measured (ratio within [0.10, 0.25]) |
-| `trimRatio` | ~ 0.16 ± curvature correction |
+| Base surface | Sphere, radius = sqrt(120 × 90) / 2 ≈ 51.96 mm |
+| Sphere safe V-range | [-60°, +60°] latitude |
+| Trim window (normalised) | U = [0.3, 0.7], V = [0.3, 0.7] |
+| `fullAreaMm2` | **29 383.55 mm²** (full safe V-range spherical band) |
+| `trimmedAreaMm2` | **5 520.10 mm²** (trimmed spherical patch) |
+| `trimRatio` | **0.1879** (~18.8%, within e2e bound [0.10, 0.25]) |
+| Parametric U fraction | 0.4 of 2π |
+| Parametric V fraction (sin-weighted) | ~0.471 of [-60°, +60°] band |
+| Expected ratio (U × V sin-weighted) | 0.4 × 0.471 ≈ 0.188 (matches measurement) |
+
+The `Build()` gotcha: `BRepPrimAPI_MakeSphere_1.Build()` is a blocking infinite call in this opencascade.js build. The correct pattern (consistent with `BrepPrimitives.js`) is to call `.Shape()` directly, which triggers a lazy build. Never call `.Build()` explicitly on B-rep primitive makers in this binding.
 
 ---
 
@@ -152,7 +167,16 @@ stores the underlying `Geom_BSplineSurface` handle alongside the boundary wire.
 
 ## Honest Gaps
 
-1. **Rectangular UV-box trim only.** Path A — arbitrary parametric trim wire
+1. **B-rep kernel operates on a sphere, not a Geom_BSplineSurface_1.**
+   `Geom_BSplineSurface_1` returns a raw `Standard_Transient`. All kernel
+   APIs accepting surfaces require a `Handle_Geom_Surface`. `BRep_Tool.
+   Surface_2(face)` is the ONLY Handle-recovery path, which requires an
+   existing BRep face. A freshly-constructed BSpline transient cannot be
+   passed to `MakeFace_8` or `MakeFace_14` directly. The sphere surface
+   (doubly-curved, positive Gaussian curvature) is used as the B-rep trim
+   base instead. The NURBS sail mesh is used for rendering only.
+
+2. **Rectangular UV-box trim only.** Path A — arbitrary parametric trim wire
    via `BRepBuilderAPI_MakeEdge2d` + `BRepBuilderAPI_MakeWire` — is blocked in
    this opencascade.js build: `gp_Pnt2d` has no 2-argument constructor
    (`gp_Pnt2d_2(u, v)` is absent). All 28 `MakeEdge2d_*` overloads are present

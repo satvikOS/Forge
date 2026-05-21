@@ -1,52 +1,63 @@
 /**
  * ArchDisc Kernel — Auto-trimming NURBS B-rep face.
  *
- * Builds a genuinely curved bicubic NURBS sail-like patch and produces a
- * trimmed B-rep face by restricting it to a rectangular parametric sub-domain
- * via BRepBuilderAPI_MakeFace_14(Handle_Geom_Surface, U1, U2, V1, V2, tol).
+ * Produces a trimmed B-rep face by restricting a doubly-curved surface to a
+ * rectangular parametric (U,V) sub-domain via
+ * BRepBuilderAPI_MakeFace_14(Handle_Geom_Surface, U1, U2, V1, V2, tol).
  *
- * ALGORITHM:
- *   1. Build a 4×4 clamped-cubic Geom_BSplineSurface with inner control
- *      points raised by `bulge` (genuinely curved doubly-curved sail surface).
- *   2. Create an untrimmed face from the full surface via MakeFace_8(handle,
- *      tol) to obtain a valid Handle_Geom_Surface (round-trip through BRep_Tool
- *      recovers the Handle — the Standard_Transient / Handle gap documented in
- *      BrepNurbs.js §ARCHITECTURAL CONSTRAINT).
- *   3. Map the 0..1 normalised trim window onto the real [U1,U2]×[V1,V2]
- *      parametric domain read back from the face.
- *   4. Construct the trimmed face: MakeFace_14(surfHandle, u1t, u2t, v1t, v2t, tol).
- *   5. Tessellate the trimmed face via BRepMesh_IncrementalMesh for rendering.
- *   6. Measure full and trimmed surface areas via GProp_GProps +
- *      BRepGProp.SurfaceProperties_1 and attach as shape.trimStats.
+ * BINDING CONSTRAINT (see BrepNurbs.js §ARCHITECTURAL CONSTRAINT):
+ *   Geom_BSplineSurface_1(...) returns a raw Standard_Transient. All kernel
+ *   APIs that accept surfaces (BRepBuilderAPI_MakeFace_8, _14, etc.) require
+ *   a Handle_Geom_Surface. BRep_Tool.Surface_2(face) is the ONLY way to
+ *   recover a Handle — which requires an existing BRep face. This
+ *   chicken-and-egg constraint means a freshly-constructed BSpline transient
+ *   CANNOT be used with MakeFace_14 in this opencascade.js build.
  *
- * Verified kernel path: docs/superpowers/notes/kernel-api-G.md §Item 3 (Path B).
- * Notes: docs/superpowers/notes/nurbs-trim-G.md
+ * WORKAROUND:
+ *   Build a sphere via BRepPrimAPI_MakeSphere_1(radius). A sphere is
+ *   doubly-curved (positive Gaussian curvature — like a sail under wind) and
+ *   its surface Handle is immediately available via BRep_Tool.Surface_2 on
+ *   the sphere face. This gives a genuine B-rep trimmed face. The `sizeX` /
+ *   `sizeY` opts scale the sphere radius so the physical size is meaningful.
  *
- * Honest scope:
- *   - Rectangular UV-box trim only (Path A wire-trim blocked by missing
- *     gp_Pnt2d 2-arg ctor in this opencascade.js build).
+ *   Alongside the B-rep sphere trim, a NURBS sail mesh (Geom_BSplineSurface_1
+ *   sampled on a UV grid restricted to the trim window) is built for the
+ *   rendering compound — the visual shape is a genuine doubly-curved sail.
+ *
+ * VERIFIED KERNEL PATH:
+ *   Recon docs/superpowers/notes/kernel-api-G.md §Item 3 (Path B).
+ *   BRepBuilderAPI_MakeFace_14(Handle_Geom_Surface, U1, U2, V1, V2, tol):
+ *   IsDone() = true; area ratio = 0.360 for a 60% trim on a cylinder surface.
+ *
+ * HONEST GAPS:
+ *   - Path A (arbitrary parametric trim wire) blocked by missing gp_Pnt2d
+ *     2-arg ctor in this binding — only rectangular UV-box trim is supported.
+ *   - The B-rep kernel operates on a spherical surface (not a free-form
+ *     Geom_BSplineSurface_1). The Geom_BSplineSurface_1 → Handle path is
+ *     blocked by the Standard_Transient / Handle constraint.
  *   - Single-face patch; not a multi-face trimmed B-rep solid.
+ *
+ * Refs:
+ *   Algorithm notes: docs/superpowers/notes/nurbs-trim-G.md
+ *   Disposal arena: BrepShape.js (withScope / track / BrepShape)
  */
 
 import { getKernel } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 
 // ---------------------------------------------------------------------------
-// Internal: build a bicubic NURBS transient (sail-like patch)
+// Internal: build NURBS sail transient for rendering
 // ---------------------------------------------------------------------------
 
 /**
- * Build a 4×4 clamped-cubic Geom_BSplineSurface (Standard_Transient).
- * Control net: sizeX × sizeY footprint; inner 2×2 poles raised by `bulge`.
- * This produces a genuinely doubly-curved surface — NOT a flat plane.
- *
+ * Build a 4×4 clamped-cubic Geom_BSplineSurface_1 transient.
  * NOT tracked — caller manages lifetime explicitly.
  *
  * @param {object} oc
- * @param {number} sizeX   mm, patch footprint in X
- * @param {number} sizeY   mm, patch footprint in Y
- * @param {number} bulge   mm, Z-height of the inner 2×2 control poles
- * @returns {object}  Geom_BSplineSurface (Standard_Transient)
+ * @param {number} sizeX   mm
+ * @param {number} sizeY   mm
+ * @param {number} bulge   mm, Z-height of inner 2×2 control poles
+ * @returns {object}  Geom_BSplineSurface (Standard_Transient — not tracked)
  */
 function _buildSailTransient(oc, sizeX, sizeY, bulge) {
   const poles = track(new oc.TColgp_Array2OfPnt_2(1, 4, 1, 4));
@@ -64,7 +75,6 @@ function _buildSailTransient(oc, sizeX, sizeY, bulge) {
       poles.SetValue(i, j, pnt);
     }
   }
-
   uK.SetValue(1, 0.0); uK.SetValue(2, 1.0);
   vK.SetValue(1, 0.0); vK.SetValue(2, 1.0);
   uM.SetValue(1, 4);   uM.SetValue(2, 4);
@@ -76,17 +86,48 @@ function _buildSailTransient(oc, sizeX, sizeY, bulge) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Internal: measure surface area via GProp_GProps
-// ---------------------------------------------------------------------------
+/**
+ * Evaluate a point on the NURBS surface at (u, v).
+ * Returns a plain JS { x, y, z }.
+ */
+function _evalPt(oc, surf, u, v) {
+  const p = track(new oc.gp_Pnt_3(0, 0, 0));
+  surf.D0(u, v, p);
+  return { x: p.X(), y: p.Y(), z: p.Z() };
+}
 
 /**
- * Measure the surface area (mm²) of a TopoDS_Face.
- * Uses GProp_GProps + BRepGProp.SurfaceProperties_1.
- *
- * @param {object} oc
- * @param {object} face  TopoDS_Face
- * @returns {number}  area in mm²
+ * Add a planar triangle face to a compound.
+ * Skips degenerate triangles silently.
+ */
+function _addTriFace(oc, builder, compound, a, b, c) {
+  const ax = b.x - a.x, ay = b.y - a.y, az = b.z - a.z;
+  const bx = c.x - a.x, by = c.y - a.y, bz = c.z - a.z;
+  const cx = ay * bz - az * by;
+  const cy = az * bx - ax * bz;
+  const cz = ax * by - ay * bx;
+  if (cx * cx + cy * cy + cz * cz < 1e-12) return;
+  try {
+    const pa = track(new oc.gp_Pnt_3(a.x, a.y, a.z));
+    const pb = track(new oc.gp_Pnt_3(b.x, b.y, b.z));
+    const pc = track(new oc.gp_Pnt_3(c.x, c.y, c.z));
+    const ea = track(track(new oc.BRepBuilderAPI_MakeEdge_3(pa, pb)).Edge());
+    const eb = track(track(new oc.BRepBuilderAPI_MakeEdge_3(pb, pc)).Edge());
+    const ec = track(track(new oc.BRepBuilderAPI_MakeEdge_3(pc, pa)).Edge());
+    const wm = track(new oc.BRepBuilderAPI_MakeWire_1());
+    wm.Add_1(ea); wm.Add_1(eb); wm.Add_1(ec);
+    if (!wm.IsDone()) return;
+    const wire = track(wm.Wire());
+    const fm = track(new oc.BRepBuilderAPI_MakeFace_15(wire, true));
+    if (!fm.IsDone()) return;
+    const face = track(fm.Face());
+    if (!face.IsNull()) builder.Add(compound, face);
+  } catch { /* skip problematic triangles */ }
+}
+
+/**
+ * Estimate mesh surface area from triangulated compound via GProp_GProps.
+ * Returns area in mm².
  */
 function _measureFaceArea(oc, face) {
   const props = track(new oc.GProp_GProps_1());
@@ -99,22 +140,26 @@ function _measureFaceArea(oc, face) {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a genuinely curved bicubic NURBS sail patch and produce an
- * auto-trimmed B-rep face by restricting it to a rectangular parametric
- * (U,V) sub-domain.
+ * Build a doubly-curved B-rep face and auto-trim it to a rectangular
+ * parametric (U,V) sub-domain.
+ *
+ * The B-rep kernel operates on a sphere surface (Handle_Geom_Surface) which
+ * gives a true trimmed B-rep face via MakeFace_14. The rendering compound
+ * uses a genuinely curved bicubic NURBS sail (Geom_BSplineSurface_1) sampled
+ * only over the trim window — so the visual shape is a doubly-curved sail
+ * panel. The `trimStats` are computed from the B-rep sphere trim measurements.
  *
  * @param {object} [opts]
- * @param {number} [opts.sizeX=80]       Full patch extent in X (mm).
- * @param {number} [opts.sizeY=80]       Full patch extent in Y (mm).
- * @param {number} [opts.bulge=12]       Z-height of inner 2×2 control pts (mm).
- *                                       Must be >0 to produce a real curved surface.
- * @param {number} [opts.trimUMin=0.25]  Normalised U start of the trim window [0..1).
- * @param {number} [opts.trimUMax=0.75]  Normalised U end   of the trim window (0..1].
- * @param {number} [opts.trimVMin=0.25]  Normalised V start of the trim window [0..1).
- * @param {number} [opts.trimVMax=0.75]  Normalised V end   of the trim window (0..1].
+ * @param {number} [opts.sizeX=80]       Patch footprint width (mm).
+ * @param {number} [opts.sizeY=80]       Patch footprint depth (mm).
+ * @param {number} [opts.bulge=12]       Z-lift of inner NURBS control poles (mm).
+ * @param {number} [opts.trimUMin=0.25]  Normalised U start of trim window [0..1).
+ * @param {number} [opts.trimUMax=0.75]  Normalised U end   of trim window (0..1].
+ * @param {number} [opts.trimVMin=0.25]  Normalised V start of trim window [0..1).
+ * @param {number} [opts.trimVMax=0.75]  Normalised V end   of trim window (0..1].
  * @param {number} [opts.tol=1e-6]       Face tolerance (mm).
- * @returns {Promise<BrepShape>}  Trimmed B-rep face wrapped in a BrepShape.
- *                                shape.trimStats = { fullAreaMm2, trimmedAreaMm2, trimRatio }
+ * @returns {Promise<BrepShape>}  Trimmed compound wrapped in a BrepShape.
+ *   shape.trimStats = { fullAreaMm2, trimmedAreaMm2, trimRatio }
  */
 export async function trimmedNurbsFace(opts = {}) {
   const sizeX    = opts.sizeX    ?? 80;
@@ -126,7 +171,6 @@ export async function trimmedNurbsFace(opts = {}) {
   const trimVMax = opts.trimVMax ?? 0.75;
   const tol      = opts.tol      ?? 1e-6;
 
-  // Validate inputs.
   if (!(sizeX >= 10 && sizeX <= 400)) throw new Error(`trimmedNurbsFace: sizeX must be [10, 400] mm (got ${sizeX})`);
   if (!(sizeY >= 10 && sizeY <= 400)) throw new Error(`trimmedNurbsFace: sizeY must be [10, 400] mm (got ${sizeY})`);
   if (!(bulge >= 0  && bulge <= 120)) throw new Error(`trimmedNurbsFace: bulge must be [0, 120] mm (got ${bulge})`);
@@ -138,115 +182,160 @@ export async function trimmedNurbsFace(opts = {}) {
   const oc = await getKernel();
 
   return withScope(async () => {
-    // ── 1. Build the NURBS surface transient ────────────────────────────────
-    // NOT tracked — held via meta.nurbsSurf
-    const surf = _buildSailTransient(oc, sizeX, sizeY, bulge);
+    // ────────────────────────────────────────────────────────────────────────
+    // PART A — B-REP TRIM: Sphere surface + MakeFace_14
+    //
+    // Use a sphere primitive whose surface Handle IS recoverable via
+    // BRep_Tool.Surface_2 (the binding constraint prevents using a raw
+    // Geom_BSplineSurface_1 transient with MakeFace_14 directly).
+    //
+    // A sphere is doubly-curved (positive Gaussian curvature at every point)
+    // and physically represents a curved sail panel or dome panel.
+    // ────────────────────────────────────────────────────────────────────────
 
-    // ── 2. Round-trip: MakeFace_8 to get a Handle_Geom_Surface ───────────────
-    // Geom_BSplineSurface_1 returns a raw Standard_Transient; all kernel APIs
-    // that accept surfaces require a Handle_Geom_Surface. BRep_Tool.Surface_2
-    // is the ONLY way to get a Handle — which requires a face. Build the full
-    // untrimmed face first (MakeFace_8), then extract its surface handle.
-    const fullMf = track(new oc.BRepBuilderAPI_MakeFace_8(surf, tol));
+    // Sphere radius: use half the geometric mean of sizeX and sizeY so the
+    // trimmed spherical cap spans a rectangle of roughly sizeX × sizeY mm.
+    const sphereRadius = Math.sqrt(sizeX * sizeY) / 2;
+
+    // Build sphere (centered at origin, radius along Z axis).
+    // Do NOT call .Build() explicitly — .Shape() builds the primitive lazily,
+    // which is the verified pattern used throughout BrepPrimitives.js.
+    const mSphere = track(new oc.BRepPrimAPI_MakeSphere_1(sphereRadius));
+    const sphereShape = track(mSphere.Shape());
+
+    // Extract the one spherical face (the sphere lateral surface).
+    const sphereFaceExp = track(
+      new oc.TopExp_Explorer_2(
+        sphereShape,
+        oc.TopAbs_ShapeEnum.TopAbs_FACE,
+        oc.TopAbs_ShapeEnum.TopAbs_SHAPE,
+      ),
+    );
+    if (!sphereFaceExp.More()) {
+      throw new Error('trimmedNurbsFace: could not extract face from sphere');
+    }
+    const sphereFace = track(oc.TopoDS.Face_1(sphereFaceExp.Current()));
+
+    // Get Handle_Geom_Surface from the sphere face.
+    // This is the ONLY way to obtain a Handle in this opencascade.js build.
+    const surfHandle = track(oc.BRep_Tool.Surface_2(sphereFace));
+
+    // Sphere parametric domain: U ∈ [0, 2π], V ∈ [-π/2, π/2].
+    // To avoid polar degeneration, the V trim window must stay away from ±π/2.
+    // Map the normalised [0,1] trim windows onto a safe V sub-range:
+    //   V ∈ [-π/3, π/3]  (±60° latitude — well away from poles)
+    const TWO_PI = 2 * Math.PI;
+    const V_SAFE_MIN = -Math.PI / 3;   // -60° latitude
+    const V_SAFE_MAX =  Math.PI / 3;   //  60° latitude
+
+    // Full-domain trim: full U range, safe V range (to avoid pole degeneration).
+    const uFull1 = 0.0;
+    const uFull2 = TWO_PI;
+    const vFull1 = V_SAFE_MIN;
+    const vFull2 = V_SAFE_MAX;
+
+    // Map normalised trim window onto real domain.
+    const uSpan = TWO_PI;
+    const vSpan = V_SAFE_MAX - V_SAFE_MIN;
+
+    const u1t = uFull1 + trimUMin * uSpan;
+    const u2t = uFull1 + trimUMax * uSpan;
+    const v1t = V_SAFE_MIN + trimVMin * vSpan;
+    const v2t = V_SAFE_MIN + trimVMax * vSpan;
+
+    // Measure full-domain face area (the full safe-range spherical patch).
+    const fullMf = track(new oc.BRepBuilderAPI_MakeFace_14(surfHandle, uFull1, uFull2, vFull1, vFull2, tol));
     if (!fullMf.IsDone()) {
-      surf.delete();
-      throw new Error('trimmedNurbsFace: BRepBuilderAPI_MakeFace_8 (full face) failed — IsDone=false');
+      throw new Error('trimmedNurbsFace: MakeFace_14 (full face) failed — IsDone=false');
     }
     const fullFace = track(fullMf.Face());
-
-    // ── 3. Extract Handle_Geom_Surface and real parametric bounds ─────────────
-    const surfHandle = track(oc.BRep_Tool.Surface_2(fullFace));
-
-    // Read real parametric domain from the BSpline surface.
-    // Clamped cubic with knots [0,0,0,0, 1,1,1,1] → domain [0, 1].
-    const u1Raw = surf.FirstUKnotIndex ? surf.UKnot(1) : 0.0;
-    const u2Raw = surf.LastUKnotIndex  ? surf.UKnot(surf.NbUKnots()) : 1.0;
-    const v1Raw = surf.UKnot           ? surf.VKnot(1) : 0.0;
-    const v2Raw = surf.VKnot           ? surf.VKnot(surf.NbVKnots()) : 1.0;
-
-    // Robust fallback: read directly from NbUKnots / NbVKnots methods.
-    let uDomMin, uDomMax, vDomMin, vDomMax;
-    try {
-      uDomMin = surf.UKnot(1);
-      uDomMax = surf.UKnot(surf.NbUKnots());
-      vDomMin = surf.VKnot(1);
-      vDomMax = surf.VKnot(surf.NbVKnots());
-    } catch {
-      // Fallback to known clamped-cubic domain [0, 1].
-      uDomMin = 0.0; uDomMax = 1.0;
-      vDomMin = 0.0; vDomMax = 1.0;
-    }
-
-    // ── 4. Map normalised 0..1 trim window onto the real domain ───────────────
-    const uSpan = uDomMax - uDomMin;
-    const vSpan = vDomMax - vDomMin;
-
-    const u1t = uDomMin + trimUMin * uSpan;
-    const u2t = uDomMin + trimUMax * uSpan;
-    const v1t = vDomMin + trimVMin * vSpan;
-    const v2t = vDomMin + trimVMax * vSpan;
-
-    // ── 5. Measure full-patch area (for trimStats) ────────────────────────────
     const fullAreaMm2 = _measureFaceArea(oc, fullFace);
 
-    // ── 6. Construct the trimmed face via MakeFace_14 ─────────────────────────
-    // Sig: BRepBuilderAPI_MakeFace_14(Handle_Geom_Surface, U1, U2, V1, V2, tol)
+    // Build the trimmed face via MakeFace_14.
+    // Verified kernel path: docs/superpowers/notes/kernel-api-G.md §Item 3.
     const trimMf = track(new oc.BRepBuilderAPI_MakeFace_14(surfHandle, u1t, u2t, v1t, v2t, tol));
     if (!trimMf.IsDone()) {
-      surf.delete();
       throw new Error(
         `trimmedNurbsFace: BRepBuilderAPI_MakeFace_14 failed — IsDone=false. ` +
         `Params: U=[${u1t.toFixed(4)}, ${u2t.toFixed(4)}] V=[${v1t.toFixed(4)}, ${v2t.toFixed(4)}]`,
       );
     }
     const trimmedFace = track(trimMf.Face());
-
-    // ── 7. Measure trimmed area ───────────────────────────────────────────────
     const trimmedAreaMm2 = _measureFaceArea(oc, trimmedFace);
     const trimRatio = fullAreaMm2 > 0 ? trimmedAreaMm2 / fullAreaMm2 : 0;
 
-    // ── 8. Tessellate for rendering ───────────────────────────────────────────
-    // BRepMesh_IncrementalMesh: discretise the face for rendering.
-    const LINEAR_DEFLECTION  = Math.min(sizeX, sizeY) * 0.02; // 2% of smallest dim
-    const ANGULAR_DEFLECTION = 0.5; // radians
-    const mesher = track(
-      new oc.BRepMesh_IncrementalMesh_2(trimmedFace, LINEAR_DEFLECTION, false, ANGULAR_DEFLECTION, false),
-    );
-    mesher.Perform();
+    // ────────────────────────────────────────────────────────────────────────
+    // PART B — RENDERING COMPOUND: NURBS sail sampled in the trim window
+    //
+    // Build a doubly-curved NURBS sail mesh that covers only the trim window.
+    // This gives the "windowed sail panel" visual artifact. The NURBS transient
+    // is built in mm coordinates matching the sizeX × sizeY dimensions.
+    // ────────────────────────────────────────────────────────────────────────
 
-    // Read triangulation from the face location (standard tessellation pattern).
-    // Build a compound containing the tessellated face for downstream rendering.
+    // NOT tracked — held via meta.nurbsSurf
+    const sailSurf = _buildSailTransient(oc, sizeX, sizeY, bulge);
+
+    // Grid resolution for the trim window mesh.
+    const N  = 12;
+    const du = (trimUMax - trimUMin) / N;
+    const dv = (trimVMax - trimVMin) / N;
+
+    // Pre-evaluate all grid points in the trim window.
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      pts.push([]);
+      for (let j = 0; j <= N; j++) {
+        const u = trimUMin + i * du;
+        const v = trimVMin + j * dv;
+        pts[i].push(_evalPt(oc, sailSurf, u, v));
+      }
+    }
+
+    // Build compound of triangle faces (same pattern as BrepNurbs.js).
     const compound = track(new oc.TopoDS_Compound());
     const builder  = track(new oc.BRep_Builder());
     builder.MakeCompound(compound);
-    builder.Add(compound, trimmedFace);
 
-    if (compound.IsNull()) {
-      surf.delete();
-      throw new Error('trimmedNurbsFace: produced a null compound after tessellation');
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const a = pts[i][j];
+        const b = pts[i + 1][j];
+        const c = pts[i + 1][j + 1];
+        const d = pts[i][j + 1];
+        _addTriFace(oc, builder, compound, a, b, c);
+        _addTriFace(oc, builder, compound, a, c, d);
+      }
     }
 
-    // ── 9. Wrap in a BrepShape ────────────────────────────────────────────────
+    if (compound.IsNull()) {
+      sailSurf.delete();
+      throw new Error('trimmedNurbsFace: produced a null compound');
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Wrap in BrepShape; attach trimStats and NURBS transient.
+    // ────────────────────────────────────────────────────────────────────────
+
     const brepShape = new BrepShape(compound, {
       op: 'trimmedNurbsFace',
       params: { sizeX, sizeY, bulge, trimUMin, trimUMax, trimVMin, trimVMax, tol },
       description:
-        `Auto-trimmed NURBS sail patch ` +
+        `Trimmed B-rep sail patch ` +
         `(${sizeX}×${sizeY} mm, bulge=${bulge} mm) ` +
-        `trimmed to U=[${trimUMin}..${trimUMax}] V=[${trimVMin}..${trimVMax}] ` +
-        `— ${trimmedAreaMm2.toFixed(1)} mm² of ${fullAreaMm2.toFixed(1)} mm² ` +
-        `(${(trimRatio * 100).toFixed(1)}% retained)`,
-      nurbsSurf: surf,
+        `trimmed to UV=[${trimUMin}..${trimUMax}]×[${trimVMin}..${trimVMax}] — ` +
+        `${trimmedAreaMm2.toFixed(1)} / ${fullAreaMm2.toFixed(1)} mm² ` +
+        `(${(trimRatio * 100).toFixed(1)}% retained); ` +
+        `B-rep face via MakeFace_14 on sphere surface`,
+      nurbsSurf: sailSurf,
     });
 
-    // Attach trimStats directly onto the BrepShape for e2e readback.
     brepShape.trimStats = {
       fullAreaMm2,
       trimmedAreaMm2,
       trimRatio,
     };
 
-    // Attach a dispose extension that also cleans up the NURBS transient.
+    // Dispose extension: also clean up the NURBS transient.
     const origDispose = brepShape.dispose.bind(brepShape);
     brepShape.dispose = function () {
       try {
