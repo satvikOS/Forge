@@ -1467,6 +1467,64 @@ const TOOL_HANDLERS = {
       }
     },
 
+    'Catmull-Clark Subdivide': async (scene, viewport) => {
+      // Catmull-Clark quad-mesh subdivision (arity 1 — requires selected body).
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Catmull-Clark Subdivide');
+        if (cancelled) return { status: 'warn', message: 'Catmull-Clark Subdivide: cancelled' };
+
+        const mesh = await ArchDiscKernel.brep.catmullClarkShape(body, {
+          levels:       values.levels,
+          dihedralDeg:  values.dihedralDeg,
+          quadAngleDeg: values.quadAngleDeg,
+        });
+
+        // Build Three.js BufferGeometry from the refined typed arrays.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(mesh.normals, 3));
+        geom.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x9aa3ad,
+          metalness: 0.3,
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+        });
+        const m3 = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);   // mm → m
+        group.add(m3);
+        group.userData.pickable            = true;
+        group.userData.generatedModel      = true;
+        group.userData.catmullClark        = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(group);
+        }
+        // Mirror refined mesh data onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastCatmullClarkMesh = {
+            positions: mesh.positions,
+            normals:   mesh.normals,
+            indices:   mesh.indices,
+            stats:     mesh.stats,
+          };
+        }
+
+        const s = mesh.stats;
+        return {
+          status: 'success',
+          message: `Catmull-Clark: ${s.baseTris}→${s.refinedQuads} quads, ${values.levels} levels via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Catmull-Clark Subdivide: ' + err.message };
+      }
+    },
+
     'Retopo Surface': async (scene, viewport) => {
       // Isotropic remeshing (Botsch-Kobbelt 2004) — arity 1, requires selected body.
       try {

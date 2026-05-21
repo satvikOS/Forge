@@ -86,8 +86,9 @@ const TABS = {
       ]},
       { label: 'Surface', tools: [
         { name: 'Thicken', icon: '⧈', key: 'surface' },
-        { name: 'Subdivide Surface', icon: '◈', key: 'surface' },
-        { name: 'Retopo Surface',    icon: '⬡', key: 'surface' },
+        { name: 'Subdivide Surface',       icon: '◈', key: 'surface' },
+        { name: 'Catmull-Clark Subdivide', icon: '⬧', key: 'surface' },
+        { name: 'Retopo Surface',          icon: '⬡', key: 'surface' },
         { name: 'NURBS Patch',       icon: '〜', key: 'surface' },
         { name: 'Refine NURBS',      icon: '⊡', key: 'surface' },
         { name: 'Elevate NURBS',     icon: '⤴', key: 'surface' },

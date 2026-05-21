@@ -183,6 +183,16 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  'Catmull-Clark Subdivide': {
+    title: 'Catmull-Clark Subdivide — Quad Mesh',
+    blurb: 'Apply Catmull-Clark subdivision to the selected body. Converts triangles to quads, detects creases, and refines. Defaults: 2 levels, 30° crease threshold, 5° quad-pairing angle.',
+    fields: [
+      { name: 'levels',      label: 'Subdivision levels',      type: 'number', default: 2,  unit: '',  min: 1, max: 4,  step: 1,   hint: '1–4 levels; each level 4× quads' },
+      { name: 'dihedralDeg', label: 'Crease threshold',         type: 'number', default: 30, unit: '°', min: 0, max: 90, step: 1,   hint: 'Quad edges sharper than this become creases' },
+      { name: 'quadAngleDeg', label: 'Tri→quad pairing angle', type: 'number', default: 5,  unit: '°', min: 0, max: 45, step: 1,   hint: 'Max dihedral for pairing coplanar triangles into quads' },
+    ],
+  },
+
   // ─── NURBS SURFACE OPS ────────────────────────────────────────────────────
 
   'NURBS Patch': {
