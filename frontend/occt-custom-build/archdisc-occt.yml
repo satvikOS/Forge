@@ -46,11 +46,38 @@ mainBuild:
   # selection the prebuilt `opencascade.full.wasm` was produced with.
   bindings: []
 
-  # emccFlags mirror the upstream `customBuildSchema.py` defaults verbatim.
-  # Listed explicitly so the build is reproducible and self-documenting.
-  #   -flto / -O3                 : link-time optimisation + dead-code elimination
-  #   -fexceptions /
-  #     -sDISABLE_EXCEPTION_CATCHING=0 : OCCT throws C++ exceptions; must be caught
+  # emccFlags — the FINAL LINK flags (buildFromYaml.py appends them verbatim to
+  # the `emcc -lembind <14k objects> -o archdisc-occt.js` master-link command).
+  #
+  # MEMORY FIX (2026-05-21) — the first build attempt was OOM-killed:
+  #   `emcc: error: 'wasm-ld @...rsp' failed (received SIGKILL (-9))`
+  # SIGKILL/-9 on wasm-ld is the Linux OOM killer. The full-OCCT link is a
+  # whole-program LTO codegen of ~14,300 LLVM-bitcode objects (5,387 OCCT
+  # sources + 8,975 Embind bindings); with `-flto -O3` wasm-ld + wasm-opt hold
+  # the entire program IR live and peak at 10-12 GB+ (emscripten#14485,
+  # emscripten#15921). Docker Desktop's WSL 2 VM defaults to ~8 GB on this
+  # 15.4 GB host, so the linker was killed. The `strtoll_l` "Diagnostic
+  # Messages" in the log are unrelated, non-fatal libclang parse noise.
+  #
+  # Two-part fix:
+  #   1. Raise the VM memory ceiling — see `.wslconfig` in this directory
+  #      (memory=13GB). REQUIRED: `wsl --shutdown` then restart Docker Desktop
+  #      so the new ceiling takes effect before launching the build.
+  #   2. Cut linker peak memory via the flags below:
+  #      - `-flto` REMOVED        : the dominant wasm-ld memory consumer. The
+  #                                 input .o are still LTO bitcode (compiled by
+  #                                 the image), so wasm-ld must still run LTO
+  #                                 codegen — but dropping the program-level
+  #                                 `-flto` request avoids the most aggressive
+  #                                 whole-program merge pass.
+  #      - `-O3` -> `-O2`         : `-O3` whole-program opt holds more IR live
+  #                                 in both wasm-ld LTO codegen and wasm-opt.
+  #                                 `-O2` keeps full dead-code elimination
+  #                                 (output stays ~48 MB) at much lower peak.
+  #      - `-Wl,--lto-O1`         : explicitly caps the LTO backend opt level,
+  #                                 the single biggest lever on wasm-ld RSS.
+  #   Other flags are the upstream `customBuildSchema.py` defaults verbatim:
+  #   -fexceptions / -sDISABLE_EXCEPTION_CATCHING=0 : OCCT throws C++ exceptions
   #   -sEXPORT_ES6=1              : ESM module (Vite `import ocFactory from ...`)
   #   -sUSE_ES6_IMPORT_META=0     : required for the Vite/Electron bundler path
   #   -sEXPORTED_RUNTIME_METHODS=['FS'] : virtual FS used for STEP/IGES I/O
@@ -59,10 +86,10 @@ mainBuild:
   #   -sLLD_REPORT_UNDEFINED     : surface undefined symbols at link time
   #   --no-entry                 : library module, no main()
   emccFlags:
-    - -flto
     - -fexceptions
     - -sDISABLE_EXCEPTION_CATCHING=0
-    - -O3
+    - -O2
+    - -Wl,--lto-O1
     - -sEXPORT_ES6=1
     - -sUSE_ES6_IMPORT_META=0
     - -sEXPORTED_RUNTIME_METHODS=['FS']

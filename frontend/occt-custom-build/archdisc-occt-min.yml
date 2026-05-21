@@ -1,0 +1,14 @@
+# ArchDisc custom OCCT WASM build — MINIMAL ISOLATION CONFIG
+# =============================================================================
+# Purpose: diagnostic only. Strips the 13 custom emccFlags and the
+# additionalCppCode Handle helper from archdisc-occt.yml, so the run is as
+# close as possible to the upstream `builds/opencascade.full.yml`.
+#
+# Used to isolate whether the build failure was caused by our additions
+# (emccFlags / additionalCppCode) or by the image/environment. It is NOT the
+# production config — see archdisc-occt.yml for that.
+# =============================================================================
+mainBuild:
+  name: archdisc-occt.js
+  bindings: []
+generateTypescriptDefinitions: true

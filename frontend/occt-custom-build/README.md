@@ -73,7 +73,53 @@ required beyond the two-line loader swap below.
   `docker run --rm hello-world` prints the success banner.
 - Disk: ~10 GB free (image ~1.7 GB compressed / ~5 GB on disk, plus build
   scratch).
+- **RAM: the Docker/WSL 2 VM must be allowed ≥ 12 GB** — see the next section.
 - Time: plan an overnight run.
+
+---
+
+## The `strtoll_l` OOM failure and its fix (2026-05-21)
+
+The first build attempt **failed**. Root cause, from `build.log`:
+
+```
+emcc: error: '/emsdk/upstream/bin/wasm-ld @/tmp/...rsp' failed (received SIGKILL (-9))
+```
+
+`SIGKILL` / exit `-9` on `wasm-ld` is the **Linux OOM killer**. The full-OCCT
+final link is a whole-program LTO codegen of **~14,300 LLVM-bitcode objects**
+(5,387 OCCT source `.o` + 8,975 Embind binding `.o` + the custom-code `.o`).
+With `-flto -O3`, `wasm-ld` and the post-link `wasm-opt` hold the entire
+program IR live and peak at **10–12 GB+** (see emscripten issues #14485,
+#15921). Docker Desktop's WSL 2 VM defaults to ~50 % of host RAM — **~8 GB on
+this 15.4 GB machine** — so the linker was killed mid-link.
+
+> The repeated `static declaration of 'strtoll_l' follows non-static
+> declaration` lines under `Diagnostic Messages:` are **not** the failure.
+> They are non-fatal libclang *parse* diagnostics: `generateBindings.py`'s
+> `parse()` prints `translationUnit.diagnostics` for information and returns
+> the TU unconditionally — it never checks for errors. They are a known
+> emscripten 3.1.14 `<locale>` / musl `xlocale.h` header quirk and appear in
+> the upstream full build too (the same image produced the shipped prebuilt).
+
+**The fix has two parts, both already applied in this directory:**
+
+1. **Raise the VM memory ceiling** — `..\..\..\.wslconfig` (i.e.
+   `C:\Users\<you>\.wslconfig`) was created with `memory=13GB`, `swap=4GB`.
+   After editing it you **must** apply it:
+
+   ```powershell
+   wsl --shutdown
+   # then restart Docker Desktop from the Start menu
+   docker info --format '{{.MemTotal}}'   # expect ~13000000000, not ~8000000000
+   ```
+
+2. **Lower link-time memory** — `archdisc-occt.yml` `emccFlags` were changed:
+   `-flto` removed, `-O3` → `-O2`, `-Wl,--lto-O1` added. This keeps full
+   dead-code elimination (output stays ~48 MB) while cutting `wasm-ld` /
+   `wasm-opt` peak RSS substantially. See the comment block in the yml.
+
+Do **not** launch the build until `docker info` reports the raised memory.
 
 ---
 

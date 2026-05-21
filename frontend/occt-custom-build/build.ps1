@@ -37,6 +37,18 @@ try { docker info *> $null } catch {
   throw "Docker is not running. Start Docker Desktop and retry."
 }
 
+# --- Memory pre-flight -------------------------------------------------------
+# The full-OCCT link OOM-killed wasm-ld on the first attempt (~8 GB VM ceiling).
+# .wslconfig raises it to 13 GB; verify the running VM actually picked it up.
+$memBytes = [int64](docker info --format '{{.MemTotal}}')
+$memGB    = [math]::Round($memBytes / 1GB, 1)
+Write-Host "  docker VM memory : $memGB GB"
+if ($memBytes -lt 11GB) {
+  throw ("Docker VM has only $memGB GB — the full-OCCT link needs >=12 GB or " +
+         "wasm-ld is OOM-killed (SIGKILL -9). Edit ~/.wslconfig (memory=13GB), " +
+         "then run 'wsl --shutdown' and restart Docker Desktop. See README.md.")
+}
+
 $haveImage = (docker images -q $Image)
 if (-not $haveImage) {
   Write-Host "Image not cached locally. Pulling (large, ~1.7 GB compressed)..." -ForegroundColor Yellow

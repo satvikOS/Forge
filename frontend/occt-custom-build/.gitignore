@@ -2,3 +2,7 @@
 archdisc-occt.js
 archdisc-occt.wasm
 archdisc-occt.d.ts
+
+# Build logs — large, machine-specific; do NOT commit.
+build.log
+min-build.log
