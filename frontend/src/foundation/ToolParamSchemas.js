@@ -120,9 +120,18 @@ export const TOOL_PARAM_SCHEMAS = {
 
   'Draft': {
     title: 'Draft — Mould Taper',
-    blurb: 'Apply a draft angle to the side faces of the selected body. Default: 5°.',
+    blurb: 'Taper the side faces of the selected body about a fully parametric neutral (parting) plane. Defaults: 5° about the z=0 plane, pulled +Z.',
     fields: [
       { name: 'angleDeg', label: 'Draft angle', type: 'number', default: 5, unit: '°', min: 0.1, max: 30, step: 0.5 },
+      { name: 'neutralOriginX', label: 'Neutral plane origin X', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1, hint: 'parting-plane reference point' },
+      { name: 'neutralOriginY', label: 'Neutral plane origin Y', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'neutralOriginZ', label: 'Neutral plane origin Z', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'neutralNormalX', label: 'Neutral plane normal X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'parting-plane normal — any orientation' },
+      { name: 'neutralNormalY', label: 'Neutral plane normal Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'neutralNormalZ', label: 'Neutral plane normal Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'pullDirX', label: 'Pull direction X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'demould / draw direction' },
+      { name: 'pullDirY', label: 'Pull direction Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'pullDirZ', label: 'Pull direction Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
     ],
   },
 

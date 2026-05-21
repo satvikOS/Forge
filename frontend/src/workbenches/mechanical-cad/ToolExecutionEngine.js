@@ -1146,11 +1146,37 @@ const TOOL_HANDLERS = {
         const [body] = _pickBodies(1);
         const { values, cancelled } = await requestToolParams('Draft');
         if (cancelled) return { status: 'warn', message: 'Draft: cancelled' };
-        const result = await ArchDiscKernel.brep.draft(body, values.angleDeg);
+        // Fully parametric neutral plane + pull direction (parity-audit P3):
+        // the dialog supplies the neutral-plane origin/normal and the pull
+        // direction; defaults reproduce the legacy z=0 / +Z behaviour.
+        const draftOpts = {
+          neutralOrigin: [
+            Number(values.neutralOriginX) || 0,
+            Number(values.neutralOriginY) || 0,
+            Number(values.neutralOriginZ) || 0,
+          ],
+          neutralNormal: [
+            Number.isFinite(values.neutralNormalX) ? values.neutralNormalX : 0,
+            Number.isFinite(values.neutralNormalY) ? values.neutralNormalY : 0,
+            Number.isFinite(values.neutralNormalZ) ? values.neutralNormalZ : 1,
+          ],
+          pullDir: [
+            Number.isFinite(values.pullDirX) ? values.pullDirX : 0,
+            Number.isFinite(values.pullDirY) ? values.pullDirY : 0,
+            Number.isFinite(values.pullDirZ) ? values.pullDirZ : 1,
+          ],
+        };
+        const result = await ArchDiscKernel.brep.draft(body, values.angleDeg, draftOpts);
         // Consuming op: Draft transforms `body` into `result` — drop the original.
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Draft: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
+        const dp = (result.meta && result.meta.params) || {};
+        const nrm = dp.neutralNormal || [0, 0, 1];
+        return {
+          status: 'success',
+          message: `Draft: ${dp.draftedFaces || '?'} face(s) tapered ${values.angleDeg}° about neutral plane ` +
+            `n=(${nrm.map(c => c.toFixed(2)).join(',')}) — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel`,
+        };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Draft: ' + err.message };
       }

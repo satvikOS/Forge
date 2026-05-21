@@ -237,31 +237,76 @@ export async function offsetShape(brepShape, distance, opts = {}) {
 }
 
 /**
- * Apply a draft angle to the side faces of a solid.
+ * Apply a draft (mould taper) angle to the side faces of a solid about a
+ * FULLY PARAMETRIC neutral plane, pulled along a FULLY PARAMETRIC direction.
+ *
+ * §3.2 "drafting faces" intent: taper angles applied about an arbitrary
+ * parting plane, not just a fixed z=0 / +Z setup. `BRepOffsetAPI_DraftAngle`
+ * (OCCT refman): `Add(F, Direction, Angle, NeutralPlane, Flag)` —
+ *   - `Direction` (gp_Dir) is the pull direction: it indicates the side of
+ *     `NeutralPlane` from which matter is removed (positive angle).
+ *   - `NeutralPlane` (gp_Pln) is the reference plane; the side face is
+ *     inclined through `Angle` about the line of intersection of the plane
+ *     with the face. `gp_Pln` accepts ANY origin + normal — so an arbitrary
+ *     planar parting plane is fully supported by this binding.
+ *
+ * The neutral-plane origin/normal and the pull direction are now caller
+ * parameters. The op also auto-classifies side faces relative to the GIVEN
+ * neutral plane + pull axis (not a hardcoded +Z bbox span), so a draft about
+ * an X- or Y- or skew-oriented parting plane works.
+ *
+ * HONEST RESIDUAL: a NON-planar neutral *surface* (a curved parting surface
+ * for taper on spline faces) needs `BRepOffset_Draft`-level logic that is not
+ * exposed in this `opencascade.js` binding — see parity-audit P3. The
+ * planar-neutral-plane case is what is fully parametric here.
+ *
  * @param {BrepShape} brepShape
- * @param {number} angleDeg  draft angle (degrees)
+ * @param {number} angleDeg  draft angle (degrees, 0–90)
+ * @param {{neutralOrigin?:[number,number,number],
+ *          neutralNormal?:[number,number,number],
+ *          pullDir?:[number,number,number]}} [opts]
+ *        neutralOrigin  neutral-plane origin in mm (default [0,0,0]).
+ *        neutralNormal  neutral-plane normal (default [0,0,1]); also the
+ *                       axis side faces are classified against.
+ *        pullDir        pull / demould direction (default = neutralNormal).
  * @returns {Promise<BrepShape>}
  */
-export async function draft(brepShape, angleDeg) {
+export async function draft(brepShape, angleDeg, opts = {}) {
   if (!brepShape || !brepShape.shape) throw new Error('draft: needs a BrepShape');
   if (!(angleDeg > 0 && angleDeg < 90)) throw new Error(`draft: angle must be 0-90° (got ${angleDeg})`);
+
+  // ── Resolve parametric neutral plane + pull direction ──────────────────────
+  const _vec3 = (v, fallback) => {
+    if (Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)) return v;
+    return fallback;
+  };
+  const nOrigin = _vec3(opts.neutralOrigin, [0, 0, 0]);
+  let nNormal   = _vec3(opts.neutralNormal, [0, 0, 1]);
+  let nNlen = Math.hypot(nNormal[0], nNormal[1], nNormal[2]);
+  if (!(nNlen > 1e-9)) { nNormal = [0, 0, 1]; nNlen = 1; }
+  const nNormalU = [nNormal[0] / nNlen, nNormal[1] / nNlen, nNormal[2] / nNlen];
+  // Pull direction defaults to the neutral-plane normal.
+  let pull = _vec3(opts.pullDir, nNormalU);
+  let pLen = Math.hypot(pull[0], pull[1], pull[2]);
+  if (!(pLen > 1e-9)) { pull = nNormalU.slice(); pLen = 1; }
+  const pullU = [pull[0] / pLen, pull[1] / pLen, pull[2] / pLen];
+
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from kernel-api-A2.md item 4
     const inputShape = brepShape.shape;
     const angleRad   = angleDeg * Math.PI / 180;
 
-    // Step 1: Pull direction +Z
-    const pullDir = track(new oc.gp_Dir_4(0, 0, 1));
+    // Step 1: Pull direction — parametric gp_Dir.
+    const pullDir = track(new oc.gp_Dir_4(pullU[0], pullU[1], pullU[2]));
 
-    // Step 2: Neutral plane = z=0 plane via gp_Ax3_3(origin, normalDir, xDir) → gp_Pln_2(ax3)
-    const origin    = track(new oc.gp_Pnt_3(0, 0, 0));
-    const normalZ   = track(new oc.gp_Dir_4(0, 0, 1));
-    const xDir      = track(new oc.gp_Dir_4(1, 0, 0));
-    const ax3       = track(new oc.gp_Ax3_3(origin, normalZ, xDir));
-    const neutralPlane = track(new oc.gp_Pln_2(ax3));
+    // Step 2: Neutral plane — parametric gp_Pln from (origin, normal).
+    //   gp_Pln_3(gp_Pnt, gp_Dir) builds a plane through `origin` with the
+    //   given normal — any origin + normal accepted.
+    const origin       = track(new oc.gp_Pnt_3(nOrigin[0], nOrigin[1], nOrigin[2]));
+    const planeNormal  = track(new oc.gp_Dir_4(nNormalU[0], nNormalU[1], nNormalU[2]));
+    const neutralPlane = track(new oc.gp_Pln_3(origin, planeNormal));
 
-    // Step 3: Collect all faces via TopExp_Explorer
+    // Step 3: Collect all faces via TopExp_Explorer.
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE;
     const ANY  = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;
     const faceExp = track(new oc.TopExp_Explorer_2(inputShape, FACE, ANY));
@@ -271,16 +316,30 @@ export async function draft(brepShape, angleDeg) {
       faceExp.Next();
     }
 
-    // Step 4: Filter to side faces — faces that span from near z=0 to near the top
-    // Determine overall height of the solid first
+    // Step 4: Classify side faces along the PARAMETRIC pull axis.
+    //   Project the solid bbox corners onto the pull axis to get the extent
+    //   along that axis; a side face is one whose own projected extent spans
+    //   most of that range (i.e. it is roughly parallel to the pull axis).
     const solidBB = track(new oc.Bnd_Box_1());
     oc.BRepBndLib.Add(inputShape, solidBB, false);
-    const solidMin = track(solidBB.CornerMin());
-    const solidMax = track(solidBB.CornerMax());
-    const minZ = solidMin.Z();
-    const maxZ = solidMax.Z();
-    const height = maxZ - minZ;
-    const tol = height * 0.05; // 5% tolerance for face classification
+    const sMin = track(solidBB.CornerMin());
+    const sMax = track(solidBB.CornerMax());
+    // Eight corners of the bbox.
+    const corners = [
+      [sMin.X(), sMin.Y(), sMin.Z()], [sMax.X(), sMin.Y(), sMin.Z()],
+      [sMin.X(), sMax.Y(), sMin.Z()], [sMax.X(), sMax.Y(), sMin.Z()],
+      [sMin.X(), sMin.Y(), sMax.Z()], [sMax.X(), sMin.Y(), sMax.Z()],
+      [sMin.X(), sMax.Y(), sMax.Z()], [sMax.X(), sMax.Y(), sMax.Z()],
+    ];
+    const projAxis = (p) => p[0] * pullU[0] + p[1] * pullU[1] + p[2] * pullU[2];
+    let axisMin = Infinity; let axisMax = -Infinity;
+    for (const c of corners) {
+      const t = projAxis(c);
+      if (t < axisMin) axisMin = t;
+      if (t > axisMax) axisMax = t;
+    }
+    const axisSpan = axisMax - axisMin;
+    const tol = (axisSpan > 1e-9 ? axisSpan : 1) * 0.05; // 5% classification band
 
     const sideFaces = [];
     for (const f of faces) {
@@ -288,29 +347,38 @@ export async function draft(brepShape, angleDeg) {
       oc.BRepBndLib.Add(f, bb, false);
       const fMin = track(bb.CornerMin());
       const fMax = track(bb.CornerMax());
-      const fMinZ = fMin.Z();
-      const fMaxZ = fMax.Z();
-      // A side face spans most of the height (within tol of both bottom and top)
-      if (fMinZ < minZ + tol && fMaxZ > maxZ - tol) {
+      const fc = [
+        [fMin.X(), fMin.Y(), fMin.Z()], [fMax.X(), fMin.Y(), fMin.Z()],
+        [fMin.X(), fMax.Y(), fMin.Z()], [fMax.X(), fMax.Y(), fMin.Z()],
+        [fMin.X(), fMin.Y(), fMax.Z()], [fMax.X(), fMin.Y(), fMax.Z()],
+        [fMin.X(), fMax.Y(), fMax.Z()], [fMax.X(), fMax.Y(), fMax.Z()],
+      ];
+      let fAxisMin = Infinity; let fAxisMax = -Infinity;
+      for (const c of fc) {
+        const t = projAxis(c);
+        if (t < fAxisMin) fAxisMin = t;
+        if (t > fAxisMax) fAxisMax = t;
+      }
+      // A side face spans most of the pull-axis extent (within tol of both ends).
+      if (fAxisMin < axisMin + tol && fAxisMax > axisMax - tol) {
         sideFaces.push(f);
       }
     }
 
     if (sideFaces.length === 0) {
-      throw new Error('draft: no side faces found spanning the full height; input shape may not be prismatic');
+      throw new Error('draft: no side faces found spanning the pull axis; input may not be prismatic relative to the chosen pull direction');
     }
 
-    // Step 5: DraftAngle constructor — _2(shape), NOT undecorated (no accessible ctor)
+    // Step 5: DraftAngle constructor — _2(shape).
     const draftObj = track(new oc.BRepOffsetAPI_DraftAngle_2(inputShape));
 
-    // Step 6: Add each side face
-    // .Add (undecorated, NOT .Add_1 or .Add_2) — exactly 5 args:
-    //   (face: TopoDS_Face, direction: gp_Dir, angle: Real, neutralPlane: gp_Pln, flag: bool)
+    // Step 6: Add each side face with the parametric direction + neutral plane.
+    //   .Add — 5 args: (face, direction: gp_Dir, angle: Real, neutralPlane: gp_Pln, flag).
     for (const sideFace of sideFaces) {
       draftObj.Add(sideFace, pullDir, angleRad, neutralPlane, true);
     }
 
-    // Step 7: Build
+    // Step 7: Build.
     const prBuild = track(new oc.Message_ProgressRange_1());
     draftObj.Build(prBuild);
 
@@ -318,6 +386,16 @@ export async function draft(brepShape, angleDeg) {
     const shape = track(draftObj.Shape());
 
     if (shape.IsNull()) throw new Error('draft: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'draft', params: { angleDeg }, parents: [brepShape.id] });
+    return new BrepShape(shape, {
+      op: 'draft',
+      params: {
+        angleDeg,
+        neutralOrigin: nOrigin,
+        neutralNormal: nNormalU,
+        pullDir: pullU,
+        draftedFaces: sideFaces.length,
+      },
+      parents: [brepShape.id],
+    });
   });
 }
