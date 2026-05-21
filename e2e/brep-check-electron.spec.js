@@ -112,11 +112,16 @@ test('Check + Interference suite: rounded-plate geometry check, bracket-shaft cl
     expect(checkR.selfIntersects).toBe(false);
     expect(checkR.valid).toBe(true);
 
-    // ── Part 2: Interference via ribbon (Assembly tab) ────────────────────────
-    // Artifact: bracket-vs-shaft assembly clash check
-    // User workflow: build Box(40³) [bracket mounting plate] + Cylinder(r=20,h=40) [shaft]
-    // via ribbon → REAL click select both → Assembly tab → Interference.
-    // Both solids start at origin so they necessarily overlap.
+    // ── Part 2: Interference via ribbon (Assembly tab) — §3.6 parity gap P6 ───
+    // Artifact: bracket-vs-shaft assembly clash check.
+    // User workflow: build Box(40³) [bracket mounting plate] + Cylinder(r=20,h=40)
+    // [shaft] via ribbon → REAL click select BOTH bodies → Assembly tab →
+    // Interference. Both solids start at origin so they necessarily overlap.
+    //
+    // P6 gap-closure: the Interference handler is now SELECTION-DRIVEN — it
+    // runs ArchDiscKernel.brep.checkClash on the two USER-SELECTED scene
+    // bodies (no hardcoded demo geometry), renders the interfering zone, and
+    // is a NON-CONSUMING analysis op (both selected bodies stay in the scene).
     console.log('  [2] Building bracket + shaft for Interference check...');
     const bracketId = await buildPrimitive(win, 'Box');
     const shaftId = await buildPrimitive(win, 'Cylinder');
@@ -126,12 +131,26 @@ test('Check + Interference suite: rounded-plate geometry check, bracket-shaft cl
     await dragOrbit(win, { dx: 180, dy: 70 });
     await story.frame('input-bracket-shaft-3d');
 
-    // REAL viewport click on bracket, then add shaft to selection.
+    // REAL viewport click on bracket, then add shaft to selection — the two
+    // bodies the clash check will operate on.
     await clickBody(win, bracketId);
     await addToSelection(win, shaftId);
 
-    // Pre-clear stale result.
-    await win.evaluate(() => { window.__lastInterferenceResult = null; });
+    // Confirm BOTH user-built bodies are really selected (selection-driven).
+    const selBefore = await win.evaluate(() => window.__archdiscRegistry.selectedIds());
+    console.log(`  Selected for Interference: ${JSON.stringify(selBefore)}`);
+    expect(selBefore).toContain(bracketId);
+    expect(selBefore).toContain(shaftId);
+
+    // Body count before the analysis — to prove the op is non-consuming.
+    const bodyCountBefore = await win.evaluate(
+      () => window.__archdiscRegistry.bodies.length);
+
+    // Pre-clear stale results (both the legacy slot and the new e2e slot).
+    await win.evaluate(() => {
+      window.__lastInterferenceResult = null;
+      window.__lastClashCheck = null;
+    });
 
     // Switch to Assembly tab.
     const asmTab = win.locator('button.ribbon-tab').filter({ hasText: /^Assembly$/ });
@@ -146,16 +165,41 @@ test('Check + Interference suite: rounded-plate geometry check, bracket-shaft cl
     await story.frame('before-interference');
     await intBtn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    await win.waitForFunction(() => !!window.__lastInterferenceResult, null, { timeout: 120000 });
+    await win.waitForFunction(() => !!window.__lastClashCheck, null, { timeout: 120000 });
 
     await win.waitForTimeout(300);
     await story.frame('after-interference');
 
-    const intR = await win.evaluate(() => window.__lastInterferenceResult);
-    console.log(`  Interference (bracket vs shaft): clash=${intR.clash}, vol=${intR.interferenceVolume?.toFixed(0)}`);
+    // GAP-CLOSURE assertion — the new selection-driven e2e slot is populated
+    // with a REAL clash verdict from the two selected bodies.
+    const clashR = await win.evaluate(() => window.__lastClashCheck);
+    console.log(`  Interference (bracket vs shaft): clash=${clashR.clash}, ` +
+      `vol=${clashR.interferenceVolume?.toFixed(0)}, zones=${clashR.zoneCount}, ` +
+      `zoneRendered=${clashR.zoneRendered}`);
+    expect(clashR.error, 'clash check must not error').toBeFalsy();
     // Box(40³) and Cylinder(r=20,h=40) both at origin → they overlap.
+    expect(clashR.clash).toBe(true);
+    expect(clashR.interferenceVolume).toBeGreaterThan(0);
+    // The interfering region must be reported as ≥ 1 disjoint zone.
+    expect(clashR.zoneCount).toBeGreaterThanOrEqual(1);
+    // The interfering zone must have been rendered into the scene.
+    expect(clashR.zoneRendered,
+      'the interfering zone must be rendered as a highlighted body').toBe(true);
+    // Legacy slot kept in sync for back-compat.
+    const intR = await win.evaluate(() => window.__lastInterferenceResult);
     expect(intR.clash).toBe(true);
-    expect(intR.interferenceVolume).toBeGreaterThan(0);
+
+    // NON-CONSUMING op: both user-selected bodies must still exist; the only
+    // body-count change is the +1 clash-zone body that was rendered.
+    const bodyCountAfter = await win.evaluate(
+      () => window.__archdiscRegistry.bodies.length);
+    const survivingIds = await win.evaluate(
+      () => window.__archdiscRegistry.bodies.map(b => b.id));
+    console.log(`  Bodies: ${bodyCountBefore} → ${bodyCountAfter}; ids=${JSON.stringify(survivingIds)}`);
+    expect(survivingIds, 'the bracket body must NOT be consumed').toContain(bracketId);
+    expect(survivingIds, 'the shaft body must NOT be consumed').toContain(shaftId);
+    // +1 for the rendered clash zone.
+    expect(bodyCountAfter).toBe(bodyCountBefore + 1);
 
     // ── Part 3: Kernel-direct — self-intersection POSITIVE ────────────────────
     // EXEMPT: no ribbon workflow produces a self-intersecting compound.
