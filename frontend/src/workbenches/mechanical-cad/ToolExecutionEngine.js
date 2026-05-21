@@ -1880,6 +1880,52 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ── Sub-project G: true G2 curvature-continuous surface blend ────────────
+
+    'G2 Blend': async (scene, viewport) => {
+      // Arity 1 — select a body, then fair a G2 blend between two of its edges.
+      // ADDITIVE: the blend surface is added to the scene; the input body is
+      // NOT consumed (addBrepShapeToScene called WITHOUT consumedInputs).
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('G2 Blend');
+        if (cancelled) return { status: 'warn', message: 'G2 Blend: cancelled' };
+
+        const result = await ArchDiscKernel.brep.g2BlendBetweenEdges(body, {
+          edgeIndexA: Math.round(Number(values.edgeA) || 0),
+          edgeIndexB: Math.round(Number(values.edgeB) ?? 2),
+          uSegments:  Math.round(Number(values.uSegments) || 32),
+          vSegments:  Math.round(Number(values.vSegments) || 16),
+        });
+
+        // Render the fairing surface. NO consumedInputs — the parent body must
+        // stay in the scene (G2 Blend adds a surface between two of its edges).
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+
+        const stats = (result.meta && result.meta.g2Stats) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastG2Blend = { stats };
+        }
+
+        const errA = Number.isFinite(stats.boundaryAMaxError)
+          ? stats.boundaryAMaxError.toExponential(2) : 'n/a';
+        const errB = Number.isFinite(stats.boundaryBMaxError)
+          ? stats.boundaryBMaxError.toExponential(2) : 'n/a';
+        return {
+          status: 'success',
+          message:
+            `G2 Blend: curvature-continuous fairing between edge ${stats.edgeIndexA} ` +
+            `and edge ${stats.edgeIndexB} — degree 3×5 NURBS, ${stats.triangleCount} tris, ` +
+            `boundary fit errA=${errA} errB=${errB} mm via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'G2 Blend: ' + err.message,
+        };
+      }
+    },
+
     // ── Sub-project G: Auto-trimming NURBS B-rep face ────────────────────────
 
     'Trimmed NURBS Patch': async (scene, viewport) => {

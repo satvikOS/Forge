@@ -255,6 +255,17 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  'G2 Blend': {
+    title: 'G2 Blend — curvature-continuous fairing surface',
+    blurb: 'Fair a true G2 (curvature-continuous) blend surface between two edges of the selected body. Degree-5-in-v / degree-3-in-u NURBS — matches position, tangent AND curvature at both edges. Adds the fairing surface; the body is kept.',
+    fields: [
+      { name: 'edgeA',     label: 'Edge A index',     type: 'number', default: 0,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the first boundary edge' },
+      { name: 'edgeB',     label: 'Edge B index',     type: 'number', default: 2,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the second boundary edge' },
+      { name: 'uSegments', label: 'U segments',       type: 'number', default: 32, unit: '', min: 8, max: 128, step: 4, hint: 'Tessellation segments across the boundary parameter' },
+      { name: 'vSegments', label: 'V segments',       type: 'number', default: 16, unit: '', min: 4, max: 64,  step: 2, hint: 'Tessellation segments from edge A to edge B' },
+    ],
+  },
+
   // ─── SUB-PROJECT F — FINAL §3 CAPABILITIES ────────────────────────────────
 
   'Sweep Tortuous': {
