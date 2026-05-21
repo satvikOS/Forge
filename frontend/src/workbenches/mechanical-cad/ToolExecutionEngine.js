@@ -1512,16 +1512,24 @@ const TOOL_HANDLERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   surface: {
     'Thicken': async (scene, viewport) => {
-      // Surfacing arity 0 — uses dialog-supplied dimensions only.
+      // Arity 1 — thickens the SELECTED open-surface body (sheet/shell) into a
+      // watertight solid (parity-audit P8). Consuming op: the input surface
+      // becomes the thick solid, so the original body is dropped.
       try {
+        const [body] = _pickBodies(1);
         const { values, cancelled } = await requestToolParams('Thicken');
         if (cancelled) return { status: 'warn', message: 'Thicken: cancelled' };
-        const result = await ArchDiscKernel.brep.thicken(values.width, values.height, values.thickness);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const result = await ArchDiscKernel.brep.thicken(body, values.thickness);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
-        return { status: 'success', message: `Thicken: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
+        const tp = (result.meta && result.meta.params) || {};
+        return {
+          status: 'success',
+          message: `Thicken: open surface (${tp.inputFaceCount || '?'} face[s]) → watertight solid, ` +
+            `t = ${values.thickness} mm, V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel`,
+        };
       } catch (err) {
-        return { status: 'error', message: 'Thicken: ' + err.message };
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Thicken: ' + err.message };
       }
     },
 

@@ -68,53 +68,99 @@ export async function shell(brepShape, thickness) {
 }
 
 /**
- * Thicken a planar sheet of size w×h into a solid slab of `thickness`.
- * @param {number} w  sheet width (mm)
- * @param {number} h  sheet height (mm)
- * @param {number} thickness  (mm)
+ * Thicken a real open-surface body (an open shell or sheet) into a valid
+ * watertight solid of the given wall `thickness`.
+ *
+ * §3.2 "thickening sheets" intent: converting a complex open surface into a
+ * valid watertight solid. `BRepOffsetAPI_MakeThickSolid.MakeThickSolidBySimple`
+ * (OCCT refman) takes `(theS: TopoDS_Shape, theOffsetValue: Real)` and accepts
+ * "Non-closed shell or face" — i.e. ANY open-surface shape. The op therefore
+ * thickens the SELECTED body's actual surface geometry, not an internally
+ * fabricated rectangle (parity-audit P8).
+ *
+ * Robust input handling: a user surface body may arrive as a single FACE, an
+ * open SHELL, or a COMPOUND of faces (e.g. a tessellated NURBS sail patch).
+ * `MakeThickSolidBySimple` thickens a connected face/shell — a compound of
+ * disjoint faces is first sewn into a connected shell via
+ * `BRepBuilderAPI_Sewing` so the whole surface thickens as one solid.
+ *
+ * @param {BrepShape} brepShape  the open-surface body to thicken
+ * @param {number} thickness     wall thickness (mm)
  * @returns {Promise<BrepShape>}
  */
-export async function thicken(w, h, thickness) {
-  if (!(w > 0 && h > 0 && thickness > 0)) {
-    throw new Error(`thicken: w, h, thickness must be positive (got ${w}, ${h}, ${thickness})`);
-  }
+export async function thicken(brepShape, thickness) {
+  if (!brepShape || !brepShape.shape) throw new Error('thicken: needs a BrepShape (the open-surface body to thicken)');
+  if (!(thickness > 0)) throw new Error(`thicken: thickness must be positive (got ${thickness})`);
   const oc = await getOCCT();
   return withScope(() => {
-    // verified sequence from kernel-api-A2.md item 2
-    // Step 1: Build w×h planar face (four corners → edges → wire → face)
-    const p0 = track(new oc.gp_Pnt_3( 0,  0, 0));
-    const p1 = track(new oc.gp_Pnt_3( w,  0, 0));
-    const p2 = track(new oc.gp_Pnt_3( w,  h, 0));
-    const p3 = track(new oc.gp_Pnt_3( 0,  h, 0));
+    const inputShape = brepShape.shape;
 
-    const em01 = track(new oc.BRepBuilderAPI_MakeEdge_3(p0, p1));
-    const e01  = track(em01.Edge());
-    const em12 = track(new oc.BRepBuilderAPI_MakeEdge_3(p1, p2));
-    const e12  = track(em12.Edge());
-    const em23 = track(new oc.BRepBuilderAPI_MakeEdge_3(p2, p3));
-    const e23  = track(em23.Edge());
-    const em30 = track(new oc.BRepBuilderAPI_MakeEdge_3(p3, p0));
-    const e30  = track(em30.Edge());
+    // ── Step 1: Classify the input topology ─────────────────────────────────
+    const TYPE = oc.TopAbs_ShapeEnum;
+    const shapeType = inputShape.ShapeType();
+    const isSolid = (shapeType === TYPE.TopAbs_SOLID || shapeType === TYPE.TopAbs_COMPSOLID);
+    if (isSolid) {
+      throw new Error('thicken: input is already a closed solid — Thicken converts an OPEN surface (sheet/shell) into a solid');
+    }
 
-    const wm = track(new oc.BRepBuilderAPI_MakeWire_1());
-    wm.Add_1(e01); wm.Add_1(e12); wm.Add_1(e23); wm.Add_1(e30);
-    const wire = track(wm.Wire());
+    // Count the faces in the input.
+    const ANY = TYPE.TopAbs_SHAPE;
+    const faceExp = track(new oc.TopExp_Explorer_2(inputShape, TYPE.TopAbs_FACE, ANY));
+    let faceCount = 0;
+    while (faceExp.More()) { faceCount += 1; faceExp.Next(); }
+    if (faceCount === 0) {
+      throw new Error('thicken: the selected body contains no faces to thicken');
+    }
 
-    const fm        = track(new oc.BRepBuilderAPI_MakeFace_15(wire, true));
-    const faceShape = track(fm.Face());
+    // ── Step 2: Resolve a connected face/shell to feed MakeThickSolidBySimple ─
+    //   - single FACE / open SHELL  → use directly (the real open-surface path)
+    //   - COMPOUND of faces         → sew into a connected shell first, so the
+    //     whole tessellated surface thickens as one solid
+    let surfaceShape;
+    if (shapeType === TYPE.TopAbs_FACE || shapeType === TYPE.TopAbs_SHELL) {
+      surfaceShape = inputShape;
+    } else {
+      // Sew every face into a single shell. BRepBuilderAPI_Sewing requires
+      // EXACTLY 5 constructor args in this binding (see BrepFinal.stitchFaces).
+      const sewing = track(new oc.BRepBuilderAPI_Sewing(
+        1e-3,  // tolerance — bridges sub-mm seams between adjacent faces
+        true,  // optionFaceMode
+        true,  // optionBorderMode
+        true,  // optionFreeEdges
+        false, // optionNonManifold
+      ));
+      const addExp = track(new oc.TopExp_Explorer_2(inputShape, TYPE.TopAbs_FACE, ANY));
+      while (addExp.More()) {
+        sewing.Add(track(oc.TopoDS.Face_1(addExp.Current())));
+        addExp.Next();
+      }
+      const prSew = track(new oc.Message_ProgressRange_1());
+      sewing.Perform(prSew);
+      const sewed = track(sewing.SewedShape());
+      if (sewed.IsNull()) {
+        throw new Error('thicken: sewing the surface body into a shell produced a null shape');
+      }
+      // The sewed result is typically a SHELL; if sewing returned a compound
+      // wrapping one shell, unwrap it so MakeThickSolidBySimple gets a shell.
+      if (sewed.ShapeType() === TYPE.TopAbs_COMPOUND) {
+        const shExp = track(new oc.TopExp_Explorer_2(sewed, TYPE.TopAbs_SHELL, ANY));
+        surfaceShape = shExp.More()
+          ? track(oc.TopoDS.Shell_1(shExp.Current()))
+          : sewed;
+      } else {
+        surfaceShape = sewed;
+      }
+    }
 
-    // Step 2: Thicken via MakeThickSolidBySimple(shape, offset) — exactly 2 args
-    // Note: MakeThickSolidBySimple may produce an inward-oriented solid; we fix
-    // the orientation below by calling Reversed() on the result.
+    // ── Step 3: Thicken — MakeThickSolidBySimple(shape, offset), exactly 2 args ─
     const thickObj = track(new oc.BRepOffsetAPI_MakeThickSolid());
-    thickObj.MakeThickSolidBySimple(faceShape, thickness);
+    thickObj.MakeThickSolidBySimple(surfaceShape, thickness);
 
     const prBuild = track(new oc.Message_ProgressRange_1());
     thickObj.Build(prBuild);
 
     if (!thickObj.IsDone()) throw new Error('thicken: MakeThickSolidBySimple did not complete');
     const rawShape = track(thickObj.Shape());
-
     if (rawShape.IsNull()) throw new Error('thicken: kernel produced a null shape');
 
     // MakeThickSolidBySimple may produce an inward-oriented solid whose
@@ -122,7 +168,11 @@ export async function thicken(w, h, thickness) {
     // corrects the face normals so downstream consumers (measure, boolean, …)
     // receive a properly-outward-oriented solid.
     const shape = track(rawShape.Reversed());
-    return new BrepShape(shape, { op: 'thicken', params: { w, h, thickness } });
+    return new BrepShape(shape, {
+      op: 'thicken',
+      params: { thickness, inputFaceCount: faceCount },
+      parents: [brepShape.id],
+    });
   });
 }
 

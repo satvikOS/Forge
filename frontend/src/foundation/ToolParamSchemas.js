@@ -397,11 +397,9 @@ export const TOOL_PARAM_SCHEMAS = {
   // ─── SURFACING (arity 0 — internal profile) ───────────────────────────────
   'Thicken': {
     title: 'Thicken — Sheet to Solid',
-    blurb: 'Thicken a planar sheet into a solid slab. Defaults: 60×40 mm × 3 mm thick.',
+    blurb: 'Thicken the selected open-surface body (sheet / shell) into a watertight solid. Default wall: 3 mm.',
     fields: [
-      { name: 'width',     label: 'Width',     type: 'number', default: 60, unit: 'mm', min: 1, max: 5000, step: 1 },
-      { name: 'height',    label: 'Height',    type: 'number', default: 40, unit: 'mm', min: 1, max: 5000, step: 1 },
-      { name: 'thickness', label: 'Thickness', type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 100, step: 0.5 },
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 3, unit: 'mm', min: 0.1, max: 100, step: 0.5, hint: 'offset applied to the selected open surface' },
     ],
   },
 
