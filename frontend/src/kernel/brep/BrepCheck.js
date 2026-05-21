@@ -9,7 +9,7 @@
  */
 
 import { getOCCT } from './kernelLoader.js';
-import { withScope, track } from './BrepShape.js';
+import { BrepShape, withScope, track } from './BrepShape.js';
 
 /** Volume of a B-rep shape (mm³). Helper — caller is inside a withScope. */
 function shapeVolume(oc, shape) {
@@ -110,21 +110,37 @@ export async function checkSelfIntersection(brepShape) {
 
 /**
  * Detect a clash between two solids. Reports whether they interfere, the
- * overlap (interference) volume in mm³, and the minimum clearance distance
- * in mm (0 when they touch or overlap).
+ * overlap (interference) volume in mm³, the minimum clearance distance in mm
+ * (0 when they touch or overlap), the number of disjoint interfering zones,
+ * and — when `withZone` is set — the interfering region itself as a BrepShape
+ * so the caller can render the exact clash zone.
+ *
+ * `interferenceZone` is the Boolean Common (BRepAlgoAPI_Common) of the two
+ * solids — per the OCCT refman this is precisely the region shared by both
+ * inputs, i.e. the geometry that is double-occupied. `zoneCount` counts the
+ * SOLID components of that region (multiple disjoint interpenetrations).
+ *
  * @param {import('./BrepShape.js').BrepShape} a
  * @param {import('./BrepShape.js').BrepShape} b
- * @returns {Promise<{clash: boolean, interferenceVolume: number, minDistance: number}>}
+ * @param {{withZone?:boolean}} [opts]  withZone (default true) also returns
+ *        the clash region as a BrepShape (null when there is no clash).
+ * @returns {Promise<{clash:boolean, interferenceVolume:number,
+ *          minDistance:number, zoneCount:number,
+ *          interferenceZone:(import('./BrepShape.js').BrepShape|null)}>}
  */
-export async function checkClash(a, b) {
+export async function checkClash(a, b, opts = {}) {
   if (!a || !a.shape || !b || !b.shape) {
     throw new Error('checkClash: both operands must be BrepShapes with live shapes');
   }
   const oc = await getOCCT();
-  return withScope(() => {
-    // interferenceVolume via BRepAlgoAPI_Common_3
-    // Per kernel-api-A3.md Item 4: _3(shapeA, shapeB, pr) + Build(pr2) + Shape() + VolumeProperties
+  const withZone = opts.withZone !== false;
+
+  // Numeric verdict — computed inside a scope that frees every transient.
+  const verdict = await withScope(() => {
+    // interferenceVolume + zoneCount via BRepAlgoAPI_Common_3
+    // Per kernel-api-A3.md Item 4: _3(shapeA, shapeB, pr) + Build + Shape + VolumeProperties
     let interferenceVolume = 0;
+    let zoneCount = 0;
     const pr1 = track(new oc.Message_ProgressRange_1());
     const algo = track(new oc.BRepAlgoAPI_Common_3(a.shape, b.shape, pr1));
     const prBuild = track(new oc.Message_ProgressRange_1());
@@ -133,6 +149,11 @@ export async function checkClash(a, b) {
       const commonShape = algo.Shape();
       if (commonShape && !commonShape.IsNull()) {
         interferenceVolume = Math.abs(shapeVolume(oc, commonShape));
+        // Count disjoint interfering zones = SOLID sub-shapes of the common.
+        const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID;
+        const ANY = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;
+        const exp = track(new oc.TopExp_Explorer_2(commonShape, SOLID, ANY));
+        for (; exp.More(); exp.Next()) zoneCount++;
       }
     }
 
@@ -149,6 +170,37 @@ export async function checkClash(a, b) {
     }
 
     const clash = interferenceVolume > 1e-6;
-    return { clash, interferenceVolume, minDistance };
+    return { clash, interferenceVolume, minDistance, zoneCount };
   });
+
+  // Clash region as a renderable BrepShape — produced in its own scope so the
+  // surviving TopoDS_Shape (reachable from the returned BrepShape) is kept.
+  let interferenceZone = null;
+  if (withZone && verdict.clash) {
+    try {
+      interferenceZone = await withScope(() => {
+        const pr = track(new oc.Message_ProgressRange_1());
+        const common = track(new oc.BRepAlgoAPI_Common_3(a.shape, b.shape, pr));
+        const prB = track(new oc.Message_ProgressRange_1());
+        common.Build(prB);
+        if (!common.IsDone()) return null;
+        const cs = common.Shape();
+        if (!cs || cs.IsNull()) return null;
+        // Independent copy so the BrepShape owns its lifetime.
+        // BRepBuilderAPI_Copy_2(shape, copyGeom, copyMesh) — the 3-arg
+        // constructing overload (empirically verified in this build; the
+        // _1 overload is no-arg only).
+        const copy = track(new oc.BRepBuilderAPI_Copy_2(cs, true, false));
+        const owned = copy.Shape();
+        if (!owned || owned.IsNull()) return null;
+        return new BrepShape(owned, {
+          op: 'clashZone', parents: [a.id, b.id],
+        });
+      });
+    } catch {
+      interferenceZone = null; // zone extraction is best-effort
+    }
+  }
+
+  return { ...verdict, interferenceZone };
 }
