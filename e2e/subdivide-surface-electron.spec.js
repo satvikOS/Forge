@@ -1,7 +1,11 @@
 /**
  * subdivide-surface-electron.spec.js
  *
- * Real-user-workflow test for Loop subdivision on a recognisable engineering artifact.
+ * "Operation in motion" retrofit — Loop subdivision on a real engineering artifact.
+ * Drives everything via real ribbon clicks, REAL viewport body clicks, and drag-orbits.
+ * Records the whole workflow as a .webm video with key-frame stills at each beat.
+ *
+ * ── PATTERN: matches brep-g-catmullclark-electron.spec.js ─────────────────────
  *
  * Artifact: ergonomic handle (smooth-organic from prismatic Extrude Boss)
  *
@@ -12,53 +16,37 @@
  *
  * Focal op: Part tab → Subdivide Surface (levels=2, dihedralDeg=30, deflection=0.5)
  *
- * Assertions:
+ * NOTE: the op INPUT is a B-rep body (clickBody works on it); the op RESULT is a
+ * raw THREE mesh (window.__lastSubdivMesh), NOT a registry body — do NOT clickBody
+ * the result; story.frame + dragOrbit show it instead.
+ *
+ * Assertions (all original ones kept — video/stills are ADDITIVE):
  *   - refinedTris > baseTris × 8  (≥8× growth after 2 Loop steps)
  *   - weldedVerts < baseVerts      (per-face duplicates were merged)
  *   - creaseEdges ≥ 12             (sharp prismatic edges of the Extrude Boss
  *                                   detected at 30° dihedral threshold)
  *   - post-subdivide bbox ≥ 10% of max axis in each axis (no severe pinching)
  *   - captureAllAngles blanks empty, pageErrors empty
+ *   - NEW: the 'input-handle' still and the 'after-subdivide' still both exist
+ *     and are non-trivial in size (> 1 KB).
+ *
+ * Artifacts land in:  test-results/motion/subdivide-surface/
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import { captureAllAngles } from './helpers/orbitCapture.js';
 import {
   clickRibbonTab, clickRibbonTool,
-  buildPrimitive, selectBodies, injectToolParams,
+  buildPrimitive, injectToolParams,
 } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, clickBody, dragOrbit,
+} from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
 
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
-
-/**
- * Get the body-registry ID of the most recently registered body.
- */
-async function getLastRegistryId(win) {
-  return win.evaluate(() => {
-    const reg = window.__archdiscRegistry;
-    if (reg && reg.bodies && reg.bodies.length > 0) {
-      return reg.bodies[reg.bodies.length - 1].id;
-    }
-    return null;
-  });
-}
-
-// ─── Main gate test ──────────────────────────────────────────────────────────
+// ─── Main gate test ───────────────────────────────────────────────────────────
 
 test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude Boss) — Extrude Boss → 2 Loop steps — no pinching, all angles render', async () => {
   // Artifact: ergonomic handle (smooth-organic from prismatic Extrude Boss)
@@ -66,15 +54,20 @@ test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude
   // subdivision (levels=2) to produce the smooth organic form of a moulded
   // ergonomic grip handle. Crease edges at the prismatic transitions (dihedral ≥ 30°)
   // preserve the handle's structural ridge lines while the flat faces are smoothed.
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('subdivide-surface');
   try {
     // ── Step 1: Build Extrude Boss (handle blank, accept defaults) ─────────────
     // Extrude Boss is arity-0: no body selection needed.
     // Defaults: width=80, depth=50, height=25 → 80×50×25 mm prismatic plate.
     const handleId = await buildPrimitive(win, 'Extrude Boss');
+    console.log(`  Extrude Boss (handle blank) id: ${handleId}`);
 
-    // ── Step 2: Compute the Extrude Boss bbox (pre-subdivide) via kernel ─────────
-    // This gives us the reference bbox to check for no-pinching after subdivision.
+    // Key-frame: the input handle blank, then a real drag-orbit to show it in 3D.
+    await story.frame('input-handle');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-handle-3d');
+
+    // ── Step 2: Compute the Extrude Boss bbox (pre-subdivide) via kernel ──────
     const preBbox = await win.evaluate(async () => {
       const m = await window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape);
       // measure() may return {volume, area, faceCount, edgeCount, bbox: {xmin,xmax,...}}
@@ -91,19 +84,28 @@ test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude
     });
     console.log(`  Extrude Boss bbox: dx=${preBbox.dx.toFixed(1)}, dy=${preBbox.dy.toFixed(1)}, dz=${preBbox.dz.toFixed(1)}`);
 
-    // ── Step 3: Clear stale subdivision result, inject params, subdivide ───────
+    // ── Step 3: Select the handle blank with a REAL viewport click ────────────
+    await clickBody(win, handleId);
+
+    // ── Step 4: Clear stale subdivision result, inject params, subdivide ──────
     await win.evaluate(() => { window.__lastSubdivMesh = null; });
-    await selectBodies(win, [handleId]);
     await injectToolParams(win, 'Subdivide Surface', { levels: 2, dihedralDeg: 30, deflection: 0.5 });
 
     await clickRibbonTab(win, 'Part');
-    await win.waitForTimeout(120);
+    await win.waitForTimeout(150);
+    await story.frame('subdivide-dialog');
     await clickRibbonTool(win, 'Subdivide Surface');
 
-    // ── Step 4: Wait for __lastSubdivMesh ───────────────────────────────────────
+    // ── Step 5: Wait for __lastSubdivMesh ─────────────────────────────────────
+    // The result is a raw THREE mesh — NOT a registry body. Do NOT clickBody it.
     await win.waitForFunction(() => !!window.__lastSubdivMesh, null, { timeout: 120000 });
+    await win.waitForTimeout(400);
+    // Show the subdivided mesh with a drag-orbit (it is rendered in the viewport).
+    await story.frame('after-subdivide');
+    await dragOrbit(win, { dx: -200, dy: 80 });
+    await story.frame('after-subdivide-3d');
 
-    // ── Step 5: Triangle-count growth ──────────────────────────────────────────
+    // ── Step 6: Triangle-count growth assertions ───────────────────────────────
     const stats = await win.evaluate(() => window.__lastSubdivMesh.stats);
     console.log(`  Subdiv stats: baseTris=${stats.baseTris}, refinedTris=${stats.refinedTris}, weldedVerts=${stats.weldedVerts}, baseVerts=${stats.baseVerts}, creaseEdges=${stats.creaseEdges}`);
 
@@ -116,9 +118,7 @@ test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude
     // The Extrude Boss has 12 sharp prismatic edges — all detected at 30° threshold.
     expect(stats.creaseEdges).toBeGreaterThanOrEqual(12);
 
-    // ── Step 6: No-pinching bbox check ─────────────────────────────────────────
-    // The subdivided mesh positions must span ≥ 10% of the max axis extent in
-    // each axis. This guards against corner collapse that halves the bbox.
+    // ── Step 7: No-pinching bbox check ────────────────────────────────────────
     const postBbox = await win.evaluate(() => {
       const p = window.__lastSubdivMesh.positions;
       const mn = [Infinity,  Infinity,  Infinity];
@@ -136,19 +136,32 @@ test('Subdivide Surface: ergonomic handle (smooth-organic from prismatic Extrude
     // Each axis must be > 0 (non-degenerate) and ≥ 10% of the max axis
     // (no severe pinching in any single direction).
     const maxAxis = Math.max(postBbox.dx, postBbox.dy, postBbox.dz);
-    expect(postBbox.dx).toBeGreaterThan(maxAxis * 0.10); // no axis collapsed > 90%
+    expect(postBbox.dx).toBeGreaterThan(maxAxis * 0.10);
     expect(postBbox.dy).toBeGreaterThan(maxAxis * 0.10);
     expect(postBbox.dz).toBeGreaterThan(maxAxis * 0.10);
 
-    // ── Step 7: Multi-angle render — no blank frames, no page errors ────────────
-    const cap = await captureAllAngles(win, 'subdivide-handle', {
-      azimuths:   [0, 60, 120, 180, 240, 300],
-      elevations: [-30, 30],
-      zooms:      [0.6, 1.0, 1.8],
-    });
+    // ── Step 8: Multi-angle render via REAL drag-orbits — no blank frames ──────
+    const cap = await captureAllAngles(win, 'subdivide-handle', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Step 9: Verify the storyboard stills exist and are non-trivial ────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input-handle\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-subdivide\.png$/.test(f));
+    expect(inputStill, 'an input-handle still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-subdivide still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-subdivide still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+
   } finally {
     await app.close();
+    // finish() resolves + renames the recorded video — MUST run after close.
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
