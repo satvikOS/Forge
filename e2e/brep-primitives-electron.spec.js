@@ -1,12 +1,25 @@
 /**
  * brep-primitives-electron.spec.js
  *
- * Real-user-workflow tests for solid primitives.
+ * "Operation in motion" test for solid primitives — all four in one workflow.
  * Every geometry op is invoked by clicking the real ribbon tool button
- * (Part tab, Solid Primitives group) and filling the ToolParamDialog —
- * NOT by calling kernel APIs directly.
+ * (Part tab, Solid Primitives group) and filling the ToolParamDialog.
  *
- * Each primitive IS the artifact at its simplest — no composite needed.
+ * ── MOTION-CAPTURE PATTERN (see brep-g-catmullclark-electron.spec.js) ────────
+ * - launchWithCapture() records the whole workflow as a .webm video.
+ * - story.frame(label) drops NN-<label>.png stills at each meaningful beat.
+ * - dragOrbit() shows each model in 3D with real drag gestures.
+ * - captureAllAngles() does real drag-orbits for the closing orbit sweep.
+ * - NOTE: no clickBody() is used here. All four primitives are arity-0
+ *   creation ops — they construct geometry from scratch with no input body
+ *   selection. A user simply picks the Part tab and clicks the tool.
+ *
+ * All four primitives are exercised in a single session to avoid the
+ * Playwright Electron recordVideo teardown race that affects back-to-back
+ * multi-test files (each would launch its own Electron instance and the
+ * second app's screenshots would silently not write).
+ *
+ * Artifacts: test-results/motion/brep-primitives/ (00-session.webm + NN-*.png)
  *
  * Under Playwright (navigator.webdriver=true) the ToolParamDialog
  * auto-resolves with schema defaults immediately. Effective defaults:
@@ -16,137 +29,103 @@
  *   Torus     : R=30 r=10         → V = 2π²×30×100 ≈ 59 218 mm³
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import { captureAllAngles } from './helpers/orbitCapture.js';
 import { buildPrimitive } from './helpers/uiWorkflow.js';
+import { launchWithCapture, dragOrbit } from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
 
-const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
+// ─── All four primitives in one motion-capture session ───────────────────────
 
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
-
-// ─── Cylinder ────────────────────────────────────────────────────────────────
-
-test('cylinder: cylindrical pin / shaft stub — ribbon click builds r=20 h=40 cylinder, volume ≈ 50 265 mm³', async () => {
-  // Artifact: cylindrical pin / shaft stub
-  // A solid cylinder (r=20 mm, h=40 mm) as used for a locating pin, shaft stub,
-  // or bearing journal. The simplest rotational solid in any machine assembly.
-  const { app, win, pageErrors } = await launch();
+test('primitives: Cylinder, Sphere, Cone, Torus — ribbon clicks build all four primitives with correct volumes', async () => {
+  // Arity-0: no clickBody needed for any primitive — each is a creation op.
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-primitives');
   try {
-    // Build via real ribbon click + dialog (defaults: r=20 h=40).
+
+    // ── Cylinder (pin/shaft stub) ─────────────────────────────────────────────
     await buildPrimitive(win, 'Cylinder');
+    await story.frame('input-cylinder');
+    await dragOrbit(win, { dx: 200, dy: 80 });
+    await story.frame('cylinder-3d');
 
-    const m = await win.evaluate(async () =>
+    const cyl = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Cylinder (pin/shaft stub): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Cylinder (pin/shaft stub): vol=${cyl.volume.toFixed(0)}, faces=${cyl.faceCount}`);
     // r=20 h=40 → π×400×40 = 50 265.48 mm³, ±10 %
-    expect(m.volume).toBeGreaterThan(45239);
-    expect(m.volume).toBeLessThan(55292);
-    expect(m.faceCount).toBeGreaterThanOrEqual(3); // top, bottom, lateral
+    expect(cyl.volume).toBeGreaterThan(45239);
+    expect(cyl.volume).toBeLessThan(55292);
+    expect(cyl.faceCount).toBeGreaterThanOrEqual(3); // top, bottom, lateral
 
-    const cap = await captureAllAngles(win, 'cylinder', SWEEP);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
-
-// ─── Sphere ──────────────────────────────────────────────────────────────────
-
-test('sphere: ball joint / bearing ball — ribbon click builds r=25 sphere, volume ≈ 65 450 mm³', async () => {
-  // Artifact: ball joint / bearing ball
-  // A solid sphere (r=25 mm) as used for a ball-joint socket mating surface,
-  // a precision bearing ball, or a spherical end cap on a linkage rod.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // Build via real ribbon click + dialog (defaults: r=25).
+    // ── Sphere (ball joint / bearing ball) ───────────────────────────────────
     await buildPrimitive(win, 'Sphere');
+    await story.frame('input-sphere');
+    await dragOrbit(win, { dx: -180, dy: 80 });
+    await story.frame('sphere-3d');
 
-    const m = await win.evaluate(async () =>
+    const sph = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Sphere (ball joint/bearing ball): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Sphere (ball joint/bearing ball): vol=${sph.volume.toFixed(0)}, faces=${sph.faceCount}`);
     // r=25 → (4/3)π×15625 = 65 449.85 mm³, ±10 %
-    expect(m.volume).toBeGreaterThan(58905);
-    expect(m.volume).toBeLessThan(71995);
-    expect(m.faceCount).toBeGreaterThanOrEqual(1);
+    expect(sph.volume).toBeGreaterThan(58905);
+    expect(sph.volume).toBeLessThan(71995);
+    expect(sph.faceCount).toBeGreaterThanOrEqual(1);
 
-    const cap = await captureAllAngles(win, 'sphere', SWEEP);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
-
-// ─── Cone ────────────────────────────────────────────────────────────────────
-
-test('cone: tapered locator / cone insert — ribbon click builds r1=25 r2=8 h=45 cone, positive volume', async () => {
-  // Artifact: tapered locator / cone insert
-  // A frustum cone (r1=25, r2=8, h=45 mm) as used for a tapered locating pin,
-  // a conical insert for alignment in fixture plates, or a funnel entry geometry.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // Build via real ribbon click + dialog (defaults: r1=25 r2=8 h=45).
+    // ── Cone (tapered locator / cone insert) ──────────────────────────────────
     await buildPrimitive(win, 'Cone');
+    await story.frame('input-cone');
+    await dragOrbit(win, { dx: 200, dy: -80 });
+    await story.frame('cone-3d');
 
-    const m = await win.evaluate(async () =>
+    const con = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Cone (tapered locator): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
-    // r1=25 r2=8 h=45 → π×15×(625+200+64) = π×15×889 ≈ 41 918 mm³, ±10 %
-    expect(m.volume).toBeGreaterThan(37726);
-    expect(m.volume).toBeLessThan(46110);
-    expect(m.faceCount).toBeGreaterThanOrEqual(2); // cone lateral + caps
+    console.log(`  Cone (tapered locator): vol=${con.volume.toFixed(0)}, faces=${con.faceCount}`);
+    // r1=25 r2=8 h=45 → π×15×(625+200+64) ≈ 41 918 mm³, ±10 %
+    expect(con.volume).toBeGreaterThan(37726);
+    expect(con.volume).toBeLessThan(46110);
+    expect(con.faceCount).toBeGreaterThanOrEqual(2); // cone lateral + caps
 
-    const cap = await captureAllAngles(win, 'cone', SWEEP);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
-
-// ─── Torus ───────────────────────────────────────────────────────────────────
-
-test('torus: O-ring / wheel rim — ribbon click builds R=30 r=10 torus, volume ≈ 59 218 mm³', async () => {
-  // Artifact: O-ring / wheel rim
-  // A solid torus (R=30 mm, r=10 mm) as used for an O-ring seal profile,
-  // a wheel rim cross-section, or a circular gasket blank.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // Build via real ribbon click + dialog (defaults: majorRadius=30 minorRadius=10).
+    // ── Torus (O-ring / wheel rim) ────────────────────────────────────────────
     await buildPrimitive(win, 'Torus');
+    await story.frame('input-torus');
+    await dragOrbit(win, { dx: -200, dy: -80 });
+    await story.frame('torus-3d');
 
-    const m = await win.evaluate(async () =>
+    const tor = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Torus (O-ring/wheel rim): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Torus (O-ring/wheel rim): vol=${tor.volume.toFixed(0)}, faces=${tor.faceCount}`);
     // R=30 r=10 → 2π²×30×100 = 59 217.61 mm³, ±10 %
-    expect(m.volume).toBeGreaterThan(53296);
-    expect(m.volume).toBeLessThan(65139);
-    expect(m.faceCount).toBeGreaterThanOrEqual(1);
+    expect(tor.volume).toBeGreaterThan(53296);
+    expect(tor.volume).toBeLessThan(65139);
+    expect(tor.faceCount).toBeGreaterThanOrEqual(1);
 
-    const cap = await captureAllAngles(win, 'torus', SWEEP);
+    // ── Closing orbit sweep of the torus (last built) ─────────────────────────
+    const cap = await captureAllAngles(win, 'primitives-torus', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify the storyboard stills exist and are non-trivial ────────────────
+    const stills = story.frames();
+    const cylStill = stills.find(f => /-input-cylinder\.png$/.test(f));
+    const torStill = stills.find(f => /-input-torus\.png$/.test(f));
+    expect(cylStill,  'a cylinder input still must have been captured').toBeTruthy();
+    expect(torStill,  'a torus input still must have been captured').toBeTruthy();
+    expect(fs.statSync(cylStill).size,
+      'cylinder still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(torStill).size,
+      'torus still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    // finish() resolves + renames the recorded video — MUST run after close.
+    const sess = await story.finish();
+    // The session video must exist and be non-trivial.
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
