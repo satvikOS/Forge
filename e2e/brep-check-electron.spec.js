@@ -3,263 +3,257 @@
  *
  * A3 gate: geometry checking and interference detection.
  *
- * User-workflow tests (ribbon clicks with real-world artifacts):
- *   - Check Geometry (Manufacture tab): Box→Fillet → "rounded plate" → validate
+ * ── PATTERN: matches brep-g-catmullclark-electron.spec.js ──────────────────
+ * Records the whole workflow as a .webm video with key-frame stills at each
+ * beat. REAL viewport clicks + drag-orbits show the operation in motion.
+ *
+ * ONE consolidated test — all checks in a single session:
+ *
+ * USER-WORKFLOW tests (ribbon clicks with real-world artifacts):
+ *   - Check Geometry (Manufacture tab): Box→Fillet(r=2) → rounded plate → validate
  *     Asserts window.__lastGeometryCheck.selfIntersects===false, valid===true
  *   - Interference (Assembly tab): Box [bracket] + Cylinder [shaft] → clash check
  *     Asserts window.__lastInterferenceResult.clash===true, interferenceVolume>0
  *
- * Kernel-direct tests (EXEMPT — no ribbon workflow can produce these inputs):
+ * KERNEL-DIRECT tests (EXEMPT — no ribbon workflow produces these inputs):
  *   - self-intersection POSITIVE: overlapping-compound via translate+makeCompound
  *   - clash POSITIVE: two translated overlapping solids
  *   - clash NEGATIVE (disjoint): two solids with 30mm clearance gap
  *   - leak guard: checkSelfIntersection 25× — WASM lifecycle
+ *
+ * Artifacts land in:  test-results/motion/brep-check/
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import {
   clickRibbonTab, clickRibbonTool,
-  buildPrimitive, selectBodies, injectToolParams,
+  buildPrimitive, injectToolParams,
 } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, clickBody, addToSelection, dragOrbit,
+} from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
 
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
-
-// ─── Check Geometry via ribbon (Manufacture tab) ──────────────────────────────
-
-test('ribbon: Check Geometry tool (Manufacture tab) reports no self-intersection on rounded plate', async () => {
-  // Artifact: validly-modelled rounded plate (Box + Fillet)
-  // User workflow: Part tab → Box → select → Fillet(radius:2) → Manufacture tab → Check Geometry.
-  // Checks a properly-modelled part (not a default internal box).
-  const { app, win, pageErrors } = await launch();
+test('Check + Interference suite: rounded-plate geometry check, bracket-shaft clash, kernel-direct diagnostics', async () => {
+  // Single-session recording: all geometry checks + interference + kernel-direct tests.
+  // The ribbon-workflow tests capture full REAL click/orbit motion; kernel-direct
+  // tests are exempt from user-workflow requirements (WASM lifecycle probes).
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-check');
   try {
-    // 1. Build a 40³ box via ribbon.
+
+    // ── Part 1: Check Geometry via ribbon (Manufacture tab) ───────────────────
+    // Artifact: validly-modelled rounded plate (Box + Fillet)
+    // User workflow: Part tab → Box → REAL click select → Fillet(radius:2)
+    //   → Manufacture tab → Check Geometry.
+    console.log('  [1] Building rounded plate for Check Geometry...');
     const boxId = await buildPrimitive(win, 'Box');
 
-    // 2. Select the box and apply Fillet (radius=2) → rounded plate.
-    await selectBodies(win, [boxId]);
+    // Key-frame: input box before fillet.
+    await story.frame('input-box');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-box-3d');
+
+    // REAL viewport click to select the box for Fillet.
+    await clickBody(win, boxId);
     const idBeforeFillet = await win.evaluate(
       () => window.__lastBrepShape && window.__lastBrepShape.id,
     );
     await injectToolParams(win, 'Fillet', { radius: 2 });
     await clickRibbonTab(win, 'Part');
     await win.waitForTimeout(120);
+    await story.frame('before-fillet');
     await clickRibbonTool(win, 'Fillet');
     await win.waitForFunction(
       (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
       idBeforeFillet,
       { timeout: 60000 },
     );
-    const filletedId = await win.evaluate(
-      () => window.__lastBrepShape && window.__lastBrepShape.id,
-    );
+    // Get the registry body ID (body-NNN format) for clickBody — NOT the brep shape id.
+    const filletedId = await win.evaluate(() => {
+      const reg = window.__archdiscRegistry;
+      if (reg && reg.bodies && reg.bodies.length > 0) {
+        return reg.bodies[reg.bodies.length - 1].id;
+      }
+      return window.__lastBrepShape && window.__lastBrepShape.id;
+    });
 
-    // 3. Pre-clear stale result.
+    await win.waitForTimeout(300);
+    await story.frame('after-fillet');
+
+    // Pre-clear stale result.
     await win.evaluate(() => { window.__lastGeometryCheck = null; });
 
-    // 4. Select the filleted body and run Check Geometry (Manufacture tab).
-    const regLen = await win.evaluate(
-      () => window.__archdiscRegistry ? window.__archdiscRegistry.bodies.length : 0,
-    );
-    if (regLen > 0) {
-      await selectBodies(win, [
-        await win.evaluate(
-          () => window.__archdiscRegistry.bodies[window.__archdiscRegistry.bodies.length - 1].id,
-        ),
-      ]);
-    }
+    // REAL viewport click to select the filleted body before Check Geometry.
+    await clickBody(win, filletedId);
 
-    // 5. Switch to Manufacture tab.
+    // Switch to Manufacture tab.
     const mfgTab = win.locator('button.ribbon-tab').filter({ hasText: /^Manufacture$/ });
     await expect(mfgTab).toBeVisible({ timeout: 30000 });
     await mfgTab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // 6. Click Check Geometry ribbon tool.
-    const re = /^Check Geometry$/;
-    const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-      has: win.locator('.ribbon-tool-label', { hasText: re }),
+    // Click Check Geometry ribbon tool.
+    const checkBtn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
+      has: win.locator('.ribbon-tool-label', { hasText: /^Check Geometry$/ }),
     }).first();
-    await expect(btn).toBeVisible({ timeout: 30000 });
-    await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await expect(checkBtn).toBeVisible({ timeout: 30000 });
+    await story.frame('before-check-geometry');
+    await checkBtn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // 7. Wait for the handler to set window.__lastGeometryCheck.
     await win.waitForFunction(() => !!window.__lastGeometryCheck, null, { timeout: 120000 });
 
-    const r = await win.evaluate(() => window.__lastGeometryCheck);
-    console.log(`  Check Geometry (rounded plate): selfIntersects=${r.selfIntersects}, valid=${r.valid}`);
+    await win.waitForTimeout(300);
+    await story.frame('after-check-geometry');
+
+    const checkR = await win.evaluate(() => window.__lastGeometryCheck);
+    console.log(`  Check Geometry (rounded plate): selfIntersects=${checkR.selfIntersects}, valid=${checkR.valid}`);
     // A Box + Fillet must report clean geometry.
-    expect(r.selfIntersects).toBe(false);
-    expect(r.valid).toBe(true);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
+    expect(checkR.selfIntersects).toBe(false);
+    expect(checkR.valid).toBe(true);
 
-// ─── Interference via ribbon (Assembly tab) ───────────────────────────────────
-
-test('ribbon: Interference tool (Assembly tab) detects clash between bracket (box) and shaft (cylinder)', async () => {
-  // Artifact: bracket-vs-shaft assembly clash check
-  // User workflow: build Box(40³) [bracket mounting plate] + Cylinder(r=20,h=40) [shaft]
-  // via ribbon → select both → Assembly tab → Interference.
-  // Both solids start at origin so they necessarily overlap.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // 1. Build the bracket (box) via ribbon.
+    // ── Part 2: Interference via ribbon (Assembly tab) ────────────────────────
+    // Artifact: bracket-vs-shaft assembly clash check
+    // User workflow: build Box(40³) [bracket mounting plate] + Cylinder(r=20,h=40) [shaft]
+    // via ribbon → REAL click select both → Assembly tab → Interference.
+    // Both solids start at origin so they necessarily overlap.
+    console.log('  [2] Building bracket + shaft for Interference check...');
     const bracketId = await buildPrimitive(win, 'Box');
-
-    // 2. Build the shaft (cylinder) via ribbon.
     const shaftId = await buildPrimitive(win, 'Cylinder');
 
-    // 3. Select both bodies.
-    await selectBodies(win, [bracketId, shaftId]);
+    // Key-frame: both input bodies.
+    await story.frame('input-bracket-shaft');
+    await dragOrbit(win, { dx: 180, dy: 70 });
+    await story.frame('input-bracket-shaft-3d');
 
-    // 4. Pre-clear stale result.
+    // REAL viewport click on bracket, then add shaft to selection.
+    await clickBody(win, bracketId);
+    await addToSelection(win, shaftId);
+
+    // Pre-clear stale result.
     await win.evaluate(() => { window.__lastInterferenceResult = null; });
 
-    // 5. Switch to Assembly tab.
+    // Switch to Assembly tab.
     const asmTab = win.locator('button.ribbon-tab').filter({ hasText: /^Assembly$/ });
     await expect(asmTab).toBeVisible({ timeout: 30000 });
     await asmTab.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // 6. Click Interference ribbon tool.
-    const re = /^Interference$/;
-    const btn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
-      has: win.locator('.ribbon-tool-label', { hasText: re }),
+    // Click Interference ribbon tool.
+    const intBtn = win.locator('button.ribbon-tool:has(.ribbon-tool-label)').filter({
+      has: win.locator('.ribbon-tool-label', { hasText: /^Interference$/ }),
     }).first();
-    await expect(btn).toBeVisible({ timeout: 30000 });
-    await btn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await expect(intBtn).toBeVisible({ timeout: 30000 });
+    await story.frame('before-interference');
+    await intBtn.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    // 7. Wait for the handler to set window.__lastInterferenceResult.
     await win.waitForFunction(() => !!window.__lastInterferenceResult, null, { timeout: 120000 });
 
-    const r = await win.evaluate(() => window.__lastInterferenceResult);
-    console.log(`  Interference (bracket vs shaft): clash=${r.clash}, vol=${r.interferenceVolume?.toFixed(0)}`);
+    await win.waitForTimeout(300);
+    await story.frame('after-interference');
+
+    const intR = await win.evaluate(() => window.__lastInterferenceResult);
+    console.log(`  Interference (bracket vs shaft): clash=${intR.clash}, vol=${intR.interferenceVolume?.toFixed(0)}`);
     // Box(40³) and Cylinder(r=20,h=40) both at origin → they overlap.
-    expect(r.clash).toBe(true);
-    expect(r.interferenceVolume).toBeGreaterThan(0);
+    expect(intR.clash).toBe(true);
+    expect(intR.interferenceVolume).toBeGreaterThan(0);
+
+    // ── Part 3: Kernel-direct — self-intersection POSITIVE ────────────────────
+    // EXEMPT: no ribbon workflow produces a self-intersecting compound.
+    // Documented as a kernel WASM lifecycle test, not a user-workflow test.
+    console.log('  [3] Kernel-direct self-intersection positive test...');
+    const siR = await win.evaluate(async () => {
+      const K = window.__archdiscKernel.kernel.brep;
+      const a = await K.makeBox(20, 20, 20);
+      const bRaw = await K.makeBox(20, 20, 20);
+      const b = await K.translate(bRaw, 10, 0, 0);   // overlaps `a`
+      const compound = await K.makeCompound([a, b]);
+      return K.checkSelfIntersection(compound);
+    });
+    expect(siR.selfIntersects).toBe(true);
+    expect(siR.count).toBeGreaterThan(0);
+
+    // ── Part 4: Kernel-direct — clash POSITIVE (overlapping) ─────────────────
+    // EXEMPT: no ribbon workflow builds a disjoint-positioned pair.
+    console.log('  [4] Kernel-direct clash positive test...');
+    const clashPosR = await win.evaluate(async () => {
+      const K = window.__archdiscKernel.kernel.brep;
+      const a = await K.makeBox(20, 20, 20);
+      const bRaw = await K.makeBox(20, 20, 20);
+      const b = await K.translate(bRaw, 10, 0, 0);   // overlaps `a` by 10mm
+      return K.checkClash(a, b);
+    });
+    expect(clashPosR.clash).toBe(true);
+    expect(clashPosR.interferenceVolume).toBeGreaterThan(3600);  // ~4000 (10×20×20), −10%
+    expect(clashPosR.interferenceVolume).toBeLessThan(4400);
+    expect(clashPosR.minDistance).toBeLessThan(0.001);
+
+    // ── Part 5: Kernel-direct — clash NEGATIVE (disjoint) ────────────────────
+    // EXEMPT: no ribbon workflow builds a disjoint-positioned pair.
+    console.log('  [5] Kernel-direct clash negative (disjoint) test...');
+    const clashNegR = await win.evaluate(async () => {
+      const K = window.__archdiscKernel.kernel.brep;
+      const a = await K.makeBox(20, 20, 20);
+      const bRaw = await K.makeBox(20, 20, 20);
+      const b = await K.translate(bRaw, 50, 0, 0);   // gap: box a ends x=20, b starts x=50
+      return K.checkClash(a, b);
+    });
+    expect(clashNegR.clash).toBe(false);
+    expect(clashNegR.interferenceVolume).toBeLessThan(0.001);
+    expect(clashNegR.minDistance).toBeGreaterThan(27);   // ~30mm gap, ±10%
+    expect(clashNegR.minDistance).toBeLessThan(33);
+
+    // ── Part 6: Leak guard — 25× checkSelfIntersection ───────────────────────
+    // EXEMPT: heap-leak guard bypasses user workflow on purpose to probe WASM lifecycle.
+    console.log('  [6] Leak guard: 25x checkSelfIntersection...');
+    const heap = await win.evaluate(async () => {
+      const K = window.__archdiscKernel.kernel.brep;
+      const oc = await window.__archdiscKernel.getOCCT();
+
+      const a = await K.makeBox(20, 20, 20);
+      const bRaw = await K.makeBox(20, 20, 20);
+      const b = await K.translate(bRaw, 10, 0, 0);
+      const compound = await K.makeCompound([a, b]);
+
+      function getHeapSize(oc) {
+        if (oc.HEAPU8 && oc.HEAPU8.buffer) return oc.HEAPU8.buffer.byteLength;
+        if (oc.HEAP8 && oc.HEAP8.buffer) return oc.HEAP8.buffer.byteLength;
+        const heapKeys = Object.keys(oc).filter(k => /^HEAP/.test(k));
+        for (const k of heapKeys) {
+          const v = oc[k];
+          if (v && v.buffer) return v.buffer.byteLength;
+        }
+        return 0;
+      }
+
+      const before = getHeapSize(oc);
+      for (let i = 0; i < 25; i++) {
+        await K.checkSelfIntersection(compound);
+      }
+      const after = getHeapSize(oc);
+      return { before, after, heapExposed: before > 0 };
+    });
+    if (heap.heapExposed) {
+      // If heap is exposed, growth must be bounded (< 8 MB) — proves no per-call leak
+      expect(heap.after - heap.before).toBeLessThan(8 * 1024 * 1024);
+    }
+    console.log(`  Leak guard: heap ${heap.before} -> ${heap.after} (exposed: ${heap.heapExposed})`);
+
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ────────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input-box\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-check-geometry\.png$/.test(f));
+    expect(inputStill, 'an input-box still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-check-geometry still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-check-geometry still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
-});
-
-// ─── Kernel-direct: self-intersection POSITIVE test ──────────────────────────
-// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound /
-// a disjoint-positioned pair; use the kernel-direct translate + makeCompound path.
-// Documented as kernel-API tests, not user-workflow tests.
-
-test('self-intersection: a compound of two overlapping boxes is detected (kernel-direct)', async () => {
-  const { app, win, pageErrors } = await launch();
-  const r = await win.evaluate(async () => {
-    const K = window.__archdiscKernel.kernel.brep;
-    const a = await K.makeBox(20, 20, 20);
-    const bRaw = await K.makeBox(20, 20, 20);
-    const b = await K.translate(bRaw, 10, 0, 0);   // overlaps `a`
-    const compound = await K.makeCompound([a, b]);
-    return K.checkSelfIntersection(compound);
-  });
-  expect(r.selfIntersects).toBe(true);
-  expect(r.count).toBeGreaterThan(0);
-  expect(pageErrors).toEqual([]);
-  await app.close();
-});
-
-// ─── Kernel-direct: clash POSITIVE (overlapping) ─────────────────────────────
-// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound /
-// a disjoint-positioned pair; use the kernel-direct translate + makeCompound path.
-// Documented as kernel-API tests, not user-workflow tests.
-
-test('clash: two overlapping solids clash with positive interference volume (kernel-direct)', async () => {
-  const { app, win, pageErrors } = await launch();
-  const r = await win.evaluate(async () => {
-    const K = window.__archdiscKernel.kernel.brep;
-    const a = await K.makeBox(20, 20, 20);
-    const bRaw = await K.makeBox(20, 20, 20);
-    const b = await K.translate(bRaw, 10, 0, 0);   // overlaps `a` by 10mm
-    return K.checkClash(a, b);
-  });
-  expect(r.clash).toBe(true);
-  expect(r.interferenceVolume).toBeGreaterThan(3600);  // ~4000 (10×20×20), −10%
-  expect(r.interferenceVolume).toBeLessThan(4400);
-  expect(r.minDistance).toBeLessThan(0.001);
-  expect(pageErrors).toEqual([]);
-  await app.close();
-});
-
-// ─── Kernel-direct: clash NEGATIVE (disjoint) ────────────────────────────────
-// EXEMPT: there is no ribbon workflow that builds a self-intersecting compound /
-// a disjoint-positioned pair; use the kernel-direct translate + makeCompound path.
-// Documented as kernel-API tests, not user-workflow tests.
-
-test('clash: two disjoint solids report no clash with a real clearance (kernel-direct)', async () => {
-  const { app, win, pageErrors } = await launch();
-  const r = await win.evaluate(async () => {
-    const K = window.__archdiscKernel.kernel.brep;
-    const a = await K.makeBox(20, 20, 20);
-    const bRaw = await K.makeBox(20, 20, 20);
-    const b = await K.translate(bRaw, 50, 0, 0);   // gap: box a ends x=20, b starts x=50
-    return K.checkClash(a, b);
-  });
-  expect(r.clash).toBe(false);
-  expect(r.interferenceVolume).toBeLessThan(0.001);
-  expect(r.minDistance).toBeGreaterThan(27);   // ~30mm gap, ±10%
-  expect(r.minDistance).toBeLessThan(33);
-  expect(pageErrors).toEqual([]);
-  await app.close();
-});
-
-// ─── Leak guard ───────────────────────────────────────────────────────────────
-// Heap leak guard — bypasses user workflow on purpose to probe WASM heap behaviour. Exempt from the user-workflow rule.
-
-test('leak guard: checkSelfIntersection called 25x does not grow the WASM heap (C1)', async () => {
-  const { app, win, pageErrors } = await launch();
-  const heap = await win.evaluate(async () => {
-    const K = window.__archdiscKernel.kernel.brep;
-    const oc = await window.__archdiscKernel.getOCCT();
-
-    // Build a compound of two overlapping boxes once (reused across all calls)
-    const a = await K.makeBox(20, 20, 20);
-    const bRaw = await K.makeBox(20, 20, 20);
-    const b = await K.translate(bRaw, 10, 0, 0);
-    const compound = await K.makeCompound([a, b]);
-
-    function getHeapSize(oc) {
-      if (oc.HEAPU8 && oc.HEAPU8.buffer) return oc.HEAPU8.buffer.byteLength;
-      if (oc.HEAP8 && oc.HEAP8.buffer) return oc.HEAP8.buffer.byteLength;
-      const heapKeys = Object.keys(oc).filter(k => /^HEAP/.test(k));
-      for (const k of heapKeys) {
-        const v = oc[k];
-        if (v && v.buffer) return v.buffer.byteLength;
-      }
-      return 0;
-    }
-
-    const before = getHeapSize(oc);
-    for (let i = 0; i < 25; i++) {
-      await K.checkSelfIntersection(compound);
-    }
-    const after = getHeapSize(oc);
-    return { before, after, heapExposed: before > 0 };
-  });
-  if (heap.heapExposed) {
-    // If heap is exposed, growth must be bounded (< 8 MB) — proves no per-call leak
-    expect(heap.after - heap.before).toBeLessThan(8 * 1024 * 1024);
-  }
-  expect(pageErrors).toEqual([]);
-  await app.close();
 });
