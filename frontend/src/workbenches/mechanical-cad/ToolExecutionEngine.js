@@ -1760,6 +1760,71 @@ const TOOL_HANDLERS = {
         return { status: 'error', message: 'Convergent Solid: ' + err.message };
       }
     },
+
+    // ── Sub-project G: NURBS Surface-Surface Intersection (SSI) ─────────────
+
+    'Surface-Surface Intersection': async (scene, viewport) => {
+      // Arity 2 — select two bodies, then run GeomAPI_IntSS on their first faces.
+      try {
+        const [bodyA, bodyB] = _pickBodies(2);
+        const { values, cancelled } = await requestToolParams('Surface-Surface Intersection');
+        if (cancelled) return { status: 'warn', message: 'Surface-Surface Intersection: cancelled' };
+
+        const result = await ArchDiscKernel.brep.intersectSurfaces(bodyA, bodyB, {
+          samples:   Number(values.samples)   || 32,
+          tolerance: Number(values.tolerance) || 1e-6,
+        });
+
+        // Render each intersection curve as a THREE.Line in the scene.
+        const lineWidth = Number(values.lineWidth) || 2;
+        const ssiId     = `ArchDisc-SSI-${Date.now()}`;
+        const ssiGroup  = new THREE.Group();
+        ssiGroup.name = ssiId;
+
+        for (const curve of result.curves) {
+          const pts = curve.points; // Float32Array, 3 values per point
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+
+          // Scale from mm → m (same convention as addBrepShapeToScene).
+          // We embed this in the group's scale below.
+          const mat = new THREE.LineBasicMaterial({
+            color: 0xff4400,
+            linewidth: lineWidth, // effective only on WebGL1; cosmetic on WebGL2
+          });
+          const line = new THREE.Line(geom, mat);
+          ssiGroup.add(line);
+        }
+
+        // Apply mm→m scale (matches the rest of the scene).
+        ssiGroup.scale.set(0.001, 0.001, 0.001);
+        ssiGroup.userData.pickable       = false;
+        ssiGroup.userData.generatedModel = true;
+        ssiGroup.userData.ssiResult      = true;
+        scene.add(ssiGroup);
+        ssiGroup.updateMatrixWorld(true);
+
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(ssiGroup);
+        }
+
+        // Mirror onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastSSI = { curves: result.curves, group: ssiGroup, stats: result.stats };
+        }
+
+        const s = result.stats;
+        return {
+          status: 'success',
+          message: `SSI: ${s.nbLines} curves, ${s.totalPoints} pts via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Surface-Surface Intersection: ' + err.message,
+        };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

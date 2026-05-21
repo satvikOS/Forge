@@ -228,6 +228,18 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SUB-PROJECT G — NURBS SSI ────────────────────────────────────────────
+
+  'Surface-Surface Intersection': {
+    title: 'Surface-Surface Intersection — NURBS SSI',
+    blurb: 'Intersect the first face of two selected bodies via GeomAPI_IntSS. Returns sampled polyline curves along the intersection locus.',
+    fields: [
+      { name: 'samples',   label: 'Samples per curve', type: 'number', default: 32,  unit: '',     min: 8,    max: 256,  step: 8,    hint: 'Number of points sampled along each intersection curve' },
+      { name: 'tolerance', label: 'Tolerance',          type: 'number', default: 1e-6, unit: 'mm', min: 1e-9, max: 1e-2, step: 1e-7, hint: 'Geometric tolerance for SSI (mm)' },
+      { name: 'lineWidth', label: 'Line width',          type: 'number', default: 2,   unit: 'px', min: 0.5,  max: 6,    step: 0.5,  hint: 'Visual line width for intersection curves in the viewport' },
+    ],
+  },
+
   // ─── SUB-PROJECT F — FINAL §3 CAPABILITIES ────────────────────────────────
 
   'Sweep Tortuous': {
