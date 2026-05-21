@@ -1,218 +1,279 @@
 /**
  * brep-simplify-electron.spec.js
  *
- * Real-user-workflow tests for Simplify Geometry (Direct Edit tab).
+ * "Operation in motion" retrofit — Simplify Geometry on real engineering artifacts.
+ * Drives everything via real ribbon clicks, REAL viewport body clicks, and drag-orbits.
+ * Records the whole workflow as a .webm video with key-frame stills at each beat.
  *
- * Each test builds a recognisable real-world engineering artifact before
- * applying Simplify Geometry as the climactic step. The focal op merges
- * coplanar/coaxial faces; volume must be preserved within 0.5% and
- * face count must not increase.
+ * ── PATTERN: matches brep-g-catmullclark-electron.spec.js ─────────────────────
  *
- * Test A — welded plate seam:
- *   Artifact: welded plate (seam cleanup)
- *   Extrude Boss (plate, accept defaults) → Simplify Geometry
+ * ONE consolidated test runs three Simplify Geometry workflows in sequence inside
+ * a single launchWithCapture session (one video, one storyboard). This avoids the
+ * Playwright Electron recordVideo teardown race that silently drops stills when
+ * multiple test() blocks share a worker.
  *
- * Test B — bottle-cap profile:
- *   Artifact: bottle cap blank (cleanup)
- *   Cylinder (r=20, h=40 — cap blank) → select → Simplify Geometry
+ * Workflow A — welded plate seam:
+ *   Extrude Boss (plate, accept defaults → 80×50×25 mm) → select → Simplify Geometry
  *
- * Test C — block with through-hole simplify:
- *   Artifact: block with through-hole (simplification cleanup)
+ * Workflow B — bottle-cap blank cleanup:
+ *   Cylinder (r=20, h=40) → select → Simplify Geometry
+ *
+ * Workflow C — block with through-hole cleanup:
  *   Box (40³) + Cylinder (r=20, h=40) → Subtract → select result → Simplify Geometry
+ *
+ * Assertions (all original ones kept — video/stills are ADDITIVE):
+ *   - volume preserved within 0.5% after each Simplify
+ *   - faceCount must not increase after each Simplify
+ *   - stills: 'input-weldedplate' and 'after-simplify-c' both exist and > 1 KB
+ *
+ * Artifacts land in:  test-results/motion/brep-simplify/
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import { captureAllAngles } from './helpers/orbitCapture.js';
 import {
   clickRibbonTab, clickRibbonTool,
-  buildPrimitive, selectBodies, injectToolParams,
+  buildPrimitive, injectToolParams,
 } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, clickBody, addToSelection, dragOrbit,
+} from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
 
-const SWEEP_OPTS = {
-  azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 30], zooms: [0.6, 1.0, 1.8],
-};
+// ─── Single consolidated test ─────────────────────────────────────────────────
 
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
-
-/**
- * Get the body-registry ID of the most recently registered body.
- */
-async function getLastRegistryId(win) {
-  return win.evaluate(() => {
-    const reg = window.__archdiscRegistry;
-    if (reg && reg.bodies && reg.bodies.length > 0) {
-      return reg.bodies[reg.bodies.length - 1].id;
-    }
-    return null;
-  });
-}
-
-/**
- * Apply a ribbon op that takes bodies.
- * Selects bodies, injects params, clicks the tab+tool, waits for new shape.
- */
-async function applyOp(win, tabLabel, toolLabel, bodyIds, params) {
-  const before = await win.evaluate(() =>
-    window.__lastBrepShape && window.__lastBrepShape.id
-  );
-  if (bodyIds && bodyIds.length > 0) {
-    await selectBodies(win, bodyIds);
-  }
-  if (params && Object.keys(params).length > 0) {
-    await injectToolParams(win, toolLabel, params);
-  }
-  await clickRibbonTab(win, tabLabel);
-  await win.waitForTimeout(120);
-  await clickRibbonTool(win, toolLabel);
-  await win.waitForFunction(
-    (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
-    before,
-    { timeout: 60000 },
-  );
-  return getLastRegistryId(win);
-}
-
-// ─── Test A — welded plate seam ──────────────────────────────────────────────
-
-test('simplify: welded plate (seam cleanup) — Extrude Boss plate → Simplify Geometry → volume preserved ±0.5%, faceCount ≤ pre', async () => {
-  // Artifact: welded plate (seam cleanup)
-  // An extruded structural plate (Extrude Boss, accept defaults → 80×50×25 mm)
-  // is passed through Simplify Geometry to merge coplanar face seams left over
-  // from the NURBS-to-BRep conversion — the same cleanup step run after
-  // welding flat sheet metal to remove redundant seam edges.
-  const { app, win, pageErrors } = await launch();
+test('Simplify Geometry: three artifact workflows (welded plate, bottle cap, block+hole) — volume preserved ±0.5%, faceCount non-increasing', async () => {
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-simplify');
   try {
-    // Step 1: Build the plate via Extrude Boss (arity-0, accept defaults).
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Workflow A — welded plate seam
+    // Extrude Boss (arity-0, 80×50×25 mm) → Simplify Geometry
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // Step A1: Build the plate via Extrude Boss (arity-0, accept defaults).
     const plateId = await buildPrimitive(win, 'Extrude Boss');
+    console.log(`  [A] Extrude Boss plate id: ${plateId}`);
 
-    // Step 2: Baseline measurements of the plate.
-    const mPre = await win.evaluate(async () =>
+    // Key-frame: the input plate, then a real drag-orbit to show it in 3D.
+    await story.frame('input-weldedplate');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-weldedplate-3d');
+
+    // Step A2: Baseline measurements.
+    const mPreA = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Extrude Boss plate: vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
-    expect(mPre.volume).toBeGreaterThan(0);
+    console.log(`  [A] Extrude Boss plate: vol=${mPreA.volume.toFixed(0)}, faces=${mPreA.faceCount}`);
+    expect(mPreA.volume).toBeGreaterThan(0);
 
-    // Step 3: Simplify Geometry on the plate (seam cleanup).
-    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [plateId]);
+    // Step A3: Select the plate body with a REAL viewport click.
+    await clickBody(win, plateId);
 
-    // Step 4: Post-simplify measurements.
-    const mPost = await win.evaluate(async () =>
+    // Step A4: Inject params (none needed for Simplify, but guard for bypass).
+    const idBeforeA = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await clickRibbonTab(win, 'Direct Edit');
+    await win.waitForTimeout(120);
+    await story.frame('simplify-a-dialog');
+    await clickRibbonTool(win, 'Simplify Geometry');
+
+    // Step A5: Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeA,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-simplify-a');
+
+    // Step A6: Post-simplify assertions.
+    const mPostA = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Simplified (welded plate): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
+    console.log(`  [A] Simplified (welded plate): vol=${mPostA.volume.toFixed(0)}, faces=${mPostA.faceCount}`);
 
     // Volume preserved within 0.5%.
-    expect(mPost.volume).toBeGreaterThan(mPre.volume * 0.995);
-    expect(mPost.volume).toBeLessThan(mPre.volume * 1.005);
+    expect(mPostA.volume).toBeGreaterThan(mPreA.volume * 0.995);
+    expect(mPostA.volume).toBeLessThan(mPreA.volume * 1.005);
     // Simplify merges faces — face count must not increase.
-    expect(mPost.faceCount).toBeLessThanOrEqual(mPre.faceCount);
+    expect(mPostA.faceCount).toBeLessThanOrEqual(mPreA.faceCount);
 
-    const cap = await captureAllAngles(win, 'simplify-weldedplate', SWEEP_OPTS);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
 
-// ─── Test B — bottle-cap profile ─────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // Workflow B — bottle-cap blank cleanup
+    // Cylinder (r=20, h=40 — cap blank) → select → Simplify Geometry
+    // ══════════════════════════════════════════════════════════════════════════
 
-test('simplify: bottle cap blank (cleanup) — Cylinder(r=20,h=40) → select → Simplify Geometry → volume preserved ±0.5%', async () => {
-  // Artifact: bottle cap blank (cleanup)
-  // A solid cylinder (r=20 mm, h=40 mm — the cap blank) passed through
-  // Simplify Geometry to merge the cylindrical body seam edges — the standard
-  // post-import cleanup applied to turned bottle cap blanks from STEP files.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // Step 1: Build the cap blank (Cylinder r=20, h=40).
+    // Step B1: Build the cap blank (Cylinder r=20, h=40 — default params).
     const capId = await buildPrimitive(win, 'Cylinder');
+    console.log(`  [B] Cylinder (bottle cap blank) id: ${capId}`);
 
-    // Step 2: Baseline measurements.
-    const mPre = await win.evaluate(async () =>
+    // Key-frame: the input cylinder.
+    await story.frame('input-bottlecap');
+    await dragOrbit(win, { dx: -180, dy: 90 });
+    await story.frame('input-bottlecap-3d');
+
+    // Step B2: Baseline measurements.
+    const mPreB = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Cylinder (bottle cap blank): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
-    expect(mPre.volume).toBeGreaterThan(0);
+    console.log(`  [B] Cylinder (bottle cap blank): vol=${mPreB.volume.toFixed(0)}, faces=${mPreB.faceCount}`);
+    expect(mPreB.volume).toBeGreaterThan(0);
 
-    // Step 3: Simplify Geometry on the cap blank.
-    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [capId]);
+    // Step B3: REAL viewport click to select the cylinder body.
+    await clickBody(win, capId);
 
-    const mPost = await win.evaluate(async () =>
+    // Step B4: Apply Simplify Geometry (Direct Edit tab).
+    const idBeforeB = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await clickRibbonTab(win, 'Direct Edit');
+    await win.waitForTimeout(120);
+    await story.frame('simplify-b-dialog');
+    await clickRibbonTool(win, 'Simplify Geometry');
+
+    // Step B5: Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeB,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-simplify-b');
+
+    // Step B6: Post-simplify assertions.
+    const mPostB = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Simplified (bottle cap blank): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
+    console.log(`  [B] Simplified (bottle cap blank): vol=${mPostB.volume.toFixed(0)}, faces=${mPostB.faceCount}`);
 
     // Volume preserved within 0.5%.
-    expect(mPost.volume).toBeGreaterThan(mPre.volume * 0.995);
-    expect(mPost.volume).toBeLessThan(mPre.volume * 1.005);
+    expect(mPostB.volume).toBeGreaterThan(mPreB.volume * 0.995);
+    expect(mPostB.volume).toBeLessThan(mPreB.volume * 1.005);
     // Simplify must not increase face count.
-    expect(mPost.faceCount).toBeLessThanOrEqual(mPre.faceCount);
+    expect(mPostB.faceCount).toBeLessThanOrEqual(mPreB.faceCount);
 
-    const cap = await captureAllAngles(win, 'simplify-bottlecap', SWEEP_OPTS);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
 
-// ─── Test C — block with through-hole simplify ───────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // Workflow C — block with through-hole cleanup
+    // Box (40³) + Cylinder (r=20, h=40) → Subtract → select result → Simplify
+    // Note: origin crowding risk managed by doing the clickBody on the Box
+    // BEFORE the Cylinder is built, then using addToSelection for the cylinder
+    // so the subtract op gets both bodies.
+    // ══════════════════════════════════════════════════════════════════════════
 
-test('simplify: block with through-hole (simplification cleanup) — Box−Cylinder Subtract → select → Simplify → positive volume preserved', async () => {
-  // Artifact: block with through-hole (simplification cleanup)
-  // A 40×40×40 mm mounting block (Box) with a cylindrical through-hole
-  // (Cylinder r=20, h=40 — Subtract) is passed through Simplify Geometry
-  // to clean up the seam topology left by the boolean subtraction — the
-  // same post-operation cleanup step run on machined blocks after EDM drilling.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // Step 1: Build the block (Box 40³) and the drill (Cylinder r=20, h=40).
+    // Step C1: Build the block (Box 40³).
     const boxId = await buildPrimitive(win, 'Box');
-    const cylId = await buildPrimitive(win, 'Cylinder');
+    console.log(`  [C] Box (block blank) id: ${boxId}`);
 
-    // Step 2: Subtract → block with through-hole.
-    const holeBlockId = await applyOp(win, 'Part', 'Subtract', [boxId, cylId]);
+    // Key-frame: just the box before the cylinder is added.
+    await story.frame('input-c-box');
+    await dragOrbit(win, { dx: 200, dy: 80 });
+    await story.frame('input-c-box-3d');
+
+    // Step C2: Build the drill cylinder (r=20, h=40).
+    const cylId = await buildPrimitive(win, 'Cylinder');
+    console.log(`  [C] Cylinder (drill) id: ${cylId}`);
+
+    // Key-frame: both input bodies visible.
+    await story.frame('input-c-both');
+
+    // Step C3: Select box as base (REAL click), add cylinder as tool.
+    await clickBody(win, boxId);
+    await addToSelection(win, cylId);
+
+    // Step C4: Subtract — block with through-hole.
+    const idBeforeSubtr = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
+    await story.frame('subtract-c-dialog');
+    await clickRibbonTool(win, 'Subtract');
+
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeSubtr,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-subtract-c');
+
+    // Grab the subtracted body's registry id.
+    const holeBlockId = await win.evaluate(() => {
+      const reg = window.__archdiscRegistry;
+      if (reg && reg.bodies && reg.bodies.length > 0) {
+        return reg.bodies[reg.bodies.length - 1].id;
+      }
+      return window.__lastBrepShape && window.__lastBrepShape.id;
+    });
+    console.log(`  [C] Subtracted body id: ${holeBlockId}`);
 
     // Baseline of the subtracted body.
-    const mPre = await win.evaluate(async () =>
+    const mPreC = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Block with hole: vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
-    expect(mPre.volume).toBeGreaterThan(0);
+    console.log(`  [C] Block with hole: vol=${mPreC.volume.toFixed(0)}, faces=${mPreC.faceCount}`);
+    expect(mPreC.volume).toBeGreaterThan(0);
 
-    // Step 3: Simplify the block-with-hole.
-    await applyOp(win, 'Direct Edit', 'Simplify Geometry', [holeBlockId]);
+    // Step C5: REAL viewport click on the subtracted body, then Simplify.
+    await clickBody(win, holeBlockId);
 
-    const mPost = await win.evaluate(async () =>
+    const idBeforeC = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await clickRibbonTab(win, 'Direct Edit');
+    await win.waitForTimeout(120);
+    await story.frame('simplify-c-dialog');
+    await clickRibbonTool(win, 'Simplify Geometry');
+
+    // Step C6: Wait for Simplify result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeC,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-simplify-c');
+
+    // Step C7: Post-simplify assertions.
+    const mPostC = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Simplified (block with hole): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
+    console.log(`  [C] Simplified (block with hole): vol=${mPostC.volume.toFixed(0)}, faces=${mPostC.faceCount}`);
 
     // Volume preserved within 0.5%.
-    expect(mPost.volume).toBeGreaterThan(0);
-    expect(mPost.volume).toBeGreaterThan(mPre.volume * 0.995);
-    expect(mPost.volume).toBeLessThan(mPre.volume * 1.005);
-    expect(mPost.faceCount).toBeLessThanOrEqual(mPre.faceCount);
+    expect(mPostC.volume).toBeGreaterThan(0);
+    expect(mPostC.volume).toBeGreaterThan(mPreC.volume * 0.995);
+    expect(mPostC.volume).toBeLessThan(mPreC.volume * 1.005);
+    expect(mPostC.faceCount).toBeLessThanOrEqual(mPreC.faceCount);
 
-    const cap = await captureAllAngles(win, 'simplify-blockholesubtr', SWEEP_OPTS);
+    // ── Closing orbit sweep ───────────────────────────────────────────────────
+    const cap = await captureAllAngles(win, 'simplify', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input-weldedplate\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-simplify-c\.png$/.test(f));
+    expect(inputStill, 'an input-weldedplate still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-simplify-c still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-simplify-c still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+
   } finally {
     await app.close();
+    // finish() resolves + renames the recorded video — MUST run after close.
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
