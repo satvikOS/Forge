@@ -2385,11 +2385,19 @@ const TOOL_HANDLERS = {
         const [body] = _pickBodies(1);
         const { values, cancelled } = await requestToolParams('Replace Face');
         if (cancelled) return { status: 'warn', message: 'Replace Face: cancelled' };
+        // Real boundary-wire face rebuild: extract the picked face's outer
+        // wire, rebuild the face from its surface + that wire via
+        // MakeFace(surface, wire), and ReShape it back into the solid
+        // (parity-audit P4).
         const out = await ArchDiscKernel.brep.replaceFace(body, values.faceIndex);
         // Consuming op: Replace Face rewrites a face of `body` into `out` — drop the original.
         await addBrepShapeToScene(scene, viewport, out, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(out);
-        return { status: 'success', message: `Replace Face: face #${values.faceIndex} rewritten via ArchDisc Kernel — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces` };
+        return {
+          status: 'success',
+          message: `Replace Face: face #${values.faceIndex} rebuilt from its boundary wire via ` +
+            `MakeFace(surface, wire) + ReShape — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces`,
+        };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Replace Face: ' + err.message };
       }
