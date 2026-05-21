@@ -24,3 +24,4 @@ export { buildNurbsPatch, refineNurbs, elevateNurbsDegree, nurbsCurvature } from
 export { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './BrepFinal.js';
 export { catmullClarkShape } from './BrepCatmullClark.js';
 export { intersectSurfaces } from './BrepNurbsSSI.js';
+export { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
