@@ -96,6 +96,7 @@ import { runMotionStudy } from '../../foundation/MotionStudy.js';
 import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation/AssemblySequence.js';
 import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../../foundation/MotionRender.js';
 import { findTool } from '../../ai/ToolRegistry.js';
+import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
@@ -1922,6 +1923,162 @@ const TOOL_HANDLERS = {
         return {
           status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
           message: 'G2 Blend: ' + err.message,
+        };
+      }
+    },
+
+    // ── Sub-project G: class-A modelling workflow ────────────────────────────
+
+    'Class-A Analyze': async (scene, viewport) => {
+      // Arity 1 — Gaussian-curvature heatmap of the selected body.
+      // VISUALIZATION + ADDITIVE: a curvature-coloured analysis mesh is added
+      // to the scene; the original body is NOT consumed (no consumedInputs) so
+      // it stays available for further class-A work (e.g. Zebra Stripes).
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Class-A Analyze');
+        if (cancelled) return { status: 'warn', message: 'Class-A Analyze: cancelled' };
+
+        // Map the resolution slider (16..128) to a tessellation deflection:
+        // higher resolution → smaller chord deviation → more vertices analysed.
+        const gridSamples = Math.round(Number(values.gridSamples) || 48);
+        const deflection = Math.max(0.05, Math.min(0.6, 12 / gridSamples));
+
+        const analysis = await ArchDiscKernel.brep.classAAnalyze(body, { deflection });
+
+        // Build a Three.js BufferGeometry carrying per-vertex curvature colours.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(analysis.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(analysis.normals, 3));
+        geom.setAttribute('color',    new THREE.BufferAttribute(analysis.colors, 3));
+        geom.setIndex(new THREE.BufferAttribute(analysis.indices, 1));
+
+        // vertexColors:true so the red/white/blue Gaussian-curvature heatmap is
+        // rendered. Low metalness / high roughness keeps the colours readable.
+        // polygonOffset pulls the heatmap toward the camera in depth-buffer
+        // space so it cleanly wins the depth test against the coincident
+        // original body (which stays in the scene — this op is non-consuming),
+        // with no z-fighting. renderOrder lifts it above the grey body too.
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          metalness: 0.05,
+          roughness: 0.85,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -4,
+        });
+        const m3 = new THREE.Mesh(geom, mat);
+        m3.renderOrder = 2;
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);   // mm → m
+        group.add(m3);
+        group.userData.pickable        = true;
+        group.userData.generatedModel  = true;
+        group.userData.classAAnalysis  = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+
+        // Register the heatmap mesh as a body so it lists in the Part Browser
+        // and is selectable. It is an analysis artefact (no exact B-rep), so a
+        // zero-volume manifold shim is passed.
+        try {
+          registerBody({
+            group,
+            manifold: { volume: () => 0 },
+            sourceTool: 'Class-A Analyze',
+            name: 'Class-A Heatmap',
+          });
+        } catch (e) {
+          console.warn('Class-A Analyze: body registry register failed', e);
+        }
+
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(group);
+        }
+
+        const s = analysis.stats;
+        // Mirror the curvature stats onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastClassAAnalysis = {
+            gaussianRange: s.gaussianRange,
+            meanRange:     s.meanRange,
+            samples:       s.samples,
+          };
+        }
+
+        const gLo = s.gaussianRange[0].toExponential(2);
+        const gHi = s.gaussianRange[1].toExponential(2);
+        return {
+          status: 'success',
+          message:
+            `Class-A Analyze: Gaussian-curvature heatmap over ${s.samples} ` +
+            `vertices (${s.triangleCount} tris) — K ∈ [${gLo}, ${gHi}] 1/mm², ` +
+            `red=convex / blue=saddle / white=flat, via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Class-A Analyze: ' + err.message,
+        };
+      }
+    },
+
+    'Zebra Stripes': async (scene, viewport) => {
+      // Arity 1 — striped-reflection continuity overlay on the selected body.
+      // VISUALIZATION + NON-CONSUMING: the body's scene mesh is re-shaded with
+      // a zebra-stripe material (its original material is stashed); running the
+      // tool again toggles the overlay back off. The body itself is untouched.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Zebra Stripes');
+        if (cancelled) return { status: 'warn', message: 'Zebra Stripes: cancelled' };
+
+        const stripeFrequency = Math.round(Number(values.stripeFrequency) || 16);
+        const direction = Number(values.direction) === 1 ? 1 : 0;
+
+        // Resolve the selected body's scene group from the registry — that is
+        // the Three.js object the zebra material is applied to.
+        const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+        let targetGroup = null;
+        if (reg && reg.bodies) {
+          const entry = reg.bodies.find(b => b.brepShapeRef === body);
+          if (entry) targetGroup = entry.group;
+        }
+        // Fallback: the last B-rep group (matches the _pickBodies last-shape path).
+        if (!targetGroup && typeof window !== 'undefined') {
+          targetGroup = window.__lastBrepGroup || null;
+        }
+        if (!targetGroup) {
+          return { status: 'warn', message: 'Zebra Stripes: select a body with a visible mesh first' };
+        }
+
+        const res = applyZebraToObject(targetGroup, { stripeFrequency, direction });
+
+        if (typeof window !== 'undefined') {
+          window.__lastZebraStripes = {
+            applied:     res.applied,
+            stripeCount: res.stripeCount,
+          };
+        }
+
+        if (!res.applied) {
+          return {
+            status: 'success',
+            message: 'Zebra Stripes: overlay removed — body restored to its material',
+          };
+        }
+        return {
+          status: 'success',
+          message:
+            `Zebra Stripes: ${res.stripeCount}-band ${direction === 1 ? 'vertical' : 'horizontal'} ` +
+            `striped-reflection overlay applied to ${res.meshes} mesh(es) — ` +
+            `stripes flow smoothly across a G2 join, kink at G1, break at G0`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Zebra Stripes: ' + err.message,
         };
       }
     },

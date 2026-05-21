@@ -100,6 +100,8 @@ const TABS = {
         { name: 'Surface-Surface Intersection', icon: '⋈', key: 'surface' },
         { name: 'Trimmed NURBS Patch',          icon: '⊟', key: 'surface' },
         { name: 'G2 Blend',                     icon: '⌒', key: 'surface' },
+        { name: 'Class-A Analyze',              icon: '◐', key: 'surface' },
+        { name: 'Zebra Stripes',                icon: '☰', key: 'surface' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

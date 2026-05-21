@@ -266,6 +266,25 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SUB-PROJECT G — CLASS-A MODELLING WORKFLOW ───────────────────────────
+
+  'Class-A Analyze': {
+    title: 'Class-A Analyze — Gaussian-curvature heatmap',
+    blurb: 'Tessellate the selected body and colour it by discrete Gaussian curvature (angle-deficit method): red = convex, blue = saddle, white = flat — the production class-A convention. Adds a coloured analysis mesh; the body is kept.',
+    fields: [
+      { name: 'gridSamples', label: 'Analysis resolution', type: 'number', default: 48, unit: '', min: 16, max: 128, step: 8, hint: 'Higher = finer tessellation, smoother heatmap (more vertices analysed)' },
+    ],
+  },
+
+  'Zebra Stripes': {
+    title: 'Zebra Stripes — striped-reflection continuity overlay',
+    blurb: 'Overlay a striped-environment reflection on the selected body. Stripes break across a G0 join, kink across a G1 join, and flow smoothly across a G2 join — the classic class-A continuity instrument. Toggling the tool again removes the overlay.',
+    fields: [
+      { name: 'stripeFrequency', label: 'Stripe frequency', type: 'number', default: 16, unit: '', min: 4, max: 64, step: 1, hint: 'Number of stripe bands; more bands reveal finer continuity flaws' },
+      { name: 'direction',       label: 'Stripe direction', type: 'number', default: 0,  unit: '', min: 0, max: 1,  step: 1, hint: '0 = horizontal stripes, 1 = vertical stripes' },
+    ],
+  },
+
   // ─── SUB-PROJECT F — FINAL §3 CAPABILITIES ────────────────────────────────
 
   'Sweep Tortuous': {

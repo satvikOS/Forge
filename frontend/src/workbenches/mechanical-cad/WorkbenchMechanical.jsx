@@ -175,9 +175,9 @@ const TOOL_GROUPS = {
                 'Thicken', 'Subdivide Surface', 'Catmull-Clark Subdivide', 'Retopo Surface', 'NURBS Patch', 'Refine NURBS', 'Elevate NURBS', 'NURBS Curvature', 'Sweep Tortuous', 'Loft Tangent', 'Stitch Faces', 'Convergent Solid', 'Surface-Surface Intersection', 'Trimmed NURBS Patch', 'G2 Blend', 'Knit Surface', 'Flatten', 'Deform Surface'
             ]},
             { header: 'Analysis', items: [
-                'Curvature Analysis', 'Zebra Stripes', 'Draft Analysis',
-                'Deviation Analysis', 'Minimum Radius', 'Face Curvature',
-                'Section Analysis', 'Tangent Continuity'
+                'Class-A Analyze', 'Zebra Stripes', 'Curvature Analysis',
+                'Draft Analysis', 'Deviation Analysis', 'Minimum Radius',
+                'Face Curvature', 'Section Analysis', 'Tangent Continuity'
             ]},
         ]
     },
