@@ -151,6 +151,12 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             scene.add(helper);
         }
 
+        // TransformControls disables OrbitControls while the gizmo is being
+        // dragged so the camera doesn't orbit mid-transform. CRITICAL: the
+        // 'false' (drag-end) event MUST always restore orbitControls — if it
+        // were ever missed the viewport would be permanently un-orbitable
+        // ("frozen"). e.value is reliably false on drag-end, so a plain
+        // `!e.value` restores it; we keep this explicit and never gate it.
         transformControls.addEventListener('dragging-changed', (e) => {
             orbitControls.enabled = !e.value;
         });
@@ -241,6 +247,12 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             renderer.render(scene, camera);
           };
           window.__archdiscScene = scene;
+          // Expose the live Three.js viewport internals (camera, renderer,
+          // orbitControls) so headed e2e specs can project a body's
+          // world-space centroid to a screen pixel and drive the viewport
+          // with REAL mouse clicks / drag-orbits (motionCapture.js helpers).
+          // Read-only from the spec side — never mutated by e2e.
+          window.__archdiscViewport = { scene, camera, renderer, orbitControls };
         }
 
         // --- Raycaster ---
@@ -249,6 +261,14 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
         // --- Selection outline material ---
         const outlineMat = new THREE.MeshBasicMaterial({ color: 0xff6b35, wireframe: true, transparent: true, opacity: 0.5 });
+
+        // Groups that currently carry a face highlight or vertex markers.
+        // clearSelection() clears ONLY these instead of scanning the whole
+        // scene — keeps clear cost O(highlighted) not O(scene²). Each
+        // ThreeJSBridge.clearHighlight/hideVertices call internally does a
+        // getObjectByName subtree search, so a whole-scene traversal that
+        // called them per group was O(N²) for large/nested assemblies.
+        const highlightedGroups = new Set();
 
         function findTopGroup(obj) {
             // Walk up to find the top-level group added to scene
@@ -266,13 +286,18 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 existing.traverse(c => { if (c.geometry) c.geometry.dispose(); });
                 scene.remove(existing);
             }
-            // Clear face/edge highlights
-            scene.traverse(obj => {
-                if (obj.isGroup) {
-                    ThreeJSBridge.clearHighlight(obj);
-                    ThreeJSBridge.hideVertices(obj);
+            // Clear face/edge highlights — only on the groups known to carry
+            // one. The old code did scene.traverse() + clearHighlight +
+            // hideVertices on EVERY group; each of those does a recursive
+            // getObjectByName, making clearSelection O(N²) over scene size.
+            // This runs on every click AND every drag-release.
+            if (highlightedGroups.size) {
+                for (const g of highlightedGroups) {
+                    ThreeJSBridge.clearHighlight(g);
+                    ThreeJSBridge.hideVertices(g);
                 }
-            });
+                highlightedGroups.clear();
+            }
             transformControls.detach();
             selectedRef.current = null;
         }
@@ -280,7 +305,15 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         function selectObject(target) {
             clearSelection();
             selectedRef.current = target;
-            transformControls.attach(target);
+            // NOTE: the transform gizmo is intentionally NOT attached here.
+            // A plain selection click only highlights (outline) — it must not
+            // drop a TransformControls gizmo over the body. The gizmo's
+            // handles sit at the body's origin; with the body framed centre-
+            // screen a follow-up orbit-drag started on the body would grab a
+            // gizmo handle and translate the object instead of orbiting the
+            // camera — the viewport "freezes" (won't rotate). The gizmo is
+            // now opt-in: attachGizmo() wires it to the current selection
+            // when the user picks a Move/Rotate/Scale transform mode.
 
             // Add selection wireframe outline
             const outlineGroup = new THREE.Group();
@@ -304,6 +337,19 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             scene.add(outlineGroup);
         }
 
+        // Attach the transform gizmo to the current selection on demand —
+        // called when the user explicitly enters a Move/Rotate/Scale mode
+        // (toolbar button or G/R/S key). Selection alone never attaches it,
+        // so a selection click never traps a follow-up orbit-drag.
+        function attachGizmo() {
+            if (selectedRef.current && transformControls.object !== selectedRef.current) {
+                transformControls.attach(selectedRef.current);
+            }
+        }
+        // Expose so the toolbar mode buttons (rendered outside this closure)
+        // can attach the gizmo to whatever is currently selected.
+        internalsRef.current.attachGizmo = attachGizmo;
+
         // --- Pointer move handler for sketch (supports mouse, touch, pen/stylus) ---
         const handleMouseMove = (event) => {
             if (!sketchActiveRef.current || !_sketch.active) return;
@@ -325,10 +371,37 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         renderer.domElement.addEventListener('pointermove', handleMouseMove);
         renderer.domElement.style.touchAction = 'none'; // prevent browser handling
 
+        // --- Click vs drag discrimination ---
+        // handleClick is bound to 'pointerup', which fires for BOTH a plain
+        // click AND the release of an orbit / pan / gizmo drag. Running the
+        // pick + selection churn on a drag-release is wrong CAD UX (a drag
+        // must orbit, never select/deselect) and was a source of the viewport
+        // "freeze on a drag": every drag-release re-ran clearSelection +
+        // selectObject (cloning all geometry, re-attaching TransformControls).
+        // We record the pointerdown position; if pointerup moved more than
+        // DRAG_PX, it was a drag — return before the pick.
+        const DRAG_PX = 5;
+        let pointerDownPos = null;   // { x, y } in client px, or null
+        const handlePointerDown = (event) => {
+            pointerDownPos = { x: event.clientX, y: event.clientY };
+        };
+        renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+
         // --- Click handler ---
         let clickPending = false;
         const handleClick = (event) => {
+            // A TransformControls gizmo drag, or a pointer that travelled
+            // more than DRAG_PX since pointerdown, is a drag — not a click.
+            // Bail before any pick / selection work so a drag only orbits.
             if (transformControls.dragging) return;
+            if (pointerDownPos) {
+                const moved = Math.hypot(
+                    event.clientX - pointerDownPos.x,
+                    event.clientY - pointerDownPos.y,
+                );
+                pointerDownPos = null;
+                if (moved > DRAG_PX) return; // drag — leave selection untouched
+            }
             if (clickPending) return;
             clickPending = true;
             requestAnimationFrame(() => { clickPending = false; });
@@ -390,6 +463,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                     const faceId = ThreeJSBridge.pickFace(hit);
                     if (faceId !== null) {
                         ThreeJSBridge.highlightFace(group, faceId, 0xff6b35);
+                        highlightedGroups.add(group); // track for O(1) clear
 
                         // Store the picked face for sketch-on-face activation
                         lastPickedFace.current = {
@@ -456,6 +530,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                         }
 
                         ThreeJSBridge.showVertices(group, solid, 0.002, 0x00ff88);
+                        highlightedGroups.add(group); // track for O(1) clear
 
                         const ids = [...selectedEdges.current];
                         // Sync to global singleton so ToolExecutionEngine can read it
@@ -501,12 +576,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             switch (e.key.toLowerCase()) {
-                case 'g': transformControls.setMode('translate'); setTransformMode('translate'); break;
-                case 'r': transformControls.setMode('rotate'); setTransformMode('rotate'); break;
+                case 'g': transformControls.setMode('translate'); setTransformMode('translate'); attachGizmo(); break;
+                case 'r': transformControls.setMode('rotate'); setTransformMode('rotate'); attachGizmo(); break;
                 case 's':
                     if (!e.ctrlKey && !e.metaKey) {
                         transformControls.setMode('scale');
                         setTransformMode('scale');
+                        attachGizmo();
                     }
                     break;
                 case '1': setSelectionMode('object'); break;
@@ -686,6 +762,7 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             window.removeEventListener('keydown', handleKeyDown);
             if (renderer.domElement) {
                 renderer.domElement.removeEventListener('pointerup', handleClick);
+                renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
                 renderer.domElement.removeEventListener('pointermove', handleMouseMove);
             }
             if (_sketch.active) _sketch.deactivate(scene);
@@ -713,7 +790,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
     const handleModeChange = useCallback((mode) => {
         setTransformMode(mode);
-        if (internalsRef.current) internalsRef.current.transformControls.setMode(mode);
+        if (internalsRef.current) {
+            internalsRef.current.transformControls.setMode(mode);
+            // Clicking a Move/Rotate/Scale toolbar button is the explicit
+            // signal that the user wants the transform gizmo — attach it to
+            // the current selection now (selection alone never attaches it).
+            if (internalsRef.current.attachGizmo) internalsRef.current.attachGizmo();
+        }
     }, []);
 
     const displayLabels = { shaded: 'Shaded', wireframe: 'Wire', shadedWire: 'S+W', xray: 'X-Ray' };
