@@ -27,3 +27,4 @@ export { intersectSurfaces } from './BrepNurbsSSI.js';
 export { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
 export { trimmedNurbsFace } from './BrepNurbsTrim.js';
 export { g2BlendBetweenEdges } from './BrepBlendG2.js';
+export { classAAnalyze } from './BrepClassA.js';
