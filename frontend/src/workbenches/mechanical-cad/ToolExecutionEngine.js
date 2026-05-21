@@ -272,7 +272,17 @@ export function addFoundationManifoldToScene(scene, viewport, manifold, color = 
 // add to scene, register the body in the Part Browser, and return the group.
 // Mirrors the addFoundationManifoldToScene pattern — same scale (0.001 mm→m),
 // same userData flags, same auto-frame and window mirror behaviour.
-export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x9aa3ad) {
+//
+// `consumedInputs` — the BrepShape[] this result was built FROM. A consuming
+// op (Fillet, Chamfer, Boolean, …) transforms its input body/bodies into this
+// new B-rep result; the originals must not linger in the scene overlapping the
+// result (a stale sharp body in front of the rounded one, swallowing clicks).
+// Every shape in `consumedInputs` is removed from the BodyRegistry — which also
+// removes its group from the scene and clears it from selection. The Design
+// History panel still records the operation, so history is not lost.
+// Default `[]` → non-consuming callers (primitives, generators, analysis) are
+// unaffected.
+export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x9aa3ad, consumedInputs = []) {
   const mesh = await ArchDiscKernel.brep.brepToMesh(brepShape, { color });
   const group = new THREE.Group();
   group.scale.set(0.001, 0.001, 0.001);
@@ -307,6 +317,22 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
     window.__lastBrepGroup = group;
     if (typeof window.__archdiscFocusOnObject === 'function') {
       window.__archdiscFocusOnObject(group);
+    }
+  }
+
+  // Consuming-op cleanup: remove every input body that this result replaced.
+  // Done AFTER the result is registered with its own brepShapeRef — the
+  // consumed inputs are different BrepShape objects, so the result itself is
+  // never matched here. reg.remove() drops the entry, detaches its group from
+  // the scene, and clears it from selection (BodyRegistry.remove).
+  if (consumedInputs && consumedInputs.length) {
+    const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+    if (reg) {
+      for (const input of consumedInputs) {
+        if (!input) continue;
+        const entry = reg.bodies.find(b => b.brepShapeRef === input);
+        if (entry) reg.remove(entry.id);
+      }
     }
   }
 
@@ -1006,7 +1032,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Fillet');
         if (cancelled) return { status: 'warn', message: 'Fillet: cancelled' };
         const result = await ArchDiscKernel.brep.filletAll(body, values.radius);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Fillet transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1020,7 +1047,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Chamfer');
         if (cancelled) return { status: 'warn', message: 'Chamfer: cancelled' };
         const result = await ArchDiscKernel.brep.chamferAll(body, values.distance);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Chamfer transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Chamfer: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1054,7 +1082,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Shell');
         if (cancelled) return { status: 'warn', message: 'Shell: cancelled' };
         const result = await ArchDiscKernel.brep.shell(body, values.thickness);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Shell transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Shell: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1068,7 +1097,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Draft');
         if (cancelled) return { status: 'warn', message: 'Draft: cancelled' };
         const result = await ArchDiscKernel.brep.draft(body, values.angleDeg);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Draft transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Draft: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1082,7 +1112,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Variable Radius Fillet');
         if (cancelled) return { status: 'warn', message: 'Variable Radius Fillet: cancelled' };
         const result = await ArchDiscKernel.brep.variableFillet(body, values.r1, values.r2);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Variable Radius Fillet transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
@@ -1122,7 +1153,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Full Round Fillet');
         if (cancelled) return { status: 'warn', message: 'Full Round Fillet: cancelled' };
         const result = await ArchDiscKernel.brep.cliffEdgeBlend(body, values.radius);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Full Round Fillet transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Full Round Fillet: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1136,7 +1168,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Corner Mitre');
         if (cancelled) return { status: 'warn', message: 'Corner Mitre: cancelled' };
         const result = await ArchDiscKernel.brep.mitreCorner(body, values.radius);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Corner Mitre transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Corner Mitre: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1150,7 +1183,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Offset Shape');
         if (cancelled) return { status: 'warn', message: 'Offset Shape: cancelled' };
         const result = await ArchDiscKernel.brep.offsetShape(body, values.distance);
-        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        // Consuming op: Offset Shape transforms `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Offset Shape: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1197,7 +1231,8 @@ const TOOL_HANDLERS = {
         const { cancelled } = await requestToolParams('Combine');
         if (cancelled) return { status: 'warn', message: 'Combine: cancelled' };
         const result = await ArchDiscKernel.brep.fuse(a, b);
-        await addBrepShapeToScene(scene, viewport, result, 0x4caf50);
+        // Consuming op: Combine fuses both inputs into `result` — drop both originals.
+        await addBrepShapeToScene(scene, viewport, result, 0x4caf50, [a, b]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Combine: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1211,7 +1246,8 @@ const TOOL_HANDLERS = {
         const { cancelled } = await requestToolParams('Subtract');
         if (cancelled) return { status: 'warn', message: 'Subtract: cancelled' };
         const result = await ArchDiscKernel.brep.cut(a, b);
-        await addBrepShapeToScene(scene, viewport, result, 0xff9800);
+        // Consuming op: Subtract cuts b from a into `result` — drop both originals.
+        await addBrepShapeToScene(scene, viewport, result, 0xff9800, [a, b]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Subtract: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1225,7 +1261,8 @@ const TOOL_HANDLERS = {
         const { cancelled } = await requestToolParams('Intersect');
         if (cancelled) return { status: 'warn', message: 'Intersect: cancelled' };
         const result = await ArchDiscKernel.brep.common(a, b);
-        await addBrepShapeToScene(scene, viewport, result, 0x9c27b0);
+        // Consuming op: Intersect keeps the common volume of a∩b — drop both originals.
+        await addBrepShapeToScene(scene, viewport, result, 0x9c27b0, [a, b]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Intersect: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -1239,7 +1276,8 @@ const TOOL_HANDLERS = {
         const { cancelled } = await requestToolParams('Combine (Non-Manifold)');
         if (cancelled) return { status: 'warn', message: 'Combine (Non-Manifold): cancelled' };
         const result = await ArchDiscKernel.brep.fuseNonManifold(a, b);
-        await addBrepShapeToScene(scene, viewport, result);
+        // Consuming op: fuses both inputs into `result` — drop both originals.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [a, b]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Combine (Non-Manifold): V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
       } catch (err) {
@@ -1253,7 +1291,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Combine (Coincident)');
         if (cancelled) return { status: 'warn', message: 'Combine (Coincident): cancelled' };
         const result = await ArchDiscKernel.brep.fuseCoincident(a, b, values.tolerance);
-        await addBrepShapeToScene(scene, viewport, result);
+        // Consuming op: fuses both inputs into `result` — drop both originals.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [a, b]);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Combine (Coincident): V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
       } catch (err) {
@@ -1267,7 +1306,8 @@ const TOOL_HANDLERS = {
         const { cancelled } = await requestToolParams('Lattice Fuse');
         if (cancelled) return { status: 'warn', message: 'Lattice Fuse: cancelled' };
         const result = await ArchDiscKernel.brep.fuseLattice(members);
-        await addBrepShapeToScene(scene, viewport, result);
+        // Consuming op: Lattice Fuse fuses every member into `result` — drop them all.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, members);
         const meas = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Lattice Fuse: ${members.length} members → V = ${meas.volume.toFixed(0)} mm³ via ArchDisc Kernel` };
       } catch (err) {
@@ -1624,7 +1664,8 @@ const TOOL_HANDLERS = {
         const { cancelled } = await requestToolParams('Refine NURBS');
         if (cancelled) return { status: 'warn', message: 'Refine NURBS: cancelled' };
         const result = await ArchDiscKernel.brep.refineNurbs(body);
-        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd);
+        // Consuming op: Refine NURBS replaces `body` with its h-refined form — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
@@ -1645,7 +1686,8 @@ const TOOL_HANDLERS = {
           uDegree: Number(values.uDegree) || 4,
           vDegree: Number(values.vDegree) || 4,
         });
-        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd);
+        // Consuming op: Elevate NURBS replaces `body` with its degree-elevated form — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x5c8fbd, [body]);
         const m = await ArchDiscKernel.brep.measure(result);
         return {
           status: 'success',
@@ -2058,7 +2100,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Replace Face');
         if (cancelled) return { status: 'warn', message: 'Replace Face: cancelled' };
         const out = await ArchDiscKernel.brep.replaceFace(body, values.faceIndex);
-        await addBrepShapeToScene(scene, viewport, out);
+        // Consuming op: Replace Face rewrites a face of `body` into `out` — drop the original.
+        await addBrepShapeToScene(scene, viewport, out, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(out);
         return { status: 'success', message: `Replace Face: face #${values.faceIndex} rewritten via ArchDisc Kernel — V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces` };
       } catch (err) {
@@ -2073,7 +2116,8 @@ const TOOL_HANDLERS = {
         const before = await ArchDiscKernel.brep.measure(body);
         const result = await ArchDiscKernel.brep.simplify(body);
         const after = await ArchDiscKernel.brep.measure(result);
-        await addBrepShapeToScene(scene, viewport, result);
+        // Consuming op: Simplify rewrites `body` topology into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
         return {
           status: 'success',
           message: 'Simplify Geometry: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via ArchDisc Kernel',
