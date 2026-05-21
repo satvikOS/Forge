@@ -106,33 +106,86 @@ test('Shell: thin-walled tray (open housing) — build 40³ box → select → r
   }
 });
 
-// ─── Thicken ─────────────────────────────────────────────────────────────────
+// ─── Thicken — §3.2 thickening sheets, real open-surface input (P8) ──────────
 
-test('Thicken: thickened sheet (metal plate) — ribbon click thickens 60×40 sheet by 3 mm, V in (6480, 7920)', async () => {
-  // Artifact: thickened sheet (metal plate)
-  // Arity-0: no body selection needed. Dialog defaults: width=60, height=40, thickness=3.
-  // Produces a thin sheet-metal plate as used in brackets, flanges, or sheet-metal blanks.
-  // 60×40×3 = 7200 mm³, ±10%.
+test('Thicken: real open-surface body → watertight solid — build a NURBS Patch (open curved sail surface) → select → Thicken 3 mm → closed solid', async () => {
+  // Artifact: a real OPEN SURFACE body — a doubly-curved NURBS sail patch
+  // (40×40 mm footprint, 8 mm crown). Thickening THIS — a complex open
+  // surface a user actually built — is the §3.2 "thickening sheets" intent:
+  // converting a complex open surface into a valid watertight solid.
+  //
+  // P8 gap-closure: BrepLocalOps.thicken was refactored from building a
+  // rectangular face internally (w,h,t params) to doing _pickBodies(1) and
+  // thickening the SELECTED body's actual open surface. This test builds a
+  // genuine open-surface body via the NURBS Patch ribbon tool, selects it,
+  // and applies Thicken — the closed-gap workflow.
   const { app, win, pageErrors, story } = await launchWithCapture('brep-localops-thicken');
   try {
-    // Click Part tab → Thicken → accept dialog defaults.
-    const plateId = await buildPrimitive(win, 'Thicken');
-    console.log(`  Thicken id: ${plateId}`);
+    // 1. Build the open-surface body — a NURBS sail patch (real curved
+    //    open surface, NOT an internally-fabricated rectangle).
+    const patchId = await buildPrimitive(win, 'NURBS Patch', { size: 40, crown: 8 });
+    console.log(`  NURBS Patch (open surface) id: ${patchId}`);
 
-    // Key-frame: the produced plate, then a real drag-orbit to show it in 3D.
+    // Key-frame: the open surface, then a real drag-orbit to show it in 3D.
     await story.frame('input');
     await dragOrbit(win, { dx: 200, dy: 90 });
     await story.frame('input-3d');
 
+    // Baseline — the input is an OPEN surface (a sheet), not a closed solid.
+    const mSurf = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Open NURBS surface: faces=${mSurf.faceCount}, vol=${mSurf.volume.toFixed(1)}`);
+    // An open tessellated sail surface has many faces and ~zero enclosed volume.
+    expect(mSurf.faceCount).toBeGreaterThan(1);
+
+    // 2. Select the open-surface body with a REAL viewport click.
+    await clickBody(win, patchId);
+    const idBefore = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+
+    // 3. Click Thicken — thickens the SELECTED open surface (arity-1).
+    //    Inject wall thickness; the op no longer needs width/height (it reads
+    //    the selected body's real geometry).
+    await injectToolParams(win, 'Thicken', { thickness: 3 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
+    await story.frame('thicken-dialog');
+    await clickRibbonTool(win, 'Thicken');
+
+    // 4. Wait for the thickened solid.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBefore,
+      { timeout: 90000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-thicken');
+
+    // 5. Measure + assert — the open surface is now a watertight solid.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Thicken (metal plate): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
-    // 60×40×3 = 7200 mm³, ±10%
-    expect(m.volume).toBeGreaterThan(6480);
-    expect(m.volume).toBeLessThan(7920);
+    console.log(`  Thicken (open surface → solid): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    // Thickening a 40×40 mm curved sail by 3 mm encloses a real positive
+    // volume — order ~40×40×3 ≈ 4800 mm³ (the curved surface area exceeds the
+    // flat footprint, so allow a generous band).
+    expect(m.volume).toBeGreaterThan(1000);
+    expect(m.volume).toBeLessThan(40000);
+    expect(m.faceCount).toBeGreaterThan(0);
 
-    await story.frame('after-thicken');
+    // 6. GAP-CLOSURE assertion — the op consumed the user's REAL open-surface
+    //    body (recorded its input face count), not an internal rectangle.
+    const tp = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.meta && window.__lastBrepShape.meta.params
+    );
+    console.log(`  Thicken params: ${JSON.stringify(tp)}`);
+    expect(tp, 'thicken must record its params').toBeTruthy();
+    expect(tp.thickness).toBe(3);
+    // The legacy op had {w,h,thickness}; the closed-gap op records the
+    // SELECTED surface's face count — proving it thickened a real body.
+    expect(tp.inputFaceCount).toBeGreaterThan(1);
 
     const cap = await captureAllAngles(win, 'thicken', { story, drags: 7 });
     console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
