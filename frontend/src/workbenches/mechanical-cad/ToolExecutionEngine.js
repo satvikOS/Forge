@@ -1533,9 +1533,13 @@ const TOOL_HANDLERS = {
         if (cancelled) return { status: 'warn', message: 'Retopo Surface: cancelled' };
 
         const tgt = (values.targetEdgeLength > 0) ? values.targetEdgeLength : undefined;
+        const pullBack = values.pullBackToSurface !== undefined
+          ? Number(values.pullBackToSurface) >= 1
+          : true;
         const mesh = await ArchDiscKernel.brep.retopoShape(body, {
           targetEdgeLength: tgt,
           iterations: Math.round(values.iterations),
+          pullBackToSurface: pullBack,
         });
 
         // Build Three.js BufferGeometry from the retopo'd typed arrays.
@@ -1571,12 +1575,20 @@ const TOOL_HANDLERS = {
             indices:   mesh.indices,
             stats:     mesh.stats,
           };
+          // Mirror surface pull-back projection stats for e2e assertions.
+          window.__lastRetopoProjection = {
+            projections:        mesh.stats.projections        ?? 0,
+            maxProjectionDelta: mesh.stats.maxProjectionDelta ?? 0,
+          };
         }
 
         const s = mesh.stats;
+        const pullBackNote = pullBack
+          ? `, pull-back: ${s.projections ?? 0} proj, maxΔ=${(s.maxProjectionDelta ?? 0).toFixed(3)} mm`
+          : '';
         return {
           status: 'success',
-          message: `Retopo Surface: ${s.baseTris}→${s.retopoTris} tris (target L = ${tgt ?? 'auto'}, ${Math.round(values.iterations)} iter) via isotropic remeshing`,
+          message: `Retopo Surface: ${s.baseTris}→${s.retopoTris} tris (target L = ${tgt ?? 'auto'}, ${Math.round(values.iterations)} iter) via isotropic remeshing${pullBackNote}`,
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Retopo Surface: ' + err.message };

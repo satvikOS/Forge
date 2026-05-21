@@ -176,10 +176,11 @@ export const TOOL_PARAM_SCHEMAS = {
 
   'Retopo Surface': {
     title: 'Retopo Surface — Isotropic Remeshing',
-    blurb: 'Retopologise the selected body via Botsch-Kobbelt 2004 isotropic remeshing (split/collapse/flip/tangential-relax). Set targetEdgeLength=0 to use auto (mean baseline edge length).',
+    blurb: 'Retopologise the selected body via Botsch-Kobbelt 2004 isotropic remeshing (split/collapse/flip/tangential-relax). Set targetEdgeLength=0 to use auto (mean baseline edge length). Pull-back (1=on, 0=off) snaps vertices back onto the B-rep surface after each relax step.',
     fields: [
-      { name: 'targetEdgeLength', label: 'Target edge length', type: 'number', default: 0, unit: 'mm', min: 0, max: 100, step: 0.1, hint: '0 = auto (mean edge length of input mesh)' },
-      { name: 'iterations',       label: 'Iterations',         type: 'number', default: 5, unit: '',   min: 1, max: 10,  step: 1,   hint: '1–10 iterations of split/collapse/flip/relax' },
+      { name: 'targetEdgeLength',  label: 'Target edge length', type: 'number', default: 0,   unit: 'mm', min: 0, max: 100, step: 0.1, hint: '0 = auto (mean edge length of input mesh)' },
+      { name: 'iterations',        label: 'Iterations',         type: 'number', default: 5,   unit: '',   min: 1, max: 10,  step: 1,   hint: '1–10 iterations of split/collapse/flip/relax' },
+      { name: 'pullBackToSurface', label: 'Surface pull-back',  type: 'number', default: 1,   unit: '',   min: 0, max: 1,   step: 1,   hint: '1 = snap vertices onto B-rep surface (recommended); 0 = tangential only' },
     ],
   },
 
