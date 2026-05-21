@@ -4,6 +4,10 @@ import path from 'path';
 /*
  * ThoughtBubble dismiss — headed Electron e2e
  *
+ * SKIPPED: the ThoughtBubble is temporarily disabled (SHOW_THOUGHT_BUBBLE = false in
+ * WorkbenchMechanical.jsx — the floating box obstructs the viewport / operation view).
+ * Re-enable this spec (test.skip -> test) when the bubble is re-added.
+ *
  * Verifies that:
  *   1. A selection causes the ThoughtBubble to appear.
  *   2. Clicking the close button dismisses it (removes it from the DOM).
@@ -17,7 +21,7 @@ import path from 'path';
 
 test.setTimeout(600000);
 
-test('ThoughtBubble appears on selection and close button dismisses it', async () => {
+test.skip('ThoughtBubble appears on selection and close button dismisses it', async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, '..', 'electron', 'main.js')],
     env: { ...process.env, NODE_ENV: 'test' },

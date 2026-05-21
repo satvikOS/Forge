@@ -395,6 +395,11 @@ const TOOL_GROUPS = {
     },
 };
 
+// SHOW_THOUGHT_BUBBLE — the floating info box that pops up over the viewport when an
+// object is selected. Temporarily disabled: it obstructs the view of the geometry and
+// the operation in progress. Flip to true to re-add it.
+const SHOW_THOUGHT_BUBBLE = false;
+
 function WorkbenchMechanical() {
     const [activeDropdown, setActiveDropdown] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
@@ -1080,8 +1085,8 @@ function WorkbenchMechanical() {
                     </div>
                 )}
 
-                {/* Thought Bubble — component info on selection */}
-                {selection && <ThoughtBubble selection={selection} viewport={viewport} onClose={() => setSelection(null)} />}
+                {/* Thought Bubble — component info on selection (temporarily disabled, see SHOW_THOUGHT_BUBBLE) */}
+                {selection && SHOW_THOUGHT_BUBBLE && <ThoughtBubble selection={selection} viewport={viewport} onClose={() => setSelection(null)} />}
 
                 {/* Selection Info Bar */}
                 {selection && (
