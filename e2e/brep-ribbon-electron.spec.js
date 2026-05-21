@@ -1,46 +1,56 @@
 /**
  * brep-ribbon-electron.spec.js
  *
- * Verifies that kernel operations are genuinely wired into the ribbon toolbar.
- * For each tested tool: switch to the correct ribbon tab, click the ribbon
- * button, wait for window.__lastBrepShape to update, measure via the kernel,
- * assert real geometry (volume > 0, faceCount >= 1), and confirm zero
- * pageErrors.
+ * "Operation in motion" tests — verifies that kernel operations are genuinely
+ * wired into the ribbon toolbar. For each tested tool: switch to the correct
+ * ribbon tab, click the ribbon button, wait for window.__lastBrepShape to
+ * update, measure via the kernel, assert real geometry (volume > 0,
+ * faceCount >= 1), and confirm zero pageErrors.
  *
- * User-workflow protocol (no hardcoded kernel calls):
- *   - Primitives (Box, Cylinder, Sphere): buildPrimitive() — Part tab + click
- *   - Fillet: buildPrimitive(Box) → selectBodies → injectToolParams → click
- *   - Combine: buildPrimitive(Box) × 2 → selectBodies → click
+ * ── MOTION-CAPTURE PATTERN (see brep-g-catmullclark-electron.spec.js) ────────
+ * - launchWithCapture() records the whole workflow as a .webm video.
+ * - clickBody() — REAL viewport mouse click — replaces selectBodies() for
+ *   arity-1 ops (Fillet). For arity-2 (Combine): clickBody() selects the first
+ *   body; addToSelection() adds the second (viewport has no modifier-click branch).
+ * - story.frame(label) drops NN-<label>.png stills at each meaningful beat.
+ * - dragOrbit() shows the model in 3D with real drag gestures.
+ * - NOTE: arity-0 primitives (Box, Cylinder, Sphere) use no clickBody — they
+ *   are creation ops that construct geometry from scratch.
+ *
+ * All five ribbon tools are exercised in a single session to avoid the
+ * Playwright Electron recordVideo teardown race that affects back-to-back
+ * multi-test files (each would launch its own Electron instance and the
+ * second app's screenshots would silently not write).
+ *
+ * Artifacts: test-results/motion/brep-ribbon/ (00-session.webm + NN-*.png)
  *
  * Tools covered: Box (primitive), Cylinder (primitive), Sphere (primitive),
  * Fillet (feature/modify), Combine (boolean).
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import {
   clickRibbonTab, clickRibbonTool,
-  buildPrimitive, selectBodies, injectToolParams,
+  buildPrimitive, injectToolParams,
 } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, clickBody, addToSelection, dragOrbit,
+} from './helpers/motionCapture.js';
 
 const SHOT = path.resolve(__dirname, 'screenshots');
 
 test.setTimeout(600000); // Kernel WASM is 50 MB; allow up to 10 min cold-load
 
-/** Launch the Electron app and wait until the kernel is ready. */
-async function launchAndWarm() {
+// ─── All five ribbon tools in one motion-capture session ─────────────────────
+
+test('ribbon: Box, Cylinder, Sphere (primitives), Fillet (arity-1), Combine (arity-2) — all ribbon tools wired to ArchDisc exact B-rep kernel', async () => {
+  // Five ribbon tools in one session — avoids the Playwright Electron
+  // recordVideo teardown race that silently breaks screenshots in back-to-back
+  // multi-test files.
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-ribbon');
   fs.mkdirSync(SHOT, { recursive: true });
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const pageErrors = [];
-  const win = await app.firstWindow();
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
 
   // Pre-warm kernel WASM (cached after first call)
   await win.waitForFunction(async () => {
@@ -56,199 +66,180 @@ async function launchAndWarm() {
   const occtReady = await win.evaluate(() => window.__occtPreWarmed);
   expect(occtReady.ok, `Kernel load failed: ${occtReady.error ?? 'unknown'}`).toBe(true);
 
-  return { app, win, pageErrors };
-}
-
-// ─── Box ─────────────────────────────────────────────────────────────────────
-
-test('ribbon: Box creates ArchDisc exact B-rep box (40³ mm, 6 faces, 12 edges)', async () => {
-  // Artifact: test cube — the simplest engineering primitive, proves Box ribbon wiring.
-  // Arity-0 primitive: Part tab → Box.
-  // buildPrimitive clicks the tab, injects default params, clicks Box, waits
-  // for window.__lastBrepShape.id to change.
-  const { app, win, pageErrors } = await launchAndWarm();
   try {
-    await buildPrimitive(win, 'Box');
+    // ── Box ──────────────────────────────────────────────────────────────────
+    // Artifact: test cube — the simplest engineering primitive, proves Box ribbon wiring.
+    // Arity-0 primitive: no clickBody needed — Box is a creation op from scratch.
+    // Build box FIRST (single body in scene) so the Fillet step can select it.
+    const boxId = await buildPrimitive(win, 'Box');
+    await story.frame('input-box');
+    await dragOrbit(win, { dx: 200, dy: 80 });
+    await story.frame('box-3d');
 
-    const metrics = await win.evaluate(async () =>
+    const boxMetrics = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Box: vol=${metrics.volume.toFixed(0)}, faces=${metrics.faceCount}, edges=${metrics.edgeCount}`);
-    expect(metrics.volume).toBeGreaterThan(63000);
-    expect(metrics.volume).toBeLessThan(65000);
-    expect(metrics.faceCount).toBe(6);
-    expect(metrics.edgeCount).toBe(12);
+    console.log(`  Box: vol=${boxMetrics.volume.toFixed(0)}, faces=${boxMetrics.faceCount}, edges=${boxMetrics.edgeCount}`);
+    expect(boxMetrics.volume).toBeGreaterThan(63000);
+    expect(boxMetrics.volume).toBeLessThan(65000);
+    expect(boxMetrics.faceCount).toBe(6);
+    expect(boxMetrics.edgeCount).toBe(12);
 
-    const shot = await win.locator('canvas').first().screenshot({
+    const shotBox = await win.locator('canvas').first().screenshot({
       path: path.join(SHOT, 'ribbon-box.png'),
     });
-    expect(shot.length).toBeGreaterThan(2000);
+    expect(shotBox.length).toBeGreaterThan(2000);
 
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
+    // ── Fillet ────────────────────────────────────────────────────────────────
+    // Artifact: rounded plate — the Box(40³) above with all edges filleted at r=2mm.
+    // A fully-filleted box (12 edges, 8 corners) produces 6 flat + 12 fillet + 8 corner = 26 faces.
+    // Arity-1: select the box with a REAL viewport click (only 1 body in scene,
+    // so the raycast will unambiguously hit boxId).
+    await clickBody(win, boxId);
 
-// ─── Cylinder ────────────────────────────────────────────────────────────────
-
-test('ribbon: Cylinder creates ArchDisc exact B-rep cylinder (volume > 0, faces >= 3)', async () => {
-  // Artifact: shaft stub — a cylindrical stock piece, proves Cylinder ribbon wiring.
-  // Arity-0 primitive: Part tab → Cylinder.
-  const { app, win, pageErrors } = await launchAndWarm();
-  try {
-    await buildPrimitive(win, 'Cylinder');
-
-    const metrics = await win.evaluate(async () =>
-      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
-    );
-    console.log(`  Cylinder: vol=${metrics.volume.toFixed(0)}, faces=${metrics.faceCount}, edges=${metrics.edgeCount}`);
-    // r=20mm h=40mm → π×400×40 ≈ 50265 mm³
-    expect(metrics.volume).toBeGreaterThan(0);
-    expect(metrics.faceCount).toBeGreaterThanOrEqual(3); // top, bottom, lateral
-
-    const shot = await win.locator('canvas').first().screenshot({
-      path: path.join(SHOT, 'ribbon-cylinder.png'),
-    });
-    expect(shot.length).toBeGreaterThan(2000);
-
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
-
-// ─── Sphere ───────────────────────────────────────────────────────────────────
-
-test('ribbon: Sphere creates ArchDisc exact B-rep sphere (volume > 0, faceCount >= 1)', async () => {
-  // Artifact: bearing ball — a precision spherical component, proves Sphere ribbon wiring.
-  // Arity-0 primitive: Part tab → Sphere.
-  const { app, win, pageErrors } = await launchAndWarm();
-  try {
-    await buildPrimitive(win, 'Sphere');
-
-    const metrics = await win.evaluate(async () =>
-      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
-    );
-    console.log(`  Sphere: vol=${metrics.volume.toFixed(0)}, faces=${metrics.faceCount}, edges=${metrics.edgeCount}`);
-    // r=25mm → (4/3)π×15625 ≈ 65450 mm³
-    expect(metrics.volume).toBeGreaterThan(0);
-    expect(metrics.faceCount).toBeGreaterThanOrEqual(1);
-
-    const shot = await win.locator('canvas').first().screenshot({
-      path: path.join(SHOT, 'ribbon-sphere.png'),
-    });
-    expect(shot.length).toBeGreaterThan(2000);
-
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
-
-// ─── Fillet (Modify feature) ──────────────────────────────────────────────────
-
-test('ribbon: Fillet creates ArchDisc filleted box (rounded plate: volume drop + 26 faces)', async () => {
-  // Artifact: rounded plate — a Box(40³) with all edges filleted at r=2mm.
-  // A fully-filleted box (12 edges, 8 corners) produces 6 flat + 12 fillet + 8 corner = 26 faces.
-  // Arity-1: build a Box via ribbon, select it, inject fillet radius, click Fillet.
-  // Under Playwright (navigator.webdriver=true) the ToolParamDialog auto-bypasses;
-  // injectToolParams sets window.__archdiscPlanParams['Fillet'] so the bypass
-  // picks up radius=2 instead of the schema default.
-  const { app, win, pageErrors } = await launchAndWarm();
-  try {
-    // 1. Build the box to operate on.
-    const boxId = await buildPrimitive(win, 'Box');
-
-    // 2. Select it.
-    await selectBodies(win, [boxId]);
-
-    // 3. Capture current id.
-    const idBefore = await win.evaluate(() =>
+    const idBeforeFillet = await win.evaluate(() =>
       window.__lastBrepShape && window.__lastBrepShape.id
     );
 
-    // 4. Inject params + click Part tab → Fillet.
     await injectToolParams(win, 'Fillet', { radius: 2 });
     await clickRibbonTab(win, 'Part');
-    await win.waitForTimeout(120);
+    await win.waitForTimeout(150);
+    await story.frame('fillet-dialog');
     await clickRibbonTool(win, 'Fillet');
 
-    // 5. Wait for the result to land.
     await win.waitForFunction(
       (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
-      idBefore,
+      idBeforeFillet,
       { timeout: 60000 },
     );
+    await win.waitForTimeout(400);
+    await story.frame('after-fillet');
+    await dragOrbit(win, { dx: -160, dy: 100 });
+    await story.frame('after-fillet-3d');
 
-    const metrics = await win.evaluate(async () =>
+    const filletMetrics = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Fillet (rounded plate): vol=${metrics.volume.toFixed(0)}, faces=${metrics.faceCount}, edges=${metrics.edgeCount}`);
-    // Volume must drop from plain box (~64000 mm³) due to corner removal.
-    expect(metrics.volume).toBeGreaterThan(0);
-    expect(metrics.volume).toBeLessThan(64000); // volume drop confirms fillet material removal
-    // Fully-filleted box: 6 flat + 12 cylindrical fillet + 8 spherical corner = 26 faces.
-    expect(metrics.faceCount).toBe(26);
+    console.log(`  Fillet (rounded plate): vol=${filletMetrics.volume.toFixed(0)}, faces=${filletMetrics.faceCount}, edges=${filletMetrics.edgeCount}`);
+    expect(filletMetrics.volume).toBeGreaterThan(0);
+    expect(filletMetrics.volume).toBeLessThan(64000); // volume drop confirms fillet material removal
+    expect(filletMetrics.faceCount).toBe(26);
 
-    const shot = await win.locator('canvas').first().screenshot({
+    const shotFillet = await win.locator('canvas').first().screenshot({
       path: path.join(SHOT, 'ribbon-fillet.png'),
     });
-    expect(shot.length).toBeGreaterThan(2000);
+    expect(shotFillet.length).toBeGreaterThan(2000);
 
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
+    // ── Cylinder ─────────────────────────────────────────────────────────────
+    // Artifact: shaft stub — a cylindrical stock piece, proves Cylinder ribbon wiring.
+    // Arity-0 primitive: no clickBody needed — Cylinder is a creation op from scratch.
+    await buildPrimitive(win, 'Cylinder');
+    await story.frame('input-cylinder');
+    await dragOrbit(win, { dx: -180, dy: 80 });
+    await story.frame('cylinder-3d');
 
-// ─── Combine (Boolean union) ──────────────────────────────────────────────────
+    const cylMetrics = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Cylinder: vol=${cylMetrics.volume.toFixed(0)}, faces=${cylMetrics.faceCount}, edges=${cylMetrics.edgeCount}`);
+    // r=20mm h=40mm → π×400×40 ≈ 50265 mm³
+    expect(cylMetrics.volume).toBeGreaterThan(0);
+    expect(cylMetrics.faceCount).toBeGreaterThanOrEqual(3); // top, bottom, lateral
 
-test('ribbon: Combine creates ArchDisc boolean union (mounting block with boss: volume > 0)', async () => {
-  // Artifact: mounting block with boss — a Box(40³) [base plate] fused with
-  // a Box(40³) [boss feature] at the same origin, proving Boolean union wiring.
-  // Arity-2: build two Boxes via ribbon, select both, click Combine.
-  // Two overlapping 40³ boxes fuse into a single solid → V > 0.
-  const { app, win, pageErrors } = await launchAndWarm();
-  try {
-    // 1. Build two primitives.
-    const box1Id = await buildPrimitive(win, 'Box');
-    const box2Id = await buildPrimitive(win, 'Box');
+    const shotCyl = await win.locator('canvas').first().screenshot({
+      path: path.join(SHOT, 'ribbon-cylinder.png'),
+    });
+    expect(shotCyl.length).toBeGreaterThan(2000);
 
-    // 2. Select both.
-    await selectBodies(win, [box1Id, box2Id]);
+    // ── Sphere ────────────────────────────────────────────────────────────────
+    // Artifact: bearing ball — a precision spherical component, proves Sphere ribbon wiring.
+    // Arity-0 primitive: no clickBody needed — Sphere is a creation op from scratch.
+    await buildPrimitive(win, 'Sphere');
+    await story.frame('input-sphere');
+    await dragOrbit(win, { dx: 200, dy: -80 });
+    await story.frame('sphere-3d');
 
-    // 3. Capture current id.
-    const idBefore = await win.evaluate(() =>
+    const sphMetrics = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Sphere: vol=${sphMetrics.volume.toFixed(0)}, faces=${sphMetrics.faceCount}, edges=${sphMetrics.edgeCount}`);
+    // r=25mm → (4/3)π×15625 ≈ 65450 mm³
+    expect(sphMetrics.volume).toBeGreaterThan(0);
+    expect(sphMetrics.faceCount).toBeGreaterThanOrEqual(1);
+
+    const shotSph = await win.locator('canvas').first().screenshot({
+      path: path.join(SHOT, 'ribbon-sphere.png'),
+    });
+    expect(shotSph.length).toBeGreaterThan(2000);
+
+    // ── Combine ───────────────────────────────────────────────────────────────
+    // Artifact: mounting block with boss — two Box(40³) bodies fused.
+    // Arity-2: build two Boxes via ribbon, select first with clickBody (REAL
+    // viewport click), add second with addToSelection (selectMany path, same as
+    // Body Browser — the viewport click handler has no modifier branch), click Combine.
+    // The two boxes are built on top of the fillet result + cylinder + sphere scene.
+    // clickBody uses frameBody + raycast grid to find the correct body even in a
+    // crowded scene (centre-outward scan, hits nearest pickable in target group).
+    const comb1Id = await buildPrimitive(win, 'Box');
+    const comb2Id = await buildPrimitive(win, 'Box');
+    await story.frame('input-combine-boxes');
+    await dragOrbit(win, { dx: 180, dy: 80 });
+    await story.frame('combine-input-3d');
+
+    await clickBody(win, comb1Id);
+    await addToSelection(win, comb2Id);
+
+    const idBeforeCombine = await win.evaluate(() =>
       window.__lastBrepShape && window.__lastBrepShape.id
     );
 
-    // 4. Click Part tab → Combine. No params (empty schema); bypass auto-resolves.
     await clickRibbonTab(win, 'Part');
-    await win.waitForTimeout(120);
+    await win.waitForTimeout(150);
+    await story.frame('combine-dialog');
     await clickRibbonTool(win, 'Combine');
 
-    // 5. Wait for the result.
     await win.waitForFunction(
       (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
-      idBefore,
+      idBeforeCombine,
       { timeout: 60000 },
     );
+    await win.waitForTimeout(400);
+    await story.frame('after-combine');
+    await dragOrbit(win, { dx: -160, dy: 100 });
+    await story.frame('after-combine-3d');
 
-    const metrics = await win.evaluate(async () =>
+    const combineMetrics = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Combine: vol=${metrics.volume.toFixed(0)}, faces=${metrics.faceCount}, edges=${metrics.edgeCount}`);
-    expect(metrics.volume).toBeGreaterThan(0);
-    expect(metrics.faceCount).toBeGreaterThanOrEqual(1);
+    console.log(`  Combine: vol=${combineMetrics.volume.toFixed(0)}, faces=${combineMetrics.faceCount}, edges=${combineMetrics.edgeCount}`);
+    expect(combineMetrics.volume).toBeGreaterThan(0);
+    expect(combineMetrics.faceCount).toBeGreaterThanOrEqual(1);
 
-    const shot = await win.locator('canvas').first().screenshot({
+    const shotCombine = await win.locator('canvas').first().screenshot({
       path: path.join(SHOT, 'ribbon-combine.png'),
     });
-    expect(shot.length).toBeGreaterThan(2000);
+    expect(shotCombine.length).toBeGreaterThan(2000);
 
     expect(pageErrors).toEqual([]);
+
+    // ── Verify the storyboard stills exist and are non-trivial ─────────────────
+    const stills = story.frames();
+    const inputStill   = stills.find(f => /-input-box\.png$/.test(f));
+    const filletStill  = stills.find(f => /-after-fillet\.png$/.test(f));
+    const combineStill = stills.find(f => /-after-combine\.png$/.test(f));
+    expect(inputStill,   'an input-box still must have been captured').toBeTruthy();
+    expect(filletStill,  'an after-fillet still must have been captured').toBeTruthy();
+    expect(combineStill, 'an after-combine still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input-box still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(filletStill).size,
+      'after-fillet still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(combineStill).size,
+      'after-combine still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
