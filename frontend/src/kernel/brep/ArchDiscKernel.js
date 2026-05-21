@@ -30,6 +30,7 @@ import { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './Bre
 import { catmullClarkShape } from './BrepCatmullClark.js';
 import { intersectSurfaces } from './BrepNurbsSSI.js';
 import { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
+import { trimmedNurbsFace } from './BrepNurbsTrim.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -56,6 +57,7 @@ export const ArchDiscKernel = {
     intersectSurfaces,
     projectPointsOntoBrep,
     projectMeshOntoBrep,
+    trimmedNurbsFace,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,

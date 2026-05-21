@@ -25,3 +25,4 @@ export { pipeShellSweep, loftTangent, stitchFaces, convergentSolid } from './Bre
 export { catmullClarkShape } from './BrepCatmullClark.js';
 export { intersectSurfaces } from './BrepNurbsSSI.js';
 export { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
+export { trimmedNurbsFace } from './BrepNurbsTrim.js';
