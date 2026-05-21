@@ -1,0 +1,4 @@
+# Build artifacts produced by the OCCT WASM build — do NOT commit (large).
+archdisc-occt.js
+archdisc-occt.wasm
+archdisc-occt.d.ts

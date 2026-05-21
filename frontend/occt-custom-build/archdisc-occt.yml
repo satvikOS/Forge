@@ -1,0 +1,111 @@
+# ArchDisc custom OCCT WASM build configuration
+# =============================================================================
+# Builds a complete-API OCCT WebAssembly module ("full OCCT, local") for the
+# ArchDisc B-rep kernel, replacing the prebuilt `opencascade.js` npm package.
+#
+# WHY A FULL BUILD:
+#   The upstream `builds/opencascade.full.yml` (which produced the prebuilt
+#   `opencascade.full.wasm` the app ships today) declares NO `bindings` list at
+#   all — so `bindings` defaults to `[]`. In `buildFromYaml.py`,
+#   `shouldProcessSymbol()` returns True for EVERY symbol when `len(bindings)==0`.
+#   An empty `bindings` list is therefore literally "expose the complete OCCT
+#   API" — exactly the roadmap goal of "full OCCT".
+#
+#   This config reproduces that full build and adds `additionalCppCode` to
+#   close the one binding that cannot be expressed as a plain symbol entry:
+#   a Handle wrapper for a freshly-constructed Geom_BSplineSurface.
+#
+# DETERMINISM / API COMPATIBILITY:
+#   Build it inside the Docker image `donalffons/opencascade.js:2.0.0-beta.b5ff984`
+#   — the image tag that EXACTLY matches the npm package pin
+#   `opencascade.js@2.0.0-beta.b5ff984` in frontend/package.json. Same OCCT
+#   commit (bb368e271e24f63078129283148ce83db6b9670a, OCCT 7.6.2) and same
+#   Emscripten (emsdk 3.1.14). The custom WASM is therefore ABI/API-compatible
+#   with all existing kernel/brep/ code — it is a strict superset of the
+#   current `oc` API surface.
+#
+# WHAT THIS UNLOCKS (roadmap §3 parity gaps — see docs/superpowers/notes/
+# parity-audit.md "Gap Closure List"):
+#   - gp_Pnt2d 2-arg ctor (gp_Pnt2d_2)        -> P1 G2-Blend analytic face,
+#                                                 P4 arbitrary face swap
+#   - BOPAlgo_PaveFiller                      -> P7 single-solid self-intersect
+#                                                 (unlocks BOPAlgo_CheckerSI)
+#   - BVH_PrimitiveSet                        -> SelfIntersection.OverlapElements()
+#   - ShapeConstruct_ProjectCurveOnSurface    -> P4 pcurve generation
+#   - Handle_Geom_BSplineSurface ctor         -> direct NURBS TopoDS_Face
+#   - BRepOffsetAPI_MakeFilling               -> G1 N-Sided Patch (see README risk)
+#   With `bindings: []` ALL of the above are bound automatically; they are
+#   listed here only as documentation of intent.
+# =============================================================================
+
+mainBuild:
+  name: archdisc-occt.js
+
+  # Empty bindings list == FULL OCCT API. `buildFromYaml.py shouldProcessSymbol`
+  # returns True for every symbol when this list is empty. This is the same
+  # selection the prebuilt `opencascade.full.wasm` was produced with.
+  bindings: []
+
+  # emccFlags mirror the upstream `customBuildSchema.py` defaults verbatim.
+  # Listed explicitly so the build is reproducible and self-documenting.
+  #   -flto / -O3                 : link-time optimisation + dead-code elimination
+  #   -fexceptions /
+  #     -sDISABLE_EXCEPTION_CATCHING=0 : OCCT throws C++ exceptions; must be caught
+  #   -sEXPORT_ES6=1              : ESM module (Vite `import ocFactory from ...`)
+  #   -sUSE_ES6_IMPORT_META=0     : required for the Vite/Electron bundler path
+  #   -sEXPORTED_RUNTIME_METHODS=['FS'] : virtual FS used for STEP/IGES I/O
+  #   -sINITIAL_MEMORY=100MB / -sMAXIMUM_MEMORY=4GB / -sALLOW_MEMORY_GROWTH=1
+  #   -sUSE_FREETYPE=1           : font support (text/annotation rendering)
+  #   -sLLD_REPORT_UNDEFINED     : surface undefined symbols at link time
+  #   --no-entry                 : library module, no main()
+  emccFlags:
+    - -flto
+    - -fexceptions
+    - -sDISABLE_EXCEPTION_CATCHING=0
+    - -O3
+    - -sEXPORT_ES6=1
+    - -sUSE_ES6_IMPORT_META=0
+    - -sEXPORTED_RUNTIME_METHODS=['FS']
+    - -sINITIAL_MEMORY=100MB
+    - -sMAXIMUM_MEMORY=4GB
+    - -sALLOW_MEMORY_GROWTH=1
+    - -sUSE_FREETYPE=1
+    - -sLLD_REPORT_UNDEFINED
+    - --no-entry
+
+# additionalCppCode is a TOP-LEVEL field (confirmed against the upstream
+# `customBuildSchema.py`). It is injected before the EMSCRIPTEN_BINDINGS block.
+# generateBindings.py auto-prepends ALL OCCT #include statements, so this code
+# must NOT add its own #include directives — every OCCT header is already in
+# scope (Geom_BSplineSurface.hxx, Geom_Surface.hxx, Standard_Transient.hxx ...).
+#
+# PURPOSE: the prebuilt build exposes Geom_BSplineSurface_1(...) which returns a
+# raw Standard_Transient. Every surface-consuming API (BRepBuilderAPI_MakeFace_8/
+# _14, GeomLProp_SLProps, GeomConvert) needs a Handle_Geom_Surface smart pointer,
+# and there is no exposed path to wrap a fresh transient into a Handle. The
+# helper class below provides that path. A class is used (not a free function)
+# because the opencascade.js binding generator only binds class-scoped symbols.
+#
+# Geom_BSplineSurface derives from Geom_BoundedSurface -> Geom_Surface ->
+# Geom_Geometry -> Standard_Transient, so the Handle upcasts implicitly to
+# Handle(Geom_Surface) at the JS call sites that need it.
+additionalCppCode: |
+  // ---- ArchDisc: Handle wrapper for freshly-constructed B-spline surfaces ----
+  class ArchDiscHandleHelper {
+  public:
+    // Wrap an existing Geom_BSplineSurface pointer into an owning Handle.
+    static Handle(Geom_BSplineSurface) handleFromBSplineSurface(
+        Geom_BSplineSurface* s) {
+      return Handle(Geom_BSplineSurface)(s);
+    }
+    // Wrap a raw Standard_Transient (what Geom_BSplineSurface_1 returns to JS)
+    // into a Handle(Geom_BSplineSurface) via a checked down-cast.
+    static Handle(Geom_BSplineSurface) handleFromTransient(
+        Standard_Transient* raw) {
+      return Handle(Geom_BSplineSurface)(
+          dynamic_cast<Geom_BSplineSurface*>(raw));
+    }
+  };
+
+# TypeScript .d.ts generation stays on so the loader keeps full typings.
+generateTypescriptDefinitions: true
