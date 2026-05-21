@@ -291,13 +291,18 @@ test('Offset Shape: complex high-curvature surface offset — Box 40³ → Fille
   }
 });
 
-// ─── Draft ────────────────────────────────────────────────────────────────────
+// ─── Draft — §3.2 drafting faces, fully parametric neutral plane (P3) ─────────
 
-test('Draft: draft-angle plug (mold-release shape) — build 40³ box → select → ribbon click → 5° dialog → positive V < 64000, 6 faces', async () => {
-  // Artifact: draft-angle plug (mold-release shape)
-  // Arity-1: build a Box (40³ — the plug blank), select it, click Draft, fill angleDeg=5.
-  // Tapers the side faces inward at 5° for mold-release, producing a plastic injection
-  // mold plug or die casting insert with the required draft angle.
+test('Draft: draft-angle plug about a PARAMETRIC neutral plane — build 40³ box → select → Draft 6° about an offset, X-tilted parting plane → tapered solid, params flow through', async () => {
+  // Artifact: a draft-angle plug (mold-release shape) tapered about a NON-default
+  // parting plane — not the legacy hardcoded z=0 / +Z setup.
+  //
+  // P3 gap-closure: BrepLocalOps.draft now takes a fully parametric neutral
+  // plane (origin + normal) and pull direction. This test drives a neutral
+  // plane that is OFFSET (origin z=8 mm) and TILTED off +Z (normal has an X
+  // component), pulled along that same tilted axis — exercising the closed
+  // gap. The op classifies side faces relative to the chosen pull axis and
+  // records the parametric setup in meta.params.
   const { app, win, pageErrors, story } = await launchWithCapture('brep-localops-draft');
   try {
     // 1. Build the plug blank (Box 40³).
@@ -317,10 +322,17 @@ test('Draft: draft-angle plug (mold-release shape) — build 40³ box → select
       window.__lastBrepShape && window.__lastBrepShape.id
     );
 
-    // 4. Click Part tab → Draft.
-    //    Inject params before clicking — under Playwright (navigator.webdriver=true)
-    //    ToolParamDialog auto-bypasses; planParams is the correct injection path.
-    await injectToolParams(win, 'Draft', { angleDeg: 5 });
+    // 4. Click Part tab → Draft with a PARAMETRIC neutral plane + pull dir.
+    //    Neutral plane: origin (0,0,8) mm, normal slightly tilted off +Z
+    //    (0.15, 0, 1) → a real arbitrary parting plane. Pull along the same.
+    //    Inject params before clicking — under Playwright (navigator.webdriver
+    //    =true) ToolParamDialog auto-bypasses; planParams is the injection path.
+    await injectToolParams(win, 'Draft', {
+      angleDeg: 6,
+      neutralOriginX: 0, neutralOriginY: 0, neutralOriginZ: 8,
+      neutralNormalX: 0.15, neutralNormalY: 0, neutralNormalZ: 1,
+      pullDirX: 0.15, pullDirY: 0, pullDirZ: 1,
+    });
     await clickRibbonTab(win, 'Part');
     await win.waitForTimeout(120);
     await story.frame('draft-dialog');
@@ -335,14 +347,36 @@ test('Draft: draft-angle plug (mold-release shape) — build 40³ box → select
     await win.waitForTimeout(300);
     await story.frame('after-draft');
 
-    // 6. Measure + assert.
+    // 6. Measure + assert the taper happened.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Draft (mold-release plug): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    console.log(`  Draft (parametric-neutral-plane plug): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
     expect(m.volume).toBeGreaterThan(0);
-    expect(m.volume).toBeLessThan(64000);
+    // Drafting tapers the side faces → volume moves off the 64000 mm³ blank.
+    expect(m.volume).not.toBe(64000);
+    expect(m.volume).toBeLessThan(64000 * 1.5);
     expect(m.faceCount).toBe(6);
+
+    // 7. GAP-CLOSURE assertion — the parametric neutral plane + pull direction
+    //    flowed all the way through to the kernel op and were recorded. The
+    //    legacy op hardcoded neutralNormal=[0,0,1]; here it is the TILTED
+    //    normal we supplied, proving the neutral plane is fully parametric.
+    const dp = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.meta && window.__lastBrepShape.meta.params
+    );
+    console.log(`  Draft params: ${JSON.stringify(dp)}`);
+    expect(dp, 'draft must record its parametric neutral plane').toBeTruthy();
+    expect(dp.angleDeg).toBe(6);
+    // Neutral-plane origin: offset to z=8 mm (legacy hardcoded z=0).
+    expect(dp.neutralOrigin[2]).toBeCloseTo(8, 3);
+    // Neutral-plane normal: TILTED off +Z (normalised) — has a real X part.
+    expect(dp.neutralNormal[0]).toBeGreaterThan(0.1);
+    expect(dp.neutralNormal[2]).toBeGreaterThan(0.9);
+    // Pull direction: the same tilted axis, normalised — real X part.
+    expect(dp.pullDir[0]).toBeGreaterThan(0.1);
+    // The op classified + tapered the prismatic side faces.
+    expect(dp.draftedFaces).toBeGreaterThanOrEqual(1);
 
     const cap = await captureAllAngles(win, 'draft', { story, drags: 7 });
     console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
