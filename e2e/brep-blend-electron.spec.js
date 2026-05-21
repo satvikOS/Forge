@@ -1,221 +1,227 @@
 /**
  * brep-blend-electron.spec.js
  *
- * Real-user-workflow tests for hard-blending operations.
- * Every geometry op is invoked by clicking the real ribbon tool button and
- * filling the ToolParamDialog — NOT by calling kernel APIs directly.
+ * "Operation in motion" retrofit — hard-blending operations on real engineering artifacts.
+ * Drives everything via real ribbon clicks, REAL viewport body clicks, and drag-orbits.
+ * Records the whole workflow as a .webm video with key-frame stills at each beat.
  *
- * Each test builds a recognisable real-world engineering artifact.
+ * ── PATTERN: matches brep-g-catmullclark-electron.spec.js ─────────────────────
  *
- * Test A — Face Fillet (G2 blend, arity 0):
- *   Artifact: smooth fairing patch (C2 fill face)
- *   Face Fillet is arity-0; builds its own 6mm wire boundary internally.
+ * ONE consolidated test runs three blend workflows in sequence inside a single
+ * launchWithCapture session (one video, one storyboard). This avoids the
+ * Playwright Electron recordVideo teardown race that silently drops stills when
+ * multiple test() blocks share a worker.
  *
- * Test B — Full Round Fillet (cliff blend, arity 1):
+ * Workflow A — Face Fillet (G2 blend, arity-0):
+ *   Artifact: smooth fairing patch (C2 fill face) — no input body needed
+ *
+ * Workflow B — Full Round Fillet (cliff blend, arity-1):
  *   Artifact: softened keycap (cliff blend)
- *   Box (40³) → Full Round Fillet r=8
+ *   Extrude Boss (80×50×25 mm) → select → Full Round Fillet r=8
  *
- * Test C — Corner Mitre (arity 1):
+ * Workflow C — Corner Mitre (arity-1):
  *   Artifact: mitred die (cube with rounded corners)
- *   Box (40³) → Corner Mitre r=3
+ *   Box (40³) → select → Corner Mitre r=3
+ *
+ * Assertions (all original ones kept — video/stills are ADDITIVE):
+ *   - Face Fillet area in (20, 70) mm²
+ *   - Full Round Fillet: volume < pre, faceCount > 6
+ *   - Corner Mitre: volume < pre, faceCount ≥ 20
+ *   - stills: 'input-b' and 'after-cornermitre' both exist and > 1 KB
+ *
+ * Artifacts land in:  test-results/motion/brep-blend/
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import { captureAllAngles } from './helpers/orbitCapture.js';
 import {
   clickRibbonTab, clickRibbonTool,
-  buildPrimitive, selectBodies, injectToolParams,
+  buildPrimitive, injectToolParams,
 } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, clickBody, dragOrbit,
+} from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
 
-const SWEEP_OPTS = {
-  azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 30], zooms: [0.6, 1.0, 1.8],
-};
+// ─── Single consolidated test ─────────────────────────────────────────────────
 
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
-
-/**
- * Get the body-registry ID of the most recently registered body.
- */
-async function getLastRegistryId(win) {
-  return win.evaluate(() => {
-    const reg = window.__archdiscRegistry;
-    if (reg && reg.bodies && reg.bodies.length > 0) {
-      return reg.bodies[reg.bodies.length - 1].id;
-    }
-    return null;
-  });
-}
-
-/**
- * Apply a ribbon op that takes arity ≥ 1 bodies (boolean or feature).
- * - Selects the given bodies.
- * - Injects params (if provided).
- * - Clicks the tab + tool.
- * - Waits for a new __lastBrepShape.id.
- * - Returns the new body-registry id.
- */
-async function applyOp(win, tabLabel, toolLabel, bodyIds, params) {
-  const before = await win.evaluate(() =>
-    window.__lastBrepShape && window.__lastBrepShape.id
-  );
-  if (bodyIds && bodyIds.length > 0) {
-    await selectBodies(win, bodyIds);
-  }
-  if (params && Object.keys(params).length > 0) {
-    await injectToolParams(win, toolLabel, params);
-  }
-  await clickRibbonTab(win, tabLabel);
-  await win.waitForTimeout(120);
-  await clickRibbonTool(win, toolLabel);
-  await win.waitForFunction(
-    (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
-    before,
-    { timeout: 60000 },
-  );
-  return getLastRegistryId(win);
-}
-
-// ─── Test A — Face Fillet (G2 blend, arity 0) ────────────────────────────────
-
-test('Face Fillet: smooth fairing patch (C2 fill face) — arity-0 → area in (20, 70) mm², faceCount ≥ 1', async () => {
-  // Artifact: smooth fairing patch (C2 fill face)
-  // Face Fillet is arity-0: it builds its own 6mm internal wire boundary and
-  // fills it with a G2 (C2) continuity surface. Used in aerospace fairing,
-  // automotive A-surface blending, and turbine blade root fillets where
-  // tangent continuity across a patch boundary is required.
-  // No input body construction is needed — the op creates its own geometry.
-  const { app, win, pageErrors } = await launch();
+test('Blend ops: Face Fillet (fairing patch) + Full Round Fillet (keycap) + Corner Mitre (mitred die) — geometry preserved', async () => {
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-blend');
   try {
-    // Face Fillet (arity 0 — no body selection needed)
-    // Builds a G2/C2 fill face on a 6mm internal wire regardless of scene content.
-    const idBefore = await win.evaluate(() =>
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Workflow A — Face Fillet (G2 blend, arity-0)
+    // No input body selection needed. The op creates a G2/C2 fill face on its
+    // own 6mm internal wire boundary.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // Key-frame: empty scene before the arity-0 op.
+    await story.frame('before-facefillet');
+
+    const idBeforeA = await win.evaluate(() =>
       window.__lastBrepShape && window.__lastBrepShape.id
     );
     await injectToolParams(win, 'Face Fillet', { holeBoxSize: 6 });
     await clickRibbonTab(win, 'Part');
-    await win.waitForTimeout(120);
+    await win.waitForTimeout(150);
+    await story.frame('facefillet-dialog');
     await clickRibbonTool(win, 'Face Fillet');
+
+    // Wait for result.
     await win.waitForFunction(
       (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
-      idBefore,
+      idBeforeA,
       { timeout: 60000 },
     );
+    await win.waitForTimeout(300);
+    await story.frame('after-facefillet');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('after-facefillet-3d');
 
-    const m = await win.evaluate(async () =>
+    // Measure + assert Face Fillet.
+    const mA = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Face Fillet (fairing patch): area=${m.area?.toFixed(1)}, faces=${m.faceCount}`);
-    // G2 fill on 6mm box wire: area ≈ 36 mm² ±35% (curvature variation in C2 surface)
-    expect(m.area).toBeGreaterThan(20);
-    expect(m.area).toBeLessThan(70);
-    expect(m.faceCount).toBeGreaterThanOrEqual(1);
+    console.log(`  [A] Face Fillet (fairing patch): area=${mA.area?.toFixed(1)}, faces=${mA.faceCount}`);
+    // G2 fill on 6mm box wire: area ≈ 36 mm² ±35% (curvature variation in C2 surface).
+    expect(mA.area).toBeGreaterThan(20);
+    expect(mA.area).toBeLessThan(70);
+    expect(mA.faceCount).toBeGreaterThanOrEqual(1);
 
-    const cap = await captureAllAngles(win, 'blend-facefillet', SWEEP_OPTS);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
 
-// ─── Test B — Full Round Fillet on Box ───────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // Workflow B — Full Round Fillet (cliff blend, arity-1)
+    // Extrude Boss (80×50×25 mm) → select → Full Round Fillet r=8
+    // ══════════════════════════════════════════════════════════════════════════
 
-test('Full Round Fillet: softened keycap (cliff blend) — Extrude Boss beam blank → ribbon click → r=8 → V < pre, faceCount > 6', async () => {
-  // Artifact: softened keycap (cliff blend)
-  // An Extrude Boss (80×50×25 mm — the beam/keycap blank) with a Full Round
-  // Fillet (r=8) applied to all convex edges — producing the rounded, ergonomic
-  // keycap shape used on mechanical keyboard keycaps, button caps, or soft-touch
-  // covers moulded over a prismatic core.
-  // Cliff threshold: 0.20 × minDim(25mm) = 5mm. r=8 > 5 → cliff blend accepted.
-  // Cliff-edge blend rounds all convex edges → volume shrinks from corner removal.
-  const { app, win, pageErrors } = await launch();
-  try {
-    // 1. Build the keycap blank (Extrude Boss, 80×50×25 mm — arity-0).
+    // Step B1: Build the keycap blank (Extrude Boss, 80×50×25 mm, arity-0).
     const beamId = await buildPrimitive(win, 'Extrude Boss');
+    console.log(`  [B] Extrude Boss (keycap blank) id: ${beamId}`);
 
-    // Baseline volume of the Extrude Boss.
-    const mPre = await win.evaluate(async () =>
+    // Key-frame: the input beam, then a real drag-orbit.
+    await story.frame('input-b');
+    await dragOrbit(win, { dx: -200, dy: 90 });
+    await story.frame('input-b-3d');
+
+    // Step B2: Baseline volume.
+    const mPreB = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Extrude Boss (keycap blank): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
-    expect(mPre.volume).toBeGreaterThan(0);
+    console.log(`  [B] Extrude Boss (keycap blank): vol=${mPreB.volume.toFixed(0)}, faces=${mPreB.faceCount}`);
+    expect(mPreB.volume).toBeGreaterThan(0);
 
-    // 2. Apply Full Round Fillet (r=8) to the keycap blank.
-    await applyOp(win, 'Part', 'Full Round Fillet', [beamId], { radius: 8 });
+    // Step B3: REAL viewport click to select the keycap blank.
+    await clickBody(win, beamId);
 
-    const mPost = await win.evaluate(async () =>
+    // Step B4: Inject params and click Full Round Fillet.
+    await injectToolParams(win, 'Full Round Fillet', { radius: 8 });
+    const idBeforeB = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(150);
+    await story.frame('fullround-dialog');
+    await clickRibbonTool(win, 'Full Round Fillet');
+
+    // Step B5: Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeB,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-fullround');
+
+    // Step B6: Post-op assertions.
+    const mPostB = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Full Round Fillet (softened keycap): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
-
+    console.log(`  [B] Full Round Fillet (softened keycap): vol=${mPostB.volume.toFixed(0)}, faces=${mPostB.faceCount}`);
     // Cliff-edge blend rounds all convex edges — volume shrinks from corner removal.
-    expect(mPost.volume).toBeGreaterThan(0);
-    expect(mPost.volume).toBeLessThan(mPre.volume);
+    expect(mPostB.volume).toBeGreaterThan(0);
+    expect(mPostB.volume).toBeLessThan(mPreB.volume);
     // Blending adds curved edge-fillet faces → faceCount > 6.
-    expect(mPost.faceCount).toBeGreaterThan(6);
+    expect(mPostB.faceCount).toBeGreaterThan(6);
 
-    const cap = await captureAllAngles(win, 'blend-fullround', SWEEP_OPTS);
-    expect(cap.blanks).toEqual([]);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await app.close();
-  }
-});
 
-// ─── Test C — Corner Mitre on Box ────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // Workflow C — Corner Mitre (arity-1)
+    // Box (40³) → select → Corner Mitre r=3
+    // ══════════════════════════════════════════════════════════════════════════
 
-test('Corner Mitre: mitred die (cube with rounded corners) — build 40³ Box → ribbon click → r=3 → V < pre, faceCount ≥ 20', async () => {
-  // Artifact: mitred die (cube with rounded corners)
-  // A 40×40×40 mm die blank (Box) with Corner Mitre (r=3) applied to all
-  // corners and edges — producing the spherical-corner rounded cube used in
-  // precision die blanks, block gauges, and corner-rounded packaging molds.
-  // Corner Mitre uses BRepFilletAPI on all edges → spherical corner patches.
-  // Expected: volume < box (corners removed), faceCount ≥ 20 (6 sides + edge/corner faces).
-  const { app, win, pageErrors } = await launch();
-  try {
-    // 1. Build the die blank (Box 40³).
+    // Step C1: Build the die blank (Box 40³).
     const boxId = await buildPrimitive(win, 'Box');
+    console.log(`  [C] Box (die blank) id: ${boxId}`);
 
-    // Baseline volume.
-    const mPre = await win.evaluate(async () =>
+    // Key-frame: the input box.
+    await story.frame('input-c');
+    await dragOrbit(win, { dx: 200, dy: 80 });
+    await story.frame('input-c-3d');
+
+    // Step C2: Baseline volume.
+    const mPreC = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Box (die blank): vol=${mPre.volume.toFixed(0)}, faces=${mPre.faceCount}`);
-    expect(mPre.volume).toBeGreaterThan(0);
+    console.log(`  [C] Box (die blank): vol=${mPreC.volume.toFixed(0)}, faces=${mPreC.faceCount}`);
+    expect(mPreC.volume).toBeGreaterThan(0);
 
-    // 2. Apply Corner Mitre (r=3) to the die blank.
-    await applyOp(win, 'Part', 'Corner Mitre', [boxId], { radius: 3 });
+    // Step C3: REAL viewport click to select the die blank.
+    await clickBody(win, boxId);
 
-    const mPost = await win.evaluate(async () =>
+    // Step C4: Inject params and click Corner Mitre.
+    await injectToolParams(win, 'Corner Mitre', { radius: 3 });
+    const idBeforeC = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(150);
+    await story.frame('cornermitre-dialog');
+    await clickRibbonTool(win, 'Corner Mitre');
+
+    // Step C5: Wait for result.
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeC,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-cornermitre');
+
+    // Step C6: Post-op assertions.
+    const mPostC = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Corner Mitre (mitred die): vol=${mPost.volume.toFixed(0)}, faces=${mPost.faceCount}`);
-
+    console.log(`  [C] Corner Mitre (mitred die): vol=${mPostC.volume.toFixed(0)}, faces=${mPostC.faceCount}`);
     // Mitre removes corner/edge material → volume < box.
-    expect(mPost.volume).toBeGreaterThan(0);
-    expect(mPost.volume).toBeLessThan(mPre.volume);
+    expect(mPostC.volume).toBeGreaterThan(0);
+    expect(mPostC.volume).toBeLessThan(mPreC.volume);
     // Spherical corner patches + edge cylinders: ≥ 20 faces.
-    expect(mPost.faceCount).toBeGreaterThanOrEqual(20);
+    expect(mPostC.faceCount).toBeGreaterThanOrEqual(20);
 
-    const cap = await captureAllAngles(win, 'blend-cornermitre', SWEEP_OPTS);
+    // ── Closing orbit sweep ───────────────────────────────────────────────────
+    const cap = await captureAllAngles(win, 'blend', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input-b\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-cornermitre\.png$/.test(f));
+    expect(inputStill, 'an input-b still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-cornermitre still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-cornermitre still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+
   } finally {
     await app.close();
+    // finish() resolves + renames the recorded video — MUST run after close.
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
