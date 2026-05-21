@@ -1,42 +1,30 @@
 /**
  * brep-surfacing-electron.spec.js
  *
- * Real-user-workflow tests for surfacing operations.
- * Every geometry op is invoked by clicking the real ribbon tool button
- * (Part tab, Create group) and filling the ToolParamDialog — NOT by
- * calling kernel APIs directly.
+ * "Operation in motion" retrofit — surfacing operations on real engineering artifacts.
+ * Drives everything via real ribbon clicks and drag-orbits.
+ * Records the whole workflow as a .webm video with key-frame stills at each beat.
  *
- * Each test builds a recognisable real-world engineering artifact.
+ * ── PATTERN: matches brep-g-catmullclark-electron.spec.js ─────────────────────
  *
  * Arity-0 (no body selection, dialog defines geometry):
  *   Sweep Boss : pipe (circular profile swept along axis) — r=8, 60 mm path
  *                → V = π×64×60 ≈ 12 064 mm³
  *   Loft Boss  : transition fitting (square-to-square loft) — 40→16 over 50 mm
  *                → V ≈ 41 600 mm³
+ *
+ * Artifacts land in:  test-results/motion/brep-surfacing-<op>/
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import { captureAllAngles } from './helpers/orbitCapture.js';
 import { buildPrimitive } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, dragOrbit,
+} from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
-
-const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
-
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
 
 // ─── Sweep Boss ───────────────────────────────────────────────────────────────
 
@@ -47,10 +35,16 @@ test('Sweep Boss: pipe (circular profile swept along axis) — ribbon click + di
   // a solid pipe segment — as used in hydraulic lines, structural tube members,
   // or conduit runs.
   // sweep(r=8, 60) → π×64×60 = 12 063.72 mm³, ±10%
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-surfacing-sweep');
   try {
     // Click Part tab → Sweep Boss → accept dialog defaults.
-    await buildPrimitive(win, 'Sweep Boss');
+    const pipeId = await buildPrimitive(win, 'Sweep Boss');
+    console.log(`  Sweep Boss (pipe) id: ${pipeId}`);
+
+    // Key-frame: the produced pipe, then a real drag-orbit to show it in 3D.
+    await story.frame('input');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-3d');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -60,11 +54,28 @@ test('Sweep Boss: pipe (circular profile swept along axis) — ribbon click + di
     expect(m.volume).toBeGreaterThan(10858);
     expect(m.volume).toBeLessThan(13270);
 
-    const cap = await captureAllAngles(win, 'sweep-boss', SWEEP);
+    await story.frame('after-sweep-boss');
+
+    const cap = await captureAllAngles(win, 'sweep-boss', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-sweep-boss\.png$/.test(f));
+    expect(inputStill, 'an input still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-sweep-boss still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-sweep-boss still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
 
@@ -76,10 +87,16 @@ test('Loft Boss: transition fitting (square-to-square loft) — ribbon click + d
   // A square-to-square loft over 50 mm produces a transition fitting — as used in
   // HVAC ductwork reducers, pressure vessel nozzle transitions, or casting sprue gates.
   // V = h/3×(A1+A2+√(A1×A2)) = 50/3×(1600+256+640) = 50/3×2496 ≈ 41 600 mm³, ±10%
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-surfacing-loft');
   try {
     // Click Part tab → Loft Boss → accept dialog defaults.
-    await buildPrimitive(win, 'Loft Boss');
+    const loftId = await buildPrimitive(win, 'Loft Boss');
+    console.log(`  Loft Boss (transition fitting) id: ${loftId}`);
+
+    // Key-frame: the produced loft fitting, then a real drag-orbit to show it in 3D.
+    await story.frame('input');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-3d');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -89,10 +106,27 @@ test('Loft Boss: transition fitting (square-to-square loft) — ribbon click + d
     expect(m.volume).toBeGreaterThan(37440);
     expect(m.volume).toBeLessThan(45760);
 
-    const cap = await captureAllAngles(win, 'loft-boss', SWEEP);
+    await story.frame('after-loft-boss');
+
+    const cap = await captureAllAngles(win, 'loft-boss', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-loft-boss\.png$/.test(f));
+    expect(inputStill, 'an input still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-loft-boss still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-loft-boss still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
