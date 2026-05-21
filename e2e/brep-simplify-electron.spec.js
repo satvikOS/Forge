@@ -15,15 +15,19 @@
  * Workflow A — welded plate seam:
  *   Extrude Boss (plate, accept defaults → 80×50×25 mm) → select → Simplify Geometry
  *
- * Workflow B — bottle-cap blank cleanup:
- *   Cylinder (r=20, h=40) → select → Simplify Geometry
+ * Workflow B — tiny-feature removal (§3.5 parity gap P2/P5):
+ *   Box (40³) → Fillet r=0.4 (26 faces, 20 micro-round faces) → select →
+ *   Simplify Geometry (minFeatureSize=4) — the micro-fillet faces are TINY
+ *   features; Simplify must REMOVE them (faceCount drops 26→6) and report a
+ *   positive removed-feature count.
  *
  * Workflow C — block with through-hole cleanup:
  *   Box (40³) + Cylinder (r=20, h=40) → Subtract → select result → Simplify Geometry
  *
  * Assertions (all original ones kept — video/stills are ADDITIVE):
- *   - volume preserved within 0.5% after each Simplify
+ *   - volume preserved within 0.5% after Workflows A and C
  *   - faceCount must not increase after each Simplify
+ *   - Workflow B: faceCount DROPS and window.__lastSimplifyResult.removedFeatures > 0
  *   - stills: 'input-weldedplate' and 'after-simplify-c' both exist and > 1 KB
  *
  * Artifacts land in:  test-results/motion/brep-simplify/
@@ -104,30 +108,67 @@ test('Simplify Geometry: three artifact workflows (welded plate, bottle cap, blo
 
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Workflow B — bottle-cap blank cleanup
-    // Cylinder (r=20, h=40 — cap blank) → select → Simplify Geometry
+    // Workflow B — tiny-feature removal  (§3.5 parity gap P2/P5)
+    // Box 40³ → Fillet r=0.4 (26 faces, 20 micro-round faces) → select →
+    // Simplify Geometry (minFeatureSize=4). The micro-fillet faces are TINY
+    // features below the 4 mm threshold — Simplify must REMOVE them, dropping
+    // the face count back toward 6 and reporting removedFeatures > 0.
+    // This exercises the CLOSED P5 gap: simplify now does real small-feature
+    // removal (ShapeFix_FixSmallFace), not just same-domain merge.
     // ══════════════════════════════════════════════════════════════════════════
 
-    // Step B1: Build the cap blank (Cylinder r=20, h=40 — default params).
-    const capId = await buildPrimitive(win, 'Cylinder');
-    console.log(`  [B] Cylinder (bottle cap blank) id: ${capId}`);
+    // Step B1: Build the blank (Box 40³).
+    const blankId = await buildPrimitive(win, 'Box');
+    console.log(`  [B] Box (tiny-fillet blank) id: ${blankId}`);
 
-    // Key-frame: the input cylinder.
-    await story.frame('input-bottlecap');
+    await story.frame('input-tinyfillet-box');
     await dragOrbit(win, { dx: -180, dy: 90 });
-    await story.frame('input-bottlecap-3d');
+    await story.frame('input-tinyfillet-box-3d');
 
-    // Step B2: Baseline measurements.
+    // Step B2: Select the box and Fillet every edge at r=0.4 — 20 micro-round
+    // faces (12 cylindrical bands + 8 spherical corners) = the tiny features.
+    await clickBody(win, blankId);
+    const idBeforeFilletB = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await injectToolParams(win, 'Fillet', { radius: 0.4 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
+    await story.frame('before-fillet-b');
+    await clickRibbonTool(win, 'Fillet');
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeFilletB,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-fillet-b');
+
+    // Registry id of the micro-filleted body, for the next click.
+    const microFilletedId = await win.evaluate(() => {
+      const reg = window.__archdiscRegistry;
+      if (reg && reg.bodies && reg.bodies.length > 0) {
+        return reg.bodies[reg.bodies.length - 1].id;
+      }
+      return window.__lastBrepShape && window.__lastBrepShape.id;
+    });
+
+    // Step B3: Baseline — the micro-filleted body has many tiny faces.
     const mPreB = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  [B] Cylinder (bottle cap blank): vol=${mPreB.volume.toFixed(0)}, faces=${mPreB.faceCount}`);
+    console.log(`  [B] Micro-filleted box (r=0.4): vol=${mPreB.volume.toFixed(0)}, faces=${mPreB.faceCount}`);
+    // Fillet on a 40³ box → 26 faces; the 20 extra faces are the tiny features.
+    expect(mPreB.faceCount).toBeGreaterThan(6);
     expect(mPreB.volume).toBeGreaterThan(0);
 
-    // Step B3: REAL viewport click to select the cylinder body.
-    await clickBody(win, capId);
+    // Step B4: REAL viewport click to select the micro-filleted body.
+    await clickBody(win, microFilletedId);
 
-    // Step B4: Apply Simplify Geometry (Direct Edit tab).
+    // Step B5: Apply Simplify Geometry (Direct Edit tab) with minFeatureSize=4
+    // — large enough to classify the r=0.4 fillet faces as tiny features.
+    await win.evaluate(() => { window.__lastSimplifyResult = null; });
+    await injectToolParams(win, 'Simplify Geometry', { minFeatureSize: 4 });
     const idBeforeB = await win.evaluate(() =>
       window.__lastBrepShape && window.__lastBrepShape.id
     );
@@ -136,26 +177,34 @@ test('Simplify Geometry: three artifact workflows (welded plate, bottle cap, blo
     await story.frame('simplify-b-dialog');
     await clickRibbonTool(win, 'Simplify Geometry');
 
-    // Step B5: Wait for result.
+    // Step B6: Wait for result.
     await win.waitForFunction(
       (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
       idBeforeB,
       { timeout: 60000 },
     );
+    await win.waitForFunction(() => !!window.__lastSimplifyResult, null, { timeout: 60000 });
     await win.waitForTimeout(300);
     await story.frame('after-simplify-b');
 
-    // Step B6: Post-simplify assertions.
+    // Step B7: GAP-CLOSURE assertions — tiny features were REMOVED.
     const mPostB = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  [B] Simplified (bottle cap blank): vol=${mPostB.volume.toFixed(0)}, faces=${mPostB.faceCount}`);
+    const simplifyStat = await win.evaluate(() => window.__lastSimplifyResult);
+    console.log(`  [B] Simplified (micro-fillet removed): vol=${mPostB.volume.toFixed(0)}, ` +
+      `faces ${mPreB.faceCount}→${mPostB.faceCount}, removedFeatures=${simplifyStat.removedFeatures}`);
 
-    // Volume preserved within 0.5%.
-    expect(mPostB.volume).toBeGreaterThan(mPreB.volume * 0.995);
-    expect(mPostB.volume).toBeLessThan(mPreB.volume * 1.005);
-    // Simplify must not increase face count.
-    expect(mPostB.faceCount).toBeLessThanOrEqual(mPreB.faceCount);
+    // The micro-fillet faces must be GONE — face count drops sharply.
+    expect(mPostB.faceCount).toBeLessThan(mPreB.faceCount);
+    // The op must report that it removed tiny features (the P5 closed gap).
+    expect(simplifyStat, 'Simplify must publish a result stat').toBeTruthy();
+    expect(simplifyStat.removedFeatures,
+      'Simplify must report > 0 tiny features removed').toBeGreaterThan(0);
+    // Removing r=0.4 micro-fillets reverts material toward the sharp box —
+    // a tiny change; the simplified body must still be substantial.
+    expect(mPostB.volume).toBeGreaterThan(mPreB.volume * 0.97);
+    expect(mPostB.volume).toBeLessThan(mPreB.volume * 1.03);
 
 
     // ══════════════════════════════════════════════════════════════════════════
