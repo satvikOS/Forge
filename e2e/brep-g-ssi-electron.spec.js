@@ -15,15 +15,11 @@
 
 import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import {
   buildPrimitive, selectBodies, clickRibbonTab, clickRibbonTool,
   injectToolParams,
 } from './helpers/uiWorkflow.js';
 import { captureAllAngles } from './helpers/orbitCapture.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 test.setTimeout(600000);
 
