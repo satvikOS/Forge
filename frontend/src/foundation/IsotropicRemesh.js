@@ -12,6 +12,14 @@
  *
  * Boundary edges (single-triangle adjacency) are never flipped or collapsed
  * (split is allowed). Boundary vertices are not relaxed.
+ *
+ * Surface pull-back (optional):
+ *   Pass `opts.projectVertex(vertexIdx, [x,y,z]) -> [x,y,z]` to snap vertices
+ *   back onto the original surface after tangential relaxation (and after each
+ *   new midpoint created during splitLongEdges). This is the standard retopo
+ *   surface pull-back used by ZBrush ZRemesher / Houdini retopo.
+ *   When the callback is omitted, behaviour is identical to the original
+ *   Botsch-Kobbelt algorithm (no regression for existing callers).
  */
 
 // ─── Low-level geometry helpers ───────────────────────────────────────────────
@@ -174,9 +182,12 @@ export function meanEdgeLength(mesh) {
  *
  * @param {{vertices: number[][], triangles: number[][]}} mesh
  * @param {number} lengthThreshold
+ * @param {((idx: number, pos: number[]) => number[])|undefined} [projectVertex]
+ *   Optional surface pull-back callback. When provided, each newly created
+ *   midpoint vertex is immediately projected onto the target surface.
  * @returns {{vertices: number[][], triangles: number[][]}}
  */
-export function splitLongEdges(mesh, lengthThreshold) {
+export function splitLongEdges(mesh, lengthThreshold, projectVertex) {
   let cur = mesh;
   for (let pass = 0; pass < 20; pass++) {
     const { vertices, triangles } = cur;
@@ -189,8 +200,14 @@ export function splitLongEdges(mesh, lengthThreshold) {
     for (const key of edgeMap.keys()) {
       const [i, j] = key.split('_').map(Number);
       if (dist(vertices[i], vertices[j]) > lengthThreshold) {
-        midMap.set(key, newVerts.length);
-        newVerts.push(midpt(vertices[i], vertices[j]));
+        const newIdx = newVerts.length;
+        midMap.set(key, newIdx);
+        let mp = midpt(vertices[i], vertices[j]);
+        // Pull-back: project new midpoint onto the original surface immediately.
+        if (typeof projectVertex === 'function') {
+          mp = projectVertex(newIdx, mp) || mp;
+        }
+        newVerts.push(mp);
       }
     }
 
@@ -481,9 +498,14 @@ export function flipEdgesToImproveValence(mesh) {
  *
  * @param {{vertices: number[][], triangles: number[][]}} mesh
  * @param {number} [damping=0.5]  0 = no move; 1 = full move
+ * @param {((idx: number, pos: number[]) => number[])|undefined} [projectVertex]
+ *   Optional surface pull-back callback. When provided, each interior vertex
+ *   is projected back onto the target surface after tangential relaxation.
+ *   Signature: `(vertexIdx, [x, y, z]) -> [x, y, z]`.
+ *   When omitted, the step is pure tangential relaxation (original behaviour).
  * @returns {{vertices: number[][], triangles: number[][]}}
  */
-export function tangentialRelax(mesh, damping = 0.5) {
+export function tangentialRelax(mesh, damping = 0.5, projectVertex) {
   const { triangles } = mesh;
   const vertices = mesh.vertices.map(v => v.slice());
   const nv = vertices.length;
@@ -534,6 +556,17 @@ export function tangentialRelax(mesh, damping = 0.5) {
     vertices[vi][0] += damping * tx;
     vertices[vi][1] += damping * ty;
     vertices[vi][2] += damping * tz;
+
+    // Surface pull-back: after tangential displacement, snap back onto the
+    // original surface so the mesh stays on-surface across iterations.
+    if (typeof projectVertex === 'function') {
+      const proj = projectVertex(vi, vertices[vi]);
+      if (proj) {
+        vertices[vi][0] = proj[0];
+        vertices[vi][1] = proj[1];
+        vertices[vi][2] = proj[2];
+      }
+    }
   }
 
   return { vertices, triangles };
@@ -551,15 +584,24 @@ export function tangentialRelax(mesh, damping = 0.5) {
  * @param {number} [opts.splitFactor=4/3]
  * @param {number} [opts.collapseFactor=4/5]
  * @param {number} [opts.relaxDamping=0.5]
+ * @param {((idx: number, pos: number[]) => number[])|undefined} [opts.projectVertex]
+ *   Optional surface pull-back callback. Forwarded to `splitLongEdges` (new
+ *   midpoints) and `tangentialRelax` (post-relax snap). When omitted, both
+ *   steps behave as in the original Botsch-Kobbelt algorithm.
  * @returns {{vertices: number[][], triangles: number[][]}}
  */
 export function isoStep(mesh, L, opts = {}) {
-  const { splitFactor = 4 / 3, collapseFactor = 4 / 5, relaxDamping = 0.5 } = opts;
+  const {
+    splitFactor = 4 / 3,
+    collapseFactor = 4 / 5,
+    relaxDamping = 0.5,
+    projectVertex,
+  } = opts;
   let m = mesh;
-  m = splitLongEdges(m, L * splitFactor);
+  m = splitLongEdges(m, L * splitFactor, projectVertex);
   m = collapseShortEdges(m, L * collapseFactor);
   m = flipEdgesToImproveValence(m);
-  m = tangentialRelax(m, relaxDamping);
+  m = tangentialRelax(m, relaxDamping, projectVertex);
   return m;
 }
 
@@ -575,6 +617,14 @@ export function isoStep(mesh, L, opts = {}) {
  * @param {number}  [opts.splitFactor=4/3]     Split threshold multiplier.
  * @param {number}  [opts.collapseFactor=4/5]  Collapse threshold multiplier.
  * @param {number}  [opts.relaxDamping=0.5]    Tangential relaxation damping (0–1).
+ * @param {((idx: number, pos: number[]) => number[])|undefined} [opts.projectVertex]
+ *   Optional surface pull-back callback. Invoked after each tangential relax step
+ *   for every moved interior vertex, and immediately after each split creates a
+ *   new midpoint vertex.
+ *   Signature: `(vertexIdx, currentPosition: [x,y,z]) -> projectedPosition: [x,y,z]`.
+ *   Return `null` / `undefined` to leave the vertex unchanged.
+ *   When omitted, behaviour is identical to the original Botsch-Kobbelt algorithm
+ *   (no regression for callers that do not pass this option).
  * @returns {{vertices: number[][], triangles: number[][]}}
  */
 export function isotropicRemesh(mesh, opts = {}) {
@@ -584,6 +634,7 @@ export function isotropicRemesh(mesh, opts = {}) {
     splitFactor = 4 / 3,
     collapseFactor = 4 / 5,
     relaxDamping = 0.5,
+    projectVertex,
   } = opts;
 
   if (!mesh || !Array.isArray(mesh.vertices) || !Array.isArray(mesh.triangles)) {
@@ -599,7 +650,7 @@ export function isotropicRemesh(mesh, opts = {}) {
 
   let m = mesh;
   for (let i = 0; i < iterations; i++) {
-    m = isoStep(m, L, { splitFactor, collapseFactor, relaxDamping });
+    m = isoStep(m, L, { splitFactor, collapseFactor, relaxDamping, projectVertex });
   }
 
   return m;
