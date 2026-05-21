@@ -197,3 +197,15 @@ the same body. Frames `input` / `after-fillet` / `after-classa` /
   editing and surface-matching (dragging control points to chase a target
   curvature profile) remain a larger build; the G2-blend op (Task 6) is the
   constructive companion.
+
+---
+
+## Full-suite gate (Task 8, 2026-05-21)
+
+`brep-g-classa-electron.spec.js` GREEN in the full kernel + UX suite run
+(`--workers=1`). Measured: filleted plate, Class-A Analyze 616 samples,
+gaussianRange [-7.437e-16, 2.882e+1], meanRange [4.419e-2, 9.722e+0]; Zebra
+Stripes applied=true, 18 bands. 0 blank captures. Whole suite: 50/50 tests
+passed, 1 skipped. Residual gaps unchanged — discrete per-vertex curvature
+estimate (not exact analytic), zebra is a reflected-ray shader approximation,
+analysis tools only (no interactive curvature-comb / surface-matching editing).

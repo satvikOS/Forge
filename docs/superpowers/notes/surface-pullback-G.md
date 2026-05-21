@@ -109,3 +109,15 @@ junctions that is negligible relative to the target edge length.
    vertices should project to consistent faces. In practice this is not an issue
    for the smooth primitives tested, but could produce artefacts near sharp
    concave features.
+
+---
+
+## Full-suite gate (Task 8, 2026-05-21)
+
+`brep-g-pullback-electron.spec.js` GREEN in the full kernel + UX suite run
+(`--workers=1`). Measured: sphere retopo, baseTris 2556 → retopoTris 1650,
+827 verts all on the r=25 surface (avg/min/max radius 25.000, spread 0.000 mm),
+4913 projections, maxProjectionDelta 0.199 mm, 0 blank captures. Whole suite:
+50/50 tests passed, 1 skipped. The four residual gaps above (no UV-in-domain
+clamp, triangle-mesh retopo only, O(n_faces) oracle, per-vertex pull-back) are
+unchanged.

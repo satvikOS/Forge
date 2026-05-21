@@ -124,3 +124,14 @@ _Updated after Task 3 ships._
 | `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` | Ribbon handler |
 | `e2e/brep-g-ssi-electron.spec.js` | e2e gate |
 | `docs/superpowers/notes/kernel-api-G.md` | Recon verdict (Task 1) |
+
+---
+
+## Full-suite gate (Task 8, 2026-05-21)
+
+`brep-g-ssi-electron.spec.js` GREEN in the full kernel + UX suite run
+(`--workers=1`). Measured: cylinder × box → nbLines 2, totalPoints 128,
+totalLength 240.000, 0 blank captures. Whole suite: 50/50 tests passed,
+1 skipped. Residual gap unchanged — an infinite-line intersection of two
+analytic primitives carries a ±2e+100 parameter range and callers must clamp
+the sampling domain.

@@ -88,3 +88,11 @@ shared edge endpoints and opp0/opp1 are the opposite vertices of each triangle.
   slot set for e2e introspection.
 - e2e gate: `brep-g-catmullclark-electron.spec.js` — rounded bracket plate
   (Box + Fillet), 2 CC levels, bbox preserved ≥ 35 mm all axes.
+
+### Full-suite gate (Task 8, 2026-05-21)
+
+`brep-g-catmullclark-electron.spec.js` GREEN in the full kernel + UX suite run
+(`--workers=1`). Measured: baseQuads 448 → refinedQuads 7168, 6618 refined verts,
+212 crease edges, bbox 40.000 × 40.000 × 39.997 mm preserved, 0 blank captures.
+Whole suite: 50/50 tests passed, 1 skipped. Residual gaps above (quads only,
+degenerate quads from unpairable triangles, greedy tri-pairing) are unchanged.

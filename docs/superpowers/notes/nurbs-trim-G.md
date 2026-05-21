@@ -208,3 +208,12 @@ Remaining frontier for truly general auto-trimming: the `gp_Pnt2d` 2-arg
 constructor binding gap must be resolved to enable Path A (arbitrary parametric
 trim curve). This requires either a custom opencascade.js WASM build or an
 alternative 2D geometry binding path.
+
+### Full-suite gate (Task 8, 2026-05-21)
+
+`brep-g-trim-electron.spec.js` GREEN in the full kernel + UX suite run
+(`--workers=1`). Measured: windowed sail panel, fullArea 29383.55 mm² →
+trimmedArea 5520.10 mm², trimRatio 0.188, 0 blank captures. Whole suite:
+50/50 tests passed, 1 skipped. Residual gaps unchanged — rectangular u-v-bounds
+trim only (Path A parametric trim curve blocked by the `gp_Pnt2d` gap), single
+trimmed face rather than an auto-sewn multi-face class-A panel.

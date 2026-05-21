@@ -303,6 +303,87 @@ Key architecture:
 
 ---
 
-## Sub-project G — Honest outcome (to be updated after Tasks 3–5 ship)
+## Sub-project G — Honest outcome
 
-_This section will be updated when Tasks 3, 4, 5 are implemented and tested._
+_Final, measured. Recorded by Task 8 (full kernel + UX e2e suite gate) on 2026-05-21._
+
+### Suite result
+
+The full kernel + UX e2e suite was run in 6 chunks, `--project=chromium --workers=1
+--retries=0` (motion-capture specs race in parallel workers, so `--workers=1` is
+mandatory). Measured result:
+
+| Chunk | Specs | Tests passed |
+|---|---|---|
+| A — recon | brep-occt-load, brep-a1..a5-recon, brep-b/e/f/g-recon, subdivide-recon, retopo-recon (12 files) | 12 / 12 |
+| B — foundation/ribbon/primitives/boolean/features/step (6 files) | 11 / 11 |
+| C — localops/surfacing/varfillet/check/simplify/blend (6 files) | 10 / 10 |
+| D — b-advanced/subdivide-surface/retopo-surface/nurbs/final (5 files) | 5 / 5 |
+| E — G ops: catmullclark/ssi/pullback/trim/g2blend/classa (6 files) | 6 / 6 |
+| F — viewport/misc: pick-diagnostic, viewport-workflow-freeze, viewport-freeze-debug, thought-bubble-dismiss, motion-recon (5 files) | 6 / 6 + 1 skipped |
+
+**Total: 50 / 50 tests passed, 1 skipped** (`thought-bubble-dismiss-electron.spec.js`
+is an intentional `test.skip`). 0 genuine failures — no spec needed a fix; the
+session's behaviour changes (gizmo-pick-set fix, consuming-ops removing input
+bodies, the ~20-spec motion-capture retrofit) were already absorbed by the specs
+as shipped.
+
+### Coherence check
+
+Every Sub-project G op is coherently wired end-to-end:
+
+| Op | `index.js` barrel | `ArchDiscKernel.brep.*` | Ribbon tool | `TOOL_GROUPS` | Handler |
+|---|---|---|---|---|---|
+| Catmull-Clark | `catmullClarkShape` | ✓ | "Catmull-Clark Subdivide" | ✓ | ✓ |
+| NURBS SSI | `intersectSurfaces` | ✓ | "Surface-Surface Intersection" | ✓ | ✓ |
+| Surface pull-back | `projectPointsOntoBrep` / `projectMeshOntoBrep` | ✓ | "Retopo Surface" `pullBackToSurface` opt | ✓ | ✓ |
+| Trimmed NURBS face | `trimmedNurbsFace` | ✓ | "Trimmed NURBS Patch" | ✓ | ✓ |
+| G2 blend | `g2BlendBetweenEdges` | ✓ | "G2 Blend" | ✓ | ✓ |
+| Class-A analyze | `classAAnalyze` | ✓ | "Class-A Analyze" + "Zebra Stripes" | ✓ | ✓ |
+
+No wiring gaps were found; nothing needed fixing.
+
+### Ops shipped (G)
+
+1. **Catmull-Clark Subdivide** — pure-JS `CatmullClarkSubdivision.js` (full
+   face/edge/vertex rules, crease/corner/boundary, tri→quad converter) behind
+   `BrepCatmullClark.js`. e2e: rounded plate, 2 levels, bbox preserved.
+2. **NURBS SSI** — `BrepNurbsSSI.js` via `GeomAPI_IntSS`. e2e: cylinder × box →
+   2 intersection lines, 128 sampled points.
+3. **Surface pull-back (retopo)** — `BrepSurfaceProject.js` + `IsotropicRemesh.js`
+   `surfaceOracle` via `GeomAPI_ProjectPointOnSurf`. e2e: sphere retopo keeps all
+   827 verts on r=25 surface (spread 0.000 mm, 4913 projections, maxΔ 0.199 mm).
+4. **Trimmed NURBS face** — `BrepNurbsTrim.js` via `BRepBuilderAPI_MakeFace_14`
+   (parametric u-v bounds). e2e: windowed sail panel, trimRatio 0.188.
+5. **G2 blend** — pure-JS `G2BlendSurface.js` (degree 3×5 NURBS, curvature match)
+   behind `BrepBlendG2.js`. e2e: notched-plate fairing, boundary fit error ~1e-14.
+6. **Class-A tools** — `BrepClassA.js` Gaussian-curvature heatmap + `ZebraStripes.js`
+   reflected-ray stripe overlay. e2e: filleted plate, 616 samples, 18 zebra bands.
+
+### Honest residual gaps (carried forward, unchanged)
+
+These were documented when each op shipped and remain true — the suite gate did
+not change them:
+
+- **NURBS SSI** — for two analytic primitives whose intersection is an infinite
+  line, the `Geom_Line` result carries a ±2e+100 parameter range; callers clamp
+  sampling to a finite domain.
+- **Trimmed NURBS face** — Path A (arbitrary parametric trim curve via
+  `BRepBuilderAPI_MakeEdge2d`) is blocked by the missing `gp_Pnt2d` 2-arg
+  constructor in this WASM build. Only rectangular u-v-bounds trim
+  (`MakeFace_14`) is reachable. Single trimmed face, not an auto-sewn multi-face
+  class-A panel.
+- **Surface pull-back** — no UV-in-domain clamp; oracle is O(n_faces) per vertex
+  (no BVH); per-vertex projection with no global face-consistency smoothing.
+- **G2 blend** — mesh-fidelity result (sewn triangle shell), not a single
+  analytic NURBS `TopoDS_Face`; two-edge blend only; curvature continuity is
+  along v-isocurves (strongly-skew boundary pairs are a gap).
+- **Catmull-Clark** — quads only; unpairable triangles become degenerate quads
+  whose limit surface is not class-A; tri→quad pairing is greedy, not optimal.
+- **Class-A tools** — discrete per-vertex curvature estimate (converges under
+  refinement, not exact analytic curvature); zebra is a reflected-ray shader
+  approximation, not a sampled HDRI; analysis tools only — no interactive
+  curvature-comb / surface-matching editing.
+- **Open frontier beyond G** — auto-trimming a complex multi-face B-rep with G2
+  fillets into a true class-A B-rep solid still needs the `gp_Pnt2d` binding gap
+  resolved (custom WASM build) or a different geometry kernel.

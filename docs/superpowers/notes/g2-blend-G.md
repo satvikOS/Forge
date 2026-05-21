@@ -221,3 +221,15 @@ Regression: `brep-g-catmullclark`, `brep-g-ssi`, `brep-surfacing`,
 - **Cross-tangent reach is a heuristic** (≈ half the edge separation). It
   produces a bounded, well-shaped blend for typical edge pairs; a future
   refinement could solve the reach so the blend hits a target fullness.
+
+---
+
+## Full-suite gate (Task 8, 2026-05-21)
+
+`brep-g-g2blend-electron.spec.js` GREEN in the full kernel + UX suite run
+(`--workers=1`). Measured: notched-plate fairing, edge 0 ↔ edge 9, degree 3×5,
+33×6 control points, 1024 tris / 561 verts, boundary fit error errA 1.08e-14 /
+errB 1.46e-14, faceTangent true at both boundaries, registry body count 2 after
+the op. 0 blank captures. Whole suite: 50/50 tests passed, 1 skipped. Residual
+gaps unchanged — mesh-fidelity sewn shell (not a single analytic NURBS face),
+two-edge blend only, curvature continuity along v-isocurves.
