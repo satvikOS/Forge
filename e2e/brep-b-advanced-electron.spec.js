@@ -229,8 +229,22 @@ test('Advanced boolean ops: Non-Manifold combine + Coincident combine + Lattice 
 
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Workflow D — Replace Face: panel replacement on a body
+    // Workflow D — Replace Face: real boundary-wire face rebuild (P4)
     // Box (40³) → select → Replace Face (faceIndex=1)
+    //
+    // P4 gap-closure: BrepRewrite.replaceFace was upgraded from a blind
+    // identity Transform copy to a REAL boundary-wire face rebuild —
+    // BRepTools.OuterWire extracts the picked face's boundary wire,
+    // BRepBuilderAPI_MakeFace(surface, wire) rebuilds the face from its
+    // surface + that wire, and BRepTools_ReShape sews it back into the solid
+    // (the orientation that yields a topologically VALID solid is picked via
+    // BRepCheck_Analyzer). This workflow asserts the real-rebuild metadata.
+    //
+    // HONEST NOTE (parity-audit P4 still PARTIAL): a swap to a geometrically
+    // DIFFERENT (curved) surface needs pcurves on the wire edges; the pcurve
+    // generator ShapeConstruct_ProjectCurveOnSurface is unbound in this WASM
+    // build, so an arbitrary surface swap remains custom-build-gated. What is
+    // verified here is the real same-surface boundary-wire rebuild + ReShape.
     //
     // After Lattice Fuse (consuming op), its input bodies (s1..s4) are removed
     // and only the fused result remains. The new Box (boxDId) is then the only
@@ -289,6 +303,27 @@ test('Advanced boolean ops: Non-Manifold combine + Coincident combine + Lattice 
     console.log(`  [D] Replace Face (panel replacement): vol=${mD.volume.toFixed(0)}, faces=${mD.faceCount}`);
     expect(mD.volume).toBeGreaterThan(0);
     expect(mD.faceCount).toBeGreaterThanOrEqual(6);
+
+    // Step D6: GAP-CLOSURE assertions (P4) — the face was rebuilt from its
+    // boundary wire (real MakeFace(surface, wire) path), not identity-copied.
+    const dParams = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.meta && window.__lastBrepShape.meta.params
+    );
+    console.log(`  [D] Replace Face params: ${JSON.stringify(dParams)}`);
+    expect(dParams, 'replaceFace must record its params').toBeTruthy();
+    // The closed-gap op records that the face was rebuilt from its boundary
+    // wire — the legacy identity-copy implementation did not.
+    expect(dParams.rebuiltFromBoundaryWire).toBe(true);
+    expect(dParams.faceIndex).toBe(1);
+    // The boundary-wire rebuild + ReShape produced a VALID solid with the
+    // box volume preserved (64000 mm³) — the kernel internally validates the
+    // round-trip with BRepCheck_Analyzer and only ships a valid solid.
+    expect(mD.volume).toBeCloseTo(64000, -2);
+    const dCheck = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.checkSelfIntersection(window.__lastBrepShape)
+    );
+    console.log(`  [D] Replace Face self-check: valid=${dCheck.valid}`);
+    expect(dCheck.valid, 'the rebuilt-face solid must be valid').toBe(true);
 
     // ── Closing orbit sweep ───────────────────────────────────────────────────
     const cap = await captureAllAngles(win, 'b-advanced', { story, drags: 7 });
