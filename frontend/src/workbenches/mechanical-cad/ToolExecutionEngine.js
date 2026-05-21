@@ -1837,6 +1837,47 @@ const TOOL_HANDLERS = {
         };
       }
     },
+
+    // ── Sub-project G: Auto-trimming NURBS B-rep face ────────────────────────
+
+    'Trimmed NURBS Patch': async (scene, viewport) => {
+      // Arity 0 — builds its own NURBS surface from dialog params.
+      // No body selection needed: the patch is a self-contained generator.
+      try {
+        const { values, cancelled } = await requestToolParams('Trimmed NURBS Patch');
+        if (cancelled) return { status: 'warn', message: 'Trimmed NURBS Patch: cancelled' };
+
+        const shape = await ArchDiscKernel.brep.trimmedNurbsFace({
+          sizeX:    Number(values.sizeX)   || 80,
+          sizeY:    Number(values.sizeY)   || 80,
+          bulge:    Number(values.bulge)   ?? 12,
+          trimUMin: Number(values.trimMin) ?? 0.25,
+          trimUMax: Number(values.trimMax) ?? 0.75,
+          trimVMin: Number(values.trimMin) ?? 0.25,
+          trimVMax: Number(values.trimMax) ?? 0.75,
+        });
+
+        // Render the trimmed patch using the standard B-rep → mesh path.
+        await addBrepShapeToScene(scene, viewport, shape, 0x5c8fbd);
+
+        // Mirror onto window for e2e introspection.
+        if (typeof window !== 'undefined') {
+          window.__lastBrepShape = shape;
+          window.__lastTrimmedPatch = { trimStats: shape.trimStats };
+        }
+
+        const ts = shape.trimStats;
+        return {
+          status: 'success',
+          message:
+            `Trimmed NURBS Patch: ${(ts.trimRatio * 100).toFixed(0)}% retained ` +
+            `(${ts.trimmedAreaMm2.toFixed(0)} mm² of ${ts.fullAreaMm2.toFixed(0)} mm²) ` +
+            `via ArchDisc Kernel — rectangular UV trim (Path B BRepBuilderAPI_MakeFace)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Trimmed NURBS Patch: ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

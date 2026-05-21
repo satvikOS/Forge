@@ -98,6 +98,7 @@ const TABS = {
         { name: 'Stitch Faces',               icon: '⊕',  key: 'surface' },
         { name: 'Convergent Solid',           icon: '▣',  key: 'surface' },
         { name: 'Surface-Surface Intersection', icon: '⋈', key: 'surface' },
+        { name: 'Trimmed NURBS Patch',          icon: '⊟', key: 'surface' },
       ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },

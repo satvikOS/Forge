@@ -229,6 +229,20 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SUB-PROJECT G — AUTO-TRIMMING NURBS B-REP FACE ─────────────────────
+
+  'Trimmed NURBS Patch': {
+    title: 'Trimmed NURBS Patch — windowed sail panel',
+    blurb: 'Build a bicubic NURBS sail surface and auto-trim it to a rectangular parametric sub-domain (UV box trim via BRepBuilderAPI_MakeFace).',
+    fields: [
+      { name: 'sizeX',   label: 'Patch width (X)',  type: 'number', default: 80,   unit: 'mm',  min: 10,  max: 400,  step: 5,    hint: 'Full patch footprint in X (mm)' },
+      { name: 'sizeY',   label: 'Patch depth (Y)',  type: 'number', default: 80,   unit: 'mm',  min: 10,  max: 400,  step: 5,    hint: 'Full patch footprint in Y (mm)' },
+      { name: 'bulge',   label: 'Bulge height',     type: 'number', default: 12,   unit: 'mm',  min: 0,   max: 120,  step: 1,    hint: 'Z-lift of inner 2×2 control poles — makes a real curved surface (0 = flat)' },
+      { name: 'trimMin', label: 'Trim start (UV)',  type: 'number', default: 0.25, unit: '',     min: 0,   max: 0.5,  step: 0.05, hint: 'Normalised start of the trim window in both U and V [0..0.5)' },
+      { name: 'trimMax', label: 'Trim end (UV)',    type: 'number', default: 0.75, unit: '',     min: 0.5, max: 1.0,  step: 0.05, hint: 'Normalised end of the trim window in both U and V (0.5..1]' },
+    ],
+  },
+
   // ─── SUB-PROJECT G — NURBS SSI ────────────────────────────────────────────
 
   'Surface-Surface Intersection': {
