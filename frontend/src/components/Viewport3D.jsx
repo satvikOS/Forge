@@ -419,11 +419,24 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 return;
             }
 
-            // Collect pickable objects
+            // Collect pickable objects. Exclude an object if it — OR ANY
+            // ANCESTOR — is flagged isHelper. The TransformControls gizmo's
+            // handle meshes (X/Y/Z, XY/YZ/XZ, XYZ, START/END) are plain
+            // Meshes with no flag of their own; only the gizmo's root helper
+            // carries userData.isHelper. The old mesh-only check let those
+            // handle meshes into the pick set where — sitting in front of the
+            // body — they swallowed every selection click, so a real viewport
+            // click could never select a body.
+            const isInHelper = (o) => {
+                for (let a = o; a; a = a.parent) {
+                    if (a.userData && a.userData.isHelper) return true;
+                }
+                return false;
+            };
             const pickable = [];
             scene.traverse(obj => {
                 if (obj.isMesh && obj.userData.pickable !== false &&
-                    !obj.userData.isHelper && !obj.isTransformControlsPlane &&
+                    !obj.isTransformControlsPlane && !isInHelper(obj) &&
                     obj.name !== '__selection_outline__' &&
                     !(obj.parent && obj.parent.name === '__selection_outline__')) {
                     pickable.push(obj);
