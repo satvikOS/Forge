@@ -157,17 +157,21 @@ test('Thicken: thickened sheet (metal plate) — ribbon click thickens 60×40 sh
   }
 });
 
-// ─── Offset Shape ─────────────────────────────────────────────────────────────
+// ─── Offset Shape — §3.2 complex face offsetting (P2 parity gap) ──────────────
 
-test('Offset Shape: padded block (face-offset) — build 40³ box → select → ribbon click → +2 mm → V in (63360, 77440)', async () => {
-  // Artifact: padded block (face-offset)
-  // Arity-1: build a Box (40³ — the base block), select it, click Offset Shape,
-  // fill distance=2. Uniformly offsets all faces outward by 2 mm, producing a
-  // padded enclosure block (like adding material for machining stock allowance).
-  // Empirically measured: 70400 mm³ (offsetShape result at +2mm offset).
+test('Offset Shape: complex high-curvature surface offset — Box 40³ → Fillet r=8 (curved enclosure) → select → Offset +4 mm → valid solid, NO self-intersection', async () => {
+  // Artifact: a heavily-rounded enclosure block (Box 40³ + Fillet r=8 on every
+  // edge → 26 curved/flat faces). Offsetting THIS — a high-curvature surface —
+  // is the §3.2 "complex face offsetting" case: a naive uniform offset
+  // (PerformBySimple) self-intersects where the rolling rounds overlap.
+  //
+  // P2 gap-closure: BrepLocalOps.offsetShape now uses PerformByJoin with
+  // intersection handling (Join=GeomAbs_Intersection, Intersection=true,
+  // SelfInter=true). This test exercises a CURVED body and asserts the offset
+  // result is a VALID, NON-SELF-INTERSECTING solid — the closed-gap behaviour.
   const { app, win, pageErrors, story } = await launchWithCapture('brep-localops-offset');
   try {
-    // 1. Build the base block (Box 40³).
+    // 1. Build the enclosure blank (Box 40³).
     const boxId = await buildPrimitive(win, 'Box');
     console.log(`  Box id: ${boxId}`);
 
@@ -176,19 +180,49 @@ test('Offset Shape: padded block (face-offset) — build 40³ box → select →
     await dragOrbit(win, { dx: 200, dy: 90 });
     await story.frame('input-3d');
 
-    // 2. Select for Offset Shape op with a REAL viewport click.
+    // 2. Select the box and Fillet every edge at r=8 → a high-curvature
+    //    rounded enclosure (the "complex surface" the offset must handle).
     await clickBody(win, boxId);
+    const idBeforeFillet = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.id
+    );
+    await injectToolParams(win, 'Fillet', { radius: 8 });
+    await clickRibbonTab(win, 'Part');
+    await win.waitForTimeout(120);
+    await story.frame('before-fillet');
+    await clickRibbonTool(win, 'Fillet');
+    await win.waitForFunction(
+      (b) => !!window.__lastBrepShape && window.__lastBrepShape.id !== b,
+      idBeforeFillet,
+      { timeout: 60000 },
+    );
+    await win.waitForTimeout(300);
+    await story.frame('after-fillet');
 
-    // 3. Capture current id.
+    // Registry id of the filleted curved body (body-NNN), for the next click.
+    const filletedId = await win.evaluate(() => {
+      const reg = window.__archdiscRegistry;
+      if (reg && reg.bodies && reg.bodies.length > 0) {
+        return reg.bodies[reg.bodies.length - 1].id;
+      }
+      return window.__lastBrepShape && window.__lastBrepShape.id;
+    });
+    const mCurved = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
+    );
+    console.log(`  Curved enclosure (Box+Fillet r=8): vol=${mCurved.volume.toFixed(0)}, faces=${mCurved.faceCount}`);
+    // Fillet r=8 on a 40³ box → 26 faces (curved + flat mix).
+    expect(mCurved.faceCount).toBeGreaterThan(6);
+
+    // 3. Select the curved body with a REAL viewport click for Offset Shape.
+    await clickBody(win, filletedId);
     const idBefore = await win.evaluate(() =>
       window.__lastBrepShape && window.__lastBrepShape.id
     );
 
-    // 4. Click Part tab → Offset Shape.
-    //    Inject params before clicking — under Playwright (navigator.webdriver=true)
-    //    ToolParamDialog auto-bypasses; planParams is the correct injection path.
-    await injectToolParams(win, 'Offset Shape', { distance: 2 });
-    await clickRibbonTab(win, 'Part');
+    // 4. Click Part tab → Offset Shape, +4 mm (a large offset relative to the
+    //    r=8 rounds — the regime where a naive offset self-intersects).
+    await injectToolParams(win, 'Offset Shape', { distance: 4 });
     await win.waitForTimeout(120);
     await story.frame('offset-dialog');
     await clickRibbonTool(win, 'Offset Shape');
@@ -202,14 +236,37 @@ test('Offset Shape: padded block (face-offset) — build 40³ box → select →
     await win.waitForTimeout(300);
     await story.frame('after-offset-shape');
 
-    // 6. Measure + assert.
+    // 6. Measure the offset result.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
-    console.log(`  Offset Shape (padded block): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
-    // Empirically measured: 70400 mm³, ±10%
-    expect(m.volume).toBeGreaterThan(63360);
-    expect(m.volume).toBeLessThan(77440);
+    console.log(`  Offset Shape (curved enclosure, +4 mm): vol=${m.volume.toFixed(0)}, faces=${m.faceCount}`);
+    // Offsetting the curved body outward grows it — volume must exceed the
+    // curved input and stay finite/positive (a self-intersecting offset would
+    // collapse or explode the volume).
+    expect(m.volume).toBeGreaterThan(mCurved.volume);
+    expect(m.volume).toBeLessThan(mCurved.volume * 3);
+    expect(m.faceCount).toBeGreaterThan(0);
+
+    // 7. GAP-CLOSURE assertion — the offset of the high-curvature surface is a
+    //    VALID, NON-SELF-INTERSECTING solid. This is exactly what PerformBySimple
+    //    failed to guarantee and PerformByJoin's intersection handling delivers.
+    const offParams = await win.evaluate(() =>
+      window.__lastBrepShape && window.__lastBrepShape.meta && window.__lastBrepShape.meta.params
+    );
+    console.log(`  Offset params: ${JSON.stringify(offParams)}`);
+    expect(offParams, 'offset must record its join params').toBeTruthy();
+    // The repaired-offset path: intersection handling on, arc-vs-intersection join.
+    expect(offParams.joinType).toBe('intersection');
+    expect(offParams.intersection).toBe(true);
+
+    const check = await win.evaluate(async () =>
+      window.__archdiscKernel.kernel.brep.checkSelfIntersection(window.__lastBrepShape)
+    );
+    console.log(`  Offset result self-check: valid=${check.valid}, selfIntersects=${check.selfIntersects}`);
+    expect(check.valid, 'offset of the curved body must be a valid solid').toBe(true);
+    expect(check.selfIntersects,
+      'offset of the high-curvature surface must NOT self-intersect').toBe(false);
 
     const cap = await captureAllAngles(win, 'offset-shape', { story, drags: 7 });
     console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
