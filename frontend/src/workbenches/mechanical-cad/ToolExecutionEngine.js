@@ -515,37 +515,86 @@ function removeSelectedFromScene(scene, viewport) {
 // --- Shared handler helpers ---
 
 /**
- * Run a kernel clash check between a 30mm box and a 10r×40h cylinder.
+ * Selection-driven clash / interference check.
+ *
+ * Operates on the TWO bodies the user has selected in the scene (Part
+ * Browser rows or viewport clicks → `_pickBodies(2)`), runs the exact B-rep
+ * clash kernel (`ArchDiscKernel.brep.checkClash`), and — when the parts
+ * interfere — RENDERS the interfering zone (the Boolean-common region) into
+ * the scene as a highlighted body so the user sees exactly where the parts
+ * collide.
+ *
+ * This is a NON-CONSUMING analysis op: both selected bodies stay in the
+ * scene. The clash zone is added as an additional body; no `consumedInputs`.
+ *
+ * Mirrors the verdict to `window.__lastInterferenceResult` (legacy slot) and
+ * `window.__lastClashCheck` (e2e slot) for introspection.
+ *
  * Shared by the 'Interference' and 'Interference Detection' ribbon entries.
  */
-async function _runInterferenceDemo() {
-  // Kernel path: build two overlapping solids (box + cylinder) and run
-  // ArchDiscKernel.brep.checkClash — returns clash verdict + interference
-  // volume + min clearance distance. Analytical only — no geometry rendering.
-  // Mirrors result to window.__lastInterferenceResult for e2e tests.
+async function _runInterferenceCheck(scene, viewport) {
   try {
-    const a = await ArchDiscKernel.brep.makeBox(30, 30, 30);
-    const b = await ArchDiscKernel.brep.makeCylinder(10, 40);
+    // Two USER-SELECTED bodies — throws a guiding 'select…' error otherwise.
+    const [a, b] = _pickBodies(2);
+
+    // Exact B-rep clash: interference volume + min clearance + zone count +
+    // the interfering region as a renderable BrepShape.
     const r = await ArchDiscKernel.brep.checkClash(a, b);
-    a.dispose(); b.dispose();
+
+    const result = {
+      clash: r.clash,
+      interferenceVolume: r.interferenceVolume,
+      minDistance: r.minDistance,
+      zoneCount: r.zoneCount || 0,
+    };
     if (typeof window !== 'undefined') {
-      window.__lastInterferenceResult = r;
+      window.__lastInterferenceResult = result;
+      window.__lastClashCheck = result;
     }
+
     if (r.clash) {
+      // Render the interfering zone as a highlighted (amber) body so the
+      // collision volume is visible in the viewport. The clash zone is a
+      // NEW body — neither selected input is consumed.
+      let zoneRendered = false;
+      if (r.interferenceZone && r.interferenceZone.shape) {
+        try {
+          await addBrepShapeToScene(scene, viewport, r.interferenceZone, 0xffb300);
+          zoneRendered = true;
+        } catch (renderErr) {
+          // Zone rendering is best-effort; the numeric verdict still stands.
+          console.warn('Interference: clash-zone render failed', renderErr);
+          try { r.interferenceZone.dispose(); } catch { /* already gone */ }
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.__lastClashCheck.zoneRendered = zoneRendered;
+        window.__lastInterferenceResult.zoneRendered = zoneRendered;
+      }
       return {
         status: 'warn',
-        message: 'Interference: CLASH — interference volume ' + r.interferenceVolume.toFixed(0) + ' mm³ (via ArchDisc Kernel)',
+        message: 'Interference: CLASH — ' + r.interferenceVolume.toFixed(0) +
+          ' mm³ in ' + result.zoneCount + ' zone' + (result.zoneCount === 1 ? '' : 's') +
+          (zoneRendered ? ', interfering zone highlighted' : '') +
+          ' (via ArchDisc exact B-rep kernel)',
       };
     }
+    // No clash — dispose any (absent) zone and report the clearance.
+    if (r.interferenceZone) { try { r.interferenceZone.dispose(); } catch { /* none */ } }
     return {
       status: 'success',
-      message: 'Interference: clear — minimum clearance ' + r.minDistance.toFixed(2) + ' mm (via ArchDisc Kernel)',
+      message: 'Interference: clear — minimum clearance ' +
+        r.minDistance.toFixed(2) + ' mm (via ArchDisc exact B-rep kernel)',
     };
   } catch (err) {
     if (typeof window !== 'undefined') {
       window.__lastInterferenceResult = { error: err.message };
+      window.__lastClashCheck = { error: err.message };
     }
-    return { status: 'error', message: 'Interference: ' + err.message };
+    return {
+      status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+      message: 'Interference: ' + err.message,
+    };
   }
 }
 
@@ -2313,17 +2362,36 @@ const TOOL_HANDLERS = {
     },
 
     'Simplify Geometry': async (scene, viewport) => {
-      // Simplify has no parameters (zero-field schema). Select a body, run simplify.
+      // Two-stage simplify: small-feature removal (tiny internal wires /
+      // sliver islands below `minFeatureSize`) + same-domain face merge.
       try {
         const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Simplify Geometry');
+        if (cancelled) return { status: 'warn', message: 'Simplify Geometry: cancelled' };
         const before = await ArchDiscKernel.brep.measure(body);
-        const result = await ArchDiscKernel.brep.simplify(body);
+        const minFeatureSize = values && values.minFeatureSize != null
+          ? values.minFeatureSize : 1;
+        const result = await ArchDiscKernel.brep.simplify(body, { minFeatureSize });
         const after = await ArchDiscKernel.brep.measure(result);
         // Consuming op: Simplify rewrites `body` topology into `result` — drop the original.
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const stats = (result.meta && result.meta.stats) || {};
+        const removed = stats.removedFeatures || 0;
+        if (typeof window !== 'undefined') {
+          window.__lastSimplifyResult = {
+            removedFeatures: removed,
+            removedWires: stats.removedWires || 0,
+            removedFaces: stats.removedFaces || 0,
+            faceCountBefore: before.faceCount,
+            faceCountAfter: after.faceCount,
+            minFeatureSize,
+          };
+        }
         return {
           status: 'success',
-          message: 'Simplify Geometry: ' + before.faceCount + ' → ' + after.faceCount + ' faces (volume preserved) via ArchDisc Kernel',
+          message: 'Simplify Geometry: ' + before.faceCount + ' → ' + after.faceCount +
+            ' faces, ' + removed + ' tiny feature' + (removed === 1 ? '' : 's') +
+            ' removed (min size ' + minFeatureSize + ' mm) via ArchDisc Kernel',
         };
       } catch (err) {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Simplify Geometry: ' + err.message };
@@ -2504,8 +2572,8 @@ const TOOL_HANDLERS = {
       };
     },
 
-    'Interference': (scene, viewport) => _runInterferenceDemo(),
-    'Interference Detection': (scene, viewport) => _runInterferenceDemo(),
+    'Interference': (scene, viewport) => _runInterferenceCheck(scene, viewport),
+    'Interference Detection': (scene, viewport) => _runInterferenceCheck(scene, viewport),
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

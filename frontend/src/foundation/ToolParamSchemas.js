@@ -160,8 +160,10 @@ export const TOOL_PARAM_SCHEMAS = {
 
   'Simplify Geometry': {
     title: 'Simplify Geometry',
-    blurb: 'Merge coplanar/coaxial faces via ShapeUpgrade_UnifySameDomain. No parameters required.',
-    fields: [],
+    blurb: 'Remove tiny internal features (small holes, sliver islands) below the minimum feature size, then merge same-domain faces. Default: 1 mm.',
+    fields: [
+      { name: 'minFeatureSize', label: 'Min feature size', type: 'number', default: 1, unit: 'mm', min: 0.01, max: 50, step: 0.1, hint: 'Internal features smaller than this are removed' },
+    ],
   },
 
   'Subdivide Surface': {
