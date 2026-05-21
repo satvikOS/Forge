@@ -1,12 +1,11 @@
 /**
  * brep-features-electron.spec.js
  *
- * Real-user-workflow tests for feature operations.
- * Every geometry op is invoked by clicking the real ribbon tool button
- * (Part tab) and filling the ToolParamDialog — NOT by calling kernel APIs
- * directly.
+ * "Operation in motion" retrofit — feature operations on real engineering artifacts.
+ * Drives everything via real ribbon clicks, REAL viewport body clicks, and drag-orbits.
+ * Records the whole workflow as a .webm video with key-frame stills at each beat.
  *
- * Each test builds a recognisable real-world engineering artifact.
+ * ── PATTERN: matches brep-g-catmullclark-electron.spec.js ─────────────────────
  *
  * Under Playwright (navigator.webdriver=true) the ToolParamDialog
  * auto-resolves with schema defaults immediately. Effective defaults:
@@ -14,33 +13,22 @@
  *   Revolve Boss : innerR=12 width=18 height=40 → ring torus-like solid
  *   Fillet       : build Box (40³) → select → click Fillet → radius=2 → V < 64000
  *   Chamfer      : build Box (40³) → select → click Chamfer → distance=2 → V < 64000
+ *
+ * Artifacts land in:  test-results/motion/brep-features-<op>/
  */
 
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'path';
+import { test, expect } from '@playwright/test';
+import fs from 'fs';
 import { captureAllAngles } from './helpers/orbitCapture.js';
 import {
   clickRibbonTab, clickRibbonTool,
-  buildPrimitive, selectBodies, injectToolParams,
+  buildPrimitive, injectToolParams,
 } from './helpers/uiWorkflow.js';
+import {
+  launchWithCapture, clickBody, dragOrbit,
+} from './helpers/motionCapture.js';
 
 test.setTimeout(600000);
-
-const SWEEP = { azimuths: [0, 60, 120, 180, 240, 300], elevations: [-30, 40], zooms: [0.6, 1.0, 1.8] };
-
-async function launch() {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'electron', 'main.js')],
-    env: { ...process.env, NODE_ENV: 'test' },
-  });
-  const win = await app.firstWindow();
-  const pageErrors = [];
-  win.on('pageerror', err => pageErrors.push(err.message));
-  await win.waitForLoadState('domcontentloaded');
-  await expect(win.locator('canvas').first()).toBeVisible({ timeout: 60000 });
-  await win.waitForFunction(() => !!window.__archdiscKernel, null, { timeout: 60000 });
-  return { app, win, pageErrors };
-}
 
 // ─── Extrude Boss ─────────────────────────────────────────────────────────────
 
@@ -49,10 +37,16 @@ test('Extrude Boss: extruded structural beam — ribbon click + dialog defaults 
   // Arity-0: no body selection needed. The ToolParamDialog auto-resolves under
   // Playwright with defaults: width=80, depth=50, height=25.
   // Produces a rectangular prismatic beam cross-section (like a steel I-beam blank).
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-features-extrude');
   try {
     // Click Part tab → Extrude Boss → accept dialog defaults.
-    await buildPrimitive(win, 'Extrude Boss');
+    const bossId = await buildPrimitive(win, 'Extrude Boss');
+    console.log(`  Extrude Boss id: ${bossId}`);
+
+    // Key-frame: input model, then a real drag-orbit to show it in 3D.
+    await story.frame('input');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-3d');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -63,11 +57,28 @@ test('Extrude Boss: extruded structural beam — ribbon click + dialog defaults 
     expect(m.volume).toBeLessThan(110000);
     expect(m.faceCount).toBe(6); // rectangular prism
 
-    const cap = await captureAllAngles(win, 'extrude-boss', SWEEP);
+    await story.frame('after-extrude-boss');
+
+    const cap = await captureAllAngles(win, 'extrude-boss', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-extrude-boss\.png$/.test(f));
+    expect(inputStill, 'an input still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-extrude-boss still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-extrude-boss still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
 
@@ -78,10 +89,16 @@ test('Revolve Boss: rotational shaft — ribbon click + dialog defaults → inne
   // Arity-0: no body selection needed. Handler defaults: innerR=12, width=18,
   // height=40 — revolves a ring 360°, producing an annular shaft/hub profile.
   // Volume = π×40×((12+18)²−12²) = π×40×(900−144) = π×40×756 ≈ 95 034 mm³
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-features-revolve');
   try {
     // Click Part tab → Revolve Boss → accept dialog defaults.
-    await buildPrimitive(win, 'Revolve Boss');
+    const bossId = await buildPrimitive(win, 'Revolve Boss');
+    console.log(`  Revolve Boss id: ${bossId}`);
+
+    // Key-frame: input model, then a real drag-orbit to show it in 3D.
+    await story.frame('input');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-3d');
 
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
@@ -92,11 +109,28 @@ test('Revolve Boss: rotational shaft — ribbon click + dialog defaults → inne
     expect(m.volume).toBeGreaterThan(50000);
     expect(m.faceCount).toBeGreaterThanOrEqual(3);
 
-    const cap = await captureAllAngles(win, 'revolve-boss', SWEEP);
+    await story.frame('after-revolve-boss');
+
+    const cap = await captureAllAngles(win, 'revolve-boss', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-revolve-boss\.png$/.test(f));
+    expect(inputStill, 'an input still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-revolve-boss still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-revolve-boss still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
 
@@ -106,13 +140,19 @@ test('Fillet: rounded plate — build 40³ box → select → ribbon click → r
   // Artifact: rounded plate
   // Arity-1 workflow: build a Box (40³ — the plate blank), select it, click Fillet,
   // fill radius=2. Fillet removes material from all edges, rounding the plate corners.
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-features-fillet');
   try {
     // 1. Build the plate blank (Box 40³) via the Box primitive (user workflow).
     const boxId = await buildPrimitive(win, 'Box');
+    console.log(`  Box id: ${boxId}`);
 
-    // 2. Select the body for the Fillet op.
-    await selectBodies(win, [boxId]);
+    // Key-frame: the input box, then a real drag-orbit to show it in 3D.
+    await story.frame('input');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-3d');
+
+    // 2. Select the body for the Fillet op with a REAL viewport click.
+    await clickBody(win, boxId);
 
     // 3. Capture current shape id so we can detect the new result.
     const idBefore = await win.evaluate(() =>
@@ -125,6 +165,7 @@ test('Fillet: rounded plate — build 40³ box → select → ribbon click → r
     await injectToolParams(win, 'Fillet', { radius: 2 });
     await clickRibbonTab(win, 'Part');
     await win.waitForTimeout(120);
+    await story.frame('fillet-dialog');
     await clickRibbonTool(win, 'Fillet');
 
     // 5. Wait for the new result body.
@@ -133,8 +174,10 @@ test('Fillet: rounded plate — build 40³ box → select → ribbon click → r
       idBefore,
       { timeout: 60000 },
     );
+    await win.waitForTimeout(300);
+    await story.frame('after-fillet');
 
-    // 7. Measure + assert.
+    // 6. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
@@ -143,11 +186,26 @@ test('Fillet: rounded plate — build 40³ box → select → ribbon click → r
     expect(m.volume).toBeLessThan(64000);
     expect(m.faceCount).toBeGreaterThan(6);  // filleted box has curved faces
 
-    const cap = await captureAllAngles(win, 'fillet-boss', SWEEP);
+    const cap = await captureAllAngles(win, 'fillet-boss', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-fillet\.png$/.test(f));
+    expect(inputStill, 'an input still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-fillet still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-fillet still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
 
@@ -157,13 +215,19 @@ test('Chamfer: chamfered-edge plate — build 40³ box → select → ribbon cli
   // Artifact: chamfered-edge plate
   // Arity-1 workflow: build a Box (40³ — the plate blank), select it, click Chamfer,
   // fill distance=2. Chamfer cuts 45° bevels on all edges of the plate.
-  const { app, win, pageErrors } = await launch();
+  const { app, win, pageErrors, story } = await launchWithCapture('brep-features-chamfer');
   try {
     // 1. Build the plate blank (Box 40³) via the Box primitive (user workflow).
     const boxId = await buildPrimitive(win, 'Box');
+    console.log(`  Box id: ${boxId}`);
 
-    // 2. Select the body for the Chamfer op.
-    await selectBodies(win, [boxId]);
+    // Key-frame: the input box, then a real drag-orbit to show it in 3D.
+    await story.frame('input');
+    await dragOrbit(win, { dx: 200, dy: 90 });
+    await story.frame('input-3d');
+
+    // 2. Select the body for the Chamfer op with a REAL viewport click.
+    await clickBody(win, boxId);
 
     // 3. Capture current shape id.
     const idBefore = await win.evaluate(() =>
@@ -176,6 +240,7 @@ test('Chamfer: chamfered-edge plate — build 40³ box → select → ribbon cli
     await injectToolParams(win, 'Chamfer', { distance: 2 });
     await clickRibbonTab(win, 'Part');
     await win.waitForTimeout(120);
+    await story.frame('chamfer-dialog');
     await clickRibbonTool(win, 'Chamfer');
 
     // 5. Wait for the new result body.
@@ -184,8 +249,10 @@ test('Chamfer: chamfered-edge plate — build 40³ box → select → ribbon cli
       idBefore,
       { timeout: 60000 },
     );
+    await win.waitForTimeout(300);
+    await story.frame('after-chamfer');
 
-    // 7. Measure + assert.
+    // 6. Measure + assert.
     const m = await win.evaluate(async () =>
       window.__archdiscKernel.kernel.brep.measure(window.__lastBrepShape)
     );
@@ -194,10 +261,25 @@ test('Chamfer: chamfered-edge plate — build 40³ box → select → ribbon cli
     expect(m.volume).toBeLessThan(64000);
     expect(m.faceCount).toBeGreaterThan(6);  // chamfered box has extra faces
 
-    const cap = await captureAllAngles(win, 'chamfer-boss', SWEEP);
+    const cap = await captureAllAngles(win, 'chamfer-boss', { story, drags: 7 });
+    console.log(`  Render: ${cap.total} real drag-orbits, ${cap.blanks.length} blanks`);
     expect(cap.blanks).toEqual([]);
     expect(pageErrors).toEqual([]);
+
+    // ── Verify storyboard stills exist and are non-trivial ───────────────────
+    const stills = story.frames();
+    const inputStill = stills.find(f => /-input\.png$/.test(f));
+    const outputStill = stills.find(f => /-after-chamfer\.png$/.test(f));
+    expect(inputStill, 'an input still must have been captured').toBeTruthy();
+    expect(outputStill, 'an after-chamfer still must have been captured').toBeTruthy();
+    expect(fs.statSync(inputStill).size,
+      'input still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
+    expect(fs.statSync(outputStill).size,
+      'after-chamfer still must be a real screenshot (>1 KB)').toBeGreaterThan(1024);
   } finally {
     await app.close();
+    const sess = await story.finish();
+    expect(sess.videoSize,
+      'the recorded session .webm must be > 200 KB').toBeGreaterThan(200 * 1024);
   }
 });
