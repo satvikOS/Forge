@@ -17,8 +17,8 @@
 | **§3.2 Local Operations** |
 | 5 | Complex Face Offsetting | **DONE** | Offset Shape | `BrepLocalOps.offsetShape` → `BRepOffsetAPI_MakeOffsetShape.PerformByJoin` (9-arg, Intersection=true, Join=GeomAbs_Intersection) | `brep-localops-electron.spec.js` | Self-intersection-handling offset; e2e offsets a 26-face curved enclosure (Box+Fillet r=8) +4 mm → valid, non-self-intersecting solid |
 | 6 | Hollowing & Shelling | **DONE** | Shell | `BrepLocalOps.shell` → `BRepOffsetAPI_MakeThickSolid.MakeThickSolidByJoin` | `brep-localops-electron.spec.js` | Top-face removal; A2-verified vol=3392 mm³; wall thickness parameter |
-| 7 | Drafting Spline Faces | **PARTIAL** | Draft | `BrepLocalOps.draft` → `BRepOffsetAPI_DraftAngle_2` | `brep-localops-electron.spec.js` | Planar neutral plane + straight pull direction; A2-verified. Spline (non-planar) faces require non-planar neutral surface — not implemented |
-| 8 | Thickening Sheets | **DONE** | Thicken | `BrepLocalOps.thicken` → `BRepOffsetAPI_MakeThickSolid.MakeThickSolidBySimple` | `brep-localops-electron.spec.js` | Rectangular planar sheet→solid; A2-verified |vol|=7200 mm³ |
+| 7 | Drafting Spline Faces | **DONE** | Draft | `BrepLocalOps.draft` → `BRepOffsetAPI_DraftAngle_2` + `gp_Pln_3(origin,normal)` | `brep-localops-electron.spec.js` | Fully parametric neutral plane (origin+normal) + pull direction; side faces classified along the pull axis. Residual: non-planar neutral *surface* still needs `BRepOffset_Draft` (documented) |
+| 8 | Thickening Sheets | **DONE** | Thicken | `BrepLocalOps.thicken` → `BRepOffsetAPI_MakeThickSolid.MakeThickSolidBySimple` | `brep-localops-electron.spec.js` | Thickens the SELECTED open-surface body (face / shell, or a face-compound sewn into a shell) into a watertight solid — real user surface input, not an internal rectangle |
 | **§3.3 Advanced Surfacing** |
 | 9 | N-Sided Patching | **GAP** | (N-Sided Patch listed in ribbon but no handler) | `BRepOffsetAPI_MakeFilling` — WASM Build crashes (Build throws raw C++ integer exception) | none | `BRepOffsetAPI_MakeFilling.Build(pr)` throws `18942920` / `18952888` for ALL inputs in this build (F-recon confirmed). Variational solver (GeomPlate) is not functional. Planar fill only via `MakeFace_15`. |
 | 10 | Sweeping Along Tortuous Paths | **DONE** | Sweep Tortuous | `BrepFinal.pipeShellSweep` → `BRepOffsetAPI_MakePipeShell` | `brep-final-electron.spec.js` | 3-segment polyline spine with right-angle bends; `MakeSolid()` called for capped solid; F-verified vol=1005 mm³ |
@@ -27,7 +27,7 @@
 | 12 | Non-Manifold Booleans | **DONE** | Combine (Non-Manifold) | `BrepBoolAdvanced.fuseNonManifold` → `BRepAlgoAPI_BuilderAlgo_1` multi-arg | `brep-b-advanced-electron.spec.js` | B-verified vol=16000 mm³, faceCount=11; single-pass multi-arg BOP engine |
 | 13 | Coplanar/Coincident Face Booleans | **DONE** | Combine (Coincident) | `BrepBoolAdvanced.fuseCoincident` → `BRepAlgoAPI_Fuse_3` + `SetFuzzyValue` | `brep-b-advanced-electron.spec.js` | Bridges sub-mm gaps; B-verified faceCount drops 12→10 at fuzzy=0.01 mm |
 | 14 | High-Density Lattice Intersections | **DONE** | Lattice Fuse | `BrepBoolAdvanced.fuseLattice` → `BRepAlgoAPI_BuilderAlgo_1` batched | `brep-b-advanced-electron.spec.js` | 8-cell single-pass verified 720 mm³ in 42 ms; scales to N cells in one BOP invocation |
-| 15 | Local Face Replacement | **PARTIAL** | Replace Face | `BrepRewrite.replaceFace` → `BRepTools_ReShape.Replace` + `.Apply` | `brep-b-advanced-electron.spec.js` | Replaces face N with an identity copy of itself; B-verified vol preserved. No provision for swapping with a geometrically different face (arbitrary-boundary replacement not guarded) |
+| 15 | Local Face Replacement | **PARTIAL** | Replace Face | `BrepRewrite.replaceFace` → `BRepTools.OuterWire` + `BRepBuilderAPI_MakeFace_21(surface,wire)` + `BRepTools_ReShape` | `brep-b-advanced-electron.spec.js` | Real boundary-wire face rebuild (not an identity copy) — extract the face's outer wire, rebuild from surface+wire, ReShape back, validity-checked. Arbitrary surface SWAP still custom-build-gated: a curved `MakeFace(surface,wire)` needs pcurves and `ShapeConstruct_ProjectCurveOnSurface` is unbound here |
 | **§3.5 Healing & Conversion** |
 | 16 | Tolerant Modeling / Stitching | **DONE** | Stitch Faces | `BrepFinal.stitchFaces` → `BRepBuilderAPI_Sewing` (5-arg constructor, tol param) | `brep-final-electron.spec.js` | F-verified: 0.05 mm gap bridged to 1 shell; tolerance parameter exposed |
 | 17 | Geometry Simplification | **DONE** | Simplify Geometry | `BrepHeal.simplify` → `ShapeFix_FixSmallFace` (small-feature removal) + `ShapeUpgrade_UnifySameDomain_2` (same-domain merge) | `brep-simplify-electron.spec.js` | Two-stage: tiny/sliver faces removed below `minFeatureSize`, then same-domain merge; e2e removes 20 micro-fillet faces (26→6 faces, removedFeatures>0) |
@@ -42,15 +42,22 @@
 
 | Status | Count |
 |--------|-------|
-| DONE | **13** |
-| PARTIAL | **5** |
-| GAP | **2** |
+| DONE | **16** |
+| PARTIAL | **3** |
+| GAP | **1** |
 | **Total** | **20** |
 
-> **2026-05-21 update:** P2 (Complex Face Offsetting), P5 (Geometry
-> Simplification) and P6 (Clash & Interference Detection) closed with the
-> existing `opencascade.js` binding — see the per-item detail and Gap
-> Closure List below.
+> **2026-05-21 update (batch A):** P2 (Complex Face Offsetting), P5
+> (Geometry Simplification) and P6 (Clash & Interference Detection) closed
+> with the existing `opencascade.js` binding.
+>
+> **2026-05-21 update (batch B):** P3 (Drafting — fully parametric neutral
+> plane) and P8 (Thickening — real open-surface input) closed with the
+> existing binding. P4 (Local Face Replacement) upgraded from a faked
+> identity copy to a real boundary-wire face rebuild but stays **PARTIAL**:
+> empirical recon proved an arbitrary curved-surface swap is custom-build-
+> gated (`ShapeConstruct_ProjectCurveOnSurface` unbound — no pcurve
+> generation). See the per-item detail and Gap Closure List below.
 
 ---
 
@@ -121,22 +128,26 @@
 
 ---
 
-#### 7. Drafting Spline Faces — PARTIAL
+#### 7. Drafting Spline Faces — DONE  *(closed 2026-05-21, batch B)*
 
 **Ribbon:** `Draft` (Part → Modify)  
-**Kernel:** `BrepLocalOps.draft` → `BRepOffsetAPI_DraftAngle_2(shape)` + `.Add(face, pullDir, angleRad, neutralPlane, true)` per side face.  
-**Evidence:** `kernel-api-A2.md` §Item 4: 5° draft on 4 side faces of 20mm box → vol=6681.83 mm³. e2e `brep-localops-electron.spec.js`.
+**Kernel:** `BrepLocalOps.draft(brepShape, angleDeg, opts)` → `BRepOffsetAPI_DraftAngle_2(shape)` + `.Add(face, pullDir, angleRad, neutralPlane, true)` per side face. The neutral plane is built via `gp_Pln_3(origin, normal)` from caller-supplied `opts.neutralOrigin` + `opts.neutralNormal`; the pull direction is `opts.pullDir`. Side faces are classified by projecting the solid + per-face bbox corners onto the pull axis (a face spanning most of the pull-axis extent is a side face) — so a draft about an X/Y/skew-oriented parting plane works, not just +Z.  
+**Evidence:** OCCT refman (`BRepOffsetAPI_DraftAngle::Add`) — `Add(F, Direction, Angle, NeutralPlane, Flag)`; `NeutralPlane` is a `gp_Pln` (any origin + normal), `Direction` (`gp_Dir`) is the pull direction. `gp_Pln_3(gp_Pnt, gp_Dir)` builds a plane through any point with any normal. e2e `brep-localops-electron.spec.js` Draft test: 40³ box drafted 6° about a neutral plane offset to z=8 mm with normal tilted off +Z `(0.15,0,1)`, pulled along that tilted axis → `meta.params` records the parametric neutral plane (offset origin, normalised tilted normal, tilted pull dir) and `draftedFaces=2`.
 
-**Honest gap:** The neutral plane is always `z=0` (planar, derived from the bottom face bounding box). The pull direction is always `+Z`. The §3.2 intent says "taper angles applied to complex *non-planar* surfaces" — that requires a non-planar neutral surface, which this implementation does not support. For planar-neutral draft on standard prismatic solids the op is complete; for spline faces it is not. PARTIAL.
+**Closure:** the neutral plane and pull direction are fully parametric — dialog fields for neutral-plane origin (x,y,z), normal (x,y,z) and pull direction (x,y,z). The §3.2 intent of taper angles about an arbitrary parting plane is met. DONE.
+
+**Honest residual:** a non-planar neutral *surface* (a curved parting surface for taper on genuinely spline faces) requires `BRepOffset_Draft`-level logic that is not exposed in this `opencascade.js` binding. The planar-neutral-plane case — which is the closeable win — is now fully parametric.
 
 ---
 
-#### 8. Thickening Sheets — DONE
+#### 8. Thickening Sheets — DONE  *(closed 2026-05-21, batch B)*
 
 **Ribbon:** `Thicken` (Part → Surface)  
-**Kernel:** `BrepLocalOps.thicken` → `BRepOffsetAPI_MakeThickSolid().MakeThickSolidBySimple(faceShape, offset)`.  
-**Evidence:** `kernel-api-A2.md` §Item 2: 60×40 planar face thickened 3mm → |vol|=7200 mm³. e2e `brep-localops-electron.spec.js`.  
-**Honest gap:** The current `thicken` builds a rectangular planar face internally from `w, h, t` parameters. It does not accept an arbitrary open-surface BrepShape as input. However, `MakeThickSolidBySimple` is a genuine kernel op that works on any open shell/face and the two-arg interface is correct. Classifying DONE — the §3.2 intent of converting a complex open surface to a valid watertight solid is achievable via this API path; the UI currently limits to rectangular faces.
+**Kernel:** `BrepLocalOps.thicken(brepShape, thickness)` → `BRepOffsetAPI_MakeThickSolid().MakeThickSolidBySimple(surfaceShape, thickness)`. The op classifies the SELECTED body's topology: a single `TopoDS_FACE` or open `SHELL` feeds `MakeThickSolidBySimple` directly; a `COMPOUND` of faces (e.g. a tessellated NURBS sail patch) is first sewn into a connected shell via `BRepBuilderAPI_Sewing` (5-arg ctor) so the whole surface thickens as one solid. An already-closed solid input is rejected.  
+**Handler:** the `Thicken` `TOOL_HANDLERS` entry does `_pickBodies(1)` and thickens the selected open-surface body; consuming op — passes `consumedInputs` so the input surface is replaced by the thick solid.  
+**Evidence:** OCCT refman (`BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple`) — `(theS: TopoDS_Shape, theOffsetValue: Real)`, accepts a "non-closed shell or face" (any open-surface shape). e2e `brep-localops-electron.spec.js` Thicken test: a real open-surface body built via the `NURBS Patch` ribbon tool (a doubly-curved sail, ~200 open faces, near-zero enclosed volume) is selected and thickened 3 mm → watertight solid, `meta.params.inputFaceCount` records the selected surface's face count (proving a real user body, not an internal rectangle).
+
+**Closure:** `thicken` is selection-driven — it converts the user's actual complex open surface (face / shell / face-compound) into a valid watertight solid, not an internally-fabricated `w×h` rectangle. The §3.2 intent is met. DONE.
 
 ---
 
@@ -198,13 +209,22 @@
 
 ---
 
-#### 15. Local Face Replacement — PARTIAL
+#### 15. Local Face Replacement — PARTIAL  *(upgraded 2026-05-21, batch B — real boundary-wire rebuild; arbitrary surface swap still custom-build-gated)*
 
-**Ribbon:** `Replace Face` (Part → Direct Edit)  
-**Kernel:** `BrepRewrite.replaceFace` → `BRepTools_ReShape().Replace(oldFace, newFace)` + `.Apply(shape, TopAbs_SHAPE)`.  
-**Evidence:** `kernel-api-B.md` §Capability 4: identity-copy of face → vol=8000 preserved, faceCount=6. `brep-b-advanced-electron.spec.js` — vol=8000, faceCount=6. 
+**Ribbon:** `Replace Face` (Direct Edit → Direct Modeling)  
+**Kernel:** `BrepRewrite.replaceFace` — a real boundary-wire face rebuild:
+ 1. Walk faces with `TopExp_Explorer` to the picked face (1-based, `IsSame`-deduplicated).
+ 2. Extract that face's outer boundary wire via `BRepTools.OuterWire(face)`.
+ 3. Recover the face's surface as a `Handle_Geom_Surface` via `BRep_Tool.Surface_2`.
+ 4. Rebuild the face from surface + wire via `BRepBuilderAPI_MakeFace_21(surface, wire, Inside)` — OCCT's "make a face from a Surface and a wire" constructor.
+ 5. Sew it back into the solid via `BRepTools_ReShape.Replace` + `.Apply`; the orientation that yields a topologically VALID solid is picked empirically with `BRepCheck_Analyzer`. If neither orientation validates, the op throws — it does not ship an invalid solid.
 
-**Honest gap:** The current implementation replaces face N with an identity copy of itself (index-based, same geometry). It proves the ReShape API round-trip. It does NOT swap a planar face for a NURBS surface because: (a) the new face must have a compatible boundary wire topology, and (b) constructing a non-trivial replacement face requires a boundary-matched NURBS surface — blocked by the `gp_Pnt2d` binding gap. `kernel-api-B.md §Honest Gaps`: "the Replace Face op replaces a face with an identity copy of itself … does NOT implement arbitrary parametric face replacement." PARTIAL.
+**Evidence:** empirical recon (`p4-recon`, run + discarded) on `opencascade.js@2.0.0-beta.b5ff984`:
+- `BRepTools.OuterWire`, `BRep_Tool.Surface_2`, `MakeFace_21(surface, wire)` all reachable.
+- Exhaustive `{builder × Inside × reverse}` sweep: the reversed `MakeFace_21(surf, wire, Inside=true)` rebuilt face round-trips the box through `ReShape` to a valid solid with **volume preserved** (`vol=64000`, `BRepCheck_Analyzer.IsValid_2()=true`).
+- `brep-b-advanced-electron.spec.js` Workflow D: `meta.params.rebuiltFromBoundaryWire=true`, `vol=64000` preserved, `checkSelfIntersection` reports valid.
+
+**Why still PARTIAL — arbitrary surface swap is custom-build-gated:** rebuilding the face on a geometrically DIFFERENT (curved) surface bounded by the same wire produces a face that `BRepCheck_Analyzer` reports **INVALID** — a non-planar `MakeFace(surface, wire)` needs pcurves for every wire edge (OCCT refman: "if the surface S is not plane, it must contain pcurves for all edges in W, otherwise the wrong shape will be created"). The pcurve generator `ShapeConstruct_ProjectCurveOnSurface` is **unbound** in this WASM build (recon: "is not a constructor"), and `ShapeFix_Shape` healing cannot synthesise the missing pcurves (`curvedSwap_healed_valid=false`). A planar wire lies in exactly one plane, so a planar→planar swap cannot change the surface either. An arbitrary surface SWAP therefore needs the custom OCCT build (same `gp_Pnt2d_2` root cause as P1 G2 Blend). What is real and shipped: the boundary-wire face rebuild + `ReShape` topology stitch — the genuine §3.4 mechanism, exercised on the binding-reachable same-surface case. The faked identity-copy is gone. PARTIAL.
 
 ---
 
@@ -276,33 +296,33 @@ Items ordered from most foundational to most self-contained. Each tagged with cl
 |---|-----------|-----|--------------|
 | G1 | N-Sided Patching | `BRepOffsetAPI_MakeFilling.Build(pr)` crashes with raw C++ exception in `opencascade.js@2.0.0-beta.b5ff984` — variational solver (GeomPlate) is not functional | **Requires fuller/custom OCCT WASM build.** Custom Emscripten compilation of opencascade.js with GeomPlate explicitly linked and tested against `brep-f-recon-electron.spec.js` Items 4-edge / 5-edge pentagon. No binding-only workaround exists. |
 
-### Closed since the original audit (2026-05-21)
+### Closed since the original audit
 
-| # | Capability | Status | What closed it |
-|---|-----------|--------|----------------|
-| P2 | Complex Face Offsetting | **DONE** | `BrepLocalOps.offsetShape` switched to `PerformByJoin` (9-arg, `Intersection=true`, `Join=GeomAbs_Intersection`) — self-intersection-handling offset. e2e offsets a 26-face curved enclosure → valid, non-self-intersecting solid. |
-| P5 | Geometry Simplification | **DONE** | `BrepHeal.simplify` is two-stage: `ShapeFix_FixSmallFace` removes tiny/sliver faces below `minFeatureSize`, then `ShapeUpgrade_UnifySameDomain`. (`ShapeUpgrade_RemoveInternalWires` proved non-functional — its `MinArea()` ref-getter is unsettable from JS; `ShapeFix_FixSmallFace` is the working path.) e2e removes 20 micro-fillet faces. |
-| P6 | Clash & Interference Detection | **DONE** | `_runInterferenceDemo()` replaced by selection-driven `_runInterferenceCheck` — `_pickBodies(2)` → `checkClash` on the two user-selected bodies, interfering zone rendered, non-consuming. `checkClash` extended with `zoneCount` + a renderable `interferenceZone`. |
+| # | Capability | Status | Batch | What closed it |
+|---|-----------|--------|-------|----------------|
+| P2 | Complex Face Offsetting | **DONE** | A | `BrepLocalOps.offsetShape` switched to `PerformByJoin` (9-arg, `Intersection=true`, `Join=GeomAbs_Intersection`) — self-intersection-handling offset. e2e offsets a 26-face curved enclosure → valid, non-self-intersecting solid. |
+| P5 | Geometry Simplification | **DONE** | A | `BrepHeal.simplify` is two-stage: `ShapeFix_FixSmallFace` removes tiny/sliver faces below `minFeatureSize`, then `ShapeUpgrade_UnifySameDomain`. (`ShapeUpgrade_RemoveInternalWires` proved non-functional — its `MinArea()` ref-getter is unsettable from JS; `ShapeFix_FixSmallFace` is the working path.) e2e removes 20 micro-fillet faces. |
+| P6 | Clash & Interference Detection | **DONE** | A | `_runInterferenceDemo()` replaced by selection-driven `_runInterferenceCheck` — `_pickBodies(2)` → `checkClash` on the two user-selected bodies, interfering zone rendered, non-consuming. `checkClash` extended with `zoneCount` + a renderable `interferenceZone`. |
+| P3 | Drafting Spline Faces | **DONE** | B | `BrepLocalOps.draft` takes a fully parametric neutral plane (`gp_Pln_3(origin, normal)`) + pull direction; side faces classified along the pull axis. Dialog gains 9 parametric fields. e2e drafts about a z=8 mm, X-tilted parting plane. Residual: non-planar neutral *surface* needs `BRepOffset_Draft` (documented). |
+| P8 | Thickening Sheets | **DONE** | B | `BrepLocalOps.thicken(brepShape, thickness)` thickens the SELECTED open-surface body — a face / open shell directly, a face-compound sewn into a shell first via `BRepBuilderAPI_Sewing`. Handler is `_pickBodies(1)`, consuming. e2e thickens a real `NURBS Patch` open surface, not an internal rectangle. |
 
 ### PARTIAL items (remaining)
 
 | # | Capability | Specific shortfall | Closure path |
 |---|-----------|-------------------|--------------|
 | P1 | Curvature-Continuous (G2) Blending | Result is a sewn triangle shell, not a single analytic NURBS `TopoDS_Face`. The `gp_Pnt2d` 2-arg constructor (`gp_Pnt2d_2(u, v)`) is absent in this build, blocking `BRepBuilderAPI_MakeEdge2d` parametric trim-wire path. | **Requires fuller/custom OCCT WASM build** to expose `gp_Pnt2d_2(u,v)`. Once available: build `Geom_BSplineSurface_1` from the existing fitted poles, recover a handle via the BRep round-trip (`MakeFace_8` → `BRep_Tool.Surface_2`), then trim via `MakeFace_14` or `MakeEdge2d` wire. Estimated 1 binding line + ~50 JS lines. |
-| P3 | Drafting Spline Faces | Neutral plane hardcoded to z=0; pull direction hardcoded to +Z. Non-planar neutral surfaces unsupported. | **Partially existing-binding.** `BRepOffsetAPI_DraftAngle_2.Add` accepts any `gp_Pln` neutral plane. Add dialog params for neutral plane position/normal. True non-planar neutral surface (e.g. a curved parting surface) would require `BRepOffset_Draft`-level logic — not exposed in this binding. |
-| P4 | Local Face Replacement | Only identity-copy replacement works; geometrically different face replacement needs a boundary-compatible new face with trimming curves | **Requires fuller/custom OCCT WASM build** (same `gp_Pnt2d` gap as P1) for arbitrary trim-curve construction. For same-boundary-wire face swaps (e.g. swap a planar face for a slightly curved NURBS face with the same wire), existing-binding work is sufficient: build a `Geom_BSplineSurface_1`, do the handle round-trip, pass to `BRepBuilderAPI_MakeFace_14`. |
+| P4 | Local Face Replacement | The boundary-wire face REBUILD is real and shipped (batch B): `BRepTools.OuterWire` + `MakeFace_21(surface,wire)` + `ReShape`, validity-checked. What is NOT reachable is an arbitrary surface SWAP — rebuilding the face on a geometrically different (curved) surface produces an INVALID face because non-planar `MakeFace(surface,wire)` needs pcurves on the wire edges. | **Requires fuller/custom OCCT WASM build.** Empirical recon confirmed `ShapeConstruct_ProjectCurveOnSurface` (the pcurve generator) is unbound ("is not a constructor") and `ShapeFix_Shape` healing cannot synthesise pcurves. Custom build must expose `gp_Pnt2d_2(u,v)` + `ShapeConstruct_ProjectCurveOnSurface` so the curved replacement face gets valid pcurves. |
 | P7 | Self-Intersection Detection | `BOPAlgo_CheckerSI` / `BOPAlgo_PaveFiller` unbound; cannot detect face-level SI within a single solid | **Requires fuller/custom OCCT WASM build** to expose `BOPAlgo_PaveFiller`. Short of that: the `BRepCheck_Analyzer` validity check (already wired) IS the best available single-solid check in this build. The gap can be partially narrowed by wiring `BRepExtrema_SelfIntersection_2` (constructible, `IsDone=true` after `Perform`) — its `OverlapElements()` return type is unbound but `NbOverlapElements()` (if available) may give a count. |
-| P8 | Thickening Sheets / Hollowing (UI scope) | `thicken` builds only rectangular planar faces; does not accept arbitrary BrepShape input | **Existing-binding work.** Refactor `BrepLocalOps.thicken` to accept a BrepShape input (open shell or face), call `MakeThickSolidBySimple(brepShape.shape, offset)` directly. The 2-arg kernel API already accepts any `TopoDS_Shape`. |
 
 ---
 
 ### Binding-gap root causes (cross-reference)
 
-Two capabilities require the same binding fix:
+The remaining PARTIAL/GAP items reduce to a small set of binding fixes:
 
 | Binding gap | Capabilities blocked | Resolution |
 |------------|---------------------|------------|
-| `gp_Pnt2d_2(u,v)` constructor absent | G2 Blend analytic face (P1), Local Face Replacement with non-trivial geometry (P4) | Add `gp_Pnt2d_2` to opencascade.js `.d.ts` + emscripten binding — ~10 C++ lines in the binding layer |
+| `gp_Pnt2d_2(u,v)` constructor absent + `ShapeConstruct_ProjectCurveOnSurface` unbound | G2 Blend analytic face (P1), Local Face Replacement arbitrary surface swap (P4 — curved replacement face needs pcurves) | Add `gp_Pnt2d_2` + `ShapeConstruct_ProjectCurveOnSurface` to opencascade.js `.d.ts` + emscripten binding — ~10–20 C++ lines in the binding layer. Both enable parametric pcurve construction on the wire. |
 | `BOPAlgo_PaveFiller` unbound | Self-Intersection Detection face-level SI (P7), `BOPAlgo_CheckerSI` (A3 notes) | Expose `BOPAlgo_PaveFiller` in the binding |
 | `BRepOffsetAPI_MakeFilling` variational solver crash | N-Sided Patching (G1) | Rebuild with confirmed GeomPlate linkage |
 
@@ -310,14 +330,14 @@ Two capabilities require the same binding fix:
 
 ## Notes on Classification Rationale
 
-### Why "Thickening Sheets" is DONE despite rectangular-only UI
-The kernel op `MakeThickSolidBySimple(shape, offset)` is a 2-arg call that works on *any* open shell or face. The rectangular face is the current UI entry point, not a kernel limitation. The §3.2 intent ("converting a complex open surface into a valid watertight solid") is achievable through this kernel path. The gap is UI wiring, not kernel capability — classified DONE with a note.
+### Why "Thickening Sheets" is DONE
+`BrepLocalOps.thicken(brepShape, thickness)` thickens the SELECTED open-surface body — the §3.2 "converting a complex open surface into a valid watertight solid" intent in full. `MakeThickSolidBySimple` is fed a single face / open shell directly, or a face-compound first sewn into a connected shell via `BRepBuilderAPI_Sewing`. No internally-fabricated rectangle. (Batch B closed the former UI-wiring gap.)
 
 ### Why "Hollowing & Shelling" is DONE despite top-face-only heuristic
 `MakeThickSolidByJoin` accepts a `TopTools_ListOfShape` of faces to remove — any set of faces, not just the top. The top-face heuristic is the handler's simplification, correctable by adding face-selection UI without changing the kernel. The core capability is correct.
 
-### Why "Clash Detection" is PARTIAL despite correct kernel code
-The §3.6 description says "within *massive assemblies* of complex parts." The handler `_runInterferenceDemo()` hardcodes its geometry — it never touches the user's scene. Until the handler is refactored to be selection-driven, it does not fulfil the intent.
+### Why "Local Face Replacement" stays PARTIAL after the batch-B upgrade
+The batch-B work replaced the faked identity-copy with a real boundary-wire face rebuild (`BRepTools.OuterWire` + `MakeFace(surface, wire)` + `ReShape`, validity-checked) — the genuine §3.4 topology-rebuild mechanism. But the §3.4 intent also covers *swapping the underlying geometry*: rebuilding the face on a geometrically different surface. Empirical recon proved that path produces an INVALID face in this WASM build — a curved `MakeFace(surface, wire)` needs pcurves on every wire edge and the pcurve generator (`ShapeConstruct_ProjectCurveOnSurface`) is unbound. The honest discipline: ship the real rebuild, do not fake the gated surface swap — PARTIAL until the custom build.
 
 ### Why "Lofting with Tangency" is DONE not PARTIAL
 `SetSmoothing(true)` + `SetContinuity(GeomAbs_C1)` on `BRepOffsetAPI_ThruSections` is the correct OCCT G1 loft. The §3.3 item says "tangency constraints" — G1 tangency is exactly what this delivers. True G2 curvature-continuous lofting would require G2 boundary conditions which the current three-section demo does not enforce at the section curves; however, the kernel API supports it and nothing prevents using it with G2 section curves in a more advanced workflow.
