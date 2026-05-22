@@ -1,58 +1,129 @@
 name: Build ArchDisc Desktop App
+
+# Auto-build + publish on EVERY push to `archdisc`. Each push produces a
+# published GitHub Release carrying the 3 platform installers PLUS the
+# electron-updater channel manifests (latest.yml / latest-mac.yml /
+# latest-linux.yml). Installed apps poll those manifests and auto-update.
+#
+# Build matrix — Electron apps must be built ON their target OS:
+#   - windows-latest -> NSIS .exe installer        (latest.yml)
+#   - macos-latest   -> .dmg installer + .zip      (latest-mac.yml)
+#                       (zip is REQUIRED for macOS auto-update)
+#   - ubuntu-latest  -> .AppImage                  (latest-linux.yml)
+#
+# Versioning: package.json version is stamped to 1.0.<run_number> before
+# electron-builder runs, so every push yields a unique, monotonically
+# increasing version. electron-updater compares versions to decide
+# whether to upgrade.
+#
+# Code signing: builds are UNSIGNED. Windows shows SmartScreen warnings;
+# macOS Gatekeeper blocks first launch (right-click > Open to bypass) and
+# auto-update is unreliable without notarization. To sign, add secrets:
+#   Windows: CSC_LINK, CSC_KEY_PASSWORD  (Authenticode cert)
+#   macOS:   CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID,
+#            APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+# electron-builder picks these up automatically from the environment.
+
 on:
   push:
     branches: [archdisc]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Per-SHA group so every commit gets its own queue slot and a real
+  # release. No cancellation — releasing on every commit is intentional.
+  group: build-app-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 30
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # Cache electron-builder binaries (NSIS, winCodeSign, etc) — these
-      # are the resources that fail with 502 from GitHub releases.
+      # Cache electron / electron-builder binaries (NSIS, app-builder,
+      # etc.) — these download from github.com and occasionally 502.
       - name: Cache electron-builder binaries
         uses: actions/cache@v4
         with:
           path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('package.json') }}
           restore-keys: |
             ${{ runner.os }}-electron-builder-
 
-      - run: cd frontend && npm install
-      - run: cd frontend && npx vite build
-      - run: npm install -D electron electron-builder
-
-      # Build with retry — electron-builder downloads from github.com which
-      # occasionally returns 502. Retry up to 3 times with exponential backoff.
-      - name: Build Windows installer (with retry)
-        shell: pwsh
+      # Per-commit version: 1.0.<run_number>. Always increases, so
+      # electron-updater always sees field installs as outdated.
+      - name: Stamp per-commit version
+        shell: bash
         run: |
-          $maxAttempts = 3
-          for ($i = 1; $i -le $maxAttempts; $i++) {
-            Write-Host "Build attempt $i of $maxAttempts"
-            npx electron-builder --win --x64 --publish never --config.win.icon=null --config.nsis.installerIcon=null --config.nsis.uninstallerIcon=null --config.nsis.installerHeaderIcon=null
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "Build succeeded on attempt $i"
-              break
-            }
-            if ($i -lt $maxAttempts) {
-              $wait = [Math]::Pow(2, $i) * 10
-              Write-Host "Build failed, waiting $wait seconds before retry..."
-              Start-Sleep -Seconds $wait
-            } else {
-              Write-Host "Build failed after $maxAttempts attempts"
-              exit 1
-            }
-          }
+          VERSION="1.0.${{ github.run_number }}"
+          echo "Stamping version $VERSION"
+          node -e "const fs=require('fs');const p=require('./package.json');p.version='$VERSION';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
+          node -e "console.log('package.json version is now', require('./package.json').version)"
 
-      - uses: actions/upload-artifact@v4
+      - name: Install root dependencies (electron, electron-builder, electron-updater)
+        run: npm install --no-audit --no-fund
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: frontend
+
+      - name: Build frontend (Vite)
+        run: npx vite build
+        working-directory: frontend
+
+      - name: Build + publish (${{ matrix.platform }})
+        shell: bash
+        env:
+          # electron-builder publishes to GitHub Releases with this token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            echo "electron-builder attempt $i for ${{ matrix.platform }}"
+            npx electron-builder --${{ matrix.platform }} --publish always && break
+            if [ "$i" -eq 3 ]; then
+              echo "electron-builder failed after 3 attempts"
+              exit 1
+            fi
+            sleep $((i * 20))
+          done
+
+      # Keep a copy of the installers on the run too (handy if a release
+      # asset upload is ever flaky).
+      - name: Upload installers as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: ArchDisc-Setup
-          path: dist-electron/ArchDisc-Setup-*.exe
-          retention-days: 30
+          name: ArchDisc-${{ matrix.platform }}
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.zip
+            dist-electron/*.AppImage
+            dist-electron/*.yml
+          retention-days: 14
+          if-no-files-found: ignore
