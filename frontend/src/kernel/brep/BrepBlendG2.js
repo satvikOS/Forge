@@ -40,12 +40,22 @@
  * still spans the gap with a smooth G2 surface, just not tangent-locked to a
  * face. This fallback is logged in the returned stats.
  *
+ * ── ANALYTIC FACE (parity-audit P1 — native ArchDisc B-rep) ─────────────────
+ * The blend result RETAINS the exact fitted degree-3×5 `NURBSSurface` as a
+ * NATIVE ArchDisc analytic `TopoFace`: `buildAnalyticNurbsFace` wraps the
+ * surface in a `NurbsSurfaceAdapter`, builds the boundary wire + pcurves, and
+ * the `TopoFace` is carried on `result.meta.analyticFace`. The kernel
+ * `TopoDS_Shell` of triangles is kept ONLY for rendering / measuring — the
+ * analytic surface is the geometry of record and is STEP-exportable as a real
+ * `B_SPLINE_SURFACE_WITH_KNOTS` (see `foundation/StepExport.js`
+ * `nurbsSurfaceToSTEP`). This is the §3.1 G2-blend capability delivered
+ * analytically in ArchDisc's OWN topology kernel — NOT an OCCT `TopoDS_Face`.
+ *
  * Honest scope:
- *   - The result is a TRIANGULATED kernel shell (a sewn mesh), NOT a single
- *     analytic sewn NURBS B-rep face. The blend math is exact NURBS; the
- *     kernel wrapper carries the tessellation so it renders / measures like
- *     any other body. Same honest framing as the existing surfacing ops
- *     (catmullClarkShape, retopoShape) which are also mesh-fidelity results.
+ *   - The analytic face is an ArchDisc-native `TopoFace` on an exact
+ *     `NURBSSurface`, not an OCCT `TopoDS_Face`. An OCCT-side op consuming the
+ *     blend would need a conversion step. The rendered body is a sewn
+ *     triangle shell tessellated FROM the analytic surface.
  *   - It is a TWO-edge blend, not an N-sided patch, and does not auto-trim
  *     the parent body.
  *
@@ -53,12 +63,15 @@
  *
  * Refs:
  *   foundation/G2BlendSurface.js — the degree-5 G2 construction + self-test.
+ *   kernel/topology/AnalyticNurbsFace.js — the native analytic-face carrier.
  *   docs/superpowers/notes/g2-blend-G.md — Step-0 references + honest gaps.
+ *   docs/superpowers/notes/p1-p4-native-G.md — the native-kernel approach.
  */
 
 import { getKernel } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import { g2Blend, tessellateG2Blend } from '../../foundation/G2BlendSurface.js';
+import { buildAnalyticNurbsFace } from '../topology/AnalyticNurbsFace.js';
 
 // ── tiny vec3 helpers ───────────────────────────────────────────────────────
 const v3sub  = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -460,7 +473,33 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
       computeFromPositions: false,
     });
 
-    // ── 5. tessellate the blend surface → triangle mesh ──────────────────────
+    // ── 4b. RETAIN the analytic surface as a native ArchDisc TopoFace ────────
+    // The exact degree-3×5 NURBSSurface is wrapped in a NurbsSurfaceAdapter and
+    // carried as a real TopoFace (boundary wire + pcurves). This is the §3.1
+    // analytic-face deliverable in ArchDisc's OWN B-rep topology kernel.
+    let analyticFace = null;
+    let analyticInfo = null;
+    try {
+      const built = buildAnalyticNurbsFace(surface);
+      analyticFace = built.face;
+      const nd = analyticFace.surface.nurbsData();
+      analyticInfo = {
+        analytic: true,
+        degreeU: nd.degreeU,
+        degreeV: nd.degreeV,
+        controlPointsU: nd.controlNet.length,
+        controlPointsV: nd.controlNet[0].length,
+        knotCountU: nd.knotsU.length,
+        knotCountV: nd.knotsV.length,
+        boundaryEdges: built.edges.length,
+        topoFaceId: analyticFace.id,
+      };
+    } catch (e) {
+      // Analytic-face construction failed — keep the mesh result, flag honestly.
+      analyticInfo = { analytic: false, reason: e && e.message ? e.message : String(e) };
+    }
+
+    // ── 5. tessellate the blend surface → triangle mesh (for rendering) ──────
     const mesh = tessellateG2Blend(surface, uSegments, vSegments);
 
     // ── 6. sew the mesh into a kernel shell ──────────────────────────────────
@@ -484,7 +523,11 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
       parents: [brepShape.id],
       description:
         `G2 curvature-continuous blend between edge ${ia} and edge ${ib} ` +
-        `(degree 3×5 NURBS, ${triangleCount} tris, mesh-fidelity sewn shell)`,
+        `(degree 3×5 analytic NURBS face + tessellated render shell)`,
+      // The retained native analytic face — exact NURBSSurface + boundary wire.
+      analyticFace,
+      // The exact analytic NURBS data — STEP-exportable as B_SPLINE_SURFACE.
+      analyticSurface: analyticFace ? analyticFace.surface.nurbsData() : null,
       g2Stats: {
         edgeCount: edges.length,
         edgeIndexA: ia,
@@ -503,6 +546,8 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
         triangleCount,
         vertexCount: mesh.positions.length / 3,
         bbox: { min: mn, max: mx },
+        // P1 — the blend RETAINS a native ArchDisc analytic NURBS face.
+        ...analyticInfo,
       },
     });
 
