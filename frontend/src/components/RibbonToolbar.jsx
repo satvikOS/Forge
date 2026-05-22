@@ -99,6 +99,7 @@ const TABS = {
         { name: 'Convergent Solid',           icon: '▣',  key: 'surface' },
         { name: 'Surface-Surface Intersection', icon: '⋈', key: 'surface' },
         { name: 'Trimmed NURBS Patch',          icon: '⊟', key: 'surface' },
+        { name: 'N-Sided Patch',                icon: '⬠', key: 'surface' },
         { name: 'G2 Blend',                     icon: '⌒', key: 'surface' },
         { name: 'Class-A Analyze',              icon: '◐', key: 'surface' },
         { name: 'Zebra Stripes',                icon: '☰', key: 'surface' },

@@ -266,6 +266,16 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  'N-Sided Patch': {
+    title: 'N-Sided Patch — variational fill of an N-sided opening',
+    blurb: 'Fill an arbitrary non-four-sided boundary loop of the selected body with a smooth surface patch. Ear-clip triangulation of the loop interior, then discrete cotangent-Laplacian variational fairing (minimum bending energy) with the boundary fixed. faceIndex=-1 auto-picks the face with the most edges (the N-sided opening). Adds the fill surface; the body is kept.',
+    fields: [
+      { name: 'faceIndex',         label: 'Boundary face index', type: 'number', default: -1, unit: '', min: -1, max: 400, step: 1, hint: '-1 = auto-pick the face with the most edges; otherwise the face whose outer wire is filled' },
+      { name: 'subdivisions',      label: 'Interior density',    type: 'number', default: 3,  unit: '', min: 0,  max: 5,   step: 1, hint: '1→4 refinement passes; more = smoother fill, more triangles' },
+      { name: 'fairingIterations', label: 'Fairing iterations',  type: 'number', default: 40, unit: '', min: 0,  max: 200, step: 5, hint: 'Discrete bending-energy minimisation iterations' },
+    ],
+  },
+
   'G2 Blend': {
     title: 'G2 Blend — curvature-continuous fairing surface',
     blurb: 'Fair a true G2 (curvature-continuous) blend surface between two edges of the selected body. Degree-5-in-v / degree-3-in-u NURBS — matches position, tangent AND curvature at both edges. Adds the fairing surface; the body is kept.',

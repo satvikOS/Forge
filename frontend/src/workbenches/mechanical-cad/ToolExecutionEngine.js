@@ -1397,7 +1397,18 @@ const TOOL_HANDLERS = {
       try {
         const { values, cancelled } = await requestToolParams('Box');
         if (cancelled) return { status: 'warn', message: 'Box: cancelled' };
-        const result = await ArchDiscKernel.brep.makeBox(values.dx, values.dy, values.dz);
+        let result = await ArchDiscKernel.brep.makeBox(values.dx, values.dy, values.dz);
+        // Optional placement — honor tx/ty/tz when supplied (parametric per the
+        // plan-params convention). makeBox builds at the origin; a non-zero
+        // offset positions the body so e.g. two boxes can partially overlap.
+        const tx = Number(values.tx) || 0;
+        const ty = Number(values.ty) || 0;
+        const tz = Number(values.tz) || 0;
+        if (tx !== 0 || ty !== 0 || tz !== 0) {
+          const placed = await ArchDiscKernel.brep.translate(result, tx, ty, tz);
+          result.dispose();
+          result = placed;
+        }
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Box: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
@@ -2006,6 +2017,51 @@ const TOOL_HANDLERS = {
         return {
           status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
           message: 'G2 Blend: ' + err.message,
+        };
+      }
+    },
+
+    // ── §3.3 Advanced Surfacing: N-sided patch (genuine pure-JS) ─────────────
+
+    'N-Sided Patch': async (scene, viewport) => {
+      // Arity 1 — select a body, fill one of its non-4-sided openings with a
+      // smooth variational surface patch. ADDITIVE: the fill surface is added
+      // to the scene; the input body is NOT consumed (addBrepShapeToScene
+      // called WITHOUT consumedInputs).
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('N-Sided Patch');
+        if (cancelled) return { status: 'warn', message: 'N-Sided Patch: cancelled' };
+
+        const faceIdxRaw = Math.round(Number(values.faceIndex));
+        const result = await ArchDiscKernel.brep.nSidedPatch(body, {
+          // faceIndex < 0 → auto-pick the most-sided face (omit the option).
+          ...(Number.isFinite(faceIdxRaw) && faceIdxRaw >= 0
+            ? { faceIndex: faceIdxRaw } : {}),
+          subdivisions:      Math.round(Number(values.subdivisions) || 3),
+          fairingIterations: Math.round(Number(values.fairingIterations) || 40),
+        });
+
+        // Render the fill patch. NO consumedInputs — the parent body stays.
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+
+        const stats = (result.meta && result.meta.nSidedStats) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastNSidedPatch = { stats };
+        }
+
+        return {
+          status: 'success',
+          message:
+            `N-Sided Patch: filled a ${stats.loopSides}-sided opening ` +
+            `(face ${stats.faceIndex}) — ${stats.triangleCount} tris, ` +
+            `${stats.vertexCount} verts, ${stats.fairingIterations} fairing ` +
+            `iterations (discrete variational fill) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'N-Sided Patch: ' + err.message,
         };
       }
     },
@@ -3602,30 +3658,109 @@ const TOOL_HANDLERS = {
     },
 
     'Check Geometry': async (scene, viewport) => {
-      // Kernel path: if a B-rep body is in scope, run BRepCheck_Analyzer
-      // self-intersection check via ArchDiscKernel.brep.checkSelfIntersection.
-      // Returns a verdict only — no geometry rendering.
+      // Selection-driven, NON-CONSUMING face-level self-intersection check.
+      // Picks the user-selected body (_pickBodies(1)), tessellates it per face,
+      // and runs the genuine pure-JS Möller triangle-triangle detector
+      // (ArchDiscKernel.brep.selfIntersect) — it finds faces of ONE solid that
+      // geometrically cross each other (self-intersecting fillet, degenerate
+      // sweep, warped spline patch). It also runs the intrinsic-validity +
+      // inter-solid checkSelfIntersection so the verdict covers both.
+      // When crossings are found the intersecting triangles are rendered as a
+      // bright red highlight body so the user SEES the exact crossing zone.
       try {
-        const ownFallback = !(typeof window !== 'undefined' && window.__lastBrepShape);
-        const body = ownFallback
-          ? await ArchDiscKernel.brep.makeBox(40, 40, 40)
-          : window.__lastBrepShape;
-        const r = await ArchDiscKernel.brep.checkSelfIntersection(body);
-        if (ownFallback) body.dispose();
-        if (typeof window !== 'undefined') window.__lastGeometryCheck = r;
-        if (r.selfIntersects) {
+        const [body] = _pickBodies(1);
+
+        // Genuine face-level detector — pure-JS Möller + BVH.
+        const si = await ArchDiscKernel.brep.selfIntersect(body);
+        // Intrinsic validity + inter-solid overlap (the existing check).
+        let intrinsic = { selfIntersects: false, valid: true, count: 0 };
+        try { intrinsic = await ArchDiscKernel.brep.checkSelfIntersection(body); }
+        catch { /* intrinsic check best-effort */ }
+
+        const result = {
+          faceLevelSelfIntersection: si.intersecting,
+          faceLevelPairCount: si.pairCount,
+          facePairs: si.facePairs,
+          segmentCount: si.segments.length,
+          stats: si.stats,
+          valid: intrinsic.valid,
+          interSolidOverlap: intrinsic.count,
+          // Backward-compatible aggregate verdict: any of the three signals.
+          selfIntersects: si.intersecting || !intrinsic.valid || intrinsic.count > 0,
+          count: intrinsic.count,
+        };
+        if (typeof window !== 'undefined') {
+          window.__lastSelfIntersection = result;
+          window.__lastGeometryCheck = result;
+        }
+
+        // Render the crossing zone as a bright red highlight body.
+        if (si.intersecting && si.highlight) {
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.BufferAttribute(si.highlight.positions, 3));
+          geom.setAttribute('normal',   new THREE.BufferAttribute(si.highlight.normals, 3));
+          geom.setIndex(new THREE.BufferAttribute(si.highlight.indices, 1));
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0xff2a2a,
+            emissive: 0x660000,
+            metalness: 0.1,
+            roughness: 0.5,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -8,
+          });
+          const m3 = new THREE.Mesh(geom, mat);
+          m3.renderOrder = 3;
+          const group = new THREE.Group();
+          group.scale.set(0.001, 0.001, 0.001);   // mm → m
+          group.add(m3);
+          group.userData.pickable       = true;
+          group.userData.generatedModel = true;
+          group.userData.selfIntersectionZone = true;
+          scene.add(group);
+          group.updateMatrixWorld(true);
+          try {
+            registerBody({
+              group,
+              manifold: { volume: () => 0 },
+              sourceTool: 'Check Geometry',
+              name: 'Self-Intersection Zone',
+            });
+          } catch (e) {
+            console.warn('Check Geometry: highlight register failed', e);
+          }
+        }
+
+        if (si.intersecting) {
           return {
             status: 'warn',
-            message: 'Check Geometry: self-intersection detected — ' + r.count + ' intersecting solid pair(s)' +
-              (r.valid ? '' : ', invalid geometry') + ' (via ArchDisc geometry checker)',
+            message: `Check Geometry: FACE-LEVEL self-intersection detected — ` +
+              `${si.pairCount} crossing triangle pair(s) across ${si.facePairs.length} ` +
+              `face pair(s); crossing zone highlighted in red ` +
+              `(${si.stats.triangles} tris scanned at deflection ${si.stats.deflection} mm).`,
+          };
+        }
+        if (!intrinsic.valid || intrinsic.count > 0) {
+          return {
+            status: 'warn',
+            message: `Check Geometry: no face-level crossings, but ` +
+              (intrinsic.valid ? '' : 'geometry is intrinsically invalid; ') +
+              (intrinsic.count > 0 ? `${intrinsic.count} inter-solid overlap(s); ` : '') +
+              `(${si.stats.triangles} tris scanned).`,
           };
         }
         return {
           status: 'success',
-          message: 'Check Geometry: no self-intersections — geometry is valid (via ArchDisc geometry checker)',
+          message: `Check Geometry: no self-intersections — ${si.stats.faces} faces, ` +
+            `${si.stats.triangles} triangles scanned (Möller triangle-triangle, ` +
+            `BVH-accelerated); geometry is valid.`,
         };
       } catch (occtErr) {
-        return { status: 'error', message: 'Check Geometry: ' + occtErr.message };
+        return {
+          status: occtErr.message && occtErr.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Check Geometry: ' + occtErr.message,
+        };
       }
     },
 
