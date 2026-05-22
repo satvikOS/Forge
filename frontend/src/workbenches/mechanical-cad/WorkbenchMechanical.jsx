@@ -18,6 +18,11 @@ import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
 import { requestManifest } from '../../ai/sculptor/ComponentManifest.js';
 import { ComponentLibrary, partToStep } from '../../ai/sculptor/ComponentLibrary.js';
 import { loopSubdivide, loopStep, weldMesh } from '../../foundation/LoopSubdivision.js';
+import {
+    bindSpine, bindSpineFromShape, validateSpine, SpineBody,
+    Body as SpineBodyClass, Lump, Shell, Face, Loop, Coedge, Edge, Vertex,
+    IdAllocator,
+} from '../../kernel/topology/index.js';
 import FeatureTreePanel from '../../components/FeatureTreePanel';
 import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
@@ -644,6 +649,23 @@ function WorkbenchMechanical() {
         if (typeof window === 'undefined') return undefined;
         window.__archdiscSubdiv = { loopSubdivide, loopStep, weldMesh };
         return () => { delete window.__archdiscSubdiv; };
+    }, []);
+
+    // SP-1 — expose the unified topology spine so headed Electron e2e specs
+    // (spine-recon / spine-scaffold / spine-bind) can call bindSpine +
+    // validateSpine and construct spine entities directly inside win.evaluate,
+    // without bundling kernel/topology separately. Additive — no behaviour
+    // change; mirror pattern: __archdiscKernel / __archdiscSubdiv above.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscSpine = {
+            bindSpine, bindSpineFromShape, validateSpine,
+            classes: {
+                Body: SpineBodyClass, Lump, Shell, Face, Loop, Coedge, Edge,
+                Vertex, IdAllocator, SpineBody,
+            },
+        };
+        return () => { delete window.__archdiscSpine; };
     }, []);
 
     // Get selected model from context

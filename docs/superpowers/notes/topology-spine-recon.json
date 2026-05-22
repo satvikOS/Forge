@@ -1,0 +1,241 @@
+{
+  "package": "opencascade.js@2.0.0-beta.b5ff984",
+  "probe1_explorer": {
+    "verdict": "REACHABLE",
+    "verdictReason": "TopExp_Explorer_2 walks all 6 levels of a fuse result: solids=1 shells=1 faces=10 wires=10 edges=20 verts=12 (unique, IsSame-deduped). Raw edge hits=40 (each edge visited once per owning face).",
+    "booleanBuilt": true,
+    "rawCounts": {
+      "SOLID": 1,
+      "SHELL": 1,
+      "FACE": 10,
+      "WIRE": 10,
+      "EDGE": 40,
+      "VERTEX": 80
+    },
+    "uniqueCounts": {
+      "SOLID": 1,
+      "SHELL": 1,
+      "FACE": 10,
+      "WIRE": 10,
+      "EDGE": 20,
+      "VERTEX": 12
+    },
+    "sane": true,
+    "callSequence": [
+      "const SHAPE = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;",
+      "const exp = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, SHAPE);",
+      "for (; exp.More(); exp.Next()) { const f = exp.Current(); /* IsSame-dedup */ }",
+      "exp.delete();"
+    ]
+  },
+  "probe2_ancestryMaps": {
+    "verdict": "NOT_REACHABLE",
+    "bindingTier": "NONE",
+    "verdictReason": "Ancestry-map binding NOT usable. mapBuilt=true, listStrategy=listAccessor:Size, membersRetrievable=false. S1 uses the O(n^2) per-face TopExp IsSame-pairing fallback for ALL edges. Detail: {\"mapClassKeys\":[\"TopTools_IndexedDataMapOfShapeListOfShape\",\"TopTools_IndexedDataMapOfShapeListOfShape_1\",\"TopTools_IndexedDataMapOfShapeListOfShape_2\",\"TopTools_IndexedDataMapOfShapeListOfShape_3\"],\"listIterKeys\":[],\"listClassKeys\":[\"TopTools_ListOfShape\",\"TopTools_ListOfShape_1\",\"TopTools_ListOfShape_2\",\"TopTools_ListOfShape_3\"],\"hasTopExp\":true",
+    "mapClassKeys": [
+      "TopTools_IndexedDataMapOfShapeListOfShape",
+      "TopTools_IndexedDataMapOfShapeListOfShape_1",
+      "TopTools_IndexedDataMapOfShapeListOfShape_2",
+      "TopTools_IndexedDataMapOfShapeListOfShape_3"
+    ],
+    "listIterKeys": [],
+    "listClassKeys": [
+      "TopTools_ListOfShape",
+      "TopTools_ListOfShape_1",
+      "TopTools_ListOfShape_2",
+      "TopTools_ListOfShape_3"
+    ],
+    "hasTopExp": true,
+    "mapShapesAndAncestorsType": "function",
+    "edgeFaceMapExtent": 12,
+    "mapShapesAndAncestorsOk": true,
+    "sampleListMethods": [
+      "Allocator",
+      "Append_1",
+      "Append_3",
+      "Assign",
+      "Clear",
+      "Extent",
+      "First_1",
+      "First_2",
+      "IsEmpty",
+      "Last_1",
+      "Last_2",
+      "Prepend_1",
+      "Prepend_2",
+      "RemoveFirst",
+      "Reverse",
+      "Size",
+      "begin",
+      "cbegin",
+      "cend",
+      "clone",
+      "constructor",
+      "delete",
+      "deleteLater",
+      "end",
+      "isAliasOf",
+      "isDeleted"
+    ],
+    "listStrategy": "listAccessor:Size",
+    "membersRetrievable": false,
+    "membersGeneralForNonManifold": false,
+    "edgeFaceCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "edgeFaceMembersOk": false,
+    "vertEdgeMapExtent": 8,
+    "vertEdgeCounts": [
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6
+    ],
+    "edgeFaceOk": true,
+    "vertEdgeOk": false,
+    "callSequence": [
+      "// MANIFOLD fast-path (TopTools_ListOfShape.Size/First/Last — verified bound):",
+      "const map = new oc.TopTools_IndexedDataMapOfShapeListOfShape_1();",
+      "oc.TopExp.MapShapesAndAncestors(shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_FACE, map);",
+      "const lst = map.FindFromIndex(i);",
+      "const n = lst.Size();",
+      "if (n <= 2) { const faces = n === 2 ? [lst.First(), lst.Last()] : (n === 1 ? [lst.First()] : []); }",
+      "// NON-MANIFOLD edge (n > 2): the iterator class is UNBOUND — fall to:",
+      "// O(n^2) per-face TopExp IsSame pairing (buildAncestryMapFallback)."
+    ],
+    "callSequenceFallback": [
+      "// O(n^2) fallback (the SP-1-designed degrade path bindSpine implements):",
+      "// for each edge, walk every face with a per-face TopExp_Explorer and",
+      "// test face-owns-edge via IsSame. Used for every edge when the map is",
+      "// unusable, and for >2-face edges when the list iterator is unbound.",
+      "for (const face of faces) {",
+      "  const ee = new oc.TopExp_Explorer_2(face.occtFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE, SHAPE);",
+      "  for (; ee.More(); ee.Next()) { if (ee.Current().IsSame(edge)) facesOfEdge.push(face); }",
+      "}"
+    ]
+  },
+  "probe3_shapeIdentity": {
+    "verdict": "REACHABLE",
+    "verdictReason": "Shape identity reachable: HashCode(INT_MAX) returns a stable integer per sub-shape (6 faces, hashes [19302241,19290601,19323737,19326185,19306625,19316145] identical across two walks), IsSame=true, IsEqual=true. geomRef keys on HashCode+IsSame.",
+    "faceCount": 6,
+    "hashMethod": "HashCode(INT_MAX)",
+    "hashesPresent": true,
+    "hashStable": true,
+    "pass1Hashes": [
+      19302241,
+      19290601,
+      19323737,
+      19326185,
+      19306625,
+      19316145
+    ],
+    "orientations": [
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+    ],
+    "isSameOk": true,
+    "isEqualOk": true,
+    "callSequence": [
+      "const hash = subShape.HashCode(2147483647);  // stable integer key",
+      "a.IsSame(b)   // same TShape + same location, orientation-independent",
+      "a.IsEqual(b)  // IsSame AND same orientation"
+    ]
+  },
+  "probe4_geometryExtraction": {
+    "verdict": "REACHABLE",
+    "verdictReason": "Geometry extraction reachable: BRep_Tool.Surface_2 → Handle_Geom_Surface (raw Geom_CylindricalSurface); BRep_Tool.Pnt → vertex point {\"x\":12,\"y\":-2.9391523179536475e-15,\"z\":30}; curve via Curve_2 ok=true. Spine Surface/Curve/Point adapters delegate to these.",
+    "surfaceHandleClass": "Handle_Geom_Surface",
+    "surfaceNull": false,
+    "surfaceRawClass": "Geom_CylindricalSurface",
+    "surfaceD0": {
+      "x": 12,
+      "y": 0,
+      "z": 0
+    },
+    "surfaceOk": true,
+    "curveMethod": "Curve_2",
+    "curveHandleClass": "Handle_Geom_Curve",
+    "curveNull": false,
+    "curveOk": true,
+    "vertexPnt": {
+      "x": 12,
+      "y": -2.9391523179536475e-15,
+      "z": 30
+    },
+    "vertexOk": true,
+    "rangeMethodPresent": "Range_1",
+    "callSequence": [
+      "const surfH = oc.BRep_Tool.Surface_2(face);   // Handle_Geom_Surface",
+      "const raw = surfH.get();  raw.D0(u, v, gpPnt);",
+      "const pnt = oc.BRep_Tool.Pnt(vertex);          // gp_Pnt"
+    ]
+  },
+  "probe5_loopTraversal": {
+    "verdict": "REACHABLE",
+    "verdictReason": "Ordered loop traversal reachable: BRepTools.OuterWire returns the outer wire; BRepTools_WireExplorer_2(1 arg) walks it in coedge order (4 edges on a box face, orientations [0,0,1,1]). bindSpine builds ordered Loop→Coedge cycles.",
+    "wireExplorerKeys": [
+      "BRepTools_WireExplorer",
+      "BRepTools_WireExplorer_1",
+      "BRepTools_WireExplorer_2",
+      "BRepTools_WireExplorer_3"
+    ],
+    "hasBRepTools": true,
+    "outerWireType": "OuterWire",
+    "outerWireMethod": "OuterWire",
+    "outerWireOk": true,
+    "wireExplorerClass": "BRepTools_WireExplorer_2(1 arg)",
+    "loopOrientations": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "edgesInLoop": 4,
+    "wireExpOk": true,
+    "callSequence": [
+      "const wire = oc.BRepTools.OuterWire_1(face);",
+      "const we = new oc.BRepTools_WireExplorer_2(wire, face);",
+      "for (; we.More(); we.Next()) { const coedge = we.Current(); /* ordered */ }",
+      "we.delete();"
+    ]
+  },
+  "probe6_nonManifold": {
+    "verdict": "REACHABLE",
+    "verdictReason": "Non-manifold coedge counting reachable: the edge→face ancestry map gives faces-per-edge for every edge of a fuseNonManifold(box,box stacked) result (20 edges, max faces/edge=4, histogram {\"2\":16,\"4\":4}). nonManifoldEdgePresent=true. bindSpine flags an Edge non-manifold when its coedge count >2 and builds a radial cycle.",
+    "nmBuilt": true,
+    "edgeCount": 20,
+    "maxFacesPerEdge": 4,
+    "faceCountHistogram": {
+      "2": 16,
+      "4": 4
+    },
+    "nonManifoldEdgePresent": true,
+    "note": "fuseNonManifold may or may not yield a >2-face edge for stacked boxes (OCCT BOP can unify coplanar faces). The probe confirms the COUNTING mechanism works; non-manifold geometry counting is the same code path."
+  },
+  "summary": {
+    "reachable": 5,
+    "total": 6,
+    "ancestryMapTier": "NONE",
+    "fallbackNeeded": true,
+    "fallbackScope": "all edges"
+  }
+}
