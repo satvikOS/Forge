@@ -70,12 +70,18 @@ mainBuild:
   #                                 codegen — but dropping the program-level
   #                                 `-flto` request avoids the most aggressive
   #                                 whole-program merge pass.
-  #      - `-O3` -> `-O2`         : `-O3` whole-program opt holds more IR live
-  #                                 in both wasm-ld LTO codegen and wasm-opt.
-  #                                 `-O2` keeps full dead-code elimination
-  #                                 (output stays ~48 MB) at much lower peak.
-  #      - `-Wl,--lto-O1`         : explicitly caps the LTO backend opt level,
-  #                                 the single biggest lever on wasm-ld RSS.
+  #      - `-O3` -> `-O0`         : attempt 4 — fit the link into the WSL2
+  #                                 DEFAULT ~8 GB ceiling. No .wslconfig is used
+  #                                 (the explicit override correlated with a
+  #                                 Docker-daemon crash in attempts 2-3; the
+  #                                 default-config attempt 1 ran the furthest).
+  #                                 `-O0` minimises wasm-ld codegen RSS and
+  #                                 skips the heavy wasm-opt pass. The output is
+  #                                 larger / less runtime-optimised — accepted
+  #                                 to get the build to LAND; it can be rebuilt
+  #                                 at higher -O later on a bigger machine.
+  #      - `-Wl,--lto-O0`         : minimum LTO backend opt — the single biggest
+  #                                 lever on wasm-ld peak RSS.
   #   Other flags are the upstream `customBuildSchema.py` defaults verbatim:
   #   -fexceptions / -sDISABLE_EXCEPTION_CATCHING=0 : OCCT throws C++ exceptions
   #   -sEXPORT_ES6=1              : ESM module (Vite `import ocFactory from ...`)
@@ -88,8 +94,8 @@ mainBuild:
   emccFlags:
     - -fexceptions
     - -sDISABLE_EXCEPTION_CATCHING=0
-    - -O2
-    - -Wl,--lto-O1
+    - -O0
+    - -Wl,--lto-O0
     - -sEXPORT_ES6=1
     - -sUSE_ES6_IMPORT_META=0
     - -sEXPORTED_RUNTIME_METHODS=['FS']
