@@ -41,7 +41,7 @@ import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
 import { solveLinearStaticQuadTet } from '../../foundation/QuadTetFEM.js';
 import { FrameModel, solveFrame, Sections as FrameSections } from '../../foundation/FrameFEM.js';
-import { manifoldToSTEP } from '../../foundation/StepExport.js';
+import { manifoldToSTEP, nurbsSurfaceToSTEP } from '../../foundation/StepExport.js';
 import { roundedBox, roundedBoxVolume, filletPolygon2D, filletExtrude, chamferPolygon2D, chamferExtrude, polygonArea } from '../../foundation/EdgeFillet.js';
 import { manifoldMassProperties, principalInertia } from '../../foundation/MassProperties.js';
 import { solveRotordynamics } from '../../foundation/Rotordynamics.js';
@@ -1998,19 +1998,47 @@ const TOOL_HANDLERS = {
         await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
 
         const stats = (result.meta && result.meta.g2Stats) || {};
+
+        // P1 — the blend RETAINS a native ArchDisc analytic NURBS face. Export
+        // its exact surface to STEP as a real B_SPLINE_SURFACE_WITH_KNOTS so
+        // the analytic geometry is verifiably exact, not just tessellated.
+        let analyticStep = null;
+        const analyticSurface = result.meta && result.meta.analyticSurface;
+        if (analyticSurface) {
+          try {
+            analyticStep = nurbsSurfaceToSTEP(analyticSurface, {
+              name: 'ArchDisc_G2Blend',
+            });
+          } catch (e) {
+            analyticStep = null;
+          }
+        }
+
         if (typeof window !== 'undefined') {
-          window.__lastG2Blend = { stats };
+          window.__lastG2Blend = {
+            stats,
+            // The exact analytic NURBS data (control net, knots, degrees).
+            analyticSurface: analyticSurface || null,
+            // The analytic surface serialised as STEP B_SPLINE_SURFACE text.
+            analyticStep,
+            analyticStepHasBSpline: !!(analyticStep &&
+              analyticStep.indexOf('B_SPLINE_SURFACE') !== -1),
+          };
         }
 
         const errA = Number.isFinite(stats.boundaryAMaxError)
           ? stats.boundaryAMaxError.toExponential(2) : 'n/a';
         const errB = Number.isFinite(stats.boundaryBMaxError)
           ? stats.boundaryBMaxError.toExponential(2) : 'n/a';
+        const analyticTag = stats.analytic
+          ? `analytic NURBS face (degree ${stats.degreeU}×${stats.degreeV}, ` +
+            `${stats.controlPointsU}×${stats.controlPointsV} CPs, STEP B-spline)`
+          : 'tessellated shell';
         return {
           status: 'success',
           message:
             `G2 Blend: curvature-continuous fairing between edge ${stats.edgeIndexA} ` +
-            `and edge ${stats.edgeIndexB} — degree 3×5 NURBS, ${stats.triangleCount} tris, ` +
+            `and edge ${stats.edgeIndexB} — ${analyticTag}, ${stats.triangleCount} tris, ` +
             `boundary fit errA=${errA} errB=${errB} mm via ArchDisc Kernel`,
         };
       } catch (err) {
@@ -2441,14 +2469,55 @@ const TOOL_HANDLERS = {
         const [body] = _pickBodies(1);
         const { values, cancelled } = await requestToolParams('Replace Face');
         if (cancelled) return { status: 'warn', message: 'Replace Face: cancelled' };
-        // Real boundary-wire face rebuild: extract the picked face's outer
-        // wire, rebuild the face from its surface + that wire via
-        // MakeFace(surface, wire), and ReShape it back into the solid
-        // (parity-audit P4).
-        const out = await ArchDiscKernel.brep.replaceFace(body, values.faceIndex);
-        // Consuming op: Replace Face rewrites a face of `body` into `out` — drop the original.
+        // P4: two modes. curvedSwap=true → swap the face onto an ARBITRARY new
+        // curved NURBS surface natively (fresh pcurves via Newton point-
+        // inversion in ArchDisc's own topology kernel). Otherwise the
+        // same-surface boundary-wire rebuild.
+        const curvedSwap = values.mode === 'curved' || values.curvedSwap === true ||
+          Number(values.curvedSwap) === 1;
+        const out = await ArchDiscKernel.brep.replaceFace(body, values.faceIndex, {
+          curvedSwap,
+          bulge: Number(values.bulge) || 0,
+        });
+        // Consuming op: Replace Face rewrites a face of `body` into `out`.
         await addBrepShapeToScene(scene, viewport, out, 0x9aa3ad, [body]);
         const m = await ArchDiscKernel.brep.measure(out);
+
+        if (curvedSwap) {
+          const fs = (out.meta && out.meta.faceReplaceStats) || {};
+          let analyticStep = null;
+          const analyticSurface = out.meta && out.meta.analyticSurface;
+          if (analyticSurface) {
+            try {
+              analyticStep = nurbsSurfaceToSTEP(analyticSurface, {
+                name: 'ArchDisc_ReplacedFace',
+              });
+            } catch (e) { analyticStep = null; }
+          }
+          if (typeof window !== 'undefined') {
+            window.__lastFaceReplace = {
+              stats: fs,
+              analyticSurface: analyticSurface || null,
+              analyticStep,
+              analyticStepHasBSpline: !!(analyticStep &&
+                analyticStep.indexOf('B_SPLINE_SURFACE') !== -1),
+            };
+          }
+          return {
+            status: 'success',
+            message: `Replace Face: face #${values.faceIndex} re-seated onto an arbitrary ` +
+              `curved NURBS surface (degree ${fs.degreeU}×${fs.degreeV}) — ` +
+              `${fs.pcurveCount} pcurves generated natively, push-forward error ` +
+              `${Number(fs.maxPushForwardError).toExponential(2)} mm, ` +
+              `loop ${fs.loopClosed ? 'closed' : 'OPEN'} via ArchDisc Kernel`,
+          };
+        }
+
+        if (typeof window !== 'undefined') {
+          window.__lastFaceReplace = {
+            stats: { curvedSwap: false, faceIndex: values.faceIndex },
+          };
+        }
         return {
           status: 'success',
           message: `Replace Face: face #${values.faceIndex} rebuilt from its boundary wire via ` +
