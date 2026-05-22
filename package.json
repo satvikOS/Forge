@@ -1,6 +1,6 @@
 {
   "name": "archdiscv1",
-  "version": "1.21.0",
+  "version": "1.0.0",
   "description": "ArchDisc - Professional 3D Architectural Design Platform",
   "type": "commonjs",
   "main": "electron/main.js",
@@ -28,6 +28,7 @@
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.3.9",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
