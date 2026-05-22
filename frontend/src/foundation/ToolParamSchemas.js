@@ -398,9 +398,11 @@ export const TOOL_PARAM_SCHEMAS = {
   // ─── TOPOLOGY / DIRECT EDIT ───────────────────────────────────────────────
   'Replace Face': {
     title: 'Replace Face',
-    blurb: 'Rewrite a single face of the selected body via BRepTools_ReShape. Default: face #1.',
+    blurb: 'Swap a face of the selected body onto a new surface. Curved swap (1) re-seats the face onto an arbitrary curved NURBS surface — fresh pcurves are generated natively in ArchDisc\'s topology kernel by Newton point-inversion. Same-surface (0) rebuilds the face from its boundary wire.',
     fields: [
       { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to replace' },
+      { name: 'curvedSwap', label: 'Curved swap', type: 'number', default: 1, unit: '', min: 0, max: 1, step: 1, hint: '1 = re-seat onto an arbitrary curved NURBS surface (native pcurves); 0 = same-surface boundary-wire rebuild' },
+      { name: 'bulge', label: 'Curved-swap bulge', type: 'number', default: 0, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Peak interior lift of the new curved surface (0 = auto, scales with the face size)' },
     ],
   },
 
