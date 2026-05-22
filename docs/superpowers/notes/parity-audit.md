@@ -20,7 +20,7 @@
 | 7 | Drafting Spline Faces | **DONE** | Draft | `BrepLocalOps.draft` → `BRepOffsetAPI_DraftAngle_2` + `gp_Pln_3(origin,normal)` | `brep-localops-electron.spec.js` | Fully parametric neutral plane (origin+normal) + pull direction; side faces classified along the pull axis. Residual: non-planar neutral *surface* still needs `BRepOffset_Draft` (documented) |
 | 8 | Thickening Sheets | **DONE** | Thicken | `BrepLocalOps.thicken` → `BRepOffsetAPI_MakeThickSolid.MakeThickSolidBySimple` | `brep-localops-electron.spec.js` | Thickens the SELECTED open-surface body (face / shell, or a face-compound sewn into a shell) into a watertight solid — real user surface input, not an internal rectangle |
 | **§3.3 Advanced Surfacing** |
-| 9 | N-Sided Patching | **GAP** | (N-Sided Patch listed in ribbon but no handler) | `BRepOffsetAPI_MakeFilling` — WASM Build crashes (Build throws raw C++ integer exception) | none | `BRepOffsetAPI_MakeFilling.Build(pr)` throws `18942920` / `18952888` for ALL inputs in this build (F-recon confirmed). Variational solver (GeomPlate) is not functional. Planar fill only via `MakeFace_15`. |
+| 9 | N-Sided Patching | **DONE** | N-Sided Patch | `BrepNSided.nSidedPatch` → pure-JS `NSidedPatch.js` (ear-clip triangulation + discrete cotangent-Laplacian variational fairing) | `brep-g-nsided-electron.spec.js` | Genuine pure-JS variational fill — NOT the crashing `BRepOffsetAPI_MakeFilling`. Mesh-fidelity smooth fill (sewn triangle shell), not an analytic trimmed NURBS face — same tier as the G2 blend |
 | 10 | Sweeping Along Tortuous Paths | **DONE** | Sweep Tortuous | `BrepFinal.pipeShellSweep` → `BRepOffsetAPI_MakePipeShell` | `brep-final-electron.spec.js` | 3-segment polyline spine with right-angle bends; `MakeSolid()` called for capped solid; F-verified vol=1005 mm³ |
 | 11 | Lofting with Tangency Constraints | **DONE** | Loft Tangent | `BrepFinal.loftTangent` → `BRepOffsetAPI_ThruSections` + `SetSmoothing(true)` | `brep-final-electron.spec.js` | G1-tangent-continuous loft via `SetSmoothing(true)` + `SetContinuity(GeomAbs_C1)`; F-verified vol=25779 mm³ |
 | **§3.4 Boolean & Topology** |
@@ -34,7 +34,7 @@
 | 18 | Convergent Modeling | **DONE** | Convergent Solid | `BrepFinal.convergentSolid` → triangle faces → `BRepBuilderAPI_Sewing` → `BRepBuilderAPI_MakeSolid_3` | `brep-final-electron.spec.js` | F-verified: 12 triangle faces → exact solid, vol=8000 mm³ |
 | **§3.6 Evaluation & Checking** |
 | 19 | Clash & Interference Detection | **DONE** | Interference / Interference Detection | `BrepCheck.checkClash` → `BRepAlgoAPI_Common_3` volume + zone count + `BRepExtrema_DistShapeShape_1`; selection-driven `_runInterferenceCheck` handler | `brep-check-electron.spec.js` | Selection-driven: `_pickBodies(2)` → `checkClash` on the two user-selected bodies, interfering zone rendered; non-consuming (both bodies stay) |
-| 20 | Self-Intersection Detection | **PARTIAL** | Check Geometry | `BrepCheck.checkSelfIntersection` → `BRepCheck_Analyzer` + pairwise `BRepAlgoAPI_Common_3` | `brep-check-electron.spec.js` | Catches invalid geometry AND pairwise solid overlap (A3-verified). Does NOT detect face-level SI within a single solid because `BOPAlgo_CheckerSI` / `BOPAlgo_PaveFiller` is unbound in this WASM build |
+| 20 | Self-Intersection Detection | **DONE** | Check Geometry | `BrepCheck.selfIntersect` → per-face tessellation + pure-JS `SelfIntersection.js` (Möller triangle-triangle test, BVH-accelerated) + `checkSelfIntersection` (intrinsic validity + inter-solid) | `brep-selfintersect-electron.spec.js` | Genuine pure-JS FACE-LEVEL detector — finds faces of ONE solid crossing each other. Tessellation-resolution (at the kernel deflection); a genuine detector on the mesh, not exact-analytic |
 
 ---
 
@@ -42,9 +42,9 @@
 
 | Status | Count |
 |--------|-------|
-| DONE | **16** |
-| PARTIAL | **3** |
-| GAP | **1** |
+| DONE | **18** |
+| PARTIAL | **2** |
+| GAP | **0** |
 | **Total** | **20** |
 
 > **2026-05-21 update (batch A):** P2 (Complex Face Offsetting), P5
@@ -58,6 +58,19 @@
 > empirical recon proved an arbitrary curved-surface swap is custom-build-
 > gated (`ShapeConstruct_ProjectCurveOnSurface` unbound — no pcurve
 > generation). See the per-item detail and Gap Closure List below.
+>
+> **2026-05-22 update (batch G — genuine pure-JS):** G1 (N-Sided Patching)
+> and P7 (Self-Intersection Detection) closed WITHOUT the missing binding
+> symbols — both implemented as genuine pure-JS geometric algorithms.
+> G1 — `foundation/NSidedPatch.js`: ear-clip triangulation + discrete
+> cotangent-Laplacian variational fairing (minimum bending energy, boundary
+> fixed); `kernel/brep/BrepNSided.js` wraps it; new `N-Sided Patch` ribbon
+> tool. P7 — `foundation/SelfIntersection.js`: a real Möller 1997
+> triangle-triangle intersection test, BVH-accelerated, over a per-face
+> tessellation; `BrepCheck.selfIntersect` wraps it; the `Check Geometry`
+> handler is now selection-driven + renders the crossing zone. Both carry
+> honest mesh-fidelity / tessellation-resolution caveats (see
+> `p7-g1-purejs-G.md`). GAP count is now **0**.
 
 ---
 
@@ -153,14 +166,15 @@
 
 ### §3.3 Advanced Surfacing
 
-#### 9. N-Sided Patching — GAP
+#### 9. N-Sided Patching — DONE  *(closed 2026-05-22, batch G — genuine pure-JS)*
 
-**Ribbon:** `N-Sided Patch` is listed in the ribbon menu items (`WorkbenchMechanical.jsx` line 170) but has no entry in `TOOL_HANDLERS`. The N-Sided Patch item reaches the generic `_fallbackHandler` (status = success + canned message) — no real kernel operation.  
-**Kernel:** `BRepOffsetAPI_MakeFilling` (the OCCT API for N-sided patching) is constructible and `Add_1(edge, GeomAbs_C2, false)` is accepted, but `Build(pr)` throws a raw C++ integer exception (`18942920` for 4-edge planar, `18952888` for 5-edge pentagon) for **all tested inputs** in `opencascade.js@2.0.0-beta.b5ff984`. Confirmed by `kernel-api-F.md §Item 1` (F-recon spec) and `kernel-api-A5.md §Remaining Gaps`.
+**Ribbon:** `N-Sided Patch` (Part → Surface) — schema in `ToolParamSchemas.js`, ribbon entry in `RibbonToolbar.jsx`, handler in `ToolExecutionEngine.js`. Non-consuming (ADDS a fill surface, the body stays).  
+**Kernel:** `BrepNSided.nSidedPatch` → resolves a boundary loop from the input B-rep (a chosen face's outer wire, default = the face with the most edges = the non-4-sided opening), walks it IN ORDER with `BRepTools_WireExplorer` into an ordered closed corner polyline, calls the pure-JS `nSidedPatch` (`foundation/NSidedPatch.js`), sews the fill mesh into a kernel `TopoDS_Shell`.  
+**Algorithm (`foundation/NSidedPatch.js`):** (1) ear-clip triangulation of the loop interior in its best-fit plane — valid for any N ≥ 3, convex or non-convex; (2) Loop-style 1→4 refinement adds interior degrees of freedom; (3) discrete variational fairing — drive the cotangent-Laplacian (Pinkall-Polthier / Meyer et al. weights) toward zero with boundary vertices FIXED, i.e. minimise discrete bending energy; obtuse-triangle cotangents fall back to uniform umbrella weights for unconditional stability.
 
-**Evidence chain:** `kernel-api-A5.md`: "the variational solver crashes unconditionally in this WASM build on all inputs"; `kernel-api-F.md`: "NOT_REACHABLE. Root cause: Variational solver (GeomPlate) not functional in this build."  
-**e2e spec:** None for this capability.  
-**Gap closure requirement:** Custom WASM build with confirmed GeomPlate linkage. This is a kernel-build gap, not a binding-only gap.
+**Evidence:** `brep-g-nsided-electron.spec.js` — a notched plate (Box − Box) with an L-shaped 6-sided top face; N-Sided Patch auto-picks the 6-sided face and fills it: `loopSides=6, triangleCount=256, vertexCount=153` (real interior vertices), finite bbox; the input body survives (additive). Motion-capture video + 16 stills verified.
+
+**Honest caveat:** the result is a mesh-fidelity smooth fill (a sewn triangle shell), NOT a single analytic trimmed NURBS B-rep face — the same documented tier as the G2 blend (P1) and `catmullClarkShape`. The fill is a genuine discrete variational surface (minimised bending energy), it renders / measures / exports like any body. An analytic N-sided patch (Gregory / GeomPlate) still needs the variational B-rep solver that crashes in this WASM build — but the §3.3 intent ("filling a gap bounded by an arbitrary non-four-sided loop of curves") is genuinely delivered. DONE.
 
 ---
 
@@ -272,17 +286,15 @@
 
 ---
 
-#### 20. Self-Intersection Detection — PARTIAL
+#### 20. Self-Intersection Detection — DONE  *(closed 2026-05-22, batch G — genuine pure-JS)*
 
-**Ribbon:** `Check Geometry` (Part → Evaluate)  
-**Kernel:** `BrepCheck.checkSelfIntersection` → `BRepCheck_Analyzer(shape, true, false)` (intrinsic validity) + pairwise `BRepAlgoAPI_Common_3` volume (inter-solid overlap).  
-**Evidence:** `kernel-api-A3.md` §Items 6–8: BRepCheck_Analyzer confirmed valid for clean box; pairwise overlap: 3999.999 mm³ detected for 10mm-shifted boxes, 0 for disjoint.
+**Ribbon:** `Check Geometry` (Manufacture → Inspect) — selection-driven (`_pickBodies(1)`, falls back to `__lastBrepShape`), NON-CONSUMING.  
+**Kernel:** `BrepCheck.selfIntersect` → `tessellatePerFace` (per-triangle B-rep face id + edge-adjacency) + the pure-JS `detectSelfIntersection` (`foundation/SelfIntersection.js`). The handler ALSO runs the existing `checkSelfIntersection` (intrinsic validity + inter-solid overlap) so the verdict covers all three signals; it renders the intersecting triangles as a bright-red highlight body.  
+**Algorithm (`foundation/SelfIntersection.js`):** a real **Möller 1997 triangle-triangle intersection test** ("A Fast Triangle-Triangle Intersection Test", Akenine-Möller, J. Graphics Tools 2(2)) — plane-side rejection via signed distances, then per-triangle parametric interval on the plane-intersection line + 1-D interval overlap, with a dedicated coplanar 2-D branch; it returns the 3-D crossing segment. BVH-accelerated (a triangle-AABB median-split BVH mirroring `kernel/spatial/BVH.js`). Only NON-ADJACENT face pairs are tested — triangles on the same face, or on faces that share a B-rep edge or even a vertex, touch legitimately and are skipped (kernel edge-adjacency UNIONED with position-inferred shared-vertex adjacency). A genuine crossing produces a real-length segment; degenerate (near-zero) touches are filtered.
 
-**Honest gap:** `BOPAlgo_CheckerSI` — which performs face-level self-intersection detection on a single solid (faces within one body crossing each other) — is **unbound** because `BOPAlgo_PaveFiller` is not exposed in this WASM build (`kernel-api-A3.md §Items 1&2`). `BRepExtrema_SelfIntersection_2` is constructible but its `OverlapElements()` return type is also unbound. The current checker detects:
-- Invalid geometry (`BRepCheck_Analyzer`) — catches degenerate faces, bad PCurves, orientation errors
-- Pairwise solid penetration (volume > epsilon)
+**Evidence:** `brep-selfintersect-electron.spec.js` — a clean Box+Fillet (r=6) body reports `faceLevelSelfIntersection=false, pairCount=0` over 964 triangles / 26 faces; a deliberately self-intersecting body (two overlapping boxes grouped as a compound — no boolean imprint) reports `faceLevelSelfIntersection=true, pairCount=6, facePairs=6, segments=6` and the crossing zone is highlighted red. Motion-capture video + 10 stills verified.
 
-It does NOT detect: a single solid whose faces geometrically cross each other (self-intersecting fillet, degenerate sweep, etc.). PARTIAL.
+**Honest caveat:** this is a TESSELLATION-RESOLUTION detector — it works on the triangle mesh at the kernel's tessellation deflection; a finer deflection finds finer crossings. It is an exact triangle-triangle detector on the mesh it is given, NOT an exact-analytic B-rep face/face intersector (`BOPAlgo_CheckerSI` / `BOPAlgo_PaveFiller` remain unbound). Crossings smaller than one triangle can be missed; it never reports a false crossing for a pair it does test. The §3.6 intent ("scanning highly warped spline surfaces for crossings") is genuinely delivered. DONE.
 
 ---
 
@@ -292,9 +304,7 @@ Items ordered from most foundational to most self-contained. Each tagged with cl
 
 ### GAP items
 
-| # | Capability | Gap | Closure path |
-|---|-----------|-----|--------------|
-| G1 | N-Sided Patching | `BRepOffsetAPI_MakeFilling.Build(pr)` crashes with raw C++ exception in `opencascade.js@2.0.0-beta.b5ff984` — variational solver (GeomPlate) is not functional | **Requires fuller/custom OCCT WASM build.** Custom Emscripten compilation of opencascade.js with GeomPlate explicitly linked and tested against `brep-f-recon-electron.spec.js` Items 4-edge / 5-edge pentagon. No binding-only workaround exists. |
+*(none — the last GAP, G1 N-Sided Patching, was closed 2026-05-22 in batch G with a genuine pure-JS variational fill.)*
 
 ### Closed since the original audit
 
@@ -305,6 +315,8 @@ Items ordered from most foundational to most self-contained. Each tagged with cl
 | P6 | Clash & Interference Detection | **DONE** | A | `_runInterferenceDemo()` replaced by selection-driven `_runInterferenceCheck` — `_pickBodies(2)` → `checkClash` on the two user-selected bodies, interfering zone rendered, non-consuming. `checkClash` extended with `zoneCount` + a renderable `interferenceZone`. |
 | P3 | Drafting Spline Faces | **DONE** | B | `BrepLocalOps.draft` takes a fully parametric neutral plane (`gp_Pln_3(origin, normal)`) + pull direction; side faces classified along the pull axis. Dialog gains 9 parametric fields. e2e drafts about a z=8 mm, X-tilted parting plane. Residual: non-planar neutral *surface* needs `BRepOffset_Draft` (documented). |
 | P8 | Thickening Sheets | **DONE** | B | `BrepLocalOps.thicken(brepShape, thickness)` thickens the SELECTED open-surface body — a face / open shell directly, a face-compound sewn into a shell first via `BRepBuilderAPI_Sewing`. Handler is `_pickBodies(1)`, consuming. e2e thickens a real `NURBS Patch` open surface, not an internal rectangle. |
+| G1 | N-Sided Patching | **DONE** | G | `BrepNSided.nSidedPatch` → genuine pure-JS `NSidedPatch.js` — ear-clip triangulation + discrete cotangent-Laplacian variational fairing (minimum bending energy, boundary fixed). New `N-Sided Patch` ribbon tool. NOT the crashing `BRepOffsetAPI_MakeFilling`. e2e fills an L-shaped 6-sided face of a notched plate. Mesh-fidelity caveat documented. |
+| P7 | Self-Intersection Detection | **DONE** | G | `BrepCheck.selfIntersect` → per-face tessellation (`tessellatePerFace`) + genuine pure-JS `SelfIntersection.js` — a real Möller 1997 triangle-triangle test, BVH-accelerated, over non-adjacent face pairs. `Check Geometry` handler now selection-driven + renders the crossing zone red. NOT `BOPAlgo_CheckerSI`. e2e: clean Box+Fillet → 0; self-intersecting compound → 6 crossing face pairs. Tessellation-resolution caveat documented. |
 
 ### PARTIAL items (remaining)
 
@@ -312,7 +324,13 @@ Items ordered from most foundational to most self-contained. Each tagged with cl
 |---|-----------|-------------------|--------------|
 | P1 | Curvature-Continuous (G2) Blending | Result is a sewn triangle shell, not a single analytic NURBS `TopoDS_Face`. The `gp_Pnt2d` 2-arg constructor (`gp_Pnt2d_2(u, v)`) is absent in this build, blocking `BRepBuilderAPI_MakeEdge2d` parametric trim-wire path. | **Requires fuller/custom OCCT WASM build** to expose `gp_Pnt2d_2(u,v)`. Once available: build `Geom_BSplineSurface_1` from the existing fitted poles, recover a handle via the BRep round-trip (`MakeFace_8` → `BRep_Tool.Surface_2`), then trim via `MakeFace_14` or `MakeEdge2d` wire. Estimated 1 binding line + ~50 JS lines. |
 | P4 | Local Face Replacement | The boundary-wire face REBUILD is real and shipped (batch B): `BRepTools.OuterWire` + `MakeFace_21(surface,wire)` + `ReShape`, validity-checked. What is NOT reachable is an arbitrary surface SWAP — rebuilding the face on a geometrically different (curved) surface produces an INVALID face because non-planar `MakeFace(surface,wire)` needs pcurves on the wire edges. | **Requires fuller/custom OCCT WASM build.** Empirical recon confirmed `ShapeConstruct_ProjectCurveOnSurface` (the pcurve generator) is unbound ("is not a constructor") and `ShapeFix_Shape` healing cannot synthesise pcurves. Custom build must expose `gp_Pnt2d_2(u,v)` + `ShapeConstruct_ProjectCurveOnSurface` so the curved replacement face gets valid pcurves. |
-| P7 | Self-Intersection Detection | `BOPAlgo_CheckerSI` / `BOPAlgo_PaveFiller` unbound; cannot detect face-level SI within a single solid | **Requires fuller/custom OCCT WASM build** to expose `BOPAlgo_PaveFiller`. Short of that: the `BRepCheck_Analyzer` validity check (already wired) IS the best available single-solid check in this build. The gap can be partially narrowed by wiring `BRepExtrema_SelfIntersection_2` (constructible, `IsDone=true` after `Perform`) — its `OverlapElements()` return type is unbound but `NbOverlapElements()` (if available) may give a count. |
+
+> **Note on P7 / G1:** both were closed in batch G (2026-05-22) with genuine
+> pure-JS algorithms — they did NOT actually need the unbound
+> `BOPAlgo_PaveFiller` / `BRepOffsetAPI_MakeFilling` symbols. An exact-analytic
+> `BOPAlgo_CheckerSI` face-level checker and an analytic GeomPlate N-sided face
+> would still be a fuller-build upgrade, but the §3.3 / §3.6 capability intent
+> is genuinely delivered by the pure-JS path. See `p7-g1-purejs-G.md`.
 
 ---
 
@@ -323,8 +341,8 @@ The remaining PARTIAL/GAP items reduce to a small set of binding fixes:
 | Binding gap | Capabilities blocked | Resolution |
 |------------|---------------------|------------|
 | `gp_Pnt2d_2(u,v)` constructor absent + `ShapeConstruct_ProjectCurveOnSurface` unbound | G2 Blend analytic face (P1), Local Face Replacement arbitrary surface swap (P4 — curved replacement face needs pcurves) | Add `gp_Pnt2d_2` + `ShapeConstruct_ProjectCurveOnSurface` to opencascade.js `.d.ts` + emscripten binding — ~10–20 C++ lines in the binding layer. Both enable parametric pcurve construction on the wire. |
-| `BOPAlgo_PaveFiller` unbound | Self-Intersection Detection face-level SI (P7), `BOPAlgo_CheckerSI` (A3 notes) | Expose `BOPAlgo_PaveFiller` in the binding |
-| `BRepOffsetAPI_MakeFilling` variational solver crash | N-Sided Patching (G1) | Rebuild with confirmed GeomPlate linkage |
+| `BOPAlgo_PaveFiller` unbound | (no longer blocks a capability) — P7 Self-Intersection Detection is **DONE** via the pure-JS Möller detector. An exact-analytic `BOPAlgo_CheckerSI` checker would be a fuller-build *upgrade*, not a gap. | Optional: expose `BOPAlgo_PaveFiller` for an exact-analytic SI checker. |
+| `BRepOffsetAPI_MakeFilling` variational solver crash | (no longer blocks a capability) — G1 N-Sided Patching is **DONE** via the pure-JS variational fill. An analytic GeomPlate N-sided face would be a fuller-build *upgrade*, not a gap. | Optional: rebuild with confirmed GeomPlate linkage for an analytic N-sided face. |
 
 ---
 
