@@ -439,113 +439,156 @@ function chainEdges(edges) {
 /**
  * Build a `Map<Edge, Face[]>` of which faces use each edge.
  *
- * Strategy A (fast) — `TopExp::MapShapesAndAncestors`: used only when the map's
- *   `TopTools_ListOfShape` exposes a usable member accessor. The S0 recon
- *   found it does NOT on this engine build (the `ListIterator` class is
- *   unbound and the list yields a count but not its members).
- * Strategy B (fallback, O(n²)) — for every spine face, walk its engine face's
- *   edges with a per-face `TopExp_Explorer` and pair to spine edges by
- *   `IsSame`. Correct, deterministic; O(faces×edgesPerFace). This is the
- *   SP-1-designed degrade path — a real, documented branch.
+ * Three real, empirically-grounded code paths (the S0 recon, recorded in
+ * `docs/superpowers/notes/topology-spine-A.md`, found this engine build binds
+ * `TopExp::MapShapesAndAncestors` + the map container, exposes
+ * `TopTools_ListOfShape.Size()` / `.First_1()` / `.Last_1()`, but does NOT
+ * bind `TopTools_ListIteratorOfListOfShape`):
  *
- * Returns the adjacency map and records the chosen strategy in `diag`.
+ *   A — full iterator path (O(n)): if `TopTools_ListIteratorOfListOfShape` is
+ *       bound, enumerate every ancestor face of every edge directly. The
+ *       fastest path; used when a (future / custom) engine build binds it.
+ *   B — manifold map fast-path (O(n)): use `MapShapesAndAncestors`; for an
+ *       edge whose `TopTools_ListOfShape` has `Size() <= 2`, `First_1()` /
+ *       `Last_1()` recover the FULL ancestor-face set — this is every edge of
+ *       a watertight manifold solid. The edge→face pairing for those edges is
+ *       O(n). Edges with `Size() > 2` (non-manifold) cannot be fully
+ *       enumerated by First/Last and are deferred to path C.
+ *   C — O(n²) `IsSame`-pairing fallback: for an edge that path B could not
+ *       fully resolve (a non-manifold edge, or any edge if the map itself is
+ *       unusable), walk every spine face's engine sub-edges and pair by
+ *       `IsSame`. Correct, deterministic, O(faces × edgesPerFace) — the
+ *       SP-1-designed degrade path, a real documented branch.
+ *
+ * `diag.bind.adjacencyStrategy` records which path(s) ran.
  */
 function buildEdgeFaceAdjacency(oc, body, spineFaces, ctx) {
-  const { track, SE, SHAPE, diag } = ctx;
+  const { track, SE, diag } = ctx;
   const adjacency = new Map(); // Edge → Face[]
   const addPair = (edge, face) => {
     let arr = adjacency.get(edge);
     if (!arr) { arr = []; adjacency.set(edge, arr); }
     if (!arr.includes(face)) arr.push(face);
   };
+  const rootShape = body.geomEngineShape ? body.geomEngineShape.shape : null;
+  const allEdges = body.edges();
 
-  // Strategy A — probe whether the ancestry map yields list MEMBERS.
-  let mapUsable = false;
+  // ── Resolve the engine's list-access capability (recon-aligned probe) ──────
+  const IterCls = oc.TopTools_ListIteratorOfListOfShape_2
+    || oc.TopTools_ListIteratorOfListOfShape_1 || null;
+  let firstM = null, lastM = null, sizeM = null;
+
+  let map = null;
   try {
-    if (oc.TopExp && typeof oc.TopExp.MapShapesAndAncestors === 'function'
+    if (rootShape && oc.TopExp && typeof oc.TopExp.MapShapesAndAncestors === 'function'
         && oc.TopTools_IndexedDataMapOfShapeListOfShape_1) {
-      const probeMap = track(new oc.TopTools_IndexedDataMapOfShapeListOfShape_1());
-      oc.TopExp.MapShapesAndAncestors(
-        body.geomEngineShape ? body.geomEngineShape.shape : null,
-        SE.TopAbs_EDGE, SE.TopAbs_FACE, probeMap);
-      // We need a member accessor, not a count. Probe the iterator class
-      // and the list's First() — exactly what the S0 recon checked.
-      if (probeMap.Extent && probeMap.Extent() > 0) {
-        const lst = probeMap.FindFromIndex(1);
-        const hasIter = !!(oc.TopTools_ListIteratorOfListOfShape_2
-          || oc.TopTools_ListIteratorOfListOfShape_1);
-        const hasFirst = lst && typeof lst.First === 'function';
-        // members are retrievable only if we can actually enumerate them.
-        if (hasIter) {
-          try {
-            const IterCls = oc.TopTools_ListIteratorOfListOfShape_2
-              || oc.TopTools_ListIteratorOfListOfShape_1;
-            const it = new IterCls(lst);
-            it.More(); it.delete();
-            mapUsable = true;
-          } catch (_e) { mapUsable = false; }
-        } else if (hasFirst) {
-          try { lst.First(); mapUsable = true; } catch (_e) { mapUsable = false; }
+      map = track(new oc.TopTools_IndexedDataMapOfShapeListOfShape_1());
+      oc.TopExp.MapShapesAndAncestors(rootShape, SE.TopAbs_EDGE, SE.TopAbs_FACE, map);
+      if (map.Extent && map.Extent() > 0) {
+        const probe = map.FindFromIndex(1);
+        for (const m of ['Size', 'Extent']) {
+          if (typeof probe[m] === 'function') { try { probe[m](); sizeM = m; break; } catch (_e) {} }
+        }
+        for (const m of ['First_1', 'First_2', 'First']) {
+          if (typeof probe[m] === 'function') { try { if (probe[m]()) { firstM = m; break; } } catch (_e) {} }
+        }
+        for (const m of ['Last_1', 'Last_2', 'Last']) {
+          if (typeof probe[m] === 'function') { try { if (probe[m]()) { lastM = m; break; } } catch (_e) {} }
         }
       }
     }
-  } catch (_e) { mapUsable = false; }
+  } catch (_e) { map = null; }
 
-  if (mapUsable) {
-    diag.bind.adjacencyStrategy = 'ancestry-map (O(n))';
-    // (Reachable on an engine build that binds the list iterator. The current
-    //  build does not — see the recon note — so the fallback below runs.)
-    buildAdjacencyFromMap(oc, body, spineFaces, adjacency, addPair, ctx);
-  } else {
-    diag.bind.adjacencyStrategy =
-      'O(n^2) per-face IsSame pairing (ListIterator unbound — recon-documented fallback)';
-    buildAdjacencyFallback(oc, body, spineFaces, addPair, ctx);
+  // index a spine face / edge by its engine sub-shape (IsSame).
+  const spineFaceOf = (occtFace) =>
+    spineFaces.find((f) => f.geomRef && sameShape(f.geomRef, occtFace)) || null;
+  const spineEdgeOf = (occtEdge) =>
+    allEdges.find((e) => e.geomRef && sameShape(e.geomRef, occtEdge)) || null;
+
+  const resolvedEdges = new Set();   // edges whose adjacency path A/B settled
+  let pathA = false, pathB = 0, pathC = 0;
+
+  if (map && map.Extent) {
+    const n = map.Extent();
+    for (let i = 1; i <= n; i++) {
+      const occtEdge = map.FindKey(i);
+      const edge = spineEdgeOf(occtEdge);
+      if (!edge) continue;
+      const lst = map.FindFromIndex(i);
+      // ── Path A — iterator enumerates every ancestor face ──────────────────
+      if (IterCls) {
+        try {
+          const it = new IterCls(lst);
+          for (; it.More(); it.Next()) {
+            const face = spineFaceOf(it.Value());
+            if (face) addPair(edge, face);
+          }
+          it.delete();
+          resolvedEdges.add(edge);
+          pathA = true;
+          continue;
+        } catch (_e) { /* fall to B */ }
+      }
+      // ── Path B — manifold map fast-path (Size + First_1/Last_1) ───────────
+      if (sizeM && firstM && lastM) {
+        let count = 0;
+        try { count = lst[sizeM](); } catch (_e) { count = -1; }
+        if (count >= 0 && count <= 2) {
+          // First/Last fully cover a ≤2-face (manifold) edge.
+          const members = [];
+          try {
+            if (count >= 1) members.push(lst[firstM]());
+            if (count === 2) members.push(lst[lastM]());
+          } catch (_e) { members.length = 0; }
+          if (members.length === count) {
+            for (const occtFace of members) {
+              const face = spineFaceOf(occtFace);
+              if (face) addPair(edge, face);
+            }
+            resolvedEdges.add(edge);
+            pathB += 1;
+            continue;
+          }
+        }
+        // count > 2 (non-manifold) — leave unresolved for path C.
+      }
+    }
   }
+
+  // ── Path C — O(n²) IsSame fallback for every still-unresolved edge ────────
+  const unresolved = allEdges.filter((e) => !resolvedEdges.has(e));
+  if (unresolved.length > 0) {
+    buildAdjacencyFallback(oc, unresolved, spineFaces, addPair, ctx);
+    pathC = unresolved.length;
+  }
+
+  diag.bind.adjacencyStrategy = describeStrategy(pathA, pathB, pathC);
+  diag.bind.adjacencyPaths = { iteratorEdges: pathA ? resolvedEdges.size : 0,
+    manifoldFastPathEdges: pathB, fallbackEdges: pathC };
   return adjacency;
 }
 
-/** Strategy A body — kept real for an engine build that binds the iterator. */
-function buildAdjacencyFromMap(oc, body, spineFaces, adjacency, addPair, ctx) {
-  const { track, SE } = ctx;
-  // index spine faces by their engine sub-shape for IsSame lookup.
-  const faceByOcct = (occtFace) =>
-    spineFaces.find((f) => f.geomRef && sameShape(f.geomRef, occtFace)) || null;
-  const faceByEdge = new Map();
-  const map = track(new oc.TopTools_IndexedDataMapOfShapeListOfShape_1());
-  oc.TopExp.MapShapesAndAncestors(
-    body.geomEngineShape ? body.geomEngineShape.shape : null,
-    SE.TopAbs_EDGE, SE.TopAbs_FACE, map);
-  const IterCls = oc.TopTools_ListIteratorOfListOfShape_2
-    || oc.TopTools_ListIteratorOfListOfShape_1;
-  const n = map.Extent();
-  for (let i = 1; i <= n; i++) {
-    const occtEdge = map.FindKey(i);
-    const lst = map.FindFromIndex(i);
-    const it = new IterCls(lst);
-    for (; it.More(); it.Next()) {
-      const occtFace = it.Value();
-      const face = faceByOcct(occtFace);
-      if (!face) continue;
-      // pair occtEdge to the spine edge it represents
-      for (const e of face.edges()) {
-        if (e.geomRef && sameShape(e.geomRef, occtEdge)) { addPair(e, face); break; }
-      }
-    }
-    it.delete();
-  }
-  return faceByEdge;
+/** Human-readable summary of which adjacency path(s) ran. */
+function describeStrategy(pathA, pathB, pathC) {
+  if (pathA && !pathC) return 'ancestry-map iterator (O(n))';
+  const parts = [];
+  if (pathB) parts.push(`${pathB} edge(s) via manifold map fast-path (O(n))`);
+  if (pathC) parts.push(`${pathC} edge(s) via O(n^2) IsSame fallback ` +
+    `(non-manifold / ListIterator unbound — recon-documented)`);
+  if (pathA) parts.unshift('iterator');
+  return parts.join(' + ') || 'O(n^2) IsSame fallback';
 }
 
 /**
- * Strategy B — the O(n²) fallback. For each spine face, walk its engine
- * sub-face's edges and pair them to spine edges by `IsSame`. Because every
- * spine Edge already caches its engine sub-edge as `geomRef`, the pairing is
- * a direct `IsSame` test — no separate edge map needed.
+ * Path C — the O(n²) fallback. For each given spine edge, find its owning
+ * faces by walking every spine face's engine sub-edges and pairing by
+ * `IsSame`. Because every spine Edge caches its engine sub-edge as `geomRef`,
+ * the pairing is a direct `IsSame` test. Operates on the supplied edge subset
+ * so it runs only for the genuinely-unresolved (typically non-manifold) edges.
  */
-function buildAdjacencyFallback(oc, body, spineFaces, addPair, ctx) {
+function buildAdjacencyFallback(oc, edgeSubset, spineFaces, addPair, ctx) {
   const { track, SE, SHAPE } = ctx;
-  // All spine edges, for IsSame pairing.
-  const spineEdges = body.edges();
+  const subset = new Set(edgeSubset);
   for (const face of spineFaces) {
     if (!face.geomRef) continue;
     const ee = track(new oc.TopExp_Explorer_2(face.geomRef, SE.TopAbs_EDGE, SHAPE));
@@ -554,9 +597,13 @@ function buildAdjacencyFallback(oc, body, spineFaces, addPair, ctx) {
       const occtEdge = ee.Current();
       if (seen.some((p) => sameShape(p, occtEdge))) continue;
       seen.push(track(oc.TopoDS.Edge_1(occtEdge)));
-      // pair to the spine edge whose geomRef IsSame this engine edge.
-      const edge = spineEdges.find((e) => e.geomRef && sameShape(e.geomRef, occtEdge));
-      if (edge) addPair(edge, face);
+      // pair to the spine edge (in the subset) whose geomRef IsSame this edge.
+      for (const edge of subset) {
+        if (edge.geomRef && sameShape(edge.geomRef, occtEdge)) {
+          addPair(edge, face);
+          break;
+        }
+      }
     }
   }
 }

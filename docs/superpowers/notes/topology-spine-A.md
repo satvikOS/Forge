@@ -11,10 +11,10 @@ B-rep engine sitting *behind* it as the geometry provider. `bindSpine` walks a
 `TopoDS_Shape` and builds the full spine graph. This note records, empirically,
 whether every binding that walk needs is reachable in this engine build.
 
-## Verdict summary — 5/6 probes REACHABLE
+## Verdict summary — 6/6 probes REACHABLE
 
-- **Ancestry-map binding tier:** **NONE**
-- **O(n²) traversal fallback:** **REQUIRED** for: all edges
+- **Ancestry-map binding tier:** **PARTIAL**
+- **O(n²) traversal fallback:** **REQUIRED** for: non-manifold edges only (>2 owning faces)
 
 Tier meaning: **FULL** = the ancestry map + a list iterator are bound, `bindSpine` uses the map outright. **PARTIAL** = the map and `TopTools_ListOfShape` `Size()`/`First()`/`Last()` are bound but the `TopTools_ListIteratorOfListOfShape` class is **not** — so the map is used as a fast-path for manifold edges (≤2 owning faces, fully recovered by `First`/`Last`), and the O(n²) per-face `IsSame` fallback is used for non-manifold edges (>2 owning faces). **NONE** = the map is unusable, the fallback is used for every edge.
 
@@ -35,9 +35,9 @@ exp.delete();
 
 ## Probe 2 — Ancestry maps (`MapShapesAndAncestors`) — HIGHEST RISK
 
-**Verdict: NOT_REACHABLE**
+**Verdict: REACHABLE**
 
-Ancestry-map binding NOT usable. mapBuilt=true, listStrategy=listAccessor:Size, membersRetrievable=false. S1 uses the O(n^2) per-face TopExp IsSame-pairing fallback for ALL edges. Detail: {"mapClassKeys":["TopTools_IndexedDataMapOfShapeListOfShape","TopTools_IndexedDataMapOfShapeListOfShape_1","TopTools_IndexedDataMapOfShapeListOfShape_2","TopTools_IndexedDataMapOfShapeListOfShape_3"],"listIterKeys":[],"listClassKeys":["TopTools_ListOfShape","TopTools_ListOfShape_1","TopTools_ListOfShape_2","TopTools_ListOfShape_3"],"hasTopExp":true
+Ancestry maps PARTIALLY bound — the IMPORTANT empirical finding. TopExp.MapShapesAndAncestors is bound; TopTools_IndexedDataMapOfShapeListOfShape_1 is bound (edge→face map Extent=12, correct); the TopTools_ListOfShape it yields exposes .Size()/.First()/.Last(). BUT the TopTools_ListIteratorOfListOfShape class is UNBOUND (listIterKeys=[]). So for a MANIFOLD edge (exactly 2 owning faces) the map + First/Last gives the full ancestor set — bindSpine uses the map fast-path. For a NON-MANIFOLD edge (>2 owning faces) First/Last cannot enumerate all members, so bindSpine MUST use the O(n^2) per-face TopExp IsSame fallback (`buildAncestryMapFallback`) on those. This is the SP-1-designed degrade path — implemented as a real, documented code branch, not a silent drop. Box edge→face [2,2,2,2,2,2,2,2,2,2,2,2], vertex→edge [6,6,6,6,6,6,6,6].
 
 Verified call sequence (copy-paste safe for S1):
 
@@ -56,7 +56,7 @@ if (n <= 2) { const faces = n === 2 ? [lst.First(), lst.Last()] : (n === 1 ? [ls
 
 **Verdict: REACHABLE**
 
-Shape identity reachable: HashCode(INT_MAX) returns a stable integer per sub-shape (6 faces, hashes [19302241,19290601,19323737,19326185,19306625,19316145] identical across two walks), IsSame=true, IsEqual=true. geomRef keys on HashCode+IsSame.
+Shape identity reachable: HashCode(INT_MAX) returns a stable integer per sub-shape (6 faces, hashes [19291865,19290737,19026881,19326377,19306793,19316249] identical across two walks), IsSame=true, IsEqual=true. geomRef keys on HashCode+IsSame.
 
 Verified call sequence (copy-paste safe for S1):
 
@@ -89,9 +89,12 @@ Ordered loop traversal reachable: BRepTools.OuterWire returns the outer wire; BR
 Verified call sequence (copy-paste safe for S1):
 
 ```js
-const wire = oc.BRepTools.OuterWire_1(face);
-const we = new oc.BRepTools_WireExplorer_2(wire, face);
-for (; we.More(); we.Next()) { const coedge = we.Current(); /* ordered */ }
+const wire = oc.BRepTools.OuterWire(face);
+const we = new oc.BRepTools_WireExplorer_2(wire);  // verified: BRepTools_WireExplorer_2(1 arg)
+for (; we.More(); we.Next()) {
+  const orientedEdge = we.Current();   // ordered, oriented as used by the loop
+  const startVertex  = we.CurrentVertex();  // vertex at the START of this edge
+}
 we.delete();
 ```
 
@@ -105,8 +108,29 @@ Non-manifold coedge counting reachable: the edge→face ancestry map gives faces
 
 ## Consequence for S1 (`bindSpine`)
 
-The ancestry-map binding is **absent**. `bindSpine` MUST use the O(n²)
-`IsSame`-pairing fallback (`buildAncestryMapFallback` in `bindSpine.js`):
-for each edge, scan every face and test `face owns edge` via per-face
-`TopExp_Explorer`. Correct but O(faces×edges); flagged as a known
-performance limit for GE9X-scale bodies and a custom engine build escalation.
+The ancestry-map binding is **partially present** — this is the empirical
+finding that shapes S1:
+
+- `TopExp::MapShapesAndAncestors` — **bound**.
+- `TopTools_IndexedDataMapOfShapeListOfShape_1` — **bound** (the map container).
+- `TopTools_ListOfShape` (what `FindFromIndex` yields) — **bound**, exposes
+  `.Size()`, `.First()`, `.Last()`.
+- `TopTools_ListIteratorOfListOfShape` (any suffix) — **NOT bound**
+  (`listIterKeys` is empty) — mirrors the documented `gp_Pnt2d` gap.
+
+`bindSpine` therefore implements **two real code paths** (`bindSpine.js`):
+
+1. **Manifold fast-path** — for an edge whose `TopTools_ListOfShape` has
+   `.Size() <= 2`, `First()`/`Last()` recover the full owning-face set. This is
+   every edge of a watertight manifold solid → the map fast-path covers the
+   common case in O(n).
+2. **O(n²) `IsSame`-pairing fallback** (`buildAncestryMapFallback`) — for any
+   edge with `.Size() > 2` (a non-manifold edge), `First()`/`Last()` cannot
+   enumerate all members, so `bindSpine` scans every face with a per-face
+   `TopExp_Explorer` and pairs by `IsSame`. Correct, deterministic, O(faces×
+   edges) — invoked only for the non-manifold subset. This is the SP-1-designed
+   degrade path, shipped as a documented branch — **not** a silent drop.
+
+Honest performance note: for GE9X-scale non-manifold bodies the fallback
+subset could be a cost; a custom engine build (Docker-gated) that binds
+`TopTools_ListIteratorOfListOfShape` would remove it. Monitored from S1 on.
