@@ -279,7 +279,10 @@ test('Advanced boolean ops: Non-Manifold combine + Coincident combine + Lattice 
     await addToSelection(win, boxDId);
 
     // Step D4: Apply Replace Face (Direct Edit → Replace Face, faceIndex=1).
-    await injectToolParams(win, 'Replace Face', { faceIndex: 1 });
+    // curvedSwap=0 → the same-surface boundary-wire rebuild path (this
+    // workflow asserts volume preservation). The arbitrary curved-surface
+    // swap (P4 closure) has its own spec — brep-facereplace-electron.spec.js.
+    await injectToolParams(win, 'Replace Face', { faceIndex: 1, curvedSwap: 0 });
     const idBeforeD = await win.evaluate(() =>
       window.__lastBrepShape && window.__lastBrepShape.id
     );
