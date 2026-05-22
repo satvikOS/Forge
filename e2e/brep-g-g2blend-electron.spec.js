@@ -27,6 +27,10 @@
  * Assertions:
  *   - window.__lastG2Blend.stats: non-degenerate surface (triangleCount > 0,
  *     vertexCount > 0, finite bbox spanning a real extent).
+ *   - PARITY-AUDIT P1: the blend RETAINS a NATIVE ArchDisc analytic NURBS face
+ *     — stats.analytic === true, finite degrees, finite control-net counts,
+ *     a real topoFaceId; and the analytic surface STEP-exports as a real
+ *     B_SPLINE_SURFACE entity (window.__lastG2Blend.analyticStepHasBSpline).
  *   - the input notched-plate body STILL EXISTS after G2 Blend (the op is
  *     additive — it does NOT consume the body).
  *   - the 'input' and 'after-g2blend' stills both exist and are > 1 KB.
@@ -176,6 +180,45 @@ test('G2 Blend: ribbon fairs a curvature-continuous surface on a notched plate',
     // The boundary fit error must be tiny — the blend interpolates the edges.
     expect(Number.isFinite(stats.boundaryAMaxError)).toBe(true);
     expect(Number.isFinite(stats.boundaryBMaxError)).toBe(true);
+
+    // ── Step 8b: PARITY-AUDIT P1 — the blend RETAINS a native analytic face ──
+    // The G2 blend now carries its exact degree-3×5 NURBSSurface as a native
+    // ArchDisc analytic TopoFace (not just a tessellated shell). Assert the
+    // analytic flag, the finite degrees/control net, and the topoFaceId.
+    const blend = await win.evaluate(() => ({
+      analyticSurfacePresent: !!window.__lastG2Blend.analyticSurface,
+      analyticStepHasBSpline: window.__lastG2Blend.analyticStepHasBSpline,
+      analyticStepLen: window.__lastG2Blend.analyticStep
+        ? window.__lastG2Blend.analyticStep.length : 0,
+      // a snippet of the STEP text to prove the entity is genuinely present
+      stepBSplineSnippet: (() => {
+        const s = window.__lastG2Blend.analyticStep || '';
+        const i = s.indexOf('B_SPLINE_SURFACE');
+        return i >= 0 ? s.slice(Math.max(0, i - 8), i + 60) : null;
+      })(),
+    }));
+    console.log(`  P1 analytic face: analytic=${stats.analytic}, ` +
+      `topoFaceId=${stats.topoFaceId}, ` +
+      `CPs ${stats.controlPointsU}×${stats.controlPointsV}, ` +
+      `knots ${stats.knotCountU}/${stats.knotCountV}, ` +
+      `STEP B_SPLINE present=${blend.analyticStepHasBSpline}`);
+    console.log(`  P1 STEP B-spline snippet: ${blend.stepBSplineSnippet}`);
+
+    // The blend body carries a NATIVE analytic NURBS face.
+    expect(stats.analytic, 'the G2 blend must retain a native analytic NURBS face').toBe(true);
+    expect(Number.isFinite(stats.degreeU)).toBe(true);
+    expect(Number.isFinite(stats.degreeV)).toBe(true);
+    expect(stats.controlPointsU).toBeGreaterThan(1);
+    expect(stats.controlPointsV).toBeGreaterThan(1);
+    expect(Number.isInteger(stats.topoFaceId)).toBe(true);
+    // The analytic surface STEP-exports as a real B_SPLINE_SURFACE entity.
+    expect(blend.analyticSurfacePresent,
+      'the exact analytic NURBS surface data must be present').toBe(true);
+    expect(blend.analyticStepHasBSpline,
+      'the analytic surface must STEP-export with a B_SPLINE_SURFACE entity').toBe(true);
+    expect(blend.analyticStepLen).toBeGreaterThan(500);
+    expect(blend.stepBSplineSnippet,
+      'the STEP text must contain a B_SPLINE_SURFACE entity').toBeTruthy();
 
     // ── Step 9: the input notched-plate body STILL EXISTS ────────────────────
     // G2 Blend is additive — it adds the fairing surface, it does NOT consume
