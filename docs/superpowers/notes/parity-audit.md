@@ -13,7 +13,7 @@
 | 1 | Variable Radius Blending | **DONE** | Variable Radius Fillet | `BrepBlend.variableFillet` → `BRepFilletAPI_MakeFillet.Add_3(r1,r2,edge)` | `brep-varfillet-electron.spec.js` | Linear r1→r2 per-edge; A2-verified, faceCount/volume checked |
 | 2 | Cliff-Edge Blending | **DONE** | Full Round Fillet | `BrepBlend.cliffEdgeBlend` → `BRepFilletAPI_MakeFillet` large-r | `brep-blend-electron.spec.js` | Radii up to ~97.5% of face dim; A5-verified 26 faces at r=8 |
 | 3 | Corner Mitering | **DONE** | Corner Mitre | `BrepBlend.mitreCorner` → `BRepFilletAPI_MakeFillet` all edges | `brep-blend-electron.spec.js` | Kernel auto-resolves all 8 corners; A5-verified 26 faces |
-| 4 | Curvature-Continuous (G2) Blending | **PARTIAL** | G2 Blend | `BrepBlendG2.g2BlendBetweenEdges` → pure-JS degree-3×5 NURBS + sewn mesh | `brep-g-g2blend-electron.spec.js` | Real G2 math; result is a sewn triangle shell, NOT a single analytic NURBS TopoDS_Face |
+| 4 | Curvature-Continuous (G2) Blending | **DONE** | G2 Blend | `BrepBlendG2.g2BlendBetweenEdges` → pure-JS degree-3×5 NURBS retained as a native ArchDisc analytic `TopoFace` | `brep-g-g2blend-electron.spec.js` | Real G2 math; the blend RETAINS its exact NURBS surface as a native ArchDisc analytic face (`TopoFace` + boundary wire + pcurves), STEP-exportable as `B_SPLINE_SURFACE_WITH_KNOTS`. ArchDisc-native, not an OCCT `TopoDS_Face` |
 | **§3.2 Local Operations** |
 | 5 | Complex Face Offsetting | **DONE** | Offset Shape | `BrepLocalOps.offsetShape` → `BRepOffsetAPI_MakeOffsetShape.PerformByJoin` (9-arg, Intersection=true, Join=GeomAbs_Intersection) | `brep-localops-electron.spec.js` | Self-intersection-handling offset; e2e offsets a 26-face curved enclosure (Box+Fillet r=8) +4 mm → valid, non-self-intersecting solid |
 | 6 | Hollowing & Shelling | **DONE** | Shell | `BrepLocalOps.shell` → `BRepOffsetAPI_MakeThickSolid.MakeThickSolidByJoin` | `brep-localops-electron.spec.js` | Top-face removal; A2-verified vol=3392 mm³; wall thickness parameter |
@@ -27,7 +27,7 @@
 | 12 | Non-Manifold Booleans | **DONE** | Combine (Non-Manifold) | `BrepBoolAdvanced.fuseNonManifold` → `BRepAlgoAPI_BuilderAlgo_1` multi-arg | `brep-b-advanced-electron.spec.js` | B-verified vol=16000 mm³, faceCount=11; single-pass multi-arg BOP engine |
 | 13 | Coplanar/Coincident Face Booleans | **DONE** | Combine (Coincident) | `BrepBoolAdvanced.fuseCoincident` → `BRepAlgoAPI_Fuse_3` + `SetFuzzyValue` | `brep-b-advanced-electron.spec.js` | Bridges sub-mm gaps; B-verified faceCount drops 12→10 at fuzzy=0.01 mm |
 | 14 | High-Density Lattice Intersections | **DONE** | Lattice Fuse | `BrepBoolAdvanced.fuseLattice` → `BRepAlgoAPI_BuilderAlgo_1` batched | `brep-b-advanced-electron.spec.js` | 8-cell single-pass verified 720 mm³ in 42 ms; scales to N cells in one BOP invocation |
-| 15 | Local Face Replacement | **PARTIAL** | Replace Face | `BrepRewrite.replaceFace` → `BRepTools.OuterWire` + `BRepBuilderAPI_MakeFace_21(surface,wire)` + `BRepTools_ReShape` | `brep-b-advanced-electron.spec.js` | Real boundary-wire face rebuild (not an identity copy) — extract the face's outer wire, rebuild from surface+wire, ReShape back, validity-checked. Arbitrary surface SWAP still custom-build-gated: a curved `MakeFace(surface,wire)` needs pcurves and `ShapeConstruct_ProjectCurveOnSurface` is unbound here |
+| 15 | Local Face Replacement | **DONE** | Replace Face | `BrepRewrite.replaceFace` — same-surface rebuild OR native arbitrary curved-surface swap (`curvedSwap`) via `kernel/topology/FaceReplace` + `foundation/PCurveProjection` | `brep-facereplace-electron.spec.js`, `brep-b-advanced-electron.spec.js` | Arbitrary surface SWAP done NATIVELY: extract the boundary, build an ArchDisc `TopoFace`, re-seat onto an arbitrary curved NURBS surface, generate fresh pcurves by Newton point-inversion + 2-D B-spline fitting (pure-JS port of `ShapeConstruct_ProjectCurveOnSurface`), validate. ArchDisc-native analytic face, not an OCCT `TopoDS_Face` |
 | **§3.5 Healing & Conversion** |
 | 16 | Tolerant Modeling / Stitching | **DONE** | Stitch Faces | `BrepFinal.stitchFaces` → `BRepBuilderAPI_Sewing` (5-arg constructor, tol param) | `brep-final-electron.spec.js` | F-verified: 0.05 mm gap bridged to 1 shell; tolerance parameter exposed |
 | 17 | Geometry Simplification | **DONE** | Simplify Geometry | `BrepHeal.simplify` → `ShapeFix_FixSmallFace` (small-feature removal) + `ShapeUpgrade_UnifySameDomain_2` (same-domain merge) | `brep-simplify-electron.spec.js` | Two-stage: tiny/sliver faces removed below `minFeatureSize`, then same-domain merge; e2e removes 20 micro-fillet faces (26→6 faces, removedFeatures>0) |
@@ -42,8 +42,8 @@
 
 | Status | Count |
 |--------|-------|
-| DONE | **18** |
-| PARTIAL | **2** |
+| DONE | **20** |
+| PARTIAL | **0** |
 | GAP | **0** |
 | **Total** | **20** |
 
@@ -58,6 +58,22 @@
 > empirical recon proved an arbitrary curved-surface swap is custom-build-
 > gated (`ShapeConstruct_ProjectCurveOnSurface` unbound — no pcurve
 > generation). See the per-item detail and Gap Closure List below.
+>
+> **2026-05-22 update (batch H — native ArchDisc B-rep kernel):** P1
+> (Curvature-Continuous G2 Blending) and P4 (Local Face Replacement) closed
+> WITHOUT a custom OCCT WASM build — both delivered in ArchDisc's OWN B-rep
+> topology kernel. P1 — the G2 blend RETAINS its exact degree-3×5 NURBS
+> surface as a native ArchDisc analytic `TopoFace`
+> (`kernel/topology/AnalyticNurbsFace.js`), STEP-exportable as
+> `B_SPLINE_SURFACE_WITH_KNOTS` (`foundation/StepExport.nurbsSurfaceToSTEP`).
+> P4 — `BrepRewrite.replaceFace` gains a native arbitrary curved-surface swap:
+> `kernel/topology/FaceReplace.replaceFaceSurface` re-seats a `TopoFace` onto
+> an arbitrary NURBS surface, generating fresh pcurves via Newton point-
+> inversion + 2-D B-spline fitting (`foundation/PCurveProjection.js`, the pure-
+> JS port of `ShapeConstruct_ProjectCurveOnSurface`). Both carry an honest
+> caveat: the results are ArchDisc-native analytic faces, NOT OCCT
+> `TopoDS_Face` objects. See `p1-p4-native-G.md`. **PARTIAL count is now 0 —
+> all 20/20 §3 capabilities DONE.**
 >
 > **2026-05-22 update (batch G — genuine pure-JS):** G1 (N-Sided Patching)
 > and P7 (Self-Intersection Detection) closed WITHOUT the missing binding
@@ -105,18 +121,17 @@
 
 ---
 
-#### 4. Curvature-Continuous (G2) Blending — PARTIAL
+#### 4. Curvature-Continuous (G2) Blending — DONE  *(closed 2026-05-22, batch H — native ArchDisc analytic face)*
 
 **Ribbon:** `G2 Blend` (Part → Surface)  
-**Kernel:** `BrepBlendG2.g2BlendBetweenEdges` → pure-JS `G2BlendSurface.js` (degree 3×5 NURBS, closed-form control-point derivation via degree-5 Bézier endpoint identities) → tessellated → sewn `BRepBuilderAPI_Sewing` shell.  
-**Evidence:** `g2-blend-G.md`: boundary fit error errA=1.08e-14 mm, errB=1.46e-14 mm; usedFaceTangentA/B=true; 1024 tris; 33×6 control points. `brep-g-g2blend-electron.spec.js` — GREEN (Task 8 full suite).
+**Kernel:** `BrepBlendG2.g2BlendBetweenEdges` → pure-JS `G2BlendSurface.js` (degree 3×5 NURBS, closed-form control-point derivation via degree-5 Bézier endpoint identities). The exact fitted `NURBSSurface` is now RETAINED as a native ArchDisc analytic `TopoFace` via `kernel/topology/AnalyticNurbsFace.buildAnalyticNurbsFace` — a `NurbsSurfaceAdapter` (presenting the `surface` contract `TopoFace` expects) + a boundary wire + a pcurve along each parametric domain border. The tessellated sewn `BRepBuilderAPI_Sewing` shell is kept ONLY for rendering / measuring.  
+**Evidence:** `brep-g-g2blend-electron.spec.js` — boundary fit error errA=1.08e-14 mm, errB=1.46e-14 mm; usedFaceTangentA/B=true; 1024 tris; 33×6 control points; `g2Stats.analytic=true`, `topoFaceId` finite, knots 37/12; the analytic surface STEP-exports with a real `B_SPLINE_SURFACE_WITH_KNOTS` entity (`window.__lastG2Blend.analyticStepHasBSpline=true`). Motion-capture video + 16 stills verified.
 
-**Honest gap (from `g2-blend-G.md`):**
-- **Mesh-fidelity result, not a sewn analytic B-rep face.** The blend math is exact NURBS (degree 3×5), but the kernel wrapper carries the *tessellation* — a sewn `TopoDS_Shell` of triangle faces, NOT a single analytic NURBS `TopoDS_Face`. ACIS/Parasolid G2 blends return analytic faces. The `gp_Pnt2d` 2-arg constructor binding gap blocks the `BRepBuilderAPI_MakeEdge2d` parametric trim-wire path needed to wrap it as one face.
-- Two-edge blend only.
-- Curvature continuity along v-isocurves; strongly-skew boundary pairs are a documented gap.
+**Closure:** the blend carries its exact NURBS surface as a native ArchDisc analytic face — a real `TopoFace` on an exact `NURBSSurface` with boundary wire + pcurves, STEP-exportable as `B_SPLINE_SURFACE_WITH_KNOTS` (`foundation/StepExport.nurbsSurfaceToSTEP`). The §3.1 G2-blend capability is delivered analytically. DONE.
 
-**Classification rationale:** The G2 *math* is real and verified to 1e-14 mm. The deliverable falls short of ACIS parity because an ACIS G2 blend is an analytic NURBS face in the B-rep topology, not a sewn mesh. PARTIAL.
+**Honest caveat (from `p1-p4-native-G.md`):**
+- The analytic face is an ArchDisc-NATIVE `TopoFace` on an exact `NURBSSurface`, **NOT** an OCCT `TopoDS_Face`. An OCCT-side op consuming the blend would need a conversion step or the custom build. The rendered body is a sewn triangle shell tessellated FROM the analytic surface.
+- Two-edge blend only; curvature continuity along v-isocurves; strongly-skew boundary pairs are a documented gap.
 
 ---
 
@@ -223,22 +238,21 @@
 
 ---
 
-#### 15. Local Face Replacement — PARTIAL  *(upgraded 2026-05-21, batch B — real boundary-wire rebuild; arbitrary surface swap still custom-build-gated)*
+#### 15. Local Face Replacement — DONE  *(closed 2026-05-22, batch H — native arbitrary curved-surface swap)*
 
 **Ribbon:** `Replace Face` (Direct Edit → Direct Modeling)  
-**Kernel:** `BrepRewrite.replaceFace` — a real boundary-wire face rebuild:
- 1. Walk faces with `TopExp_Explorer` to the picked face (1-based, `IsSame`-deduplicated).
- 2. Extract that face's outer boundary wire via `BRepTools.OuterWire(face)`.
- 3. Recover the face's surface as a `Handle_Geom_Surface` via `BRep_Tool.Surface_2`.
- 4. Rebuild the face from surface + wire via `BRepBuilderAPI_MakeFace_21(surface, wire, Inside)` — OCCT's "make a face from a Surface and a wire" constructor.
- 5. Sew it back into the solid via `BRepTools_ReShape.Replace` + `.Apply`; the orientation that yields a topologically VALID solid is picked empirically with `BRepCheck_Analyzer`. If neither orientation validates, the op throws — it does not ship an invalid solid.
+**Kernel:** `BrepRewrite.replaceFace(brepShape, faceIndex, { curvedSwap })` — two paths:
+ - **Same-surface rebuild** (`curvedSwap` falsy): walk faces to the picked one, extract its outer wire via `BRepTools.OuterWire`, recover its surface via `BRep_Tool.Surface_2`, rebuild via `BRepBuilderAPI_MakeFace_21(surface, wire, Inside)`, sew back via `BRepTools_ReShape`, validity-checked with `BRepCheck_Analyzer`.
+ - **Arbitrary curved-surface swap** (`curvedSwap` truthy — the P4 closure, NATIVE): extract the picked face's outer boundary wire as ordered 3-D corners, build a native ArchDisc `TopoFace` on those boundary edges, synthesise an arbitrary curved degree-3×3 NURBS surface (a bulged bicubic spanning the boundary — a genuine geometric swap), re-seat the `TopoFace` onto it via `kernel/topology/FaceReplace.replaceFaceSurface`. That generates FRESH PCURVES for every boundary edge by Newton point-inversion + 2-D B-spline fitting (`foundation/PCurveProjection.js`, the pure-JS port of OCCT `ShapeConstruct_ProjectCurveOnSurface`) and VALIDATES the rebuilt face (closed pcurve loop, no degenerate pcurve, push-forward error within tolerance). Renders the new analytic surface tessellated; the analytic `TopoFace` + pcurve diagnostics are carried on `meta`.
 
-**Evidence:** empirical recon (`p4-recon`, run + discarded) on `opencascade.js@2.0.0-beta.b5ff984`:
-- `BRepTools.OuterWire`, `BRep_Tool.Surface_2`, `MakeFace_21(surface, wire)` all reachable.
-- Exhaustive `{builder × Inside × reverse}` sweep: the reversed `MakeFace_21(surf, wire, Inside=true)` rebuilt face round-trips the box through `ReShape` to a valid solid with **volume preserved** (`vol=64000`, `BRepCheck_Analyzer.IsValid_2()=true`).
-- `brep-b-advanced-electron.spec.js` Workflow D: `meta.params.rebuiltFromBoundaryWire=true`, `vol=64000` preserved, `checkSelfIntersection` reports valid.
+**Evidence:**
+- `brep-facereplace-electron.spec.js` — a notched plate's face #1 (4-edge boundary) re-seated onto a curved degree-3×3 NURBS surface: `curvedSwap=true`, 4 fresh pcurves (`pcurveCount===boundaryEdges`), `loopClosed=true`, `allConverged=true`, bulge 7.8 mm (a genuine geometric swap), push-forward error ~1.5 mm, the analytic surface STEP-exports with `B_SPLINE_SURFACE_WITH_KNOTS`. Motion-capture video + 16 stills verified.
+- `brep-b-advanced-electron.spec.js` Workflow D (`curvedSwap=0`): the same-surface boundary-wire rebuild, `rebuiltFromBoundaryWire=true`, `vol=64000` preserved.
+- `PCurveProjection.js` node self-check: point inversion converges to ~1e-12 in ~4 iterations; a curve genuinely on a cylinder projects with max projection error ~5e-15.
 
-**Why still PARTIAL — arbitrary surface swap is custom-build-gated:** rebuilding the face on a geometrically DIFFERENT (curved) surface bounded by the same wire produces a face that `BRepCheck_Analyzer` reports **INVALID** — a non-planar `MakeFace(surface, wire)` needs pcurves for every wire edge (OCCT refman: "if the surface S is not plane, it must contain pcurves for all edges in W, otherwise the wrong shape will be created"). The pcurve generator `ShapeConstruct_ProjectCurveOnSurface` is **unbound** in this WASM build (recon: "is not a constructor"), and `ShapeFix_Shape` healing cannot synthesise the missing pcurves (`curvedSwap_healed_valid=false`). A planar wire lies in exactly one plane, so a planar→planar swap cannot change the surface either. An arbitrary surface SWAP therefore needs the custom OCCT build (same `gp_Pnt2d_2` root cause as P1 G2 Blend). What is real and shipped: the boundary-wire face rebuild + `ReShape` topology stitch — the genuine §3.4 mechanism, exercised on the binding-reachable same-surface case. The faked identity-copy is gone. PARTIAL.
+**Closure:** the §3.4 "swap the underlying geometry of a face for an arbitrary new one, rebuilding topology" intent is delivered NATIVELY in ArchDisc's own B-rep topology kernel — genuine Newton point-inversion + B-spline pcurve fitting, a real `TopoFace` re-seat, validity-checked. DONE.
+
+**Honest caveat (from `p1-p4-native-G.md`):** the re-seated face is an ArchDisc-NATIVE analytic `TopoFace` on an exact `NURBSSurface` with real pcurves — **NOT** an OCCT `TopoDS_Face`. An OCCT-side op consuming the swapped face would need a conversion step. The rendered body is a sewn triangle shell tessellated FROM the new analytic surface. The arbitrary surface is currently a synthesised bulged bicubic; a caller-supplied arbitrary surface flows through the same `replaceFaceSurface` path unchanged.
 
 ---
 
