@@ -642,6 +642,80 @@ function _pickBodies(arity) {
   throw new Error('select at least 2 bodies first');
 }
 
+// --- Faceter helpers (SP-7, Area I) ---
+
+/**
+ * Resolve the body the faceter should operate on: its BodyRegistry entry
+ * (needed for the live scene group) AND its live BrepShape (the exact
+ * geometry to re-facet). Mirrors _pickBodies(1) selection priority.
+ *
+ * @returns {{entry:object|null, brepShape:object}}
+ * @throws  Error('select a body first') when nothing facetable is selected.
+ */
+function _pickFacetTarget() {
+  const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+  if (reg && typeof reg.selectedBodies === 'function') {
+    const selected = reg.selectedBodies();
+    for (const e of selected) {
+      const bs = e.brepShapeRef ?? e.group?.userData?.brepShapeRef ?? null;
+      if (bs && bs.shape) return { entry: e, brepShape: bs };
+    }
+  }
+  // Single-body fallback: the last B-rep shape any tool created. Match it
+  // back to a registry entry so we still re-tessellate in place when possible.
+  if (typeof window !== 'undefined' && window.__lastBrepShape && window.__lastBrepShape.shape) {
+    const bs = window.__lastBrepShape;
+    let entry = null;
+    if (reg) entry = reg.bodies.find(b => (b.brepShapeRef ?? b.group?.userData?.brepShapeRef) === bs) || null;
+    return { entry, brepShape: bs };
+  }
+  throw new Error('select a body first');
+}
+
+/**
+ * Rebuild a body's display mesh in place from controlled-deflection facet
+ * data. Replaces the THREE.Mesh inside the body's existing group so the
+ * SAME body re-tessellates live in the viewport (facet density visibly
+ * changes — no new body, no id churn).
+ *
+ * @param {THREE.Group} group   the body's scene group (mm-scaled 0.001)
+ * @param {object} facet        { positions, normals, indices } from facetShape
+ * @param {object} [opts]       { color, wireframe }
+ */
+function _replaceGroupMesh(group, facet, opts = {}) {
+  const color = opts.color ?? 0x9aa3ad;
+  // Dispose the old display meshes' geometry/material, then detach them.
+  const stale = [];
+  group.traverse((o) => { if (o.isMesh) stale.push(o); });
+  for (const m of stale) {
+    if (m.geometry) m.geometry.dispose();
+    if (m.material && m.material.dispose) m.material.dispose();
+    if (m.parent) m.parent.remove(m);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(facet.positions, 3));
+  geom.setAttribute('normal', new THREE.BufferAttribute(facet.normals, 3));
+  geom.setIndex(new THREE.BufferAttribute(facet.indices, 1));
+  const mat = new THREE.MeshStandardMaterial({
+    color, metalness: 0.3, roughness: 0.6, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.userData.pickable = true;
+  group.add(mesh);
+  // A wireframe overlay makes the facet edges — and thus the density
+  // change — unmistakable from any camera angle.
+  if (opts.wireframe !== false) {
+    const wire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(geom),
+      new THREE.LineBasicMaterial({ color: 0x12203a, transparent: true, opacity: 0.55 }),
+    );
+    wire.userData.pickable = false;
+    wire.userData.isFacetWireframe = true;
+    group.add(wire);
+  }
+  group.updateMatrixWorld(true);
+}
+
 // --- Tool Handlers ---
 
 const TOOL_HANDLERS = {
@@ -2288,6 +2362,176 @@ const TOOL_HANDLERS = {
         };
       } catch (err) {
         return { status: 'error', message: 'Trimmed NURBS Patch: ' + err.message };
+      }
+    },
+
+    // ─── FACETER OPTION SURFACE (SP-7, Area I) ─────────────────────────────
+
+    'Faceter Controls': async (scene, viewport) => {
+      // Controlled-deflection re-faceting of the selected body — chordal +
+      // angular tol with a render/analysis quality profile. Arity 1.
+      try {
+        const { entry, brepShape } = _pickFacetTarget();
+        const { values, cancelled } = await requestToolParams('Faceter Controls');
+        if (cancelled) return { status: 'warn', message: 'Faceter Controls: cancelled' };
+
+        // 0 ⇒ "use profile default" — pass undefined so the facade picks it.
+        const opts = {
+          profile: values.profile === 'analysis' ? 'analysis' : 'render',
+          chordalMm: Number(values.chordalMm) > 0 ? Number(values.chordalMm) : undefined,
+          angularDeg: Number(values.angularDeg) > 0 ? Number(values.angularDeg) : undefined,
+          minSizeMm: Number(values.minSizeMm) > 0 ? Number(values.minSizeMm) : undefined,
+        };
+
+        const facet = await ArchDiscKernel.brep.facetShape(brepShape, opts);
+
+        // Re-tessellate in place: rebuild the body's display mesh inside its
+        // existing group so the SAME body shows the new facet density.
+        let group = entry?.group ?? null;
+        if (group) {
+          _replaceGroupMesh(group, facet, {
+            color: opts.profile === 'analysis' ? 0x7fae7f : 0x9aa3ad,
+          });
+        } else {
+          // No registry entry (last-shape fallback): drop a fresh group so
+          // the result is still visible.
+          const g = new THREE.Group();
+          g.scale.set(0.001, 0.001, 0.001);
+          g.userData.pickable = true;
+          g.userData.generatedModel = true;
+          scene.add(g);
+          _replaceGroupMesh(g, facet, {
+            color: opts.profile === 'analysis' ? 0x7fae7f : 0x9aa3ad,
+          });
+          group = g;
+        }
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(group);
+        }
+
+        // Mirror onto window for e2e introspection — facet density is the key.
+        if (typeof window !== 'undefined') {
+          window.__lastFaceterMesh = {
+            positions: facet.positions,
+            normals: facet.normals,
+            indices: facet.indices,
+            triangleCount: facet.triangleCount,
+            vertexCount: facet.vertexCount,
+            faceCount: facet.faceCount,
+            degenerateFaces: facet.degenerateFaces,
+            params: facet.params,
+            bodyId: entry?.id ?? null,
+          };
+        }
+
+        const p = facet.params;
+        const warnTail = p.warnings && p.warnings.length
+          ? ` | ${p.warnings.join('; ')}` : '';
+        return {
+          status: 'success',
+          message:
+            `Faceter (${p.profile}): ${facet.triangleCount} triangles, ` +
+            `chordal ${p.chordalMm.toFixed(4)} mm, angular ${(p.angularRad * 180 / Math.PI).toFixed(1)}° ` +
+            `via ArchDisc Kernel${warnTail}`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Faceter Controls: ' + err.message,
+        };
+      }
+    },
+
+    'Hidden Line / Silhouette': async (scene, viewport) => {
+      // Hidden-line removal + silhouette extraction along a view direction.
+      // OCCT HLRBRep_Algo for the exact projection; the pure-JS mesh-edge
+      // silhouette is also computed for comparison. Arity 1.
+      try {
+        const { entry, brepShape } = _pickFacetTarget();
+        const { values, cancelled } = await requestToolParams('Hidden Line / Silhouette');
+        if (cancelled) return { status: 'warn', message: 'Hidden Line / Silhouette: cancelled' };
+
+        const viewDir = [Number(values.viewX), Number(values.viewY), Number(values.viewZ)];
+        if (!viewDir.some(v => Math.abs(v) > 1e-6)) { viewDir[2] = 1; }
+        const showHidden = values.showHidden !== 'no';
+
+        // Exact B-rep hidden-line projection.
+        const hlr = await ArchDiscKernel.brep.hiddenLineProjection(brepShape, { viewDir });
+
+        // Pure-JS mesh silhouette (a fast cross-check on the same body).
+        const facet = await ArchDiscKernel.brep.facetRenderMesh(brepShape);
+        const sil = ArchDiscKernel.brep.meshSilhouette(facet.positions, facet.indices, viewDir);
+
+        // Render the HLR edge set as a viewport overlay group: visible edges
+        // solid, hidden edges dashed. Polylines are in mm — wrap 0.001.
+        const overlay = new THREE.Group();
+        overlay.scale.set(0.001, 0.001, 0.001);
+        overlay.userData.pickable = false;
+        overlay.userData.generatedModel = true;
+        overlay.userData.hlrOverlay = true;
+
+        const addPolys = (polys, matFactory) => {
+          for (const poly of polys) {
+            if (!poly || poly.length < 2) continue;
+            const pos = new Float32Array(poly.length * 3);
+            for (let i = 0; i < poly.length; i++) {
+              pos[i * 3] = poly[i][0]; pos[i * 3 + 1] = poly[i][1]; pos[i * 3 + 2] = poly[i][2];
+            }
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const line = new THREE.Line(g, matFactory());
+            if (matFactory.dashed) line.computeLineDistances();
+            overlay.add(line);
+          }
+        };
+        const visibleMat = () => new THREE.LineBasicMaterial({ color: 0x10243f, linewidth: 2 });
+        const outlineMat = () => new THREE.LineBasicMaterial({ color: 0x1f6feb, linewidth: 3 });
+        const hiddenMat = () => new THREE.LineDashedMaterial({
+          color: 0x9aa3ad, dashSize: 1.6, gapSize: 1.0, transparent: true, opacity: 0.8,
+        });
+        hiddenMat.dashed = true;
+
+        addPolys(hlr.visibleSharp, visibleMat);
+        addPolys(hlr.visibleOutline, outlineMat);
+        if (showHidden) {
+          addPolys(hlr.hiddenSharp, hiddenMat);
+          addPolys(hlr.hiddenOutline, hiddenMat);
+        }
+        scene.add(overlay);
+        overlay.updateMatrixWorld(true);
+
+        if (typeof window !== 'undefined' && typeof window.__archdiscFocusOnObject === 'function') {
+          window.__archdiscFocusOnObject(entry?.group ?? overlay);
+        }
+
+        if (typeof window !== 'undefined') {
+          window.__lastHiddenLine = {
+            viewDir,
+            method: hlr.method,
+            visibleSharpCount: hlr.visibleSharp.length,
+            visibleOutlineCount: hlr.visibleOutline.length,
+            hiddenSharpCount: hlr.hiddenSharp.length,
+            hiddenOutlineCount: hlr.hiddenOutline.length,
+            edgeCount: hlr.edgeCount,
+            meshSilhouetteSegments: sil.segments.length,
+            meshSilhouetteEdges: sil.silhouetteEdges,
+            meshBoundaryEdges: sil.boundaryEdges,
+            bodyId: entry?.id ?? null,
+          };
+        }
+
+        return {
+          status: 'success',
+          message:
+            `Hidden Line: ${hlr.visibleSharp.length} visible + ${hlr.visibleOutline.length} silhouette ` +
+            `+ ${hlr.hiddenSharp.length + hlr.hiddenOutline.length} hidden edges (OCCT HLR); ` +
+            `${sil.segments.length} mesh-silhouette segments — via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Hidden Line / Silhouette: ' + err.message,
+        };
       }
     },
   },

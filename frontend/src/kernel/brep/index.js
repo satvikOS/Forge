@@ -30,3 +30,7 @@ export { trimmedNurbsFace } from './BrepNurbsTrim.js';
 export { g2BlendBetweenEdges } from './BrepBlendG2.js';
 export { nSidedPatch } from './BrepNSided.js';
 export { classAAnalyze } from './BrepClassA.js';
+export {
+  facetShape, facetRenderMesh, facetAnalysisMesh,
+  hiddenLineProjection, meshSilhouette, resolveFaceterParams, FACETER_PROFILES,
+} from './BrepFaceter.js';

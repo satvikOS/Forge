@@ -104,6 +104,10 @@ const TABS = {
         { name: 'Class-A Analyze',              icon: '◐', key: 'surface' },
         { name: 'Zebra Stripes',                icon: '☰', key: 'surface' },
       ]},
+      { label: 'Faceting', tools: [
+        { name: 'Faceter Controls',          icon: '▦', key: 'surface', primary: true },
+        { name: 'Hidden Line / Silhouette',  icon: '◰', key: 'surface' },
+      ]},
       { label: 'Boolean', tools: [
         { name: 'Combine', icon: '∪', key: 'part' },
         { name: 'Subtract', icon: '−', key: 'part' },

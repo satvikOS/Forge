@@ -174,6 +174,9 @@ const TOOL_GROUPS = {
                 'Blend Surface', 'Fillet Surface', 'Chamfer Surface',
                 'Thicken', 'Subdivide Surface', 'Catmull-Clark Subdivide', 'Retopo Surface', 'NURBS Patch', 'Refine NURBS', 'Elevate NURBS', 'NURBS Curvature', 'Sweep Tortuous', 'Loft Tangent', 'Stitch Faces', 'Convergent Solid', 'Surface-Surface Intersection', 'Trimmed NURBS Patch', 'G2 Blend', 'Knit Surface', 'Flatten', 'Deform Surface'
             ]},
+            { header: 'Faceting', items: [
+                'Faceter Controls', 'Hidden Line / Silhouette'
+            ]},
             { header: 'Analysis', items: [
                 'Class-A Analyze', 'Zebra Stripes', 'Curvature Analysis',
                 'Draft Analysis', 'Deviation Analysis', 'Minimum Radius',

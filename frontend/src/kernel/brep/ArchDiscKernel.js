@@ -34,6 +34,10 @@ import { trimmedNurbsFace } from './BrepNurbsTrim.js';
 import { g2BlendBetweenEdges } from './BrepBlendG2.js';
 import { nSidedPatch } from './BrepNSided.js';
 import { classAAnalyze } from './BrepClassA.js';
+import {
+  facetShape, facetRenderMesh, facetAnalysisMesh,
+  hiddenLineProjection, meshSilhouette, resolveFaceterParams, FACETER_PROFILES,
+} from './BrepFaceter.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -68,6 +72,21 @@ export const ArchDiscKernel = {
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,
     brepToMesh,
+    // ── Faceter option surface (SP-7, Area I) ──────────────────────────────
+    /** Controlled-deflection faceting — chordal + angular tol, render/analysis profile. */
+    facetShape,
+    /** Facet at the display-tuned render profile. */
+    facetRenderMesh,
+    /** Facet at the simulation/curvature-grade analysis profile (much finer). */
+    facetAnalysisMesh,
+    /** Hidden-line / silhouette extraction via OCCT HLRBRep_Algo. */
+    hiddenLineProjection,
+    /** Pure-JS mesh-edge silhouette extractor (fast, kernel-free — viewport overlay). */
+    meshSilhouette,
+    /** Resolve effective chordal/angular deflection for a faceting request. */
+    resolveFaceterParams,
+    /** Render / analysis quality profile definitions. */
+    faceterProfiles: FACETER_PROFILES,
     volume: Measure.volume,
     area: Measure.area,
     faceCount: Measure.faceCount,

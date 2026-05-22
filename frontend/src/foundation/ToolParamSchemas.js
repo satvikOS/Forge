@@ -205,6 +205,39 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── FACETER OPTION SURFACE (SP-7, Area I) ───────────────────────────────
+  'Faceter Controls': {
+    title: 'Faceter Controls — Tessellation Quality',
+    blurb: 'Re-facet the selected body with full faceter control. Pick a quality profile (Render = display-tuned; Analysis = simulation/curvature-grade, ~7× finer), then tune the chordal (linear) and angular deflection — the two tolerances a commercial faceter exposes. Set a deflection to 0 to use the profile default. The body re-tessellates live in the viewport.',
+    fields: [
+      { name: 'profile', label: 'Quality profile', type: 'enum', default: 'render',
+        options: ['render', 'analysis'],
+        hint: 'render = display mesh; analysis = fine mesh for simulation / curvature' },
+      { name: 'chordalMm', label: 'Chordal (linear) deflection', type: 'number', default: 0, unit: 'mm',
+        min: 0, max: 50, step: 0.01,
+        hint: 'Max chord-to-surface gap. Smaller = finer. 0 = profile default' },
+      { name: 'angularDeg', label: 'Angular deflection', type: 'number', default: 0, unit: '°',
+        min: 0, max: 80, step: 1,
+        hint: 'Max facet-normal turn per triangle. Smaller = rounder curves. 0 = profile default' },
+      { name: 'minSizeMm', label: 'Minimum triangle edge', type: 'number', default: 0, unit: 'mm',
+        min: 0, max: 10, step: 0.001,
+        hint: 'Floor on triangle edge length — guards against sliver explosion. 0 = auto' },
+    ],
+  },
+
+  'Hidden Line / Silhouette': {
+    title: 'Hidden Line / Silhouette View',
+    blurb: 'Extract the hidden-line projection and silhouette of the selected body along a view direction — the engineering-drawing edge set. Visible sharp edges and silhouette outlines are drawn solid; hidden edges dashed. Uses the exact B-rep hidden-line removal algorithm; the mesh-based silhouette overlay is also rendered for comparison.',
+    fields: [
+      { name: 'viewX', label: 'View direction X', type: 'number', default: 0.55, min: -1, max: 1, step: 0.05,
+        hint: 'Projection / viewing direction' },
+      { name: 'viewY', label: 'View direction Y', type: 'number', default: -0.6, min: -1, max: 1, step: 0.05 },
+      { name: 'viewZ', label: 'View direction Z', type: 'number', default: 0.58, min: -1, max: 1, step: 0.05 },
+      { name: 'showHidden', label: 'Show hidden edges', type: 'enum', default: 'yes',
+        options: ['yes', 'no'], hint: 'Draw occluded edges as dashed lines' },
+    ],
+  },
+
   // ─── NURBS SURFACE OPS ────────────────────────────────────────────────────
 
   'NURBS Patch': {
