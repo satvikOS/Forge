@@ -14,7 +14,7 @@ import { extrudeRect, revolveRect, filletAll, chamferAll, variableFillet } from 
 import { exportStep, importStep } from './BrepStep.js';
 import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 import { sweep, loft } from './BrepSurfacing.js';
-import { checkSelfIntersection, checkClash } from './BrepCheck.js';
+import { checkSelfIntersection, checkClash, selfIntersect } from './BrepCheck.js';
 import { translate, makeCompound } from './BrepTransform.js';
 import { simplify } from './BrepHeal.js';
 import { tessellate } from './BrepTessellate.js';
@@ -32,6 +32,7 @@ import { intersectSurfaces } from './BrepNurbsSSI.js';
 import { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
 import { trimmedNurbsFace } from './BrepNurbsTrim.js';
 import { g2BlendBetweenEdges } from './BrepBlendG2.js';
+import { nSidedPatch } from './BrepNSided.js';
 import { classAAnalyze } from './BrepClassA.js';
 
 export const ArchDiscKernel = {
@@ -45,7 +46,7 @@ export const ArchDiscKernel = {
     extrudeRect, revolveRect, filletAll, chamferAll, variableFillet,
     shell, thicken, offsetShape, draft,
     sweep, loft,
-    checkSelfIntersection, checkClash,
+    checkSelfIntersection, checkClash, selfIntersect,
     translate, makeCompound,
     simplify,
     blendG2, cliffEdgeBlend, mitreCorner,
@@ -61,6 +62,7 @@ export const ArchDiscKernel = {
     projectMeshOntoBrep,
     trimmedNurbsFace,
     g2BlendBetweenEdges,
+    nSidedPatch,
     classAAnalyze,
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */

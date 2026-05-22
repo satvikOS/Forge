@@ -10,6 +10,8 @@
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import { tessellatePerFace } from './BrepTessellate.js';
+import { detectSelfIntersection } from '../../foundation/SelfIntersection.js';
 
 /** Volume of a B-rep shape (mm³). Helper — caller is inside a withScope. */
 function shapeVolume(oc, shape) {
@@ -106,6 +108,111 @@ export async function checkSelfIntersection(brepShape) {
 
     return { selfIntersects, count, valid };
   });
+}
+
+/**
+ * Detect FACE-LEVEL self-intersection in a single body — faces of ONE solid
+ * geometrically crossing EACH OTHER (self-intersecting fillet, degenerate
+ * sweep, over-offset enclosure, badly-warped spline patch). This is the
+ * §3.6 "scanning highly warped spline surfaces for crossings" capability.
+ *
+ * The body is tessellated PER FACE (BrepTessellate.tessellatePerFace) so every
+ * triangle carries its B-rep face id and the set of edge-adjacent face pairs.
+ * The pure-JS `detectSelfIntersection` (foundation/SelfIntersection.js) then
+ * runs a genuine Möller triangle-triangle intersection test, BVH-accelerated,
+ * between triangles whose faces are NON-ADJACENT (triangles on the same face
+ * or on faces sharing an edge touch legitimately and are skipped).
+ *
+ * Honest caveat — this is a TESSELLATION-RESOLUTION detector: it works on the
+ * mesh at the given `deflection`; a finer deflection finds finer crossings. It
+ * is an exact triangle-triangle detector on the mesh it is given, NOT an
+ * exact-analytic B-rep face/face intersector. It complements (does not
+ * replace) `checkSelfIntersection`, which catches intrinsic invalidity and
+ * inter-solid overlap.
+ *
+ * @param {import('./BrepShape.js').BrepShape} brepShape
+ * @param {{deflection?:number, maxPairs?:number}} [opts]
+ *        deflection — tessellation chord deviation in mm (default 0.1; smaller
+ *        = finer detection). maxPairs — safety cap on tested triangle pairs.
+ * @returns {Promise<{
+ *   intersecting:boolean,
+ *   pairCount:number,
+ *   facePairs:Array<[number,number]>,
+ *   segments:Array<[number[],number[]]>,
+ *   stats:object,
+ *   highlight:({positions:Float32Array,normals:Float32Array,indices:Uint32Array}|null)
+ * }>}  `highlight` is a renderable mesh of the intersecting triangles (mm),
+ *      or null when the body is clean.
+ */
+export async function selfIntersect(brepShape, opts = {}) {
+  if (!brepShape || !brepShape.shape) {
+    throw new Error('selfIntersect: needs a BrepShape with a live shape');
+  }
+  const deflection = (opts.deflection && opts.deflection > 0) ? opts.deflection : 0.1;
+
+  // Per-face tessellation — positions + per-triangle face id + edge adjacency.
+  const tess = await tessellatePerFace(brepShape, deflection);
+
+  // Pure-JS Möller detector (BVH-accelerated). Pass the kernel's exact face
+  // adjacency so legitimate edge contacts between faces are not flagged.
+  const det = detectSelfIntersection(
+    { positions: tess.positions, indices: tess.indices, faceIds: tess.faceIds },
+    { faceAdjacency: tess.faceAdjacency, maxPairs: opts.maxPairs },
+  );
+
+  // Build a renderable highlight mesh from the intersecting triangles. Each
+  // crossing triangle pair contributes its two triangles — a caller renders
+  // this as a bright overlay so the user SEES the exact crossing zone.
+  let highlight = null;
+  if (det.pairs.length) {
+    const triSet = new Set();
+    for (const [t, u] of det.pairs) { triSet.add(t); triSet.add(u); }
+    const tris = [...triSet];
+    const positions = new Float32Array(tris.length * 9);
+    const indices = new Uint32Array(tris.length * 3);
+    let vp = 0;
+    for (let k = 0; k < tris.length; k++) {
+      const t = tris[k];
+      for (let c = 0; c < 3; c++) {
+        const vi = tess.indices[t * 3 + c] * 3;
+        positions[vp++] = tess.positions[vi];
+        positions[vp++] = tess.positions[vi + 1];
+        positions[vp++] = tess.positions[vi + 2];
+      }
+      indices[k * 3]     = k * 3;
+      indices[k * 3 + 1] = k * 3 + 1;
+      indices[k * 3 + 2] = k * 3 + 2;
+    }
+    // Per-triangle face normals.
+    const normals = new Float32Array(positions.length);
+    for (let i = 0; i < indices.length; i += 3) {
+      const ia = indices[i] * 3, ib = indices[i + 1] * 3, ic = indices[i + 2] * 3;
+      const ux = positions[ib] - positions[ia];
+      const uy = positions[ib + 1] - positions[ia + 1];
+      const uz = positions[ib + 2] - positions[ia + 2];
+      const wx = positions[ic] - positions[ia];
+      const wy = positions[ic + 1] - positions[ia + 1];
+      const wz = positions[ic + 2] - positions[ia + 2];
+      let nx = uy * wz - uz * wy;
+      let ny = uz * wx - ux * wz;
+      let nz = ux * wy - uy * wx;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      nx /= l; ny /= l; nz /= l;
+      for (const idx of [ia, ib, ic]) {
+        normals[idx] = nx; normals[idx + 1] = ny; normals[idx + 2] = nz;
+      }
+    }
+    highlight = { positions, normals, indices };
+  }
+
+  return {
+    intersecting: det.intersecting,
+    pairCount: det.pairs.length,
+    facePairs: det.facePairs,
+    segments: det.segments,
+    stats: { ...det.stats, deflection, faceCount: tess.faceCount },
+    highlight,
+  };
 }
 
 /**
