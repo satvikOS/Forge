@@ -57,7 +57,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22: electron 42 (+ node-abi / @electron/get / @electron/rebuild)
+          # require >=22.12.0. Node 20 triggered a stream of EBADENGINE warnings.
+          node-version: '22'
 
       # Cache electron / electron-builder binaries (NSIS, app-builder,
       # etc.) — these download from github.com and occasionally 502.
@@ -85,8 +87,17 @@ jobs:
           node -e "const fs=require('fs');const p=require('./package.json');p.version='$VERSION';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
           node -e "console.log('package.json version is now', require('./package.json').version)"
 
+      # --ignore-scripts is REQUIRED here: the root package.json defines an
+      # `install` lifecycle script (`npm install --prefix backend && ...`).
+      # `backend/` is a separate server component — it is NOT bundled into the
+      # desktop installer (electron-builder.yml `files` whitelists only
+      # electron/** + frontend/dist/**, and explicitly excludes backend/**).
+      # Letting the hook run dragged in the huge @aws-sdk/* + @langchain/*
+      # tree, which crashed Windows npm with EPERM during cleanup. The desktop
+      # release build only needs root (electron/electron-builder/electron-updater)
+      # + frontend deps.
       - name: Install root dependencies (electron, electron-builder, electron-updater)
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --ignore-scripts
 
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
