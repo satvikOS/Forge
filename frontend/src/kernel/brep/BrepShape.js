@@ -51,7 +51,19 @@ export function track(ocObject) {
 /**
  * Run `fn` inside a disposal scope. Every object passed to `track()` during
  * `fn` is `.delete()`d on exit — except objects reachable from the value
- * `fn` returns (a BrepShape, or an array of them), which survive.
+ * `fn` returns (a BrepShape, a SpineBody, or an array of them), which survive.
+ *
+ * SP-1 S2 — survivor detection recognises `SpineBody` (the migrated-op
+ * currency, duck-compatible with BrepShape). A SpineBody wraps an
+ * `occtWrapper` (a BrepShape), and its `.shape` getter delegates to that
+ * wrapper's `.shape` — so the engine-shape kept alive is the same TopoDS_Shape
+ * by either return path. Detection uses a duck-type check rather than an
+ * `instanceof SpineBody` import to avoid a cyclic kernel/topology → kernel/brep
+ * module dependency (BrepShape.js is the lower layer; SpineBody.js imports
+ * from it transitively via Body / IdAllocator). Any object that exposes a
+ * live `.shape` and a `body` field is treated as a SpineBody survivor — the
+ * exact public contract of SpineBody.
+ *
  * @param {() => (Promise<any>|any)} fn
  * @returns {Promise<any>} whatever `fn` returns
  */
@@ -66,7 +78,19 @@ export async function withScope(fn) {
     const survivors = new Set();
     const keep = Array.isArray(result) ? result : [result];
     for (const r of keep) {
+      if (!r) continue;
+      // BrepShape — the original currency.
       if (r instanceof BrepShape && r.shape) survivors.add(r.shape);
+      // SpineBody (SP-1 S2) — duck-typed to avoid a cyclic import. The
+      // SpineBody wraps a BrepShape `occtWrapper`; protect BOTH the engine
+      // shape and the underlying wrapper so a subsequent op that hands the
+      // wrapper back into withScope still finds a live BrepShape.
+      else if (r.body && r.occtWrapper && r.shape) {
+        survivors.add(r.shape);
+        if (r.occtWrapper instanceof BrepShape && r.occtWrapper.shape) {
+          survivors.add(r.occtWrapper.shape);
+        }
+      }
     }
     for (const obj of scope) {
       if (survivors.has(obj)) continue;

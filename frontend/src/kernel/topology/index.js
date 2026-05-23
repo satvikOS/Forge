@@ -34,4 +34,4 @@ export { default as validateSpine } from './validateSpine.js';
 export { default as bindSpine, bindSpineFromShape } from './bindSpine.js';
 
 // ── SpineBody — the SP-1 currency, BrepShape-duck-compatible (S2) ─────────────
-export { default as SpineBody } from './SpineBody.js';
+export { default as SpineBody, isSpineBody } from './SpineBody.js';

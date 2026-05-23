@@ -294,6 +294,16 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
   scene.add(group);
   group.updateMatrixWorld(true);
 
+  // SP-1 S2 — detect a SpineBody (the migration-adapter currency). Duck-typed
+  // (`body` field present + live `.shape` getter) to keep this layer free of
+  // a topology import; the contract is from kernel/topology/SpineBody.js.
+  // A SpineBody is duck-compatible with BrepShape (.shape/.id/.meta) so the
+  // mesh/measure/registry path above is unchanged. The only additive work is
+  // mirroring the spine body onto `window.__lastSpine*` for e2e + AI
+  // introspection (the SP-1 §6 / §7 introspection contract).
+  const isSpineBody = !!(brepShape && brepShape.body && brepShape.occtWrapper
+    && typeof brepShape.shape !== 'undefined');
+
   // Register in the body registry so the Part Browser can list it.
   // registerBody expects { group, manifold, sourceTool }. B-rep bodies
   // don't have a manifold-3d Manifold; we pass a minimal shim that
@@ -316,6 +326,23 @@ export async function addBrepShapeToScene(scene, viewport, brepShape, color = 0x
   if (typeof window !== 'undefined') {
     window.__lastBrepShape = brepShape;
     window.__lastBrepGroup = group;
+    // SP-1 S2 — mirror the spine body on its own slot for e2e / AI
+    // introspection. `window.__lastSpine` is the spine `Body` (topology truth);
+    // `window.__lastSpineBody` is the SpineBody wrapper (the SP-1 currency);
+    // `window.__lastSpineValidation` is the validateSpine report attached at
+    // bind time. For an un-migrated op (still returning a raw BrepShape) these
+    // stay at their previous value — the slot is not cleared, so a test that
+    // reads it after a non-spine op simply sees the last spine body. A test
+    // gating the slot's identity against the migrated body works because S2
+    // migrates one op (makeBox) and the spec drives that op as its climactic
+    // step, so the slot must hold that body's spine afterwards.
+    if (isSpineBody) {
+      window.__lastSpine = brepShape.body;
+      window.__lastSpineBody = brepShape;
+      window.__lastSpineValidation = (brepShape.body
+        && brepShape.body.diagnostics
+        && brepShape.body.diagnostics.validation) || null;
+    }
     if (typeof window.__archdiscFocusOnObject === 'function') {
       window.__archdiscFocusOnObject(group);
     }
