@@ -37,6 +37,11 @@ export default class Coedge {
     this.loop = null;        // owning Loop (set by Loop)
     this.partner = null;     // mate coedge / next in the radial cycle
     this.pcurve = opts.pcurve || null;
+    // S5 — radial angle of this coedge around the edge tangent, in
+    // [0, 2π). Populated by bindSpine's `orderRadialCoedgesAngularly`
+    // for non-manifold edges; null for manifold edges (no ordering needed —
+    // only 2 coedges).
+    this.radialAngle = null;
     this.attributes = {};    // SP-2 hook
     this.userData = {};
 

@@ -1,15 +1,23 @@
 /**
  * ArchDisc Topology Spine — Body
  *
- * SP-1 Stage S0. The root of the unified spine and a NEW entity — ACIS BODY,
- * Parasolid PART. The independent model object.
+ * SP-1 Stage S0 / S5. The root of the unified spine and a NEW entity —
+ * ACIS BODY, Parasolid PART. The independent model object.
  *
  * A Body:
  *   - has a `kind` ∈ {'solid','sheet','wire'} — the single body-kind
- *     discriminator (SP-1 §2.2), DERIVED then ASSERTED at construction, never
- *     free-typed.
+ *     discriminator (SP-1 §2.2). S5 promotes it to FIRST-CLASS: every op that
+ *     produces a body declares its result kind via `declaredKind`; `assertKind`
+ *     reconciles the declared kind against the topology-derived kind and
+ *     records any disagreement as an explicit diagnostic (S5 §2.2 — "every op
+ *     EXPLICITLY DECLARES its result kind").
+ *   - has gate methods `assertSolid()`/`assertSheet()`/`assertWire()` that
+ *     enforce op-applicability invariants (shell→solid, thicken→sheet,
+ *     extrudeWire→wire) — S5's body-kind-drives-op-applicability contract.
  *   - owns its `IdAllocator` — the per-body persistent-ID namespace (SP-1 §2.3).
  *   - owns a list of `Lump`s (the pre-spine `TopoSolid` had no lump concept).
+ *     A wire body with disjoint wire components has ONE LUMP PER CONNECTED
+ *     COMPONENT (S5: disjoint-region wire-body support).
  *   - holds `geomEngineShape` — the live B-rep engine `TopoDS_Shape` the spine
  *     was bound to (the geometry-engine-behind-the-spine contract, SP-1 §2.4).
  *     The shape stays inside the heap-managed wrapper, so the `withScope` /
@@ -30,8 +38,13 @@ export const BODY_KINDS = Object.freeze(['solid', 'sheet', 'wire']);
 export default class Body {
   /**
    * @param {object} [opts]
-   * @param {'solid'|'sheet'|'wire'} [opts.kind]  if omitted, derived from
+   * @param {'solid'|'sheet'|'wire'} [opts.kind]   if omitted, derived from
    *        topology by `assertKind()` once lumps are attached.
+   * @param {'solid'|'sheet'|'wire'} [opts.declaredKind]  S5: the kind the
+   *        ORIGINATING OP claims for its result. Reconciled against the
+   *        topology-derived kind by `assertKind()`; mismatch is a real
+   *        diagnostic (an op's declared kind must agree with what the
+   *        topology actually says).
    * @param {IdAllocator} [opts.idAllocator]  reuse an allocator (e.g. when
    *        rebuilding a body and resuming its id namespace).
    * @param {string} [opts.bodyTag]   explicit body tag for a fresh allocator.
@@ -45,6 +58,9 @@ export default class Body {
     this.lumps = [];
     // kind is provisional until assertKind() runs after lumps are attached.
     this.kind = opts.kind || null;
+    // S5 — the op-declared kind (the originating op's claim about its result).
+    // null = no op claim; assertKind takes the derived value.
+    this.declaredKind = opts.declaredKind || null;
     this.geomEngineShape = opts.geomEngineShape || null;
     this.attributes = {};         // SP-2 hook — body-level attributes
     this.diagnostics = {};        // bindSpine / validateSpine notes
@@ -150,9 +166,14 @@ export default class Body {
   // ── Body kind ──────────────────────────────────────────────────────────────
 
   /**
-   * Derive the body kind from topology — `solid` if every shell is closed and
-   * the body has faces; `wire` if there are no faces at all; `sheet` otherwise
-   * (faces present but at least one open shell — a non-volume sheet body).
+   * Derive the body kind from topology (S5 — first-class):
+   *   - `wire`  = NO faces, only wire edges (a connected-set of edges + verts).
+   *               A multi-lump wire body has one lump per disjoint wire
+   *               component (S5: disjoint-region wire-body support).
+   *   - `solid` = faces present AND every shell of every lump is closed
+   *               (volume-bounding) — every non-degenerate edge has ≥2 coedges.
+   *   - `sheet` = faces present but at least one shell is open (lamina /
+   *               open-sheet body — `thicken` consumes this kind).
    * @returns {'solid'|'sheet'|'wire'}
    */
   deriveKind() {
@@ -164,19 +185,113 @@ export default class Body {
   }
 
   /**
-   * Derive the kind and assert it onto `this.kind`. If a kind was supplied at
-   * construction it is checked against the derived kind; a mismatch is recorded
-   * in diagnostics (not thrown — a degenerate bind may legitimately disagree)
-   * and the derived kind wins, because kind is topology-derived by contract.
+   * Reconcile the body's kind with its topology, S5-aware.
+   *
+   * S5 first-class semantics:
+   *   - If `declaredKind` was set by the originating op (every primitive /
+   *     feature / boolean / local / surfacing op now declares its result
+   *     kind), that is the AUTHORITATIVE kind — and it MUST agree with the
+   *     topology-derived kind. A disagreement is recorded as a real
+   *     diagnostic (`kindMismatch` carries the conflict).
+   *   - If no kind was declared (legacy / non-S5-aware op), the derived kind
+   *     wins (the SP-1 §2.2 contract: kind is topology-derived).
+   *   - `this.kind` ends up as the actually-applicable kind for downstream
+   *     validation + op-applicability gates.
+   *
+   * The honest behaviour: this is RECONCILIATION, not silent override —
+   * `kindMismatch` is exposed so `validateSpine` can fail it.
    */
   assertKind() {
     const derived = this.deriveKind();
-    if (this.kind && this.kind !== derived) {
-      this.diagnostics.kindMismatch =
-        `supplied kind '${this.kind}' != derived '${derived}'`;
+    // The op's explicit claim (S5) wins over the constructor's loose `kind` —
+    // declaredKind is the FIRST-CLASS signal; `kind` may be provisional.
+    const claimed = this.declaredKind || this.kind || null;
+    if (claimed && claimed !== derived) {
+      this.diagnostics.kindMismatch = {
+        declared: this.declaredKind || null,
+        provisional: this.kind || null,
+        derived,
+        message: `declared/provisional kind '${claimed}' disagrees with ` +
+          `topology-derived '${derived}' — the derived kind is authoritative.`,
+      };
+    } else {
+      // Clear any stale diagnostic from an earlier provisional state.
+      delete this.diagnostics.kindMismatch;
     }
     this.kind = derived;
     return this.kind;
+  }
+
+  // ── S5 op-applicability gates ──────────────────────────────────────────────
+  //
+  // Body kind DRIVES op-applicability. Every op that has a kind precondition
+  // (shell→solid, thicken→sheet, extrudeWire→wire) calls the corresponding
+  // gate on its input. The gate either passes silently (precondition met) or
+  // throws with a precise diagnostic — never silent.
+  //
+  // The error names start with `BodyKindAssertionError` so callers can
+  // distinguish a kind-precondition violation from a generic error.
+
+  /**
+   * Assert this body is a solid (volume-bounding). Pre-condition for ops that
+   * shell / cut / fillet / chamfer / extrude-cut a closed body.
+   * @throws {Error} if `this.kind !== 'solid'`.
+   */
+  assertSolid(opName) {
+    if (this.kind !== 'solid') {
+      const lbl = opName ? `${opName}: ` : '';
+      throw new Error(
+        `BodyKindAssertionError: ${lbl}expected a 'solid' body, got '${this.kind}' ` +
+        `(body '${this.persistentId}' — ${this.lumps.length} lump(s), ` +
+        `${this.faces().length} face(s)).`);
+    }
+    return this;
+  }
+
+  /**
+   * Assert this body is a sheet (faces but at least one open shell — a
+   * 2-manifold-with-boundary). Pre-condition for `thicken` (sheet→solid).
+   * @throws {Error} if `this.kind !== 'sheet'`.
+   */
+  assertSheet(opName) {
+    if (this.kind !== 'sheet') {
+      const lbl = opName ? `${opName}: ` : '';
+      throw new Error(
+        `BodyKindAssertionError: ${lbl}expected a 'sheet' body, got '${this.kind}' ` +
+        `(body '${this.persistentId}' — ${this.faces().length} face(s)).`);
+    }
+    return this;
+  }
+
+  /**
+   * Assert this body is a wire (no faces, only wire edges). Pre-condition for
+   * `extrudeWire`, `sweep`-via-wire-profile, sketch consumption.
+   * @throws {Error} if `this.kind !== 'wire'`.
+   */
+  assertWire(opName) {
+    if (this.kind !== 'wire') {
+      const lbl = opName ? `${opName}: ` : '';
+      throw new Error(
+        `BodyKindAssertionError: ${lbl}expected a 'wire' body, got '${this.kind}' ` +
+        `(body '${this.persistentId}' — ${this.faces().length} face(s)).`);
+    }
+    return this;
+  }
+
+  /**
+   * Assert this body is one of an explicit set of allowed kinds.
+   * Convenience for ops that accept multiple kinds (e.g. `transform` accepts
+   * any kind; `boolean` accepts solid|sheet but not wire).
+   * @param {Array<'solid'|'sheet'|'wire'>} allowed
+   */
+  assertKindIn(allowed, opName) {
+    if (!Array.isArray(allowed) || !allowed.includes(this.kind)) {
+      const lbl = opName ? `${opName}: ` : '';
+      throw new Error(
+        `BodyKindAssertionError: ${lbl}expected kind in ` +
+        `${JSON.stringify(allowed)}, got '${this.kind}'.`);
+    }
+    return this;
   }
 
   // ── Euler-Poincaré ─────────────────────────────────────────────────────────

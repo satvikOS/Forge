@@ -1,8 +1,8 @@
 /**
  * ArchDisc Topology Spine — validateSpine
  *
- * SP-1 Stage S0. The verification instrument (SP-1 §2.6): a pass that checks a
- * spine `Body` is structurally consistent and Euler-Poincaré-valid.
+ * SP-1 Stage S0 / S5. The verification instrument (SP-1 §2.6): a pass that
+ * checks a spine `Body` is structurally consistent and Euler-Poincaré-valid.
  *
  * It is NOT a runtime production gate — it would cost performance. SP-1
  * MAINTAINS the invariant by construction (`bindSpine` produces consistent
@@ -18,8 +18,14 @@
  *   5. Every face's loops reference only that face's coedges; exactly one
  *      outer loop.
  *   6. Persistent ids are present and unique within the body.
- *   7. The body kind is consistent with `deriveKind()`.
+ *   7. The body kind is consistent with `deriveKind()` and any declared kind
+ *      (S5: every op's `declaredKind` must agree with the topology-derived
+ *      kind — `diagnostics.kindMismatch` is an error).
  *   8. Back-references are wired (face.shell, shell.lump, lump.body, etc.).
+ *   9. S5: on every non-manifold edge the radial coedge cycle is angularly
+ *      ordered around the edge tangent — a Parasolid invariant. The check
+ *      reads the per-coedge angles populated by `orderRadialCoedgesAngularly`
+ *      during `bindSpine` and asserts monotonic progression around 2π.
  *
  * Returns a structured report; never throws. `report.ok` is the overall pass.
  */
@@ -172,11 +178,20 @@ export default function validateSpine(body, opts = {}) {
       `no persistent id.`);
   }
 
-  // ── 7. Body kind consistency ───────────────────────────────────────────────
+  // ── 7. Body kind consistency (S5 — declaredKind reconciliation) ────────────
   const derivedKind = body.deriveKind();
   if (kind !== derivedKind) {
     errors.push(`Body kind '${kind}' disagrees with topology-derived ` +
       `kind '${derivedKind}'.`);
+  }
+  // S5: an op-declared kind that disagrees with the topology-derived kind is
+  // a genuine error — the op claimed something the topology contradicts. The
+  // `kindMismatch` diagnostic is populated by `Body.assertKind` whenever the
+  // declared kind does not match the derived kind.
+  if (body.diagnostics && body.diagnostics.kindMismatch) {
+    const km = body.diagnostics.kindMismatch;
+    errors.push(`declared kind '${km.declared}' disagrees with topology-derived ` +
+      `'${km.derived}' — op contract violation (S5 first-class taxonomy).`);
   }
 
   // ── 8. Back-reference wiring ────────────────────────────────────────────────
@@ -203,6 +218,43 @@ export default function validateSpine(body, opts = {}) {
     }
   }
 
+  // ── 9. Non-manifold radial coedge ordering (S5 first-class) ────────────────
+  // For every non-manifold edge (>2 coedges) the radial cycle must be ordered
+  // ANGULARLY around the edge tangent — the Parasolid invariant. bindSpine's
+  // `orderRadialCoedgesAngularly` populates each coedge's `radialAngle` field;
+  // here we assert (a) every coedge on a non-manifold edge HAS an angle,
+  // (b) the angles are monotonically increasing around 2π in the same order
+  // the partner-cycle walks them.
+  const radial = {
+    nmEdgesChecked: 0,
+    nmEdgesOrdered: 0,
+    nmEdgesUnordered: 0,
+    nmCoedgesMissingAngle: 0,
+  };
+  for (const edge of edges) {
+    if (edge.coedges.size <= 2) continue;
+    radial.nmEdgesChecked += 1;
+    const ces = [...edge.coedges];
+    const angles = ces.map(ce => Number.isFinite(ce.radialAngle) ? ce.radialAngle : null);
+    if (angles.some(a => a === null)) {
+      radial.nmCoedgesMissingAngle += angles.filter(a => a === null).length;
+      warnings.push(`Edge ${edgeTag(edge)} non-manifold: ${angles.filter(a => a === null).length}` +
+        ` of ${ces.length} coedges have no radial angle (unordered cycle).`);
+      radial.nmEdgesUnordered += 1;
+      continue;
+    }
+    // Walk the partner cycle and verify angles are monotonically increasing
+    // (mod 2π). Walk N steps from coedge 0 and check angle progression.
+    const ordered = isRadialCycleMonotonic(ces, angles);
+    if (!ordered) {
+      errors.push(`Edge ${edgeTag(edge)} non-manifold radial coedge cycle is ` +
+        `NOT angularly ordered (S5 invariant violated): angles ${angles.map(a => a.toFixed(3)).join(', ')}.`);
+      radial.nmEdgesUnordered += 1;
+    } else {
+      radial.nmEdgesOrdered += 1;
+    }
+  }
+
   const counts = {
     kind,
     lumps: lumps.length,
@@ -215,10 +267,53 @@ export default function validateSpine(body, opts = {}) {
     nonManifoldEdges: nonManifoldEdgeCount,
     freeBoundaryEdges: freeBoundaryEdgeCount,
     degenerateEdges: degenerateEdgeCount,
+    radial,
   };
 
   const ok = errors.length === 0 && (!strict || warnings.length === 0);
   return { ok, errors, warnings, euler, counts, body: body.toString() };
+}
+
+/**
+ * Verify a radial coedge cycle is monotonically ordered by angle.
+ *
+ * The cycle is built by `wireCoedgePartners` so that coedge[i].partner ===
+ * coedge[i+1]. After `orderRadialCoedgesAngularly` sorts the list, walking
+ * partners from any starting coedge must yield strictly monotonically
+ * increasing angles (mod 2π). A monotone walk has exactly ONE wrap-around
+ * point (where angle decreases past 2π back to start); >1 wrap = unordered.
+ *
+ * @param {import('./Coedge.js').default[]} ces  coedges in partner-cycle order.
+ * @param {number[]} angles  each coedge's radial angle (rad ∈ [0, 2π)).
+ * @returns {boolean}
+ */
+function isRadialCycleMonotonic(ces, angles) {
+  // ces should be in partner-cycle order; verify by walking partners.
+  const n = ces.length;
+  if (n < 3) return true;
+  // Find the index of ces[0] inside the partner-walk starting at ces[0].
+  // Easier: walk partners and read angles in walk order.
+  const walked = [];
+  let cur = ces[0];
+  const seen = new Set();
+  for (let i = 0; i < n + 1; i++) {
+    if (seen.has(cur)) break;
+    seen.add(cur);
+    walked.push(cur);
+    if (!cur.partner) return false;
+    cur = cur.partner;
+  }
+  if (walked.length !== n) return false;
+  const walkAngles = walked.map(c => Number.isFinite(c.radialAngle) ? c.radialAngle : 0);
+  // Count wrap-arounds (places where next < cur). A monotone cyclic sequence
+  // has exactly 1 wrap-around going around the full cycle.
+  let wraps = 0;
+  for (let i = 0; i < n; i++) {
+    const a = walkAngles[i];
+    const b = walkAngles[(i + 1) % n];
+    if (b < a - 1e-9) wraps += 1;
+  }
+  return wraps === 1;
 }
 
 // ── compact entity tags for messages ──────────────────────────────────────────
