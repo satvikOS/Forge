@@ -389,18 +389,47 @@ export async function evalSurface(face, u, v, opts = {}) {
     const d2Pdu2  = { x: D2U.X(), y: D2U.Y(), z: D2U.Z() };
     const d2Pdv2  = { x: D2V.X(), y: D2V.Y(), z: D2V.Z() };
     const d2Pdudv = { x: D2UV.X(), y: D2UV.Y(), z: D2UV.Z() };
-    // Surface kind via the OCCT enum index.
+    // Surface kind via the OCCT enum index. For an analytic primitive surface
+    // (cylinder/cone/sphere/torus) we also extract the canonical radius so the
+    // caller doesn't have to back-derive it from the principal curvatures.
     let surfaceType = null;
+    let analyticRadius = null;
+    let analyticRadius2 = null;   // torus tube radius / cone-second radius
     try {
       const ty = adapt.GetType();
       // The enum lives at oc.GeomAbs_SurfaceType; ordering matches OCCT.
       const T = oc.GeomAbs_SurfaceType;
       if (T) {
         if (ty === T.GeomAbs_Plane) surfaceType = 'plane';
-        else if (ty === T.GeomAbs_Cylinder) surfaceType = 'cylinder';
-        else if (ty === T.GeomAbs_Cone) surfaceType = 'cone';
-        else if (ty === T.GeomAbs_Sphere) surfaceType = 'sphere';
-        else if (ty === T.GeomAbs_Torus) surfaceType = 'torus';
+        else if (ty === T.GeomAbs_Cylinder) {
+          surfaceType = 'cylinder';
+          try {
+            const cyl = adapt.Cylinder();
+            if (cyl && typeof cyl.Radius === 'function') analyticRadius = cyl.Radius();
+          } catch (_e) { /* radius unavailable */ }
+        }
+        else if (ty === T.GeomAbs_Cone) {
+          surfaceType = 'cone';
+          try {
+            const co = adapt.Cone();
+            if (co && typeof co.RefRadius === 'function') analyticRadius = co.RefRadius();
+          } catch (_e) { /* radius unavailable */ }
+        }
+        else if (ty === T.GeomAbs_Sphere) {
+          surfaceType = 'sphere';
+          try {
+            const sp = adapt.Sphere();
+            if (sp && typeof sp.Radius === 'function') analyticRadius = sp.Radius();
+          } catch (_e) { /* radius unavailable */ }
+        }
+        else if (ty === T.GeomAbs_Torus) {
+          surfaceType = 'torus';
+          try {
+            const to = adapt.Torus();
+            if (to && typeof to.MajorRadius === 'function') analyticRadius = to.MajorRadius();
+            if (to && typeof to.MinorRadius === 'function') analyticRadius2 = to.MinorRadius();
+          } catch (_e) { /* radii unavailable */ }
+        }
         else if (ty === T.GeomAbs_BezierSurface) surfaceType = 'bezier';
         else if (ty === T.GeomAbs_BSplineSurface) surfaceType = 'bspline';
         else if (ty === T.GeomAbs_SurfaceOfRevolution) surfaceType = 'revolution';
@@ -454,7 +483,7 @@ export async function evalSurface(face, u, v, opts = {}) {
       gaussianCurvature, meanCurvature, principalCurvatures,
       parameters: { u: uu, v: vv },
       range: { u: [uMin, uMax], v: [vMin, vMax] },
-      degenerate, surfaceType,
+      degenerate, surfaceType, analyticRadius, analyticRadius2,
     };
   });
 }
