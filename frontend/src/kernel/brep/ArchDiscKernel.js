@@ -45,6 +45,10 @@ import {
 import {
   classifyPoint, rayFire, evalCurve, evalSurface, massProperties, adjacency,
 } from './BrepQuery.js';
+// SP-9 — Direct / synchronous modeling (Area E, T2).
+import {
+  pushPullFace, moveFace, deleteFaceAndHeal, inferFeature,
+} from './BrepDirectOps.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -119,6 +123,15 @@ export const ArchDiscKernel = {
     massProperties,
     /** Adjacency traversal view of a SpineBody — facesOfEdge / edgesOfFace / … */
     adjacency,
+    // ── SP-9 Direct / Synchronous Modeling (Area E) ───────────────────────
+    /** Push (>0, add material) or pull (<0, cut) a face along its outward normal. */
+    pushPullFace,
+    /** Translate a planar/cylindrical face by a delta vector (normal component only). */
+    moveFace,
+    /** Remove a face from a body and heal the opening by extending adjacents. */
+    deleteFaceAndHeal,
+    /** Infer the feature (boss/hole/fillet/chamfer/...) the picked face belongs to. */
+    inferFeature,
     /** All metrics in one call — convenient for e2e assertions. */
     async measure(brepShape) {
       return {

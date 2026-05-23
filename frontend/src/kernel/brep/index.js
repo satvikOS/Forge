@@ -41,3 +41,7 @@ export {
 export {
   classifyPoint, rayFire, evalCurve, evalSurface, massProperties, adjacency,
 } from './BrepQuery.js';
+// SP-9 — Direct / synchronous modeling (Area E, T2).
+export {
+  pushPullFace, moveFace, deleteFaceAndHeal, inferFeature,
+} from './BrepDirectOps.js';
