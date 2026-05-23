@@ -100,3 +100,107 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* Tier-1 #9 — suppressed / rollback row state + inline rename input */
+.dh-row-suppressed { opacity: 0.45; font-style: italic; }
+.dh-row-suppressed .dh-tool { text-decoration: line-through; color: #888; }
+.dh-suppressed-mark { color: #c08040; }
+.dh-row-after-rollback {
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 6px,
+    rgba(255, 255, 255, 0.03) 6px, rgba(255, 255, 255, 0.03) 12px);
+}
+.dh-row-rollback-anchor {
+  border-left: 3px solid #f0a040;
+  padding-left: 7px;
+  background: rgba(240, 160, 64, 0.06);
+}
+
+.dh-rename-input {
+  flex: 1;
+  background: #050505;
+  color: #fff;
+  border: 1px solid #5da5ff;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 2px 5px;
+  outline: none;
+  min-width: 0;
+  font-weight: 600;
+}
+
+/* Tier-1 #9 — right-click context menu (fixed-positioned in viewport) */
+.dh-context-menu {
+  position: fixed;
+  z-index: 9000;
+  min-width: 200px;
+  background: rgba(20, 20, 20, 0.97);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 4px 0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
+  animation: dh-ctx-fade-in 0.10s ease-out;
+}
+
+.dh-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #e0e0e0;
+  cursor: pointer;
+  transition: background 0.06s, color 0.06s;
+}
+
+.dh-ctx-item:hover {
+  background: rgba(74, 144, 217, 0.32);
+  color: #fff;
+}
+
+.dh-ctx-item:active { background: rgba(74, 144, 217, 0.55); }
+
+.dh-ctx-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  font-size: 11px;
+  color: #99b8ff;
+  font-family: 'Consolas', monospace;
+}
+
+.dh-ctx-text { flex: 1; }
+
+.dh-ctx-tag {
+  font-size: 9px;
+  color: #888;
+  font-style: italic;
+  margin-left: 4px;
+}
+
+.dh-ctx-item-danger { color: #e88888; }
+.dh-ctx-item-danger:hover {
+  background: rgba(227, 84, 84, 0.55);
+  color: #fff;
+}
+.dh-ctx-item-danger .dh-ctx-icon { color: #ff8080; }
+
+.dh-ctx-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 8px;
+}
+
+@keyframes dh-ctx-fade-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

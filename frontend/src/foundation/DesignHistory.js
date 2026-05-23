@@ -36,14 +36,90 @@ class DesignHistory {
       category: e.category ?? null,
       headline: e.headline ?? '',
       payloadKey: e.payloadKey ?? null,
+      // Tier-1 #9 (SW FeatureManager parity): mutable display-name +
+      // suppressed flag so a right-click context menu can rename or
+      // suppress an entry. `tool` is the original tool identifier and
+      // never changes; `name` is what the panel renders.
+      name: e.tool,
+      suppressed: false,
     };
     this.entries.push(entry);
     this._notify();
+    return entry;
   }
 
   clear() {
     this.entries = [];
     this._notify();
+  }
+
+  /**
+   * Tier-1 #9 — Rename an existing history entry. Returns the updated
+   * entry on success, or `null` if the id is unknown / the new name is
+   * blank. Notifies subscribers so the panel re-renders.
+   */
+  rename(id, newName) {
+    if (!id || !newName) return null;
+    const trimmed = String(newName).trim();
+    if (!trimmed) return null;
+    const entry = this.entries.find(e => e.id === id);
+    if (!entry) return null;
+    entry.name = trimmed;
+    this._notify();
+    return entry;
+  }
+
+  /**
+   * Tier-1 #9 — Toggle (or set) the suppressed flag on an entry. SW's
+   * Suppress/Unsuppress menu item; visually greys the row out and lets
+   * downstream consumers honour the flag if they choose. Returns the
+   * updated entry or `null` if the id is unknown.
+   */
+  setSuppressed(id, suppressed) {
+    if (!id) return null;
+    const entry = this.entries.find(e => e.id === id);
+    if (!entry) return null;
+    entry.suppressed = !!suppressed;
+    this._notify();
+    return entry;
+  }
+
+  /**
+   * Tier-1 #9 — Remove an entry permanently. Returns the removed entry
+   * or `null` if the id wasn't found.
+   */
+  remove(id) {
+    if (!id) return null;
+    const idx = this.entries.findIndex(e => e.id === id);
+    if (idx < 0) return null;
+    const [removed] = this.entries.splice(idx, 1);
+    this._notify();
+    return removed;
+  }
+
+  /**
+   * Tier-1 #9 — Roll-Back-To-Here placeholder. SW rolls the model back
+   * to the state JUST BEFORE the chosen feature, suppressing everything
+   * after. We don't have a real feature-tree rollback at the foundation
+   * layer yet (depends on SP-3 design history rebackground), so this
+   * call records the intent + marks every later entry as suppressed so
+   * the user gets a visible, honest approximation of the SW behaviour.
+   *
+   * Returns `{ ok, suppressedCount, gap: 'no-feature-rollback' }`.
+   */
+  rollBackToHere(id) {
+    if (!id) return { ok: false, reason: 'no-id' };
+    const idx = this.entries.findIndex(e => e.id === id);
+    if (idx < 0) return { ok: false, reason: 'unknown-id' };
+    let count = 0;
+    for (let i = idx + 1; i < this.entries.length; i++) {
+      if (!this.entries[i].suppressed) {
+        this.entries[i].suppressed = true;
+        count += 1;
+      }
+    }
+    this._notify();
+    return { ok: true, suppressedCount: count, gap: 'no-feature-rollback' };
   }
 
   onChange(fn) {
