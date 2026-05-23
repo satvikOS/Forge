@@ -34,3 +34,6 @@ export {
   facetShape, facetRenderMesh, facetAnalysisMesh,
   hiddenLineProjection, meshSilhouette, resolveFaceterParams, FACETER_PROFILES,
 } from './BrepFaceter.js';
+export {
+  classifyPoint, rayFire, evalCurve, evalSurface, massProperties, adjacency,
+} from './BrepQuery.js';

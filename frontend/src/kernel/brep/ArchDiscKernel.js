@@ -38,6 +38,9 @@ import {
   facetShape, facetRenderMesh, facetAnalysisMesh,
   hiddenLineProjection, meshSilhouette, resolveFaceterParams, FACETER_PROFILES,
 } from './BrepFaceter.js';
+import {
+  classifyPoint, rayFire, evalCurve, evalSurface, massProperties, adjacency,
+} from './BrepQuery.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -92,6 +95,19 @@ export const ArchDiscKernel = {
     faceCount: Measure.faceCount,
     edgeCount: Measure.edgeCount,
     boundingBox: Measure.boundingBox,
+    // ── SP-4 Query & Evaluation API (Area J) ──────────────────────────────
+    /** Classify a 3-D point against a solid body: 'inside' / 'on' / 'outside'. */
+    classifyPoint,
+    /** Fire a ray against a body; return every face intersection sorted by distance. */
+    rayFire,
+    /** Evaluate a spine Edge's curve at parameter t∈[0,1] — point, tangent, 2nd deriv, curvature. */
+    evalCurve,
+    /** Evaluate a spine Face's surface at (u,v) — point, normal, partials, curvatures. */
+    evalSurface,
+    /** Centroid + inertia tensor + principal moments / axes + mass. */
+    massProperties,
+    /** Adjacency traversal view of a SpineBody — facesOfEdge / edgesOfFace / … */
+    adjacency,
     /** All metrics in one call — convenient for e2e assertions. */
     async measure(brepShape) {
       return {
