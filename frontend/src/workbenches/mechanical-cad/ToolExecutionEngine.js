@@ -1467,12 +1467,49 @@ const TOOL_HANDLERS = {
     },
 
     'Extrude Boss': async (scene, viewport) => {
-      // Exact B-rep path: extrude a rectangular profile via the
-      // ArchDiscKernel exact kernel. Parametric — orchestration plans
-      // supply { width, depth, height }; defaults give 80×50×25 mm.
+      // SP-6 — extrude an ARBITRARY closed planar wire when a sketch is
+      // active (the InteractiveSketch.getSolidProfile path); fall back to
+      // the legacy rectangular extrudeRect when no sketch profile is
+      // available so existing callers (orchestration plans without sketch
+      // wiring, default ribbon click) keep working unchanged.
+      //
+      // Profile source priority:
+      //   1. window.__archdiscPlanParams['Extrude Boss'].profile — an
+      //      explicit array of {x,y,z} points or [x,y,z] tuples (orchestration
+      //      plans drive this).
+      //   2. _activeSketch.getSolidProfile() — the sketch engine output
+      //      when a sketch is active and has non-construction entities.
+      //   3. Legacy rect path — values.width × values.depth × values.height.
       const { values, cancelled } = await requestToolParams('Extrude Boss');
       if (cancelled) return { status: 'warn', message: 'Extrude Boss cancelled' };
       try {
+        // Source 1 — explicit `profile` param from orchestration plan.
+        let pts = null;
+        if (Array.isArray(values.profile) && values.profile.length >= 3) {
+          // Normalise [x,y,z]-tuple form to {x,y,z}.
+          pts = values.profile.map(p =>
+            Array.isArray(p) ? { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }
+              : { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 });
+        }
+        // Source 2 — live sketch profile.
+        if (!pts && _activeSketch && typeof _activeSketch.getSolidProfile === 'function') {
+          const sketchPts = _activeSketch.getSolidProfile();
+          if (Array.isArray(sketchPts) && sketchPts.length >= 3) {
+            pts = sketchPts.map(p => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+          }
+        }
+        // Path A — sketch / explicit profile → SP-6 extrudeProfile.
+        if (pts) {
+          const depth = values.height ?? values.depth ?? 25;
+          const shape = await ArchDiscKernel.brep.extrudeProfile(pts, depth);
+          await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
+          const metrics = await ArchDiscKernel.brep.measure(shape);
+          return {
+            status: 'success',
+            message: `Extrude Boss (SP-6 arbitrary profile): ${pts.length}-point closed wire × ${depth} mm. V = ${metrics.volume.toFixed(0)} mm³, ${metrics.faceCount} faces — ArchDisc exact B-rep kernel`,
+          };
+        }
+        // Path B — legacy rect fallback.
         const width = values.width ?? 80;
         const depth = values.depth ?? 50;
         const height = values.height ?? 25;
@@ -1562,13 +1599,40 @@ const TOOL_HANDLERS = {
     },
 
     'Revolve Boss': async (scene, viewport) => {
-      // Exact B-rep path: revolve a rectangular ring profile 360°
-      // around the axis via ArchDiscKernel.brep.revolveRect. Parametric
-      // — orchestration plans supply { innerR, width, height }; defaults
-      // give innerR=12, width=18, height=40 mm (a stepped-shaft ring).
+      // SP-6 — revolve an ARBITRARY closed planar wire when a sketch is
+      // active; fall back to the legacy rect revolve otherwise. Profile
+      // source priority + axis param contract:
+      //   1. values.profile (explicit) — array of {x,y,z}|[x,y,z].
+      //   2. _activeSketch.getSolidProfile() — live sketch wire.
+      //   3. Legacy rect revolve with values.innerR / width / height.
+      // values.axis = { origin: [x,y,z], direction: [dx,dy,dz] }; default Z.
+      // values.angle = revolution angle in degrees (default 360).
       const { values, cancelled } = await requestToolParams('Revolve Boss');
       if (cancelled) return { status: 'warn', message: 'Revolve Boss cancelled' };
       try {
+        let pts = null;
+        if (Array.isArray(values.profile) && values.profile.length >= 3) {
+          pts = values.profile.map(p =>
+            Array.isArray(p) ? { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }
+              : { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 });
+        }
+        if (!pts && _activeSketch && typeof _activeSketch.getSolidProfile === 'function') {
+          const sketchPts = _activeSketch.getSolidProfile();
+          if (Array.isArray(sketchPts) && sketchPts.length >= 3) {
+            pts = sketchPts.map(p => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+          }
+        }
+        if (pts) {
+          const axis = values.axis || { origin: [0, 0, 0], direction: [0, 0, 1] };
+          const angle = values.angle ?? 360;
+          const shape = await ArchDiscKernel.brep.revolveProfile(pts, axis, angle);
+          await addBrepShapeToScene(scene, viewport, shape, 0x9aa3ad);
+          const metrics = await ArchDiscKernel.brep.measure(shape);
+          return {
+            status: 'success',
+            message: `Revolve Boss (SP-6 arbitrary profile): ${pts.length}-point closed wire revolved ${angle}°. V = ${metrics.volume.toFixed(0)} mm³, ${metrics.faceCount} faces — ArchDisc exact B-rep kernel`,
+          };
+        }
         const innerR = values.innerR ?? 12;
         const width = values.width ?? 18;
         const height = values.height ?? 40;
@@ -1612,9 +1676,44 @@ const TOOL_HANDLERS = {
     },
 
     'Sweep Boss': async (scene, viewport) => {
+      // SP-6 — sweep an ARBITRARY closed planar profile wire along an
+      // arbitrary path wire when both are supplied; fall back to the
+      // legacy circular-profile-on-straight-path sweep otherwise. Profile
+      // + path source priority:
+      //   - values.profile  (closed wire — {x,y,z}/[x,y,z] points)
+      //   - values.path     (open or closed wire — {x,y,z}/[x,y,z] points)
+      //   - _activeSketch.getSolidProfile() — live sketch profile
+      //   - Legacy circular-profile sweep with values.radius / length.
       try {
         const { values, cancelled } = await requestToolParams('Sweep Boss');
         if (cancelled) return { status: 'warn', message: 'Sweep Boss: cancelled' };
+        const toPts = (arr) =>
+          arr.map(p =>
+            Array.isArray(p) ? { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }
+              : { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 });
+        let profilePts = null;
+        if (Array.isArray(values.profile) && values.profile.length >= 3) {
+          profilePts = toPts(values.profile);
+        }
+        if (!profilePts && _activeSketch && typeof _activeSketch.getSolidProfile === 'function') {
+          const sketchPts = _activeSketch.getSolidProfile();
+          if (Array.isArray(sketchPts) && sketchPts.length >= 3) {
+            profilePts = toPts(sketchPts);
+          }
+        }
+        let pathPts = null;
+        if (Array.isArray(values.path) && values.path.length >= 2) {
+          pathPts = toPts(values.path);
+        }
+        if (profilePts && pathPts) {
+          const result = await ArchDiscKernel.brep.sweepProfile(profilePts, pathPts);
+          await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+          const m = await ArchDiscKernel.brep.measure(result);
+          return {
+            status: 'success',
+            message: `Sweep Boss (SP-6 arbitrary profile+path): profile=${profilePts.length} pts, path=${pathPts.length} pts. V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces — ArchDisc exact B-rep kernel`,
+          };
+        }
         const result = await ArchDiscKernel.brep.sweep(values.radius, values.length);
         await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
         const m = await ArchDiscKernel.brep.measure(result);
