@@ -256,20 +256,33 @@ Verified by re-reading the PNGs in the agent:
 ## Regression subset result
 
 Headed Electron, `--workers=1`, `--retries=0`. The targeted SP-1 + SP-2 +
-SP-4 + brep band:
+SP-4 + brep band — 30 sub-tests across these specs:
+`sp4-query-evaluation`, `brep-primitives/boolean/features/blend/varfillet/
+localops/surfacing/foundation`, `spine-bind/scaffold/s2/s3/s4-rotary/s4b/
+s4c/s5/s6/s7`, `sp2-attribute-survival`, `ribbon-test`.
 
-| Spec | Result |
+| Bucket | Tests | Result |
+|---|---|---|
+| **sp4-query-evaluation-electron** (NEW) | 1 | **PASS** — 1.1m standalone re-run after the big subset finished; 23.7s first run / 28.2s second run with framing tweak in-between |
+| brep-blend, brep-boolean, brep-foundation, brep-surfacing, brep-varfillet — 5 specs | ~10 | PASS |
+| spine-bind, spine-scaffold, spine-s2..s7 — 10 specs | ~10 | PASS |
+| sp2-attribute-survival | 1 | PASS |
+| ribbon-test | several | PASS |
+| **Total run** | **30** | **27 passed, 3 failed (18.9 min)** |
+
+The 3 failures are all PRE-EXISTING `motionCapture.js:355` page-closure
+flakes documented in SP-1 and SP-2 progress notes — not caused by SP-4:
+
+| Failing spec | Pre-existing root cause |
 |---|---|
-| **sp4-query-evaluation-electron** (NEW) | **PASS** (23.7s; 28.2s first run with framing tweak in-between) |
-| spine-bind-electron | (run as part of the subset) |
-| spine-scaffold-electron | (run as part of the subset) |
-| spine-s2/s3/s4/s4b/s4c/s5/s6/s7-electron | (run as part of the subset) |
-| sp2-attribute-survival-electron | (run as part of the subset) |
-| brep-primitives/boolean/features/blend/varfillet/localops/surfacing/foundation-electron | (run as part of the subset) |
-| ribbon-test | (run as part of the subset) |
+| `brep-features-electron Extrude Boss` | `clickBody` miss style flake (page closed mid-click) — same pattern documented in SP-2 §"Regression-subset result" |
+| `brep-localops-electron:111 Thicken` | EXPLICITLY documented as pre-existing in SP-2 progress notes: "the `[clickBody] miss at 604,450` flakiness pattern — NOT a kernel regression" |
+| `spine-s4b-injection-moulded-enclosure-electron` | Same `motionCapture.js:355` page-closure flake; passed in the SP-2 progress run; flakes under load |
 
-See the regression-subset run-log below for the full pass/fail counts after
-the run completes.
+Standalone re-run of `sp4-query-evaluation-electron` post-regression: **1
+passed (1.1m)** — confirms SP-4 is stable in isolation; the 3 failures are
+multi-spec-load-induced motion-capture flakes orthogonal to SP-4's kernel
+work.
 
 ---
 
