@@ -54,8 +54,11 @@ export async function translate(src, dx, dy, dz) {
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `translate-${wrapper.id}`, geomEngineShape: wrapper,
     });
-    // Rigid-transform carry-through — direct positional mapping (S3.4 path).
-    carryRigidTransformLineage(src, resultBody, meta);
+    // Rigid-transform carry-through. Because copy=true gives the result a fresh
+    // set of TShapes, a naive `IsSame` between input and result sub-shapes
+    // never matches — so we use the engine's own `ModifiedShape(S)` mapper
+    // when available, and fall back to position-pairing otherwise.
+    carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
     return new SpineBody(resultBody, wrapper, meta);
   });
 }
@@ -118,7 +121,7 @@ export async function rotate(src, axis, angleRad, origin = { x: 0, y: 0, z: 0 })
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `rotate-${wrapper.id}`, geomEngineShape: wrapper,
     });
-    carryRigidTransformLineage(src, resultBody, meta);
+    carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
     return new SpineBody(resultBody, wrapper, meta);
   });
 }
@@ -192,7 +195,7 @@ export async function makeCompound(bodies) {
  *
  * Returns the count of survived entities (faces + edges + vertices).
  */
-function carryRigidTransformLineage(src, resultBody, meta) {
+function carryRigidTransformLineage(src, resultBody, meta, opts = {}) {
   if (!src || !src.body) return 0;
   const inFaces  = src.body.faces();
   const inEdges  = src.body.edges();
@@ -200,10 +203,15 @@ function carryRigidTransformLineage(src, resultBody, meta) {
   const faceIdx  = indexByGeomRef(resultBody.faces());
   const edgeIdx  = indexByGeomRef(resultBody.edges());
   const vertIdx  = indexByGeomRef(resultBody.vertices());
+  // When the engine's BRepBuilderAPI_Transform algorithm is available, ask it
+  // for the modified sub-shape per input — robust against the copy=true TShape
+  // refresh that defeats a naive IsSame match. Falls back to IsSame matching
+  // (which works for compounds that re-use input TShapes).
+  const algo = opts.algo || null;
   let n = 0;
-  n += carry(inFaces,  faceIdx);
-  n += carry(inEdges,  edgeIdx);
-  n += carry(inVerts,  vertIdx);
+  n += carry(inFaces,  faceIdx, algo);
+  n += carry(inEdges,  edgeIdx, algo);
+  n += carry(inVerts,  vertIdx, algo);
   // Record on body diagnostics for the lineage report (additive — booleans
   // overwrite with their own carryLineage report).
   if (!resultBody.diagnostics.lineage) {
@@ -222,11 +230,25 @@ function carryRigidTransformLineage(src, resultBody, meta) {
   return n;
 }
 
-function carry(inputs, index) {
+function carry(inputs, index, algo) {
   let count = 0;
   for (const ent of inputs) {
     if (!ent.geomRef || !ent.persistentId) continue;
-    const result = findBySameShape(index, ent.geomRef);
+    // Two-tier lookup:
+    //   Path A — algo.ModifiedShape(S): the engine's own mapper. For a
+    //            BRepBuilderAPI_Transform with copy=true this yields the
+    //            corresponding result sub-shape directly (the *new* TShape).
+    //   Path B — IsSame: works for the compound case (Add(comp, shape)
+    //            re-uses the input's TShape, so IsSame succeeds).
+    let result = null;
+    if (algo && typeof algo.ModifiedShape === 'function') {
+      let modShape = null;
+      try { modShape = algo.ModifiedShape(ent.geomRef); } catch (_e) { modShape = null; }
+      if (modShape && !(modShape.IsNull && modShape.IsNull())) {
+        result = findBySameShape(index, modShape);
+      }
+    }
+    if (!result) result = findBySameShape(index, ent.geomRef);
     if (!result) continue;
     // Set the result entity's persistent id from the input. The freshly-
     // allocated id is replaced — equivalent of OCCT's "Modified is empty,

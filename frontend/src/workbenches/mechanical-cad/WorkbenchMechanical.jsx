@@ -7,7 +7,7 @@ import ComponentInfoPanel from '../../components/ComponentInfoPanel';
 import { useViewport } from '../../contexts/ViewportContext';
 import apiService from '../../services/api';
 import { executeTool, getCurrentAssembly } from './ToolExecutionEngine';
-import { addFoundationManifoldToScene } from './ToolExecutionEngine';
+import { addFoundationManifoldToScene, addBrepShapeToScene } from './ToolExecutionEngine';
 import { getKernel } from '../../kernel/brep/kernelLoader.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import * as THREE from 'three';
@@ -666,6 +666,19 @@ function WorkbenchMechanical() {
             },
         };
         return () => { delete window.__archdiscSpine; };
+    }, []);
+
+    // SP-1 S3 — expose the canonical scene-add path so e2e specs that build
+    // a body via direct ArchDiscKernel.brep.* calls (rather than via a ribbon
+    // tool) can still register and render their result through the same
+    // pipeline a ribbon tool uses (brepToMesh + Group + BodyRegistry +
+    // window.__last* mirroring). Without this hook a programmatically-built
+    // SpineBody never reaches the scene — the spec sees a populated registry
+    // but no mesh. Additive; mirrors the pattern of the slots above.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__archdiscAddBrepShape = addBrepShapeToScene;
+        return () => { delete window.__archdiscAddBrepShape; };
     }, []);
 
     // Get selected model from context
