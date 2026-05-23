@@ -71,6 +71,10 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import {
+  recordBodyDerive,
+  recordBodyDeriveMulti,
+} from '../history/HistoryLog.js';
 
 /**
  * Planar section of a body — produce intersection curves OR split the body.
@@ -83,13 +87,7 @@ import { carryLineage } from '../topology/IdLineage.js';
  *            intersection curves (kind = 'wire').
  *          - 'split'  → { pieces, report } shaped like `partition()`.
  */
-export async function planarSection(body, plane, opts = {}) {
-  if (!body || !body.shape) {
-    throw new Error('planarSection: body must expose a live .shape');
-  }
-  if (!plane || !Array.isArray(plane.origin) || !Array.isArray(plane.normal)) {
-    throw new Error('planarSection: plane must have origin + normal arrays');
-  }
+async function _runPlanarSection(body, plane, opts, replayHints) {
   const [ox, oy, oz] = plane.origin;
   let [nx, ny, nz] = plane.normal;
   const nLen = Math.hypot(nx, ny, nz);
@@ -97,7 +95,6 @@ export async function planarSection(body, plane, opts = {}) {
   nx /= nLen; ny /= nLen; nz /= nLen;
   const output = opts.output === 'split' ? 'split' : 'curves';
   const approximation = opts.approximation !== false;
-
   const oc = await getOCCT();
   return withScope(() => {
     const TYPE = oc.TopAbs_ShapeEnum;
@@ -109,17 +106,63 @@ export async function planarSection(body, plane, opts = {}) {
     const gpPlane = track(new oc.gp_Pln_3(origin, normal));
 
     if (output === 'curves') {
-      return runCurves(oc, body, gpPlane, approximation, { ox, oy, oz, nx, ny, nz });
+      return runCurves(oc, body, gpPlane, approximation,
+        { ox, oy, oz, nx, ny, nz },
+        replayHints && replayHints.curvesBodyTag);
     }
-    return runSplit(oc, body, gpPlane, { ox, oy, oz, nx, ny, nz });
+    return runSplit(oc, body, gpPlane,
+      { ox, oy, oz, nx, ny, nz },
+      replayHints && replayHints.pieceBodyTags);
   });
+}
+
+export async function planarSection(body, plane, opts = {}) {
+  if (!body || !body.shape) {
+    throw new Error('planarSection: body must expose a live .shape');
+  }
+  if (!plane || !Array.isArray(plane.origin) || !Array.isArray(plane.normal)) {
+    throw new Error('planarSection: plane must have origin + normal arrays');
+  }
+  const result = await _runPlanarSection(body, plane, opts);
+  const bodyPid = body.body && body.body.persistentId;
+  if (!bodyPid) return result;
+  const output = opts.output === 'split' ? 'split' : 'curves';
+  try {
+    if (output === 'curves' && result && result.body && result.body.persistentId) {
+      const persistentBodyId = result.body.persistentId;
+      recordBodyDerive({
+        opName: 'planarSection',
+        persistentBodyId,
+        inputPersistentIds: [bodyPid],
+        meta: { op: 'planarSection', plane, output: 'curves' },
+        rebuild: ([liveBody]) =>
+          _runPlanarSection(liveBody, plane, opts, { curvesBodyTag: persistentBodyId }),
+      });
+    } else if (output === 'split' && Array.isArray(result) && result.length > 0) {
+      const piecePids = result.map(p => p.body && p.body.persistentId).filter(Boolean);
+      if (piecePids.length === result.length) {
+        recordBodyDeriveMulti({
+          opName: 'planarSection.split',
+          persistentBodyIds: piecePids,
+          inputPersistentIds: [bodyPid],
+          meta: { op: 'planarSection', plane, output: 'split', pieceCount: result.length },
+          rebuild: ([liveBody]) =>
+            _runPlanarSection(liveBody, plane, opts, { pieceBodyTags: piecePids }),
+        });
+      }
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('planarSection: history record failed —', err && err.message || err);
+  }
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 'curves' — intersection edges as a wire body via BRepAlgoAPI_Section.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function runCurves(oc, body, gpPlane, approximation, planeRecord) {
+function runCurves(oc, body, gpPlane, approximation, planeRecord, bodyTag) {
   const TYPE = oc.TopAbs_ShapeEnum;
   const ANY  = TYPE.TopAbs_SHAPE;
 
@@ -186,7 +229,7 @@ function runCurves(oc, body, gpPlane, approximation, planeRecord) {
   // is application-specific (open wires vs closed loops) and the SP-1 binder
   // doesn't enforce a strict invariant here.
   const resultBody = bindSpine(oc, sectionShape, {
-    bodyTag: `planarSection-curves-${wrapper.id}`,
+    bodyTag: bodyTag || `planarSection-curves-${wrapper.id}`,
     geomEngineShape: wrapper,
     declaredKind: 'wire',
     validate: false,
@@ -214,7 +257,7 @@ function runCurves(oc, body, gpPlane, approximation, planeRecord) {
 // then run BRepAlgoAPI_Splitter (same as partition()).
 // ─────────────────────────────────────────────────────────────────────────────
 
-function runSplit(oc, body, gpPlane, planeRecord) {
+function runSplit(oc, body, gpPlane, planeRecord, pieceBodyTags) {
   const TYPE = oc.TopAbs_ShapeEnum;
   const ANY  = TYPE.TopAbs_SHAPE;
 
@@ -301,8 +344,10 @@ function runSplit(oc, body, gpPlane, planeRecord) {
       sectionTotalPieces: solids.length,
     };
     const wrapper = new BrepShape(solidShape, pieceMeta);
+    const pieceTag = (Array.isArray(pieceBodyTags) && pieceBodyTags[i])
+      || `planarSection-piece-${i}-${wrapper.id}`;
     const pieceBody = bindSpine(oc, solidShape, {
-      bodyTag: `planarSection-piece-${i}-${wrapper.id}`,
+      bodyTag: pieceTag,
       geomEngineShape: wrapper,
       declaredKind: 'solid',
     });

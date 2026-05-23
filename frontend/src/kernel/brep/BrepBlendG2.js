@@ -81,6 +81,10 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import { g2Blend, tessellateG2Blend } from '../../foundation/G2BlendSurface.js';
 import SpineBody from '../topology/SpineBody.js';
 import { buildAnalyticSpineBody } from '../topology/AnalyticFace.js';
+import {
+  recordBodyDerive,
+  setRecordingSuppressed,
+} from '../history/HistoryLog.js';
 
 // ── tiny vec3 helpers ───────────────────────────────────────────────────────
 const v3sub  = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -418,7 +422,7 @@ function meshToKernelShell(oc, mesh) {
  * @returns {Promise<BrepShape>}  a BrepShape wrapping the sewn blend mesh, with
  *   `meta.g2Stats` carrying the fit + tessellation statistics.
  */
-export async function g2BlendBetweenEdges(brepShape, opts = {}) {
+async function _g2BlendBetweenEdgesImpl(brepShape, opts = {}) {
   if (!brepShape || !brepShape.shape) {
     throw new Error('g2BlendBetweenEdges: needs a BrepShape with a live shape');
   }
@@ -542,7 +546,7 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
     const { body: spineBody, face: analyticFace } = buildAnalyticSpineBody(
       surface, {
         geomEngineShape: occtWrapper,
-        bodyTag: 'g2Blend',
+        bodyTag: opts._bodyTagReplay || 'g2Blend',
         derivedFromIds,
         faceName: `G2-blend(edge${ia},edge${ib})`,
         kind: 'sheet',
@@ -598,4 +602,30 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
     });
     return result;
   });
+}
+
+export async function g2BlendBetweenEdges(brepShape, opts = {}) {
+  const result = await _g2BlendBetweenEdgesImpl(brepShape, opts);
+  const persistentBodyId = result && result.body && result.body.persistentId;
+  const srcPid = brepShape && brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      // Strip internal replay-bookkeeping fields from the public meta.
+      const publicOpts = { ...opts };
+      delete publicOpts._bodyTagReplay;
+      recordBodyDerive({
+        opName: 'g2BlendBetweenEdges',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'g2BlendBetweenEdges', params: publicOpts },
+        rebuild: ([liveSrc]) => _g2BlendBetweenEdgesImpl(liveSrc, {
+          ...publicOpts, _bodyTagReplay: persistentBodyId,
+        }),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('g2BlendBetweenEdges: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }

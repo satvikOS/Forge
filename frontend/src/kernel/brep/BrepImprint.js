@@ -73,6 +73,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import { recordBodyDerive } from '../history/HistoryLog.js';
 
 /**
  * Project the boundary edges of `tool` onto the faces of `body`, splitting
@@ -85,9 +86,7 @@ import { carryLineage } from '../topology/IdLineage.js';
  *                                    imprinted onto `body`.
  * @returns {Promise<SpineBody>}
  */
-export async function imprint(body, tool) {
-  if (!body || !body.shape) throw new Error('imprint: body must expose a live .shape');
-  if (!tool || !tool.shape) throw new Error('imprint: tool must expose a live .shape');
+async function _runImprint(body, tool, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const TYPE = oc.TopAbs_ShapeEnum;
@@ -183,7 +182,7 @@ export async function imprint(body, tool) {
     // The body's kind is preserved — splitting a solid by a sheet tool
     // yields a solid; the spine binder verifies via its kind heuristic.
     const resultBody = bindSpine(oc, resultShape, {
-      bodyTag: `imprint-${wrapper.id}`,
+      bodyTag: bodyTag || `imprint-${wrapper.id}`,
       geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
@@ -212,6 +211,31 @@ export async function imprint(body, tool) {
 
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function imprint(body, tool) {
+  if (!body || !body.shape) throw new Error('imprint: body must expose a live .shape');
+  if (!tool || !tool.shape) throw new Error('imprint: tool must expose a live .shape');
+  const result = await _runImprint(body, tool);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const bodyPid = body.body && body.body.persistentId;
+  const toolPid = tool.body && tool.body.persistentId;
+  if (persistentBodyId && bodyPid && toolPid) {
+    try {
+      recordBodyDerive({
+        opName: 'imprint',
+        persistentBodyId,
+        inputPersistentIds: [bodyPid, toolPid],
+        meta: { op: 'imprint' },
+        rebuild: ([liveBody, liveTool]) =>
+          _runImprint(liveBody, liveTool, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('imprint: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**

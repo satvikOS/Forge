@@ -70,6 +70,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import { recordBodyDeriveMulti } from '../history/HistoryLog.js';
 
 /**
  * Split `body` along every `tool` in `tools[]` into multiple pieces. Returns
@@ -91,18 +92,7 @@ import { carryLineage } from '../topology/IdLineage.js';
  *          report  — { volBefore, volAfter, pieceCount, perPieceVolumes,
  *                      intersected, note }
  */
-export async function partition(body, tools) {
-  if (!body || !body.shape) {
-    throw new Error('partition: body must expose a live .shape');
-  }
-  if (!Array.isArray(tools) || tools.length < 1) {
-    throw new Error('partition: tools must be a non-empty array');
-  }
-  for (let i = 0; i < tools.length; i++) {
-    if (!tools[i] || !tools[i].shape) {
-      throw new Error(`partition: tools[${i}] must expose a live .shape`);
-    }
-  }
+async function _runPartition(body, tools, pieceBodyTags) {
   const oc = await getOCCT();
   return withScope(() => {
     const TYPE = oc.TopAbs_ShapeEnum;
@@ -175,8 +165,10 @@ export async function partition(body, tools) {
         partitionTotalPieces: solids.length,
       };
       const wrapper = new BrepShape(solidShape, pieceMeta);
+      const pieceTag = (Array.isArray(pieceBodyTags) && pieceBodyTags[i])
+        || `partition-piece-${i}-${wrapper.id}`;
       const pieceBody = bindSpine(oc, solidShape, {
-        bodyTag: `partition-piece-${i}-${wrapper.id}`,
+        bodyTag: pieceTag,
         geomEngineShape: wrapper,
         declaredKind: 'solid',
       });
@@ -225,6 +217,45 @@ export async function partition(body, tools) {
     pieces.report = report;
     return pieces;
   });
+}
+
+export async function partition(body, tools) {
+  if (!body || !body.shape) {
+    throw new Error('partition: body must expose a live .shape');
+  }
+  if (!Array.isArray(tools) || tools.length < 1) {
+    throw new Error('partition: tools must be a non-empty array');
+  }
+  for (let i = 0; i < tools.length; i++) {
+    if (!tools[i] || !tools[i].shape) {
+      throw new Error(`partition: tools[${i}] must expose a live .shape`);
+    }
+  }
+  const pieces = await _runPartition(body, tools);
+  // SP-3b history hook — ONE aggregate delta per partition call. The forward
+  // re-runs the partition against live inputs and threads the original piece
+  // persistent ids back so each rebuilt piece has the SAME id as before.
+  const piecePids = pieces.map(p => p.body && p.body.persistentId).filter(Boolean);
+  const bodyPid = body.body && body.body.persistentId;
+  const toolPids = tools.map(t => t.body && t.body.persistentId).filter(Boolean);
+  if (piecePids.length > 0 && bodyPid && toolPids.length === tools.length) {
+    try {
+      recordBodyDeriveMulti({
+        opName: 'partition',
+        persistentBodyIds: piecePids,
+        inputPersistentIds: [bodyPid, ...toolPids],
+        meta: { op: 'partition', pieceCount: pieces.length },
+        rebuild: async (liveInputs) => {
+          const [liveBody, ...liveTools] = liveInputs;
+          return _runPartition(liveBody, liveTools, piecePids);
+        },
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('partition: history recordBodyDeriveMulti failed —', err && err.message || err);
+    }
+  }
+  return pieces;
 }
 
 /**

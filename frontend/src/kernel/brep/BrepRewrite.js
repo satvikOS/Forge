@@ -64,11 +64,7 @@ import { buildAnalyticSpineBody } from '../topology/AnalyticFace.js';
  *   scales with the face size.
  * @returns {Promise<BrepShape>}
  */
-export async function replaceFace(brepShape, faceIndex = 1, opts = {}) {
-  if (!brepShape || !brepShape.shape) throw new Error('replaceFace: needs a BrepShape');
-  if (!(Number.isInteger(faceIndex) && faceIndex >= 1)) {
-    throw new Error(`replaceFace: faceIndex must be a positive integer (got ${faceIndex})`);
-  }
+async function _replaceFaceImpl(brepShape, faceIndex, opts = {}) {
   if (opts.curvedSwap) {
     return replaceFaceWithArbitrarySurface(brepShape, faceIndex, opts);
   }
@@ -155,12 +151,43 @@ export async function replaceFace(brepShape, faceIndex = 1, opts = {}) {
       parents: [brepShape.id],
     });
     const spineBody = bindSpine(oc, shape, {
-      bodyTag: 'replaceFace',
+      bodyTag: opts._bodyTagReplay || 'replaceFace',
       geomEngineShape: occtWrapper,
       declaredKind: 'solid',
     });
     return new SpineBody(spineBody, occtWrapper, occtWrapper.meta);
   });
+}
+
+import { recordBodyDerive as _recordBodyDeriveRW } from '../history/HistoryLog.js';
+
+export async function replaceFace(brepShape, faceIndex = 1, opts = {}) {
+  if (!brepShape || !brepShape.shape) throw new Error('replaceFace: needs a BrepShape');
+  if (!(Number.isInteger(faceIndex) && faceIndex >= 1)) {
+    throw new Error(`replaceFace: faceIndex must be a positive integer (got ${faceIndex})`);
+  }
+  const result = await _replaceFaceImpl(brepShape, faceIndex, opts);
+  const persistentBodyId = result && result.body && result.body.persistentId;
+  const srcPid = brepShape && brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      const publicOpts = { ...opts };
+      delete publicOpts._bodyTagReplay;
+      _recordBodyDeriveRW({
+        opName: 'replaceFace',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'replaceFace', params: { faceIndex, ...publicOpts } },
+        rebuild: ([liveSrc]) => _replaceFaceImpl(liveSrc, faceIndex, {
+          ...publicOpts, _bodyTagReplay: persistentBodyId,
+        }),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('replaceFace: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -43,6 +43,7 @@ import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { NURBSSurface } from '../../foundation/NURBSSurface.js';
 import { buildAnalyticSpineBody } from '../topology/AnalyticFace.js';
+import { recordBodyDerive } from '../history/HistoryLog.js';
 
 // ── tiny vec3 helpers ───────────────────────────────────────────────────────
 const v3sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -276,7 +277,7 @@ function nSidedAnalyticSurface(corners) {
  *   spine Face for the patch; `meta.analyticSurface` carries the raw NURBS
  *   data (backward-compat); `meta.nSidedStats` carries the fill statistics.
  */
-export async function nSidedPatch(brepShape, opts = {}) {
+async function _nSidedPatchImpl(brepShape, opts = {}) {
   if (!brepShape || !brepShape.shape) {
     throw new Error('nSidedPatch: needs a BrepShape with a live shape');
   }
@@ -371,7 +372,7 @@ export async function nSidedPatch(brepShape, opts = {}) {
     const { body: spineBody, face: analyticFace } = buildAnalyticSpineBody(
       analyticSurface, {
         geomEngineShape: occtWrapper,
-        bodyTag: 'nSidedPatch',
+        bodyTag: opts._bodyTagReplay || 'nSidedPatch',
         derivedFromIds,
         faceName: `N-sided-patch(${corners.length}-sided)`,
         kind: 'sheet',
@@ -410,4 +411,29 @@ export async function nSidedPatch(brepShape, opts = {}) {
     });
     return result;
   });
+}
+
+export async function nSidedPatch(brepShape, opts = {}) {
+  const result = await _nSidedPatchImpl(brepShape, opts);
+  const persistentBodyId = result && result.body && result.body.persistentId;
+  const srcPid = brepShape && brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      const publicOpts = { ...opts };
+      delete publicOpts._bodyTagReplay;
+      recordBodyDerive({
+        opName: 'nSidedPatch',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'nSidedPatch', params: publicOpts },
+        rebuild: ([liveSrc]) => _nSidedPatchImpl(liveSrc, {
+          ...publicOpts, _bodyTagReplay: persistentBodyId,
+        }),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('nSidedPatch: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
