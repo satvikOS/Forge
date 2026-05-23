@@ -746,10 +746,17 @@ export default class InteractiveSketch {
           const cx = (uv1.u + uv2.u + uv3.u) / 3;
           const cy = (uv1.v + uv2.v + uv3.v) / 3;
           const sCenter = this.solver.addPoint(cx, cy);
-          this.solver.addArc(sCenter, sp1, sp3);
+          const sArc = this.solver.addArc(sCenter, sp1, sp3);
           const visual = this._drawArc3D(uv1, uv2, uv3, isConstruction ? 0xaa66ff : 0x00ccff);
           const idx = this.entities.length;
-          const entity = { type: 'arc', visual, p1: uv1, p2: uv2, p3: uv3, isConstruction, convertedFrom: src.source ?? 'edge' };
+          const entity = {
+            type: 'arc', visual, p1: uv1, p2: uv2, p3: uv3, isConstruction,
+            convertedFrom: src.source ?? 'edge',
+            solverArc: sArc,
+            _solverCenterRef: sCenter,
+            _solverStartRef: sp1,
+            _solverEndRef: sp3,
+          };
           this.entities.push(entity);
           indices.push(idx);
           projected += 1;
@@ -896,6 +903,335 @@ export default class InteractiveSketch {
     return segments;
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Tier-2b — Named geometric relations as user-applied constraints.
+  //
+  // SW exposes Concentric / Midpoint / Symmetric / Collinear / Fix as
+  // discrete user actions in the Sketch → Relations group. Each user
+  // selection emits a NAMED relation that:
+  //
+  //   - is recorded on the sketch model (`this.relations`) with an
+  //     originating tool tag so the Display/Delete Relations dialog can
+  //     show "Concentric" not "coincident" (the underlying solver
+  //     equation type),
+  //   - drives the solver via one or more constraints,
+  //   - persists across re-solves until the user explicitly deletes it.
+  //
+  // The relations live PARALLEL to `solver.constraints`; each `Relation`
+  // record carries the constraint IDs it produced so `deleteRelation()`
+  // can remove them all atomically + re-solve. This is the same pattern
+  // SW uses: relations are first-class user objects, the solver
+  // equations are an implementation detail.
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** Lazy-init the relation registry on first read. */
+  _ensureRelationStore() {
+    if (!this.relations) this.relations = [];
+    return this.relations;
+  }
+
+  /**
+   * Apply CONCENTRIC to an array of circle/arc entity indices. All centres
+   * are constrained to coincide via pairwise `concentric` solver
+   * constraints (N entities → N-1 pair constraints). Mixed
+   * circle + arc is supported.
+   *
+   * @param {number[]} entityIndices  >= 2 circle / arc indices
+   * @returns {{ok, relationId?, constraintIds?, dofBefore, dofAfter, reason?}}
+   */
+  applyConcentric(entityIndices) {
+    if (!Array.isArray(entityIndices) || entityIndices.length < 2) {
+      return { ok: false, reason: 'Concentric needs at least 2 circle/arc entities' };
+    }
+    const centres = [];
+    for (const idx of entityIndices) {
+      const e = this.entities[idx];
+      if (!e) return { ok: false, reason: `Entity #${idx} does not exist` };
+      let c;
+      if (e.type === 'circle')   c = e.solverCenter;
+      else if (e.type === 'arc') c = e.solverArc?.center ?? this.solver.points.find(p => p === e.solverCenter);
+      if (!c) {
+        // Best-effort lookup: arc centres in this codebase don't get a
+        // dedicated reference, but `_createArc` does add a centre to the
+        // solver points list. Reach by index when needed.
+        if (e.type === 'arc' && e._solverCenterRef) c = e._solverCenterRef;
+      }
+      if (!c) return { ok: false, reason: `Entity #${idx} (${e.type}) has no resolvable centre — Concentric needs circles or arcs` };
+      centres.push({ idx, centre: c, entity: e });
+    }
+    const dofBefore = this.solver.signedDOF();
+    const ref = centres[0];
+    const constraintIds = [];
+    for (let i = 1; i < centres.length; i++) {
+      const c = this.solver.concentric(ref.centre, centres[i].centre);
+      constraintIds.push(c.id);
+    }
+    const rel = this._recordRelation({
+      type: 'concentric',
+      label: 'Concentric',
+      entityIndices: [...entityIndices],
+      constraintIds,
+    });
+    this.solver.solve();
+    this._updateAllVisuals();
+    try { this.applyDoFColouring(); } catch (_) {}
+    const dofAfter = this.solver.signedDOF();
+    this._notify('relationApplied', { relation: rel, dofBefore, dofAfter });
+    return { ok: true, relationId: rel.id, constraintIds, dofBefore, dofAfter };
+  }
+
+  /**
+   * Apply MIDPOINT: pick a point + a line → constrain the point to the
+   * line's midpoint. The `pointEntityIndex` may either be a `point`-type
+   * entity OR a free `solverPoint` reference for line-endpoint targeting.
+   */
+  applyMidpoint(pointEntityIndex, lineEntityIndex) {
+    const pe = this.entities[pointEntityIndex];
+    const le = this.entities[lineEntityIndex];
+    if (!pe) return { ok: false, reason: `Point entity #${pointEntityIndex} not found` };
+    if (!le || le.type !== 'line') return { ok: false, reason: `Entity #${lineEntityIndex} must be a line` };
+    if (pe.type !== 'point') return { ok: false, reason: `Entity #${pointEntityIndex} must be a point` };
+    const dofBefore = this.solver.signedDOF();
+    const c = this.solver.midpointOf(pe.solverPoint, le.solverLine);
+    const rel = this._recordRelation({
+      type: 'midpoint',
+      label: 'Midpoint',
+      entityIndices: [pointEntityIndex, lineEntityIndex],
+      constraintIds: [c.id],
+    });
+    this.solver.solve();
+    this._updateAllVisuals();
+    try { this.applyDoFColouring(); } catch (_) {}
+    const dofAfter = this.solver.signedDOF();
+    this._notify('relationApplied', { relation: rel, dofBefore, dofAfter });
+    return { ok: true, relationId: rel.id, constraintIds: [c.id], dofBefore, dofAfter };
+  }
+
+  /**
+   * Apply SYMMETRIC: pick 2 entities + 1 line (the symmetry axis) → the
+   * two entities are constrained as mirror images about the axis.
+   *
+   * Supported entity pairs:
+   *   - line + line: each line's two endpoints mirror the other line's two
+   *     endpoints (4 SymmetricConstraints — 2 pairs of endpoints).
+   *   - circle + circle: centres mirror + radii equal.
+   *   - arc + arc: centres mirror (radii implied equal via the start-point
+   *     coincidence — not enforced here).
+   *
+   * @param {number[]} entityIndices  exactly 2
+   * @param {number} axisLineIndex   the symmetry-axis line entity index
+   */
+  applySymmetric(entityIndices, axisLineIndex) {
+    if (!Array.isArray(entityIndices) || entityIndices.length !== 2) {
+      return { ok: false, reason: 'Symmetric needs exactly 2 entities + an axis line' };
+    }
+    const [iA, iB] = entityIndices;
+    const a = this.entities[iA];
+    const b = this.entities[iB];
+    const axis = this.entities[axisLineIndex];
+    if (!a || !b) return { ok: false, reason: 'Symmetric: invalid entity index' };
+    if (!axis || axis.type !== 'line') {
+      return { ok: false, reason: 'Symmetric axis must be a line entity' };
+    }
+    if (a.type !== b.type) {
+      return { ok: false, reason: `Symmetric: both entities must be the same type (got ${a.type} + ${b.type})` };
+    }
+    const dofBefore = this.solver.signedDOF();
+    const constraintIds = [];
+    if (a.type === 'line') {
+      // Match the closer endpoint pairs to avoid pathological reflections.
+      const pairs = _pairEndpointsForSymmetry(a, b);
+      for (const [pA, pB] of pairs) {
+        const c = this.solver.symmetric(pA, pB, axis.solverLine);
+        constraintIds.push(c.id);
+      }
+    } else if (a.type === 'circle') {
+      const c1 = this.solver.symmetric(a.solverCenter, b.solverCenter, axis.solverLine);
+      constraintIds.push(c1.id);
+      const c2 = this.solver.equalLength
+        ? null /* equalLength is line-line */
+        : null;
+      // Radius equality is a separate scalar constraint — wire via a RadiusConstraint pair.
+      // Use a soft equality through two `radius` constraints sharing a single value if both
+      // have explicit radii; otherwise leave radii free.
+      // Simpler: add two RadiusConstraints to the AVERAGE — gives equal solver radii.
+      const rAvg = (a.solverCircle.radius + b.solverCircle.radius) / 2;
+      const cr1 = this.solver.radius(a.solverCircle, rAvg);
+      const cr2 = this.solver.radius(b.solverCircle, rAvg);
+      constraintIds.push(cr1.id, cr2.id);
+    } else if (a.type === 'arc') {
+      // Centres mirror; radii implied by start-point coincidence.
+      const arcCA = a._solverCenterRef ?? null;
+      const arcCB = b._solverCenterRef ?? null;
+      if (arcCA && arcCB) {
+        const c = this.solver.symmetric(arcCA, arcCB, axis.solverLine);
+        constraintIds.push(c.id);
+      } else {
+        return { ok: false, reason: 'Symmetric arc: arc centre reference not available' };
+      }
+    } else {
+      return { ok: false, reason: `Symmetric not supported for ${a.type}` };
+    }
+    const rel = this._recordRelation({
+      type: 'symmetric',
+      label: 'Symmetric',
+      entityIndices: [iA, iB, axisLineIndex],
+      constraintIds,
+    });
+    this.solver.solve();
+    this._updateAllVisuals();
+    try { this.applyDoFColouring(); } catch (_) {}
+    const dofAfter = this.solver.signedDOF();
+    this._notify('relationApplied', { relation: rel, dofBefore, dofAfter });
+    return { ok: true, relationId: rel.id, constraintIds, dofBefore, dofAfter };
+  }
+
+  /**
+   * Apply COLLINEAR to an array of line entity indices. All lines are
+   * constrained to lie on the SAME infinite line via pairwise
+   * `collinear` solver constraints.
+   */
+  applyCollinear(entityIndices) {
+    if (!Array.isArray(entityIndices) || entityIndices.length < 2) {
+      return { ok: false, reason: 'Collinear needs at least 2 line entities' };
+    }
+    const lines = [];
+    for (const idx of entityIndices) {
+      const e = this.entities[idx];
+      if (!e || e.type !== 'line') {
+        return { ok: false, reason: `Entity #${idx} must be a line for Collinear` };
+      }
+      lines.push({ idx, line: e.solverLine });
+    }
+    const dofBefore = this.solver.signedDOF();
+    const ref = lines[0];
+    const constraintIds = [];
+    for (let i = 1; i < lines.length; i++) {
+      const c = this.solver.collinear(ref.line, lines[i].line);
+      constraintIds.push(c.id);
+    }
+    const rel = this._recordRelation({
+      type: 'collinear',
+      label: 'Collinear',
+      entityIndices: [...entityIndices],
+      constraintIds,
+    });
+    this.solver.solve();
+    this._updateAllVisuals();
+    try { this.applyDoFColouring(); } catch (_) {}
+    const dofAfter = this.solver.signedDOF();
+    this._notify('relationApplied', { relation: rel, dofBefore, dofAfter });
+    return { ok: true, relationId: rel.id, constraintIds, dofBefore, dofAfter };
+  }
+
+  /**
+   * Apply FIX to a sketch entity. The entity's position is anchored —
+   * solver treats it as locked. Behaviour by entity type:
+   *
+   *   - point   → 1 FixedConstraint on the point (2 DoF).
+   *   - line    → 2 FixedConstraints, one per endpoint (4 DoF total).
+   *   - circle  → 1 FixedConstraint on the centre (2 DoF) + 1 RadiusConstraint
+   *               at the current radius (1 DoF) = 3 DoF total.
+   *   - arc     → 1 FixedConstraint on the centre (2 DoF) — arc start/end
+   *               are themselves stored as points so adding fixed constraints
+   *               on them gives an additional 4 DoF reduction = 6 total.
+   */
+  applyFix(entityIndex) {
+    const e = this.entities[entityIndex];
+    if (!e) return { ok: false, reason: `Entity #${entityIndex} not found` };
+    const dofBefore = this.solver.signedDOF();
+    const constraintIds = [];
+    if (e.type === 'point') {
+      constraintIds.push(this.solver.fix(e.solverPoint).id);
+    } else if (e.type === 'line') {
+      constraintIds.push(this.solver.fix(e.solverP1).id);
+      constraintIds.push(this.solver.fix(e.solverP2).id);
+    } else if (e.type === 'circle') {
+      constraintIds.push(this.solver.fix(e.solverCenter).id);
+      constraintIds.push(this.solver.radius(e.solverCircle, e.solverCircle.radius).id);
+    } else if (e.type === 'arc') {
+      const arcC = e._solverCenterRef;
+      if (arcC) constraintIds.push(this.solver.fix(arcC).id);
+      // arc endpoints
+      const e2 = this.entities[entityIndex];
+      // Fix the three solver points used by the arc.
+      // _createArc stores solver points but doesn't keep direct refs;
+      // _solverArc carries center/startPoint/endPoint, capture from convertEntities flavour.
+      if (e2.solverArc) {
+        constraintIds.push(this.solver.fix(e2.solverArc.startPoint).id);
+        constraintIds.push(this.solver.fix(e2.solverArc.endPoint).id);
+      }
+    } else {
+      return { ok: false, reason: `Fix not supported for ${e.type}` };
+    }
+    const rel = this._recordRelation({
+      type: 'fix',
+      label: 'Fix',
+      entityIndices: [entityIndex],
+      constraintIds,
+    });
+    // No solve needed — the entity stays where it was.
+    try { this.applyDoFColouring(); } catch (_) {}
+    const dofAfter = this.solver.signedDOF();
+    this._notify('relationApplied', { relation: rel, dofBefore, dofAfter });
+    return { ok: true, relationId: rel.id, constraintIds, dofBefore, dofAfter };
+  }
+
+  /**
+   * Record a named relation in the registry. Returns the registered record
+   * with its id.
+   */
+  _recordRelation(rec) {
+    const store = this._ensureRelationStore();
+    const id = `rel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${store.length}`;
+    const relation = { id, createdAt: Date.now(), ...rec };
+    store.push(relation);
+    return relation;
+  }
+
+  /**
+   * Return every relation involving `entityIndex`. Result rows are deep
+   * enough for the Display/Delete dialog to show + offer per-relation
+   * delete actions.
+   *
+   * @param {number} entityIndex
+   * @returns {Array<{id, type, label, entityIndices, constraintIds}>}
+   */
+  getRelationsForEntity(entityIndex) {
+    const store = this._ensureRelationStore();
+    return store.filter(r => r.entityIndices.includes(entityIndex));
+  }
+
+  /** Return every relation in the sketch. */
+  getAllRelations() {
+    return [...this._ensureRelationStore()];
+  }
+
+  /**
+   * Delete a relation by its id. Removes the solver constraints it created
+   * AND removes the relation record. Returns whether anything was removed.
+   *
+   * After deletion the solver is re-solved (so the geometry can settle to
+   * its new — less-constrained — state) and entity colours are refreshed.
+   */
+  deleteRelation(relationId) {
+    const store = this._ensureRelationStore();
+    const idx = store.findIndex(r => r.id === relationId);
+    if (idx < 0) return { ok: false, reason: `Relation ${relationId} not found` };
+    const rel = store[idx];
+    const dofBefore = this.solver.signedDOF();
+    for (const cid of rel.constraintIds) {
+      this.solver.removeConstraint(cid);
+    }
+    store.splice(idx, 1);
+    this.solver.solve();
+    this._updateAllVisuals();
+    try { this.applyDoFColouring(); } catch (_) {}
+    const dofAfter = this.solver.signedDOF();
+    this._notify('relationDeleted', { relation: rel, dofBefore, dofAfter });
+    return { ok: true, deletedId: relationId, dofBefore, dofAfter };
+  }
+
   /**
    * Get the FILLED-AREA profile, excluding `isConstruction` entities.
    * Replaces `getProfile()` for tools that must skip the centre line.
@@ -1028,7 +1364,17 @@ export default class InteractiveSketch {
     const sArc = this.solver.addArc(sCenter, sp1, sp3);
 
     const visual = this._drawArc3D(p1, p2, p3, 0x00ccff);
-    const entity = { type: 'arc', visual, p1, p2, p3 };
+    // Expose the solver references on the entity so Tier-2b relations
+    // (Concentric / Symmetric on arcs, Fix on arcs) can reach the centre,
+    // start, and end points without re-deriving them.
+    const entity = {
+      type: 'arc', visual, p1, p2, p3,
+      solverArc: sArc,
+      _solverCenterRef: sCenter,
+      _solverStartRef: sp1,
+      _solverMidRef: sp2,
+      _solverEndRef: sp3,
+    };
     this.entities.push(entity);
     this._notify('entityCreated', entity);
     return entity;
@@ -1296,4 +1642,25 @@ export default class InteractiveSketch {
   // --- Events ---
   onChange(cb) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   _notify(event, data) { for (const cb of this.listeners) cb(event, data); }
+}
+
+// ─── Tier-2b helper: pair line endpoints for symmetric relations ──────────
+//
+// Given two line entities `a` and `b`, return [(pA, pB), (pA', pB')] —
+// the endpoint pairing that minimises total squared distance after
+// reflection across the symmetry axis. Without this matching the
+// solver could converge with the line reversed (start ↔ end), which
+// looks correct numerically but is wrong intent-wise.
+function _pairEndpointsForSymmetry(a, b) {
+  // Two possible matchings: (p1↔p1, p2↔p2) or (p1↔p2, p2↔p1).
+  // Pick the one whose existing inter-pair distance is smaller — the
+  // solver will then drive each pair to its mirror image.
+  const dA = (a.solverP1.x - b.solverP1.x) ** 2 + (a.solverP1.y - b.solverP1.y) ** 2
+           + (a.solverP2.x - b.solverP2.x) ** 2 + (a.solverP2.y - b.solverP2.y) ** 2;
+  const dB = (a.solverP1.x - b.solverP2.x) ** 2 + (a.solverP1.y - b.solverP2.y) ** 2
+           + (a.solverP2.x - b.solverP1.x) ** 2 + (a.solverP2.y - b.solverP1.y) ** 2;
+  if (dA <= dB) {
+    return [[a.solverP1, b.solverP1], [a.solverP2, b.solverP2]];
+  }
+  return [[a.solverP1, b.solverP2], [a.solverP2, b.solverP1]];
 }

@@ -122,6 +122,40 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SKETCH TIER-2b — Named geometric relations ──────────────────────────
+  // Five SW relations: Concentric, Midpoint, Symmetric, Collinear, Fix.
+  // Each one is selection-driven (the user pre-picks entities in the
+  // viewport, then clicks the relation). The schema fields below are
+  // GUIDANCE for the PropertyManager dock — they describe what the
+  // current selection should provide, not data the user types in. Each
+  // schema has zero numeric inputs because relations are intent
+  // declarations, not parametric values.
+  'Concentric Relation': {
+    title: 'Concentric — Geometric Relation',
+    blurb: 'Constrain two or more circles / arcs to share a common centre. Pre-select the circles/arcs in the viewport, then click Apply. Drops 2 DoF per additional circle.',
+    fields: [],
+  },
+  'Midpoint Relation': {
+    title: 'Midpoint — Geometric Relation',
+    blurb: 'Constrain a point to lie at the midpoint of a line. Pre-select one point AND one line in the viewport, then click Apply. Drops 2 DoF.',
+    fields: [],
+  },
+  'Symmetric Relation': {
+    title: 'Symmetric — Geometric Relation',
+    blurb: 'Constrain two entities to be mirror images about an axis. Pre-select two entities + one line (the axis); the line is the symmetry axis. Lines, arcs, and circles supported; mixed types reject.',
+    fields: [],
+  },
+  'Collinear Relation': {
+    title: 'Collinear — Geometric Relation',
+    blurb: 'Constrain two or more lines to lie on the same infinite line. Pre-select the lines in the viewport, then click Apply. Drops 2 DoF per additional line.',
+    fields: [],
+  },
+  'Fix Relation': {
+    title: 'Fix — Geometric Relation',
+    blurb: 'Anchor the selected entity at its current position. Pre-select the entity, then click Apply. Drops 2 DoF (point), 4 DoF (line endpoints), 3 DoF (circle = centre+radius), or 6 DoF (arc = centre+start+end).',
+    fields: [],
+  },
+
   'Variable Radius Fillet': {
     title: 'Variable Radius Fillet',
     blurb: 'Fillet that transitions from r1 to r2 along each edge. Defaults: r1=1 mm → r2=4 mm.',

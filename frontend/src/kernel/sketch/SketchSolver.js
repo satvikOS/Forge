@@ -2,8 +2,23 @@
  * ArchDisc Geometry Kernel — Sketch Constraint Solver
  * 2D constraint solver for parametric sketches.
  * Supports: coincident, parallel, perpendicular, tangent, equal, horizontal, vertical,
- *           distance, angle, radius, fixed, symmetric, midpoint.
+ *           distance, angle, radius, fixed, symmetric, midpoint, concentric,
+ *           midpointOf, collinear.
  * Uses iterative Newton-Raphson approach.
+ *
+ * Tier-2b — sketch geometric relations as named user-applied constraints.
+ * SW exposes Concentric / Midpoint / Symmetric / Collinear / Fix as discrete
+ * user actions; this module adds the corresponding solver equations:
+ *
+ *   - concentric(circleOrArcA, circleOrArcB)  — centres coincide (2 eqns).
+ *   - midpointOf(point, line)                  — point at line's midpoint (2 eqns).
+ *   - symmetric (already existed; reused as the relation, see below).
+ *   - collinear(lineA, lineB)                  — both lie on the same line (2 eqns).
+ *   - fixed(point) / fixedLine(line)           — anchor a point or both line endpts.
+ *
+ * Each relation carries an originating-tool tag (`relationTag`) so the
+ * Display/Delete Relations dialog can show "Concentric" / "Collinear" /
+ * "Fix" instead of the low-level solver-constraint type.
  */
 
 const EPSILON = 1e-8;
@@ -194,6 +209,50 @@ class MidpointConstraint extends Constraint {
   }
 }
 
+// ─── Tier-2b: Concentric — two circles/arcs share a centre ────────────────
+//
+// SW semantics: pick two (or more) circles or arcs → all centres coincide.
+// Implementation: the squared distance between the two centres. Each
+// constraint instance covers ONE pair; an N-way concentric chain is built
+// as N-1 pair constraints in InteractiveSketch.applyConcentric().
+//
+// DoF reduction = 2 (x + y of one centre point is removed).
+class ConcentricConstraint extends Constraint {
+  constructor(centerA, centerB) { super('concentric', [centerA, centerB]); }
+  error() {
+    const [a, b] = this.entities;
+    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  }
+}
+
+// ─── Tier-2b: Collinear — two lines lie on the same infinite line ─────────
+//
+// SW semantics: pick two (or more) lines → all lie on the same infinite
+// line. Two scalar equations per pair are needed (cross product of the
+// direction vectors == 0 AND one endpoint of B lies on A's infinite line).
+//
+// DoF reduction = 2 per pair (parallel + position).
+class CollinearConstraint extends Constraint {
+  constructor(lineA, lineB) { super('collinear', [lineA, lineB]); }
+  error() {
+    const [la, lb] = this.entities;
+    // (1) Direction-parallel error: 2D cross product == 0.
+    const cross = la.dx() * lb.dy() - la.dy() * lb.dx();
+    // (2) Position error: distance from lb.p1 to the line through la.p1
+    //     along la's direction.
+    const ax = la.p1.x, ay = la.p1.y;
+    const dx = la.dx(), dy = la.dy();
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < EPSILON) {
+      // Degenerate la — fall back to direction error only.
+      return cross ** 2;
+    }
+    // Signed perpendicular distance.
+    const sd = (dy * (lb.p1.x - ax) - dx * (lb.p1.y - ay)) / len;
+    return cross ** 2 + sd ** 2;
+  }
+}
+
 class TangentConstraint extends Constraint {
   constructor(entity1, entity2) { super('tangent', [entity1, entity2]); }
   error() {
@@ -271,6 +330,40 @@ export default class SketchSolver {
   symmetric(p1, p2, line) { const c = new SymmetricConstraint(p1, p2, line); this.constraints.push(c); return c; }
   midpoint(point, line) { const c = new MidpointConstraint(point, line); this.constraints.push(c); return c; }
   tangent(e1, e2) { const c = new TangentConstraint(e1, e2); this.constraints.push(c); return c; }
+
+  // ─── Tier-2b factories ──────────────────────────────────────────────────
+  /** Concentric: two centre points coincide. */
+  concentric(centerA, centerB) {
+    const c = new ConcentricConstraint(centerA, centerB);
+    this.constraints.push(c);
+    return c;
+  }
+  /** Collinear: two lines lie on the same infinite line. */
+  collinear(lineA, lineB) {
+    const c = new CollinearConstraint(lineA, lineB);
+    this.constraints.push(c);
+    return c;
+  }
+  /**
+   * Fix a point at its current position. Same as the existing `fixed` factory
+   * — kept as an alias so the relation tagger reads `fix` from the user-facing
+   * tool name. The DoF reduction is 2.
+   */
+  fix(point) {
+    const c = new FixedConstraint(point, point.x, point.y);
+    this.constraints.push(c);
+    return c;
+  }
+  /**
+   * Midpoint relation: a point is constrained to the midpoint of a line.
+   * Re-uses the existing MidpointConstraint class but exposes a named factory
+   * so the relation tagger and DoF audit can identify the user action.
+   */
+  midpointOf(point, line) {
+    const c = new MidpointConstraint(point, line);
+    this.constraints.push(c);
+    return c;
+  }
 
   removeConstraint(id) {
     this.constraints = this.constraints.filter(c => c.id !== id);
@@ -415,6 +508,11 @@ export default class SketchSolver {
         case 'symmetric': dof -= 2; break;
         case 'midpoint': dof -= 2; break;
         case 'tangent': dof -= 1; break;
+        // Tier-2b — named geometric relations.
+        // Concentric: two centre points coincide -> 2 DoF gone (the centre's xy).
+        case 'concentric': dof -= 2; break;
+        // Collinear: 2 equations (direction-parallel + position offset).
+        case 'collinear': dof -= 2; break;
       }
     }
 
