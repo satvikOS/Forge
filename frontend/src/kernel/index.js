@@ -203,3 +203,9 @@ export { default as StudioLighting } from './rendering/StudioLighting.js';
 
 // Post-FX — SSAO + bloom + FXAA via Three.js EffectComposer
 export { default as PostFX } from './rendering/PostFX.js';
+
+// SP-3a — kernel history & rollback (Area L). Bulletin-board / undo-redo
+// timeline over the spine: forward + inverse delta per op, named marks,
+// roll forward / back, replay. Mechanism + makeBox hook in SP-3a; SP-3b
+// widens coverage to every op-class. See `frontend/src/kernel/history/`.
+export * as history from './history/index.js';
