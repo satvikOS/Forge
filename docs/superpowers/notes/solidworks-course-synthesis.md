@@ -843,20 +843,32 @@ Prioritized roughly by impact on first-touch usability:
 ### Tier 1 — Universal SolidWorks conventions ArchDisc lacks (do these first)
 
 1. **Confirmation Corner** (top-right of viewport) — the universal green-check / red-X cue
+   — **DONE** (`SwUxOverlays.jsx::ConfirmationCorner`, e2e `ux-tier1-electron`)
 2. **PropertyManager docked left** (replacing the design tree when a tool is active), with
    collapsible sections (Direction-1, Selection, Options, Draft)
+   — **DONE** (`SwUxOverlays.jsx::PropertyManagerDock`; 13 tools migrated via `DOCKED_TOOLS`
+   set; floating dialog stays as fallback for the rest. Sections currently INPUTS + OPTIONS
+   placeholder — Direction-2 / Draft / Merge sections to come in Tier-2)
 3. **Sketch under-defined (blue) / fully-defined (black) / over-defined (red) color states** —
    the single most-recognized SolidWorks sketch UX
-4. **Sketch live coordinate readout** at bottom-left while drawing
+   — **DONE** (`SketchSolver.signedDOF()` added, `InteractiveSketch.applyDoFColouring()` walks
+   the sketch group and recolours line/circle/arc entities; bottom-left
+   `SketchStateBadge` mirrors the state textually. Verified in e2e A1→A2→A3 frames)
+4. **Sketch live coordinate readout** at bottom-left while drawing — **NOT THIS PASS**
 5. **Heads-up View Toolbar** at top of viewport: Zoom-to-Fit, Zoom-to-Area, Section View, View
    Orientation, Display Style, Normal-To
-6. **Double-click-dimension-to-edit** (and verify it works both inside and outside sketch mode)
-7. **Auto-relations icon on cursor** while drawing (vertical, horizontal, perpendicular,
-   midpoint, tangent, coincident)
-8. **`(f)` fixed-component prefix** on the first-inserted assembly component
-9. **Right-click conventions in FeatureManager**: Edit Feature, Edit Sketch, Suppress,
-   Roll Back, Rename, Delete (audit completeness)
-10. **Rollback bar** in the FeatureManager Design Tree
+   — **DONE** (`SwUxOverlays.jsx::HeadsUpViewToolbar`). Honest gap: **Zoom-to-Area** falls
+   back to focus-on-selection (no marquee-drag hook exposed); **Section View** flips
+   display-mode to X-Ray as the minimum visible effect because no foundation section-clip
+   primitive is exposed yet — both noted in code comments
+6. **Double-click-dimension-to-edit** — **NOT THIS PASS**
+7. **Auto-relations icon on cursor** — **NOT THIS PASS**
+8. **`(f)` fixed-component prefix** on first-inserted assembly component — **NOT THIS PASS**
+9. **Right-click conventions in FeatureManager** — **NOT THIS PASS**
+10. **Rollback bar** in the FeatureManager Design Tree — **NOT THIS PASS**
+
+**Tier-1 status:** 4 / 10 done in this pass (the four highest-impact universals). Items 4 / 6
+/ 7 / 8 / 9 / 10 are the remaining Tier-1 backlog.
 
 ### Tier 2 — Missing sketch tools
 
