@@ -108,6 +108,85 @@ export class OcctSurfaceAdapter {
       try { if (dv && dv.delete) dv.delete(); } catch (_e) {}
     }
   }
+
+  /**
+   * SP-1 S6 — the UNIFIED Surface contract method. Engine-backed faces try to
+   * extract a B-spline approximation via `GeomConvert.SurfaceToBSplineSurface_1`
+   * (or `GeomConvert::SurfaceToBSplineSurface` static); when the conversion
+   * binding is unavailable (binding gap), returns `null`. The matching
+   * `NurbsSurfaceAdapter.toBSplineSurface` (spine-native analytic faces)
+   * returns the EXACT NURBS data — so the unified contract holds: every
+   * spine Face's surface exposes `toBSplineSurface()`, with analytic faces
+   * returning a lossless surface and engine-backed faces returning an
+   * approximation or null.
+   *
+   * @returns {{degreeU,degreeV,controlNet,weights,knotsU,knotsV}|null}
+   */
+  toBSplineSurface() {
+    const raw = this._rawSurface();
+    if (!raw) return null;
+    const oc = this._oc;
+    // Try GeomConvert.SurfaceToBSplineSurface — if bound, this converts ANY
+    // analytic Geom_Surface to a Geom_BSplineSurface losslessly (NURBS form).
+    // Several binding variants probed.
+    let bsp = null;
+    try {
+      if (oc.GeomConvert && typeof oc.GeomConvert.SurfaceToBSplineSurface_1 === 'function') {
+        const handle = oc.GeomConvert.SurfaceToBSplineSurface_1(this._surfHandle);
+        bsp = handle && typeof handle.get === 'function' ? handle.get() : handle;
+      } else if (oc.GeomConvert && typeof oc.GeomConvert.SurfaceToBSplineSurface === 'function') {
+        const handle = oc.GeomConvert.SurfaceToBSplineSurface(this._surfHandle);
+        bsp = handle && typeof handle.get === 'function' ? handle.get() : handle;
+      }
+    } catch (_e) { bsp = null; }
+    // If the raw surface IS a BSplineSurface already, use it directly.
+    if (!bsp && raw && raw.constructor && /BSplineSurface/i.test(raw.constructor.name)) {
+      bsp = raw;
+    }
+    if (!bsp) return null;
+    // Extract the B-spline payload. We probe the standard accessors;
+    // binding gaps on any one accessor → null (honest degrade).
+    try {
+      const degreeU = typeof bsp.UDegree === 'function' ? bsp.UDegree() : null;
+      const degreeV = typeof bsp.VDegree === 'function' ? bsp.VDegree() : null;
+      const nUPoles = typeof bsp.NbUPoles === 'function' ? bsp.NbUPoles() : 0;
+      const nVPoles = typeof bsp.NbVPoles === 'function' ? bsp.NbVPoles() : 0;
+      if (!degreeU || !degreeV || nUPoles < 2 || nVPoles < 2) return null;
+      // Control net.
+      const controlNet = [];
+      const weights = [];
+      for (let i = 1; i <= nUPoles; i++) {
+        const row = [];
+        const wrow = [];
+        for (let j = 1; j <= nVPoles; j++) {
+          let pole = null;
+          try { pole = bsp.Pole(i, j); } catch (_e) { pole = null; }
+          if (!pole) return null;
+          row.push([pole.X(), pole.Y(), pole.Z()]);
+          let w = 1;
+          try { if (typeof bsp.Weight === 'function') w = bsp.Weight(i, j); } catch (_e) { w = 1; }
+          wrow.push(Number.isFinite(w) ? w : 1);
+          try { if (pole.delete) pole.delete(); } catch (_e) {}
+        }
+        controlNet.push(row);
+        weights.push(wrow);
+      }
+      // Knot vectors — flattened (knot value repeated by multiplicity).
+      const flattenKnots = (knotMethod, multMethod, nbMethod) => {
+        const n = typeof bsp[nbMethod] === 'function' ? bsp[nbMethod]() : 0;
+        const out = [];
+        for (let i = 1; i <= n; i++) {
+          const k = bsp[knotMethod](i);
+          const m = bsp[multMethod](i);
+          for (let r = 0; r < m; r++) out.push(k);
+        }
+        return out;
+      };
+      const knotsU = flattenKnots('UKnot', 'UMultiplicity', 'NbUKnots');
+      const knotsV = flattenKnots('VKnot', 'VMultiplicity', 'NbVKnots');
+      return { degreeU, degreeV, controlNet, weights, knotsU, knotsV };
+    } catch (_e) { return null; }
+  }
 }
 
 /**

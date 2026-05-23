@@ -95,6 +95,24 @@ export class NurbsSurfaceAdapter {
     };
   }
 
+  /**
+   * SP-1 S6 — the UNIFIED Surface contract method. Every spine `Face`'s surface
+   * (OCCT-backed via `OcctSurfaceAdapter` OR spine-native via this adapter)
+   * exposes `toBSplineSurface()` returning the same { degreeU, degreeV,
+   * controlNet, weights, knotsU, knotsV } shape consumed by
+   * `foundation/StepExport.js:nurbsSurfaceToSTEP`. For an analytic face this is
+   * the EXACT analytic surface data (lossless); for an OCCT-backed face the
+   * OcctSurfaceAdapter sampler approximates a B-spline (when the engine binding
+   * allows) or returns null.
+   *
+   * @returns {{degreeU,degreeV,controlNet,weights,knotsU,knotsV}} the
+   *   `B_SPLINE_SURFACE_WITH_KNOTS` payload (analytic surfaces: exact;
+   *    engine-backed surfaces: approximate or null).
+   */
+  toBSplineSurface() {
+    return this.nurbsData();
+  }
+
   /** Triangle mesh of the analytic surface — for rendering only. */
   tessellate(opts) {
     return this.nurbs.tessellate(opts);

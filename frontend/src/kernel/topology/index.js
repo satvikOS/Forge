@@ -38,3 +38,7 @@ export { default as SpineBody, isSpineBody } from './SpineBody.js';
 
 // ── Persistent-ID carry-through across booleans (S3) ──────────────────────────
 export { carryLineage } from './IdLineage.js';
+
+// ── Spine-native analytic-face builder (S6 — G2 blend / N-sided / face-replace) ──
+export { buildAnalyticSpineBody } from './AnalyticFace.js';
+export { NurbsSurfaceAdapter } from './AnalyticNurbsFace.js';
