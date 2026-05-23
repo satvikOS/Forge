@@ -784,6 +784,364 @@ body.sw-dock-suppress-floating .tpd-backdrop {
 }
 .sw-dim-editor-cancel:hover { background: rgba(227, 84, 84, 0.50); color: #fff; }
 
+/* ─── 10. Rollback Bar — Tier-1 #10 (SP-3c) ─────────────────────────────── */
+/*
+ * Lives just below the Heads-up View Toolbar (top:8 + ~32 toolbar height +
+ * 6 gap = top:48). Centered horizontally so it doesn't fight the
+ * PropertyManager Dock on the left or the Confirmation Corner on the right.
+ *
+ * The strip is the marquee element — every entry is a dot or a flag, the
+ * cursor caret is a vertical line that PULSES while scrubbing so the user
+ * sees their drag have effect. Marks have a visible label so the timeline
+ * has anchor text even at rest.
+ */
+.sw-rollback-bar {
+  position: absolute;
+  top: 48px;       /* just below the Heads-up View Toolbar (top:8 + ~32 height) */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 27;     /* above viewport, below dropdowns */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(18, 18, 18, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 6px;
+  padding: 5px 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  animation: sw-fade-in 0.12s ease-out;
+  /* Don't pin the bar at one width — it should grow to fit ~30 entries. */
+  max-width: 78vw;
+}
+
+.sw-rollback-bar-scrubbing {
+  border-color: rgba(74, 144, 217, 0.65);
+  box-shadow: 0 4px 22px rgba(74, 144, 217, 0.35);
+}
+
+.sw-rollback-bar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #b8b8b8;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+.sw-rollback-bar-meta-label { color: #d8d8d8; }
+.sw-rollback-bar-meta-sep { color: rgba(255, 255, 255, 0.25); }
+.sw-rollback-bar-meta-count { color: #9aa3ad; text-transform: none; }
+.sw-rollback-bar-meta-cursor { color: #aac8ff; text-transform: none; }
+
+.sw-rollback-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  color: #c8c8c8;
+  cursor: pointer;
+  transition: background 0.08s, border-color 0.08s, color 0.08s;
+}
+.sw-rollback-step:hover {
+  background: rgba(74, 144, 217, 0.22);
+  border-color: rgba(74, 144, 217, 0.45);
+  color: #fff;
+}
+.sw-rollback-step:active { transform: scale(0.95); }
+
+.sw-rollback-strip {
+  position: relative;
+  flex: 1 1 auto;
+  height: 30px;
+  min-height: 30px;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(0, 0, 0, 0.18) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  cursor: ew-resize;
+  /* Disable native text selection during drag-scrub. */
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+.sw-rollback-strip::before {
+  /* Horizontal baseline rail through the centre — gives the dots a thread. */
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  right: 6px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.sw-rollback-cursor {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 3px;
+  background: linear-gradient(180deg, #4a90d9 0%, #aac8ff 50%, #4a90d9 100%);
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(74, 144, 217, 0.65),
+              0 0 14px rgba(74, 144, 217, 0.35);
+  transition: left 0.10s ease-out;
+}
+
+.sw-rollback-cursor-pulse {
+  animation: sw-rollback-pulse 0.55s ease-in-out infinite alternate;
+}
+
+@keyframes sw-rollback-pulse {
+  from {
+    box-shadow: 0 0 5px rgba(74, 144, 217, 0.45),
+                0 0 12px rgba(74, 144, 217, 0.25);
+    filter: brightness(0.85);
+  }
+  to {
+    box-shadow: 0 0 11px rgba(74, 144, 217, 0.85),
+                0 0 22px rgba(170, 200, 255, 0.55);
+    filter: brightness(1.25);
+  }
+}
+
+/* Baseline flag at the very left of the strip. */
+.sw-rollback-baseline {
+  position: absolute;
+  top: 7px;
+  width: 14px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(120, 130, 140, 0.30);
+  border: 1px solid rgba(160, 170, 180, 0.45);
+  border-radius: 3px;
+  cursor: pointer;
+  color: #cbd1d8;
+  transition: background 0.08s, border-color 0.08s, color 0.08s, transform 0.08s;
+  z-index: 2;
+}
+.sw-rollback-baseline:hover {
+  background: rgba(170, 200, 255, 0.40);
+  border-color: rgba(170, 200, 255, 0.70);
+  color: #fff;
+  transform: scale(1.08);
+}
+.sw-rollback-baseline-active {
+  background: rgba(74, 144, 217, 0.55);
+  border-color: rgba(170, 200, 255, 0.85);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(74, 144, 217, 0.50);
+}
+
+/* Op entry dots — small circles on the rail. */
+.sw-rollback-entry {
+  position: absolute;
+  top: 10px;
+  width: 10px;
+  height: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(154, 163, 173, 0.35);
+  border: 1px solid rgba(200, 208, 216, 0.50);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.10s, border-color 0.10s, transform 0.10s,
+              box-shadow 0.10s;
+  z-index: 3;
+  color: transparent;  /* no icon inside the dot */
+}
+
+.sw-rollback-entry-applied {
+  background: rgba(74, 144, 217, 0.55);
+  border-color: rgba(170, 200, 255, 0.70);
+}
+.sw-rollback-entry-pending {
+  background: rgba(80, 86, 92, 0.45);
+  border-color: rgba(140, 148, 156, 0.45);
+  opacity: 0.65;
+}
+.sw-rollback-entry-current {
+  background: #aac8ff;
+  border-color: #fff;
+  box-shadow: 0 0 6px rgba(170, 200, 255, 0.85),
+              0 0 12px rgba(74, 144, 217, 0.55);
+  transform: scale(1.30);
+}
+.sw-rollback-entry:hover,
+.sw-rollback-entry-hover {
+  background: rgba(170, 200, 255, 0.65);
+  border-color: #fff;
+  transform: scale(1.25);
+}
+
+/* Mark flag — bigger than an entry dot, carries a label. */
+.sw-rollback-mark {
+  position: absolute;
+  top: 4px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px 0 4px;
+  background: rgba(251, 192, 104, 0.30);
+  border: 1px solid rgba(251, 192, 104, 0.65);
+  border-radius: 3px;
+  cursor: pointer;
+  color: #fbc068;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background 0.08s, border-color 0.08s, color 0.08s, transform 0.08s,
+              box-shadow 0.08s;
+  z-index: 4;
+}
+.sw-rollback-mark .sw-rollback-mark-label {
+  pointer-events: none;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sw-rollback-mark:hover {
+  background: rgba(251, 192, 104, 0.55);
+  border-color: #fbc068;
+  color: #fff;
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 2px 8px rgba(251, 192, 104, 0.45);
+}
+.sw-rollback-mark.sw-rollback-entry-current {
+  background: rgba(251, 192, 104, 0.75);
+  border-color: #fff;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(251, 192, 104, 0.65),
+              0 0 18px rgba(251, 192, 104, 0.35);
+  transform: scale(1.08);
+}
+.sw-rollback-mark.sw-rollback-entry-applied { color: #ffd089; }
+.sw-rollback-mark.sw-rollback-entry-pending {
+  background: rgba(140, 110, 70, 0.30);
+  border-color: rgba(180, 145, 95, 0.45);
+  color: #d8b070;
+  opacity: 0.75;
+}
+
+/* Hover tooltip pill that floats below the bar — sits to the side so it
+   doesn't cover the cursor on dense timelines. */
+.sw-rollback-tip {
+  position: absolute;
+  top: 100%;
+  margin-top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 20, 20, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: #d0d0d0;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+}
+.sw-rollback-tip-op { color: #aac8ff; font-weight: 600; }
+.sw-rollback-tip-mark { color: #fbc068; }
+.sw-rollback-tip-ids { color: #9aa3ad; font-family: monospace; font-size: 9.5px; }
+
+/* Context menu (right-click a mark). */
+.sw-rollback-bar-context {
+  position: fixed;
+  z-index: 9001;
+  min-width: 170px;
+  background: rgba(20, 20, 20, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 3px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  font-size: 11px;
+  color: #d0d0d0;
+}
+
+.sw-rollback-bar-context-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px 6px;
+  background: rgba(251, 192, 104, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: #fbc068;
+  font-weight: 600;
+}
+
+.sw-rollback-bar-context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #d0d0d0;
+  cursor: pointer;
+  transition: background 0.06s, color 0.06s;
+}
+.sw-rollback-bar-context-item:hover {
+  background: rgba(74, 144, 217, 0.30);
+  color: #fff;
+}
+.sw-rollback-bar-context-item-danger { color: #e35454; }
+.sw-rollback-bar-context-item-danger:hover { background: rgba(227, 84, 84, 0.30); color: #fff; }
+
+/* Inline rename input — appears over the bar at the active mark. */
+.sw-rollback-bar-rename {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9002;
+  background: rgba(20, 20, 20, 0.96);
+  border: 1px solid rgba(74, 144, 217, 0.65);
+  border-radius: 4px;
+  padding: 4px 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65),
+              0 0 12px rgba(74, 144, 217, 0.35);
+}
+
+.sw-rollback-bar-rename-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 140px;
+  text-align: center;
+}
+
 /* ─── animations ───────────────────────────────────────────────────────── */
 @keyframes sw-fade-in {
   from { opacity: 0; transform: translateY(-3px); }

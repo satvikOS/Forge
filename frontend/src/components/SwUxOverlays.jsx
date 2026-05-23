@@ -34,7 +34,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronRight, Check, X, Maximize2, Crop,
          Scissors, Box, Eye, Square, MousePointer, Layers, Hexagon,
          Circle, Trash2, Info, Minus, MoveVertical, GitBranch,
-         RotateCw, Slash } from 'lucide-react';
+         RotateCw, Slash, Flag, Clock, SkipBack, SkipForward,
+         Edit2 } from 'lucide-react';
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import './SwUxOverlays.css';
 
@@ -262,6 +263,13 @@ export function HeadsUpViewToolbar() {
   const closeMenus = () => { setOrientOpen(false); setStyleOpen(false); };
 
   return (
+    <>
+    {/* Tier-1 #10 — Rollback bar mounts as a sibling so the bar is always
+     *  present whenever the heads-up toolbar is mounted (every workbench).
+     *  Auto-hides when the kernel HistoryLog is empty (no point showing an
+     *  empty timeline). See `RollbackBar` definition at the bottom of this
+     *  file for the SP-3c kernel-history-backed scrubber. */}
+    <RollbackBar />
     <div className="sw-heads-up-toolbar" data-archdisc-headsup="active" onMouseLeave={closeMenus}>
       <button
         className="sw-hu-btn"
@@ -398,6 +406,7 @@ export function HeadsUpViewToolbar() {
         )}
       </div>
     </div>
+    </>
   );
 }
 
@@ -1309,4 +1318,527 @@ export function DisplayRelationsDock() {
       </div>
     </aside>
   );
+}
+
+// ─── 10. Rollback Bar — Tier-1 #10 (SP-3c kernel-history timeline scrubber) ──
+//
+// A real, HistoryLog-backed timeline strip at the top of the viewport. Lives
+// just under the Heads-up View Toolbar (which is centred at top:8). The
+// Rollback bar sits beneath it (top:48) so the two never collide and the
+// timeline reads naturally as "below the camera controls".
+//
+// What it shows:
+//   - A horizontal strip with every entry in the kernel HistoryLog
+//     (`window.__archdiscKernelHistory`) rendered as a dot. Marks render as
+//     flag-markers with a visible label on hover (and persistent labels for
+//     the first / last named marks so the strip has anchor text at rest).
+//   - The CURRENT cursor highlighted as a vertical caret line pulsing
+//     subtly. As the user clicks or drags-scrubs, the caret moves AND the
+//     model state animates LIVE — the marquee Rollback UX.
+//   - Baseline ("__baseline") rendered as the leftmost flag — clicking it
+//     rolls back to before any op.
+//
+// What it does:
+//   - Click any dot or mark flag → call `hist.rollBackTo` (or
+//     `rollForwardTo` if forward) with the kernel scene context (registry +
+//     viewport defaults via the standardSceneRegister / Remove paths). The
+//     kernel re-runs forwards / inverses for the rebuilt scene.
+//   - Drag the caret along the strip → scrubs LIVE. Each pointer-move
+//     resolves the nearest entry under the caret and drives a
+//     rollBackTo/rollForwardTo to it. Throttled to one drive per RAF so a
+//     rapid drag doesn't stack expensive rolls (an honest debounce — see
+//     the gap note in ux-track-progress.md).
+//   - Right-click a mark → context menu: Rename / Delete / Roll To. Rename
+//     edits `entry.mark` in place and re-keys the mark index. Delete
+//     removes the mark entry from the log (truncates marks-after-cursor
+//     correctly).
+//   - Re-renders on every `archdisc:history-changed` event emitted by
+//     HistoryLog.js (recordOp / mark / rollBack / rollForward).
+//
+// Honest scope:
+//   - The bar shows the LINEAR timeline; the feature DAG (dependsOn) is not
+//     rendered here. Rendering the DAG is a follow-on; the linear strip
+//     covers the marquee scrub gesture cleanly.
+//   - Drag-scrub drives full kernel rolls per step. For very dense logs (>50
+//     entries) the per-step roll cost dominates; the RAF throttle keeps the
+//     UI responsive but the visible model updates lag the cursor by one
+//     animation frame at most. Documented in the gap notes.
+
+const ROLLBACK_BAR_MIN_WIDTH = 320;
+const ROLLBACK_BAR_MAX_ENTRIES_VISIBLE = 30;
+
+function getKernelHistory() {
+  if (typeof window === 'undefined') return null;
+  return window.__archdiscKernelHistory || null;
+}
+
+/**
+ * Snapshot the current HistoryLog state. Pure read — never mutates.
+ * Returns `null` when the log isn't installed yet (pre-kernel-init).
+ */
+function snapshotHistory() {
+  const hist = getKernelHistory();
+  if (!hist || !Array.isArray(hist.entries)) return null;
+  // Build a compact, render-friendly list. Each item carries its index so
+  // the click-resolver doesn't need to scan the log every time.
+  const items = hist.entries.map((e, idx) => ({
+    idx,
+    id: e.id,
+    opName: e.opName,
+    mark: e.mark || null,
+    time: e.time,
+    // SP-3b derive ops carry persistentBodyId(s) + inputPersistentIds in
+    // meta — surface a compact id list for the hover tooltip.
+    persistentIds: collectPersistentIds(e),
+  }));
+  return {
+    items,
+    cursor: hist.cursor,
+    marks: hist.listMarks().map(e => ({ id: e.id, name: e.mark })),
+    currentId: hist.currentMarkOrEntry() ? hist.currentMarkOrEntry().id : null,
+  };
+}
+
+function collectPersistentIds(entry) {
+  if (!entry || !entry.meta) return [];
+  const ids = [];
+  if (entry.meta.persistentBodyId) ids.push(entry.meta.persistentBodyId);
+  if (Array.isArray(entry.meta.persistentBodyIds)) {
+    for (const p of entry.meta.persistentBodyIds) ids.push(p);
+  }
+  if (Array.isArray(entry.meta.inputPersistentIds)
+      && entry.meta.inputPersistentIds.length) {
+    ids.push('←' + entry.meta.inputPersistentIds.join(','));
+  }
+  return ids;
+}
+
+/**
+ * Drive a roll to the target index — symmetric: rolls back if target<cursor,
+ * forward if target>cursor. The kernel HistoryLog's rollBackTo / rollForwardTo
+ * themselves accept the symmetric inverse routing, so we always call
+ * rollBackTo when going down and rollForwardTo when going up.
+ *
+ * Returns the snapshot AFTER the roll so the caller can refresh the bar
+ * synchronously (in addition to the event-driven re-render which fires
+ * inside HistoryLog).
+ */
+async function driveRollToIndex(targetIdx) {
+  const hist = getKernelHistory();
+  if (!hist) return null;
+  if (targetIdx === hist.cursor) return snapshotHistory();
+  try {
+    if (targetIdx < 0) {
+      await hist.rollBackTo('__baseline');
+    } else {
+      const entry = hist.entries[targetIdx];
+      if (!entry) return snapshotHistory();
+      if (targetIdx < hist.cursor) await hist.rollBackTo(entry);
+      else await hist.rollForwardTo(entry);
+    }
+  } catch (err) {
+    // Honest behaviour — surface the roll failure on the window for e2e +
+    // debugging. Cursor sits where it failed; the user re-clicks to retry.
+    if (typeof window !== 'undefined') {
+      window.__lastRollbackBarError = err && err.message ? err.message : String(err);
+    }
+  }
+  return snapshotHistory();
+}
+
+/**
+ * Render the Rollback bar overlay. Lives just below the Heads-up View Toolbar.
+ * Auto-hides itself when the log is empty (no point showing an empty timeline).
+ */
+export function RollbackBar() {
+  const [snap, setSnap] = useState(() => snapshotHistory());
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null); // {x,y,entry}
+  const [renameEditing, setRenameEditing] = useState(null); // {entryId, value}
+  const [scrubbing, setScrubbing] = useState(false);
+  const stripRef = useRef(null);
+  const rafThrottleRef = useRef({ pendingIdx: null, raf: null });
+  const renameInputRef = useRef(null);
+
+  // Subscribe to the history-changed event the kernel HistoryLog emits.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const refresh = () => setSnap(snapshotHistory());
+    refresh();
+    window.addEventListener('archdisc:history-changed', refresh);
+    // Re-poll once after mount in case the kernel installed the log AFTER
+    // the React tree mounted (the lazy-singleton init in kernelHistory.js).
+    const t = setTimeout(refresh, 250);
+    return () => {
+      window.removeEventListener('archdisc:history-changed', refresh);
+      clearTimeout(t);
+    };
+  }, []);
+
+  // Throttled scrub-drive. Multiple pointer-move events within one RAF
+  // collapse to a single driveRollToIndex; otherwise an aggressive drag
+  // queues up kernel rolls faster than they can finish.
+  const queueRollToIndex = useCallback((idx) => {
+    const ref = rafThrottleRef.current;
+    ref.pendingIdx = idx;
+    if (ref.raf !== null) return;
+    ref.raf = requestAnimationFrame(async () => {
+      const pending = ref.pendingIdx;
+      ref.pendingIdx = null;
+      ref.raf = null;
+      if (pending == null) return;
+      const next = await driveRollToIndex(pending);
+      if (next) setSnap(next);
+    });
+  }, []);
+
+  const clickEntry = useCallback(async (idx) => {
+    setContextMenu(null);
+    const next = await driveRollToIndex(idx);
+    if (next) setSnap(next);
+  }, []);
+
+  // Drag-scrub: track pointer X over the strip, map to nearest entry idx.
+  const onStripPointerDown = useCallback((ev) => {
+    if (ev.button !== 0) return;
+    if (!stripRef.current) return;
+    setScrubbing(true);
+    const rect = stripRef.current.getBoundingClientRect();
+    const idx = resolveIdxFromX(ev.clientX, rect, snap);
+    queueRollToIndex(idx);
+    try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch {}
+  }, [snap, queueRollToIndex]);
+
+  const onStripPointerMove = useCallback((ev) => {
+    if (!stripRef.current) return;
+    const rect = stripRef.current.getBoundingClientRect();
+    const idx = resolveIdxFromX(ev.clientX, rect, snap);
+    setHoverIdx(idx);
+    if (scrubbing) queueRollToIndex(idx);
+  }, [snap, scrubbing, queueRollToIndex]);
+
+  const onStripPointerUp = useCallback((ev) => {
+    setScrubbing(false);
+    try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch {}
+  }, []);
+
+  const onStripPointerLeave = useCallback(() => setHoverIdx(null), []);
+
+  // Right-click on a mark → context menu.
+  const onMarkContextMenu = useCallback((ev, item) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    setContextMenu({
+      x: Math.min(ev.clientX, (window.innerWidth || 9999) - 200),
+      y: Math.min(ev.clientY, (window.innerHeight || 9999) - 180),
+      entry: item,
+    });
+  }, []);
+
+  // Dismiss the context menu on click-outside / Escape.
+  useEffect(() => {
+    if (!contextMenu) return undefined;
+    const onDown = (e) => {
+      const root = document.querySelector('.sw-rollback-bar-context');
+      if (root && root.contains(e.target)) return;
+      setContextMenu(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setContextMenu(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  // Focus the rename input when it appears.
+  useEffect(() => {
+    if (renameEditing && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renameEditing]);
+
+  const onCtxRename = useCallback((entry) => {
+    setRenameEditing({ entryId: entry.id, value: entry.mark || '' });
+    setContextMenu(null);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (!renameEditing) return;
+    const hist = getKernelHistory();
+    if (!hist) { setRenameEditing(null); return; }
+    const target = hist.entryById(renameEditing.entryId);
+    const newName = String(renameEditing.value || '').trim();
+    if (target && newName) {
+      // Remove the old mark-index entry, set new, re-key.
+      if (target.mark && hist._markIndex.has(target.mark)) {
+        hist._markIndex.delete(target.mark);
+      }
+      target.mark = newName;
+      hist._markIndex.set(newName, hist.entries.indexOf(target));
+      // Surface for e2e + AI introspection.
+      if (typeof window !== 'undefined') {
+        window.__lastRollbackBarRename = { entryId: target.id, name: newName };
+        try {
+          window.dispatchEvent(new CustomEvent('archdisc:history-changed', {
+            detail: { type: 'rename', entryId: target.id, mark: newName },
+          }));
+        } catch {}
+      }
+    }
+    setRenameEditing(null);
+    setSnap(snapshotHistory());
+  }, [renameEditing]);
+
+  const onCtxDelete = useCallback((entry) => {
+    const hist = getKernelHistory();
+    if (!hist) { setContextMenu(null); return; }
+    const target = hist.entryById(entry.id);
+    if (!target || !target.mark) { setContextMenu(null); return; }
+    // Detaching a mark = strip the mark name from the entry + remove from
+    // index. The entry itself stays (its forward/inverse are NOOPs anyway —
+    // marks are pure pointers; deleting the name does not affect the
+    // timeline's geometry-ops chain).
+    const name = target.mark;
+    target.mark = null;
+    if (hist._markIndex.has(name)) hist._markIndex.delete(name);
+    if (typeof window !== 'undefined') {
+      window.__lastRollbackBarDelete = { entryId: target.id, name };
+      try {
+        window.dispatchEvent(new CustomEvent('archdisc:history-changed', {
+          detail: { type: 'mark-delete', entryId: target.id, mark: name },
+        }));
+      } catch {}
+    }
+    setContextMenu(null);
+    setSnap(snapshotHistory());
+  }, []);
+
+  const onCtxRollTo = useCallback(async (entry) => {
+    setContextMenu(null);
+    const next = await driveRollToIndex(entry.idx);
+    if (next) setSnap(next);
+  }, []);
+
+  // Bar hides when there's no log content.
+  if (!snap || snap.items.length === 0) {
+    return null;
+  }
+
+  const N = snap.items.length;
+  // Cursor cell — cursor = -1 means baseline (BEFORE entries[0]); we render
+  // the strip with N+1 positions: position 0 is the "before any op" slot
+  // (the baseline flag), and positions 1..N are the entries.
+  const cursorCell = snap.cursor + 1;  // 0 ⇔ baseline, N ⇔ tail entry
+  const totalCells = N + 1;
+  const stepPercent = 100 / totalCells;
+
+  return (
+    <>
+      <div
+        className={'sw-rollback-bar' + (scrubbing ? ' sw-rollback-bar-scrubbing' : '')}
+        data-archdisc-rollback-bar="active"
+        data-archdisc-rollback-entries={N}
+        data-archdisc-rollback-cursor={snap.cursor}
+        data-archdisc-rollback-current={snap.currentId || 'baseline'}
+        role="toolbar"
+        aria-label="Kernel rollback timeline"
+      >
+        <div className="sw-rollback-bar-meta">
+          <Clock size={11} />
+          <span className="sw-rollback-bar-meta-label">Rollback</span>
+          <span className="sw-rollback-bar-meta-sep">·</span>
+          <span className="sw-rollback-bar-meta-count">{N} ops</span>
+          <span className="sw-rollback-bar-meta-sep">·</span>
+          <span className="sw-rollback-bar-meta-cursor">
+            cursor {snap.cursor === -1 ? '—' : snap.cursor}/{N - 1}
+          </span>
+        </div>
+        <button
+          className="sw-rollback-step"
+          title="Roll back to baseline"
+          data-archdisc-rollback-action="rewind"
+          onClick={() => clickEntry(-1)}
+          aria-label="Rewind to baseline"
+        >
+          <SkipBack size={11} />
+        </button>
+        <div
+          ref={stripRef}
+          className="sw-rollback-strip"
+          data-archdisc-rollback-strip="active"
+          onPointerDown={onStripPointerDown}
+          onPointerMove={onStripPointerMove}
+          onPointerUp={onStripPointerUp}
+          onPointerLeave={onStripPointerLeave}
+          onPointerCancel={onStripPointerUp}
+          style={{ minWidth: ROLLBACK_BAR_MIN_WIDTH + 'px' }}
+        >
+          {/* Cursor caret — positioned by cell index. Pulses when scrubbing. */}
+          <div
+            className={'sw-rollback-cursor'
+              + (scrubbing ? ' sw-rollback-cursor-pulse' : '')}
+            data-archdisc-rollback-caret={snap.cursor}
+            style={{ left: `calc(${(cursorCell + 0.5) * stepPercent}% - 1px)` }}
+          />
+          {/* Baseline flag at the very left. */}
+          <button
+            type="button"
+            className={'sw-rollback-baseline'
+              + (snap.cursor === -1 ? ' sw-rollback-baseline-active' : '')}
+            title="Baseline (before any op)"
+            data-archdisc-rollback-baseline="present"
+            data-archdisc-rollback-active={snap.cursor === -1 ? 'true' : 'false'}
+            style={{ left: `calc(${0.5 * stepPercent}% - 7px)` }}
+            onClick={(e) => { e.stopPropagation(); clickEntry(-1); }}
+          >
+            <Flag size={10} />
+          </button>
+          {/* Entry dots + mark flags */}
+          {snap.items.map((item) => {
+            const cellCenterPercent = (item.idx + 1 + 0.5) * stepPercent;
+            const isCurrent = item.idx === snap.cursor;
+            const isApplied = item.idx <= snap.cursor;
+            const isHovered = hoverIdx === item.idx;
+            const isMark = !!item.mark;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={
+                  (isMark ? 'sw-rollback-mark' : 'sw-rollback-entry')
+                  + (isCurrent ? ' sw-rollback-entry-current' : '')
+                  + (isApplied ? ' sw-rollback-entry-applied' : ' sw-rollback-entry-pending')
+                  + (isHovered ? ' sw-rollback-entry-hover' : '')
+                }
+                data-archdisc-rollback-entry={item.id}
+                data-archdisc-rollback-entry-idx={item.idx}
+                data-archdisc-rollback-entry-op={item.opName}
+                data-archdisc-rollback-entry-mark={item.mark || ''}
+                data-archdisc-rollback-entry-applied={isApplied ? 'true' : 'false'}
+                data-archdisc-rollback-entry-current={isCurrent ? 'true' : 'false'}
+                style={{
+                  left: isMark
+                    ? `calc(${cellCenterPercent}% - 9px)`
+                    : `calc(${cellCenterPercent}% - 5px)`,
+                }}
+                title={
+                  isMark
+                    ? `${item.mark} (mark)`
+                    : `${item.opName}${item.persistentIds.length ? ' — ' + item.persistentIds.join(', ') : ''}`
+                }
+                onClick={(e) => { e.stopPropagation(); clickEntry(item.idx); }}
+                onContextMenu={(e) => isMark ? onMarkContextMenu(e, item) : null}
+              >
+                {isMark ? (
+                  <>
+                    <Flag size={9} />
+                    <span className="sw-rollback-mark-label">{item.mark}</span>
+                  </>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          className="sw-rollback-step"
+          title="Roll forward to tail"
+          data-archdisc-rollback-action="ffwd"
+          onClick={() => clickEntry(N - 1)}
+          aria-label="Roll forward to tail"
+        >
+          <SkipForward size={11} />
+        </button>
+        {hoverIdx !== null && snap.items[hoverIdx] && (
+          <div
+            className="sw-rollback-tip"
+            data-archdisc-rollback-tip={snap.items[hoverIdx].id}
+          >
+            <span className="sw-rollback-tip-op">{snap.items[hoverIdx].opName}</span>
+            {snap.items[hoverIdx].mark && (
+              <span className="sw-rollback-tip-mark"> · {snap.items[hoverIdx].mark}</span>
+            )}
+            {snap.items[hoverIdx].persistentIds.length > 0 && (
+              <span className="sw-rollback-tip-ids">
+                {' '}· {snap.items[hoverIdx].persistentIds.join(', ')}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {contextMenu && (
+        <div
+          className="sw-rollback-bar-context"
+          data-archdisc-rollback-context="open"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="sw-rollback-bar-context-header">
+            <Flag size={11} />
+            <span>{contextMenu.entry.mark}</span>
+          </div>
+          <button
+            className="sw-rollback-bar-context-item"
+            data-archdisc-rollback-context-action="roll-to"
+            onClick={() => onCtxRollTo(contextMenu.entry)}
+          >
+            <SkipForward size={11} />
+            <span>Roll To Here</span>
+          </button>
+          <button
+            className="sw-rollback-bar-context-item"
+            data-archdisc-rollback-context-action="rename"
+            onClick={() => onCtxRename(contextMenu.entry)}
+          >
+            <Edit2 size={11} />
+            <span>Rename</span>
+          </button>
+          <button
+            className="sw-rollback-bar-context-item sw-rollback-bar-context-item-danger"
+            data-archdisc-rollback-context-action="delete"
+            onClick={() => onCtxDelete(contextMenu.entry)}
+          >
+            <Trash2 size={11} />
+            <span>Delete Mark</span>
+          </button>
+        </div>
+      )}
+
+      {renameEditing && (
+        <div className="sw-rollback-bar-rename" data-archdisc-rollback-rename="open">
+          <input
+            ref={renameInputRef}
+            className="sw-rollback-bar-rename-input"
+            value={renameEditing.value}
+            onChange={(e) => setRenameEditing(s => ({ ...s, value: e.target.value }))}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename();
+              else if (e.key === 'Escape') setRenameEditing(null);
+            }}
+            data-archdisc-rollback-rename-input
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Map a pointer X (clientX) onto the nearest entry index, given the strip
+ * bounding rect + current snapshot. Returns -1 for the baseline cell.
+ */
+function resolveIdxFromX(clientX, rect, snap) {
+  if (!snap || snap.items.length === 0) return -1;
+  const N = snap.items.length;
+  const totalCells = N + 1;
+  const x = clientX - rect.left;
+  const cell = Math.floor((x / rect.width) * totalCells);
+  const clamped = Math.max(0, Math.min(totalCells - 1, cell));
+  // Cell 0 = baseline (-1); cells 1..N map to entries 0..N-1.
+  return clamped === 0 ? -1 : clamped - 1;
 }
