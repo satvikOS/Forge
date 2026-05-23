@@ -95,6 +95,7 @@ export async function extrudeRect(w, h, depth) {
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `extrudeRect-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
     });
     // Carry persistent ids from the profile sheet body through the prism.
     // The base `BRepBuilderAPI_MakeShape` exposes `Modified(S)` /
@@ -164,6 +165,8 @@ export async function revolveRect(innerR, width, height, angleDeg) {
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `revolveRect-${wrapper.id}`, geomEngineShape: wrapper,
+      // 360° → solid; partial angle → still solid (a closed-volume revolution).
+      declaredKind: 'solid',
     });
     const lineage = carryLineage(oc, maker, resultBody, [
       { body: profileBody, role: 'arg' },
@@ -224,6 +227,9 @@ function bindFeatureResult(oc, opName, src, maker, meta) {
   const wrapper = new BrepShape(shape, meta);
   const resultBody = bindSpine(oc, shape, {
     bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+    // Fillet / chamfer preserves the input's kind — if the input is a solid
+    // (the contract — assertSolid below), the result is a solid. S5.
+    declaredKind: 'solid',
   });
   if (src.body) {
     const lineage = carryLineage(oc, maker, resultBody, [

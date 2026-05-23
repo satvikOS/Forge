@@ -62,11 +62,15 @@ import { carryLineage } from '../topology/IdLineage.js';
  * @param {object} meta          result meta — op + params, parents.
  * @returns {SpineBody}
  */
-function bindSurfacingResult(oc, opName, profileBodies, algo, shape, meta) {
+function bindSurfacingResult(oc, opName, profileBodies, algo, shape, meta, opts = {}) {
   if (shape.IsNull()) throw new Error(`${opName}: kernel produced a null shape`);
   const wrapper = new BrepShape(shape, meta);
+  // S5: surfacing ops default to 'solid' (sweep/loft/pipeShellSweep/loftTangent
+  // all close a swept profile into a volume). buildNurbsPatch / trimmedNurbsFace
+  // explicitly declare 'sheet'.
   const resultBody = bindSpine(oc, shape, {
     bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+    declaredKind: opts.declaredKind || 'solid',
   });
   const inputBodies = profileBodies
     .filter((pb) => !!pb)

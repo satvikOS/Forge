@@ -72,11 +72,15 @@ import { carryLineage } from '../topology/IdLineage.js';
  * @param {object} meta     result meta — op + params, parents.
  * @returns {SpineBody}
  */
-function bindLocalOpResult(oc, opName, src, algo, shape, meta) {
+function bindLocalOpResult(oc, opName, src, algo, shape, meta, opts = {}) {
   if (shape.IsNull()) throw new Error(`${opName}: kernel produced a null shape`);
   const wrapper = new BrepShape(shape, meta);
+  // S5: declared kind is op-supplied (defaults to 'solid' — shell/offset/draft
+  // all preserve solidness; thicken explicitly declares 'solid' as its
+  // sheet→solid output). Mismatch surfaces as a kindMismatch diagnostic.
   const resultBody = bindSpine(oc, shape, {
     bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+    declaredKind: opts.declaredKind || 'solid',
   });
   if (src.body) {
     const lineage = carryLineage(oc, algo, resultBody, [
@@ -113,6 +117,11 @@ function bindLocalOpResult(oc, opName, src, algo, shape, meta) {
 export async function shell(brepShape, thickness) {
   if (!brepShape || !brepShape.shape) throw new Error('shell: needs a SpineBody or BrepShape');
   if (!(thickness > 0)) throw new Error(`shell: thickness must be positive (got ${thickness})`);
+  // S5 body-kind gate — shell requires a closed-volume body. Spine-aware:
+  // when the input has a body, enforce solid-only first-class.
+  if (brepShape.body && typeof brepShape.body.assertSolid === 'function') {
+    brepShape.body.assertSolid('shell');
+  }
   const oc = await getOCCT();
   return withScope(() => {
     // verified sequence from kernel-api-A2.md item 1
@@ -197,6 +206,13 @@ export async function shell(brepShape, thickness) {
 export async function thicken(brepShape, thickness) {
   if (!brepShape || !brepShape.shape) throw new Error('thicken: needs a SpineBody or BrepShape (the open-surface body to thicken)');
   if (!(thickness > 0)) throw new Error(`thicken: thickness must be positive (got ${thickness})`);
+  // S5 body-kind gate — when the input carries a spine body, enforce the
+  // sheet-only precondition first-class. The engine-shape-type check below
+  // still runs (it covers raw BrepShape inputs without a spine body), but the
+  // spine-aware gate fires earlier with a clearer diagnostic.
+  if (brepShape.body && typeof brepShape.body.assertSheet === 'function') {
+    brepShape.body.assertSheet('thicken');
+  }
   const oc = await getOCCT();
   return withScope(() => {
     const inputShape = brepShape.shape;

@@ -57,8 +57,12 @@ async function runBoolean(opName, Ctor, a, b) {
     const meta = { op: opName, parents };
     const wrapper = new BrepShape(shape, meta);
     // Bind the spine — freshly allocated persistent ids for the moment.
+    // S5: the result of a solid-solid boolean is itself a solid (the algo's
+    // closure invariant; degenerate "boolean produces sheet/empty" cases
+    // surface as a kindMismatch diagnostic from the topology-derived kind).
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
     });
     // Carry the inputs' persistent ids through the boolean. SpineBody operands
     // contribute their spine bodies; legacy BrepShape operands have no spine to

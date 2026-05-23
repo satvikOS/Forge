@@ -63,16 +63,29 @@ export default function ToolParamDialog() {
                 {f.hint && <span className="tpd-hint">{f.hint}</span>}
               </label>
               <div className="tpd-input-wrap">
-                <input
-                  className="tpd-input"
-                  type="number"
-                  step={f.step ?? 'any'}
-                  min={f.min}
-                  max={f.max}
-                  value={state.values[f.name]}
-                  onChange={(e) => handleChange(f.name, e.target.value)}
-                  data-field={f.name}
-                />
+                {f.type === 'enum' && Array.isArray(f.options) ? (
+                  <select
+                    className="tpd-input"
+                    value={state.values[f.name]}
+                    onChange={(e) => handleChange(f.name, e.target.value)}
+                    data-field={f.name}
+                  >
+                    {f.options.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="tpd-input"
+                    type="number"
+                    step={f.step ?? 'any'}
+                    min={f.min}
+                    max={f.max}
+                    value={state.values[f.name]}
+                    onChange={(e) => handleChange(f.name, e.target.value)}
+                    data-field={f.name}
+                  />
+                )}
                 {f.unit && <span className="tpd-unit">{f.unit}</span>}
               </div>
             </div>

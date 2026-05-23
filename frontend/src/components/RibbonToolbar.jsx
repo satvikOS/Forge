@@ -18,9 +18,11 @@ const TABS = {
     groups: [
       { label: 'Draw', tools: [
         { name: 'Line', icon: '/', key: 'sketch', shortcut: 'L' },
+        { name: 'Center Line', icon: '⋮', key: 'sketch' },
         { name: 'Circle', icon: 'O', key: 'sketch' },
         { name: 'Arc', icon: ')', key: 'sketch' },
         { name: 'Rectangle', icon: '□', key: 'sketch', shortcut: 'B' },
+        { name: 'Center Rectangle', icon: '⊞', key: 'sketch' },
         { name: 'Polygon', icon: '⬡', key: 'sketch' },
         { name: 'Spline', icon: '~', key: 'sketch' },
         { name: 'Ellipse', icon: '⬭', key: 'sketch' },
@@ -32,6 +34,9 @@ const TABS = {
         { name: 'Offset', icon: '⟹', key: 'sketch' },
         { name: 'Mirror Sketch', icon: '⟷', key: 'sketch' },
         { name: 'Fillet Sketch', icon: '◜', key: 'sketch' },
+        { name: 'Sketch Chamfer', icon: '◿', key: 'sketch' },
+        { name: 'Convert Entities', icon: '⤓', key: 'sketch' },
+        { name: 'Toggle Construction', icon: '⌁', key: 'sketch' },
       ]},
       { label: 'Constrain', tools: [
         { name: 'Dimension', icon: '↔', key: 'sketch', shortcut: 'D' },

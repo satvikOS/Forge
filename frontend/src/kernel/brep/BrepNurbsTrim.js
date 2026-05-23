@@ -341,6 +341,7 @@ export async function trimmedNurbsFace(opts = {}) {
     const wrapper = new BrepShape(compound, meta);
     const resultBody = bindSpine(oc, compound, {
       bodyTag: `trimmedNurbsFace-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'sheet', // S5 — a trimmed NURBS face is a sheet body.
       validate: false,
     });
     const spineBody = new SpineBody(resultBody, wrapper, meta);

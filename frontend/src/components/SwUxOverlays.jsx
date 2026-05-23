@@ -426,6 +426,9 @@ export const DOCKED_TOOLS = new Set([
   'Draft',
   'Linear Pattern',
   'Circular Pattern',
+  // Tier-2a (sketch primitives)
+  'Sketch Chamfer',
+  'Convert Entities',
 ]);
 
 export function PropertyManagerDock() {
@@ -530,16 +533,29 @@ export function PropertyManagerDock() {
           <div key={f.name} className="sw-pm-dock-row">
             <label className="sw-pm-dock-label" title={f.hint || ''}>{f.label}</label>
             <div className="sw-pm-dock-input-wrap">
-              <input
-                className="sw-pm-dock-input"
-                type="number"
-                step={f.step ?? 'any'}
-                min={f.min}
-                max={f.max}
-                value={state.values[f.name]}
-                onChange={(e) => setField(f.name, e.target.value)}
-                data-field={f.name}
-              />
+              {f.type === 'enum' && Array.isArray(f.options) ? (
+                <select
+                  className="sw-pm-dock-input"
+                  value={state.values[f.name]}
+                  onChange={(e) => setField(f.name, e.target.value)}
+                  data-field={f.name}
+                >
+                  {f.options.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="sw-pm-dock-input"
+                  type="number"
+                  step={f.step ?? 'any'}
+                  min={f.min}
+                  max={f.max}
+                  value={state.values[f.name]}
+                  onChange={(e) => setField(f.name, e.target.value)}
+                  data-field={f.name}
+                />
+              )}
               {f.unit && <span className="sw-pm-dock-unit">{f.unit}</span>}
             </div>
           </div>

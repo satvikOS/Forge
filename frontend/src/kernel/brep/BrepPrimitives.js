@@ -61,6 +61,8 @@ export async function makeBox(dx, dy, dz) {
     // mutates it — so the geometry path cannot regress (SP-1 §5.2).
     const body = bindSpine(oc, shape, {
       bodyTag: `makeBox-${wrapper.id}`, geomEngineShape: wrapper,
+      // S5 — every primitive DECLARES its result kind first-class.
+      declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
   });
@@ -91,6 +93,7 @@ export async function makeCylinder(radius, height) {
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
       bodyTag: `makeCylinder-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
   });
@@ -119,6 +122,7 @@ export async function makeSphere(radius) {
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
       bodyTag: `makeSphere-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
   });
@@ -150,6 +154,7 @@ export async function makeCone(radius1, radius2, height) {
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
       bodyTag: `makeCone-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
   });
@@ -182,6 +187,7 @@ export async function makeTorus(majorRadius, minorRadius) {
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
       bodyTag: `makeTorus-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
   });

@@ -100,6 +100,7 @@ import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
+import InteractiveSketch, { TOOLS as SK_TOOLS } from '../../kernel/sketch/InteractiveSketch.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -865,6 +866,164 @@ const TOOL_HANDLERS = {
     'Mirror': (scene) => { return createSketchEntity('mirror line', 'Mirror Sketch', scene); },
     'Fillet': (scene) => { return createSketchEntity('arc', 'Sketch Fillet', scene); },
     'Chamfer': (scene) => { return createSketchEntity('line', 'Sketch Chamfer', scene); },
+
+    // ─── Tier-2a: Center Line ──────────────────────────────────────────
+    // Selection-driven: the user CLICKS in the viewport to place the two
+    // endpoints. Activates the InteractiveSketch's CENTER_LINE tool which
+    // creates a `isConstruction: true` line entity (dashed purple).
+    'Center Line': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Center Line: activate a sketch first (click a face → New Sketch).' };
+      }
+      sketch.setTool(SK_TOOLS.CENTER_LINE);
+      return { status: 'success', message: 'Center Line tool active — click two points to place a construction line (dashed).' };
+    },
+
+    // ─── Tier-2a: Center Rectangle ─────────────────────────────────────
+    // Pick a centre point + a corner → axis-aligned rectangle centred on
+    // the first point. The 5th SW rectangle variant.
+    'Center Rectangle': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Center Rectangle: activate a sketch first.' };
+      }
+      sketch.setTool(SK_TOOLS.CENTER_RECTANGLE);
+      return { status: 'success', message: 'Center Rectangle tool active — click the centre, then a corner.' };
+    },
+
+    // ─── Tier-2a: Sketch Chamfer ───────────────────────────────────────
+    // Param-dialog-driven: read a chamfer distance, then consume the
+    // CURRENT viewport selection (or fall back to the last two line
+    // entities) to chamfer their shared corner. Uses InteractiveSketch's
+    // _createSketchChamfer which trims both source lines and inserts a
+    // new chamfer line between the trim points.
+    'Sketch Chamfer': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Sketch Chamfer: activate a sketch first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Sketch Chamfer');
+      if (cancelled) return { status: 'warn', message: 'Sketch Chamfer cancelled' };
+      const distM = (values.distance ?? 2) / 1000;
+      // Selection-driven: read window.__archdiscSelectedSketchEntities
+      // if set, else use the last two line entities.
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      let line1Idx, line2Idx;
+      if (sel && sel.length >= 2) {
+        line1Idx = sel[0]; line2Idx = sel[1];
+      } else {
+        const lines = sketch.entities
+          .map((e, i) => ({ e, i }))
+          .filter(({ e }) => e.type === 'line' && !e.isConstruction);
+        if (lines.length < 2) {
+          return { status: 'warn', message: 'Sketch Chamfer needs at least two line entities sharing an endpoint.' };
+        }
+        // Find the most recent pair that shares an endpoint.
+        const TOL = 1e-5;
+        for (let i = lines.length - 1; i >= 1; i--) {
+          for (let j = i - 1; j >= 0; j--) {
+            const a = lines[i].e, b = lines[j].e;
+            const pts = [[a.p1, b.p1], [a.p1, b.p2], [a.p2, b.p1], [a.p2, b.p2]];
+            if (pts.some(([x, y]) => Math.hypot(x.u - y.u, x.v - y.v) < TOL)) {
+              line1Idx = lines[i].i; line2Idx = lines[j].i;
+              break;
+            }
+          }
+          if (line1Idx !== undefined) break;
+        }
+        if (line1Idx === undefined) {
+          return { status: 'warn', message: 'Sketch Chamfer: no two lines share an endpoint.' };
+        }
+      }
+      const r = sketch._createSketchChamfer(line1Idx, line2Idx, distM);
+      if (!r.ok) return { status: 'warn', message: `Sketch Chamfer: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchChamfer = r;
+      return { status: 'success',
+        message: `Sketch Chamfer: ${(values.distance ?? 2).toFixed(1)} mm — replaced corner of lines [${line1Idx}, ${line2Idx}] with chamfer #${r.chamferIndex}` };
+    },
+
+    // ─── Tier-2a: Toggle Construction ──────────────────────────────────
+    // Selection-driven: flip the construction state of the currently-
+    // selected sketch entity (or, lacking selection, the last entity).
+    'Toggle Construction': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Toggle Construction: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      const target = (sel && sel.length > 0) ? sel[0] : sketch.entities.length - 1;
+      if (target < 0 || target >= sketch.entities.length) {
+        return { status: 'warn', message: 'Toggle Construction: no sketch entity to toggle.' };
+      }
+      const e = sketch.entities[target];
+      const next = !e.isConstruction;
+      sketch.setEntityConstruction(target, next);
+      if (typeof window !== 'undefined') window.__lastConstructionToggle = { index: target, isConstruction: next };
+      return { status: 'success',
+        message: `Toggle Construction: entity #${target} → ${next ? 'CONSTRUCTION (dashed)' : 'SOLID'}` };
+    },
+
+    // ─── Tier-2a: Convert Entities ─────────────────────────────────────
+    // The Tier-2 CRITICAL item. Consumes the currently-selected body's
+    // top-face boundary (read via InteractiveSketch.extractFaceBoundary)
+    // and projects it into the active sketch as new sketch curves. The
+    // dialog options control the construction + fixed-to-source flags.
+    //
+    // SW calls this "Convert Entities" (Sketch → Modify); NX calls the
+    // equivalent op "Curve from Body".
+    'Convert Entities': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Convert Entities: activate a sketch first (click a face → New Sketch).' };
+      }
+      const { values, cancelled } = await requestToolParams('Convert Entities');
+      if (cancelled) return { status: 'warn', message: 'Convert Entities cancelled' };
+      // Enum dialog fields come through as 'yes'/'no' strings.
+      const asBool = (v) => v === true || v === 'yes' || v === 'true';
+      const isConstruction = asBool(values.isConstruction);
+      const fixedToSource = asBool(values.fixedToSource);
+      // Resolve the source body: prefer the body the user explicitly
+      // passed via window.__archdiscConvertSource (set by the e2e), else
+      // fall back to the currently-selected registered body, else the
+      // most-recent registered body.
+      let group = null;
+      if (typeof window !== 'undefined') {
+        if (window.__archdiscConvertSource && window.__archdiscConvertSource.group) {
+          group = window.__archdiscConvertSource.group;
+        } else {
+          const reg = window.__archdiscRegistry;
+          if (reg && reg.bodies && reg.bodies.length) {
+            const sel = reg.selectedIds ? reg.selectedIds() : [];
+            const found = sel.length ? reg.bodies.find(b => sel.includes(b.id)) : null;
+            group = (found ?? reg.bodies[reg.bodies.length - 1]).group;
+          }
+        }
+      }
+      if (!group) {
+        return { status: 'warn', message: 'Convert Entities: no source body — select a body in the viewport first.' };
+      }
+      // Extract the boundary loop at the sketch plane's elevation. For
+      // an XY sketch on top of a base block this is the top face; for
+      // a sketch at an arbitrary plane the caller may have set
+      // __archdiscConvertSource.z explicitly.
+      let z = sketch.planeOrigin.z;
+      if (typeof window !== 'undefined' && window.__archdiscConvertSource?.z !== undefined) {
+        z = window.__archdiscConvertSource.z;
+      }
+      const sources = InteractiveSketch.extractFaceBoundary(group, { z });
+      if (sources.length === 0) {
+        return { status: 'warn', message: `Convert Entities: no boundary edges found at z=${z.toFixed(4)} m.` };
+      }
+      const r = sketch.convertEntities(sources, { isConstruction, fixedToSource });
+      if (typeof window !== 'undefined') window.__lastConvertEntities = { ...r, sourceEdges: sources.length };
+      return {
+        status: 'success',
+        message: `Convert Entities: projected ${r.projectedCount} edges → ${r.sketchIndices.length} sketch curves`
+              + `${isConstruction ? ' (construction)' : ''}`
+              + `${fixedToSource ? ' (fixed-to-source)' : ''}`,
+      };
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

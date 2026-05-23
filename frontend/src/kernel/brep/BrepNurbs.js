@@ -399,6 +399,8 @@ export async function buildNurbsPatch(opts = {}) {
     const wrapper = new BrepShape(compound, meta);
     const resultBody = bindSpine(oc, compound, {
       bodyTag: `buildNurbsPatch-${wrapper.id}`, geomEngineShape: wrapper,
+      // S5 — a NURBS patch is an OPEN SHEET surface (no closed volume).
+      declaredKind: 'sheet',
       validate: false,
     });
     const spineBody = new SpineBody(resultBody, wrapper, meta);
@@ -461,6 +463,7 @@ export async function refineNurbs(brepShape, opts = {}) {
     const wrapper = new BrepShape(compound, meta);
     const resultBody = bindSpine(oc, compound, {
       bodyTag: `refineNurbs-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'sheet', // S5 — h-refinement preserves the sheet topology.
       validate: false,
     });
     if (brepShape.body) {
@@ -537,6 +540,7 @@ export async function elevateNurbsDegree(brepShape, opts = {}) {
     const wrapper = new BrepShape(compound, meta);
     const resultBody = bindSpine(oc, compound, {
       bodyTag: `elevateNurbsDegree-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'sheet', // S5 — p-refinement preserves the sheet topology.
       validate: false,
     });
     if (brepShape.body) {

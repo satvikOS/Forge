@@ -51,8 +51,12 @@ export async function translate(src, dx, dy, dz) {
     if (!shape || shape.IsNull()) throw new Error('translate: kernel produced a null shape');
     const meta = { op: 'translate', params: { dx, dy, dz }, parents: [src.id] };
     const wrapper = new BrepShape(shape, meta);
+    // S5 — translate preserves the input body's kind (rigid transform). If
+    // src is a SpineBody pass its kind through; otherwise default 'solid'.
+    const declaredKind = (src.body && src.body.kind) || 'solid';
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `translate-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind,
     });
     // Rigid-transform carry-through. Because copy=true gives the result a fresh
     // set of TShapes, a naive `IsSame` between input and result sub-shapes
@@ -118,8 +122,10 @@ export async function rotate(src, axis, angleRad, origin = { x: 0, y: 0, z: 0 })
       parents: [src.id],
     };
     const wrapper = new BrepShape(shape, meta);
+    const declaredKind = (src.body && src.body.kind) || 'solid';
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `rotate-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind, // S5 — rotate preserves the input's kind.
     });
     carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
     return new SpineBody(resultBody, wrapper, meta);
@@ -167,8 +173,17 @@ export async function makeCompound(bodies) {
     if (!shape || shape.IsNull()) throw new Error('makeCompound: kernel produced a null shape');
     const meta = { op: 'makeCompound', parents: bodies.map((s) => s.id) };
     const wrapper = new BrepShape(shape, meta);
+    // S5 — a compound of like-kinded bodies inherits that kind; mixed kinds
+    // collapse to the most general (sheet beats solid; wire beats both). The
+    // topology-derived kind in assertKind reconciles.
+    const inputKinds = new Set(bodies.map(b => (b.body && b.body.kind) || 'solid'));
+    let compoundKind;
+    if (inputKinds.has('wire')) compoundKind = 'wire';
+    else if (inputKinds.has('sheet')) compoundKind = 'sheet';
+    else compoundKind = 'solid';
     const resultBody = bindSpine(oc, shape, {
       bodyTag: `makeCompound-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: compoundKind,
     });
     // Carry every input id directly — a compound preserves every sub-shape's
     // TShape, so every input entity has a 1:1 IsSame partner in the result.

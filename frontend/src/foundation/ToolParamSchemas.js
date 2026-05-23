@@ -101,6 +101,27 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SKETCH TIER-2a — sketch-tab tools ───────────────────────────────────
+  'Sketch Chamfer': {
+    title: 'Sketch Chamfer — 2D Corner Cut',
+    blurb: 'Replace the corner formed by two intersecting sketch lines with a 45° chamfer segment of the given distance.',
+    fields: [
+      { name: 'distance', label: 'Distance', type: 'number', default: 5, unit: 'mm', min: 0.01, max: 500, step: 0.5,
+        hint: 'Chamfer cuts each source line by this distance from their shared corner.' },
+    ],
+  },
+
+  'Convert Entities': {
+    title: 'Convert Entities — Project to Sketch',
+    blurb: 'Project the boundary edges of the picked face/body into the active sketch plane. NX calls this "Curve from Body".',
+    fields: [
+      { name: 'isConstruction', label: 'For construction', type: 'enum', default: 'no',
+        options: ['yes', 'no'], hint: 'Make the projected curves construction (reference-only, excluded from the extrusion boundary).' },
+      { name: 'fixedToSource',  label: 'Fixed to source',  type: 'enum', default: 'yes',
+        options: ['yes', 'no'], hint: 'Pin endpoints to the source position (fully-defined). Disable to leave them free.' },
+    ],
+  },
+
   'Variable Radius Fillet': {
     title: 'Variable Radius Fillet',
     blurb: 'Fillet that transitions from r1 to r2 along each edge. Defaults: r1=1 mm → r2=4 mm.',
