@@ -379,7 +379,18 @@ export default class SketchSolver {
 
   // --- DOF Analysis ---
 
-  degreesOfFreedom() {
+  /**
+   * Raw signed degrees-of-freedom = 2·freePoints + radii - sumConstraints.
+   * SolidWorks-style under/full/over UX drives sketch entity colour from
+   * the SIGN of this number:
+   *   > 0 → under-defined  (blue)
+   *   = 0 → fully-defined  (black)
+   *   < 0 → over-defined   (red)
+   *
+   * Kept separate from `degreesOfFreedom()` so the existing callers (which
+   * historically saw a clamped non-negative DOF) don't change behaviour.
+   */
+  signedDOF() {
     let dof = 0;
     for (const p of this.points) {
       if (!p.fixed) dof += 2;
@@ -407,14 +418,18 @@ export default class SketchSolver {
       }
     }
 
-    return Math.max(0, dof);
+    return dof;
+  }
+
+  degreesOfFreedom() {
+    return Math.max(0, this.signedDOF());
   }
 
   isFullyConstrained() {
-    return this.degreesOfFreedom() === 0;
+    return this.signedDOF() === 0;
   }
 
   isOverConstrained() {
-    return this.degreesOfFreedom() < 0;
+    return this.signedDOF() < 0;
   }
 }

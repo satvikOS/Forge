@@ -261,6 +261,7 @@ export default class InteractiveSketch {
     // Solve and update visuals
     const result = this.solver.solve();
     this._updateAllVisuals();
+    try { this.applyDoFColouring(); } catch (_) {}
     this._notify('dimensioned', { entityIndex, value, solverResult: result });
   }
 
@@ -307,14 +308,84 @@ export default class InteractiveSketch {
    * Get solver status (DOF, constraint count).
    */
   getStatus() {
+    const signedDof = this.solver.signedDOF
+      ? this.solver.signedDOF()
+      : this.solver.degreesOfFreedom();
     return {
       dof: this.solver.degreesOfFreedom(),
+      signedDof,
       fullyConstrained: this.solver.isFullyConstrained(),
       overConstrained: this.solver.isOverConstrained(),
       entityCount: this.entities.length,
       constraintCount: this.solver.constraints.length,
       pointCount: this.solver.points.length,
+      // SolidWorks-style sketch state used to drive entity colour:
+      // 'under-defined' (blue) | 'fully-defined' (black) | 'over-defined' (red)
+      state: signedDof > 0 ? 'under-defined'
+           : signedDof < 0 ? 'over-defined'
+           : 'fully-defined',
     };
+  }
+
+  /**
+   * Walk the active sketch group and recolour every sketch-entity line/circle/arc
+   * to reflect the current solver DoF — SolidWorks convention:
+   *   blue  (0x00ccff)  under-defined
+   *   black (0x111111)  fully-defined (rendered as near-black on the OLED bg)
+   *   red   (0xff3030)  over-defined
+   *
+   * The cursor crosshair, dimension extension lines, and dimension text sprites
+   * are explicitly skipped — they keep their tool-affordance colours.
+   */
+  applyDoFColouring() {
+    if (!this.sketchGroup) return null;
+    const st = this.getStatus();
+    let color;
+    if (st.state === 'under-defined')      color = 0x00ccff;
+    else if (st.state === 'fully-defined') color = 0x222222;
+    else                                   color = 0xff3030;
+
+    // The fully-defined "black" needs to be visible against the OLED-black
+    // scene background — use a slightly-lighter neutral so the user can see it.
+    if (st.state === 'fully-defined') color = 0x999999;
+
+    const entityVisuals = new Set();
+    for (const e of this.entities) {
+      if (e.type === 'line' || e.type === 'circle' || e.type === 'arc') {
+        if (e.visual) entityVisuals.add(e.visual);
+      }
+    }
+
+    this.sketchGroup.traverse((c) => {
+      // Skip non-entity helpers (cursor, grid, dim labels) and dimension lines.
+      if (!c.userData?.sketchEntity) return;
+      if (!c.material) return;
+      // Only recolour line entities that belong to a sketch line/circle/arc.
+      // We approximate by skipping THREE.Sprite (dim labels) and non-Line objects.
+      if (c.isSprite) return;
+      if (!(c.isLine || c.isLineSegments)) return;
+      if (c.material.color && typeof c.material.color.setHex === 'function') {
+        c.material.color.setHex(color);
+      }
+    });
+    this._notify('dofColored', { state: st.state, signedDof: st.signedDof, color });
+    return st;
+  }
+
+  /**
+   * Add a single under-the-hood `distance` constraint between the two
+   * endpoints of an existing line entity, so a sketch transitions from
+   * under-defined → fully-defined / over-defined in a controlled way. Used by
+   * the Smart Dimension UX entry point and by the SW-style colour-state e2e.
+   *
+   * @param {number} entityIndex  index into this.entities
+   * @param {number} valueMeters  the desired length in metres
+   */
+  addDistanceConstraint(entityIndex, valueMeters) {
+    const e = this.entities[entityIndex];
+    if (!e || e.type !== 'line') return false;
+    this.solver.distance(e.solverP1, e.solverP2, valueMeters);
+    return true;
   }
 
   /**
@@ -427,6 +498,9 @@ export default class InteractiveSketch {
     const entity = { type: 'line', solverP1: sp1, solverP2: sp2, solverLine: sLine, visual, p1, p2 };
     this.entities.push(entity);
     this._notify('entityCreated', entity);
+    // SW-style colour: every entity starts under-defined (blue) and changes
+    // as constraints/dimensions are added.
+    try { this.applyDoFColouring(); } catch (_) {}
     return entity;
   }
 
@@ -469,6 +543,7 @@ export default class InteractiveSketch {
     const entity = { type: 'circle', solverCenter: sCenter, solverCircle: sCircle, visual, center, radius };
     this.entities.push(entity);
     this._notify('entityCreated', entity);
+    try { this.applyDoFColouring(); } catch (_) {}
     return entity;
   }
 
