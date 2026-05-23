@@ -383,6 +383,87 @@ body.sw-dock-suppress-floating .tpd-backdrop {
 .sw-sketch-state.sw-state-over .sw-sketch-state-dot { background: #ff3030; box-shadow: 0 0 6px rgba(255, 48, 48, 0.7); }
 .sw-sketch-state.sw-state-over .sw-sketch-state-label { color: #ff8080; }
 
+/* ─── 5. Selection Priority Bar (Tier-11a NX-distinctive UX) ────────────── */
+/* Sits at the top of the viewport, offset left of the Heads-up View Toolbar
+ * (which is dead-centre). The bar runs across the upper-left third of the
+ * viewport so the two don't collide. Same dark-glass tone as the other
+ * Tier-1 overlays. The active filter button gets a blue glow that doubles
+ * as the "active mode" cue NX shows on its selection bar. */
+.sw-selection-bar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 29;        /* above viewport content, below dropdown menus */
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: rgba(18, 18, 18, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 3px 5px 3px 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+}
+
+.sw-selection-bar-label {
+  font-size: 10px;
+  color: #b8b8b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-right: 6px;
+  white-space: nowrap;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding-right: 6px;
+}
+
+.sw-selection-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #c8c8c8;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+  transition: background 0.08s, color 0.08s, border-color 0.08s;
+}
+
+.sw-selection-bar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.sw-selection-bar-btn-active {
+  background: rgba(74, 144, 217, 0.32);
+  color: #fff;
+  border-color: rgba(74, 144, 217, 0.65);
+  box-shadow: 0 0 0 1px rgba(74, 144, 217, 0.20), inset 0 0 6px rgba(74, 144, 217, 0.25);
+}
+
+.sw-selection-bar-btn-active:hover {
+  background: rgba(74, 144, 217, 0.50);
+}
+
+/* By default the buttons are ICON-ONLY so the bar stays narrow enough
+ * that the centre-anchored Heads-up View Toolbar never overlaps it.
+ * Only the ACTIVE button shows its text label, like NX's bar — gives
+ * a clear "current mode" cue without widening the bar to 440 px wide. */
+.sw-selection-bar-btn-label {
+  display: none;
+  white-space: nowrap;
+}
+
+.sw-selection-bar-btn-active .sw-selection-bar-btn-label {
+  display: inline;
+}
+
 /* ─── animations ───────────────────────────────────────────────────────── */
 @keyframes sw-fade-in {
   from { opacity: 0; transform: translateY(-3px); }

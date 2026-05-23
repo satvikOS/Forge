@@ -32,7 +32,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Check, X, Maximize2, Crop,
-         Scissors, Box, Eye, Square } from 'lucide-react';
+         Scissors, Box, Eye, Square, MousePointer, Layers, Hexagon,
+         Circle } from 'lucide-react';
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import './SwUxOverlays.css';
 
@@ -629,4 +630,211 @@ export function SketchStateBadge() {
       <span className="sw-sketch-state-dof">DoF: {state.signedDof}</span>
     </div>
   );
+}
+
+// ─── 5. Selection Priority Bar (Tier-11a NX-distinctive UX) ────────────────
+
+/**
+ * NX-style selection-priority pre-filter. Lives at the very top of the
+ * viewport (offset left of the Heads-up View Toolbar so the two don't
+ * overlap). The user picks one of six modes BEFORE clicking in the 3D
+ * scene; subsequent clicks in `Viewport3D.jsx::handleClick` consult
+ * `window.__archdiscSelectionFilter` and constrain the resolved selection
+ * accordingly:
+ *
+ *   - 'single'  — current behaviour: whatever is hit first (no filter).
+ *   - 'solid'   — restrict to solid bodies (kind === 'solid' if available,
+ *                 fallback to manifold-having groups since the foundation
+ *                 path tags every Three.js body with `foundationManifold`).
+ *   - 'sheet'   — restrict to sheet bodies (kind === 'sheet').
+ *   - 'face'    — return the specific face index under the cursor instead
+ *                 of the body group. Falls back to body when the hit mesh
+ *                 has no per-face metadata (documented gap).
+ *   - 'edge'    — nearest edge to the click; uses the existing edge picker
+ *                 in Viewport3D.
+ *   - 'vertex'  — nearest vertex of the hit body to the click point.
+ *
+ * The active filter is stored on `window.__archdiscSelectionFilter` so the
+ * pick path + e2e specs read it without subscribing to React state.
+ *
+ * Default = 'solid' (matches NX's default and ArchDisc's pre-existing
+ * "object" mode behaviour).
+ */
+
+export const SELECTION_FILTERS = [
+  { id: 'single', label: 'Single',      hint: 'Pick whatever is hit first (no filter).',
+    Icon: MousePointer },
+  { id: 'solid',  label: 'Solid Body',  hint: 'Pick solid bodies only.',
+    Icon: Box },
+  { id: 'sheet',  label: 'Sheet Body',  hint: 'Pick sheet bodies (surfaces) only.',
+    Icon: Layers },
+  { id: 'face',   label: 'Face',        hint: 'Pick one face of the body under the cursor.',
+    Icon: Square },
+  { id: 'edge',   label: 'Edge',        hint: 'Pick the nearest edge.',
+    Icon: Hexagon },
+  { id: 'vertex', label: 'Vertex',      hint: 'Pick the nearest vertex.',
+    Icon: Circle },
+];
+
+// Bus for components (e.g. hover-highlight in Viewport3D) that want to
+// observe the active filter without polling window. Lightweight pub/sub.
+export const selectionFilterBus = (() => {
+  const listeners = new Set();
+  return {
+    set(id) {
+      if (typeof window !== 'undefined') window.__archdiscSelectionFilter = id;
+      for (const fn of listeners) try { fn(id); } catch {}
+    },
+    get() {
+      return (typeof window !== 'undefined' && window.__archdiscSelectionFilter)
+        || 'solid';
+    },
+    subscribe(fn) {
+      listeners.add(fn);
+      try { fn(this.get()); } catch {}
+      return () => listeners.delete(fn);
+    },
+  };
+})();
+
+export function SelectionPriorityBar() {
+  const [active, setActive] = useState(() => selectionFilterBus.get());
+
+  useEffect(() => {
+    // Default the global filter to 'solid' on first mount if nothing has
+    // been set yet — matches the NX "Solid Body" default and ArchDisc's
+    // legacy object-pick behaviour.
+    if (typeof window !== 'undefined' && !window.__archdiscSelectionFilter) {
+      window.__archdiscSelectionFilter = 'solid';
+    }
+    return selectionFilterBus.subscribe(setActive);
+  }, []);
+
+  const pick = useCallback((id) => {
+    selectionFilterBus.set(id);
+  }, []);
+
+  return (
+    <div
+      className="sw-selection-bar"
+      data-archdisc-selection-bar="active"
+      data-archdisc-selection-filter-active={active}
+      role="toolbar"
+      aria-label="Selection priority filter"
+    >
+      <div className="sw-selection-bar-label">Selection</div>
+      {SELECTION_FILTERS.map(({ id, label, hint, Icon }) => (
+        <button
+          key={id}
+          className={
+            'sw-selection-bar-btn' +
+            (active === id ? ' sw-selection-bar-btn-active' : '')
+          }
+          data-archdisc-selection-filter={id}
+          title={`${label} — ${hint}`}
+          aria-pressed={active === id ? 'true' : 'false'}
+          onClick={(e) => { e.stopPropagation(); pick(id); }}
+        >
+          <Icon size={13} />
+          <span className="sw-selection-bar-btn-label">{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Pure resolution helper invoked from `Viewport3D.jsx::handleClick`. Given
+ * the raw `intersects[]` from a raycaster and a `THREE.Vector3` click
+ * point, return a selection record describing what the active filter
+ * decided the user actually wants. The viewport's existing selection /
+ * highlight machinery consumes the returned `kind` to do the right thing.
+ *
+ * Returned shape:
+ *   { kind: 'none' }                                — filter rejected the hit
+ *   { kind: 'object', hit, group }                  — whole-body pick
+ *   { kind: 'face',   hit, group, faceId?, faceIndex? }
+ *   { kind: 'edge',   hit, group, solid, edge }     — caller selects the edge
+ *   { kind: 'vertex', hit, group, solid, vertex }
+ *
+ * For 'face' / 'edge' / 'vertex' the helper returns `kind === 'object'`
+ * when it cannot resolve the requested granularity — the viewport then
+ * still gives the user visible feedback rather than nothing. This is the
+ * "honest fallback" pattern: we never silently lose the click.
+ */
+export function resolveSelectionByFilter(filterId, intersects, findTopGroupFn) {
+  if (!intersects || !intersects.length) return { kind: 'none' };
+  const filter = filterId || 'solid';
+
+  // For solid/sheet, walk the intersect list and pick the first one that
+  // matches the filter — this is the "selection-priority pre-filter" the
+  // NX user expects (clicking somewhere obscured by a solid still picks
+  // the sheet under it when sheet-filter is active).
+  if (filter === 'solid' || filter === 'sheet') {
+    for (const hit of intersects) {
+      const group = findTopGroupFn(hit.object);
+      if (matchesBodyKindFilter(group, filter)) {
+        return { kind: 'object', hit, group };
+      }
+    }
+    return { kind: 'none' };
+  }
+
+  // Face / Edge / Vertex / Single all start from the first intersect.
+  const hit = intersects[0];
+  const group = findTopGroupFn(hit.object);
+
+  if (filter === 'face') {
+    // Face resolution depends on whether the hit mesh exposes a kernel
+    // solid; the existing Viewport3D mode === 'face' branch already does
+    // exactly this — we just return enough info for the caller to invoke
+    // that branch. Caller checks `kind === 'face'` and short-circuits.
+    return { kind: 'face', hit, group, faceIndex: hit.faceIndex };
+  }
+
+  if (filter === 'edge') {
+    return { kind: 'edge', hit, group };
+  }
+
+  if (filter === 'vertex') {
+    return { kind: 'vertex', hit, group };
+  }
+
+  // 'single' or anything unrecognised → whatever was hit, like before.
+  return { kind: 'object', hit, group };
+}
+
+/**
+ * Decide whether a Three.js group qualifies as the requested body kind.
+ *
+ * Strategy (in order):
+ *   1. If `group.userData.bodyKind` is set explicitly, use it directly.
+ *   2. If the group has a spine body (via `userData.brepShapeRef` or
+ *      `userData.kernelSolid`) and that body exposes a `kind` ∈
+ *      {'solid','sheet','wire'}, use it.
+ *   3. Heuristic fallback: a group with `userData.foundationManifold` is
+ *      treated as a 'solid' (the foundation manifold path always emits
+ *      solids). Anything else is 'solid' as well, since arbitrary scene
+ *      meshes are most commonly solids in this app. This is documented
+ *      as a partial — sheet-body filtering only works when callers tag
+ *      the group with `bodyKind = 'sheet'` or the spine carries it.
+ */
+export function matchesBodyKindFilter(group, kindFilter) {
+  if (!group) return false;
+  const explicit = group.userData && group.userData.bodyKind;
+  if (explicit) return explicit === kindFilter;
+  // Try spine body via brepShapeRef.
+  const brep = group.userData && group.userData.brepShapeRef;
+  const spineKind = brep && (brep.kind || (brep.body && brep.body.kind));
+  if (spineKind) return spineKind === kindFilter;
+  // Try kernelSolid.kind (legacy B-rep kernels).
+  const ks = group.userData && group.userData.kernelSolid;
+  if (ks && ks.kind) return ks.kind === kindFilter;
+  // Foundation manifold path defaults to solid.
+  if (group.userData && group.userData.foundationManifold) {
+    return kindFilter === 'solid';
+  }
+  // Unknown — default to solid so the legacy "click picks the body" path
+  // still works when no filter has been set. Sheet-only filter will reject.
+  return kindFilter === 'solid';
 }

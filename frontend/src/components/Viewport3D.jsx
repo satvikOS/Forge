@@ -7,6 +7,7 @@ import { useViewport } from '../contexts/ViewportContext';
 import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature, BVH } from '../kernel/index.js';
 import { getFeatureTree, registerSelectedEdgesProvider } from '../workbenches/mechanical-cad/ToolExecutionEngine.js';
 import { getBodyRegistry } from '../foundation/BodyRegistry.js';
+import { matchesBodyKindFilter } from './SwUxOverlays.jsx';
 
 // Singletons
 const _pixelManager = new PixelManager();
@@ -371,6 +372,233 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         renderer.domElement.addEventListener('pointermove', handleMouseMove);
         renderer.domElement.style.touchAction = 'none'; // prevent browser handling
 
+        // ── Tier-11a face/edge/vertex helpers ─────────────────────────
+        // Used by the NX selection-priority filter when the user picks a
+        // foundation-manifold body (no kernelSolid). Each helper is small,
+        // pure-Three.js, and scoped to the hit mesh — no scene-wide walk.
+
+        // Cache analytic-face ids per mesh geometry. Each triangle is
+        // assigned a cluster id by flood-filling over triangles whose face
+        // normals match within EPS_NORMAL_DOT (i.e. co-planar / co-axial
+        // triangles get the same face id). Cached on geometry.userData
+        // so repeated picks on the same body are O(1).
+        const EPS_NORMAL_DOT = 0.999;   // ≈ 2.5° tolerance
+        function ensureAnalyticFaceIds(geom) {
+            if (!geom || !geom.attributes || !geom.attributes.position) return null;
+            if (geom.userData && geom.userData._analyticFaceIds) return geom.userData._analyticFaceIds;
+            const pos = geom.attributes.position;
+            const indexAttr = geom.index;
+            const triCount = indexAttr ? indexAttr.count / 3 : pos.count / 3;
+            // Compute per-triangle normals.
+            const triNormals = new Float32Array(triCount * 3);
+            const va = new THREE.Vector3();
+            const vb = new THREE.Vector3();
+            const vc = new THREE.Vector3();
+            const e1 = new THREE.Vector3();
+            const e2 = new THREE.Vector3();
+            const n = new THREE.Vector3();
+            const triVerts = (i) => {
+                if (indexAttr) {
+                    return [
+                        indexAttr.getX(i * 3 + 0),
+                        indexAttr.getX(i * 3 + 1),
+                        indexAttr.getX(i * 3 + 2),
+                    ];
+                }
+                return [i * 3 + 0, i * 3 + 1, i * 3 + 2];
+            };
+            for (let i = 0; i < triCount; i++) {
+                const [ia, ib, ic] = triVerts(i);
+                va.set(pos.getX(ia), pos.getY(ia), pos.getZ(ia));
+                vb.set(pos.getX(ib), pos.getY(ib), pos.getZ(ib));
+                vc.set(pos.getX(ic), pos.getY(ic), pos.getZ(ic));
+                e1.subVectors(vb, va);
+                e2.subVectors(vc, va);
+                n.crossVectors(e1, e2).normalize();
+                triNormals[i * 3 + 0] = n.x;
+                triNormals[i * 3 + 1] = n.y;
+                triNormals[i * 3 + 2] = n.z;
+            }
+            // Build edge → triangle adjacency.
+            const edgeKey = (a, b) => a < b ? `${a}_${b}` : `${b}_${a}`;
+            const edgeToTris = new Map();
+            for (let i = 0; i < triCount; i++) {
+                const [a, b, c] = triVerts(i);
+                for (const [x, y] of [[a, b], [b, c], [c, a]]) {
+                    const k = edgeKey(x, y);
+                    let arr = edgeToTris.get(k);
+                    if (!arr) { arr = []; edgeToTris.set(k, arr); }
+                    arr.push(i);
+                }
+            }
+            // Flood-fill: triangles in the same face share an edge AND have
+            // the same normal (within EPS).
+            const faceId = new Int32Array(triCount).fill(-1);
+            let nextId = 0;
+            const stack = [];
+            for (let seed = 0; seed < triCount; seed++) {
+                if (faceId[seed] !== -1) continue;
+                const id = nextId++;
+                stack.push(seed);
+                faceId[seed] = id;
+                const sx = triNormals[seed * 3 + 0];
+                const sy = triNormals[seed * 3 + 1];
+                const sz = triNormals[seed * 3 + 2];
+                while (stack.length) {
+                    const t = stack.pop();
+                    const [a, b, c] = triVerts(t);
+                    for (const [x, y] of [[a, b], [b, c], [c, a]]) {
+                        const k = edgeKey(x, y);
+                        const arr = edgeToTris.get(k);
+                        if (!arr) continue;
+                        for (const nbr of arr) {
+                            if (nbr === t || faceId[nbr] !== -1) continue;
+                            const nx = triNormals[nbr * 3 + 0];
+                            const ny = triNormals[nbr * 3 + 1];
+                            const nz = triNormals[nbr * 3 + 2];
+                            const dot = sx * nx + sy * ny + sz * nz;
+                            if (dot >= EPS_NORMAL_DOT) {
+                                faceId[nbr] = id;
+                                stack.push(nbr);
+                            }
+                        }
+                    }
+                }
+            }
+            const data = { faceId, faceCount: nextId, triNormals };
+            geom.userData = geom.userData || {};
+            geom.userData._analyticFaceIds = data;
+            return data;
+        }
+
+        function flagAndHighlightAnalyticFace(hitMesh, faceIndex, color) {
+            const geom = hitMesh.geometry;
+            const data = ensureAnalyticFaceIds(geom);
+            if (!data || typeof faceIndex !== 'number') return null;
+            const id = data.faceId[faceIndex];
+            if (id < 0) return null;
+            // Build a highlight-mesh overlay for all triangles with this face id.
+            const indexAttr = geom.index;
+            const triVerts = (i) => indexAttr
+                ? [indexAttr.getX(i * 3), indexAttr.getX(i * 3 + 1), indexAttr.getX(i * 3 + 2)]
+                : [i * 3, i * 3 + 1, i * 3 + 2];
+            const pos = geom.attributes.position;
+            const highlightIdx = [];
+            for (let i = 0; i < data.faceId.length; i++) {
+                if (data.faceId[i] === id) {
+                    const [a, b, c] = triVerts(i);
+                    highlightIdx.push(a, b, c);
+                }
+            }
+            const overlayGeom = new THREE.BufferGeometry();
+            overlayGeom.setAttribute('position', pos);
+            overlayGeom.setIndex(highlightIdx);
+            const overlayMat = new THREE.MeshBasicMaterial({
+                color, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+                depthTest: true, polygonOffset: true, polygonOffsetFactor: -1,
+            });
+            const overlay = new THREE.Mesh(overlayGeom, overlayMat);
+            overlay.name = '__selection_outline__';
+            overlay.userData.pickable = false;
+            overlay.userData.isHelper = true;
+            overlay.applyMatrix4(hitMesh.matrixWorld);
+            scene.add(overlay);
+            return id;
+        }
+
+        function pickNearestMeshEdge(hitMesh, hit) {
+            const geom = hitMesh.geometry;
+            if (!geom || typeof hit.faceIndex !== 'number') return null;
+            const pos = geom.attributes.position;
+            const indexAttr = geom.index;
+            const i = hit.faceIndex;
+            const [ia, ib, ic] = indexAttr
+                ? [indexAttr.getX(i * 3), indexAttr.getX(i * 3 + 1), indexAttr.getX(i * 3 + 2)]
+                : [i * 3, i * 3 + 1, i * 3 + 2];
+            const m = hitMesh.matrixWorld;
+            const toWorld = (idx) => new THREE.Vector3(pos.getX(idx), pos.getY(idx), pos.getZ(idx))
+                .applyMatrix4(m);
+            const candidates = [
+                { a: toWorld(ia), b: toWorld(ib) },
+                { a: toWorld(ib), b: toWorld(ic) },
+                { a: toWorld(ic), b: toWorld(ia) },
+            ];
+            const hp = hit.point.clone();
+            const lineDistSq = (p, a, b) => {
+                const ab = new THREE.Vector3().subVectors(b, a);
+                const ap = new THREE.Vector3().subVectors(p, a);
+                const t = Math.max(0, Math.min(1, ap.dot(ab) / ab.dot(ab)));
+                const c = a.clone().add(ab.multiplyScalar(t));
+                return c.distanceToSquared(p);
+            };
+            let best = null;
+            let bestDsq = Infinity;
+            for (const { a, b } of candidates) {
+                const d = lineDistSq(hp, a, b);
+                if (d < bestDsq) { bestDsq = d; best = { a, b }; }
+            }
+            if (!best) return null;
+            return {
+                p1: { x: best.a.x, y: best.a.y, z: best.a.z },
+                p2: { x: best.b.x, y: best.b.y, z: best.b.z },
+                length: best.a.distanceTo(best.b),
+            };
+        }
+
+        function drawEdgeHighlight(scene, edgeInfo, color) {
+            const g = new THREE.BufferGeometry();
+            const verts = new Float32Array([
+                edgeInfo.p1.x, edgeInfo.p1.y, edgeInfo.p1.z,
+                edgeInfo.p2.x, edgeInfo.p2.y, edgeInfo.p2.z,
+            ]);
+            g.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+            const m = new THREE.LineBasicMaterial({ color, linewidth: 4, depthTest: false });
+            const line = new THREE.Line(g, m);
+            line.name = '__selection_outline__';
+            line.userData.pickable = false;
+            line.userData.isHelper = true;
+            line.renderOrder = 999;
+            scene.add(line);
+        }
+
+        function pickNearestMeshVertex(hitMesh, hit) {
+            const geom = hitMesh.geometry;
+            if (!geom || typeof hit.faceIndex !== 'number') return null;
+            const pos = geom.attributes.position;
+            const indexAttr = geom.index;
+            const i = hit.faceIndex;
+            const [ia, ib, ic] = indexAttr
+                ? [indexAttr.getX(i * 3), indexAttr.getX(i * 3 + 1), indexAttr.getX(i * 3 + 2)]
+                : [i * 3, i * 3 + 1, i * 3 + 2];
+            const m = hitMesh.matrixWorld;
+            const toWorld = (idx) => new THREE.Vector3(pos.getX(idx), pos.getY(idx), pos.getZ(idx))
+                .applyMatrix4(m);
+            const candidates = [toWorld(ia), toWorld(ib), toWorld(ic)];
+            const hp = hit.point.clone();
+            let best = null;
+            let bestD = Infinity;
+            for (const v of candidates) {
+                const d = v.distanceTo(hp);
+                if (d < bestD) { bestD = d; best = v; }
+            }
+            return best ? {
+                position: { x: best.x, y: best.y, z: best.z },
+                distance: bestD,
+            } : null;
+        }
+
+        function drawVertexMarker(scene, p, color) {
+            const g = new THREE.SphereGeometry(0.0015, 16, 12);
+            const mat = new THREE.MeshBasicMaterial({ color, depthTest: false });
+            const sphere = new THREE.Mesh(g, mat);
+            sphere.position.set(p.x, p.y, p.z);
+            sphere.name = '__selection_outline__';
+            sphere.userData.pickable = false;
+            sphere.userData.isHelper = true;
+            sphere.renderOrder = 999;
+            scene.add(sphere);
+        }
+
         // --- Click vs drag discrimination ---
         // handleClick is bound to 'pointerup', which fires for BOTH a plain
         // click AND the release of an orbit / pan / gizmo drag. Running the
@@ -450,13 +678,48 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                 candidates = bvh.raycast(raycaster.ray);
             }
 
-            const intersects = raycaster.intersectObjects(candidates, false);
-            const mode = selectionModeRef.current;
+            let intersects = raycaster.intersectObjects(candidates, false);
+
+            // ─── Tier-11a NX selection-priority pre-filter ──────────────
+            // The Selection Bar (SwUxOverlays::SelectionPriorityBar) sets
+            // `window.__archdiscSelectionFilter` ∈ {single, solid, sheet,
+            // face, edge, vertex}. We consult it BEFORE the legacy gizmo
+            // selectionMode so the user's stated intent wins.
+            //
+            //  - 'solid' / 'sheet'  → drop intersects whose top group is
+            //    not that body kind. This is the NX behaviour: clicking on
+            //    a solid with sheet-filter active picks the sheet UNDER it.
+            //  - 'face' / 'edge' / 'vertex' → override `mode` for the rest
+            //    of the click; the existing branches handle the work.
+            //  - 'single' / unset  → no filtering; use the legacy mode.
+            const selFilter = (typeof window !== 'undefined'
+                && window.__archdiscSelectionFilter) || 'solid';
+            let mode = selectionModeRef.current;
+            if (selFilter === 'solid' || selFilter === 'sheet') {
+                intersects = intersects.filter((it) => {
+                    try { return matchesBodyKindFilter(findTopGroup(it.object), selFilter); }
+                    catch { return false; }
+                });
+                // Keep `mode` = legacy mode so face/edge sub-handlers still
+                // work if the gizmo is in face/edge mode. Most of the time
+                // mode === 'object' here, which is what NX defaults to.
+            } else if (selFilter === 'face') {
+                mode = 'face';
+            } else if (selFilter === 'edge') {
+                mode = 'edge';
+            } else if (selFilter === 'vertex') {
+                mode = 'vertex';
+            }
 
             if (intersects.length === 0) {
                 clearSelection();
                 try { getBodyRegistry().select(null); } catch { /* no-op */ }
                 if (onSelectionChangeRef.current) onSelectionChangeRef.current?.(null);
+                if (typeof window !== 'undefined') {
+                    window.__lastViewportPick = {
+                        filter: selFilter, mode, kind: 'none', timestamp: Date.now(),
+                    };
+                }
                 return;
             }
 
@@ -487,26 +750,69 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                             solidId: group.userData.kernelSolid?.id,
                         };
 
+                        if (typeof window !== 'undefined') {
+                            window.__lastViewportPick = {
+                                filter: selFilter, mode, kind: 'face',
+                                faceId, solidId: group.userData.kernelSolid?.id,
+                                timestamp: Date.now(),
+                            };
+                        }
                         if (onSelectionChangeRef.current) {
                             onSelectionChangeRef.current({ type: 'face', faceId, solidId: group.userData.kernelSolid?.id });
                         }
                     }
                 } else {
-                    // Non-kernel mesh — still highlight
-                    selectObject(topGroup);
-                    // Capture face normal for sketch-on-face
-                    if (hit.face?.normal) {
+                    // Non-kernel mesh (foundation manifold path): pick ONE
+                    // analytic face by clustering the hit triangle with
+                    // co-planar triangles that share its normal AND a path
+                    // of shared edges. This is the NX "face filter" so the
+                    // whole-body fallback would be wrong — we paint just
+                    // the planar / coaxial face the user clicked.
+                    if (hit.face?.normal && hitMesh.geometry) {
                         const localNormal = hit.face.normal.clone();
-                        // Transform to world space
-                        const worldNormal = localNormal.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hitMesh.matrixWorld)).normalize();
+                        // World-space normal for the picked-face record.
+                        const worldNormal = localNormal.clone()
+                            .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hitMesh.matrixWorld))
+                            .normalize();
                         lastPickedFace.current = {
                             normal: new Vec3(worldNormal.x, worldNormal.y, worldNormal.z),
                             point: new Vec3(hit.point.x, hit.point.y, hit.point.z),
                             faceIndex: hit.faceIndex,
                         };
-                    }
-                    if (onSelectionChangeRef.current) {
-                        onSelectionChangeRef.current({ type: 'face', name: topGroup.name, faceIndex: hit.faceIndex });
+                        // Build a per-triangle face-id mapping if absent, then
+                        // flood-fill from hit.faceIndex over triangles whose
+                        // face-normal matches (within EPS) AND share an edge.
+                        const faceClusterId = flagAndHighlightAnalyticFace(
+                            hitMesh, hit.faceIndex, 0xff6b35);
+                        if (faceClusterId !== null) {
+                            highlightedGroups.add(topGroup);
+                        }
+                        if (typeof window !== 'undefined') {
+                            window.__lastViewportPick = {
+                                filter: selFilter, mode, kind: 'face',
+                                faceIndex: hit.faceIndex,
+                                analyticFaceId: faceClusterId,
+                                bodyId: topGroup.userData?.bodyId ?? null,
+                                point: { x: hit.point.x, y: hit.point.y, z: hit.point.z },
+                                normal: { x: worldNormal.x, y: worldNormal.y, z: worldNormal.z },
+                                timestamp: Date.now(),
+                            };
+                        }
+                        if (onSelectionChangeRef.current) {
+                            onSelectionChangeRef.current({
+                                type: 'face',
+                                name: topGroup.name,
+                                faceIndex: hit.faceIndex,
+                                analyticFaceId: faceClusterId,
+                                bodyId: topGroup.userData?.bodyId ?? null,
+                            });
+                        }
+                    } else {
+                        // Last-resort fallback: highlight the whole body.
+                        selectObject(topGroup);
+                        if (onSelectionChangeRef.current) {
+                            onSelectionChangeRef.current({ type: 'face', name: topGroup.name, faceIndex: hit.faceIndex });
+                        }
                     }
                 }
                 return;
@@ -551,6 +857,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                         _selectedEdges.solidId = solid.id;
                         setEdgeSelectionInfo({ count: ids.length, ids, solidId: solid.id });
 
+                        if (typeof window !== 'undefined') {
+                            window.__lastViewportPick = {
+                                filter: selFilter, mode, kind: 'edge',
+                                solidId: solid.id, edgeId: nearestEdge.id,
+                                timestamp: Date.now(),
+                            };
+                        }
                         if (onSelectionChangeRef.current) {
                             onSelectionChangeRef.current({
                                 type: 'edge',
@@ -560,6 +873,66 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
                                 vertexCount: solid.vertices().length,
                             });
                         }
+                    }
+                } else {
+                    // Foundation-manifold path — no kernelSolid. Pick the
+                    // nearest mesh edge to the hit point by walking the
+                    // hit triangle's three edges and choosing the one
+                    // whose midpoint is closest to hit.point.
+                    clearSelection();
+                    const edgeInfo = pickNearestMeshEdge(hitMesh, hit);
+                    if (edgeInfo) {
+                        drawEdgeHighlight(scene, edgeInfo, 0xffd83d);
+                        highlightedGroups.add(topGroup);
+                        if (typeof window !== 'undefined') {
+                            window.__lastViewportPick = {
+                                filter: selFilter, mode, kind: 'edge',
+                                bodyId: topGroup.userData?.bodyId ?? null,
+                                p1: edgeInfo.p1, p2: edgeInfo.p2,
+                                length: edgeInfo.length,
+                                timestamp: Date.now(),
+                            };
+                        }
+                        if (onSelectionChangeRef.current) {
+                            onSelectionChangeRef.current({
+                                type: 'edge',
+                                bodyId: topGroup.userData?.bodyId ?? null,
+                                p1: edgeInfo.p1, p2: edgeInfo.p2,
+                                length: edgeInfo.length,
+                            });
+                        }
+                    }
+                }
+                return;
+            }
+
+            if (mode === 'vertex') {
+                // Foundation-manifold + kernel-solid both terminate here.
+                // Walk the hit triangle's three vertices and pick the one
+                // closest to hit.point. For kernelSolid groups we also try
+                // the spine vertex list for a more semantically meaningful
+                // pick.
+                clearSelection();
+                const vInfo = pickNearestMeshVertex(hitMesh, hit);
+                if (vInfo) {
+                    drawVertexMarker(scene, vInfo.position, 0x3ec77e);
+                    highlightedGroups.add(topGroup);
+                    if (typeof window !== 'undefined') {
+                        window.__lastViewportPick = {
+                            filter: selFilter, mode, kind: 'vertex',
+                            bodyId: topGroup.userData?.bodyId ?? null,
+                            position: vInfo.position,
+                            distance: vInfo.distance,
+                            timestamp: Date.now(),
+                        };
+                    }
+                    if (onSelectionChangeRef.current) {
+                        onSelectionChangeRef.current({
+                            type: 'vertex',
+                            bodyId: topGroup.userData?.bodyId ?? null,
+                            position: vInfo.position,
+                            distance: vInfo.distance,
+                        });
                     }
                 }
                 return;
@@ -572,6 +945,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             // body (closes the inverse loop: viewport ⇄ side panel).
             const bodyId = topGroup.userData?.bodyId ?? null;
             try { getBodyRegistry().select(bodyId); } catch { /* no-op */ }
+            if (typeof window !== 'undefined') {
+                window.__lastViewportPick = {
+                    filter: selFilter, mode, kind: 'object',
+                    bodyId, name: topGroup.name || 'Object',
+                    timestamp: Date.now(),
+                };
+            }
             if (onSelectionChangeRef.current) {
                 onSelectionChangeRef.current({
                     type: 'object',

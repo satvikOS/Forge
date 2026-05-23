@@ -58,6 +58,7 @@ import {
     HeadsUpViewToolbar,
     PropertyManagerDock,
     SketchStateBadge,
+    SelectionPriorityBar,
 } from '../../components/SwUxOverlays';
 import '../../components/SwUxOverlays.css';
 import '../../components/FeatureTreePanel.css';
@@ -1160,6 +1161,8 @@ function WorkbenchMechanical() {
                 <PropertyManagerDock />
                 {/* Sketch State Badge (bottom-left): UNDER/FULL/OVER-DEFINED */}
                 <SketchStateBadge />
+                {/* Tier-11a NX-distinctive: Selection-priority pre-filter (top-left) */}
+                <SelectionPriorityBar />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
