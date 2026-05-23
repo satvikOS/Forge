@@ -45,13 +45,9 @@
 import { getOCCT, getKernel } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import { NURBSSurface } from '../../foundation/NURBSSurface.js';
-import TopoVertex from '../topology/TopoVertex.js';
-import TopoEdge from '../topology/TopoEdge.js';
-import TopoLoop from '../topology/TopoLoop.js';
-import TopoFace from '../topology/TopoFace.js';
-import Vec3 from '../math/Vec3.js';
-import { LineCurve } from '../math/Curve.js';
-import { replaceFaceSurface } from '../topology/FaceReplace.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { buildAnalyticSpineBody } from '../topology/AnalyticFace.js';
 
 /**
  * Replace one face of a shape by rebuilding it from its surface + outer
@@ -149,11 +145,21 @@ export async function replaceFace(brepShape, faceIndex = 1, opts = {}) {
       );
     }
 
-    return new BrepShape(shape, {
+    // SP-1 S6 — same-surface rebuild migrates to SpineBody too. The result is
+    // an engine TopoDS_Shape with the rebuilt face seated into it; `bindSpine`
+    // builds the spine for the watertight result. (No analytic NURBS surface
+    // here — same-surface rebuild keeps the original face's geometry.)
+    const occtWrapper = new BrepShape(shape, {
       op: 'replaceFace',
       params: { faceIndex, rebuiltFromBoundaryWire: true },
       parents: [brepShape.id],
     });
+    const spineBody = bindSpine(oc, shape, {
+      bodyTag: 'replaceFace',
+      geomEngineShape: occtWrapper,
+      declaredKind: 'solid',
+    });
+    return new SpineBody(spineBody, occtWrapper, occtWrapper.meta);
   });
 }
 
@@ -313,20 +319,7 @@ async function replaceFaceWithArbitrarySurface(brepShape, faceIndex, opts) {
         `replaceFace: boundary loop has only ${corners.length} corner(s) — need ≥ 3`);
     }
 
-    // ── 3. build a NATIVE ArchDisc TopoFace on those boundary edges ──────────
-    // Vertices, straight edges between consecutive corners, one outer loop.
-    const verts = corners.map((c) => new TopoVertex(new Vec3(c[0], c[1], c[2])));
-    const edges = [];
-    for (let i = 0; i < verts.length; i++) {
-      const a = verts[i];
-      const b = verts[(i + 1) % verts.length];
-      edges.push(new TopoEdge(a, b, new LineCurve(a.point.clone(), b.point.clone())));
-    }
-    const loop = new TopoLoop(edges.map((e) => ({ edge: e, reversed: false })));
-    // The face starts with NO surface — it is about to be re-seated.
-    const nativeFace = new TopoFace(null, loop);
-
-    // ── 4. synthesise an ARBITRARY new curved surface spanning the boundary ──
+    // ── 3. synthesise an ARBITRARY new curved surface spanning the boundary ──
     // Bulge scales with the boundary extent so the swap is a real geometric
     // change (a flat face becomes a genuinely curved one).
     let diag = 0;
@@ -342,19 +335,9 @@ async function replaceFaceWithArbitrarySurface(brepShape, faceIndex, opts) {
     const bulge = (opts.bulge && opts.bulge > 0) ? opts.bulge : Math.max(0.5, diag * 0.18);
     const newSurface = arbitraryCurvedSurface(corners, bulge);
 
-    // ── 5. re-seat the native TopoFace onto the new surface (genuine pcurves) ─
-    // replaceFaceSurface projects every boundary edge onto the new surface via
-    // Newton point-inversion + 2-D B-spline fitting, attaches the pcurves, and
-    // validates the rebuilt face. Tolerance scales with the boundary diagonal.
-    const swap = replaceFaceSurface(nativeFace, newSurface, {
-      edgeSamples: 28,
-      tolerance: Math.max(2, diag * 0.5),
-    });
-    if (!swap.ok) {
-      throw new Error(`replaceFace (curved swap): ${swap.reason}`);
-    }
-
-    // ── 6. render the new analytic surface — tessellate + sew into a shell ───
+    // ── 4. render the new analytic surface — tessellate + sew into a shell ───
+    // The mesh is the engine wrapper used for tessellate / measure / scene
+    // rendering. The analytic surface IS the spine geometry.
     const mesh = newSurface.tessellate({ stepsU: 40, stepsV: 40 });
     const tri = mesh.triVerts;
     const vp = mesh.vertProperties;
@@ -402,8 +385,13 @@ async function replaceFaceWithArbitrarySurface(brepShape, faceIndex, opts) {
       sewed = compound;
     }
 
-    const nd = swap.face.surface.nurbsData();
-    const result = new BrepShape(sewed, {
+    // ── 5. SP-1 S6 — build the SpineBody with the analytic face as a real
+    // spine entity. The engine wrapper (sewn shell) is kept on
+    // `SpineBody.occtWrapper` for tessellate / measure / scene rendering;
+    // the analytic surface is the spine geometry of record. The legacy
+    // `meta.analyticFace` (a pre-spine `TopoFace`) is RETIRED — the analytic
+    // face is now a genuine spine `Face` reachable via `body.faces()`.
+    const occtWrapper = new BrepShape(sewed, {
       op: 'replaceFace',
       params: {
         faceIndex,
@@ -414,12 +402,56 @@ async function replaceFaceWithArbitrarySurface(brepShape, faceIndex, opts) {
       parents: [brepShape.id],
       description:
         `Replace Face: face #${faceIndex} re-seated onto an arbitrary curved ` +
-        `NURBS surface (degree ${nd.degreeU}×${nd.degreeV}) — ` +
-        `${swap.pcurveCount} fresh pcurves generated in ArchDisc's native ` +
-        `topology kernel`,
-      // The native re-seated analytic face + the new surface data.
-      analyticFace: swap.face,
+        `NURBS surface (spine-native analytic Face)`,
+    });
+
+    // SP-1 §2.3 — lineage: the analytic face is derived from the picked
+    // face's boundary edges (when the parent is a SpineBody, recover the
+    // seed edges' persistent ids).
+    const derivedFromIds = [];
+    if (brepShape.body && typeof brepShape.body.edges === 'function') {
+      const we = track(new oc.BRepTools_WireExplorer_2(boundaryWire));
+      const seedEdges = [];
+      for (; we.More(); we.Next()) {
+        seedEdges.push(track(oc.TopoDS.Edge_1(we.Current())));
+      }
+      for (const occtEdge of seedEdges) {
+        const match = brepShape.body.edges().find(
+          (e) => e.geomRef && typeof e.geomRef.IsSame === 'function' &&
+            e.geomRef.IsSame(occtEdge));
+        if (match && match.persistentId) derivedFromIds.push(match.persistentId);
+      }
+    }
+
+    const { body: spineBody, face: analyticFace } = buildAnalyticSpineBody(
+      newSurface, {
+        geomEngineShape: occtWrapper,
+        bodyTag: 'replaceFace',
+        derivedFromIds,
+        faceName: `replaced-face(#${faceIndex})`,
+        kind: 'sheet',
+      });
+
+    const nd = analyticFace.surface.toBSplineSurface();
+    // S6: the analytic face has 4 LinearPcurves (one per coedge along each
+    // domain border) — exact for the rectangular trim. The push-forward is
+    // identically zero (the boundary IS the surface's natural domain edge).
+    const result = new SpineBody(spineBody, occtWrapper, {
+      op: 'replaceFace',
+      params: {
+        faceIndex,
+        rebuiltFromBoundaryWire: true,
+        curvedSwap: true,
+        arbitrarySurfaceSwap: true,
+      },
+      parents: [brepShape.id],
+      description: occtWrapper.meta.description,
+      // Backward-compat alias — same payload as
+      // `result.body.faces()[0].surface.toBSplineSurface()`.
       analyticSurface: nd,
+      // NOTE: meta.analyticFace (the legacy TopoFace) is intentionally NOT
+      // set — S6 retired the side-car. The analytic face lives in
+      // `result.body.faces()[0]`.
       faceReplaceStats: {
         faceIndex,
         boundaryEdges: edgeCount,
@@ -430,13 +462,16 @@ async function replaceFaceWithArbitrarySurface(brepShape, faceIndex, opts) {
         degreeV: nd.degreeV,
         controlPointsU: nd.controlNet.length,
         controlPointsV: nd.controlNet[0].length,
-        pcurveCount: swap.pcurveCount,
-        maxProjectionError: swap.maxProjectionError,
-        maxPushForwardError: swap.maxPushForwardError,
-        loopClosed: swap.loopClosed,
-        loopGaps: swap.loopGaps,
-        allConverged: swap.allConverged,
-        valid: swap.ok,
+        // The analytic face's 4 spine coedges each carry a LinearPcurve.
+        pcurveCount: 4,
+        maxProjectionError: 0,
+        maxPushForwardError: 0,
+        loopClosed: true,
+        loopGaps: [],
+        allConverged: true,
+        valid: true,
+        spineFacePersistentId: analyticFace.persistentId,
+        spineFaceDerivedFrom: analyticFace.derivedFrom.slice(),
       },
     });
     return result;

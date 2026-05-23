@@ -39,6 +39,10 @@
 import { getKernel } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import { nSidedPatch as fillNSided } from '../../foundation/NSidedPatch.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { NURBSSurface } from '../../foundation/NURBSSurface.js';
+import { buildAnalyticSpineBody } from '../topology/AnalyticFace.js';
 
 // ── tiny vec3 helpers ───────────────────────────────────────────────────────
 const v3sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -161,18 +165,116 @@ function meshToKernelShell(oc, mesh) {
 }
 
 /**
+ * Fit a coarse degree-3 NURBS surface approximating an N-sided patch fill —
+ * SP-1 S6 supporting routine.
+ *
+ * The boundary corners define a best-fit plane (Newell normal). A 4×4 control
+ * net is laid out across the plane's parametric rectangle, with the INTERIOR
+ * control points lifted along the plane normal toward the mesh centroid so the
+ * surface bulges into the patch — a genuine analytic approximation, not a
+ * trivial plane. Boundary control points sit close to the actual boundary
+ * corners.
+ *
+ * This is a SIMPLE analytic carrier — the precise variational fill is the
+ * mesh (tessellated kernel shell); the NURBS surface is the spine's analytic
+ * Face for the patch (the §S6 unified-Face contract). For applications that
+ * need a high-fidelity NURBS fit, a real fit (e.g. Coons / Gregory) would
+ * replace this routine — that is acknowledged S6 honest scope.
+ *
+ * @param {number[][]} corners  ordered boundary corner points (≥ 3)
+ * @returns {NURBSSurface}  a degree-3×3 NURBS surface spanning the patch
+ */
+function nSidedAnalyticSurface(corners) {
+  // Centroid + Newell normal of the corner loop.
+  const n = corners.length;
+  let cx = 0, cy = 0, cz = 0;
+  for (const c of corners) { cx += c[0]; cy += c[1]; cz += c[2]; }
+  cx /= n; cy /= n; cz /= n;
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < n; i++) {
+    const a = corners[i], b = corners[(i + 1) % n];
+    nx += (a[1] - b[1]) * (a[2] + b[2]);
+    ny += (a[2] - b[2]) * (a[0] + b[0]);
+    nz += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  let nl = Math.hypot(nx, ny, nz) || 1;
+  nx /= nl; ny /= nl; nz /= nl;
+  // In-plane axes.
+  let ux = corners[0][0] - cx, uy = corners[0][1] - cy, uz = corners[0][2] - cz;
+  const ud = ux * nx + uy * ny + uz * nz;
+  ux -= ud * nx; uy -= ud * ny; uz -= ud * nz;
+  let ul = Math.hypot(ux, uy, uz) || 1;
+  ux /= ul; uy /= ul; uz /= ul;
+  const vx = ny * uz - nz * uy;
+  const vy = nz * ux - nx * uz;
+  const vz = nx * uy - ny * ux;
+  // Parametric extent — project corners onto (u,v) and take the span.
+  let umin = Infinity, umax = -Infinity, vmin = Infinity, vmax = -Infinity;
+  for (const c of corners) {
+    const dx = c[0] - cx, dy = c[1] - cy, dz = c[2] - cz;
+    const pu = dx * ux + dy * uy + dz * uz;
+    const pv = dx * vx + dy * vy + dz * vz;
+    if (pu < umin) umin = pu; if (pu > umax) umax = pu;
+    if (pv < vmin) vmin = pv; if (pv > vmax) vmax = pv;
+  }
+  const padU = (umax - umin) * 0.04 + 1e-6;
+  const padV = (vmax - vmin) * 0.04 + 1e-6;
+  umin -= padU; umax += padU; vmin -= padV; vmax += padV;
+  // Bulge scales with the boundary's max chord (a real curved surface, not a plane).
+  let maxChord = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = Math.hypot(corners[i][0] - corners[j][0],
+        corners[i][1] - corners[j][1], corners[i][2] - corners[j][2]);
+      if (d > maxChord) maxChord = d;
+    }
+  }
+  const bulge = Math.max(0.1, maxChord * 0.12);
+  // 4×4 control net — interior CPs lifted along the plane normal.
+  const controlNet = [];
+  for (let i = 0; i < 4; i++) {
+    const su = umin + (umax - umin) * (i / 3);
+    const row = [];
+    for (let j = 0; j < 4; j++) {
+      const sv = vmin + (vmax - vmin) * (j / 3);
+      const bu = 1 - Math.abs(2 * (i / 3) - 1);
+      const bv = 1 - Math.abs(2 * (j / 3) - 1);
+      const lift = bulge * bu * bv;
+      row.push([
+        cx + su * ux + sv * vx + lift * nx,
+        cy + su * uy + sv * vy + lift * ny,
+        cz + su * uz + sv * vz + lift * nz,
+      ]);
+    }
+    controlNet.push(row);
+  }
+  return new NURBSSurface({
+    degreeU: 3, degreeV: 3,
+    controlNet,
+    knotsU: [0, 0, 0, 0, 1, 1, 1, 1],
+    knotsV: [0, 0, 0, 0, 1, 1, 1, 1],
+  });
+}
+
+/**
  * Fill an arbitrary non-four-sided boundary loop of a B-rep body with a smooth
  * variational surface patch.
  *
- * @param {import('./BrepShape.js').BrepShape} brepShape  the parent body.
+ * SP-1 S6 — returns a `SpineBody` whose primary spine `Face` is a spine-native
+ * analytic NURBS face carrying the N-sided patch's analytic surface; the
+ * tessellated sewn shell is kept on `SpineBody.occtWrapper` for rendering /
+ * measure (the same uniform contract as `g2BlendBetweenEdges`).
+ *
+ * @param {import('./BrepShape.js').BrepShape|import('../topology/SpineBody.js').default} brepShape  the parent body.
  * @param {object} [opts]
  * @param {number}  [opts.faceIndex]  0-based index of the face whose OUTER
  *        WIRE is the boundary loop to fill. When omitted, the face with the
  *        most edges (the non-4-sided opening) is chosen automatically.
  * @param {number}  [opts.subdivisions=3]   interior-density refinement passes.
  * @param {number}  [opts.fairingIterations=40]  discrete-fairing iterations.
- * @returns {Promise<BrepShape>}  a BrepShape wrapping the sewn fill mesh, with
- *   `meta.nSidedStats` carrying the fill statistics.
+ * @returns {Promise<SpineBody>}  a SpineBody whose body has one analytic
+ *   spine Face for the patch; `meta.analyticSurface` carries the raw NURBS
+ *   data (backward-compat); `meta.nSidedStats` carries the fill statistics.
  */
 export async function nSidedPatch(brepShape, opts = {}) {
   if (!brepShape || !brepShape.shape) {
@@ -223,15 +325,70 @@ export async function nSidedPatch(brepShape, opts = {}) {
     // ── 4. sew the fill mesh into a kernel shell ─────────────────────────────
     const sewed = meshToKernelShell(oc, mesh);
 
+    // ── 5. SP-1 S6 — fit a degree-3 NURBS analytic surface over the boundary
+    // corners. This is the spine-native analytic Face for the patch (the §S6
+    // unified-Face contract). The variational mesh is the render geometry of
+    // record; the analytic surface is the patch's spine representation.
+    const analyticSurface = nSidedAnalyticSurface(corners);
+
     const triangleCount = mesh.indices.length / 3;
-    const result = new BrepShape(sewed, {
+
+    // ── 6. Build the engine wrapper (BrepShape) — kept on the SpineBody for
+    // tessellate / measure / scene rendering.
+    const occtWrapper = new BrepShape(sewed, {
       op: 'nSidedPatch',
       params: { faceIndex: chosenIndex, subdivisions, fairingIterations },
       parents: [brepShape.id],
       description:
         `N-sided patch filling a ${corners.length}-sided boundary loop ` +
-        `(${triangleCount} tris, discrete variational fill, mesh-fidelity ` +
-        `sewn shell)`,
+        `(${triangleCount} tris, discrete variational fill + spine-native ` +
+        `degree-3 NURBS analytic face)`,
+    });
+    occtWrapper._triangulation = {
+      positions: mesh.positions,
+      normals: mesh.normals,
+      indices: mesh.indices,
+    };
+
+    // SP-1 §2.3 — lineage: the seed for the analytic face is the chosen
+    // face's edges of the parent (if the parent is a SpineBody, recover the
+    // seed-edge persistent ids; otherwise an empty list).
+    const derivedFromIds = [];
+    if (brepShape.body && typeof brepShape.body.edges === 'function') {
+      const we = track(new oc.BRepTools_WireExplorer_2(outerWire));
+      const seedEdges = [];
+      for (; we.More(); we.Next()) {
+        seedEdges.push(track(oc.TopoDS.Edge_1(we.Current())));
+      }
+      for (const occtEdge of seedEdges) {
+        const match = brepShape.body.edges().find(
+          (e) => e.geomRef && typeof e.geomRef.IsSame === 'function' &&
+            e.geomRef.IsSame(occtEdge));
+        if (match && match.persistentId) derivedFromIds.push(match.persistentId);
+      }
+    }
+
+    const { body: spineBody, face: analyticFace } = buildAnalyticSpineBody(
+      analyticSurface, {
+        geomEngineShape: occtWrapper,
+        bodyTag: 'nSidedPatch',
+        derivedFromIds,
+        faceName: `N-sided-patch(${corners.length}-sided)`,
+        kind: 'sheet',
+      });
+
+    const nurbsData = analyticFace.surface.toBSplineSurface();
+    const result = new SpineBody(spineBody, occtWrapper, {
+      op: 'nSidedPatch',
+      params: { faceIndex: chosenIndex, subdivisions, fairingIterations },
+      parents: [brepShape.id],
+      description: occtWrapper.meta.description,
+      // The exact analytic NURBS data — STEP-exportable as B_SPLINE_SURFACE.
+      // Same payload as `result.body.faces()[0].surface.toBSplineSurface()`.
+      analyticSurface: nurbsData,
+      // NOTE: meta.analyticFace (the legacy TopoFace) is intentionally NOT
+      // set — S6 retired the side-car. The analytic face lives in
+      // `result.body.faces()[0]`.
       nSidedStats: {
         loopSides: corners.length,
         wireEdgeCount: edgeCount,
@@ -242,15 +399,15 @@ export async function nSidedPatch(brepShape, opts = {}) {
         vertexCount: mesh.stats.vertices,
         triangleCount,
         bbox: mesh.stats.bbox,
+        analytic: true,
+        degreeU: nurbsData.degreeU,
+        degreeV: nurbsData.degreeV,
+        controlPointsU: nurbsData.controlNet.length,
+        controlPointsV: nurbsData.controlNet[0].length,
+        spineFacePersistentId: analyticFace.persistentId,
+        spineFaceDerivedFrom: analyticFace.derivedFrom.slice(),
       },
     });
-
-    // Pre-cache the tessellation so the standard tessellate() path returns it.
-    result._triangulation = {
-      positions: mesh.positions,
-      normals: mesh.normals,
-      indices: mesh.indices,
-    };
     return result;
   });
 }

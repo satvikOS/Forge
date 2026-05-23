@@ -40,16 +40,24 @@
  * still spans the gap with a smooth G2 surface, just not tangent-locked to a
  * face. This fallback is logged in the returned stats.
  *
- * ── ANALYTIC FACE (parity-audit P1 — native ArchDisc B-rep) ─────────────────
- * The blend result RETAINS the exact fitted degree-3×5 `NURBSSurface` as a
- * NATIVE ArchDisc analytic `TopoFace`: `buildAnalyticNurbsFace` wraps the
- * surface in a `NurbsSurfaceAdapter`, builds the boundary wire + pcurves, and
- * the `TopoFace` is carried on `result.meta.analyticFace`. The kernel
- * `TopoDS_Shell` of triangles is kept ONLY for rendering / measuring — the
- * analytic surface is the geometry of record and is STEP-exportable as a real
- * `B_SPLINE_SURFACE_WITH_KNOTS` (see `foundation/StepExport.js`
- * `nurbsSurfaceToSTEP`). This is the §3.1 G2-blend capability delivered
- * analytically in ArchDisc's OWN topology kernel — NOT an OCCT `TopoDS_Face`.
+ * ── ANALYTIC FACE — UNIFIED SPINE FACE (SP-1 S6) ────────────────────────────
+ * The blend result is a SpineBody whose primary spine `Face` IS the analytic
+ * NURBS face: `Face.surface` is a `NurbsSurfaceAdapter` over the exact fitted
+ * degree-3×5 `NURBSSurface`; `Face.geomRef` is null (spine-native — no engine
+ * sub-shape); `Face.isAnalytic === true`. The kernel `TopoDS_Shell` of
+ * triangles is kept as `SpineBody.occtWrapper` ONLY for rendering / measuring;
+ * the analytic surface is the geometry of record and is STEP-exportable as a
+ * real `B_SPLINE_SURFACE_WITH_KNOTS` via the unified Surface contract
+ * `face.surface.toBSplineSurface()` consumed by `foundation/StepExport.js`
+ * `nurbsSurfaceToSTEP`. Lineage (SP-1 §2.3): the spine face's `derivedFrom`
+ * records the persistent ids of the two seed edges that fed the fit, so an
+ * attribute / history layer can follow the blend back to its parents.
+ *
+ * The legacy `meta.analyticFace` side-car (a pre-spine `TopoFace`) is
+ * RETIRED — the analytic face is now part of the body's spine, reachable via
+ * `body.faces()`. The `meta.analyticSurface` payload (the raw NURBS data)
+ * stays for backward compat with downstream consumers and continues to mirror
+ * `face.surface.toBSplineSurface()`.
  *
  * Honest scope:
  *   - The analytic face is an ArchDisc-native `TopoFace` on an exact
@@ -71,7 +79,8 @@
 import { getKernel } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import { g2Blend, tessellateG2Blend } from '../../foundation/G2BlendSurface.js';
-import { buildAnalyticNurbsFace } from '../topology/AnalyticNurbsFace.js';
+import SpineBody from '../topology/SpineBody.js';
+import { buildAnalyticSpineBody } from '../topology/AnalyticFace.js';
 
 // ── tiny vec3 helpers ───────────────────────────────────────────────────────
 const v3sub  = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -473,32 +482,6 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
       computeFromPositions: false,
     });
 
-    // ── 4b. RETAIN the analytic surface as a native ArchDisc TopoFace ────────
-    // The exact degree-3×5 NURBSSurface is wrapped in a NurbsSurfaceAdapter and
-    // carried as a real TopoFace (boundary wire + pcurves). This is the §3.1
-    // analytic-face deliverable in ArchDisc's OWN B-rep topology kernel.
-    let analyticFace = null;
-    let analyticInfo = null;
-    try {
-      const built = buildAnalyticNurbsFace(surface);
-      analyticFace = built.face;
-      const nd = analyticFace.surface.nurbsData();
-      analyticInfo = {
-        analytic: true,
-        degreeU: nd.degreeU,
-        degreeV: nd.degreeV,
-        controlPointsU: nd.controlNet.length,
-        controlPointsV: nd.controlNet[0].length,
-        knotCountU: nd.knotsU.length,
-        knotCountV: nd.knotsV.length,
-        boundaryEdges: built.edges.length,
-        topoFaceId: analyticFace.id,
-      };
-    } catch (e) {
-      // Analytic-face construction failed — keep the mesh result, flag honestly.
-      analyticInfo = { analytic: false, reason: e && e.message ? e.message : String(e) };
-    }
-
     // ── 5. tessellate the blend surface → triangle mesh (for rendering) ──────
     const mesh = tessellateG2Blend(surface, uSegments, vSegments);
 
@@ -517,17 +500,80 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
     }
     const triangleCount = mesh.indices.length / 3;
 
-    const result = new BrepShape(sewed, {
+    // ── 7. SP-1 S6: wrap the sewn shell in a BrepShape (engine wrapper) AND
+    // build a spine-native analytic Body with the exact NURBS surface as its
+    // primary Face. The result is a SpineBody — duck-compatible with
+    // BrepShape via `.shape`, `.id`, `.meta`. The legacy `meta.analyticFace`
+    // side-car is RETIRED; `meta.analyticSurface` (the raw NURBS data) is
+    // kept for backward-compat consumers and mirrors
+    // `face.surface.toBSplineSurface()`.
+    const occtWrapper = new BrepShape(sewed, {
       op: 'g2BlendBetweenEdges',
       params: { edgeIndexA, edgeIndexB, uSegments, vSegments, edgeSamples },
       parents: [brepShape.id],
       description:
         `G2 curvature-continuous blend between edge ${ia} and edge ${ib} ` +
-        `(degree 3×5 analytic NURBS face + tessellated render shell)`,
-      // The retained native analytic face — exact NURBSSurface + boundary wire.
-      analyticFace,
+        `(degree 3×5 spine-native analytic NURBS face)`,
+    });
+    // Pre-cache the tessellation so brepToMesh's tessellation path returns it
+    // directly. Positions are in mm — the same unit the kernel tessellation
+    // produces.
+    occtWrapper._triangulation = {
+      positions: mesh.positions,
+      normals: mesh.normals,
+      indices: mesh.indices,
+    };
+
+    // SP-1 §2.3 — lineage: the analytic face's seed entities are the two
+    // edges that fed the fit. We do not have engine-edge persistent ids if
+    // the input is a raw BrepShape; if it is a SpineBody, recover the seed
+    // edges' persistent ids via the spine.
+    const derivedFromIds = [];
+    if (brepShape.body && typeof brepShape.body.edges === 'function') {
+      const seedEdges = [edgeA, edgeB];
+      for (const occtEdge of seedEdges) {
+        const match = brepShape.body.edges().find(
+          (e) => e.geomRef && typeof e.geomRef.IsSame === 'function' &&
+            e.geomRef.IsSame(occtEdge));
+        if (match && match.persistentId) derivedFromIds.push(match.persistentId);
+      }
+    }
+
+    const { body: spineBody, face: analyticFace } = buildAnalyticSpineBody(
+      surface, {
+        geomEngineShape: occtWrapper,
+        bodyTag: 'g2Blend',
+        derivedFromIds,
+        faceName: `G2-blend(edge${ia},edge${ib})`,
+        kind: 'sheet',
+      });
+
+    const nurbsData = analyticFace.surface.toBSplineSurface();
+    const analyticInfo = {
+      analytic: true,
+      degreeU: nurbsData.degreeU,
+      degreeV: nurbsData.degreeV,
+      controlPointsU: nurbsData.controlNet.length,
+      controlPointsV: nurbsData.controlNet[0].length,
+      knotCountU: nurbsData.knotsU.length,
+      knotCountV: nurbsData.knotsV.length,
+      // Where the analytic face now lives — in the spine body, NOT a side-car.
+      spineFacePersistentId: analyticFace.persistentId,
+      spineFaceDerivedFrom: analyticFace.derivedFrom.slice(),
+    };
+
+    const result = new SpineBody(spineBody, occtWrapper, {
+      op: 'g2BlendBetweenEdges',
+      params: { edgeIndexA, edgeIndexB, uSegments, vSegments, edgeSamples },
+      parents: [brepShape.id],
+      description: occtWrapper.meta.description,
       // The exact analytic NURBS data — STEP-exportable as B_SPLINE_SURFACE.
-      analyticSurface: analyticFace ? analyticFace.surface.nurbsData() : null,
+      // Backward-compat alias — the same payload as
+      // `result.body.faces()[0].surface.toBSplineSurface()`.
+      analyticSurface: nurbsData,
+      // NOTE: meta.analyticFace (the legacy TopoFace) is intentionally NOT
+      // set — S6 retired the side-car. The analytic face lives in
+      // `result.body.faces()[0]` (or via `body.findByPersistentId(...)`).
       g2Stats: {
         edgeCount: edges.length,
         edgeIndexA: ia,
@@ -546,20 +592,10 @@ export async function g2BlendBetweenEdges(brepShape, opts = {}) {
         triangleCount,
         vertexCount: mesh.positions.length / 3,
         bbox: { min: mn, max: mx },
-        // P1 — the blend RETAINS a native ArchDisc analytic NURBS face.
+        // S6 — the spine carries the analytic face.
         ...analyticInfo,
       },
     });
-
-    // Pre-cache the tessellation so the standard tessellate() path returns it
-    // directly (it is keyed on brepShape._triangulation). Positions are in mm
-    // — the same unit the kernel tessellation produces.
-    result._triangulation = {
-      positions: mesh.positions,
-      normals: mesh.normals,
-      indices: mesh.indices,
-    };
-
     return result;
   });
 }
