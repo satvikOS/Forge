@@ -1,6 +1,14 @@
 /**
  * ArchDisc Kernel — hard blending operations. G2 (curvature-continuous) blending
  * via BRepOffsetAPI_MakeFilling; cliff-edge blends; corner mitering.
+ *
+ * SP-1 S4 (features subset) — `cliffEdgeBlend` and `mitreCorner` return
+ * `SpineBody`s with persistent-ID carry-through (via the same
+ * `BRepFilletAPI_MakeFillet`-based pattern as `BrepFeatures.filletAll`).
+ * `blendG2` is intentionally LEFT on the legacy BrepShape return — it is
+ * the analytic-face side-car (the `meta.analyticFace` mechanism); SP-1 S6
+ * will retire that side-car and migrate the G2 path to a true spine face.
+ *
  * Verified kernel sequences: docs/superpowers/notes/kernel-api-A5.md.
  * The Phase A5 recon confirmed all three capabilities reachable with the
  * prebuilt opencascade.js.
@@ -8,6 +16,9 @@
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { carryLineage } from '../topology/IdLineage.js';
 
 /**
  * Walk every unique edge of `shape` and call `addEdge(edge)` once per edge.
@@ -142,13 +153,17 @@ export async function blendG2(holeBoxSize = 6) {
  * (`IsDone()=true`, positive volume) — standard `BRepFilletAPI_MakeFillet`
  * handles large radii robustly without any additional kernel infrastructure.
  *
- * @param {BrepShape} brepShape  input solid
- * @param {number}    radius     fillet radius (mm); must be ≥ 20% of bbox min dim
- * @returns {Promise<BrepShape>}
+ * SP-1 S4 — returns a SpineBody. Lineage carry-through via the algo's
+ * `Modified` / `Generated` / `IsDeleted` (BRepFilletAPI_LocalOperation
+ * inherited surface — identical to filletAll's pattern).
+ *
+ * @param {SpineBody|BrepShape} src  input solid
+ * @param {number} radius            fillet radius (mm); must be ≥ 20% of bbox min dim
+ * @returns {Promise<SpineBody>}
  */
-export async function cliffEdgeBlend(brepShape, radius) {
-  if (!brepShape || !brepShape.shape) {
-    throw new Error('cliffEdgeBlend: first argument must be a BrepShape with a live shape');
+export async function cliffEdgeBlend(src, radius) {
+  if (!src || !src.shape) {
+    throw new Error('cliffEdgeBlend: first argument must be a SpineBody or BrepShape with a live shape');
   }
   if (!(radius > 0)) {
     throw new Error(`cliffEdgeBlend: radius must be positive (got ${radius})`);
@@ -156,7 +171,7 @@ export async function cliffEdgeBlend(brepShape, radius) {
   const oc = await getOCCT();
   return withScope(() => {
     // Reject small radii — this op is specifically for cliff/large-radius blends.
-    const minDim = bboxMinDim(oc, brepShape.shape);
+    const minDim = bboxMinDim(oc, src.shape);
     const cliffThreshold = 0.20 * minDim;
     if (radius < cliffThreshold) {
       throw new Error(
@@ -167,10 +182,10 @@ export async function cliffEdgeBlend(brepShape, radius) {
     }
 
     const maker = track(new oc.BRepFilletAPI_MakeFillet(
-      brepShape.shape,
+      src.shape,
       oc.ChFi3d_FilletShape.ChFi3d_Rational,
     ));
-    forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(radius, edge); });
+    forEachUniqueEdge(oc, src.shape, (edge) => { maker.Add_2(radius, edge); });
 
     const pr = track(new oc.Message_ProgressRange_1());
     maker.Build(pr);
@@ -185,11 +200,23 @@ export async function cliffEdgeBlend(brepShape, radius) {
     const shape = maker.Shape();
     if (shape.IsNull()) throw new Error('cliffEdgeBlend: kernel produced a null shape');
 
-    return new BrepShape(shape, {
-      op: 'cliffEdgeBlend',
-      params: { radius },
-      parents: [brepShape.id],
+    const meta = { op: 'cliffEdgeBlend', params: { radius }, parents: [src.id] };
+    const wrapper = new BrepShape(shape, meta);
+    const resultBody = bindSpine(oc, shape, {
+      bodyTag: `cliffEdgeBlend-${wrapper.id}`, geomEngineShape: wrapper,
     });
+    if (src.body) {
+      const lineage = carryLineage(oc, maker, resultBody, [
+        { body: src.body, role: 'arg' },
+      ]);
+      meta.lineage = {
+        survived: lineage.survived, modified: lineage.modified,
+        generated: lineage.generated, deleted: lineage.deleted,
+        conflicts: lineage.conflicts,
+        faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+      };
+    }
+    return new SpineBody(resultBody, wrapper, meta);
   });
 }
 
@@ -213,13 +240,16 @@ export async function cliffEdgeBlend(brepShape, radius) {
  * ribbon-named op that exposes the corner-mitering capability; it carries no
  * cliff-radius constraint.
  *
- * @param {BrepShape} brepShape  input solid
- * @param {number}    radius     fillet radius (mm); must be > 0
- * @returns {Promise<BrepShape>}
+ * SP-1 S4 — returns a SpineBody with full lineage carry-through (same
+ * BRepFilletAPI history surface as filletAll).
+ *
+ * @param {SpineBody|BrepShape} src  input solid
+ * @param {number} radius            fillet radius (mm); must be > 0
+ * @returns {Promise<SpineBody>}
  */
-export async function mitreCorner(brepShape, radius) {
-  if (!brepShape || !brepShape.shape) {
-    throw new Error('mitreCorner: first argument must be a BrepShape with a live shape');
+export async function mitreCorner(src, radius) {
+  if (!src || !src.shape) {
+    throw new Error('mitreCorner: first argument must be a SpineBody or BrepShape with a live shape');
   }
   if (!(radius > 0)) {
     throw new Error(`mitreCorner: radius must be positive (got ${radius})`);
@@ -227,10 +257,10 @@ export async function mitreCorner(brepShape, radius) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepFilletAPI_MakeFillet(
-      brepShape.shape,
+      src.shape,
       oc.ChFi3d_FilletShape.ChFi3d_Rational,
     ));
-    forEachUniqueEdge(oc, brepShape.shape, (edge) => { maker.Add_2(radius, edge); });
+    forEachUniqueEdge(oc, src.shape, (edge) => { maker.Add_2(radius, edge); });
 
     const pr = track(new oc.Message_ProgressRange_1());
     maker.Build(pr);
@@ -244,10 +274,22 @@ export async function mitreCorner(brepShape, radius) {
     const shape = maker.Shape();
     if (shape.IsNull()) throw new Error('mitreCorner: kernel produced a null shape');
 
-    return new BrepShape(shape, {
-      op: 'mitreCorner',
-      params: { radius },
-      parents: [brepShape.id],
+    const meta = { op: 'mitreCorner', params: { radius }, parents: [src.id] };
+    const wrapper = new BrepShape(shape, meta);
+    const resultBody = bindSpine(oc, shape, {
+      bodyTag: `mitreCorner-${wrapper.id}`, geomEngineShape: wrapper,
     });
+    if (src.body) {
+      const lineage = carryLineage(oc, maker, resultBody, [
+        { body: src.body, role: 'arg' },
+      ]);
+      meta.lineage = {
+        survived: lineage.survived, modified: lineage.modified,
+        generated: lineage.generated, deleted: lineage.deleted,
+        conflicts: lineage.conflicts,
+        faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+      };
+    }
+    return new SpineBody(resultBody, wrapper, meta);
   });
 }
