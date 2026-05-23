@@ -28,6 +28,8 @@ import DesignHistoryPanel from '../../components/DesignHistoryPanel';
 import '../../components/DesignHistoryPanel.css';
 import PartBrowserPanel from '../../components/PartBrowserPanel';
 import '../../components/PartBrowserPanel.css';
+import TopologyInspector from '../../components/TopologyInspector';
+import '../../components/TopologyInspector.css';
 import ToolParamDialog from '../../components/ToolParamDialog';
 import '../../components/ToolParamDialog.css';
 import AISettingsPanel from '../../components/AISettingsPanel';
@@ -1172,6 +1174,11 @@ function WorkbenchMechanical() {
 
                 {/* Part browser — every foundation body in the scene */}
                 <PartBrowserPanel />
+
+                {/* SP-1 S7 Topology Inspector — surfaces the unified spine
+                    Body→Lump→Shell→Face→Loop→Coedge→Edge→Vertex for the
+                    selected body, with per-entity readout + drill-down. */}
+                <TopologyInspector />
 
                 {/* Feature Tree at top */}
                 <FeatureTreePanel onSelectFeature={(id) => console.log('Selected feature:', id)} />

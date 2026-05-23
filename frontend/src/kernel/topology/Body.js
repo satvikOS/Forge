@@ -444,4 +444,212 @@ export default class Body {
       `("${this.name}" kind=${this.kind || '?'}, ${this.lumps.length} lump(s), ` +
       `V${this.vertices().length} E${this.edges().length} F${this.faces().length})`;
   }
+
+  // ── S7 Topology Inspector — pure read-side JSON projection ────────────────
+  //
+  // The Inspector UI never holds a live spine reference (the spine graph has
+  // legitimate cycles — Lump↔Shell, Shell↔Face, Loop↔Coedge, Edge↔Coedge —
+  // that React state and serialisers do not survive). `toInspectorJSON` walks
+  // the live spine ONCE and produces an acyclic, fully-keyed snapshot keyed
+  // on persistent ids (transient ids as fallback): each node has a `kind`
+  // tag, a `label`, plus `children` arrays in the canonical
+  // `Body → Lump → Shell → Face → Loop → Coedge → Edge → Vertex` order.
+  // This is the *read-helper* the S7 plan §6 calls for ("Body.toInspectorJSON()").
+  //
+  // The projection is intentionally MINIMAL — it includes only what the
+  // inspector tree shows; the per-entity read-out fetches deeper detail by
+  // looking up the live entity through `findByPersistentId`/`findEntityById`
+  // when a node is selected. That keeps the snapshot cheap on large bodies.
+  toInspectorJSON() {
+    const validation = (this.diagnostics && this.diagnostics.validation) || null;
+    const euler = this.checkEulerPoincare();
+    const faces = this.faces();
+    const edges = this.edges();
+    const verts = this.vertices();
+    const nm = this.nonManifoldEdges();
+    const root = {
+      kind: 'body',
+      persistentId: this.persistentId,
+      transientId: this.transientId,
+      bodyKind: this.kind || null,
+      declaredKind: this.declaredKind || null,
+      kindMismatch: (this.diagnostics && this.diagnostics.kindMismatch) || null,
+      name: this.name || '',
+      counts: {
+        lumps: this.lumps.length,
+        shells: this.shells().length,
+        faces: faces.length,
+        loops: this.loops().length,
+        coedges: this.coedges().length,
+        edges: edges.length,
+        vertices: verts.length,
+        nonManifoldEdges: nm.length,
+        analyticFaces: faces.filter(f => f.isAnalytic).length,
+      },
+      euler: {
+        V: euler.V, E: euler.E, F: euler.F, R: euler.R || 0,
+        actual: euler.actual,
+        genusImplied: euler.genusImplied,
+        ok: euler.ok,
+        note: euler.note || '',
+      },
+      validation: validation ? {
+        ok: !!validation.ok,
+        errors: Array.isArray(validation.errors) ? validation.errors.slice(0, 32) : [],
+        warnings: Array.isArray(validation.warnings) ? validation.warnings.slice(0, 32) : [],
+      } : null,
+      children: [],
+    };
+    let lumpIdx = 0;
+    for (const lump of this.lumps) {
+      const lumpNode = {
+        kind: 'lump',
+        persistentId: lump.persistentId || `lump:${lumpIdx}`,
+        transientId: lump.transientId,
+        label: `Lump ${lumpIdx + 1}`,
+        children: [],
+      };
+      lumpIdx += 1;
+      let shellIdx = 0;
+      for (const shell of lump.shells || []) {
+        const shellNode = {
+          kind: 'shell',
+          persistentId: shell.persistentId || `shell:${shellIdx}`,
+          transientId: shell.transientId,
+          role: shell.role || null,
+          isClosed: typeof shell.isClosed === 'function' ? shell.isClosed() : null,
+          label: `Shell ${shellIdx + 1}${shell.role ? ` (${shell.role})` : ''}`,
+          children: [],
+        };
+        shellIdx += 1;
+        let faceIdx = 0;
+        for (const face of shell.faces || []) {
+          const faceCoedges = face.coedges();
+          const faceEdges = face.edges();
+          const faceVerts = face.vertices();
+          const surfType = face.surface ? (face.surface.type || (face.surface.analytic ? 'analytic' : 'surface')) : 'none';
+          const faceNode = {
+            kind: 'face',
+            persistentId: face.persistentId || `face:${faceIdx}`,
+            transientId: face.transientId,
+            label: `Face #${face.transientId} (${surfType})`,
+            surfaceType: surfType,
+            isAnalytic: !!face.isAnalytic,
+            reversed: !!face.reversed,
+            derivedFrom: Array.isArray(face.derivedFrom) ? face.derivedFrom.slice() : [],
+            attributesKeys: face.attributes ? Object.keys(face.attributes) : [],
+            metaKeys: face.userData ? Object.keys(face.userData) : [],
+            counts: {
+              edges: faceEdges.length,
+              vertices: faceVerts.length,
+              coedges: faceCoedges.length,
+              loops: face.allLoops().length,
+              innerLoops: face.innerLoops.length,
+            },
+            // Per-loop nesting — outer first, then inner (holes).
+            children: [],
+          };
+          faceIdx += 1;
+          // Outer loop
+          let loopIdx = 0;
+          const emitLoop = (loop, isOuter) => {
+            const loopNode = {
+              kind: 'loop',
+              persistentId: loop.persistentId || `loop:${loopIdx}`,
+              transientId: loop.transientId,
+              isOuter: !!isOuter,
+              label: `Loop ${loopIdx + 1}${isOuter ? ' (outer)' : ' (inner)'} — ${loop.coedges.length} coedge${loop.coedges.length === 1 ? '' : 's'}`,
+              children: [],
+            };
+            loopIdx += 1;
+            let ceIdx = 0;
+            for (const ce of loop.coedges || []) {
+              const ceNode = {
+                kind: 'coedge',
+                persistentId: ce.persistentId || `coedge:${ceIdx}`,
+                transientId: ce.transientId,
+                reversed: !!ce.reversed,
+                radialAngle: Number.isFinite(ce.radialAngle) ? ce.radialAngle : null,
+                hasPartner: !!ce.partner,
+                hasPcurve: !!ce.pcurve,
+                label: `Coedge #${ce.transientId}${ce.reversed ? ' (rev)' : ''}`,
+                children: [],
+              };
+              if (ce.edge) {
+                const e = ce.edge;
+                ceNode.children.push({
+                  kind: 'edge',
+                  persistentId: e.persistentId || `edge:${ceIdx}`,
+                  transientId: e.transientId,
+                  label: `Edge #${e.transientId}`,
+                  coedgeCount: e.coedges.size,
+                  isManifold: typeof e.isManifold === 'function' ? e.isManifold() : null,
+                  isNonManifold: e.coedges.size > 2,
+                  degenerate: !!e.degenerate,
+                  derivedFrom: Array.isArray(e.derivedFrom) ? e.derivedFrom.slice() : [],
+                  curveType: e.curve ? (e.curve.type || 'curve') : 'none',
+                  length: typeof e.length === 'function' ? e.length() : null,
+                  children: [
+                    e.startVertex ? {
+                      kind: 'vertex',
+                      persistentId: e.startVertex.persistentId || `vertex:s`,
+                      transientId: e.startVertex.transientId,
+                      label: `Vertex #${e.startVertex.transientId} (start)`,
+                      point: e.startVertex.point ? { ...e.startVertex.point } : null,
+                      valence: e.startVertex.valence ? e.startVertex.valence() : null,
+                      derivedFrom: Array.isArray(e.startVertex.derivedFrom) ? e.startVertex.derivedFrom.slice() : [],
+                      children: [],
+                    } : null,
+                    e.endVertex && e.endVertex !== e.startVertex ? {
+                      kind: 'vertex',
+                      persistentId: e.endVertex.persistentId || `vertex:e`,
+                      transientId: e.endVertex.transientId,
+                      label: `Vertex #${e.endVertex.transientId} (end)`,
+                      point: e.endVertex.point ? { ...e.endVertex.point } : null,
+                      valence: e.endVertex.valence ? e.endVertex.valence() : null,
+                      derivedFrom: Array.isArray(e.endVertex.derivedFrom) ? e.endVertex.derivedFrom.slice() : [],
+                      children: [],
+                    } : null,
+                  ].filter(Boolean),
+                });
+              }
+              ceIdx += 1;
+              loopNode.children.push(ceNode);
+            }
+            faceNode.children.push(loopNode);
+          };
+          if (face.outerLoop) emitLoop(face.outerLoop, true);
+          for (const il of face.innerLoops) emitLoop(il, false);
+          shellNode.children.push(faceNode);
+        }
+        lumpNode.children.push(shellNode);
+      }
+      root.children.push(lumpNode);
+    }
+    return root;
+  }
+
+  /**
+   * Look up any spine entity by its persistent ID (or transient ID prefixed by
+   * 't:'). Pure read — does not mutate the spine. Used by the Inspector when a
+   * tree node is clicked: the JSON snapshot carries identifiers, the live
+   * entity is fetched on demand for the per-entity readout.
+   * @param {string|number} id  persistent id, or transient id (number).
+   * @returns {object|null}
+   */
+  findEntityById(id) {
+    if (id == null) return null;
+    if (typeof id === 'string' && id.startsWith('t:')) {
+      const t = Number(id.slice(2));
+      for (const l of this.lumps) if (l.transientId === t) return l;
+      for (const s of this.shells()) if (s.transientId === t) return s;
+      for (const f of this.faces()) if (f.transientId === t) return f;
+      for (const lp of this.loops()) if (lp.transientId === t) return lp;
+      for (const ce of this.coedges()) if (ce.transientId === t) return ce;
+      for (const e of this.edges()) if (e.transientId === t) return e;
+      for (const v of this.vertices()) if (v.transientId === t) return v;
+      return null;
+    }
+    return this.findByPersistentId(id);
+  }
 }
