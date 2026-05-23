@@ -35,3 +35,6 @@ export { default as bindSpine, bindSpineFromShape } from './bindSpine.js';
 
 // ── SpineBody — the SP-1 currency, BrepShape-duck-compatible (S2) ─────────────
 export { default as SpineBody, isSpineBody } from './SpineBody.js';
+
+// ── Persistent-ID carry-through across booleans (S3) ──────────────────────────
+export { carryLineage } from './IdLineage.js';
