@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react';
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
+import { DOCKED_TOOLS } from './SwUxOverlays';
 
 /**
  * Generic modal that renders fields from a ToolParamSchema and
  * resolves the handler's `requestToolParams` promise on Run/Cancel.
  * Mounted once at the app root — listens for open events.
+ *
+ * Tier-1 PropertyManagerDock takes precedence for tools in
+ * `DOCKED_TOOLS`; this floating dialog only handles the rest.
  */
 export default function ToolParamDialog() {
   const [state, setState] = useState({ open: false, schema: null, toolName: null, values: {} });
 
   useEffect(() => {
     const unsub = onParamRequest(({ toolName, schema }) => {
+      // Migrated tools render via PropertyManagerDock — don't double up.
+      if (DOCKED_TOOLS.has(toolName)) return;
       const initial = {};
       for (const f of schema.fields) initial[f.name] = f.default;
       setState({ open: true, schema, toolName, values: initial });

@@ -1,0 +1,395 @@
+/* SolidWorks-convention UX overlays — Tier 1 styling.
+ *
+ * Visual style matches the existing ribbon + viewport-overlay tone:
+ *   - Dark glass panels (rgba(20,20,20,.85) + backdrop blur)
+ *   - Subtle white-alpha borders + radius 6px
+ *   - Cursor-pointer interactive elements
+ *   - Colour-state semantics: green (#3ec77e) confirm, red (#e35454) cancel,
+ *     blue (#00ccff) under-def, grey (#999) full-def, red (#ff3030) over-def.
+ *
+ * All overlays mount as siblings inside .workbench-viewport, so they live in
+ * the viewport coordinate space and stay on top of the canvas via z-index 12+.
+ */
+
+/* ─── 1. Confirmation Corner (top-right) ───────────────────────────────── */
+.sw-confirm-corner {
+  position: absolute;
+  top: 60px;       /* below viewport overlays */
+  right: 8px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(18, 18, 18, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 6px;
+  padding: 4px 6px 4px 10px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  animation: sw-fade-in 0.12s ease-out;
+}
+
+.sw-confirm-corner-label {
+  font-size: 10px;
+  color: #b8b8b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.sw-confirm-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.08s, border-color 0.08s, transform 0.08s;
+}
+
+.sw-confirm-btn-ok {
+  background: rgba(62, 199, 126, 0.22);
+  border-color: rgba(62, 199, 126, 0.45);
+  color: #3ec77e;
+}
+.sw-confirm-btn-ok:hover {
+  background: rgba(62, 199, 126, 0.45);
+  color: #fff;
+}
+.sw-confirm-btn-ok:active { transform: scale(0.94); }
+
+.sw-confirm-btn-cancel {
+  background: rgba(227, 84, 84, 0.20);
+  border-color: rgba(227, 84, 84, 0.45);
+  color: #e35454;
+}
+.sw-confirm-btn-cancel:hover {
+  background: rgba(227, 84, 84, 0.45);
+  color: #fff;
+}
+.sw-confirm-btn-cancel:active { transform: scale(0.94); }
+
+/* ─── 2. Heads-up View Toolbar (top-centre) ─────────────────────────────── */
+.sw-heads-up-toolbar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 28;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: rgba(18, 18, 18, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 3px 4px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+}
+
+.sw-hu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 26px;
+  min-width: 30px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #c8c8c8;
+  font-size: 11px;
+  transition: background 0.08s, color 0.08s;
+}
+
+.sw-hu-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+}
+.sw-hu-btn:active { background: rgba(74, 144, 217, 0.30); }
+
+.sw-hu-btn-drop {
+  padding-right: 4px;
+}
+
+.sw-hu-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.10);
+  margin: 0 3px;
+}
+
+.sw-hu-dropdown-wrap {
+  position: relative;
+}
+
+.sw-hu-menu {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  min-width: 180px;
+  background: rgba(20, 20, 20, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 3px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  z-index: 40;
+}
+
+.sw-hu-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 5px 14px;
+  font-size: 11px;
+  color: #d0d0d0;
+  cursor: pointer;
+  transition: background 0.06s;
+}
+
+.sw-hu-menu-item:hover { background: rgba(74, 144, 217, 0.30); color: #fff; }
+.sw-hu-menu-item-active {
+  background: rgba(74, 144, 217, 0.18);
+  color: #aac8ff;
+}
+
+/* ─── 3. PropertyManager Dock (left side) ──────────────────────────────── */
+.sw-property-dock {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 280px;
+  max-height: calc(100% - 16px);
+  z-index: 26;
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 20, 20, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(74, 144, 217, 0.45);
+  border-left-width: 3px;
+  border-radius: 6px;
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.65);
+  overflow-y: auto;
+  animation: sw-slide-in-left 0.14s ease-out;
+}
+
+.sw-pm-dock-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg,
+    rgba(74, 144, 217, 0.20) 0%,
+    rgba(74, 144, 217, 0.05) 100%);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sw-pm-dock-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e8e8e8;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-pm-dock-actions {
+  display: flex;
+  gap: 3px;
+}
+
+.sw-pm-dock-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.08s, border-color 0.08s;
+}
+
+.sw-pm-dock-btn-ok {
+  background: rgba(62, 199, 126, 0.20);
+  border-color: rgba(62, 199, 126, 0.40);
+  color: #3ec77e;
+}
+.sw-pm-dock-btn-ok:hover { background: rgba(62, 199, 126, 0.45); color: #fff; }
+
+.sw-pm-dock-btn-cancel {
+  background: rgba(227, 84, 84, 0.20);
+  border-color: rgba(227, 84, 84, 0.40);
+  color: #e35454;
+}
+.sw-pm-dock-btn-cancel:hover { background: rgba(227, 84, 84, 0.45); color: #fff; }
+
+.sw-pm-dock-blurb {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #999;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  line-height: 1.4;
+}
+
+.sw-pm-dock-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sw-pm-dock-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #aab;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: background 0.06s;
+}
+
+.sw-pm-dock-section-header:hover { background: rgba(255, 255, 255, 0.06); }
+
+.sw-pm-dock-section-body {
+  padding: 8px 10px;
+}
+
+.sw-pm-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.sw-pm-dock-row-empty {
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+}
+
+.sw-pm-dock-label {
+  flex: 0 0 110px;
+  font-size: 11px;
+  color: #ccc;
+}
+
+.sw-pm-dock-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sw-pm-dock-input {
+  flex: 1;
+  background: #0d0d0d;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 11px 'Consolas', monospace;
+  padding: 4px 6px;
+  outline: none;
+  min-width: 0;
+}
+.sw-pm-dock-input:focus { border-color: #5da5ff; }
+
+.sw-pm-dock-unit {
+  min-width: 28px;
+  font: 10px 'Consolas', monospace;
+  color: #888;
+}
+
+/* When the dock is open, suppress the floating .tpd-backdrop modal so both
+ * UIs don't render. (The dock is the docked replacement.) */
+body.sw-dock-suppress-floating .tpd-backdrop {
+  display: none !important;
+}
+
+/* ─── 4. Sketch State Badge (bottom-left) ──────────────────────────────── */
+.sw-sketch-state {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  color: #ddd;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.6);
+}
+
+.sw-sketch-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #999;
+}
+
+.sw-sketch-state-dof {
+  color: #888;
+  font-weight: 500;
+  font-family: 'Consolas', monospace;
+}
+
+.sw-sketch-state.sw-state-under {
+  border-color: rgba(0, 204, 255, 0.50);
+}
+.sw-sketch-state.sw-state-under .sw-sketch-state-dot { background: #00ccff; box-shadow: 0 0 6px rgba(0, 204, 255, 0.7); }
+.sw-sketch-state.sw-state-under .sw-sketch-state-label { color: #5cdaff; }
+
+.sw-sketch-state.sw-state-full {
+  border-color: rgba(170, 170, 170, 0.50);
+}
+.sw-sketch-state.sw-state-full .sw-sketch-state-dot { background: #cccccc; box-shadow: 0 0 6px rgba(255, 255, 255, 0.4); }
+.sw-sketch-state.sw-state-full .sw-sketch-state-label { color: #f0f0f0; }
+
+.sw-sketch-state.sw-state-over {
+  border-color: rgba(255, 48, 48, 0.55);
+}
+.sw-sketch-state.sw-state-over .sw-sketch-state-dot { background: #ff3030; box-shadow: 0 0 6px rgba(255, 48, 48, 0.7); }
+.sw-sketch-state.sw-state-over .sw-sketch-state-label { color: #ff8080; }
+
+/* ─── animations ───────────────────────────────────────────────────────── */
+@keyframes sw-fade-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sw-slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
