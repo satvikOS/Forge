@@ -10,7 +10,7 @@ PK_PARTITION rollback machinery enumerated at line 312 of
 |---|---|---|---|
 | **SP-3a** — mechanism + `makeBox` hook | **DONE** | 2026-05-23 | see below |
 | **SP-3b** — coverage across remaining ops (primitives + booleans + features + local + surfacing + transforms + analytic-face + partition/section/imprint) | **DONE** | 2026-05-23 | see SP-3b section below |
-| **SP-3c** — Design History UI rebacked by the kernel log | **QUEUED** | — | the existing Design History panel becomes a *timeline scrubber* over the SP-3a log |
+| **SP-3c** — UI: Rollback bar (timeline scrubber over the kernel log) | **DONE** (Tier-1 #10 bar) | 2026-05-23 | see SP-3c section below + `ux-track-progress.md` Tier-1 #10. The bar consumes the SP-3a/3b `HistoryLog` directly — entries, marks, cursor — via the new `archdisc:history-changed` event. |
 
 ---
 
@@ -499,3 +499,153 @@ SP-3c's plan:
    (`forward` / `inverse` are closures over op params; `meta`'s
    `op` + `params` provide enough to rebuild the closure from a
    serialised log via an op-vocabulary lookup).
+
+---
+
+## SP-3c — UI bar over the kernel log — DONE (2026-05-23)
+
+### The deliverable
+
+The Rollback bar (`SwUxOverlays.jsx::RollbackBar`) is a live, interactive
+timeline scrubber over the SP-3a/3b kernel `HistoryLog`. Mounted at the top
+of the viewport (just below the Heads-up View Toolbar), the bar renders
+every entry as a dot or a mark flag, the cursor as a pulsing caret, and
+supports three real interactions: click-to-roll, drag-scrub, right-click
+context menu (Roll To / Rename / Delete Mark). The bar re-renders on
+every `archdisc:history-changed` event the kernel `HistoryLog` emits.
+
+The full UX is documented in `docs/superpowers/notes/ux-track-progress.md`
+under "Tier 1 #10 — Rollback bar" — including the bespoke furniture-leg
+lathe profile e2e, the click/drag/right-click visual story, the regression
+subset, and the honest gaps. This section records ONLY the SP-3c-shaped
+work: how the bar consumes the kernel log.
+
+### What changed in `HistoryLog.js`
+
+ONE additive change — the `_emitHistoryChanged(type, detail)` helper
+dispatches `archdisc:history-changed` on `window` whenever the log
+mutates. Call sites: `recordOp`, `mark`, `rollBackTo`, `rollForwardTo`
+(only when steps > 0). Detail shape:
+`{ type: 'record'|'mark'|'rollBack'|'rollForward', ...op-specific }`.
+
+The emission is fire-and-forget — wrapped in try/catch so a missing or
+mis-shapen `CustomEvent` constructor never throws into the log. Silently
+no-ops when `globalThis.window` is unavailable (pure-kernel scripts,
+jsdom-less test harnesses).
+
+The log's pure-JS contract is unchanged. Every prior consumer
+(`recordBodyCreate`, `recordBodyDerive`, `recordBodyDeriveMulti`, every
+SP-3a/3b hook, every `e2e/sp3*` spec) sees the same return shape and
+same side-effect set; the event is purely additive.
+
+### How the bar consumes it
+
+`SwUxOverlays.jsx::RollbackBar` subscribes once at mount:
+
+```js
+window.addEventListener('archdisc:history-changed', () => {
+  setSnap(snapshotHistory());
+});
+```
+
+`snapshotHistory()` is a pure read — it walks `hist.entries`, builds a
+compact `{ idx, id, opName, mark, time, persistentIds }` per entry, plus
+`{ cursor, marks, currentId }`. Never mutates; safe to call any number of
+times.
+
+`driveRollToIndex(targetIdx)` is the action helper: resolves the target
+to a roll-back or roll-forward via `hist.rollBackTo`/`rollForwardTo` and
+returns the post-roll snapshot. The kernel rolls emit their own
+`history-changed` event on completion, so the bar re-renders twice on
+each click (once synchronously after `driveRollToIndex` returns, once
+on the event). That's harmless — both renders produce the same snapshot;
+the second is a no-op.
+
+### Live-scrub throttling
+
+The bar's `queueRollToIndex(idx)` uses `requestAnimationFrame` to collapse
+multiple pointer-move events within one frame into a single roll. The
+documented behaviour:
+
+- A rapid drag-scrub fires `pointermove` ~16-60×/s; without throttling,
+  each move would queue a `rollBackTo` (each of which walks N inverses
+  in the worst case).
+- With the RAF throttle, at most ~60 rolls/s fire — one per animation
+  frame. The latest queued index wins; intermediate moves are dropped.
+- Honest gap: on logs > ~50 entries the roll cost per step (the kernel's
+  inverse-walk loop) dominates the frame budget, and the caret can lag
+  the cursor by 1-2 frames. Documented in the bar's preamble comment
+  and in `ux-track-progress.md` gaps.
+
+### DesignHistoryPanel delegation
+
+The app-level `DesignHistoryPanel.jsx` (FEATURE history — one row per
+foundation tool run) keeps its existing "Roll Back To Here" right-click
+menu item, now wired to call `delegateRollbackToKernel(dhEntry)` IN
+ADDITION to the existing app-level row-dimming:
+
+1. Find the last kernel `HistoryLog` entry whose `time` ≤ `dhEntry.when`
+   (ms-mapped).
+2. Fire `hist.rollBackTo(targetEntry)` — the geometry actually reverts.
+3. Report the delegation outcome on `window.__lastDhAction.kernelDelegation`
+   so e2e + AI introspection can confirm the bar moved.
+
+The two timelines remain semantically distinct — the FEATURE log is
+chronological tool runs (analysis ops, AI plan steps), the kernel log is
+the body-bulletin-board over the topology spine. The bar surfaces the
+kernel log; the panel surfaces the FEATURE log; the delegation is the
+bridge so the user's "roll back to here" gesture on the panel actually
+reverts the model.
+
+### Bespoke real workflow + visual check
+
+See `ux-track-progress.md` Tier-1 #10 for the 10-frame story: lathe-leg
+profile (7 ops + 3 marks = 10 entries), click each mark in turn, drag-scrub
+mid-timeline, right-click + Rename a mark. The marquee shot (B1) shows
+the cursor caret pulsing mid-strip and the model in partial-rebuild —
+proving the drag actually walks intermediate states, not just snaps to
+the final one.
+
+### Regression
+
+`sp3a-history-mechanism-electron` + `sp3b-multi-op-history-electron` both
+PASS post-change (the emission is fire-and-forget, never touches the
+log's cursor or entries). `ux-rollback-bar-electron` (NEW) PASS. Tier-1
+through Tier-2c (`ux-tier1`, `ux-tier1-backlog`, `ux-tier2a`, `ux-tier2b`,
+`ux-tier2c`, `ux-tier11a`) all PASS. `ribbon-test` PASS.
+
+### Files touched
+
+- `frontend/src/kernel/history/HistoryLog.js` — added `_emitHistoryChanged`
+  + 4 call sites (recordOp/mark/rollBackTo/rollForwardTo). Pure additive;
+  silently no-ops without `window`.
+- `frontend/src/components/SwUxOverlays.jsx` — new `RollbackBar` component
+  mounted as a sibling of `HeadsUpViewToolbar` so it auto-rides every
+  workbench.
+- `frontend/src/components/SwUxOverlays.css` — new `.sw-rollback-bar*`
+  styles (strip, dots, mark flags, caret with pulse animation, baseline
+  flag, tooltip, context menu, rename input).
+- `frontend/src/components/DesignHistoryPanel.jsx` — new
+  `delegateRollbackToKernel` helper + wired the existing "Roll Back To
+  Here" menu item to call it.
+- `e2e/ux-rollback-bar-electron.spec.js` — new motion-capture spec, 10
+  stills + 1.24 MB session.webm.
+
+### Hand-off — what's still open in SP-3
+
+SP-3a / 3b / 3c — DONE. Residual SP-3 follow-ons (NOT in this pass):
+
+- **Persistence** — log isn't serialised to disk. `replay(from, to)` is
+  the API; the per-op `meta` carries enough to rebuild the closure via
+  an op-vocabulary lookup (see SP-3a hand-off section).
+- **Multi-document scope** — one log per kernel session. `getHistoryLog()`
+  is the single owner; a future multi-tab editor replaces it with a
+  per-doc map.
+- **Feature-DAG visualisation** — the bar surfaces the linear timeline;
+  `entry.dependsOn` is surfaced ONLY in the hover tooltip. Rendering the
+  DAG as edges would need a layered layout (out of scope for the strip).
+- **Engine-shape lifetime on rollback** — `BodyRegistry.remove(id)` still
+  doesn't call `SpineBody.dispose()`. Bounded for typical workflows;
+  same SP-3a documented gap.
+- **NURBS / simplify / advanced-boolean / blendG2 / replaceFace.curvedSwap
+  hooks** — same SP-3b documented gaps.

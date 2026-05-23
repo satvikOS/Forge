@@ -1,6 +1,6 @@
 # UX-Track Progress — SolidWorks + NX Conventions in ArchDisc
 
-**Last updated:** 2026-05-23 (Tier-2c sketch transforms shipped)
+**Last updated:** 2026-05-23 (Tier-1 #10 Rollback bar shipped on top of SP-3a/3b)
 
 This file tracks ArchDisc's progress closing the SolidWorks UX gap list documented in
 [`solidworks-course-synthesis.md`](./solidworks-course-synthesis.md). The gap list is
@@ -9,7 +9,7 @@ records which items have shipped, are partial, or remain outstanding.
 
 ---
 
-## Tier 1 — Universal SolidWorks conventions (8 of 10 done)
+## Tier 1 — Universal SolidWorks conventions (9 of 10 done)
 
 | # | Convention | Status | Implementation |
 |---|---|---|---|
@@ -22,7 +22,7 @@ records which items have shipped, are partial, or remain outstanding.
 | 7 | Auto-relations icon on cursor while drawing | **DONE** (Tier-1 backlog) | `InteractiveSketch._detectAutoRelation(cursorPos)` returns one of `horizontal | vertical | coincident | tangent | perpendicular | parallel` based on the active tool + nearest existing entities (5° tolerance). The hint is published with every cursor move via `__archdiscSketchCursor.hint`. `SwUxOverlays.jsx::AutoRelationIndicator` tracks `pointermove` inside the viewport and renders a colour-tinted icon next to the cursor reflecting the active hint |
 | 8 | `(f)` fixed-component prefix in assembly tree | **NOT THIS PASS** | |
 | 9 | Right-click conventions in FeatureManager (full audit) | **DONE** (Tier-1 backlog) | `DesignHistory.rename()` / `setSuppressed()` / `remove()` / `rollBackToHere()` mutators on the foundation history. `DesignHistoryPanel.jsx` opens a fixed-positioned context menu on `onContextMenu` with all 6 SW entries: Edit Feature, Edit Sketch (only on sketch-bearing entries), Suppress/Unsuppress, Roll Back To Here (placeholder — see gap), Rename (inline editor), Delete. Hides on click-outside, Escape, or a second right-click anywhere. Double-click row also enters rename mode (SW F2 convention) |
-| 10 | Rollback bar in Feature Manager Design Tree | **NOT THIS PASS** | |
+| 10 | Rollback bar in Feature Manager Design Tree | **DONE** (SP-3c) | `SwUxOverlays.jsx::RollbackBar` + `.sw-rollback-bar*` CSS. Real, HistoryLog-backed timeline scrubber at the top of the viewport (just below the Heads-up View Toolbar). Three interaction modes: (1) click any entry/mark/baseline → kernel `rollBackTo`/`rollForwardTo`; (2) drag the strip → live scrub, RAF-throttled, model evolves in real time; (3) right-click a mark → context menu (Roll To Here / Rename / Delete Mark). Subscribes to the `archdisc:history-changed` event the kernel HistoryLog emits on every record/mark/rollBack/rollForward. Auto-hides when the log is empty. Mounted as a sibling of the Heads-up View Toolbar (so it always rides along, no workbench-mount edit needed). Bespoke e2e: 7-op + 3-mark lathe-leg profile (makeCylinder → revolveRect ×2 → mark → filletAll → makeCylinder → cut → mark → translate) — 10 stills + 1.2 MB session video. Marquee shot: mid-scrub with the cursor caret pulsing between marks and the model in partial-rebuild state |
 
 **Files added/changed for Tier-1 (initial pass):**
 
@@ -111,6 +111,267 @@ motion-capture, `--workers=1`, no `node:*` imports. **9 stills + a
 - `frontend/src/foundation/DesignHistory.js` (modified — `rename` / `setSuppressed` / `remove` / `rollBackToHere` mutators; `record()` returns the entry and seeds `name` + `suppressed`)
 - `frontend/src/kernel/sketch/InteractiveSketch.js` (modified — `_publishCursor`, `_detectAutoRelation`, `getDimensions` / `editDimension` / `getDimensionAt`, dim id + targetEntityIndex on every dimension, cursor clear on deactivate)
 - `e2e/ux-tier1-backlog-electron.spec.js` (new — 9 stills + .webm)
+
+---
+
+## Tier 1 #10 — Rollback bar (SP-3c, the kernel-history timeline scrubber)
+
+The last Tier-1 item. Shipped on top of SP-3a (mechanism) + SP-3b (op coverage):
+every body-producing kernel op already records a forward/inverse delta on the
+shared `HistoryLog`; the bar exposes that log as a real, interactive timeline
+strip at the top of the viewport.
+
+### What the bar is
+
+A horizontal strip mounted just beneath the Heads-up View Toolbar (top:48,
+centred horizontally so it doesn't fight the PropertyManager Dock on the
+left or the Confirmation Corner on the right). The strip renders the
+kernel `HistoryLog` (`window.__archdiscKernelHistory`) live:
+
+- **Baseline flag** at the far left (clickable — rolls to before any op).
+- **One dot per op entry** along the strip rail.
+- **Mark flags** (`hist.mark(name)` entries) bigger, gold-tinted, with the
+  mark name visible at rest. The current mark is highlighted; pending
+  marks are dimmed.
+- **Cursor caret** — a vertical blue line at the current cursor position;
+  pulses while the user is scrubbing.
+- **Meta strip** at the left — `ROLLBACK · N ops · cursor C/N` so the
+  user can see the timeline shape numerically.
+
+### What the bar does (three interaction modes)
+
+1. **Click any entry / mark / baseline flag** — calls `hist.rollBackTo`
+   (or `hist.rollForwardTo` if forward) with the default scene context
+   (the kernel's `standardSceneRegister` / `standardSceneRemove` thunks
+   resolve `window.__archdiscRegistry` + `window.__archdiscAddBrepShape`
+   automatically). The model rebuilds / unbuilds at the current camera;
+   the bar's caret moves to the new cursor.
+2. **Drag the caret along the strip** — pointer-down anywhere on the
+   strip, drag left/right. Each `pointermove` resolves the nearest entry
+   index under the cursor and queues a roll. The queue is throttled to
+   one drive per `requestAnimationFrame` so a rapid drag doesn't stack
+   kernel rolls faster than they can finish. **This is the marquee
+   Rollback UX — the user genuinely sees the model evolve in real time
+   as they drag.**
+3. **Right-click a mark** — context menu with three items:
+   - **Roll To Here** — alternative invocation of #1 (consistency check).
+   - **Rename** — opens an inline editor at the bar; commits on Enter
+     rebinds the kernel `_markIndex` so the mark resolves under the new
+     name. The bar re-renders to reflect the new label.
+   - **Delete Mark** — strips the `mark` name from the entry + removes
+     it from the index. The entry itself stays (its forward/inverse are
+     NOOPs anyway — marks are pure pointers; deleting the name does not
+     affect the timeline's geometry-op chain).
+
+### Live binding to the kernel log
+
+The bar subscribes to a single `window` event the kernel `HistoryLog`
+emits whenever the log mutates: `archdisc:history-changed`. The emission
+is a small additive change in `HistoryLog.js` (in the `recordOp`, `mark`,
+`rollBackTo`, and `rollForwardTo` paths) — pure event dispatch, no
+contract change. Detail shape: `{ type: 'record'|'mark'|'rollBack'|
+'rollForward'|'rename'|'mark-delete'|'reset', ...op-specific }`.
+
+The bar's `useEffect` adds a listener at mount + does a single delayed
+refresh (250 ms) to cover the kernel-singleton lazy-init race (the
+viewport mounts before the first `getHistoryLog()` call installs
+`window.__archdiscKernelHistory`).
+
+### Visible feedback
+
+- **Active cursor pulse** while scrubbing — the caret animates between
+  dim and bright blue (CSS `@keyframes sw-rollback-pulse`) so the user
+  feels the drag-scrub interaction land.
+- **Hover tooltip** below the bar showing the entry's `opName` + the
+  persistent body id(s) involved (for derive ops, the `inputPersistentIds`
+  also surface so the dependency chain is visible at-a-glance).
+- **Mark labels** are visible at rest (gold pills with the mark name);
+  truncate via CSS `text-overflow: ellipsis` past 90 px so the strip
+  doesn't run out of room on dense logs.
+
+### Integration with the app-level DesignHistory panel
+
+The DesignHistory panel (right aside, FEATURE-level history) keeps its
+"Roll Back To Here" right-click menu item. The handler now **delegates**
+to the kernel HistoryLog:
+
+1. App-level (existing) — `getHistory().rollBackToHere(entry.id)` still
+   suppresses every DesignHistory row after the anchor (visible
+   row-dimming).
+2. Kernel-level (NEW) — `delegateRollbackToKernel(entry)` finds the last
+   kernel `HistoryLog` entry whose `time` ≤ the DesignHistory row's
+   `when` (ISO string mapped to ms), then calls `hist.rollBackTo` on
+   it. The geometry actually reverts.
+
+The delegation reports its outcome on `window.__lastDhAction.kernelDelegation`
+so e2e + AI introspection can see whether the kernel revert happened
+(`{ ok: true, kernelEntryId, kernelEntryIdx }`) or why it didn't
+(`{ ok: false, reason: 'kernel-history-empty' | 'no-kernel-entry-before-this-row' | ... }`).
+
+The panel header carries a small scope note:
+
+> Feature timeline · viewport Rollback bar = kernel timeline
+
+The menu item title attribute documents the delegation explicitly:
+
+> Drives the viewport Rollback bar to the matching kernel entry. The
+> geometry rolls back; this row dims to reflect the new cursor.
+
+### Bespoke real workflow — furniture leg lathe profile
+
+`e2e/ux-rollback-bar-electron.spec.js` builds a turned-wood furniture leg
+op-by-op so the timeline has 7 ops + 3 named marks = 10 log entries:
+
+1. `makeCylinder(8, 60)` — the leg BLANK (Ø16 × 60 mm)
+2. `revolveRect(6, 1.5, 4, 360)` — decorative ring #1
+3. `mark('ring-1')`
+4. `revolveRect(5, 1.0, 4, 360)` — decorative ring #2
+5. `mark('rings-done')`
+6. `filletAll(blank, 0.5)` — soft the leg's top/bottom edges
+7. `makeCylinder(4, 12)` — tenon stock
+8. `cut(filleted, tenon)` — machine the mortise pocket
+9. `mark('tenon-cut')`
+10. `translate(grooved, 30, 0, 0)` — position for assembly
+
+One iso framing held throughout (one drag-orbit at the start, then never
+again — the user sees the BAR moving + the MODEL evolving, not orbit
+angles). 10 key-frame stills + 1.24 MB session.webm.
+
+| Frame | Headline |
+|---|---|
+| 01 — A1 | Assembled leg at the timeline's tail (cursor 9/9, all 7 bodies) |
+| 02 — A2 | Baseline empty (cursor —, registry empty) — clicked the baseline flag |
+| 03 — A3 | Clicked 'ring-1' → blank + ring #1 in scene (cursor 2/9, 2 bodies) |
+| 04 — A4 | Clicked 'rings-done' → blank + 2 rings (cursor 4/9, 3 bodies) |
+| 05 — A5 | Clicked 'tenon-cut' → full machined leg (cursor 8/9, 6 bodies) |
+| 06 — B1 | **Drag-scrubbing MID-TIMELINE** — caret pulsing between marks, hover tooltip showing `makeCylinder — auxiCylinder-brep-6`, model partially built |
+| 07 — B2 | After drag-scrub finishes — caret at cursor 0 (the blank only) |
+| 08 — C1 | Right-click context menu open on 'rings-done': Roll To Here / Rename / Delete Mark |
+| 09 — C2 | After renaming 'rings-done' → 'two-rings-done' — bar re-rendered with truncated label |
+| 10 — D1 | Clicked the renamed mark → blank + 2 rings restored |
+
+**Visual check (READ the stills):**
+
+1. **A1** — the bar's meta strip reads "ROLLBACK · 10 ops · cursor 9/9".
+   Three gold mark flags ("RING-1", "RINGS-DONE", "TENON") visible on
+   the strip. The DesignHistory panel on the right shows the new scope
+   note "Feature timeline · viewport Rollback bar = kernel timeline".
+2. **A2** — cursor reads "—" (baseline), the caret has moved to the FAR
+   LEFT, the viewport is empty, the Bodies panel reads "No bodies in
+   scene." The mark flags are visible but dimmed (none are current).
+3. **A3** — the "RING-1" flag is highlighted (gold solid). Cursor "2/9".
+   2 bodies in panel — the blank cylinder + ring 1. Topology Inspector
+   shows `revolveRect-brep-3` as the last spine body.
+4. **A5** — cursor "8/9", the "TENON" flag highlighted, the leg is fully
+   built and the mortise pocket visible. 6 bodies in panel.
+5. **B1** — the **marquee shot**. Cursor "6/9", caret pulsing mid-strip,
+   the hover tooltip floats below the bar showing the entry's opName +
+   persistent id. The model is in a partial-build state — different from
+   any of the named-mark states, proving the drag actually walks
+   intermediate cursor positions.
+6. **C1** — the right-click context menu floats over the bar, gold
+   header reads "rings-done", three menu items below.
+7. **C2** — the strip now shows "TWO-RINGS-DO..." (truncated by the
+   90 px max-width) where "RINGS-DONE" was. The other two marks
+   ("RING-1", "TENON") unaffected.
+
+**Focal assertions (from the spec):**
+
+- After build: 10 entries, cursor=9, 3 named marks (ring-1, rings-done,
+  tenon-cut), 7 bodies in registry, bar's DOM attributes mirror them.
+- After clicking the baseline flag: kernel cursor=-1, registry empty,
+  bar's `data-archdisc-rollback-cursor === '-1'`.
+- After clicking 'ring-1' mark: kernel cursor=2, 2 bodies; the rebuilt
+  ring's persistent id matches the originally-built one (id stability
+  across replay — the SP-3a contract).
+- After clicking 'rings-done' mark: cursor=4, 3 bodies; ring2 persistent
+  id stable.
+- After clicking 'tenon-cut' mark: cursor=8, 6 bodies; mortised
+  persistent id stable.
+- During drag-scrub: a captured mid-state cursor differs from the final
+  cursor (proving the drag walks intermediate states, not just snaps to
+  the final one). The bar's `sw-rollback-bar-scrubbing` class is set
+  during the drag, cleared on pointer-up.
+- After right-click + Rename: `hist.markByName('two-rings-done')` resolves,
+  `hist.markByName('rings-done')` is null, the bar shows the new flag.
+- After clicking the renamed mark: cursor=4, 3 bodies (consistent with
+  the pre-rename roll).
+
+### Honest gaps in the Rollback bar
+
+1. **Drag-scrub jumpiness on dense logs.** Each `rollBackTo` / `rollForwardTo`
+   is synchronous in the kernel (the await is for the inverse/forward
+   thunks); for the 10-op lathe leg the per-step cost is < 50 ms and the
+   RAF throttle keeps the bar responsive. For a 100+ entry log a single
+   `rollBackTo(target)` walks many entries in one call — the kernel's
+   own loop dominates, and the caret can lag the cursor by 100-300 ms.
+   Documented gap; a follow-on would batch the inverse walk by stepping
+   to intermediate marks (so the strip shows "scrub in progress" without
+   making 100 sequential kernel calls).
+2. **No feature DAG.** The bar renders the LINEAR timeline; the
+   `entry.dependsOn` (input persistent ids) chain is surfaced only in
+   the hover tooltip, not visually as edges between dots. The DAG would
+   need a layered layout — out of scope for the timeline-strip pass.
+3. **Right-click context menu is mark-only.** Non-mark entries (the
+   plain op dots) don't currently surface a context menu. Adding a
+   "Promote to mark" action would extend the menu naturally and is a
+   small follow-on (`hist.mark(name, meta)` called on the entry's
+   cursor index).
+4. **DesignHistory → kernel delegation maps by timestamp.** When two ops
+   land in the same millisecond (rare but possible in an AI plan-driven
+   batch), the kernel resolution picks the LAST entry ≤ the row's `when`
+   — which is the intuitive expectation (the row records the result
+   the user saw at that moment, which is the latest at-or-before its
+   creation). Documented as the resolution rule.
+5. **The bar takes ~250 ms to first-render** after kernel init — the
+   useEffect's delayed refresh covers the lazy-singleton race. Pre-
+   kernel-init the bar simply doesn't render (the snapshot returns null).
+   Acceptable; a real user clicks at least one tool before they look at
+   the timeline.
+
+### Regression subset (per the brief)
+
+Headed Electron, `--workers=1`, `--retries=0`. All targeted specs PASS.
+
+| Spec | Result |
+|---|---|
+| `ux-rollback-bar-electron` (NEW) | **PASS** (21.0 s) |
+| `sp3a-history-mechanism-electron` | PASS (18.3 s) |
+| `sp3b-multi-op-history-electron` | PASS (16.7 s) |
+| `ribbon-test` | PASS (18.9 s) |
+| `ux-tier1-electron` | PASS (28.3 s) |
+| `ux-tier1-backlog-electron` | PASS |
+| `ux-tier11a-selection-filter-electron` | PASS (15.6 s) |
+| `ux-tier2a-sketch-primitives-electron` | PASS |
+| `ux-tier2b-sketch-relations-electron` | PASS |
+| `ux-tier2c-sketch-transforms-electron` | PASS (11.2 s) |
+
+Total: 10 passes across the Rollback-bar-relevant band. No regressions
+from the Rollback bar's mount on top of HeadsUpViewToolbar's render.
+
+### Files added/changed for Tier-1 #10
+
+- `frontend/src/components/SwUxOverlays.jsx` (modified) — added `RollbackBar`
+  component + helpers (`snapshotHistory`, `driveRollToIndex`,
+  `resolveIdxFromX`, `collectPersistentIds`); mounted as a sibling of
+  the HeadsUpViewToolbar so it auto-rides every workbench (no
+  WorkbenchMechanical edit needed).
+- `frontend/src/components/SwUxOverlays.css` (modified) — `.sw-rollback-bar*`
+  styles: strip + dots + mark flags + cursor caret with pulse animation +
+  baseline flag + hover tooltip + right-click context menu + rename input.
+- `frontend/src/components/DesignHistoryPanel.jsx` (modified) — added
+  `delegateRollbackToKernel(dhEntry)` helper that finds the closest
+  kernel `HistoryLog` entry by timestamp and drives `rollBackTo`; the
+  panel's existing "Roll Back To Here" menu item now calls both the
+  app-level suppression AND the kernel delegation. Header gained a
+  scope note + the menu item's title attribute documents the delegation.
+- `frontend/src/kernel/history/HistoryLog.js` (modified) — added the
+  small additive `_emitHistoryChanged(type, detail)` helper + call sites
+  in `recordOp` / `mark` / `rollBackTo` / `rollForwardTo`. Pure event
+  dispatch; no API contract change; silently no-ops when `window` is
+  unavailable.
+- `e2e/ux-rollback-bar-electron.spec.js` (new) — 10 stills +
+  `00-session.webm` (~1.24 MB).
 
 ---
 
