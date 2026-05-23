@@ -1,15 +1,24 @@
 /**
  * ArchDisc Kernel — B-rep primitive solids.
- * A0 scope: box only. A1 adds cylinder/sphere/cone/torus.
  *
- * SP-1 S2 — `makeBox` is the canonical FIRST op migration to the topology
- * spine: it now constructs a `SpineBody` (Body→Lump→Shell→Face→Loop→Coedge→
- * Edge→Vertex bound from the engine TopoDS_Shape) instead of a raw BrepShape.
- * Because `SpineBody` is duck-compatible with `BrepShape` (.shape/.id/.meta
- * + dispose + _triangulation), the downstream scene path is unchanged — the
- * spine is genuinely built end-to-end (facade → scene → window.__lastSpine →
- * e2e) without behaviour regression. The other primitives stay BrepShape
- * until S3, exercising the mixed-currency adapter contract.
+ * SP-1 S2 — `makeBox` was the canonical FIRST op migration to the topology
+ * spine: it constructs a `SpineBody` (Body→Lump→Shell→Face→Loop→Coedge→Edge→
+ * Vertex bound from the engine TopoDS_Shape) instead of a raw BrepShape.
+ *
+ * SP-1 S3 — every remaining primitive (`makeCylinder/makeSphere/makeCone/
+ * makeTorus`) is now migrated to the same pattern. Each produces a fully-bound
+ * spine body — the cylinder (3 faces / 3 edges / 2 vertices: side + 2 caps),
+ * sphere (1 face / 1 seam edge / 2 degenerate poles → 2 vertices, χ=2 via
+ * degenerate-edge exclusion), cone (3 or 2 faces / 2-3 edges), torus (1 face /
+ * 2 seam edges / 1 vertex, χ=0 — a real genus-1 body, the most exotic
+ * topological case shipping in S3).
+ *
+ * Because `SpineBody` is duck-compatible with `BrepShape` (.shape/.id/.meta +
+ * dispose + _triangulation), every downstream consumer (`brepToMesh`,
+ * `measure`, `addBrepShapeToScene`, `selectedBrepShapes`, `withScope` survivor
+ * detection) treats a SpineBody-returning primitive identically to a legacy
+ * BrepShape-returning one — proven end-to-end by the S2 makeBox e2e and now
+ * exercised by S3's primitive coverage.
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -59,9 +68,15 @@ export async function makeBox(dx, dy, dz) {
 
 /**
  * Make a cylinder solid (axis = +Z, base at origin).
+ *
+ * Spine topology — 3 faces (side, top cap, bottom cap), 3 edges (top circle,
+ * bottom circle, vertical seam — the side face wraps around so it has a seam
+ * edge), 2 vertices (one on the seam on top, one on the seam on bottom).
+ *   V − E_real + F − R = 2 − 3 + 3 − 0 = 2 = 2(1 − 0) → genus 0. ✓
+ *
  * @param {number} radius  (mm)
  * @param {number} height  (mm)
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function makeCylinder(radius, height) {
   if (!(radius > 0 && height > 0)) {
@@ -72,14 +87,26 @@ export async function makeCylinder(radius, height) {
     const maker = track(new oc.BRepPrimAPI_MakeCylinder_1(radius, height));
     const shape = maker.Shape();
     if (shape.IsNull()) throw new Error('makeCylinder: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'makeCylinder', params: { radius, height } });
+    const meta = { op: 'makeCylinder', params: { radius, height } };
+    const wrapper = new BrepShape(shape, meta);
+    const body = bindSpine(oc, shape, {
+      bodyTag: `makeCylinder-${wrapper.id}`, geomEngineShape: wrapper,
+    });
+    return new SpineBody(body, wrapper, meta);
   });
 }
 
 /**
  * Make a sphere solid centred at the origin.
+ *
+ * Spine topology — 1 face (the whole sphere), 1 seam edge (where the
+ * parametric u wraps), 2 degenerate pole edges (the north + south
+ * singularities), 2 vertices (the two poles). Per Body.eulerCharacteristic,
+ * degenerate edges are excluded from E (they are zero-length parametric
+ * artefacts), so V − E_real + F = 2 − 1 + 1 = 2 → genus 0. ✓
+ *
  * @param {number} radius  (mm)
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function makeSphere(radius) {
   if (!(radius > 0)) throw new Error(`makeSphere: radius must be positive (got ${radius})`);
@@ -88,16 +115,27 @@ export async function makeSphere(radius) {
     const maker = track(new oc.BRepPrimAPI_MakeSphere_1(radius));
     const shape = maker.Shape();
     if (shape.IsNull()) throw new Error('makeSphere: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'makeSphere', params: { radius } });
+    const meta = { op: 'makeSphere', params: { radius } };
+    const wrapper = new BrepShape(shape, meta);
+    const body = bindSpine(oc, shape, {
+      bodyTag: `makeSphere-${wrapper.id}`, geomEngineShape: wrapper,
+    });
+    return new SpineBody(body, wrapper, meta);
   });
 }
 
 /**
  * Make a (truncated) cone solid (axis = +Z, base at origin).
+ *
+ * Spine topology — truncated cone: 3 faces (side + 2 caps), 3 edges
+ * (top/bottom circles + seam), 2 vertices (seam endpoints). Sharp cone
+ * (radius2 = 0): 2 faces (side + base), 2 edges (base circle + degenerate
+ * apex), 2 vertices.
+ *
  * @param {number} radius1  base radius (mm)
  * @param {number} radius2  top radius (mm); 0 for a sharp cone
  * @param {number} height   (mm)
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function makeCone(radius1, radius2, height) {
   if (!(radius1 >= 0 && radius2 >= 0 && height > 0) || (radius1 === 0 && radius2 === 0)) {
@@ -108,15 +146,28 @@ export async function makeCone(radius1, radius2, height) {
     const maker = track(new oc.BRepPrimAPI_MakeCone_1(radius1, radius2, height));
     const shape = maker.Shape();
     if (shape.IsNull()) throw new Error('makeCone: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'makeCone', params: { radius1, radius2, height } });
+    const meta = { op: 'makeCone', params: { radius1, radius2, height } };
+    const wrapper = new BrepShape(shape, meta);
+    const body = bindSpine(oc, shape, {
+      bodyTag: `makeCone-${wrapper.id}`, geomEngineShape: wrapper,
+    });
+    return new SpineBody(body, wrapper, meta);
   });
 }
 
 /**
  * Make a torus solid (axis = +Z, centred at the origin).
+ *
+ * Spine topology — the most exotic primitive: 1 face, 2 seam edges (a u-seam
+ * around the major circle, a v-seam around the minor tube), 1 vertex where
+ * the seams meet. NO degenerate edges (a torus is non-singular).
+ *   χ = V − E + F − R = 1 − 2 + 1 − 0 = 0 = 2(1 − 1) → genus 1. ✓
+ * This is the canonical genus-1 body in the spine — the toroidal handle is
+ * the topological signature.
+ *
  * @param {number} majorRadius  ring radius (mm)
  * @param {number} minorRadius  tube radius (mm)
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function makeTorus(majorRadius, minorRadius) {
   if (!(majorRadius > 0 && minorRadius > 0 && minorRadius < majorRadius)) {
@@ -127,6 +178,11 @@ export async function makeTorus(majorRadius, minorRadius) {
     const maker = track(new oc.BRepPrimAPI_MakeTorus_1(majorRadius, minorRadius));
     const shape = maker.Shape();
     if (shape.IsNull()) throw new Error('makeTorus: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'makeTorus', params: { majorRadius, minorRadius } });
+    const meta = { op: 'makeTorus', params: { majorRadius, minorRadius } };
+    const wrapper = new BrepShape(shape, meta);
+    const body = bindSpine(oc, shape, {
+      bodyTag: `makeTorus-${wrapper.id}`, geomEngineShape: wrapper,
+    });
+    return new SpineBody(body, wrapper, meta);
   });
 }

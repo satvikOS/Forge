@@ -15,7 +15,7 @@ import { exportStep, importStep } from './BrepStep.js';
 import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 import { sweep, loft } from './BrepSurfacing.js';
 import { checkSelfIntersection, checkClash, selfIntersect } from './BrepCheck.js';
-import { translate, makeCompound } from './BrepTransform.js';
+import { translate, rotate, makeCompound } from './BrepTransform.js';
 import { simplify } from './BrepHeal.js';
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
@@ -51,7 +51,7 @@ export const ArchDiscKernel = {
     shell, thicken, offsetShape, draft,
     sweep, loft,
     checkSelfIntersection, checkClash, selfIntersect,
-    translate, makeCompound,
+    translate, rotate, makeCompound,
     simplify,
     blendG2, cliffEdgeBlend, mitreCorner,
     fuseAll, fuseNonManifold, fuseCoincident, fuseLattice,

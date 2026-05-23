@@ -14,7 +14,7 @@ export { sweep, loft } from './BrepSurfacing.js';
 export { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 export { checkSelfIntersection, checkClash, selfIntersect } from './BrepCheck.js';
 export { tessellatePerFace } from './BrepTessellate.js';
-export { translate, makeCompound } from './BrepTransform.js';
+export { translate, rotate, makeCompound } from './BrepTransform.js';
 export { simplify } from './BrepHeal.js';
 export { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 export { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
