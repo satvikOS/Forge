@@ -227,33 +227,111 @@ export async function pushPullFace(body, faceRef, distance) {
   }
   // Engineering convention: positive distance = ADD material along the
   // outward normal (the face moves out); negative = REMOVE material (the
-  // face moves into the body). The MakePrism direction is the outward
-  // normal in both cases; the algorithm's `Fuse` flag toggles add/cut.
+  // face moves INTO the body).
+  //
+  // Implementation strategy:
+  //   - PUSH (distance > 0, add material): try `BRepFeat_MakePrism` with
+  //     Fuse=1 first — that's the canonical local-feature additive prism
+  //     and it preserves lineage cleanly. If MakePrism doesn't produce a
+  //     larger body (some face configurations decline the local fusion),
+  //     fall back to BRepPrimAPI_MakePrism + BRepAlgoAPI_Fuse.
+  //   - PULL (distance < 0, remove material): build a cutting prism via
+  //     `BRepPrimAPI_MakePrism` extruding the face INWARD (along -outward)
+  //     by |distance|, then `BRepAlgoAPI_Cut` from the body. This is the
+  //     robust direct-modeling cut path: the cut volume is explicitly the
+  //     prism INSIDE the body, so subtraction always produces the expected
+  //     volume reduction. `BRepFeat_MakePrism` with Fuse=0 declines to cut
+  //     when the prism's full body lies outside the picked face's source
+  //     body (the local-feature algorithm expects a partial intersection,
+  //     not a clean subtractive sweep).
   const oc = await getOCCT();
-  const fuseFlag = distance > 0 ? 1 : 0;
+  const isPush = distance > 0;
 
   return withScope(() => {
-    const dir = track(new oc.gp_Dir_4(normal.x, normal.y, normal.z));
-    // BRepFeat_MakePrism_2(Sbase, Pbase, Skface, Direction, Fuse, Modify)
-    //   Sbase   — the base body the prism is anchored on
-    //   Pbase   — the profile (the picked face — the sketch shape on the body)
-    //   Skface  — the sketch-face (the face the profile sits on; same here)
-    //   Fuse    — Graphic3d_ZLayerId — overloaded to take an int flag here.
-    //             ACIS-PSI mapping: 1 = fuse (add), 0 = unfuse (cut).
-    //   Modify  — whether to modify the body's face partition to glue the
-    //             prism in. We pass true so the resulting body remains a
-    //             single solid with the prism feature integrated.
-    const algo = track(new oc.BRepFeat_MakePrism_2(
-      body.shape, face.geomRef, face.geomRef, dir, fuseFlag, true,
-    ));
-    algo.Perform_1(Math.abs(distance));
-
-    if (!algo.IsDone()) {
-      throw new Error('pushPullFace: BRepFeat_MakePrism did not complete (the face geometry may be incompatible with a local prism — try Extrude Boss instead)');
-    }
-    const shape = track(algo.Shape());
-    if (!shape || shape.IsNull()) {
-      throw new Error('pushPullFace: kernel produced a null shape');
+    let shape = null;
+    let liveAlgo = null;
+    if (isPush) {
+      // PUSH path — BRepFeat_MakePrism (Fuse=1, additive local feature).
+      const dir = track(new oc.gp_Dir_4(normal.x, normal.y, normal.z));
+      const algo = track(new oc.BRepFeat_MakePrism_2(
+        body.shape, face.geomRef, face.geomRef, dir, 1, true,
+      ));
+      algo.Perform_1(Math.abs(distance));
+      if (algo.IsDone()) {
+        const s = track(algo.Shape());
+        if (!s.IsNull()) {
+          shape = s;
+          liveAlgo = algo;
+        }
+      }
+      // Sanity: ensure the volume actually grew. If MakePrism returned the
+      // input volume unchanged (some configurations decline the local
+      // fusion silently), fall back to the explicit fuse path.
+      if (shape) {
+        const propsTest = track(new oc.GProp_GProps_1());
+        oc.BRepGProp.VolumeProperties_1(shape, propsTest, false, false, false);
+        const vAfter = propsTest.Mass();
+        const propsBefore = track(new oc.GProp_GProps_1());
+        oc.BRepGProp.VolumeProperties_1(body.shape, propsBefore, false, false, false);
+        const vBefore = propsBefore.Mass();
+        if (vAfter <= vBefore + 1e-6) {
+          shape = null; // force fallback
+          liveAlgo = null;
+        }
+      }
+      if (!shape) {
+        // Fallback: explicit prism + boolean fuse.
+        const vec = track(new oc.gp_Vec_4(
+          normal.x * distance, normal.y * distance, normal.z * distance,
+        ));
+        const prismAlgo = track(new oc.BRepPrimAPI_MakePrism_1(face.geomRef, vec, false, true));
+        const prism = track(prismAlgo.Shape());
+        if (prism.IsNull()) {
+          throw new Error('pushPullFace: could not build the additive prism for the push path');
+        }
+        const pr = track(new oc.Message_ProgressRange_1());
+        const fuseAlgo = track(new oc.BRepAlgoAPI_Fuse_3(body.shape, prism, pr));
+        const prBuild = track(new oc.Message_ProgressRange_1());
+        fuseAlgo.Build(prBuild);
+        if (!fuseAlgo.IsDone()) {
+          throw new Error('pushPullFace: BRepAlgoAPI_Fuse fallback did not complete');
+        }
+        const fused = track(fuseAlgo.Shape());
+        if (fused.IsNull()) {
+          throw new Error('pushPullFace: fuse fallback produced a null shape');
+        }
+        shape = fused;
+        liveAlgo = fuseAlgo;
+      }
+    } else {
+      // PULL path — explicit cutting prism + BRepAlgoAPI_Cut.
+      // Direction is the INWARD normal so the prism extrudes into the body.
+      const inward = {
+        x: -normal.x, y: -normal.y, z: -normal.z,
+      };
+      const vec = track(new oc.gp_Vec_4(
+        inward.x * Math.abs(distance),
+        inward.y * Math.abs(distance),
+        inward.z * Math.abs(distance),
+      ));
+      const prismAlgo = track(new oc.BRepPrimAPI_MakePrism_1(face.geomRef, vec, false, true));
+      const prism = track(prismAlgo.Shape());
+      if (prism.IsNull()) {
+        throw new Error('pushPullFace: could not build the cutting prism for the pull path');
+      }
+      const pr = track(new oc.Message_ProgressRange_1());
+      const cutAlgo = track(new oc.BRepAlgoAPI_Cut_3(body.shape, prism, pr));
+      const prBuild = track(new oc.Message_ProgressRange_1());
+      cutAlgo.Build(prBuild);
+      if (!cutAlgo.IsDone()) {
+        throw new Error('pushPullFace: BRepAlgoAPI_Cut did not complete on the pull path');
+      }
+      const cut = track(cutAlgo.Shape());
+      if (cut.IsNull()) {
+        throw new Error('pushPullFace: cut produced a null shape (the cutting prism may not intersect the body — the picked face\'s neighbourhood may be too shallow)');
+      }
+      shape = cut;
+      liveAlgo = cutAlgo;
     }
     const meta = {
       op: 'pushPullFace',
@@ -271,8 +349,11 @@ export async function pushPullFace(body, faceRef, distance) {
       geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
-    // Carry persistent ids through `BRepFeat_MakePrism`'s lineage.
-    const lineage = carryLineage(oc, algo, resultBody, [{ body: body.body, role: 'arg' }]);
+    // Carry persistent ids through the active algorithm's lineage. The live
+    // algo is either BRepFeat_MakePrism (push happy path), BRepAlgoAPI_Fuse
+    // (push fallback), or BRepAlgoAPI_Cut (pull path) — all inherit
+    // Modified/Generated/IsDeleted from BRepBuilderAPI_MakeShape.
+    const lineage = carryLineage(oc, liveAlgo, resultBody, [{ body: body.body, role: 'arg' }]);
     meta.lineage = {
       survived: lineage.survived, modified: lineage.modified,
       generated: lineage.generated, deleted: lineage.deleted,
