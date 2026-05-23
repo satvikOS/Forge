@@ -360,21 +360,28 @@ function safeGeneratedList(oc, algo, occtShape) {
 }
 
 function safeShapeList(oc, algo, occtShape, methodNames) {
+  // Try every method form and return the FIRST non-empty result. Some
+  // subclasses inherit a default-empty Modified/Generated from
+  // `BRepBuilderAPI_MakeShape` while exposing the real history under a
+  // suffixed name (e.g. `BRepOffsetAPI_MakePipe.Generated_1`). Previously
+  // we returned the first empty result, missing the real history; now we
+  // skip empty results and try the next form, falling back to [] if every
+  // form is empty.
   for (const m of methodNames) {
     if (typeof algo[m] !== 'function') continue;
     let lst = null;
     try { lst = algo[m](occtShape); } catch (_e) { continue; }
     if (!lst) continue;
-    // Empty list → [].
+    let isEmpty = false;
     try {
-      if (typeof lst.IsEmpty === 'function' && lst.IsEmpty()) return [];
+      if (typeof lst.IsEmpty === 'function') isEmpty = !!lst.IsEmpty();
     } catch (_e) { /* fall through */ }
     let size = -1;
     try {
       if (typeof lst.Size === 'function') size = lst.Size();
       else if (typeof lst.Extent === 'function') size = lst.Extent();
     } catch (_e) { size = -1; }
-    if (size === 0) return [];
+    if (isEmpty || size === 0) continue; // empty — try next form
     const out = [];
     try {
       if (typeof lst.First_1 === 'function') {
@@ -390,7 +397,8 @@ function safeShapeList(oc, algo, occtShape, methodNames) {
         }
       } catch (_e) { /* skip */ }
     }
-    return out;
+    if (out.length > 0) return out;
+    // Couldn't recover any entries — try next form.
   }
   return [];
 }
@@ -400,24 +408,43 @@ function safeShapeList(oc, algo, occtShape, methodNames) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function makeShapeIndex(oc, entities) {
+  // Hash-keyed bucket map for O(1) average lookup; we also keep the flat
+  // list for the linear-IsSame-scan fallback path (some op algorithms
+  // return result sub-shapes whose HashCode differs from the spine-bound
+  // sub-shape — e.g. BRepOffsetAPI_MakePipe rebuilds shape handles with
+  // a fresh location, changing the hash even when IsSame still matches).
   const buckets = new Map(); // hash:int → [{ shape, ent }]
+  const flat = [];           // for the IsSame linear fallback
   for (const ent of entities) {
     if (!ent.geomRef) continue;
     const h = shapeHash(ent.geomRef);
     let arr = buckets.get(h);
     if (!arr) { arr = []; buckets.set(h, arr); }
     arr.push({ shape: ent.geomRef, ent });
+    flat.push({ shape: ent.geomRef, ent });
   }
-  return buckets;
+  return { buckets, flat };
 }
 
 function findBySameShape(index, occtShape) {
   if (!occtShape) return null;
+  // Path 1 — hash bucket fast lookup (the common case).
   const h = shapeHash(occtShape);
-  const arr = index.get(h);
-  if (!arr) return null;
-  for (const rec of arr) {
-    if (sameShape(rec.shape, occtShape)) return rec.ent;
+  const arr = index.buckets ? index.buckets.get(h) : null;
+  if (arr) {
+    for (const rec of arr) {
+      if (sameShape(rec.shape, occtShape)) return rec.ent;
+    }
+  }
+  // Path 2 — linear IsSame fallback. Hits when the hash differs but IsSame
+  // still returns true (algo-rebuilt shapes with fresh locations). This is
+  // the SP-1-style honest degrade: O(n) instead of O(1), but correct. It
+  // lets BRepOffsetAPI_MakePipe/MakePipeShell results match their profile-
+  // edge Generated entries despite hash drift.
+  if (index.flat) {
+    for (const rec of index.flat) {
+      if (sameShape(rec.shape, occtShape)) return rec.ent;
+    }
   }
   return null;
 }
