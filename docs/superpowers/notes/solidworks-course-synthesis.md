@@ -607,9 +607,9 @@ Horizontal, Vertical, Coincident, Parallel, Perpendicular, Tangent, Equal + Auto
 | SolidWorks sketch tool | ArchDisc | Status |
 |---|---|---|
 | Line | Line | **Done** |
-| Center Line | (none — likely a Line variant?) | **Likely missing** as a distinct tool |
-| Construction Line / For-Construction toggle | (likely missing) | **Missing** |
-| Rectangle (5 types: corner / center / 3pt-corner / 3pt-center / parallelogram) | Rectangle (single) | **Partial** — only one rectangle variant exposed |
+| Center Line | Center Line | **Done** (Tier-2a — dashed construction line entity) |
+| Construction Line / For-Construction toggle | Toggle Construction | **Done** (Tier-2a — flips any entity's `isConstruction` flag) |
+| Rectangle (5 types: corner / center / 3pt-corner / 3pt-center / parallelogram) | Rectangle + Center Rectangle | **Partial** — 2 of 5 variants exposed (Tier-2a added Center Rectangle); 3pt-corner / 3pt-center / parallelogram are follow-on |
 | Slot (4 types: straight / center-point / 3pt-arc / center-arc) | None | **Missing** |
 | Circle (center / 3pt-tangent) | Circle (single) | **Partial** — only one variant |
 | Arc (3pt / tangent / center-point) | Arc (single) | **Partial** |
@@ -621,10 +621,10 @@ Horizontal, Vertical, Coincident, Parallel, Perpendicular, Tangent, Equal + Auto
 | Point | Point | **Done** |
 | Smart Dimension | Dimension | **Done** |
 | Sketch Fillet | Fillet Sketch | **Done** |
-| Sketch Chamfer | (likely missing — Chamfer is in Part tab, not Sketch) | **Missing** as a sketch op |
+| Sketch Chamfer | Sketch Chamfer | **Done** (Tier-2a) |
 | Trim Entities | Trim | **Done** |
 | Extend Entities | Extend | **Done** |
-| Convert Entities (project edges to sketch) | (likely missing) | **Missing** — critical for sketch-on-face workflow |
+| Convert Entities (project edges to sketch) | Convert Entities | **Done** (Tier-2a) |
 | Offset Entities | Offset | **Done** |
 | Mirror Entities | Mirror Sketch | **Done** |
 | Linear Sketch Pattern | (likely missing in Sketch tab; Linear Pattern in Part) | **Missing** at sketch level |
@@ -872,16 +872,36 @@ Prioritized roughly by impact on first-touch usability:
 
 ### Tier 2 — Missing sketch tools
 
-11. **Center Line** (as a distinct tool, not just Line)
-12. **"For construction" toggle** on every sketch entity
-13. **Multiple rectangle variants** (center-point, 3-point corner, 3-point center, parallelogram)
+11. **Center Line** (as a distinct tool, not just Line) — **DONE** (Tier-2a:
+    `InteractiveSketch._createCenterLine`, `TOOLS.CENTER_LINE`, ribbon "Center Line"
+    in Sketch→Draw; renders dashed purple via `LineDashedMaterial`; `isConstruction:
+    true` excludes it from `getSolidProfile()`)
+12. **"For construction" toggle** on every sketch entity — **DONE** (Tier-2a:
+    `InteractiveSketch.setEntityConstruction()` flips an entity's
+    `isConstruction` flag; ribbon "Toggle Construction" in Sketch→Modify reads the
+    selection (`__archdiscSelectedSketchEntities`) or the last entity)
+13. **Multiple rectangle variants** (center-point, 3-point corner, 3-point center,
+    parallelogram) — **PARTIAL** (Tier-2a: Center Rectangle variant shipped as
+    `_createCenterRectangle` + ribbon entry. 3-point variants + Parallelogram are
+    follow-on)
 14. **Slot tool** (straight, center-point, 3-point-arc, center-point-arc) — 4 variants
 15. **Multiple circle variants** (center vs 3-point-tangent)
 16. **Multiple arc variants** (3-point, tangent, center-point)
 17. **Parabola tool**
 18. **Text tool** (along a curve)
-19. **Sketch Chamfer**
-20. **Convert Entities** (project edges to active sketch plane — CRITICAL for sketch-on-face)
+19. **Sketch Chamfer** — **DONE** (Tier-2a: `_createSketchChamfer(line1Idx,
+    line2Idx, distance)` trims both source lines at `distance` from their shared
+    corner and inserts a new chamfer segment; selection-driven + param-dialog-driven
+    via the PropertyManager dock; e2e asserts the corner is replaced)
+20. **Convert Entities** (project edges to active sketch plane — CRITICAL for
+    sketch-on-face) — **DONE** (Tier-2a: `InteractiveSketch.convertEntities(sources,
+    {isConstruction, fixedToSource})` projects line/arc/circle/spline 3D segments to
+    the active sketch plane; `InteractiveSketch.extractFaceBoundary(group, {z})`
+    walks a Three.js group's mesh and emits the boundary edges at a target Z as
+    world-space segments; ribbon "Convert Entities" in Sketch→Modify wires both via
+    the body registry; **HONEST PARTIAL**: spline edges convert to a piecewise-line
+    approximation, NOT a true NURBS sketch entity; off-plane edges project as the
+    planar projection (correct semantics, mirrors SW))
 21. **Linear / Circular Sketch Pattern** (at sketch level, not just at feature level)
 22. **Move / Rotate / Copy / Scale / Stretch Entities** as sketch tools
 23. **Display/Delete Relations** dialog
