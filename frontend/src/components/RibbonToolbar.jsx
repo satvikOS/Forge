@@ -38,6 +38,17 @@ const TABS = {
         { name: 'Convert Entities', icon: '⤓', key: 'sketch' },
         { name: 'Toggle Construction', icon: '⌁', key: 'sketch' },
       ]},
+      // Tier-2c — Move / Rotate / Copy / Scale / Stretch.
+      // Selection-driven sketch transforms; each operates on the
+      // currently-selected sketch entities (or, for Stretch, on the
+      // selected endpoint picks).
+      { label: 'Transform', tools: [
+        { name: 'Move Entities',    icon: '⇄', key: 'sketch' },
+        { name: 'Rotate Entities',  icon: '↻', key: 'sketch' },
+        { name: 'Copy Entities',    icon: '⎘', key: 'sketch' },
+        { name: 'Scale Entities',   icon: '⤢', key: 'sketch' },
+        { name: 'Stretch Entities', icon: '↔', key: 'sketch' },
+      ]},
       { label: 'Constrain', tools: [
         { name: 'Dimension', icon: '↔', key: 'sketch', shortcut: 'D' },
         { name: 'Horizontal', icon: '—', key: 'sketch' },

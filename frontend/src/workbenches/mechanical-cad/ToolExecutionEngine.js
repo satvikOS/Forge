@@ -1166,6 +1166,152 @@ const TOOL_HANDLERS = {
         message: `Display Relations: ${forSel.length} relations${sel ? ` on entity #${sel[0]}` : ' total'} (panel opened).`,
       };
     },
+
+    // ─── Tier-2c: Sketch transform tools ─────────────────────────────────
+    // Five SW transforms (Move / Rotate / Copy / Scale / Stretch). Each
+    // is selection-driven: pre-select sketch entities (or endpoint picks
+    // for Stretch) on window.__archdiscSelectedSketchEntities (or, for
+    // Stretch, on window.__archdiscSelectedSketchEndpoints), then click
+    // the ribbon entry + fill in the geometric parameter dialog.
+    //
+    // Coordinates: dialog values come in mm; the sketch engine works in
+    // metres. Each handler converts.
+
+    'Move Entities': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Move Entities: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 1) {
+        return { status: 'warn', message: 'Move Entities: select 1+ sketch entities first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Move Entities');
+      if (cancelled) return { status: 'warn', message: 'Move Entities cancelled' };
+      const from = { u: (values.fromX ?? 0) / 1000, v: (values.fromY ?? 0) / 1000 };
+      const to   = { u: (values.toX   ?? 0) / 1000, v: (values.toY   ?? 0) / 1000 };
+      const r = sketch.moveEntities(sel, from, to);
+      if (!r.ok) return { status: 'warn', message: `Move Entities: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchTransform = { ...r, type: 'move' };
+      const fix = r.fixedConflicts ? ` (${r.fixedConflicts} fixed-point conflict${r.fixedConflicts === 1 ? '' : 's'})` : '';
+      return {
+        status: 'success',
+        message: `Move Entities: ${r.translatedCount} entities by (${(r.dx * 1000).toFixed(1)}, ${(r.dy * 1000).toFixed(1)}) mm${fix}`,
+      };
+    },
+
+    'Rotate Entities': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Rotate Entities: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 1) {
+        return { status: 'warn', message: 'Rotate Entities: select 1+ sketch entities first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Rotate Entities');
+      if (cancelled) return { status: 'warn', message: 'Rotate Entities cancelled' };
+      const center = { u: (values.centerX ?? 0) / 1000, v: (values.centerY ?? 0) / 1000 };
+      const angleRad = (values.angleDeg ?? 0) * Math.PI / 180;
+      const r = sketch.rotateEntities(sel, center, angleRad);
+      if (!r.ok) return { status: 'warn', message: `Rotate Entities: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchTransform = { ...r, type: 'rotate' };
+      const fix = r.fixedConflicts ? ` (${r.fixedConflicts} fixed-point conflict${r.fixedConflicts === 1 ? '' : 's'})` : '';
+      return {
+        status: 'success',
+        message: `Rotate Entities: ${r.rotatedCount} entities by ${r.angleDeg.toFixed(1)}° about (${(center.u * 1000).toFixed(1)}, ${(center.v * 1000).toFixed(1)}) mm${fix}`,
+      };
+    },
+
+    'Copy Entities': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Copy Entities: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 1) {
+        return { status: 'warn', message: 'Copy Entities: select 1+ sketch entities first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Copy Entities');
+      if (cancelled) return { status: 'warn', message: 'Copy Entities cancelled' };
+      const from = { u: (values.fromX ?? 0) / 1000, v: (values.fromY ?? 0) / 1000 };
+      const to   = { u: (values.toX   ?? 0) / 1000, v: (values.toY   ?? 0) / 1000 };
+      const linked = values.linked === 'yes' || values.linked === true;
+      const r = sketch.copyEntities(sel, from, to, { linked });
+      if (!r.ok) return { status: 'warn', message: `Copy Entities: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchTransform = { ...r, type: 'copy' };
+      return {
+        status: 'success',
+        message: `Copy Entities: ${r.copyCount} copies of ${r.sourceCount} sources by (${(r.dx * 1000).toFixed(1)}, ${(r.dy * 1000).toFixed(1)}) mm${linked ? ' [linked]' : ''}`,
+      };
+    },
+
+    'Scale Entities': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Scale Entities: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 1) {
+        return { status: 'warn', message: 'Scale Entities: select 1+ sketch entities first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Scale Entities');
+      if (cancelled) return { status: 'warn', message: 'Scale Entities cancelled' };
+      const center = { u: (values.centerX ?? 0) / 1000, v: (values.centerY ?? 0) / 1000 };
+      const sx = values.scaleX ?? 1;
+      const sy = values.scaleY ?? sx;
+      const r = sketch.scaleEntities(sel, center, sx, sy);
+      if (!r.ok) return { status: 'warn', message: `Scale Entities: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchTransform = { ...r, type: 'scale' };
+      const mirror = r.mirrored ? ' [MIRRORED]' : '';
+      const fix = r.fixedConflicts ? ` (${r.fixedConflicts} fixed-point conflict${r.fixedConflicts === 1 ? '' : 's'})` : '';
+      return {
+        status: 'success',
+        message: `Scale Entities: ${r.scaledCount} entities by (×${sx.toFixed(2)}, ×${sy.toFixed(2)}) about (${(center.u * 1000).toFixed(1)}, ${(center.v * 1000).toFixed(1)}) mm${mirror}${fix}`,
+      };
+    },
+
+    'Stretch Entities': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Stretch Entities: activate a sketch first.' };
+      }
+      // Stretch needs EXPLICIT endpoint picks — window.__archdiscSelectedSketchEndpoints
+      // is an array of { entityIndex, endpoint } pairs. If unset, fall back to
+      // window.__archdiscSelectedSketchEntities and treat each entity's p2 / end as
+      // the picked endpoint (a conservative default — the user can override).
+      const explicit = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEndpoints) || null;
+      let picks = explicit;
+      if (!picks) {
+        const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+        if (!sel || sel.length < 1) {
+          return { status: 'warn', message: 'Stretch Entities: select endpoints (window.__archdiscSelectedSketchEndpoints) or entities first.' };
+        }
+        picks = sel.map((idx) => {
+          const e = sketch.entities[idx];
+          if (!e) return null;
+          if (e.type === 'line')   return { entityIndex: idx, endpoint: 'p2' };
+          if (e.type === 'circle') return { entityIndex: idx, endpoint: 'center' };
+          if (e.type === 'arc')    return { entityIndex: idx, endpoint: 'end' };
+          if (e.type === 'point')  return { entityIndex: idx, endpoint: 'point' };
+          return null;
+        }).filter(Boolean);
+      }
+      if (!picks || picks.length === 0) {
+        return { status: 'warn', message: 'Stretch Entities: no endpoint picks resolved.' };
+      }
+      const { values, cancelled } = await requestToolParams('Stretch Entities');
+      if (cancelled) return { status: 'warn', message: 'Stretch Entities cancelled' };
+      const from = { u: (values.fromX ?? 0) / 1000, v: (values.fromY ?? 0) / 1000 };
+      const to   = { u: (values.toX   ?? 0) / 1000, v: (values.toY   ?? 0) / 1000 };
+      const r = sketch.stretchEntities(picks, from, to);
+      if (!r.ok) return { status: 'warn', message: `Stretch Entities: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchTransform = { ...r, type: 'stretch' };
+      return {
+        status: 'success',
+        message: `Stretch Entities: ${r.stretchedCount} entities, ${r.pointsMoved} endpoints by (${(r.dx * 1000).toFixed(1)}, ${(r.dy * 1000).toFixed(1)}) mm`,
+      };
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

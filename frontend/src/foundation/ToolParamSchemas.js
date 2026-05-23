@@ -156,6 +156,63 @@ export const TOOL_PARAM_SCHEMAS = {
     fields: [],
   },
 
+  // ─── SKETCH TIER-2c — Sketch transform tools ─────────────────────────────
+  // Five SW transforms: Move / Rotate / Copy / Scale / Stretch.
+  // All selection-driven: pick the entities in the viewport first, then
+  // click the transform button + fill in the geometric parameters.
+  'Move Entities': {
+    title: 'Move Entities — Sketch Translation',
+    blurb: 'Translate the selected sketch entities by (toX-fromX, toY-fromY). Pre-select the entities in the viewport, then specify from-point and to-point. Existing relations follow the moved geometry.',
+    fields: [
+      { name: 'fromX', label: 'From X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'fromY', label: 'From Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toX',   label: 'To X',   type: 'number', default: 10, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toY',   label: 'To Y',   type: 'number', default: 0,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+    ],
+  },
+  'Rotate Entities': {
+    title: 'Rotate Entities — Sketch Rotation',
+    blurb: 'Rotate the selected sketch entities about a centre point by an angle (positive = CCW). Pre-select the entities in the viewport, then specify centre and angle.',
+    fields: [
+      { name: 'centerX', label: 'Centre X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'centerY', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'angleDeg', label: 'Angle',   type: 'number', default: 90, unit: '°', min: -360, max: 360, step: 1 },
+    ],
+  },
+  'Copy Entities': {
+    title: 'Copy Entities — Sketch Duplication',
+    blurb: 'Duplicate the selected sketch entities, placing the copy at (toX-fromX, toY-fromY) from the original. Linked copies stay parametrically coupled; unlinked copies become independent.',
+    fields: [
+      { name: 'fromX', label: 'From X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'fromY', label: 'From Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toX',   label: 'To X',   type: 'number', default: 20, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toY',   label: 'To Y',   type: 'number', default: 0,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'linked', label: 'Linked copy', type: 'enum', default: 'no', options: ['yes', 'no'],
+        hint: 'Linked copies stay distance-constrained to the original (moving the original drags the copy).' },
+    ],
+  },
+  'Scale Entities': {
+    title: 'Scale Entities — Sketch Scaling',
+    blurb: 'Scale the selected sketch entities about a centre point. Set scaleY = scaleX for uniform scaling, or set them independently for non-uniform. Negative scale mirrors the geometry.',
+    fields: [
+      { name: 'centerX', label: 'Centre X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'centerY', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'scaleX',  label: 'Scale X',  type: 'number', default: 2, min: -100, max: 100, step: 0.1 },
+      { name: 'scaleY',  label: 'Scale Y',  type: 'number', default: 2, min: -100, max: 100, step: 0.1,
+        hint: 'Set equal to Scale X for uniform scaling. Different values = non-uniform (circles stay circles, radius = geometric mean).' },
+    ],
+  },
+  'Stretch Entities': {
+    title: 'Stretch Entities — Endpoint Translation',
+    blurb: 'Translate the EXPLICITLY-PICKED endpoints by (toX-fromX, toY-fromY). Pre-select the endpoint picks in the viewport (the entities whose endpoints should move); non-picked endpoints stay fixed.',
+    fields: [
+      { name: 'fromX', label: 'From X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'fromY', label: 'From Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toX',   label: 'To X',   type: 'number', default: 5,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toY',   label: 'To Y',   type: 'number', default: 0,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+    ],
+  },
+
   'Variable Radius Fillet': {
     title: 'Variable Radius Fillet',
     blurb: 'Fillet that transitions from r1 to r2 along each edge. Defaults: r1=1 mm → r2=4 mm.',

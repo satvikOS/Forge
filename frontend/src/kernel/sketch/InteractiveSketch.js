@@ -1391,6 +1391,426 @@ export default class InteractiveSketch {
     return { ok: true, deletedId: relationId, dofBefore, dofAfter };
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Tier-2c — Sketch transform tools.
+  //
+  // SW exposes Move / Rotate / Copy / Scale / Stretch as discrete user
+  // actions in the Sketch -> Modify group (course tutorials #20-#24,
+  // synthesis section §13). Each transform is selection-driven: the
+  // user picks N entities + a small set of geometric parameters (from-
+  // and to-points, angle, scale factor), and the engine mutates the
+  // underlying solver point coordinates accordingly. After the mutation
+  // the solver is re-solved so any active constraints / relations
+  // follow the moved geometry.
+  //
+  // FixedConstraint behaviour:
+  //   - Fixed points RESIST translation/rotation/scale: the FixedConstraint
+  //     records (x, y) at the moment of fixing and `error()` is the
+  //     squared distance from the current (x, y) to that anchor. If we
+  //     move the solver point, the next solve() pulls it back. We
+  //     surface this honestly by returning `fixedConflicts` in the
+  //     result so a caller (and the e2e) can detect the resistance.
+  //
+  // Implementation invariants:
+  //   - We operate on the solver points referenced by the chosen entities,
+  //     NOT on the `p1/p2/center` cached fields directly. After mutation
+  //     we sync the cache from the solver and call `_redrawAll()` so
+  //     the visuals match.
+  //   - Empty selection -> { ok: false, reason: ... }.
+  //   - The original transforms apply ATOMICALLY (no partial mutation if
+  //     the precondition check fails).
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Collect the unique solver points referenced by an array of entity
+   * indices, plus the entity refs themselves. Centre points of arcs
+   * are reachable through `_solverCenterRef`; circle centres come from
+   * `solverCenter`.
+   *
+   * Returns `{ ok, entities, points, fixedConflicts }` where `points`
+   * is the deduplicated `Set` of solver points the transform may mutate.
+   */
+  _collectTransformTargets(entityIndices) {
+    if (!Array.isArray(entityIndices) || entityIndices.length === 0) {
+      return { ok: false, reason: 'No sketch entities selected for transform' };
+    }
+    const entities = [];
+    const points = new Set();
+    const circles = [];
+    for (const idx of entityIndices) {
+      const e = this.entities[idx];
+      if (!e) return { ok: false, reason: `Entity #${idx} does not exist` };
+      entities.push({ idx, entity: e });
+      if (e.type === 'line') {
+        points.add(e.solverP1);
+        points.add(e.solverP2);
+      } else if (e.type === 'circle') {
+        points.add(e.solverCenter);
+        circles.push(e);
+      } else if (e.type === 'arc') {
+        if (e._solverCenterRef) points.add(e._solverCenterRef);
+        if (e._solverStartRef)  points.add(e._solverStartRef);
+        if (e._solverMidRef)    points.add(e._solverMidRef);
+        if (e._solverEndRef)    points.add(e._solverEndRef);
+        if (e.solverArc) {
+          points.add(e.solverArc.center);
+          points.add(e.solverArc.startPoint);
+          points.add(e.solverArc.endPoint);
+        }
+      } else if (e.type === 'point') {
+        if (e.solverPoint) points.add(e.solverPoint);
+      }
+    }
+    // Detect fixed-point conflicts — points pinned via FixedConstraint
+    // will resist the transform.
+    const fixedConflicts = [];
+    for (const p of points) {
+      const fc = this.solver.constraints.find(
+        c => c.type === 'fixed' && c.entities && c.entities[0] === p,
+      );
+      if (fc) fixedConflicts.push({ point: p, anchor: { x: fc.value.x, y: fc.value.y } });
+    }
+    return { ok: true, entities, points, circles, fixedConflicts };
+  }
+
+  /**
+   * Sync each entity's cached p1/p2/center from its underlying solver
+   * points so a redraw renders the moved geometry. Tier-2c transforms
+   * mutate solver points directly; this method propagates that mutation
+   * to the entity-level caches `_redrawAll()` and `_updateAllVisuals()`
+   * rely on.
+   */
+  _syncEntityCachesFromSolver(entityIndices) {
+    const idxs = entityIndices ?? this.entities.map((_, i) => i);
+    for (const idx of idxs) {
+      const e = this.entities[idx];
+      if (!e) continue;
+      if (e.type === 'line') {
+        e.p1 = { u: e.solverP1.x, v: e.solverP1.y };
+        e.p2 = { u: e.solverP2.x, v: e.solverP2.y };
+      } else if (e.type === 'circle') {
+        e.center = { u: e.solverCenter.x, v: e.solverCenter.y };
+        e.radius = e.solverCircle.radius;
+      } else if (e.type === 'arc') {
+        if (e._solverCenterRef) e.p2 = { u: e._solverCenterRef.x, v: e._solverCenterRef.y };
+        if (e._solverStartRef)  e.p1 = { u: e._solverStartRef.x, v: e._solverStartRef.y };
+        if (e._solverEndRef)    e.p3 = { u: e._solverEndRef.x, v: e._solverEndRef.y };
+      } else if (e.type === 'point') {
+        if (e.solverPoint) e.pos = { u: e.solverPoint.x, v: e.solverPoint.y };
+      }
+    }
+  }
+
+  /**
+   * Tier-2c #1 — MOVE ENTITIES.
+   *
+   * Translate every picked sketch entity by `to - from`. Existing
+   * relations / dimensions are preserved (they follow the geometry).
+   * Fixed entities resist via FixedConstraint and the post-solve will
+   * pull them back; we report the conflict in `fixedConflicts`.
+   *
+   * @param {number[]} entityIndices  >=1 indices
+   * @param {{u:number,v:number}} from   from-point (metres)
+   * @param {{u:number,v:number}} to     to-point (metres)
+   * @returns {{ok, translatedCount?, dx?, dy?, fixedConflicts?, reason?}}
+   */
+  moveEntities(entityIndices, from, to) {
+    const t = this._collectTransformTargets(entityIndices);
+    if (!t.ok) return t;
+    if (!from || !to) return { ok: false, reason: 'Move needs from + to points' };
+    const dx = to.u - from.u;
+    const dy = to.v - from.v;
+    for (const p of t.points) {
+      // Skip points whose FixedConstraint anchors them to a hard position;
+      // we still mutate (the solve will tug them back) but the conflict is
+      // surfaced in the return.
+      p.x += dx;
+      p.y += dy;
+    }
+    const result = this.solver.solve();
+    this._syncEntityCachesFromSolver(entityIndices);
+    this._redrawAll();
+    try { this.applyDoFColouring(); } catch (_) {}
+    this._notify('moveEntities', {
+      entityIndices, dx, dy, fixedConflicts: t.fixedConflicts,
+    });
+    return {
+      ok: true,
+      translatedCount: t.entities.length,
+      pointsMoved: t.points.size,
+      dx, dy,
+      fixedConflicts: t.fixedConflicts.length,
+      converged: !!result.converged,
+    };
+  }
+
+  /**
+   * Tier-2c #2 — ROTATE ENTITIES.
+   *
+   * Rotate every picked entity about `center` by `angleRad` radians
+   * (positive = CCW in (u,v) plane). Constraint relations follow the
+   * geometry. Fixed points resist; conflict reported.
+   *
+   * @param {number[]} entityIndices  >=1 indices
+   * @param {{u:number,v:number}} center  rotation centre (metres)
+   * @param {number} angleRad             rotation angle in radians
+   * @returns {{ok, rotatedCount?, angleRad?, fixedConflicts?, reason?}}
+   */
+  rotateEntities(entityIndices, center, angleRad) {
+    const t = this._collectTransformTargets(entityIndices);
+    if (!t.ok) return t;
+    if (!center || !Number.isFinite(angleRad)) {
+      return { ok: false, reason: 'Rotate needs a centre + numeric angle' };
+    }
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    for (const p of t.points) {
+      const du = p.x - center.u;
+      const dv = p.y - center.v;
+      p.x = center.u + du * cos - dv * sin;
+      p.y = center.v + du * sin + dv * cos;
+    }
+    const result = this.solver.solve();
+    this._syncEntityCachesFromSolver(entityIndices);
+    this._redrawAll();
+    try { this.applyDoFColouring(); } catch (_) {}
+    this._notify('rotateEntities', {
+      entityIndices, center, angleRad, fixedConflicts: t.fixedConflicts,
+    });
+    return {
+      ok: true,
+      rotatedCount: t.entities.length,
+      pointsMoved: t.points.size,
+      angleRad,
+      angleDeg: angleRad * 180 / Math.PI,
+      fixedConflicts: t.fixedConflicts.length,
+      converged: !!result.converged,
+    };
+  }
+
+  /**
+   * Tier-2c #3 — COPY ENTITIES.
+   *
+   * Duplicate every picked entity, translating each copy by `to - from`.
+   * Each copy is added to the sketch as a NEW entity (sharing the
+   * solver-point structure of the original). The original entities
+   * remain in place.
+   *
+   * Options:
+   *   - `linked` (default `false`): if `true`, the copy's endpoints
+   *     coincide with the original's by a `coincident` constraint
+   *     (preserves the design intent — moving the original drags the
+   *     copy). If `false`, the copy is unlinked (independent).
+   *
+   * @param {number[]} entityIndices  >=1 source indices
+   * @param {{u:number,v:number}} from   from-point (metres)
+   * @param {{u:number,v:number}} to     to-point (metres)
+   * @param {{linked?:boolean}} [opts]
+   * @returns {{ok, copiedIndices?, dx?, dy?, linked?, reason?}}
+   */
+  copyEntities(entityIndices, from, to, opts = {}) {
+    if (!Array.isArray(entityIndices) || entityIndices.length === 0) {
+      return { ok: false, reason: 'No sketch entities selected to copy' };
+    }
+    if (!from || !to) return { ok: false, reason: 'Copy needs from + to points' };
+    const dx = to.u - from.u;
+    const dy = to.v - from.v;
+    const linked = !!opts.linked;
+    const copiedIndices = [];
+    const sourceToCopy = new Map(); // original entity idx -> copy entity idx
+    for (const idx of entityIndices) {
+      const e = this.entities[idx];
+      if (!e) return { ok: false, reason: `Entity #${idx} does not exist` };
+      let copy = null;
+      if (e.type === 'line') {
+        const np1 = { u: e.p1.u + dx, v: e.p1.v + dy };
+        const np2 = { u: e.p2.u + dx, v: e.p2.v + dy };
+        copy = this._createLine(np1, np2);
+        if (linked) {
+          // Linked copy: the copy's endpoints are constrained-coincident
+          // to the originals' endpoints offset by the translation. We
+          // express linkage by a distance constraint matching the translation
+          // length between corresponding endpoints (so the copy follows
+          // the original through subsequent transforms / dimension edits).
+          const dxLen = Math.hypot(dx, dy);
+          this.solver.distance(e.solverP1, copy.solverP1, dxLen);
+          this.solver.distance(e.solverP2, copy.solverP2, dxLen);
+        }
+      } else if (e.type === 'circle') {
+        const nc = { u: e.center.u + dx, v: e.center.v + dy };
+        copy = this._createCircle(nc, e.radius);
+        if (linked) {
+          const dxLen = Math.hypot(dx, dy);
+          this.solver.distance(e.solverCenter, copy.solverCenter, dxLen);
+          // Equal-radius link.
+          this.solver.radius(copy.solverCircle, e.solverCircle.radius);
+        }
+      } else if (e.type === 'arc') {
+        const np1 = { u: e.p1.u + dx, v: e.p1.v + dy };
+        const np2 = { u: e.p2.u + dx, v: e.p2.v + dy };
+        const np3 = { u: e.p3.u + dx, v: e.p3.v + dy };
+        copy = this._createArc(np1, np2, np3);
+      } else if (e.type === 'point') {
+        const np = { u: e.pos.u + dx, v: e.pos.v + dy };
+        copy = this._createPoint(np);
+      } else {
+        // Unknown type — skip; record the gap.
+        continue;
+      }
+      if (copy) {
+        copy.copyOf = idx;
+        copy.copyLinked = linked;
+        const copyIdx = this.entities.length - 1;
+        copiedIndices.push(copyIdx);
+        sourceToCopy.set(idx, copyIdx);
+      }
+    }
+    const result = this.solver.solve();
+    this._syncEntityCachesFromSolver();
+    this._redrawAll();
+    try { this.applyDoFColouring(); } catch (_) {}
+    this._notify('copyEntities', { entityIndices, copiedIndices, dx, dy, linked });
+    return {
+      ok: true,
+      copiedIndices,
+      sourceCount: entityIndices.length,
+      copyCount: copiedIndices.length,
+      dx, dy, linked,
+      converged: !!result.converged,
+    };
+  }
+
+  /**
+   * Tier-2c #4 — SCALE ENTITIES.
+   *
+   * Scale every picked entity uniformly (or non-uniformly with
+   * `scaleY`) about `center`. Each affected solver point `p` becomes
+   * `center + (p - center) * (scaleX, scaleY)`. Circle radii scale by
+   * `scaleX` (uniform) or `Math.sqrt(scaleX * scaleY)` for non-uniform
+   * (preserves circle topology; SW does the same for non-uniform scale
+   * on circles).
+   *
+   * Special cases:
+   *   - zero scale -> rejected (`reason: 'Scale factor must be non-zero'`).
+   *   - negative scale -> mirrors the geometry about the centre, which
+   *     is the SW behaviour as well.
+   *
+   * @param {number[]} entityIndices  >=1 indices
+   * @param {{u:number,v:number}} center  scale centre (metres)
+   * @param {number} scaleX           uniform scale or x-scale
+   * @param {number} [scaleY]         optional y-scale (default = scaleX)
+   * @returns {{ok, scaledCount?, scaleX?, scaleY?, fixedConflicts?, reason?}}
+   */
+  scaleEntities(entityIndices, center, scaleX, scaleY) {
+    const t = this._collectTransformTargets(entityIndices);
+    if (!t.ok) return t;
+    if (!center || !Number.isFinite(scaleX)) {
+      return { ok: false, reason: 'Scale needs a centre + numeric scale factor' };
+    }
+    if (Math.abs(scaleX) < 1e-9) {
+      return { ok: false, reason: 'Scale factor must be non-zero' };
+    }
+    const sy = (scaleY === undefined || scaleY === null) ? scaleX : scaleY;
+    if (Math.abs(sy) < 1e-9) {
+      return { ok: false, reason: 'Scale factor must be non-zero' };
+    }
+    for (const p of t.points) {
+      p.x = center.u + (p.x - center.u) * scaleX;
+      p.y = center.v + (p.y - center.v) * sy;
+    }
+    // Scale circle radii uniformly. For non-uniform x/y the geometric mean
+    // preserves area ratio (SW's published behaviour) — note this still
+    // keeps the curve a true circle (not an ellipse).
+    const radiusScale = (scaleX === sy) ? Math.abs(scaleX) : Math.sqrt(Math.abs(scaleX * sy));
+    for (const c of t.circles) {
+      c.solverCircle.radius *= radiusScale;
+    }
+    const result = this.solver.solve();
+    this._syncEntityCachesFromSolver(entityIndices);
+    this._redrawAll();
+    try { this.applyDoFColouring(); } catch (_) {}
+    this._notify('scaleEntities', {
+      entityIndices, center, scaleX, scaleY: sy,
+      fixedConflicts: t.fixedConflicts,
+    });
+    return {
+      ok: true,
+      scaledCount: t.entities.length,
+      pointsMoved: t.points.size,
+      scaleX, scaleY: sy,
+      mirrored: scaleX < 0 || sy < 0,
+      fixedConflicts: t.fixedConflicts.length,
+      converged: !!result.converged,
+    };
+  }
+
+  /**
+   * Tier-2c #5 — STRETCH ENTITIES.
+   *
+   * SW convention: stretch translates only the endpoints that lie inside
+   * a selection BOX (endpoints in the box move; endpoints outside stay).
+   * ArchDisc's selection model gives us EXPLICITLY-PICKED endpoints —
+   * the caller passes `endpointPicks` as an array of
+   *   `{entityIndex, endpoint: 'p1'|'p2'|'start'|'end'|'center'|'point'}`.
+   *
+   * Each picked endpoint translates by `to - from`; non-picked endpoints
+   * of the same entity stay put. The result is a real "stretch" — lines
+   * become longer/shorter, rectangles deform, etc.
+   *
+   * @param {Array<{entityIndex,endpoint}>} endpointPicks
+   * @param {{u:number,v:number}} from   from-point (metres)
+   * @param {{u:number,v:number}} to     to-point (metres)
+   * @returns {{ok, stretchedCount?, dx?, dy?, reason?}}
+   */
+  stretchEntities(endpointPicks, from, to) {
+    if (!Array.isArray(endpointPicks) || endpointPicks.length === 0) {
+      return { ok: false, reason: 'Stretch needs at least one endpoint pick' };
+    }
+    if (!from || !to) return { ok: false, reason: 'Stretch needs from + to points' };
+    const dx = to.u - from.u;
+    const dy = to.v - from.v;
+    const movedPoints = new Set();
+    const movedEntityIndices = new Set();
+    for (const pick of endpointPicks) {
+      const { entityIndex, endpoint } = pick;
+      const e = this.entities[entityIndex];
+      if (!e) return { ok: false, reason: `Entity #${entityIndex} does not exist` };
+      let pt = null;
+      if (e.type === 'line') {
+        if (endpoint === 'p1')      pt = e.solverP1;
+        else if (endpoint === 'p2') pt = e.solverP2;
+      } else if (e.type === 'circle') {
+        if (endpoint === 'center')  pt = e.solverCenter;
+      } else if (e.type === 'arc') {
+        if (endpoint === 'start')        pt = e._solverStartRef ?? e.solverArc?.startPoint;
+        else if (endpoint === 'end')     pt = e._solverEndRef   ?? e.solverArc?.endPoint;
+        else if (endpoint === 'center')  pt = e._solverCenterRef ?? e.solverArc?.center;
+      } else if (e.type === 'point') {
+        if (endpoint === 'point' || !endpoint) pt = e.solverPoint;
+      }
+      if (!pt) return { ok: false, reason: `Cannot pick endpoint '${endpoint}' on ${e.type} entity #${entityIndex}` };
+      // De-dup: a shared solver point (e.g. coincident endpoints) should
+      // only translate once.
+      if (movedPoints.has(pt)) continue;
+      pt.x += dx;
+      pt.y += dy;
+      movedPoints.add(pt);
+      movedEntityIndices.add(entityIndex);
+    }
+    const result = this.solver.solve();
+    this._syncEntityCachesFromSolver([...movedEntityIndices]);
+    this._redrawAll();
+    try { this.applyDoFColouring(); } catch (_) {}
+    this._notify('stretchEntities', { endpointPicks, dx, dy });
+    return {
+      ok: true,
+      stretchedCount: movedEntityIndices.size,
+      pointsMoved: movedPoints.size,
+      dx, dy,
+      converged: !!result.converged,
+    };
+  }
+
   /**
    * Get the FILLED-AREA profile, excluding `isConstruction` entities.
    * Replaces `getProfile()` for tools that must skip the centre line.

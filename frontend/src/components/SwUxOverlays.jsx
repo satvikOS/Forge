@@ -431,6 +431,12 @@ export const DOCKED_TOOLS = new Set([
   // Tier-2a (sketch primitives)
   'Sketch Chamfer',
   'Convert Entities',
+  // Tier-2c (sketch transforms)
+  'Move Entities',
+  'Rotate Entities',
+  'Copy Entities',
+  'Scale Entities',
+  'Stretch Entities',
   // SP-5 — Boolean & partition completion (Area C, T1).
   'Imprint',
   'Partition',
