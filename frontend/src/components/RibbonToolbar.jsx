@@ -48,6 +48,16 @@ const TABS = {
         { name: 'Tangent', icon: '⌒', key: 'sketch' },
         { name: 'Equal', icon: '=', key: 'sketch' },
       ]},
+      // Tier-2b — SW-style named geometric relations as user-applied
+      // constraints. Each relation acts on the CURRENT sketch selection.
+      { label: 'Relations', tools: [
+        { name: 'Concentric Relation', icon: '◎', key: 'sketch' },
+        { name: 'Midpoint Relation',   icon: '⊙', key: 'sketch' },
+        { name: 'Symmetric Relation',  icon: '⟷', key: 'sketch' },
+        { name: 'Collinear Relation',  icon: '⌐', key: 'sketch' },
+        { name: 'Fix Relation',        icon: '⊕', key: 'sketch' },
+        { name: 'Display Relations',   icon: '🛈', key: 'sketch' },
+      ]},
       { label: 'Solve', tools: [
         { name: 'Auto-Constrain', icon: '✦', key: 'sketch', primary: true },
       ]},

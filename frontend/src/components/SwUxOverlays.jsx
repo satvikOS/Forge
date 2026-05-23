@@ -33,7 +33,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Check, X, Maximize2, Crop,
          Scissors, Box, Eye, Square, MousePointer, Layers, Hexagon,
-         Circle } from 'lucide-react';
+         Circle, Trash2, Info } from 'lucide-react';
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import './SwUxOverlays.css';
 
@@ -622,13 +622,19 @@ export function SketchStateBadge() {
               : state.state === 'over-defined'  ? 'OVER-DEFINED'
               : 'FULLY DEFINED';
   return (
-    <div className={`sw-sketch-state ${cls}`}
-         data-archdisc-sketch-state={state.state}
-         data-archdisc-sketch-dof={String(state.signedDof)}>
-      <span className="sw-sketch-state-dot" />
-      <span className="sw-sketch-state-label">{label}</span>
-      <span className="sw-sketch-state-dof">DoF: {state.signedDof}</span>
-    </div>
+    <>
+      <div className={`sw-sketch-state ${cls}`}
+           data-archdisc-sketch-state={state.state}
+           data-archdisc-sketch-dof={String(state.signedDof)}>
+        <span className="sw-sketch-state-dot" />
+        <span className="sw-sketch-state-label">{label}</span>
+        <span className="sw-sketch-state-dof">DoF: {state.signedDof}</span>
+      </div>
+      {/* Tier-2b: Display/Delete Relations dock — mounted as a sibling of
+       *  the sketch badge so it only lives while a sketch is active and we
+       *  don't have to touch the workbench mount. */}
+      <DisplayRelationsDock />
+    </>
   );
 }
 
@@ -837,4 +843,140 @@ export function matchesBodyKindFilter(group, kindFilter) {
   // Unknown — default to solid so the legacy "click picks the body" path
   // still works when no filter has been set. Sheet-only filter will reject.
   return kindFilter === 'solid';
+}
+
+// ─── 6. Display / Delete Relations Dock (Tier-2b) ───────────────────────────
+//
+// Inside the PropertyManager Dock area we render a panel listing every
+// geometric relation currently applied to the SELECTED sketch entity (or
+// all relations if nothing is selected). Each row carries the relation
+// LABEL ("Concentric", "Midpoint", "Symmetric", "Collinear", "Fix"),
+// the entity indices it links, and an X button to delete it.
+//
+// Deleting a relation removes the underlying solver constraints, re-solves,
+// re-colours the sketch (DoF colour state via SketchSolver.signedDOF),
+// and updates the live list.
+//
+// The dock listens for `archdisc:display-relations` (fired by the Display
+// Relations ribbon handler) to OPEN itself, plus polls the sketch every
+// 400ms so the list stays current while relations are added via the
+// other relation tools.
+export function DisplayRelationsDock() {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [focusedEntity, setFocusedEntity] = useState(null);
+  const [tick, setTick] = useState(0);
+
+  // Open hook + selection tracking.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onOpen = (e) => {
+      setOpen(true);
+      setFocusedEntity(e?.detail?.for ?? null);
+    };
+    window.addEventListener('archdisc:display-relations', onOpen);
+    return () => window.removeEventListener('archdisc:display-relations', onOpen);
+  }, []);
+
+  // Poll the sketch + the selection so the list stays fresh after every
+  // Apply / Delete + after the user picks a new entity.
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 400);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+    if (!sketch || typeof sketch.getAllRelations !== 'function') {
+      setRows([]);
+      return;
+    }
+    const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+    const focused = (sel && sel.length > 0) ? sel[0] : (focusedEntity ?? null);
+    const list = (focused !== null && focused !== undefined)
+      ? sketch.getRelationsForEntity(focused)
+      : sketch.getAllRelations();
+    setRows(list);
+  }, [open, tick, focusedEntity]);
+
+  const onDelete = useCallback((relId) => {
+    const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+    if (!sketch || typeof sketch.deleteRelation !== 'function') return;
+    const r = sketch.deleteRelation(relId);
+    if (typeof window !== 'undefined') window.__lastSketchRelationDelete = r;
+    // Force a refresh.
+    setTick(t => t + 1);
+  }, []);
+
+  const close = useCallback(() => {
+    setOpen(false);
+    if (typeof window !== 'undefined') window.__archdiscDisplayRelationsOpen = false;
+  }, []);
+
+  if (!open) return null;
+  const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+  const focused = (sel && sel.length > 0) ? sel[0] : (focusedEntity ?? null);
+
+  return (
+    <aside
+      className="sw-relations-dock"
+      data-archdisc-relations-dock="open"
+      data-archdisc-relations-count={String(rows.length)}
+      data-archdisc-relations-focused={focused === null ? 'all' : String(focused)}
+    >
+      <div className="sw-relations-dock-header">
+        <div className="sw-relations-dock-title">
+          <Info size={12} /> Display / Delete Relations
+        </div>
+        <button
+          className="sw-relations-dock-close"
+          title="Close (Esc)"
+          onClick={close}
+          data-archdisc-relations-close
+        >
+          <X size={14} strokeWidth={3} />
+        </button>
+      </div>
+      <div className="sw-relations-dock-scope">
+        {focused !== null
+          ? <>Entity <span className="sw-relations-dock-pill">#{focused}</span> · {rows.length} relation{rows.length === 1 ? '' : 's'}</>
+          : <>All relations · {rows.length}</>}
+      </div>
+      <div className="sw-relations-dock-body">
+        {rows.length === 0 ? (
+          <div className="sw-relations-dock-empty">
+            No geometric relations to display.
+            {focused === null && ' Apply Concentric / Midpoint / Symmetric / Collinear / Fix from the Sketch → Relations group.'}
+          </div>
+        ) : (
+          <ul className="sw-relations-dock-list">
+            {rows.map((rel) => (
+              <li
+                key={rel.id}
+                className="sw-relations-dock-row"
+                data-archdisc-relation-id={rel.id}
+                data-archdisc-relation-type={rel.type}
+              >
+                <div className="sw-relations-dock-row-main">
+                  <span className="sw-relations-dock-row-label">{rel.label}</span>
+                  <span className="sw-relations-dock-row-entities">
+                    [{rel.entityIndices.join(', ')}]
+                  </span>
+                </div>
+                <button
+                  className="sw-relations-dock-row-delete"
+                  title="Delete this relation"
+                  onClick={() => onDelete(rel.id)}
+                  data-archdisc-relation-delete={rel.id}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </aside>
+  );
 }

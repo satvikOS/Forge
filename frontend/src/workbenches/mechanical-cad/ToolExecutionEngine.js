@@ -1024,6 +1024,148 @@ const TOOL_HANDLERS = {
               + `${fixedToSource ? ' (fixed-to-source)' : ''}`,
       };
     },
+
+    // ─── Tier-2b: Named geometric relations ──────────────────────────────
+    // Selection-driven: pre-select entities in the viewport
+    // (window.__archdiscSelectedSketchEntities), then click the relation
+    // button. The handler reads the selection, calls the appropriate
+    // InteractiveSketch.apply* method, and updates the relation log
+    // mirror on window for e2e + the Display Relations panel.
+
+    'Concentric Relation': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Concentric: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 2) {
+        return { status: 'warn', message: 'Concentric: select 2+ circles or arcs first.' };
+      }
+      const r = sketch.applyConcentric(sel);
+      if (!r.ok) return { status: 'warn', message: `Concentric: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchRelation = { ...r, type: 'concentric' };
+      return {
+        status: 'success',
+        message: `Concentric: ${sel.length} circles/arcs linked, DoF ${r.dofBefore} → ${r.dofAfter}`,
+      };
+    },
+
+    'Midpoint Relation': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Midpoint: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 2) {
+        return { status: 'warn', message: 'Midpoint: select one point + one line first.' };
+      }
+      // Identify the point and the line from the selection.
+      const items = sel.map((i) => ({ i, e: sketch.entities[i] })).filter(x => x.e);
+      const point = items.find(x => x.e.type === 'point');
+      const line  = items.find(x => x.e.type === 'line');
+      if (!point || !line) {
+        return { status: 'warn', message: 'Midpoint: selection must include one point AND one line.' };
+      }
+      const r = sketch.applyMidpoint(point.i, line.i);
+      if (!r.ok) return { status: 'warn', message: `Midpoint: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchRelation = { ...r, type: 'midpoint' };
+      return {
+        status: 'success',
+        message: `Midpoint: point #${point.i} pinned to line #${line.i} midpoint, DoF ${r.dofBefore} → ${r.dofAfter}`,
+      };
+    },
+
+    'Symmetric Relation': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Symmetric: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 3) {
+        return { status: 'warn', message: 'Symmetric: select 2 entities + 1 axis line (3 total).' };
+      }
+      // Convention: the LAST selected entity is the axis line; the first
+      // two are the mirror pair. Standard SW pre-pick order.
+      const axisIdx = sel[sel.length - 1];
+      const axis = sketch.entities[axisIdx];
+      if (!axis || axis.type !== 'line') {
+        return { status: 'warn', message: 'Symmetric: the last selected entity must be a line (the axis).' };
+      }
+      const pair = sel.slice(0, -1);
+      if (pair.length !== 2) {
+        return { status: 'warn', message: 'Symmetric: need exactly 2 mirror entities + 1 axis line.' };
+      }
+      const r = sketch.applySymmetric(pair, axisIdx);
+      if (!r.ok) return { status: 'warn', message: `Symmetric: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchRelation = { ...r, type: 'symmetric' };
+      return {
+        status: 'success',
+        message: `Symmetric: entities [${pair.join(', ')}] mirrored about line #${axisIdx}, DoF ${r.dofBefore} → ${r.dofAfter}`,
+      };
+    },
+
+    'Collinear Relation': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Collinear: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 2) {
+        return { status: 'warn', message: 'Collinear: select 2+ lines first.' };
+      }
+      const r = sketch.applyCollinear(sel);
+      if (!r.ok) return { status: 'warn', message: `Collinear: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchRelation = { ...r, type: 'collinear' };
+      return {
+        status: 'success',
+        message: `Collinear: ${sel.length} lines aligned, DoF ${r.dofBefore} → ${r.dofAfter}`,
+      };
+    },
+
+    'Fix Relation': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Fix: activate a sketch first.' };
+      }
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      if (!sel || sel.length < 1) {
+        return { status: 'warn', message: 'Fix: select an entity first.' };
+      }
+      const idx = sel[0];
+      const r = sketch.applyFix(idx);
+      if (!r.ok) return { status: 'warn', message: `Fix: ${r.reason}` };
+      if (typeof window !== 'undefined') window.__lastSketchRelation = { ...r, type: 'fix' };
+      return {
+        status: 'success',
+        message: `Fix: entity #${idx} anchored, DoF ${r.dofBefore} → ${r.dofAfter}`,
+      };
+    },
+
+    'Display Relations': async () => {
+      const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+      if (!sketch || !sketch.active) {
+        return { status: 'warn', message: 'Display Relations: activate a sketch first.' };
+      }
+      // Open the Display Relations panel (handled by SwUxOverlays.DisplayRelationsDock).
+      const sel = (typeof window !== 'undefined' && window.__archdiscSelectedSketchEntities) || null;
+      const all = sketch.getAllRelations();
+      const forSel = (sel && sel.length > 0)
+        ? sketch.getRelationsForEntity(sel[0])
+        : all;
+      if (typeof window !== 'undefined') {
+        // Toggle the dock open.
+        window.__archdiscDisplayRelationsOpen = true;
+        window.__archdiscDisplayRelationsFor = (sel && sel.length > 0) ? sel[0] : null;
+        // Notify the React panel via a custom event.
+        try { window.dispatchEvent(new CustomEvent('archdisc:display-relations', {
+          detail: { for: (sel && sel.length > 0) ? sel[0] : null, count: forSel.length, all: all.length },
+        })); } catch (_) {}
+      }
+      return {
+        status: 'success',
+        message: `Display Relations: ${forSel.length} relations${sel ? ` on entity #${sel[0]}` : ' total'} (panel opened).`,
+      };
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

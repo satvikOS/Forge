@@ -464,6 +464,167 @@ body.sw-dock-suppress-floating .tpd-backdrop {
   display: inline;
 }
 
+/* ─── 6. Display / Delete Relations Dock (Tier-2b) ────────────────────────
+ *
+ * Lives inside the right side of the viewport, below the Heads-up View
+ * Toolbar (top: 60px) so it doesn't collide with the Confirmation Corner.
+ * Same dark-glass style as the PropertyManager Dock. Width: 260px — narrow
+ * enough that the user can still drive sketch tools while inspecting.
+ */
+.sw-relations-dock {
+  position: absolute;
+  top: 70px;
+  right: 8px;
+  z-index: 28;
+  width: 264px;
+  max-height: 60vh;
+  background: rgba(20, 20, 20, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 6px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  animation: sw-fade-in 0.14s ease-out;
+  font-size: 11px;
+  color: #d8d8d8;
+  overflow: hidden;
+}
+
+.sw-relations-dock-header {
+  padding: 8px 10px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(28, 28, 28, 0.55);
+}
+
+.sw-relations-dock-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: #f0f0f0;
+  text-transform: uppercase;
+}
+
+.sw-relations-dock-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #ccc;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.sw-relations-dock-close:hover {
+  background: rgba(227, 84, 84, 0.40);
+  color: #fff;
+}
+
+.sw-relations-dock-scope {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #b8b8b8;
+}
+
+.sw-relations-dock-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 3px;
+  background: rgba(0, 204, 255, 0.18);
+  color: #87dcff;
+  font-family: 'Consolas', monospace;
+  font-weight: 600;
+}
+
+.sw-relations-dock-body {
+  padding: 4px 6px 10px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.sw-relations-dock-empty {
+  padding: 12px 8px;
+  color: #888;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.sw-relations-dock-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sw-relations-dock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  margin: 2px 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.sw-relations-dock-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sw-relations-dock-row-main {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sw-relations-dock-row-label {
+  font-weight: 600;
+  color: #f0f0f0;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+
+.sw-relations-dock-row-entities {
+  font-family: 'Consolas', monospace;
+  font-size: 9.5px;
+  color: #87dcff;
+}
+
+.sw-relations-dock-row-delete {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #d8a8a8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.sw-relations-dock-row-delete:hover {
+  background: rgba(227, 84, 84, 0.50);
+  color: #fff;
+}
+
+/* Per-relation-type tint for the row label. */
+.sw-relations-dock-row[data-archdisc-relation-type="concentric"] .sw-relations-dock-row-label { color: #97d4ff; }
+.sw-relations-dock-row[data-archdisc-relation-type="midpoint"]   .sw-relations-dock-row-label { color: #b3e7c4; }
+.sw-relations-dock-row[data-archdisc-relation-type="symmetric"]  .sw-relations-dock-row-label { color: #e8c688; }
+.sw-relations-dock-row[data-archdisc-relation-type="collinear"]  .sw-relations-dock-row-label { color: #f0a3c0; }
+.sw-relations-dock-row[data-archdisc-relation-type="fix"]        .sw-relations-dock-row-label { color: #ffd66d; }
+
 /* ─── animations ───────────────────────────────────────────────────────── */
 @keyframes sw-fade-in {
   from { opacity: 0; transform: translateY(-3px); }
