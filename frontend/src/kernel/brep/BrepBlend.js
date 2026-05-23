@@ -19,6 +19,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import { recordBodyDerive } from '../history/HistoryLog.js';
 
 /**
  * Walk every unique edge of `shape` and call `addEdge(edge)` once per edge.
@@ -161,13 +162,7 @@ export async function blendG2(holeBoxSize = 6) {
  * @param {number} radius            fillet radius (mm); must be ≥ 20% of bbox min dim
  * @returns {Promise<SpineBody>}
  */
-export async function cliffEdgeBlend(src, radius) {
-  if (!src || !src.shape) {
-    throw new Error('cliffEdgeBlend: first argument must be a SpineBody or BrepShape with a live shape');
-  }
-  if (!(radius > 0)) {
-    throw new Error(`cliffEdgeBlend: radius must be positive (got ${radius})`);
-  }
+async function _runCliffEdgeBlend(src, radius, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     // Reject small radii — this op is specifically for cliff/large-radius blends.
@@ -203,7 +198,7 @@ export async function cliffEdgeBlend(src, radius) {
     const meta = { op: 'cliffEdgeBlend', params: { radius }, parents: [src.id] };
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `cliffEdgeBlend-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `cliffEdgeBlend-${wrapper.id}`, geomEngineShape: wrapper,
     });
     if (src.body) {
       const lineage = carryLineage(oc, maker, resultBody, [
@@ -218,6 +213,33 @@ export async function cliffEdgeBlend(src, radius) {
     }
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function cliffEdgeBlend(src, radius) {
+  if (!src || !src.shape) {
+    throw new Error('cliffEdgeBlend: first argument must be a SpineBody or BrepShape with a live shape');
+  }
+  if (!(radius > 0)) {
+    throw new Error(`cliffEdgeBlend: radius must be positive (got ${radius})`);
+  }
+  const result = await _runCliffEdgeBlend(src, radius);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'cliffEdgeBlend',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'cliffEdgeBlend', params: { radius } },
+        rebuild: ([liveSrc]) => _runCliffEdgeBlend(liveSrc, radius, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('cliffEdgeBlend: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,13 +269,7 @@ export async function cliffEdgeBlend(src, radius) {
  * @param {number} radius            fillet radius (mm); must be > 0
  * @returns {Promise<SpineBody>}
  */
-export async function mitreCorner(src, radius) {
-  if (!src || !src.shape) {
-    throw new Error('mitreCorner: first argument must be a SpineBody or BrepShape with a live shape');
-  }
-  if (!(radius > 0)) {
-    throw new Error(`mitreCorner: radius must be positive (got ${radius})`);
-  }
+async function _runMitreCorner(src, radius, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepFilletAPI_MakeFillet(
@@ -277,7 +293,7 @@ export async function mitreCorner(src, radius) {
     const meta = { op: 'mitreCorner', params: { radius }, parents: [src.id] };
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `mitreCorner-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `mitreCorner-${wrapper.id}`, geomEngineShape: wrapper,
     });
     if (src.body) {
       const lineage = carryLineage(oc, maker, resultBody, [
@@ -292,4 +308,31 @@ export async function mitreCorner(src, radius) {
     }
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function mitreCorner(src, radius) {
+  if (!src || !src.shape) {
+    throw new Error('mitreCorner: first argument must be a SpineBody or BrepShape with a live shape');
+  }
+  if (!(radius > 0)) {
+    throw new Error(`mitreCorner: radius must be positive (got ${radius})`);
+  }
+  const result = await _runMitreCorner(src, radius);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'mitreCorner',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'mitreCorner', params: { radius } },
+        rebuild: ([liveSrc]) => _runMitreCorner(liveSrc, radius, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('mitreCorner: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }

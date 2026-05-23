@@ -47,6 +47,7 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import { recordBodyDerive } from '../history/HistoryLog.js';
 
 /**
  * Shared spine-binding + lineage-carry tail for the local ops. Mirrors the
@@ -79,7 +80,7 @@ function bindLocalOpResult(oc, opName, src, algo, shape, meta, opts = {}) {
   // all preserve solidness; thicken explicitly declares 'solid' as its
   // sheet→solid output). Mismatch surfaces as a kindMismatch diagnostic.
   const resultBody = bindSpine(oc, shape, {
-    bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+    bodyTag: opts.bodyTag || `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
     declaredKind: opts.declaredKind || 'solid',
   });
   if (src.body) {
@@ -114,14 +115,7 @@ function bindLocalOpResult(oc, opName, src, algo, shape, meta, opts = {}) {
  * @param {number} thickness               wall thickness (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function shell(brepShape, thickness) {
-  if (!brepShape || !brepShape.shape) throw new Error('shell: needs a SpineBody or BrepShape');
-  if (!(thickness > 0)) throw new Error(`shell: thickness must be positive (got ${thickness})`);
-  // S5 body-kind gate — shell requires a closed-volume body. Spine-aware:
-  // when the input has a body, enforce solid-only first-class.
-  if (brepShape.body && typeof brepShape.body.assertSolid === 'function') {
-    brepShape.body.assertSolid('shell');
-  }
+async function _runShell(brepShape, thickness, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     // verified sequence from kernel-api-A2.md item 1
@@ -173,8 +167,36 @@ export async function shell(brepShape, thickness) {
       params: { thickness },
       parents: [brepShape.id],
     };
-    return bindLocalOpResult(oc, 'shell', brepShape, thickSolid, shape, meta);
+    return bindLocalOpResult(oc, 'shell', brepShape, thickSolid, shape, meta, { bodyTag });
   });
+}
+
+export async function shell(brepShape, thickness) {
+  if (!brepShape || !brepShape.shape) throw new Error('shell: needs a SpineBody or BrepShape');
+  if (!(thickness > 0)) throw new Error(`shell: thickness must be positive (got ${thickness})`);
+  // S5 body-kind gate — shell requires a closed-volume body. Spine-aware:
+  // when the input has a body, enforce solid-only first-class.
+  if (brepShape.body && typeof brepShape.body.assertSolid === 'function') {
+    brepShape.body.assertSolid('shell');
+  }
+  const result = await _runShell(brepShape, thickness);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'shell',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'shell', params: { thickness } },
+        rebuild: ([liveSrc]) => _runShell(liveSrc, thickness, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('shell: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -203,16 +225,7 @@ export async function shell(brepShape, thickness) {
  * @param {number} thickness               wall thickness (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function thicken(brepShape, thickness) {
-  if (!brepShape || !brepShape.shape) throw new Error('thicken: needs a SpineBody or BrepShape (the open-surface body to thicken)');
-  if (!(thickness > 0)) throw new Error(`thicken: thickness must be positive (got ${thickness})`);
-  // S5 body-kind gate — when the input carries a spine body, enforce the
-  // sheet-only precondition first-class. The engine-shape-type check below
-  // still runs (it covers raw BrepShape inputs without a spine body), but the
-  // spine-aware gate fires earlier with a clearer diagnostic.
-  if (brepShape.body && typeof brepShape.body.assertSheet === 'function') {
-    brepShape.body.assertSheet('thicken');
-  }
+async function _runThicken(brepShape, thickness, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const inputShape = brepShape.shape;
@@ -295,8 +308,38 @@ export async function thicken(brepShape, thickness) {
       params: { thickness, inputFaceCount: faceCount },
       parents: [brepShape.id],
     };
-    return bindLocalOpResult(oc, 'thicken', brepShape, thickObj, shape, meta);
+    return bindLocalOpResult(oc, 'thicken', brepShape, thickObj, shape, meta, { bodyTag });
   });
+}
+
+export async function thicken(brepShape, thickness) {
+  if (!brepShape || !brepShape.shape) throw new Error('thicken: needs a SpineBody or BrepShape (the open-surface body to thicken)');
+  if (!(thickness > 0)) throw new Error(`thicken: thickness must be positive (got ${thickness})`);
+  // S5 body-kind gate — when the input carries a spine body, enforce the
+  // sheet-only precondition first-class. The engine-shape-type check below
+  // still runs (it covers raw BrepShape inputs without a spine body), but the
+  // spine-aware gate fires earlier with a clearer diagnostic.
+  if (brepShape.body && typeof brepShape.body.assertSheet === 'function') {
+    brepShape.body.assertSheet('thicken');
+  }
+  const result = await _runThicken(brepShape, thickness);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'thicken',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'thicken', params: { thickness } },
+        rebuild: ([liveSrc]) => _runThicken(liveSrc, thickness, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('thicken: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -338,11 +381,7 @@ export async function thicken(brepShape, thickness) {
  *        tol  offset tolerance (mm); default 1e-4.
  * @returns {Promise<SpineBody>}
  */
-export async function offsetShape(brepShape, distance, opts = {}) {
-  if (!brepShape || !brepShape.shape) throw new Error('offsetShape: needs a SpineBody or BrepShape');
-  if (!(Math.abs(distance) > 0)) {
-    throw new Error(`offsetShape: distance must be non-zero (got ${distance})`);
-  }
+async function _runOffsetShape(brepShape, distance, opts, bodyTag) {
   const oc = await getOCCT();
   const joinType = opts.joinType === 'arc' ? 'arc' : 'intersection';
   const intersection = opts.intersection !== false; // default true
@@ -417,8 +456,34 @@ export async function offsetShape(brepShape, distance, opts = {}) {
       params: { distance, joinType, intersection, selfInter, tol },
       parents: [brepShape.id],
     };
-    return bindLocalOpResult(oc, 'offsetShape', brepShape, liveAlgo, shape, meta);
+    return bindLocalOpResult(oc, 'offsetShape', brepShape, liveAlgo, shape, meta, { bodyTag });
   });
+}
+
+export async function offsetShape(brepShape, distance, opts = {}) {
+  if (!brepShape || !brepShape.shape) throw new Error('offsetShape: needs a SpineBody or BrepShape');
+  if (!(Math.abs(distance) > 0)) {
+    throw new Error(`offsetShape: distance must be non-zero (got ${distance})`);
+  }
+  const result = await _runOffsetShape(brepShape, distance, opts);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'offsetShape',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'offsetShape', params: { distance, ...opts } },
+        rebuild: ([liveSrc]) =>
+          _runOffsetShape(liveSrc, distance, opts, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('offsetShape: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -464,10 +529,7 @@ export async function offsetShape(brepShape, distance, opts = {}) {
  *        pullDir        pull / demould direction (default = neutralNormal).
  * @returns {Promise<SpineBody>}
  */
-export async function draft(brepShape, angleDeg, opts = {}) {
-  if (!brepShape || !brepShape.shape) throw new Error('draft: needs a SpineBody or BrepShape');
-  if (!(angleDeg > 0 && angleDeg < 90)) throw new Error(`draft: angle must be 0-90° (got ${angleDeg})`);
-
+async function _runDraft(brepShape, angleDeg, opts, bodyTag) {
   // ── Resolve parametric neutral plane + pull direction ──────────────────────
   const _vec3 = (v, fallback) => {
     if (Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)) return v;
@@ -589,6 +651,29 @@ export async function draft(brepShape, angleDeg, opts = {}) {
       },
       parents: [brepShape.id],
     };
-    return bindLocalOpResult(oc, 'draft', brepShape, draftObj, shape, meta);
+    return bindLocalOpResult(oc, 'draft', brepShape, draftObj, shape, meta, { bodyTag });
   });
+}
+
+export async function draft(brepShape, angleDeg, opts = {}) {
+  if (!brepShape || !brepShape.shape) throw new Error('draft: needs a SpineBody or BrepShape');
+  if (!(angleDeg > 0 && angleDeg < 90)) throw new Error(`draft: angle must be 0-90° (got ${angleDeg})`);
+  const result = await _runDraft(brepShape, angleDeg, opts);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = brepShape.body && brepShape.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'draft',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'draft', params: { angleDeg, ...opts } },
+        rebuild: ([liveSrc]) => _runDraft(liveSrc, angleDeg, opts, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('draft: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }

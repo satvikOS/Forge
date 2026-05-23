@@ -27,14 +27,19 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import { recordBodyDerive } from '../history/HistoryLog.js';
 
 /**
  * Shared boolean runner. `Ctor` is a kernel BRepAlgoAPI_*_3 class.
  * Both operands accepted as SpineBody or BrepShape (`.shape` getter handles both).
  *
+ * SP-3b: `bodyTag` overrides the auto-generated tag — used by the replay
+ * `rebuild` thunk so the rebuilt result's persistent id matches the
+ * originally-built one.
+ *
  * @returns {Promise<SpineBody>}  result wrapped in the SP-1 SpineBody currency.
  */
-async function runBoolean(opName, Ctor, a, b) {
+async function runBoolean(opName, Ctor, a, b, bodyTag) {
   if (!a || !a.shape || !b || !b.shape) {
     throw new Error(`${opName}: both operands must expose a live .shape`);
   }
@@ -61,7 +66,7 @@ async function runBoolean(opName, Ctor, a, b) {
     // closure invariant; degenerate "boolean produces sheet/empty" cases
     // surface as a kindMismatch diagnostic from the topology-derived kind).
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
     // Carry the inputs' persistent ids through the boolean. SpineBody operands
@@ -85,20 +90,63 @@ async function runBoolean(opName, Ctor, a, b) {
   });
 }
 
+/**
+ * Record a boolean op's SP-3b history delta. The forward thunk re-runs the
+ * SAME boolean against the live re-created inputs (looked up by their
+ * persistent ids from the registry); the inverse removes the result.
+ *
+ * Dependency model (DOCUMENTED) — "inverse = remove result". The inputs
+ * are NOT re-created by the inverse; the caller rolls back further to undo
+ * input-consumption (the input ops' forward deltas then replay them). This
+ * matches the SP-3a/Parasolid contract — a single linear cursor over
+ * forward/inverse pairs.
+ */
+function recordBooleanDelta(opName, runFn, a, b, result) {
+  const persistentBodyId = result.body && result.body.persistentId;
+  if (!persistentBodyId) return;
+  const aPid = a && a.body && a.body.persistentId;
+  const bPid = b && b.body && b.body.persistentId;
+  if (!aPid || !bPid) return; // legacy BrepShape inputs — no replay possible
+  try {
+    recordBodyDerive({
+      opName,
+      persistentBodyId,
+      inputPersistentIds: [aPid, bPid],
+      meta: { op: opName, parents: [a.id, b.id].filter(Boolean) },
+      rebuild: ([liveA, liveB]) => runFn(liveA, liveB, persistentBodyId),
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`${opName}: history recordBodyDerive failed —`, err && err.message || err);
+  }
+}
+
 /** Union of two solids (a ∪ b). */
 export async function fuse(a, b) {
   const oc = await getOCCT();
-  return runBoolean('fuse', oc.BRepAlgoAPI_Fuse_3, a, b);
+  const result = await runBoolean('fuse', oc.BRepAlgoAPI_Fuse_3, a, b);
+  recordBooleanDelta('fuse',
+    async (la, lb, tag) => runBoolean('fuse', oc.BRepAlgoAPI_Fuse_3, la, lb, tag),
+    a, b, result);
+  return result;
 }
 
 /** Subtraction (a − b). */
 export async function cut(a, b) {
   const oc = await getOCCT();
-  return runBoolean('cut', oc.BRepAlgoAPI_Cut_3, a, b);
+  const result = await runBoolean('cut', oc.BRepAlgoAPI_Cut_3, a, b);
+  recordBooleanDelta('cut',
+    async (la, lb, tag) => runBoolean('cut', oc.BRepAlgoAPI_Cut_3, la, lb, tag),
+    a, b, result);
+  return result;
 }
 
 /** Intersection (a ∩ b). */
 export async function common(a, b) {
   const oc = await getOCCT();
-  return runBoolean('common', oc.BRepAlgoAPI_Common_3, a, b);
+  const result = await runBoolean('common', oc.BRepAlgoAPI_Common_3, a, b);
+  recordBooleanDelta('common',
+    async (la, lb, tag) => runBoolean('common', oc.BRepAlgoAPI_Common_3, la, lb, tag),
+    a, b, result);
+  return result;
 }

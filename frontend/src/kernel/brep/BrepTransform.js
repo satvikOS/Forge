@@ -20,6 +20,7 @@ import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
+import { recordBodyDerive } from '../history/HistoryLog.js';
 
 /**
  * Translate a shape by (dx, dy, dz) mm.
@@ -34,8 +35,7 @@ import SpineBody from '../topology/SpineBody.js';
  * @param {number} dz
  * @returns {Promise<SpineBody>}  the translated body in the SP-1 currency.
  */
-export async function translate(src, dx, dy, dz) {
-  if (!src || !src.shape) throw new Error('translate: needs a body with a live .shape');
+async function _runTranslate(src, dx, dy, dz, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     // Verified sequence from kernel-api-A3.md Item 3:
@@ -55,7 +55,7 @@ export async function translate(src, dx, dy, dz) {
     // src is a SpineBody pass its kind through; otherwise default 'solid'.
     const declaredKind = (src.body && src.body.kind) || 'solid';
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `translate-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `translate-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind,
     });
     // Rigid-transform carry-through. Because copy=true gives the result a fresh
@@ -65,6 +65,31 @@ export async function translate(src, dx, dy, dz) {
     carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function translate(src, dx, dy, dz) {
+  if (!src || !src.shape) throw new Error('translate: needs a body with a live .shape');
+  const result = await _runTranslate(src, dx, dy, dz);
+  // SP-3b history hook — record a body-derive delta. Forward replays the
+  // translation against the live input (looked up by persistent id); inverse
+  // removes the result.
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'translate',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'translate', params: { dx, dy, dz } },
+        rebuild: ([liveSrc]) => _runTranslate(liveSrc, dx, dy, dz, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('translate: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -84,14 +109,7 @@ export async function translate(src, dx, dy, dz) {
  * @param {object} [origin] { x, y, z } — point on the axis. Default origin.
  * @returns {Promise<SpineBody>}
  */
-export async function rotate(src, axis, angleRad, origin = { x: 0, y: 0, z: 0 }) {
-  if (!src || !src.shape) throw new Error('rotate: needs a body with a live .shape');
-  if (!axis || (axis.x === 0 && axis.y === 0 && axis.z === 0)) {
-    throw new Error('rotate: axis must be a non-zero direction');
-  }
-  if (!Number.isFinite(angleRad)) {
-    throw new Error('rotate: angleRad must be a finite number of radians');
-  }
+async function _runRotate(src, axis, angleRad, origin, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const pnt = track(new oc.gp_Pnt_3(
@@ -124,12 +142,41 @@ export async function rotate(src, axis, angleRad, origin = { x: 0, y: 0, z: 0 })
     const wrapper = new BrepShape(shape, meta);
     const declaredKind = (src.body && src.body.kind) || 'solid';
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `rotate-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `rotate-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind, // S5 — rotate preserves the input's kind.
     });
     carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function rotate(src, axis, angleRad, origin = { x: 0, y: 0, z: 0 }) {
+  if (!src || !src.shape) throw new Error('rotate: needs a body with a live .shape');
+  if (!axis || (axis.x === 0 && axis.y === 0 && axis.z === 0)) {
+    throw new Error('rotate: axis must be a non-zero direction');
+  }
+  if (!Number.isFinite(angleRad)) {
+    throw new Error('rotate: angleRad must be a finite number of radians');
+  }
+  const result = await _runRotate(src, axis, angleRad, origin);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'rotate',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'rotate', params: { axis: { ...axis }, angleRad, origin: { ...origin } } },
+        rebuild: ([liveSrc]) =>
+          _runRotate(liveSrc, axis, angleRad, origin, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('rotate: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
