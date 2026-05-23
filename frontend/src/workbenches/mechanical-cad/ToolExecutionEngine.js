@@ -2008,6 +2008,108 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ── SP-9 Direct / Synchronous Modeling (Area E) ──────────────────────
+    // Push-Pull, Move Face, Delete Face, Infer Feature — selection-driven
+    // direct edits on EXISTING geometry by face. Every handler:
+    //   1. picks 1 body via _pickBodies(1) (the last-built body fallback works).
+    //   2. opens the param dialog (faceIndex + op-specific params).
+    //   3. calls the kernel op on (body, faceIndex, ...).
+    //   4. registers the result in the scene (consuming op for the body-
+    //      producing variants; pure read for Infer Feature).
+
+    'Push-Pull': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Push-Pull');
+        if (cancelled) return { status: 'warn', message: 'Push-Pull: cancelled' };
+        const result = await ArchDiscKernel.brep.pushPullFace(
+          body, Number(values.faceIndex) || 1, Number(values.distance) || 0,
+        );
+        // Consuming op: Push-Pull rewrites `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const r = (result.meta && result.meta.pushPullReport) || {};
+        return {
+          status: 'success',
+          message: `Push-Pull (${r.direction || '?'}): face ${r.faceId || '?'} moved ${values.distance} mm — ` +
+            `V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Push-Pull: ' + err.message };
+      }
+    },
+
+    'Move Face': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Move Face');
+        if (cancelled) return { status: 'warn', message: 'Move Face: cancelled' };
+        const translation = [
+          Number(values.tx) || 0,
+          Number(values.ty) || 0,
+          Number(values.tz) || 0,
+        ];
+        const result = await ArchDiscKernel.brep.moveFace(
+          body, Number(values.faceIndex) || 1, translation,
+        );
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const r = (result.meta && result.meta.moveFaceReport) || {};
+        const tnote = r.tangentialMagnitude > 1e-6 ? ` (tangential ${r.tangentialMagnitude.toFixed(2)} mm not applied — face-slide is a residual gap)` : '';
+        return {
+          status: 'success',
+          message: `Move Face (${r.surfaceType || '?'}): face ${r.faceId || '?'} normal-translated ${(r.normalComponent || 0).toFixed(2)} mm${tnote} — V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Move Face: ' + err.message };
+      }
+    },
+
+    'Delete Face': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Delete Face');
+        if (cancelled) return { status: 'warn', message: 'Delete Face: cancelled' };
+        const result = await ArchDiscKernel.brep.deleteFaceAndHeal(
+          body, Number(values.faceIndex) || 1,
+        );
+        // Consuming op: Delete Face rewrites `body` into `result` — drop the original.
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const r = (result.meta && result.meta.deleteFaceReport) || {};
+        return {
+          status: 'success',
+          message: `Delete Face: face ${r.faceId || '?'} removed + healed — faces ${r.faceCountBefore || '?'} → ${r.faceCountAfter || m.faceCount}, V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Delete Face: ' + err.message };
+      }
+    },
+
+    'Infer Feature': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Infer Feature');
+        if (cancelled) return { status: 'warn', message: 'Infer Feature: cancelled' };
+        const inference = await ArchDiscKernel.brep.inferFeature(
+          body, Number(values.faceIndex) || 1,
+        );
+        // Pure read — no scene mutation. Surface the result on a window slot
+        // so e2e + the AI introspection layer can read the classification.
+        if (typeof window !== 'undefined') {
+          window.__lastInferFeature = inference;
+        }
+        const confPct = Math.round(100 * (inference.confidence || 0));
+        return {
+          status: 'success',
+          message: `Infer Feature: face ${(inference.faces && inference.faces[0]) || '?'} → "${inference.featureType}" ` +
+            `(confidence ${confPct}%, surfaceType ${inference.diagnostics.surfaceType}, suggested: ${inference.suggested_op}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Infer Feature: ' + err.message };
+      }
+    },
+
     'Section': async (scene, viewport) => {
       try {
         const [body] = _pickBodies(1);

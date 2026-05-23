@@ -572,6 +572,49 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SP-9 DIRECT / SYNCHRONOUS MODELING (Area E) ─────────────────────────
+  // Push-Pull, Move Face, Delete Face, Infer Feature — selection-driven
+  // direct edits on a chosen face. faceIndex is a 1-based positional index
+  // into the body's spine faces (matches the SpineBody.body.faces() order);
+  // an explicit persistent id string can also be supplied (the kernel op
+  // accepts either via resolveFace).
+
+  'Push-Pull': {
+    title: 'Push-Pull — Direct Face Edit',
+    blurb: 'Extrude (push, distance > 0 → add material) or cut (pull, distance < 0 → remove material) the selected face along its outward normal. Selection: pick the body first; faceIndex picks which face (1-based positional index into spine faces).',
+    fields: [
+      { name: 'faceIndex', label: 'Face index',  type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to push/pull' },
+      { name: 'distance',  label: 'Distance',    type: 'number', default: 5, unit: 'mm', min: -500, max: 500, step: 0.5, hint: 'positive = push (add material), negative = pull (cut)' },
+    ],
+  },
+
+  'Move Face': {
+    title: 'Move Face — Translate Face by Delta',
+    blurb: 'Translate a planar / cylindrical face by a 3-vector. The normal-aligned component moves the face along its outward normal; the tangential component is a documented residual gap (face-slide). Selection: pick the body first; faceIndex picks which face.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to move' },
+      { name: 'tx',        label: 'Translate X', type: 'number', default: 0, unit: 'mm', min: -500, max: 500, step: 0.5 },
+      { name: 'ty',        label: 'Translate Y', type: 'number', default: 0, unit: 'mm', min: -500, max: 500, step: 0.5 },
+      { name: 'tz',        label: 'Translate Z', type: 'number', default: 2, unit: 'mm', min: -500, max: 500, step: 0.5 },
+    ],
+  },
+
+  'Delete Face': {
+    title: 'Delete Face — Remove & Heal',
+    blurb: 'Remove the selected face from the body and automatically heal the resulting opening by extending the adjacent faces (BRepAlgoAPI_Defeaturing). Result: a closed solid with one fewer face. Selection: pick the body first; faceIndex picks which face to remove.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to remove' },
+    ],
+  },
+
+  'Infer Feature': {
+    title: 'Infer Feature — Classify Face Context',
+    blurb: 'Given a face the user is gesturing on, return what FEATURE that face belongs to (hole / boss / fillet / chamfer / boss-face / pocket-floor / planar-step / sculpted-face) using spine adjacency + SP-4 surface evaluation. Pure read — no geometry change. Selection: pick the body first; faceIndex picks which face to classify.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to classify' },
+    ],
+  },
+
   // ─── TOPOLOGY / DIRECT EDIT ───────────────────────────────────────────────
   'Replace Face': {
     title: 'Replace Face',

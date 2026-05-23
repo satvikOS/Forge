@@ -151,6 +151,16 @@ const TABS = {
         { name: 'Partition', icon: '⊞', key: 'part' },
         { name: 'Section',   icon: '⊟', key: 'part' },
       ]},
+      // SP-9 — Direct / synchronous modeling (Area E, T2).
+      // Push-Pull face along its normal, Move Face by a delta, Delete Face
+      // and auto-heal, Infer Feature (classify what feature the face is in).
+      // Selection-driven: each consumes the user's face / body selection.
+      { label: 'Direct Modeling', tools: [
+        { name: 'Push-Pull',      icon: '⤢', key: 'part' },
+        { name: 'Move Face',      icon: '↗', key: 'part' },
+        { name: 'Delete Face',    icon: '✕', key: 'part' },
+        { name: 'Infer Feature',  icon: '🔍', key: 'part' },
+      ]},
       { label: 'Pattern', tools: [
         { name: 'Linear Pattern', icon: '⫶', key: 'part' },
         { name: 'Circular Pattern', icon: '◎', key: 'part' },
