@@ -25,23 +25,22 @@ import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
+import { recordBodyCreate } from '../history/HistoryLog.js';
 
 /**
- * Make an axis-aligned box solid with one corner at the origin.
+ * Construct the makeBox spine body. Factored out so the SP-3a history
+ * hook's `rebuild` thunk can re-run the SAME construction on replay,
+ * with a fixed `bodyTag` so the persistent id is stable across replays.
  *
- * @param {number} dx  size along X (mm)
- * @param {number} dy  size along Y (mm)
- * @param {number} dz  size along Z (mm)
- * @returns {Promise<SpineBody>}  the box wrapped in a SpineBody — the SP-1
- *   currency. SpineBody is duck-compatible with BrepShape (it exposes .shape /
- *   .id / .meta / .dispose / ._triangulation), so every downstream consumer
- *   (`brepToMesh`, `measure`, `addBrepShapeToScene`, `selectedBrepShapes`,
- *   `withScope` survivor detection) treats it identically to a BrepShape.
+ * @param {number} dx
+ * @param {number} dy
+ * @param {number} dz
+ * @param {string=} bodyTag   when supplied, drives bindSpine's IdAllocator —
+ *   replay re-uses the original persistent id so downstream `findBodyByPersistentId`
+ *   lookups (the kernel history layer keys on this) keep resolving.
+ * @returns {Promise<SpineBody>}
  */
-export async function makeBox(dx, dy, dz) {
-  if (!(dx > 0 && dy > 0 && dz > 0)) {
-    throw new Error(`makeBox: dimensions must be positive (got ${dx}, ${dy}, ${dz})`);
-  }
+async function _constructMakeBox(dx, dy, dz, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepPrimAPI_MakeBox_2(dx, dy, dz));
@@ -60,12 +59,132 @@ export async function makeBox(dx, dy, dz) {
     // body.diagnostics.validation. bindSpine only READS the shape — never
     // mutates it — so the geometry path cannot regress (SP-1 §5.2).
     const body = bindSpine(oc, shape, {
-      bodyTag: `makeBox-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `makeBox-${wrapper.id}`,
+      geomEngineShape: wrapper,
       // S5 — every primitive DECLARES its result kind first-class.
       declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
   });
+}
+
+/**
+ * Make an axis-aligned box solid with one corner at the origin.
+ *
+ * SP-3a history hook — every invocation appends a forward/inverse delta to
+ * the kernel HistoryLog. The forward re-runs the box construction (with the
+ * SAME persistentBodyId so downstream id-keyed lookups keep working) and
+ * re-registers it in the scene via the SP-1 S3 hook
+ * (`window.__archdiscAddBrepShape`). The inverse removes the body by id
+ * from the BodyRegistry (which also detaches its Three.js group + clears
+ * any selection). The recording is INTERNAL — the public makeBox API and
+ * return-shape are unchanged, so every downstream consumer of makeBox
+ * continues to work IDENTICALLY (the SP-1 S2 duck-compatibility contract
+ * stays intact).
+ *
+ * The recording is gated by the presence of `__archdiscAddBrepShape` on
+ * `globalThis` — that hook is only installed by the live workbench (mounted
+ * inside the Electron app). When makeBox runs OUTSIDE the workbench (unit
+ * tests, recon scripts, recon-only e2e specs that build a body purely for
+ * structural inspection), the recording is silently skipped. This keeps the
+ * scope creep out of pure-kernel testing.
+ *
+ * @param {number} dx  size along X (mm)
+ * @param {number} dy  size along Y (mm)
+ * @param {number} dz  size along Z (mm)
+ * @returns {Promise<SpineBody>}  the box wrapped in a SpineBody — the SP-1
+ *   currency. SpineBody is duck-compatible with BrepShape (it exposes .shape /
+ *   .id / .meta / .dispose / ._triangulation), so every downstream consumer
+ *   (`brepToMesh`, `measure`, `addBrepShapeToScene`, `selectedBrepShapes`,
+ *   `withScope` survivor detection) treats it identically to a BrepShape.
+ */
+export async function makeBox(dx, dy, dz) {
+  if (!(dx > 0 && dy > 0 && dz > 0)) {
+    throw new Error(`makeBox: dimensions must be positive (got ${dx}, ${dy}, ${dz})`);
+  }
+  // Construct the spine body — first build, fresh bodyTag allocated.
+  const spineBody = await _constructMakeBox(dx, dy, dz);
+  // The persistentId for the freshly-bound body is the bodyTag the
+  // allocator was seeded with; it is what downstream lookups key on.
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    // Record the delta. The recording is replay-only — the forward is not
+    // re-run on first invocation (the spec just returned from
+    // _constructMakeBox covers that). recordBodyCreate appends the entry
+    // to the shared kernel HistoryLog singleton.
+    try {
+      recordBodyCreate({
+        opName: 'makeBox',
+        persistentBodyId,
+        meta: { op: 'makeBox', params: { dx, dy, dz } },
+        // Rebuild: re-run the exact constructor with the SAME bodyTag so
+        // the persistent id is stable across replays. bindSpine's
+        // allocator is seeded from bodyTag; downstream id-keyed lookups
+        // (BodyRegistry's brepShapeRef.body.persistentId) keep resolving.
+        rebuild: () => _constructMakeBox(dx, dy, dz, persistentBodyId),
+        // Register: hand the rebuilt SpineBody to the canonical scene-add
+        // path the SP-1 S3 hook installed. The hook is set up by
+        // WorkbenchMechanical.jsx — when absent (pure-kernel tests), the
+        // register call is a no-op via the optional-chaining inside.
+        //
+        // Optional `sceneCtx.applyAfterRegister(group, body)` runs once the
+        // group is in the scene. Used by the SP-3a crate-stack e2e to
+        // re-apply a per-body position adjustment (e.g. a staggered crate
+        // offset) on forward replay so the rolled-forward state matches
+        // the originally-built state. The hook is opt-in — leaving sceneCtx
+        // empty preserves the legacy default behaviour.
+        register: async (body, sceneCtx) => {
+          const adder = (sceneCtx && sceneCtx.addBrepShape)
+            || (typeof globalThis !== 'undefined' && globalThis.__archdiscAddBrepShape)
+            || null;
+          if (typeof adder !== 'function') return;
+          // Resolve the scene + viewport from sceneCtx (preferred) or the
+          // live viewport hook. Fail-soft — if no scene is available, the
+          // history rebuild succeeded but cannot render; the caller (e2e)
+          // notices via the registry being unchanged. Honest, not silent.
+          const scene = (sceneCtx && sceneCtx.scene)
+            || (typeof globalThis !== 'undefined'
+                && globalThis.__archdiscViewport
+                && globalThis.__archdiscViewport.scene) || null;
+          const viewport = (sceneCtx && sceneCtx.viewport)
+            || (typeof globalThis !== 'undefined' && globalThis.__archdiscViewport) || null;
+          if (!scene) return;
+          const group = await adder(scene, viewport, body, 0x9aa3ad);
+          // Optional post-register hook — used by the crate-stack e2e to
+          // re-apply staggered group.position on forward replay.
+          if (sceneCtx && typeof sceneCtx.applyAfterRegister === 'function') {
+            try { await sceneCtx.applyAfterRegister(group, body); } catch { /* noisy enough */ }
+          }
+          return group;
+        },
+        // Remove: find the registry entry whose underlying spine body has the
+        // matching persistentId, then BodyRegistry.remove. The registry's
+        // remove() also detaches the Three.js group from the scene and
+        // clears it from selection — one atomic scene departure.
+        remove: async (pid, sceneCtx) => {
+          const reg = (sceneCtx && sceneCtx.registry)
+            || (typeof globalThis !== 'undefined' && globalThis.__archdiscRegistry)
+            || null;
+          if (!reg || typeof reg.remove !== 'function') return;
+          // Match by .brepShapeRef.body.persistentId — SpineBody carries the
+          // spine Body under .body, and Body.persistentId is the id we hand
+          // to bindSpine via bodyTag.
+          const entry = reg.bodies.find((b) => {
+            const ref = b && (b.brepShapeRef
+              || (b.group && b.group.userData && b.group.userData.brepShapeRef));
+            return !!(ref && ref.body && ref.body.persistentId === pid);
+          });
+          if (entry) reg.remove(entry.id);
+        },
+      });
+    } catch (err) {
+      // Never let history-bookkeeping crash an op — the geometry result is
+      // valid, only the recording failed. Surface on diagnostics + console.
+      // eslint-disable-next-line no-console
+      console.warn('makeBox: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
 
 /**
