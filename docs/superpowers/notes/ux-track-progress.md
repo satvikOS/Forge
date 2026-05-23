@@ -1,6 +1,6 @@
-# UX-Track Progress — SolidWorks Conventions in ArchDisc
+# UX-Track Progress — SolidWorks + NX Conventions in ArchDisc
 
-**Last updated:** 2026-05-23 (Tier-2a high-impact sketch primitives shipped)
+**Last updated:** 2026-05-23 (Tier-11a NX selection-priority pre-filter shipped)
 
 This file tracks ArchDisc's progress closing the SolidWorks UX gap list documented in
 [`solidworks-course-synthesis.md`](./solidworks-course-synthesis.md). The gap list is
@@ -95,3 +95,42 @@ Artifacts: `e2e-output/ux-tier2a/01–06*.png` + `00-session.webm` (1.05 MB).
 | 8 | Missing drawing capabilities (Auxiliary/Crop/Broken View, Model Items, BOM/Auto-Balloon, Title Block edit) | Not started |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | Not started |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
+
+---
+
+## Tier 11a — NX selection-priority pre-filter (1 of 1 shipped)
+
+NX's signature UX pattern: a top-of-viewport **Selection Bar** with mode
+buttons that pre-filter the next viewport click before resolving it. The
+SW course flagged this only implicitly (`siemens-nx-course-synthesis.md` §3.4
++ §6 item 100); the SolidWorks gap list does not have a direct analog. This
+is the highest-leverage NX-distinctive UX item and the first shipped in
+the Tier-11 NX-vocabulary block.
+
+| Tier-11 # | Convention | Status | Implementation |
+|---|---|---|---|
+| 100 | **Selection-priority pre-filter** on the viewport Selection Bar | **DONE** | `SwUxOverlays.jsx::SelectionPriorityBar` (top-left of viewport, icon-only with active-label cue, NX styling). Six modes: Single / Solid Body (default) / Sheet Body / Face / Edge / Vertex. Stored on `window.__archdiscSelectionFilter`; `selectionFilterBus` pub/sub for non-window observers. Pick path in `Viewport3D.jsx::handleClick` consults the filter BEFORE the legacy gizmo-mode dispatch: solid/sheet filter the intersect list, face/edge/vertex override the resolution mode for the rest of the click. Foundation-manifold path gets per-triangle analytic-face clustering (flood-fill over co-planar triangles), per-edge picking (nearest edge of the hit triangle), and per-vertex picking (nearest triangle corner) — none of which existed before, so face/edge/vertex now actually do something visible on a foundation body |
+
+**Files added/changed for Tier-11a:**
+
+- `frontend/src/components/SwUxOverlays.jsx` — added `SelectionPriorityBar` component, `SELECTION_FILTERS` table, `selectionFilterBus` pub/sub, `resolveSelectionByFilter` + `matchesBodyKindFilter` helpers
+- `frontend/src/components/SwUxOverlays.css` — `.sw-selection-bar*` styles (icon-only by default, active button reveals its label; sits at top:8 left:8 so it doesn't collide with the centre-anchored Heads-up View Toolbar)
+- `frontend/src/components/Viewport3D.jsx` — pick-path integration: filter intersects on solid/sheet, override mode on face/edge/vertex; added helpers `ensureAnalyticFaceIds`, `flagAndHighlightAnalyticFace`, `pickNearestMeshEdge`, `drawEdgeHighlight`, `pickNearestMeshVertex`, `drawVertexMarker` so the foundation-manifold path gets analytic-face / edge / vertex resolution. Picks emit a `window.__lastViewportPick` snapshot for e2e + AI introspection
+- `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` — mount `<SelectionPriorityBar />` alongside the existing Tier-1 overlays
+- `e2e/ux-tier11a-selection-filter-electron.spec.js` — bespoke motion-capture e2e: builds a real bolted-plate flange-joint mockup (lower + upper plate + 4 fasteners + 1 sheet-body backdrop), parks ONE iso framing, cycles through ALL SIX filter modes by clicking the SAME viewport pixel + asserting the resulting `__lastViewportPick` matches; 8 stills + .webm
+
+**E2E:** `./node_modules/.bin/playwright test e2e/ux-tier11a-selection-filter-electron.spec.js --workers=1 --reporter=list`
+Artifacts: `e2e-output/ux-tier11a/01–08*.png` + `00-session.webm` (~1 MB).
+
+**Regression subset (Tier-11a):**
+- `e2e/ux-tier1-electron.spec.js` + `e2e/ux-tier2a-sketch-primitives-electron.spec.js` + `e2e/ribbon-test.spec.js` + `e2e/ux-tier11a-selection-filter-electron.spec.js` — 4/4 pass
+- `e2e/mechanical-cad.spec.js` — 21 pass, 2 fail (Feature Tree + V12 Engine — pre-existing dev-server `__lastFoundationManifold` timeouts; unrelated to Tier-11a)
+- `e2e/viewport-pick-selects-body.spec.js` + `e2e/body-selection-properties.spec.js` — pre-existing dev-server `__lastFoundationManifold` timeouts; documented in memory as "out of scope"
+
+**Honest gaps in Tier-11a:**
+
+1. **Sheet body filter needs an explicit tag.** The foundation-manifold path emits solids only; for the Sheet filter to work the caller must set `group.userData.bodyKind = 'sheet'` (or the spine body must expose `kind: 'sheet'`). When neither is set, `matchesBodyKindFilter` defaults to `'solid'` (so legacy bodies are still pickable under the default Solid Body filter). The e2e exercises the Sheet filter via an explicitly-tagged backdrop sheet mesh — the kernel sheet-body emission path is not wired here.
+2. **Face picking on foundation manifolds clusters by co-planar / co-normal triangles.** The flood-fill uses a 2.5° dot-product tolerance, so a flat face → exactly one cluster. Curved analytic faces (cylinders) — each triangle has a slightly-different normal, so a fastener side wall fragments into many face ids. The kernelSolid path still uses `ThreeJSBridge.pickFace` and is correct; foundation-manifold clustering is the documented partial.
+3. **Edge picking picks the nearest triangle edge, not the analytic edge.** On a flat face that's a true model edge (the e2e proves this — the picked edge on the upper plate is exactly the corner of the rectangle). On a triangulated curved surface it picks an internal mesh edge, which is honest but not what a true B-rep edge picker would return.
+4. **Vertex picking picks the nearest mesh vertex of the hit triangle.** Same trade-off as edges: on a flat polygon's corner you get the right vertex; inside a curved face you get a mesh vertex.
+5. **Hover-highlight follow-the-cursor is NOT wired** in this pass. The hover-highlight pattern that NX shows (preview-highlight before commit) would need a `pointermove` raycast loop and a separate transient overlay. Out of scope here — the same Selection Bar will pick up that work in a follow-on.

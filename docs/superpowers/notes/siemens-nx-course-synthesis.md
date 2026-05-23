@@ -520,11 +520,17 @@ SW list.
 
 ### Tier 11 — NX-distinctive UX patterns (the highest-leverage adds)
 
-100. **Selection-priority pre-filter on the Selection Bar.** A docked top-of-viewport bar with
-   mode buttons: Single Face / Tangent Faces / Adjacent Faces / Feature Face / Region Boundary /
-   Boss-Pocket-Rib / Slot Faces. When set, all picks below are constrained to that mode. This
-   makes face-selection on a complex body dramatically faster than SW-style click-and-pick. It
-   is one of NX's three biggest UX wins.
+100. **Selection-priority pre-filter on the Selection Bar.** **SHIPPED — Tier-11a (2026-05-23).**
+   A docked top-of-viewport bar with six mode buttons (Single / Solid Body / Sheet Body /
+   Face / Edge / Vertex) replacing the original Single Face / Tangent / Adjacent / Feature
+   Face / Boundary / Boss-Pocket-Rib / Slot Faces taxonomy with the broader body-kind +
+   topology-tier filter set that maps cleanly to ArchDisc's pick path. When set, all picks
+   below are constrained to that mode — solid/sheet filter the intersect list, face/edge/vertex
+   override the resolution tier. Implementation: `SwUxOverlays.jsx::SelectionPriorityBar`
+   (UI, NX styling) + pick-path integration in `Viewport3D.jsx::handleClick` + foundation-
+   manifold analytic-face clustering / mesh-edge picking / mesh-vertex picking. Bespoke
+   e2e: `e2e/ux-tier11a-selection-filter-electron.spec.js` (bolted-plate mockup, 8 stills,
+   all six modes verified). Honest gaps documented in `ux-track-progress.md` Tier-11a.
 
 101. **MB2 (middle-mouse-button) field advancement** in dialogs. MB2 acts as "confirm this
    selection + advance to next field" — visible in the Through Curves demo where the instructor
@@ -651,7 +657,7 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 
 | # | NX pattern | ArchDisc area | Sub-project | Status |
 |---|---|---|---|---|
-| 100 | Selection-priority filter bar | `frontend/src/components/ViewportOverlays.jsx` + selection layer in `kernel/topology/` | **NX-UX track** (new) | **Missing** |
+| 100 | Selection-priority filter bar | `frontend/src/components/SwUxOverlays.jsx::SelectionPriorityBar` + filter-aware pick path in `Viewport3D.jsx::handleClick` (analytic-face clustering, mesh-edge picking, mesh-vertex picking for foundation manifolds) | **NX-UX track** (Tier-11a) | **DONE (2026-05-23)** |
 | 101 | MB2 field advancement | `ToolParamDialog.jsx` event handlers; needs viewport MB2 event hookup | NX-UX track | **Missing** |
 | 102 | Dialog-inside-a-dialog sketch | `ToolParamDialog.jsx` + `InteractiveSketch.js` enter-sketch hook | NX-UX track | **Missing** |
 | 103 | Unified Pattern Feature tool | `RibbonToolbar.jsx` Part tab Pattern group — consolidate Linear+Circular | NX-UX track | **Partial** (two separate tools) |
@@ -682,12 +688,17 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 
 ## 8. Top 3 takeaways for ArchDisc's UI/UX track
 
-1. **Adopt NX's Selection-priority pre-filter (item 100) as a Tier-11 first deliverable.** It
-   is the single largest UX gap a CAD user (NX-trained or not) notices, and it dramatically
-   speeds up face selection on complex parts. Implementation cost is modest because the
-   filtering happens at the React/Three.js pick layer — the kernel does not need to know about
-   modes. Pair with the existing ConfirmationCorner / HeadsUpViewToolbar work in `SwUxOverlays.jsx`
-   to create a coherent "fast-CAD UX" bar at the top.
+1. **Adopt NX's Selection-priority pre-filter (item 100) as a Tier-11 first deliverable.**
+   **STATUS: SHIPPED (2026-05-23 — Tier-11a).** Implemented as `SwUxOverlays.jsx::SelectionPriorityBar`
+   at the top-left of the viewport (icon-only with active-label cue, NX styling). Six modes
+   (Single / Solid Body default / Sheet Body / Face / Edge / Vertex) stored on
+   `window.__archdiscSelectionFilter`; `Viewport3D.jsx::handleClick` consults the filter
+   BEFORE the legacy gizmo dispatch. Foundation-manifold path gained per-triangle analytic-face
+   clustering, per-mesh-edge picking, and per-mesh-vertex picking so face/edge/vertex are
+   actually resolvable on a foundation body. Bespoke motion-capture e2e
+   (`e2e/ux-tier11a-selection-filter-electron.spec.js`) builds a real bolted-plate flange-joint
+   mockup and cycles through all six modes with the same click — confirmed visually in 8 stills.
+   See `docs/superpowers/notes/ux-track-progress.md` Tier-11a entry for details + honest gaps.
 
 2. **Consolidate ArchDisc's Extrude Boss / Extrude Cut into one tool with a Boolean toggle
    (item 104) and consolidate Linear Pattern / Circular Pattern into one Pattern Feature with a
