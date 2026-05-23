@@ -1,20 +1,117 @@
 /**
  * ArchDisc Kernel — local operations:
  * shell/hollow, thicken sheet, offset, draft.
+ *
+ * SP-1 S4b (local ops subset) — every op here is spine-aware:
+ *   1. Run the engine algorithm (BRepOffsetAPI_MakeThickSolid /
+ *      BRepOffsetAPI_MakeOffsetShape / BRepOffsetAPI_DraftAngle —
+ *      geometry unchanged).
+ *   2. Bind the result shape to a spine `Body` via `bindSpine`.
+ *   3. Carry persistent-ID lineage through using the algorithm's
+ *      `Modified` / `Generated` / `IsDeleted` history maps. All four
+ *      algorithms expose these via the `BRepBuilderAPI_MakeShape` (or
+ *      `BRepBuilderAPI_ModifyShape` for `DraftAngle`) base class —
+ *      confirmed in `opencascade.full.d.ts` lines 11044-11055
+ *      (MakeOffsetShape), 11063-11070 (MakeThickSolid), 10970-10986
+ *      (DraftAngle), 11768-11774 (MakeShape base), 11983-11987
+ *      (ModifyShape base).
+ *   4. Wrap in a `SpineBody`.
+ *
+ * Input contract — every op accepts SpineBody or legacy BrepShape (the
+ * mixed-currency adapter from SP-1 §5). When the input is a SpineBody
+ * its persistent ids carry through; when it is a raw BrepShape the
+ * result still spines + validates correctly but the lineage map has
+ * no input ids to carry — the result entities receive freshly-allocated
+ * ids from bindSpine.
+ *
+ * For shell, the `closingFaces` list is explicitly REMOVED from the
+ * input — those faces' ids appear in the `IsDeleted` query and their
+ * persistent ids correctly DIE in the result. New inner-wall faces
+ * are `Generated` from each remaining face's offset companion; they
+ * receive freshly-allocated result ids with `derivedFrom` recording
+ * the source face.
+ *
+ * For offsetShape, every face is `Modified` (offset by the same
+ * distance) — the lineage carries every input face's id onto its
+ * offset-modified result face.
+ *
+ * For draft, only the explicitly Added side faces are `Modified` —
+ * the neutral plane's faces (top + bottom caps) typically survive
+ * with their TShape unchanged.
+ *
  * Verified kernel sequences: docs/superpowers/notes/kernel-api-A2.md items 1-4.
  */
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { carryLineage } from '../topology/IdLineage.js';
+
+/**
+ * Shared spine-binding + lineage-carry tail for the local ops. Mirrors the
+ * `bindFeatureResult` helper in BrepFeatures.js so all S4 ops follow the
+ * same canonical migration shape.
+ *
+ *   1. Wrap the engine TopoDS_Shape in a heap-managed BrepShape.
+ *   2. bindSpine the engine result.
+ *   3. If the input body is a SpineBody (`src.body` is present), carry
+ *      its persistent ids through via `carryLineage(oc, algo, resultBody,
+ *      [{body: src.body}])`. Records the lineage report on meta.lineage.
+ *   4. Wrap in a SpineBody.
+ *
+ * @param {object} oc       the engine module
+ * @param {string} opName   op tag used in bodyTag + error prefix
+ * @param {object} src      input body — SpineBody or BrepShape; both fine.
+ * @param {object} algo     the BRepOffsetAPI_* / BRepBuilderAPI_ModifyShape
+ *                          algorithm instance (post-Build, IsDone()=true).
+ *                          Must expose Modified(S) / Generated(S) /
+ *                          IsDeleted(S) — see the file header for the .d.ts
+ *                          references that confirm each algorithm does.
+ * @param {object} shape    the engine TopoDS_Shape returned by the algo.
+ * @param {object} meta     result meta — op + params, parents.
+ * @returns {SpineBody}
+ */
+function bindLocalOpResult(oc, opName, src, algo, shape, meta) {
+  if (shape.IsNull()) throw new Error(`${opName}: kernel produced a null shape`);
+  const wrapper = new BrepShape(shape, meta);
+  const resultBody = bindSpine(oc, shape, {
+    bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+  });
+  if (src.body) {
+    const lineage = carryLineage(oc, algo, resultBody, [
+      { body: src.body, role: 'arg' },
+    ]);
+    meta.lineage = {
+      survived: lineage.survived, modified: lineage.modified,
+      generated: lineage.generated, deleted: lineage.deleted,
+      conflicts: lineage.conflicts,
+      faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+      edgeMap: [...lineage.edgeMap.entries()].slice(0, 64),
+    };
+  }
+  return new SpineBody(resultBody, wrapper, meta);
+}
 
 /**
  * Hollow a solid into a thin-walled shell, removing the top (+Z) face.
- * @param {BrepShape} brepShape  the solid to hollow
- * @param {number} thickness     wall thickness (mm)
- * @returns {Promise<BrepShape>}
+ *
+ * SP-1 S4b — returns a SpineBody. The `BRepOffsetAPI_MakeThickSolid`
+ * algorithm exposes `Modified(S)`, `Generated(S)` (inherited from
+ * `BRepOffsetAPI_MakeOffsetShape`), and `IsDeleted(S)` (inherited from
+ * `BRepBuilderAPI_MakeShape`) — the source body's face / edge / vertex
+ * persistent ids carry onto the result. The top (+Z) face explicitly
+ * placed in `closingFaces` returns `IsDeleted=true` and its id is
+ * correctly DROPPED from the result spine. The new inner-wall faces
+ * are `Generated` from each remaining input face and record the
+ * source face id in `derivedFrom`.
+ *
+ * @param {SpineBody|BrepShape} brepShape  the solid to hollow
+ * @param {number} thickness               wall thickness (mm)
+ * @returns {Promise<SpineBody>}
  */
 export async function shell(brepShape, thickness) {
-  if (!brepShape || !brepShape.shape) throw new Error('shell: needs a BrepShape');
+  if (!brepShape || !brepShape.shape) throw new Error('shell: needs a SpineBody or BrepShape');
   if (!(thickness > 0)) throw new Error(`shell: thickness must be positive (got ${thickness})`);
   const oc = await getOCCT();
   return withScope(() => {
@@ -62,14 +159,23 @@ export async function shell(brepShape, thickness) {
     if (!thickSolid.IsDone()) throw new Error('shell: MakeThickSolidByJoin did not complete');
     const shape = track(thickSolid.Shape());
 
-    if (shape.IsNull()) throw new Error('shell: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'shell', params: { thickness }, parents: [brepShape.id] });
+    const meta = {
+      op: 'shell',
+      params: { thickness },
+      parents: [brepShape.id],
+    };
+    return bindLocalOpResult(oc, 'shell', brepShape, thickSolid, shape, meta);
   });
 }
 
 /**
  * Thicken a real open-surface body (an open shell or sheet) into a valid
  * watertight solid of the given wall `thickness`.
+ *
+ * SP-1 S4b — returns a SpineBody. `BRepOffsetAPI_MakeThickSolid` exposes
+ * `Modified` / `Generated` / `IsDeleted` (see header note); when the input
+ * is a SpineBody (a sheet body — e.g. a swept face), its face / edge /
+ * vertex persistent ids carry onto the resulting solid via lineage.
  *
  * §3.2 "thickening sheets" intent: converting a complex open surface into a
  * valid watertight solid. `BRepOffsetAPI_MakeThickSolid.MakeThickSolidBySimple`
@@ -84,12 +190,12 @@ export async function shell(brepShape, thickness) {
  * disjoint faces is first sewn into a connected shell via
  * `BRepBuilderAPI_Sewing` so the whole surface thickens as one solid.
  *
- * @param {BrepShape} brepShape  the open-surface body to thicken
- * @param {number} thickness     wall thickness (mm)
- * @returns {Promise<BrepShape>}
+ * @param {SpineBody|BrepShape} brepShape  the open-surface body to thicken
+ * @param {number} thickness               wall thickness (mm)
+ * @returns {Promise<SpineBody>}
  */
 export async function thicken(brepShape, thickness) {
-  if (!brepShape || !brepShape.shape) throw new Error('thicken: needs a BrepShape (the open-surface body to thicken)');
+  if (!brepShape || !brepShape.shape) throw new Error('thicken: needs a SpineBody or BrepShape (the open-surface body to thicken)');
   if (!(thickness > 0)) throw new Error(`thicken: thickness must be positive (got ${thickness})`);
   const oc = await getOCCT();
   return withScope(() => {
@@ -168,11 +274,12 @@ export async function thicken(brepShape, thickness) {
     // corrects the face normals so downstream consumers (measure, boolean, …)
     // receive a properly-outward-oriented solid.
     const shape = track(rawShape.Reversed());
-    return new BrepShape(shape, {
+    const meta = {
       op: 'thicken',
       params: { thickness, inputFaceCount: faceCount },
       parents: [brepShape.id],
-    });
+    };
+    return bindLocalOpResult(oc, 'thicken', brepShape, thickObj, shape, meta);
   });
 }
 
@@ -181,6 +288,12 @@ export async function thicken(brepShape, thickness) {
  * self-intersection-handling offset (the §3.2 "complex face offsetting"
  * intent: offsetting intricate high-curvature surfaces WITHOUT
  * self-intersection).
+ *
+ * SP-1 S4b — returns a SpineBody. `BRepOffsetAPI_MakeOffsetShape` exposes
+ * `Modified`, `Generated`, `IsDeleted` natively (lines 11050-11052 in the
+ * .d.ts). Every input face is Modified by the offset, so the input body's
+ * face / edge / vertex persistent ids carry onto their offset-modified
+ * result counterparts.
  *
  * Implementation: `BRepOffsetAPI_MakeOffsetShape.PerformByJoin` — the
  * full-featured 9-arg offset. Per the OCCT refman
@@ -199,7 +312,7 @@ export async function thicken(brepShape, thickness) {
  * The naive `PerformBySimple` (used previously) computes NO intersections
  * and self-intersects / degenerates on curved input — see parity audit P2.
  *
- * @param {BrepShape} brepShape
+ * @param {SpineBody|BrepShape} brepShape
  * @param {number} distance   offset (mm); positive = outward, negative = inward
  * @param {{joinType?:('arc'|'intersection'), selfInter?:boolean,
  *          intersection?:boolean, tol?:number}} [opts]
@@ -207,10 +320,10 @@ export async function thicken(brepShape, thickness) {
  *        intersection  compute intersections with all parallels (default true).
  *        selfInter  request explicit self-intersection elimination (default true).
  *        tol  offset tolerance (mm); default 1e-4.
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function offsetShape(brepShape, distance, opts = {}) {
-  if (!brepShape || !brepShape.shape) throw new Error('offsetShape: needs a BrepShape');
+  if (!brepShape || !brepShape.shape) throw new Error('offsetShape: needs a SpineBody or BrepShape');
   if (!(Math.abs(distance) > 0)) {
     throw new Error(`offsetShape: distance must be non-zero (got ${distance})`);
   }
@@ -252,6 +365,10 @@ export async function offsetShape(brepShape, distance, opts = {}) {
       joinFailed = true;
     }
 
+    // Track the live algorithm whose Modified/Generated/IsDeleted answer
+    // the lineage query — falls through to the simple fallback below if
+    // PerformByJoin produced no usable shape.
+    let liveAlgo = algo;
     let shape = null;
     if (!joinFailed) {
       const prBuild = track(new oc.Message_ProgressRange_1());
@@ -276,19 +393,29 @@ export async function offsetShape(brepShape, distance, opts = {}) {
       const s2 = track(algo2.Shape());
       if (s2.IsNull()) throw new Error('offsetShape: kernel produced a null shape');
       shape = s2;
+      liveAlgo = algo2;
     }
 
-    return new BrepShape(shape, {
+    const meta = {
       op: 'offsetShape',
       params: { distance, joinType, intersection, selfInter, tol },
       parents: [brepShape.id],
-    });
+    };
+    return bindLocalOpResult(oc, 'offsetShape', brepShape, liveAlgo, shape, meta);
   });
 }
 
 /**
  * Apply a draft (mould taper) angle to the side faces of a solid about a
  * FULLY PARAMETRIC neutral plane, pulled along a FULLY PARAMETRIC direction.
+ *
+ * SP-1 S4b — returns a SpineBody. `BRepOffsetAPI_DraftAngle` exposes
+ * `Modified`, `Generated`, `IsDeleted`, and the per-shape lookup
+ * `ModifiedShape` (lines 10982-10985 in the .d.ts; inherits IsDeleted
+ * from `BRepBuilderAPI_MakeShape`). Side faces explicitly Added are
+ * Modified — the lineage carries the source face id onto the drafted
+ * result face. Top + bottom (neutral-plane) faces survive with their
+ * TShape — their ids carry verbatim.
  *
  * §3.2 "drafting faces" intent: taper angles applied about an arbitrary
  * parting plane, not just a fixed z=0 / +Z setup. `BRepOffsetAPI_DraftAngle`
@@ -310,7 +437,7 @@ export async function offsetShape(brepShape, distance, opts = {}) {
  * exposed in this `opencascade.js` binding — see parity-audit P3. The
  * planar-neutral-plane case is what is fully parametric here.
  *
- * @param {BrepShape} brepShape
+ * @param {SpineBody|BrepShape} brepShape
  * @param {number} angleDeg  draft angle (degrees, 0–90)
  * @param {{neutralOrigin?:[number,number,number],
  *          neutralNormal?:[number,number,number],
@@ -319,10 +446,10 @@ export async function offsetShape(brepShape, distance, opts = {}) {
  *        neutralNormal  neutral-plane normal (default [0,0,1]); also the
  *                       axis side faces are classified against.
  *        pullDir        pull / demould direction (default = neutralNormal).
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function draft(brepShape, angleDeg, opts = {}) {
-  if (!brepShape || !brepShape.shape) throw new Error('draft: needs a BrepShape');
+  if (!brepShape || !brepShape.shape) throw new Error('draft: needs a SpineBody or BrepShape');
   if (!(angleDeg > 0 && angleDeg < 90)) throw new Error(`draft: angle must be 0-90° (got ${angleDeg})`);
 
   // ── Resolve parametric neutral plane + pull direction ──────────────────────
@@ -435,8 +562,7 @@ export async function draft(brepShape, angleDeg, opts = {}) {
     if (!draftObj.IsDone()) throw new Error('draft: BRepOffsetAPI_DraftAngle did not complete');
     const shape = track(draftObj.Shape());
 
-    if (shape.IsNull()) throw new Error('draft: kernel produced a null shape');
-    return new BrepShape(shape, {
+    const meta = {
       op: 'draft',
       params: {
         angleDeg,
@@ -446,6 +572,7 @@ export async function draft(brepShape, angleDeg, opts = {}) {
         draftedFaces: sideFaces.length,
       },
       parents: [brepShape.id],
-    });
+    };
+    return bindLocalOpResult(oc, 'draft', brepShape, draftObj, shape, meta);
   });
 }
