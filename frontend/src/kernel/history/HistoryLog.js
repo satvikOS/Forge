@@ -90,6 +90,34 @@ let _entryOrdinal = 0;
  */
 export function _resetEntryOrdinal() { _entryOrdinal = 0; }
 
+// ── SP-3c — event emission for the timeline-scrubber UI ─────────────────────
+//
+// The Rollback bar (SwUxOverlays.RollbackBar) needs to re-render every time
+// the log mutates — on record, mark, rollBack, rollForward. Rather than have
+// the UI poll the singleton on a timer (wasteful, lagging cursor), we emit a
+// browser `CustomEvent` on `window` whenever the log changes state. This is
+// a SMALL ADDITIVE change — the log's pure-JS contract is unchanged; the
+// emission is fire-and-forget and silently no-ops when `window` is unavailable
+// (pure-kernel scripts, jsdom-less test harnesses).
+//
+// Event name: 'archdisc:history-changed'
+// Detail:     { type: 'record'|'mark'|'rollBack'|'rollForward', ...op-specific }
+//
+// We don't gate on the singleton instance — every HistoryLog (including
+// e2e-allocated fresh logs via setHistoryLogForTest) emits to the same
+// window event. The Rollback bar uses the singleton anyway via
+// `window.__archdiscKernelHistory`, so a stale subscriber observes the same
+// log the emitter mutated.
+function _emitHistoryChanged(type, detail) {
+  if (typeof globalThis === 'undefined' || !globalThis.window) return;
+  try {
+    globalThis.window.dispatchEvent(new globalThis.window.CustomEvent(
+      'archdisc:history-changed',
+      { detail: { type, ...detail } },
+    ));
+  } catch { /* honest-skip — never let event emission throw into the log */ }
+}
+
 /**
  * @typedef {object} HistoryEntry
  * @property {string}   id         monotone string id, e.g. 'h-7'.
@@ -145,6 +173,7 @@ export default class HistoryLog {
     });
     this.entries.push(entry);
     this.cursor = this.entries.length - 1;
+    _emitHistoryChanged('record', { entryId: entry.id, opName: entry.opName });
     return entry;
   }
 
@@ -204,6 +233,7 @@ export default class HistoryLog {
     this.entries.push(entry);
     this.cursor = this.entries.length - 1;
     this._markIndex.set(name, this.cursor);
+    _emitHistoryChanged('mark', { entryId: entry.id, mark: name });
     return entry;
   }
 
@@ -288,6 +318,9 @@ export default class HistoryLog {
       this.cursor -= 1;
       steps += 1;
     }
+    if (steps > 0) {
+      _emitHistoryChanged('rollBack', { from, to: this.cursor, steps });
+    }
     return { from, to: this.cursor, steps };
   }
 
@@ -324,6 +357,9 @@ export default class HistoryLog {
       }
       this.cursor = next;
       steps += 1;
+    }
+    if (steps > 0) {
+      _emitHistoryChanged('rollForward', { from, to: this.cursor, steps });
     }
     return { from, to: this.cursor, steps };
   }
