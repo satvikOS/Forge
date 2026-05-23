@@ -12,7 +12,7 @@ Tracking the staged execution of `docs/superpowers/plans/2026-05-22-sp1-topology
 | **S4b** — local ops (shell/thicken/offset/draft) | **DONE** | 2026-05-23 | see below |
 | **S4c** — surfacing (sweep/loft/pipeShellSweep/loftTangent/buildNurbsPatch/refineNurbs/elevateNurbsDegree/trimmedNurbsFace/stitchFaces/simplify) | **DONE** | 2026-05-23 | see below |
 | **S5** — body-kind taxonomy + non-manifold first-class | **DONE** | 2026-05-23 | see below |
-| S6 — unify native analytic faces into spine faces | not started | | |
+| **S6** — unify native analytic faces into spine faces | **DONE** | 2026-05-23 | see below |
 | S7 — topology-inspector UI + Model C quarantine | not started | | |
 
 ---
@@ -1475,3 +1475,218 @@ brep-varfillet, brep-nurbs, brep-final, ribbon-test) ALL pass.
   Per-entity readout can show non-manifold edges' `radialAngle` —
   this turns the non-manifold property from a hidden BOP detail into
   a visible, inspectable spine attribute (exactly the S7 contract).
+
+---
+
+## S6 — unify native analytic faces into spine faces — DONE (2026-05-23)
+
+### Deliverable
+
+The three native analytic-face producers (G2 blend, N-sided patch,
+replace-face) now return `SpineBody`s whose primary spine `Face` IS
+the analytic NURBS face — not a `meta.analyticFace` side-car (a
+pre-spine `TopoFace`). The unified Surface-on-spine contract
+(SP-1 §2.7) is live end-to-end: every spine Face's surface exposes
+the same API — `pointAt`, `normalAt`, `toBSplineSurface` — whether
+engine-backed (`OcctSurfaceAdapter`) or spine-native analytic
+(`NurbsSurfaceAdapter`). STEP export still emits a real
+`B_SPLINE_SURFACE_WITH_KNOTS` from the analytic surface.
+
+### Three commits
+
+1. **`fc0c8011`** — unified Surface contract + spine-native
+   AnalyticFace builder. New module `kernel/topology/AnalyticFace.js`
+   exporting `buildAnalyticSpineBody(nurbs, opts)` — constructs a
+   complete `Body{kind:'sheet'}` from a `NURBSSurface`, with one
+   spine `Face` (surface=`NurbsSurfaceAdapter`, `geomRef=null`),
+   4 boundary corner Vertices around the natural domain rectangle,
+   4 surface-isoline-curve Edges (`SurfaceBorderCurve` adapter —
+   exact along clamped B-spline domain borders), 4 Coedges each
+   carrying a LinearPcurve. Plus `toBSplineSurface()` added to
+   `NurbsSurfaceAdapter` (returns the exact analytic surface data,
+   lossless) and to `OcctSurfaceAdapter` (samples via
+   `GeomConvert.SurfaceToBSplineSurface_1` when bound; returns null
+   on the documented binding-gap path — engine-backed faces export
+   via the engine's own STEP path).
+2. **`fe55ab22`** — migrate `g2BlendBetweenEdges` / `nSidedPatch`
+   / `replaceFace` to SpineBody. `BrepBlendG2.js`, `BrepNSided.js`,
+   `BrepRewrite.js`. All three now consume `buildAnalyticSpineBody`,
+   wrap in `SpineBody`, record seed-edge persistent ids on the
+   spine face's `derivedFrom` (SP-1 §2.3 lineage), retire
+   `meta.analyticFace` (the legacy TopoFace), and keep
+   `meta.analyticSurface` (the raw NURBS data) for backward compat
+   with the downstream `ToolExecutionEngine` STEP path. Backward-
+   compat: `meta.g2Stats.topoFaceId` now sources the analytic
+   spine face's `transientId` (an integer, matching the legacy
+   `TopoFace.id` shape the existing `brep-g-g2blend` spec gates on).
+   `replaceFace`'s `faceReplaceStats.boundaryEdges` and
+   `pcurveCount` both = 4 (the analytic spine face's natural
+   rectangular trim — the picked face's original edge count is
+   recorded as `pickedFaceEdges`).
+3. **`755695b1`** — clip-on grip blank motion-capture e2e.
+
+### The bespoke real model — custom-machined motorcycle clip-on grip blank
+
+A real engineered part composed via every S6-migrated op:
+
+| Stage | Op | Output |
+|---|---|---|
+| 1 | `makeCylinder(r=16, h=120)` | grip blank — Ø32 × 120mm, kind=solid, χ=2 |
+| 2 | `cut(blank, palmReliefCutter)` | multi-edge palm-relief opening |
+| 3 | `g2BlendBetweenEdges(edge 0, edge 9)` | ergonomic G2 curvature-continuous end-cap transition — spine-native analytic Face, degree 3×5, 33×6 CPs |
+| 4 | `nSidedPatch` | palm-relief contour fill — spine-native analytic Face, degree 3×3, 4×4 CPs |
+| 5 | `replaceFace(faceIndex=1, curvedSwap=true, bulge=4)` | curved logo emblem cap — spine-native analytic Face, degree 3×3, 4×4 CPs, pcurveCount=4, loopClosed |
+
+Different from prior stages by design:
+- S3 manifold collector — primitives+boolean+transform.
+- S4 rotary valve — features chain.
+- S4b enclosure — local-ops chain.
+- S4c impeller — surfacing-led curvy assembly.
+- S5 multi-plate junction — non-manifold welded structure.
+- **S6 clip-on grip blank — ANALYTIC-FACE-LED part. All three
+  native analytic-face producers are the focal capability on a
+  single iconic engineered part.**
+
+### Framing & visual check
+
+ONE camera position computed from the aggregate scene bbox so all
+4 bodies (blank+blend+patch+emblem) appear in one iso. HELD for
+3 storyboard stills (`02-grip-blank-framed`, `03-grip-blank-iso`,
+`05-grip-blank-final-locked`). ONE deliberate orbit reveals the
+surface curvature continuity (`04-grip-blank-curvature-reveal`) —
+the visual story IS the analytic-face curvature continuity that
+the iso view cannot show. 4 stills total (+ seed-box-via-ribbon),
+video ~3 MB. Genuine, perfectly-viewable. Verified by re-reading
+the PNGs in the agent — the orange grip blank + tooling-blue blend
++ green N-sided patch + red emblem cap are all visible in the
+single iso frame.
+
+### Focal S6 assertions (every PASS)
+
+| Focal claim | Empirical result |
+|---|---|
+| (a) Each migrated op returns SpineBody whose primary spine Face is the analytic face | g2/nsided/replaceFace all `isSpine=true, hasAnalyticFace=true` |
+| (b) `face.surface.toBSplineSurface()` returns valid NURBS data | all 3 `toBSplineSurfaceWorks=true`; degrees 3×5 / 3×3 / 3×3 |
+| (c) STEP-export payload shape matches `nurbsSurfaceToSTEP` consumer | all 3 round-trips OK; legacy `brep-g-g2blend` / `brep-facereplace` continue to assert `analyticStepHasBSpline === true` end-to-end |
+| (d) `meta.analyticFace === undefined` (sidecar retired) | `metaAnalyticFaceUndefined=true` for all 3 |
+| (e) Analytic-face persistentId namespaced to body tag | `g2Blend:f1`, `nSidedPatch:f1`, `replaceFace:f1` |
+| (f) SP-1 §2.3 lineage — seed edges in `derivedFrom` | G2 Blend: 2 seed edges; N-Sided/replaceFace: 12 wire-edge ids |
+| (g) Backward compat — `meta.analyticSurface` still present | all 3 `metaAnalyticSurfacePresent=true` |
+
+`replaceFace(curvedSwap)` specifics: `pcurveCount=4` (the 4
+LinearPcurves on the rectangular domain trim), `loopClosed=true`,
+`maxPushForwardError=0` (the boundary IS the surface's natural
+domain edge — zero by construction).
+
+### Regression subset result
+
+Per the S6 brief — targeted subset, headed Electron, `--workers=1`,
+`--retries=0`:
+
+| Spec | Result |
+|---|---|
+| brep-blend-electron | PASS |
+| brep-facereplace-electron | PASS |
+| brep-g-g2blend-electron | PASS |
+| brep-g-nsided-electron | PASS |
+| brep-step-electron | PASS |
+| ribbon-test | PASS |
+| spine-recon-electron | PASS |
+| spine-scaffold-electron | PASS |
+| spine-bind-electron | PASS |
+| spine-s2-makebox-electron | PASS |
+| spine-s3-manifold-collector-electron | PASS |
+| spine-s4-rotary-valve-body-electron | PASS |
+| spine-s4b-injection-moulded-enclosure-electron | PASS |
+| spine-s4c-impeller-fairing-electron | PASS |
+| spine-s5-multiplate-junction-electron | PASS |
+| **spine-s6-clip-on-grip-blank-electron** | **PASS** |
+| **S6-relevant band total** | **16 passed** |
+| viewport-pick-selects-body | FAIL — PRE-EXISTING `__lastFoundationManifold` (documented S2/S3/S4/S5) |
+
+Total run: 10.2 minutes. ONE pre-existing failure — the same
+`__lastFoundationManifold` ToolRegistry root cause documented in
+every prior progress note. NO new failures from S6. The
+B-rep-heavy specs that ARE S6-adjacent (`brep-blend`,
+`brep-g-g2blend`, `brep-g-nsided`, `brep-facereplace`,
+`brep-step`) ALL pass — exactly the band most exposed to the
+analytic-face migration.
+
+### Honest gaps (S6 is documented HIGH risk)
+
+- **OCCT-backed face's `toBSplineSurface()` may return null.** The
+  `OcctSurfaceAdapter.toBSplineSurface()` probes
+  `GeomConvert.SurfaceToBSplineSurface_1` / unsuffixed; if neither
+  binding is exposed by this WASM build, it returns null. Engine-
+  backed faces still STEP-export via the engine's own
+  `STEPControl_Writer` path (foundation/StepExport.js' `manifoldToSTEP`
+  is the orthogonal mesh-based exporter; the spine path is for
+  analytic faces). The S6 focal claim — that spine-native analytic
+  faces expose a working `toBSplineSurface()` — is verified;
+  engine-backed faces are covered by the legacy STEP path
+  unchanged.
+
+- **The analytic spine face is NOT stitched into the parent body's
+  shell.** S6 ships the analytic face as its OWN sheet body (one
+  Face, one Shell, one Lump), NOT as a face co-resident with the
+  parent body's faces sharing edges. This is the §7 risk 4 fallback
+  in the original plan — "an analytic face is its own one-face
+  sheet shell loosely associated with the body (less elegant, still
+  a valid spine) — documented as a residual gap." Stitching the
+  analytic face into a heterogeneous body whose other faces are
+  engine-backed (so each edge is shared between an OCCT face's
+  `geomRef`-typed edge and an analytic face's `geomRef=null` edge)
+  is the deep §7 risk 4 problem — the focal closure for §6.1 is
+  postponed. The spine face IS in a body; just not in the parent
+  body's shell. Per the brief's design honesty, this is the
+  documented honest scope of S6.
+
+- **`nSidedPatch`'s analytic surface is a simple plane-fit + bulge.**
+  The variational mesh fill (foundation/NSidedPatch.js) remains the
+  high-fidelity geometry; the spine analytic face is a degree-3×3
+  NURBS bicubic spanning the boundary corners with a centroid
+  bulge — same construction as `replaceFace`'s
+  `arbitraryCurvedSurface`. A real Coons / Gregory analytic fit
+  would replace it without changing the spine contract; that is
+  acknowledged future-work. Documented in `BrepNSided.js`.
+
+- **N-Sided Patch & Replace Face on a Cut result — large
+  `derivedFrom`.** The `cut(blank, cutter)` result body has many
+  edges on the picked face (12 edges from the cylinder's seam +
+  the cut chord). All 12 land on the analytic face's `derivedFrom`
+  in collection order. This is correct — the analytic face is
+  literally derived from those edges. A future history layer (SP-3)
+  may need to deduplicate when several derivedFrom ids belong to
+  the same lineage chain.
+
+- **`validateSpine.ok=false` on the intermediate cut result.**
+  Same documented limit S3/S4 carry: the binder's strict kind +
+  Euler check drifts on branchy multi-boolean topologies. The
+  focal S6 claim (analytic-face on spine) IS verified on the
+  blend / patch / swap result bodies (each `validateOk=true`).
+  Tightening the binder's complex-body handling remains S5/S7
+  work.
+
+### Risks carried into S7
+
+- **Analytic-face stitching into a heterogeneous body.** S7 (the
+  UI / quarantine stage) could revisit this — the Body Browser
+  topology tree displays the analytic face as a separate sheet
+  body, NOT as a face of the parent body's solid shell. A genuine
+  unified body (one Lump, mixed engine-backed + analytic faces
+  sharing edges) would close §7 risk 4. The S5 first-class
+  body-kind taxonomy is the foundation for that work.
+
+- **`OcctSurfaceAdapter.toBSplineSurface()` binding gap.** When
+  it returns null on engine-backed faces, the Body Browser cannot
+  display analytic surface data uniformly. A custom-OCCT build
+  binding `GeomConvert.SurfaceToBSplineSurface_1` would close the
+  gap.
+
+- **The S6 sidecar `meta.analyticSurface` is still required.** The
+  ToolExecutionEngine STEP-export path consumes
+  `result.meta.analyticSurface` directly. A full retirement of all
+  `meta.analytic*` slots would require touching
+  `ToolExecutionEngine.js` (out of S6 scope per the parallel-agent
+  file isolation rule). The spine path IS the authoritative source;
+  `meta.analyticSurface` is the mirror.
