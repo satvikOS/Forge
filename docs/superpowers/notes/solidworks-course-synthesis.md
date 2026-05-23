@@ -631,9 +631,9 @@ Horizontal, Vertical, Coincident, Parallel, Perpendicular, Tangent, Equal + Auto
 | Circular Sketch Pattern | (likely missing in Sketch tab) | **Missing** at sketch level |
 | Move / Rotate / Copy / Scale / Stretch / Split Entities | (likely missing) | **Missing** |
 | Fully Define Sketch | Auto-Constrain | **Done** (Auto-Constrain is the rough equivalent) |
-| Display/Delete Relations | (likely missing as a dedicated dialog) | **Missing** |
+| Display/Delete Relations | Display Relations dock | **Done** (Tier-2b — right-side dock lists every relation with named label + delete buttons) |
 | 3D Sketch | (likely missing) | **Missing** |
-| **Coincident, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Equal, Concentric, Midpoint, Symmetric, Collinear, Fix** | Coincident, Parallel, Perpendicular, Tangent, Equal, Horizontal, Vertical | **Partial** — Concentric / Midpoint / Symmetric / Collinear / Fix are missing as named relations |
+| **Coincident, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Equal, Concentric, Midpoint, Symmetric, Collinear, Fix** | Coincident, Parallel, Perpendicular, Tangent, Equal, Horizontal, Vertical + Concentric / Midpoint / Symmetric / Collinear / Fix (Tier-2b) | **Done** (Tier-2b — five named relations as user-applied constraints, with the solver Jacobian extended for Concentric and Collinear and the relation registry on InteractiveSketch) |
 
 ### 6.3 — Feature tool mapping
 

@@ -1,6 +1,6 @@
 # UX-Track Progress — SolidWorks + NX Conventions in ArchDisc
 
-**Last updated:** 2026-05-23 (Tier-11a NX selection-priority pre-filter shipped)
+**Last updated:** 2026-05-23 (Tier-2b named geometric relations shipped)
 
 This file tracks ArchDisc's progress closing the SolidWorks UX gap list documented in
 [`solidworks-course-synthesis.md`](./solidworks-course-synthesis.md). The gap list is
@@ -82,11 +82,104 @@ Artifacts: `e2e-output/ux-tier2a/01–06*.png` + `00-session.webm` (1.05 MB).
 
 ---
 
+## Tier 2b — Named geometric relations (5 of 5 shipped) + Display/Delete Relations dialog
+
+The SW Tier-2 list flagged 5 named relations (Concentric / Midpoint /
+Symmetric / Collinear / Fix) PLUS the Display/Delete Relations dialog
+(synthesis §6.2 lines 634, 636) as missing. This pass ships all six.
+
+The motivating use-case: a user DECLARES design intent symbolically via
+relations instead of placing individual dimensions. The flange bolt-hole
+pattern in the bespoke e2e is the canonical worked example.
+
+| Tier-2 # | Tool | Status | Implementation |
+|---|---|---|---|
+| 14 | **Concentric** | **DONE** | `SketchSolver.concentric(c1, c2)` + new `ConcentricConstraint` (squared centre distance, 2 DoF per pair). `InteractiveSketch.applyConcentric(idxs)` chains N entities as N-1 pair constraints; supports circles, arcs, and mixed circle+arc |
+| 15 | **Midpoint** | **DONE** | `SketchSolver.midpointOf(p, line)` re-uses existing `MidpointConstraint` (2 DoF). `InteractiveSketch.applyMidpoint(pIdx, lineIdx)` — point + line entity pair |
+| 16 | **Symmetric** | **DONE** | Re-uses existing `SymmetricConstraint`. `InteractiveSketch.applySymmetric([eA, eB], axisIdx)` — last selection is the axis line; supports line-line (endpoint pairing), circle-circle (centre symmetry + equal radii), arc-arc (centre symmetry). Endpoint pairing minimises squared distance to avoid pathological reflection |
+| 17 | **Collinear** | **DONE** | `SketchSolver.collinear(lA, lB)` + new `CollinearConstraint` (direction-parallel cross product + position offset on the perpendicular, 2 DoF per pair). `InteractiveSketch.applyCollinear(idxs)` chains N lines as N-1 pairs |
+| 18 | **Fix** | **DONE** | `SketchSolver.fix(point)` alias of the existing `FixedConstraint`. `InteractiveSketch.applyFix(idx)` dispatches by entity type: point → 2 DoF, line → 4 DoF (both endpoints), circle → 3 DoF (centre + radius), arc → 6 DoF (centre + start + end) |
+| **Display/Delete Relations** dialog | **DONE** | `InteractiveSketch.getRelationsForEntity(idx)` + `getAllRelations()` + `deleteRelation(id)`. New `SwUxOverlays.DisplayRelationsDock` panel (top-right of viewport) lists every relation with its named label + the entity indices it links + a per-row delete button. Opens on the "Display Relations" ribbon click via the `archdisc:display-relations` custom event. Polls the sketch every 400 ms so the list stays current as relations are added |
+
+**Files added/changed for Tier-2b:**
+
+- `frontend/src/kernel/sketch/SketchSolver.js` — new `ConcentricConstraint` + `CollinearConstraint` classes; new factories `concentric`, `collinear`, `fix`, `midpointOf`; DoF accounting extended for both new constraint types.
+- `frontend/src/kernel/sketch/InteractiveSketch.js` — five new user-facing methods (`applyConcentric` / `applyMidpoint` / `applySymmetric` / `applyCollinear` / `applyFix`); relation registry (`_recordRelation` / `getRelationsForEntity` / `getAllRelations` / `deleteRelation`); arc entities now expose `_solverCenterRef` / `_solverStartRef` / `_solverEndRef` + `solverArc` so the new relations can reach the underlying solver points. Symmetry endpoint-pairing helper picks the matching that minimises pre-solve squared distance.
+- `frontend/src/foundation/ToolParamSchemas.js` — five blurb-only schemas for the relation tools (selection-driven, no numeric inputs) so the PropertyManager dock can still surface the title + hint.
+- `frontend/src/components/RibbonToolbar.jsx` — new Sketch→Relations group with six entries (Concentric Relation / Midpoint Relation / Symmetric Relation / Collinear Relation / Fix Relation / Display Relations).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — six new handlers in the sketch block. All five Apply* tools read `window.__archdiscSelectedSketchEntities` and dispatch to the InteractiveSketch `apply*` method. The Symmetric handler uses the SW convention: the LAST selected entity is the axis line; the first two are the mirror pair. Each handler emits a DoF before/after pair on `window.__lastSketchRelation` for e2e introspection. The Display Relations handler opens the right-side dock via a custom `archdisc:display-relations` event.
+- `frontend/src/components/SwUxOverlays.jsx` — new `DisplayRelationsDock` component; mounted as a sibling of `SketchStateBadge` so it only lives while a sketch is active and the workbench mount isn't touched. Each row carries the relation LABEL, the linked entity indices, and a trash-can delete button.
+- `frontend/src/components/SwUxOverlays.css` — dock styling, per-relation-type colour tints (concentric=cyan, midpoint=green, symmetric=amber, collinear=pink, fix=gold), delete-button hover state.
+- `e2e/ux-tier2b-sketch-relations-electron.spec.js` — bespoke motion-capture e2e: builds an 80×8 mm circular flange via atomic ops, sketches 9 scattered entities on the top face, drives every relation in sequence (Concentric → Symmetric → Collinear → Midpoint → Fix), captures DoF state at each step, opens Display Relations + deletes the Fix row + verifies DoF restoration + re-applies Fix, then Extrude Cuts the bore. Top-down 2D camera for the relation-state stills + iso for the final result. 11 stills + `00-session.webm` (~1.8 MB).
+
+**E2E:** `./node_modules/.bin/playwright test e2e/ux-tier2b-sketch-relations-electron.spec.js --workers=1 --reporter=list`
+Artifacts: `e2e-output/ux-tier2b/01–11*.png` + `00-session.webm`.
+
+**Cumulative DoF delta verified live in the spec:**
+
+| Relation | DoF before | DoF after | Removed |
+|---|---|---|---|
+| (initial) | — | 28 | — |
+| Concentric (bore + pitch) | 28 | 26 | 2 |
+| Symmetric (bolt1 + bolt2 about axis) | 26 | 22 | 4 (2 centre + 2 radii) |
+| Collinear (refLeft + refRight) | 22 | 20 | 2 |
+| Midpoint (point ↔ segment) | 20 | 18 | 2 |
+| Fix (pitch circle) | 18 | 15 | 3 (centre + radius) |
+| **Total** | **28** | **15** | **13** |
+
+**Visual check (READ the stills):**
+
+1. `04-C1-after-concentric-bore-snaps-to-centre.png` — after applying
+   Concentric, the bore (yellow inner circle) snaps from off-centre to
+   the pitch circle's centre. The success toast reads "CONCENTRIC
+   RELATION: 2 circles/arcs linked, DoF 28 → 26", and the SketchStateBadge
+   in the bottom-left shows "UNDER-DEFINED · DoF: 26". The right-side
+   Design History records "Concentric Relation: 2 circles/arcs linked,
+   DoF 28 → 26".
+2. `05-C2-after-symmetric-bolts-mirror-about-axis.png` — the two bolt-hole
+   circles snap to mirror positions about the horizontal axis line.
+   Toast: "SYMMETRIC RELATION: entities [2, 3] mirrored about line #4,
+   DoF 26 → 22". Badge: DoF 22. Design history shows Concentric +
+   Symmetric stacked.
+3. `09-D1-display-relations-on-pitch-circle.png` — the Display Relations
+   dock is OPEN on the right edge of the viewport, showing
+   "DISPLAY / DELETE RELATIONS" header, "Entity #1 · 2 relations"
+   subtitle, with two rows: "Concentric [0, 1]" (cyan label) and
+   "Fix [1]" (gold label), each with a trash-can delete icon. Toast:
+   "DISPLAY RELATIONS: Display Relations: 2 relations on entity #1
+   (panel opened)."
+4. `10-D2-after-fix-deletion-dof-restored.png` — after deleting the
+   Fix row from the dock, the list drops to a single "Concentric [0, 1]"
+   row. SketchStateBadge shows "UNDER-DEFINED · DoF: 18" (restored by 3
+   from 15).
+5. `11-E1-extruded-bored-flange-iso.png` — final iso view of the
+   extruded bored flange. Design history panel shows all 4 still-active
+   relations (Concentric, Symmetric, Collinear, Midpoint) stacked. The
+   Fix relation is also active again — re-applied after the deletion
+   demonstration. The DoF count is 15 — visibly down from 28.
+
+**Regression subset (Tier-2b):**
+
+- `e2e/ux-tier2b-sketch-relations-electron.spec.js` — 1 pass (new)
+- `e2e/ux-tier1-electron.spec.js` + `e2e/ux-tier2a-sketch-primitives-electron.spec.js` + `e2e/ux-tier11a-selection-filter-electron.spec.js` — 3/3 pass
+- `e2e/sketch-on-face.spec.js` + `sketch-workflow.spec.js` + `sketch-wiring.spec.js` + `sketch-autodim.spec.js` + `ribbon-test.spec.js` — 14/14 pass
+
+**Honest gaps in Tier-2b:**
+
+1. **Selection convention for Symmetric is positional** (last entity = axis line). SW's symmetric dialog has explicit field labels ("Entities to mirror" + "About"). Our selection-driven handler infers the role from order. Documented in the schema blurb.
+2. **The relation registry is per-sketch** — closing + re-opening the sketch resets the list. Relation persistence across sketch sessions would require feature-tree integration, which is out of scope for Tier-2 (planned for Tier-3 or §SP-3 design history rebackground).
+3. **No visual cue beside the entity** showing which relations apply to it (SW renders a tiny yellow icon next to a constrained entity in the sketch). The Display Relations dock is the read path; an in-viewport icon set is a follow-on.
+4. **Symmetric on circles** wires equal-radius via `RadiusConstraint` on the AVERAGE of the two radii. This is honest — the solver converges to equal radii — but the chosen value is the pre-solve average. SW's UI lets the user lock either radius first and the other follows; we don't expose that override yet.
+5. **Symmetric on arcs** constrains the arc CENTRES via the existing symmetric constraint; equal-radius for arcs is implied by the start-point coincidence in the existing kernel — not separately enforced. For triangle-strict arc symmetry the start-point and end-point pairs would each need a SymmetricConstraint; an edge-case follow-on.
+6. **Concentric on N entities** is implemented as N-1 pair constraints (each pair = 2 DoF). This is correct numerically but adds redundant equations when the solver could use a single shared-centre variable. Performance-only concern; correctness is unaffected.
+
+---
+
 ## Tiers 2 (remaining) – 10 — Outstanding (no work yet)
 
 | Tier | Scope | Status |
 |---|---|---|
-| 2 (rest) | Slot tool (4 variants), Circle variants, Arc variants, Parabola, Text along curve, Linear/Circular Sketch Pattern, Move/Rotate/Copy/Scale/Stretch Entities, Display-Delete Relations, 3D Sketch, named relations (Concentric / Midpoint / Symmetric / Collinear / Fix) — 11 items remain | Not started |
+| 2 (rest) | Slot tool (4 variants), Circle variants, Arc variants, Parabola, Text along curve, Linear/Circular Sketch Pattern, Move/Rotate/Copy/Scale/Stretch Entities, 3D Sketch — 8 items remain (named relations + Display-Delete Relations dialog shipped in Tier-2b) | Not started |
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | Not started |
