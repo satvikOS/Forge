@@ -10,7 +10,7 @@ Tracking the staged execution of `docs/superpowers/plans/2026-05-22-sp1-topology
 | **S3** — primitives + booleans + transforms; ID carry-through | **DONE** | 2026-05-22 | see below |
 | **S4 (features subset)** — extrude/revolve/fillet/chamfer/variableFillet/cliffEdgeBlend/mitreCorner | **DONE** | 2026-05-22 | see below |
 | **S4b** — local ops (shell/thicken/offset/draft) | **DONE** | 2026-05-23 | see below |
-| S4c — surfacing (sweep/loft/pipeShellSweep/loftTangent) + NURBS/heal/subdivide | not started | | |
+| **S4c** — surfacing (sweep/loft/pipeShellSweep/loftTangent/buildNurbsPatch/refineNurbs/elevateNurbsDegree/trimmedNurbsFace/stitchFaces/simplify) | **DONE** | 2026-05-23 | see below |
 | S5 — body-kind taxonomy + non-manifold first-class | not started | | |
 | S6 — unify native analytic faces into spine faces | not started | | |
 | S7 — topology-inspector UI + Model C quarantine | not started | | |
@@ -989,3 +989,231 @@ ALL pass.
   documented above is a real WASM-binding limit. If a future
   custom-OCCT build binds the full history surface, the spec's
   asserted "shell deletes top face" claim can be tightened.
+
+---
+
+## S4c (surfacing subset) — sweep / loft / pipeShellSweep / loftTangent / NURBS / heal / stitch — DONE (2026-05-23)
+
+### Deliverable
+
+The third (final) half of S4: every **surfacing** op now returns a
+`SpineBody` with persistent-ID carry-through. Specifically migrated:
+
+- `sweep`               — `BRepOffsetAPI_MakePipe_1` (BrepSurfacing.js)
+- `loft`                — `BRepOffsetAPI_ThruSections` (BrepSurfacing.js)
+- `pipeShellSweep`      — `BRepOffsetAPI_MakePipeShell` (BrepFinal.js)
+- `loftTangent`         — `BRepOffsetAPI_ThruSections + SetSmoothing(true)` (BrepFinal.js)
+- `stitchFaces`         — `BRepBuilderAPI_Sewing` (BrepFinal.js)
+- `buildNurbsPatch`     — `Geom_BSplineSurface_1` + mesh compound (BrepNurbs.js)
+- `refineNurbs`         — h-refinement via InsertUKnot / InsertVKnot (BrepNurbs.js)
+- `elevateNurbsDegree`  — p-refinement via IncreaseDegree (BrepNurbs.js)
+- `trimmedNurbsFace`    — `BRepBuilderAPI_MakeFace_14` on sphere surface (BrepNurbsTrim.js)
+- `simplify`            — `ShapeFix_FixSmallFace` + `ShapeUpgrade_UnifySameDomain` (BrepHeal.js)
+
+Out of scope (not body-producing):
+- `intersectSurfaces`   — produces sampled curve points, not a body.
+- `nurbsCurvature`      — produces a curvature analysis object.
+- `subdivideShape`      — produces a mesh (positions/normals/indices), not a body.
+- `catmullClarkShape`   — produces a mesh, not a body.
+
+`convergentSolid` was not in the brief's scope but is a candidate for a
+future migration.
+
+### Commits
+
+1. **`3c594e2f` SP-1 S4c — migrate surfacing/NURBS/heal to SpineBody**
+   — the migration itself. BrepSurfacing.js + BrepFinal.js + BrepNurbs.js
+   + BrepNurbsTrim.js + BrepHeal.js. Profile-face / section-wire
+   spining for sweep / loft / pipeShell / loftTangent; sewing-proxy
+   adapter for stitchFaces; UnifySameDomain history-proxy for
+   simplify; by-index positional carry for refineNurbs /
+   elevateNurbsDegree; sheet-body spining for NURBS patches.
+2. **`3231593c` SP-1 S4c — pump impeller fairing motion-capture e2e +
+   IdLineage robustness** — the bespoke S4c acceptance spec plus two
+   robustness improvements in IdLineage.js:
+   - `safeShapeList` now tries every method form (Modified +
+     Modified_1, Generated + Generated_1) until a non-empty result is
+     found, instead of returning the first empty result.
+   - `findBySameShape` now uses both a hash-bucket fast path AND a
+     linear IsSame fallback. The fallback covers the case where the
+     algorithm returns history shapes whose HashCode differs from
+     the spine-bound sub-shape (the documented MakePipe /
+     MakePipeShell quirk).
+
+### How each op consumes Modified / Generated / IsDeleted
+
+**`BRepBuilderAPI_MakeShape`-based ops** (sweep / loft / pipeShellSweep
+/ loftTangent): profile face / section wire is spined as a TEMPORARY
+sheet body before the algo runs; `carryLineage(oc, algo, resultBody,
+[{body: profileBody}])` consumes the algo's `Modified(S)` /
+`Generated(S)` / `IsDeleted(S)` inherited from the base.
+
+  - loft (BrepSurfacing.js):     **lineage works** — survived=16,
+    section wires' edges + vertices propagate verbatim.
+  - loftTangent (BrepFinal.js):  **lineage works** — survived=8,
+    same path as loft with smoothing enabled.
+  - sweep (BrepSurfacing.js):    **documented honest gap** — the
+    `BRepOffsetAPI_MakePipe.Generated(profileFace)` returns a
+    TopoDS_Shape that is NOT IsSame to any face of the result body
+    via TopExp_Explorer. PROBE #1 + PROBE #2 in the e2e spec
+    confirm both halves of the gap. Spine + validateSpine.ok
+    intact; lineage 0.
+  - pipeShellSweep (BrepFinal.js): same gap as sweep.
+
+**`BRepBuilderAPI_Sewing`** (stitchFaces): the sewing algo's history
+differs — `Modified(S)` returns a SINGLE `TopoDS_Shape` (not a list);
+`NbDeletedFaces` / `DeletedFace(i)` for face-level deletions. Wrapped
+via `makeSewingAlgoProxy` which adapts the singleton-Modified to a
+list-like object (Size + First_1 + Last_1) and `IsDeleted` via the
+deleted-face table. **lineage works** — survived=6, modified=12.
+
+**`ShapeUpgrade_UnifySameDomain`** (simplify): `History_1()` returns
+a `Handle_BRepTools_History` whose API is the standard contract —
+`Modified` / `Generated` / `IsRemoved`. Wrapped via
+`makeHistoryAlgoProxy` which renames `IsRemoved` → `IsDeleted`.
+Stage-1 (`ShapeFix_FixSmallFace`) has no exposed history surface;
+its dropped faces lose their ids without lineage edges — documented
+gap. **simplify lineage works** — survived=25; 5 of 6 bell face ids
+reach the simplified result.
+
+**NURBS by-index pairing** (refineNurbs / elevateNurbsDegree):
+the rebuild constructs a fresh triangulated compound with no kernel
+history. The grid resolution + traversal order is identical between
+source and result (GRID_N x GRID_N x 2 = 200 triangles), so a
+positional by-index pairing (`carryByIndex` helper) carries source
+persistent ids VERBATIM onto matching result triangles. The result
+face's `persistentId === source face's persistentId` for every
+positional pair. **200/200 carried verbatim** in both ops.
+
+**Body-self-constructing ops** (buildNurbsPatch / trimmedNurbsFace):
+no input body — surface is constructed internally. Result spines as
+a sheet body and receives fresh persistent ids.
+
+### The bespoke real model — pump impeller fairing
+
+A real fluid-handling part composed via every S4c op together:
+
+| Stage | Op | Output |
+|---|---|---|
+| 1 | `loftTangent(s0=40, s1=20, s2=30; z=0, 20, 40)` | bell-mouthed inlet diffuser — 6 faces, chi=2, kind=solid |
+| 2 | `sweep(r=4, length=60)` + translate | central drive spindle — 3 faces (lineage gap documented) |
+| 3 | `pipeShellSweep(r=3, segLen=18, bends=2)` + translate | bleed pipe — 5 faces (lineage gap documented) |
+| 4 | `buildNurbsPatch(size=60, crown=8)` | curved diffuser panel — 200 triangle sheet body |
+| 5 | `refineNurbs(diffuser)` | h-refined diffuser — 200 faces, 200/200 ids verbatim |
+| 6 | `elevateNurbsDegree(refined)` | p-refined diffuser — 200 faces, 200/200 original ids verbatim |
+| 7 | `trimmedNurbsFace(30x30, bulge=5, trim=0.2..0.8)` + translate | doubly-curved cutwater — 288 faces, trim ratio 0.41 |
+| 8 | `loft(15, 25, 18)` + translate | transition duct — 6 faces, survived=16 |
+| 9 | `stitchFaces(gap=0.05, tol=0.1)` + translate | split-casing seam — survived=6, modified=12 |
+| 10 | `simplify(minFeatureSize=0.5, tolerance=0.01)` on the bell | cleaned bell — survived=25, 5/6 bell ids reach the simplified result |
+
+Different from S3 (manifold collector — primitives + boolean +
+transform), S4 (rotary valve body — features chain), and S4b
+(injection-moulded enclosure — local-ops chain) by design — this is
+the SURFACING-LED part: a fluid-dynamics impeller whose curvy
+aerodynamic body cannot be produced by extrusion / boolean / fillet
+alone.
+
+### Framing & visual check
+
+ONE deliberate combined-bbox camera position with a 1.25x margin so
+the whole impeller assembly fits comfortably. HELD for 3 storyboard
+stills: `02-impeller-framed`, `03-impeller-iso`,
+`04-impeller-curvature-reveal`. ONE deliberate orbit reveals the
+curvature flow surfacing demands — diffuser panel crown, trimmed
+cutwater dome, bell flare. NO 7-angle template, NO zoom-in /
+zoom-out template. Genuine, perfectly-viewable, multi-body
+engineered assembly. Verified by re-reading the PNGs in the agent.
+
+### Verification — the bespoke e2e
+
+`e2e/spine-s4c-impeller-fairing-electron.spec.js` (motion-capture,
+headed Electron). 1 passed (26.7s). Video 1.46 MB; 4 stills.
+
+### Honest gaps
+
+- **`BRepOffsetAPI_MakePipe` / `MakePipeShell` kernel-history binding
+  gap** — the most significant new gap surfaced in S4c. The two PROBE
+  diagnostics in the spec measure and document:
+  - PROBE #1: `pipe.Generated(profileFace)` IS bound and returns
+    size=1 (the kernel populates Generated history).
+  - PROBE #2: the returned TopoDS_Shape is NOT IsSame to any face of
+    `pipe.Shape()` enumerated via `TopExp_Explorer`. HashCodes all
+    differ.
+
+  The kernel rebuilds shape handles with fresh locations between the
+  algo's history map and the result body's explorer pass; both the
+  hash-bucket fast path AND the linear IsSame fallback miss.
+  Consequence: sweep / pipeShellSweep produce VALID spine bodies
+  (full topology graph with validateSpine.ok=true) but record NO
+  lineage edges. A future custom-OCCT build that exposes a stable
+  history-to-result shape mapping would close this gap.
+
+- **`ShapeFix_FixSmallFace` Stage-1 history gap** — the small-face
+  removal stage of `simplify` has no exposed history; its dropped
+  faces simply lose their ids. Stage-2 (`UnifySameDomain.History_1`)
+  is the lineage source.
+
+- **`BRepBuilderAPI_Sewing` no-Generated** — sewing has no Generated
+  history surface; only Modified + Deleted. The sewing-proxy returns
+  empty for Generated.
+
+- **NURBS by-index pairing is positional, not topological** — if a
+  future NURBS op changed the grid traversal order, the by-index
+  carry would silently misassign ids. The current 4 NURBS ops all
+  walk `_buildMeshCompound` in the same order, so the contract
+  holds. Documented in BrepNurbs.js `carryByIndex` header.
+
+- **`elevateNurbsDegree` / `refineNurbs` require `meta.nurbsSurf`** —
+  they chain off the previous NURBS body (the canonical
+  NURBS-refinement contract).
+
+- **`trimmedNurbsFace`'s spherical surface workaround** — documented
+  in BrepNurbsTrim.js header; pre-existing kernel binding gap, not
+  introduced by SP-1.
+
+### Regression subset result
+
+Per the S4c brief — targeted subset (NOT the full 682-spec suite),
+headed Electron, `--workers=1`, `--retries=0`:
+
+| Spec | Result |
+|---|---|
+| brep-primitives-electron | PASS |
+| brep-boolean-electron | PASS |
+| brep-features-electron | PASS |
+| brep-foundation-electron | PASS |
+| brep-surfacing-electron | PASS |
+| brep-localops-electron | PASS |
+| brep-blend-electron | PASS |
+| brep-varfillet-electron | PASS |
+| brep-ribbon-electron | PASS |
+| brep-nurbs-electron | PASS |
+| brep-final-electron | PASS |
+| spine-recon-electron | PASS |
+| spine-scaffold-electron | PASS |
+| spine-bind-electron | PASS |
+| spine-s2-makebox-electron | PASS |
+| spine-s3-manifold-collector-electron | PASS |
+| spine-s4-rotary-valve-body-electron | PASS |
+| spine-s4b-injection-moulded-enclosure-electron | PASS |
+| **spine-s4c-impeller-fairing-electron** | **PASS** |
+| ribbon-test-electron | PASS |
+| **S4c-relevant band total** | **28 passed / 0 failed** |
+
+Total run: 18.4 minutes. Zero failures. NO new failures from S4c.
+The B-rep-heavy specs that ARE S4c-adjacent (brep-surfacing,
+brep-nurbs, brep-final, brep-localops, brep-features,
+brep-foundation, brep-primitives) ALL pass.
+
+### Risks carried into S5
+
+- **`BRepOffsetAPI_MakePipe`-family kernel-history binding gap** —
+  closing it requires a custom-OCCT build OR a geometric matching
+  fallback. Punted to S5+.
+- **NURBS by-index pairing is positional** — works for the current
+  4 ops but would need a topological match if future NURBS ops
+  reorder the grid traversal.
+- **Body-kind taxonomy formalisation (S5)** — S4c's
+  buildNurbsPatch/trimmedNurbsFace return kind=sheet bodies; S5
+  should formalize the sheet→solid kind transition via thicken +
+  wire-body first-class semantics.
