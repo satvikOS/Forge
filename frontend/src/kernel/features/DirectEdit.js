@@ -1,4 +1,14 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel. Production direct-edit ops (push/pull, offset
+ * face, replace face) route through kernel/brep/BrepRewrite.js +
+ * BrepLocalOps.js and produce SpineBodies. This native-JS direct-edit is
+ * NOT used by any ribbon op.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. See PrimitiveBuilder.js header for the
+ * full quarantine context.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Direct Edit
  * Face-level editing operations: push/pull, move, offset, delete.
  * These modify solid geometry without sketch/feature history — direct manipulation.

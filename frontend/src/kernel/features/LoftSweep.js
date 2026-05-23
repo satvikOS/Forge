@@ -1,4 +1,14 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel. Production loft / sweep route through
+ * kernel/brep/BrepSurfacing.js + BrepFinal.js (OCCT BRepOffsetAPI_MakePipe /
+ * ThruSections / MakePipeShell) and produce SpineBodies. This native-JS
+ * loft/sweep is NOT used by any ribbon op.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. See PrimitiveBuilder.js header for the
+ * full quarantine context.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Loft & Sweep
  * Loft: Creates a solid by interpolating between two or more profiles.
  * Sweep: Extrudes a profile along a curve path.

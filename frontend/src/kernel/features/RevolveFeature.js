@@ -1,4 +1,14 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel. Production revolve routes through
+ * kernel/brep/BrepFeatures.js::revolveRect (the OCCT BRepPrimAPI_MakeRevol
+ * path) and produces a SpineBody. This native-JS revolve is NOT used by
+ * any ribbon op.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. See PrimitiveBuilder.js header for the
+ * full quarantine context.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Revolve Feature
  * Revolves a 2D profile around an axis to create a solid of revolution.
  * Supports: full revolution, partial sweep, and profile validation.

@@ -1,4 +1,14 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel. Production fillet / chamfer route through
+ * kernel/brep/BrepFeatures.js (OCCT BRepFilletAPI_MakeFillet /
+ * BRepFilletAPI_MakeChamfer) and produce SpineBodies with persistent-ID
+ * carry-through. This native-JS fillet/chamfer is NOT used by any ribbon op.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. See PrimitiveBuilder.js header for the
+ * full quarantine context.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Fillet & Chamfer
  * Edge-based rounding (fillet) and beveling (chamfer) operations.
  *

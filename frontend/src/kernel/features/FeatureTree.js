@@ -1,4 +1,20 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel.
+ *
+ * NOTE: this file is the ONE Model C class whose public shape is still
+ * referenced by production wiring — `getFeatureTree()` in
+ * ToolExecutionEngine.js exposes a FeatureTree instance that
+ * FeatureTreePanel.jsx + Viewport3D.jsx read for tree row data. The data
+ * shape (id / name / type / params) is the live consumer; the actual
+ * parametric-replay path (rebuild / update / undo) is no longer the
+ * authoritative model — every body in the scene is sourced from a kernel
+ * brep facade op + spine.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. The data shape may persist for the
+ * tree-panel UI; the geometry-producing methods are dead.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Feature Tree
  * Parametric history-based modeling. Each feature records its operation and parameters.
  * Editing a parameter regenerates all downstream features.

@@ -1,4 +1,34 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ *
+ * This is the dead pre-OCCT demo kernel. It pre-dates the production B-rep
+ * engine (kernel/brep/) and the unified topology spine (kernel/topology/).
+ * Every Part-tab primitive / boolean / feature / local-op / surfacing op in
+ * the ArchDisc app now routes through the ArchDiscKernel facade and produces
+ * a SpineBody — Model C is NOT on that path.
+ *
+ * KEPT for backward compatibility only: a small set of historical
+ * importers (kernel/standards/FastenerLibrary.js, BearingLibrary.js,
+ * kernel/turbomachinery/HollowBlade.js + TurbomachineryBlade.js,
+ * kernel/agents/AgentBridge.js, and one fallback path in
+ * ToolExecutionEngine.js "Insert Component") still consume these classes
+ * for non-critical bookkeeping (fastener geometry, bearing geometry,
+ * turbomachinery placeholders). Removing the exports from kernel/index.js
+ * would break those importers; decoupling them is follow-up work.
+ *
+ * NEW CODE MUST NOT IMPORT FROM `kernel/features/*`. Use:
+ *   - kernel/brep/*          for B-rep geometry (the production OCCT path).
+ *   - kernel/topology/*      for spine entities (Body/Lump/Shell/Face/Loop
+ *                            /Coedge/Edge/Vertex, IdAllocator, validateSpine,
+ *                            bindSpine, SpineBody).
+ *   - kernel/atomic/*        for atomic CAD ops (createPart, extrude, cut, ...).
+ *
+ * Historical role: this was the original proprietary B-rep kernel before
+ * the OCCT integration. It demonstrated the entity classes (TopoSolid /
+ * TopoFace / TopoEdge / ...) and the feature pipeline, but its BSP-CSG
+ * boolean engine and unit-cube primitives are not kernel-grade.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Primitive Builder
  * Creates B-Rep solids from parametric definitions.
  * Each primitive is a fully closed, manifold solid with proper topology.

@@ -1,4 +1,14 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel. Production booleans route through
+ * kernel/brep/BrepBoolean.js (the OCCT BRepAlgoAPI_Fuse/Cut/Common path) and
+ * produce SpineBodies via the unified topology spine in kernel/topology/.
+ * This BSP-CSG implementation is NOT used by any ribbon op.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. See PrimitiveBuilder.js header for the
+ * full quarantine context and the canonical replacement paths.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Boolean Engine
  * CSG (Constructive Solid Geometry) operations on B-Rep solids.
  * Implements union, subtract, and intersect using BSP tree approach.

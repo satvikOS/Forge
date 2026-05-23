@@ -1,4 +1,14 @@
 /**
+ * @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+ * Dead pre-OCCT demo kernel. Production extrude routes through
+ * kernel/brep/BrepFeatures.js::extrudeRect (the OCCT BRepPrimAPI_MakePrism
+ * path) and produces a SpineBody. This native-JS extrude is NOT used by
+ * any ribbon op.
+ *
+ * NEW CODE MUST NOT IMPORT THIS FILE. See PrimitiveBuilder.js header for the
+ * full quarantine context.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
  * ArchDisc Geometry Kernel — Extrude Feature
  * Extrudes a 2D profile (loop of edges) along a direction to create a solid.
  * Supports: boss (add material), cut (remove material), mid-plane, direction, taper angle.

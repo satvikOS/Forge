@@ -36,7 +36,35 @@ export { default as InteractiveSketch, TOOLS as SketchTools } from './sketch/Int
 // Tessellation (Subdivision)
 export { default as SubdivisionSurface } from './tessellation/SubdivisionSurface.js';
 
-// Features
+// ─── @deprecated SP-1 S7 — Model C (kernel/features/*) — QUARANTINED 2026-05-23.
+//
+// The classes below are the DEAD PRE-OCCT DEMO KERNEL. Every Part-tab
+// primitive / boolean / feature / local-op / surfacing op in the ArchDisc
+// app now routes through `kernel/brep/*` (the OCCT-backed B-rep facade) and
+// produces a `SpineBody` from `kernel/topology/`. Model C is NOT on that
+// production path.
+//
+// These exports are KEPT FOR BACKWARD COMPATIBILITY ONLY — a small set of
+// legacy consumers (kernel/standards/FastenerLibrary.js + BearingLibrary.js,
+// kernel/turbomachinery/HollowBlade.js + TurbomachineryBlade.js,
+// kernel/agents/AgentBridge.js, and one fallback path in
+// ToolExecutionEngine.js "Insert Component") still import these classes for
+// non-critical bookkeeping (fastener / bearing / blade placeholder geometry).
+// Decoupling those importers from Model C is documented follow-up work — see
+// the SP-1 S7 progress note. Removing the exports without that decoupling
+// would break the build; the file-allowlist for the S7 stage prohibited
+// touching those upstream consumers.
+//
+// NEW CODE MUST NOT IMPORT FROM Model C — use:
+//   - kernel/brep/*       for B-rep geometry (the production OCCT path).
+//   - kernel/topology/*   for spine entities + persistent IDs.
+//   - kernel/atomic/*     for atomic CAD ops (createPart, extrude, cut, ...).
+//
+// Every Model C source file now carries a `@deprecated` header banner with
+// the canonical replacement path. See `kernel/features/PrimitiveBuilder.js`
+// for the full context.
+//
+// Features (DEPRECATED — Model C; see banner above)
 export { default as PrimitiveBuilder } from './features/PrimitiveBuilder.js';
 export { default as ExtrudeFeature } from './features/ExtrudeFeature.js';
 export { default as RevolveFeature } from './features/RevolveFeature.js';
