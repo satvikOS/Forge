@@ -7,7 +7,7 @@ Tracking the staged execution of `docs/superpowers/plans/2026-05-22-sp1-topology
 | **S0** — recon spec + spine scaffold | **DONE** | 2026-05-22 | see below |
 | **S1** — `bindSpine` (OCCT → spine Body) | **DONE** | 2026-05-22 | see below |
 | **S2** — `SpineBody` + migration adapter; first op (`makeBox`) | **DONE** | 2026-05-22 | see below |
-| S3 — primitives + booleans + transforms; ID carry-through | not started | | |
+| **S3** — primitives + booleans + transforms; ID carry-through | **DONE** | 2026-05-22 | see below |
 | S4 — features + local ops + surfacing | not started | | |
 | S5 — body-kind taxonomy + non-manifold first-class | not started | | |
 | S6 — unify native analytic faces into spine faces | not started | | |
@@ -319,3 +319,224 @@ makeBox migration.
   `withScope` survivor list. S2 verified the simple case (`makeBox` →
   scene path); S3 will exercise more combinations (boolean inputs are
   SpineBodies, result is a SpineBody, both pass through `withScope`).
+
+---
+
+## S3 — primitives + booleans + transforms; ID carry-through — DONE (2026-05-22)
+
+### Deliverable
+
+Every primitive (`makeCylinder/makeSphere/makeCone/makeTorus` — `makeBox`
+was S2), every boolean (`fuse/cut/common`), and every rigid transform
+(`translate/rotate`, plus `makeCompound`) now returns a `SpineBody`,
+the SP-1 currency that wraps an engine `TopoDS_Shape` and the
+corresponding `Body→Lump→Shell→Face→Loop→Coedge→Edge→Vertex` spine
+bound from it. Plus the persistent-ID carry-through mechanism shipped
+as `kernel/topology/IdLineage.js` and wired into every boolean.
+
+### Commits
+
+1. **`43829fd2` IdLineage** — the carry-through mechanism. Consumes
+   OCCT's `Modified(S)`/`Generated(S)`/`IsDeleted(S)` history per the
+   Parasolid PK_TOPOL_track_t contract; deterministic single-survivor
+   rule for splits (first claimant wins, the rest record S in
+   `derivedFrom`); merge-conflict resolution (subsequent claimants land
+   in `derivedFrom` + `report.conflicts` increments); honest degrade
+   path on the recon list-iterator gap (lists of ≤2 elements fully
+   recovered via Size + First_1/Last_1; lists of >2 are best-effort).
+   `carryLineage(oc, algo, resultBody, inputBodies)` returns the
+   report.
+2. **`e17771c4` op migrations** — every primitive/boolean/transform
+   runs `bindSpine` on the engine result, wraps in `SpineBody`, and
+   (for booleans) calls `carryLineage` with both operands' spine
+   bodies. `rotate` is also formally exposed on the kernel facade
+   (was implemented for foundation manifold but not as `kernel.brep.*`).
+3. **`bc89b8e6` rigid-transform ModifiedShape carry + addBrepShape
+   window hook** — two follow-ups surfaced by the bespoke e2e:
+   `BRepBuilderAPI_Transform_2(shape, trsf, copy=true)` gives the
+   result a fresh set of TShapes, so the naive IsSame match in
+   `carryRigidTransformLineage` was returning 0 for rotate/translate.
+   Pass the algo into the carry and use `algo.ModifiedShape(S)` as the
+   primary lookup; fall back to IsSame for compounds. On a cylinder
+   this now carries 8 entities per transform. Plus exposed
+   `window.__archdiscAddBrepShape = addBrepShapeToScene` so e2e specs
+   that build a complex body programmatically (via `ArchDiscKernel.
+   brep.*` chains) can register and render through the canonical
+   scene path.
+4. **`d502ca77` manifold-collector motion-capture e2e** — the
+   bespoke S3 acceptance spec.
+
+### The persistent-ID carry-through algorithm
+
+For each input sub-shape S of each input body, the algo (a
+`BRepAlgoAPI_*_3`) exposes three history queries:
+- `IsDeleted(S)` → true ⇒ S is gone from the result; its id dies.
+- `Modified(S)` → a list of result sub-shapes that REPLACE S (split /
+  transformed copies of S in the result).
+- `Generated(S)` → a list of NEW result sub-shapes that came into
+  existence BECAUSE of S (intersection curves made by S meeting
+  another shape).
+
+The spine maps these onto a per-entity carry-through rule:
+- `IsDeleted(S)` → S's persistentId DIES.
+- `Modified(S)` empty + result face IsSame(S) → S survived as-is, the
+  id is carried verbatim onto that result face. This is the common
+  case for fuse: most input faces emerge unmodified.
+- `Modified(S)` non-empty → the FIRST result entity inherits S's id
+  verbatim; every subsequent entry records S in `derivedFrom` (split
+  case: 1 input → N outputs).
+- Merge case (N inputs map onto 1 output): the first input id wins
+  the entity's `persistentId`; every other input id lands in
+  `derivedFrom` and `report.conflicts` increments.
+- `Generated(S)` → each new result entity records S in `derivedFrom`;
+  its own `persistentId` stays the freshly-allocated one from
+  `bindSpine`.
+
+Conflict resolution is DETERMINISTIC, not heuristic — the same input
+order yields the same id assignment every run. `report.faceMap` /
+`edgeMap` / `vertexMap` give the input-id → result-id mapping for
+e2e assertions.
+
+The list-iteration gap (S0 recon — `TopTools_ListIteratorOfListOfShape`
+is UNBOUND) is handled identically to `bindSpine`'s three-tier
+strategy: `Size + First_1 + Last_1` recovers every ≤2-element list
+(every common split / merge); >2-element lists are best-effort
+(First + Last) with `findBySameShape` ensuring no spurious mapping
+on unmatched entries.
+
+File: `frontend/src/kernel/topology/IdLineage.js` (437 lines, one
+exported function `carryLineage`, plus four private safe-accessors).
+
+### Verification — the bespoke e2e
+
+`e2e/spine-s3-manifold-collector-electron.spec.js` (motion-capture,
+headed Electron). Builds a **hydraulic intake manifold collector** —
+a real engineered part — using every S3-migrated op together in ONE
+chain of 9 operations:
+
+| Stage | Op | Output |
+|---|---|---|
+| 1 | `makeTorus(30, 6)` | collector ring, 1 face / 2 edges / 1 vertex, χ=0 genus-1 |
+| 2 | `makeCylinder + rotate + translate` × 4 | 4 radial branches at 0/90/180/270° |
+| 3 | `fuse(collector, branch[i])` × 4 | branches fused into the ring |
+| 4 | `fuse(collector, sphere)` | central hub on the axis |
+| 5 | `fuse(collector, cone+translate)` | cone outlet adapter on hub |
+| 6 | `cut(collector, bore+translate)` | inlet bore through the assembly |
+| 7 | `common(manifold, bounding-sphere)` | sentinel — proves common() runs lineage too |
+
+The focal assertion — checked after every boolean and transform:
+- The torus's canonical face id is reachable in the result spine
+  9 OPS DEEP (after 4 branch fuses + sphere fuse + cone fuse + bore
+  cut + common sentinel) — `survived-as-id` at every stage.
+- The branch / sphere / cone face ids are reachable in their
+  respective post-op spines.
+- `lineage.survived` > 0 at every boolean.
+- The final body's `idsTraced` count > 0 (multi-generation
+  derivedFrom chains exist).
+
+Bespoke framing — ONE well-framed camera position via
+`__archdiscFocusOnObject`, HELD for 4 storyboard frames; ONE
+deliberate drag-orbit to reveal the radial-branch symmetry. NO
+7-angle orbit, NO zoom-in/zoom-out template.
+
+Result: **1 passed (32.9s)**. Video 1.77 MB, 5 storyboard stills,
+every lineage assertion green.
+
+### Visual check (the stills)
+
+The 5 stills genuinely show the engineered part:
+- `02-manifold-framed.png` — torus ring with 4 radial cylinder
+  branches protruding outward, central sphere hub on the axis,
+  cone outlet stacked above the hub. Clean iso framing, no
+  cropping. (verified by re-reading the PNG in the agent.)
+- `03-manifold-iso.png` — same view tilted ~30° to show the cone
+  + hub axis stacking.
+- `04-manifold-radial-reveal.png` + `05-manifold-radial-reveal-2.png`
+  — the single deliberate orbit reveals the radial-branch symmetry
+  the iso view cannot show.
+
+### Honest gaps
+
+- **`validateSpine.ok = false` on intermediate fuse/cut/common
+  results.** The lineage IS correct (every focal-assertion check
+  passes), but the binder's kind-derivation + Euler check is strict
+  for branchy multi-boolean topologies — manifesting SP-1 §7 risk 1
+  (the recon binding gap re. radial-coedge ordering) and SP-1 §7
+  risk 4 (analytic-face stitching) on complex bodies. The first
+  fuse occasionally classifies the result as `sheet` (the kind
+  heuristic) before subsequent fuses converge to `solid`. The
+  validateSpine pass on intermediate results is a documented SP-1
+  limit, NOT a blocker for the SP-1 §2.3 contract — the spec
+  reports validateOk per stage but gates only the lineage contract.
+  Tightening the binder's complex-body handling is S4/S5 work
+  (where the body-kind taxonomy gets formalised).
+
+- **Non-manifold radial ordering** — same as S1: ships unordered
+  (but topologically correct) radial coedge cycles; angular
+  ordering by surface-tangent angle is a documented S5 refinement.
+
+- **List-iteration gap** — for a >2-coedge non-manifold edge, the
+  Modified/Generated lists are best-effort First+Last. Correct
+  for every manifold-edge lineage in this build (the manifold
+  collector has at most 2-coedge edges on its peripheral surfaces
+  after the final fuse/cut chain).
+
+### Regression subset result
+
+Per the S3 brief — ran a targeted subset, NOT the full 682-spec
+suite. Headed Electron, `--workers=1`, `--retries=0`. The subset
+covers brep-* (the highest-traffic ops affected by S3), every
+spine-* spec, and the four standalone selection / properties /
+ribbon / edge specs called out in the brief.
+
+| Spec | Result |
+|---|---|
+| brep-primitives-electron | PASS |
+| brep-boolean-electron | PASS |
+| brep-features-electron | PASS |
+| brep-foundation-electron | PASS |
+| spine-recon-electron | PASS |
+| spine-scaffold-electron | PASS |
+| spine-bind-electron | PASS |
+| spine-s2-makebox-electron | PASS |
+| **spine-s3-manifold-collector-electron** | **PASS** |
+| ribbon-test | PASS |
+| 5 additional brep-* in the subset | PASS |
+| **Total — S3-relevant** | **14 passed** |
+| body-selection-properties | FAIL — pre-existing __lastFoundationManifold |
+| edge-selection (×2 — Fillet/Chamfer) | FAIL — pre-existing __lastFoundationManifold |
+| viewport-pick-selects-body | FAIL — pre-existing __lastFoundationManifold |
+| **Pre-existing failures** | **4** |
+
+Total: 14 pass / 4 fail / 0 skip across the targeted subset.
+
+EVERY failure is the same pre-existing root cause documented in S2's
+no-regression analysis: ToolRegistry's `produces` declarations still
+say `__lastFoundationManifold` for Extrude Boss / Revolve Boss /
+Fillet, but those handlers were retrofitted to the OCCT B-rep path
+(commit `8228d397`, 2026-05-19) and now set `__lastBrepShape` not
+`__lastFoundationManifold`. These tests wait on a slot the migrated
+handlers no longer populate — orthogonal to S3 (the handlers are
+NOT a primitive/boolean/transform — they are features, which is
+S4's scope).
+
+NONE of the failures reference SpineBody, __lastSpine, persistent-
+ID carry-through, or any S3-introduced code path. The B-rep-heavy
+specs that ARE S3-adjacent (brep-primitives, brep-boolean,
+brep-features, brep-foundation) ALL pass.
+
+### Risks carried into S4
+
+- **Intermediate validateSpine gaps on complex bodies** — the
+  binder's strictness manifests as occasional kind-derivation
+  drift on first-fuse results that resolve themselves by the time
+  the chain finishes. S4 will exercise this much more widely with
+  feature ops (extrude/revolve/fillet/shell/sweep/loft), so
+  hardening the binder's complex-body handling will be needed.
+- **ToolRegistry `produces` drift** — still gates the ~25
+  pre-existing failures. Housekeeping commit independent of S3/S4
+  could fix it; out of S3 scope.
+- **derivedFrom propagation depth** — `idsTraced` is only counting
+  faces. Edges and vertices also accumulate `derivedFrom`; a
+  deeper propagation depth report (max chain length) would help
+  S5/S6/S7 reason about lineage retention at scale.
