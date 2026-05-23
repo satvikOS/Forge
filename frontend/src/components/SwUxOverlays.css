@@ -625,6 +625,165 @@ body.sw-dock-suppress-floating .tpd-backdrop {
 .sw-relations-dock-row[data-archdisc-relation-type="collinear"]  .sw-relations-dock-row-label { color: #f0a3c0; }
 .sw-relations-dock-row[data-archdisc-relation-type="fix"]        .sw-relations-dock-row-label { color: #ffd66d; }
 
+/* ─── 7. Sketch Live Cursor Readout (Tier-1 #4) ─────────────────────────── */
+/* Sits just to the right of the SketchStateBadge at the bottom-left of the
+ * viewport. Reads the live X/Y coordinates of the sketch cursor (in mm),
+ * mirroring the SolidWorks status-bar convention. */
+.sw-cursor-readout {
+  position: absolute;
+  bottom: 8px;
+  left: 232px;   /* clears the SketchStateBadge (which auto-sizes to ~210 px) */
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  font-weight: 500;
+  color: #d8d8d8;
+  font-family: 'Consolas', monospace;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.6);
+  animation: sw-fade-in 0.14s ease-out;
+}
+
+.sw-cursor-axis {
+  color: #9bbcff;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.sw-cursor-val {
+  color: #f0f0f0;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sw-cursor-unit {
+  color: #888;
+  margin-left: 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* ─── 8. Auto-Relation Indicator (Tier-1 #7) ─────────────────────────────── */
+/* Tracks the cursor while drawing a sketch entity. The SW ghost. Position
+ * is set inline (left/top) from pointermove; pointer-events are off so
+ * clicks pass through to the canvas. */
+.sw-auto-relation {
+  position: fixed;
+  z-index: 5000;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: rgba(20, 20, 20, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(120, 200, 255, 0.55);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-family: 'Consolas', monospace;
+  color: #b9deff;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(120, 200, 255, 0.35);
+  animation: sw-fade-in 0.06s ease-out;
+}
+
+.sw-auto-relation-label {
+  color: #f0f8ff;
+  font-weight: 800;
+}
+
+/* Per-relation tint so a quick visual scan tells the user WHICH relation
+ * is about to fire (matches the Tier-2b dock tints). */
+.sw-auto-relation[data-archdisc-auto-relation="horizontal"]    { border-color: rgba(150, 220, 150, 0.65); color: #b3e7c4; }
+.sw-auto-relation[data-archdisc-auto-relation="vertical"]      { border-color: rgba(150, 220, 150, 0.65); color: #b3e7c4; }
+.sw-auto-relation[data-archdisc-auto-relation="coincident"]    { border-color: rgba(120, 220, 250, 0.70); color: #b9deff; }
+.sw-auto-relation[data-archdisc-auto-relation="tangent"]       { border-color: rgba(230, 200, 130, 0.70); color: #e8c688; }
+.sw-auto-relation[data-archdisc-auto-relation="perpendicular"] { border-color: rgba(170, 130, 220, 0.70); color: #d2b3ff; }
+.sw-auto-relation[data-archdisc-auto-relation="parallel"]      { border-color: rgba(240, 160, 192, 0.70); color: #f0a3c0; }
+
+/* ─── 9. Dimension Inline Editor (Tier-1 #6) ─────────────────────────────── */
+/* Anchored to the screen-space projection of the dimension's mid-point.
+ * Floats slightly to the right + above the label so the original
+ * dimension stays readable underneath. */
+.sw-dim-editor {
+  position: fixed;
+  z-index: 6000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 6px;
+  background: rgba(20, 20, 20, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 170, 60, 0.65);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.65);
+  font-family: 'Consolas', monospace;
+  animation: sw-fade-in 0.10s ease-out;
+}
+
+.sw-dim-editor-input {
+  width: 72px;
+  background: #0a0a0a;
+  color: #ffd070;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 12px 'Consolas', monospace;
+  padding: 3px 5px;
+  outline: none;
+  text-align: right;
+}
+.sw-dim-editor-input:focus { border-color: #ffaa3c; box-shadow: 0 0 0 1px rgba(255, 170, 60, 0.35); }
+
+.sw-dim-editor-unit {
+  color: #aaa;
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding-right: 2px;
+}
+
+.sw-dim-editor-ok, .sw-dim-editor-cancel {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.08s, border-color 0.08s;
+}
+
+.sw-dim-editor-ok {
+  background: rgba(62, 199, 126, 0.22);
+  border-color: rgba(62, 199, 126, 0.45);
+  color: #3ec77e;
+}
+.sw-dim-editor-ok:hover { background: rgba(62, 199, 126, 0.50); color: #fff; }
+
+.sw-dim-editor-cancel {
+  background: rgba(227, 84, 84, 0.20);
+  border-color: rgba(227, 84, 84, 0.45);
+  color: #e35454;
+}
+.sw-dim-editor-cancel:hover { background: rgba(227, 84, 84, 0.50); color: #fff; }
+
 /* ─── animations ───────────────────────────────────────────────────────── */
 @keyframes sw-fade-in {
   from { opacity: 0; transform: translateY(-3px); }

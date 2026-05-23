@@ -54,6 +54,17 @@ export default class InteractiveSketch {
     this.snapPoint = null;       // current snap target
     this.cursorPos = null;       // current 2D cursor position on plane
 
+    // Tier-1 #4 / #7 — auto-relation hint published with every cursor
+    // move while a drawing tool is active. One of:
+    //   null               (no snap)
+    //   'horizontal'       (line being drawn is ~axis-aligned to U)
+    //   'vertical'         (line being drawn is ~axis-aligned to V)
+    //   'coincident'       (cursor snapped to an existing endpoint)
+    //   'tangent'          (cursor brushed an existing circle's tangent)
+    //   'perpendicular'    (line being drawn is ~⊥ to nearest existing line)
+    //   'parallel'         (line being drawn is ~∥ to nearest existing line)
+    this.lastRelationHint = null;
+
     // Three.js visualization objects
     this.sketchGroup = null;     // THREE.Group holding all sketch visuals
     this.gridHelper = null;
@@ -121,6 +132,18 @@ export default class InteractiveSketch {
     }
 
     this.sketchGroup = null;
+
+    // Tier-1 #4 — clear the cursor readout so the overlay hides itself
+    // immediately when the user exits sketch mode.
+    if (typeof window !== 'undefined') {
+      window.__archdiscSketchCursor = null;
+      try {
+        window.dispatchEvent(new CustomEvent('archdisc:sketch-cursor', {
+          detail: null,
+        }));
+      } catch (_) {}
+    }
+
     this._notify('deactivated', null);
   }
 
@@ -169,6 +192,119 @@ export default class InteractiveSketch {
     if (this.tempPoints.length > 0) {
       this._updatePreview(this.cursorPos);
     }
+
+    // Tier-1 #4 + #7 — publish live cursor X/Y readout + auto-relation hint
+    // every move. The overlays in SwUxOverlays subscribe via the
+    // window cursorBus / relationHintBus.
+    try {
+      const hint = this._detectAutoRelation(this.cursorPos);
+      this.lastRelationHint = hint;
+      this._publishCursor({ u: this.cursorPos.u, v: this.cursorPos.v, hint });
+    } catch (_) { /* never let an overlay bug break the sketcher */ }
+  }
+
+  /**
+   * Tier-1 #4 — publish the current cursor (u,v in metres) so an overlay
+   * can render a live X/Y readout. Coordinates are EXACT — no rounding
+   * past the existing 1 mm grid snap — so what the user sees is what
+   * the next click will commit.
+   *
+   * Also publishes the current auto-relation hint (Tier-1 #7) so the
+   * AutoRelationIndicator overlay can render the icon next to the cursor.
+   *
+   * Pure window/event-driven — never holds a React reference, so it
+   * is safe to call from the engine without import cycles.
+   */
+  _publishCursor({ u, v, hint }) {
+    if (typeof window === 'undefined') return;
+    // u/v are metres → mm for the user-facing readout.
+    const x_mm = u * 1000;
+    const y_mm = v * 1000;
+    window.__archdiscSketchCursor = { x_mm, y_mm, u, v, hint, when: Date.now() };
+    // Custom event so React overlays don't have to poll.
+    try {
+      window.dispatchEvent(new CustomEvent('archdisc:sketch-cursor', {
+        detail: { x_mm, y_mm, u, v, hint },
+      }));
+    } catch (_) {}
+  }
+
+  /**
+   * Tier-1 #7 — detect the auto-relation that WOULD apply if the user
+   * clicked NOW with the currently-active drawing tool. Mirrors what
+   * the SW sketcher's "ghost relation" indicator shows next to the
+   * cursor — a small icon hint. Returns one of:
+   *   null | 'horizontal' | 'vertical' | 'coincident' |
+   *   'tangent' | 'perpendicular' | 'parallel'
+   *
+   * Order of precedence (matches SW behaviour):
+   *   1. Coincident (cursor snapped onto an existing point)
+   *   2. Tangent (cursor on existing circle perimeter)
+   *   3. While drawing a LINE with one endpoint placed:
+   *        - Horizontal/Vertical (axis-aligned candidate line)
+   *        - Perpendicular / Parallel (relative to nearest existing line)
+   *   4. While drawing a CIRCLE (no relation hint, but coincident still fires)
+   */
+  _detectAutoRelation(cursorPos) {
+    if (!cursorPos) return null;
+
+    // (1) Coincident — already determined by the snap target.
+    if (cursorPos.snappedTo === 'point') return 'coincident';
+
+    // (2) Tangent — cursor on an existing circle's perimeter
+    // (~within SNAP_DISTANCE of the circle radius).
+    for (const e of this.entities) {
+      if (e.type !== 'circle') continue;
+      const cx = e.solverCenter ? e.solverCenter.x : e.center.u;
+      const cy = e.solverCenter ? e.solverCenter.y : e.center.v;
+      const r = e.solverCircle ? e.solverCircle.radius : e.radius;
+      const d = Math.hypot(cursorPos.u - cx, cursorPos.v - cy);
+      if (Math.abs(d - r) < SNAP_DISTANCE) return 'tangent';
+    }
+
+    // (3) Line tool with one endpoint placed → check angle of the
+    // candidate line for H/V, then for ⊥ / ∥ vs nearest existing line.
+    if (this.activeTool === TOOLS.LINE && this.tempPoints.length === 1) {
+      const a = this.tempPoints[0];
+      const b = cursorPos;
+      const du = b.u - a.u;
+      const dv = b.v - a.v;
+      const len = Math.hypot(du, dv);
+      if (len < 1e-6) return null;
+      // 5° angular tolerance — same heuristic SW uses for the ghost.
+      const TOL = Math.PI / 36;
+      const ang = Math.atan2(dv, du);
+      // Wrap to [-π/2, π/2] for axis-alignment checks.
+      if (Math.abs(ang) < TOL || Math.abs(Math.abs(ang) - Math.PI) < TOL) {
+        return 'horizontal';
+      }
+      if (Math.abs(Math.abs(ang) - Math.PI / 2) < TOL) {
+        return 'vertical';
+      }
+      // Check ⊥ / ∥ against the nearest existing line (closest endpoint
+      // to A). 5° tolerance applied to the absolute angular delta.
+      let bestRefAng = null;
+      let bestDist = Infinity;
+      for (const ent of this.entities) {
+        if (ent.type !== 'line' || ent.isConstruction) continue;
+        const e1 = ent.solverP1; const e2 = ent.solverP2;
+        if (!e1 || !e2) continue;
+        const refAng = Math.atan2(e2.y - e1.y, e2.x - e1.x);
+        // Distance from line-A start to either endpoint of the ref line.
+        const d1 = Math.hypot(e1.x - a.u, e1.y - a.v);
+        const d2 = Math.hypot(e2.x - a.u, e2.y - a.v);
+        const d = Math.min(d1, d2);
+        if (d < bestDist) { bestDist = d; bestRefAng = refAng; }
+      }
+      if (bestRefAng !== null) {
+        const delta = Math.atan2(Math.sin(ang - bestRefAng), Math.cos(ang - bestRefAng));
+        if (Math.abs(Math.abs(delta) - Math.PI / 2) < TOL) return 'perpendicular';
+        if (Math.abs(delta) < TOL || Math.abs(Math.abs(delta) - Math.PI) < TOL) return 'parallel';
+      }
+    }
+
+    // (4) Circle / Arc / etc. — no extra relation hint beyond coincident.
+    return null;
   }
 
   /**
@@ -272,10 +408,33 @@ export default class InteractiveSketch {
     const entity = this.entities[entityIndex];
     if (!entity) return;
 
+    let kind = 'distance';
+    let p1 = null, p2 = null;
     if (entity.type === 'line') {
       this.solver.distance(entity.solverP1, entity.solverP2, value);
+      p1 = { u: entity.solverP1.x, v: entity.solverP1.y };
+      p2 = { u: entity.solverP2.x, v: entity.solverP2.y };
     } else if (entity.type === 'circle') {
       this.solver.radius(entity.solverCircle, value);
+      kind = 'radius';
+      // Radius dimension goes from centre out along +U.
+      const cx = entity.solverCenter ? entity.solverCenter.x : entity.center.u;
+      const cy = entity.solverCenter ? entity.solverCenter.y : entity.center.v;
+      p1 = { u: cx, v: cy };
+      p2 = { u: cx + value, v: cy };
+    }
+
+    // Tier-1 #6 — record this dimension on the .dimensions list with
+    // its `targetEntityIndex` set so the inline editor can drive the
+    // right constraint on edit.
+    if (p1 && p2) {
+      const id = `dim-${this.dimensions.length}-${Date.now().toString(36)}`;
+      const visual = this._drawDimension3D(p1, p2, value, 0xffaa00);
+      this.dimensions.push({
+        id, type: 'dimension', p1, p2, value, visual,
+        targetEntityIndex: entityIndex,
+        kind,
+      });
     }
 
     // Solve and update visuals
@@ -1391,10 +1550,178 @@ export default class InteractiveSketch {
   _createDimension(p1, p2) {
     const dist = Math.sqrt((p2.u - p1.u) ** 2 + (p2.v - p1.v) ** 2);
     const visual = this._drawDimension3D(p1, p2, dist, 0xffaa00);
-    const dim = { type: 'dimension', p1, p2, value: dist, visual };
+    // Tier-1 #6 — stable id so a double-click in the viewport can edit
+    // this specific dimension's value (and the solver re-binds the
+    // matching distance constraint).
+    const id = `dim-${this.dimensions.length}-${Date.now().toString(36)}`;
+    const dim = {
+      id, type: 'dimension', p1, p2, value: dist, visual,
+      // SW-style "edit on double-click": dimensions point back at the
+      // entity + constraint they drive. _createDimension itself only
+      // creates the visual; the constraint is created by applyDimension
+      // (when called via the Smart Dimension UX) — we expose a
+      // `targetEntityIndex` slot that applyDimension fills in.
+      targetEntityIndex: null,
+      kind: 'distance',
+    };
     this.dimensions.push(dim);
     this._notify('dimensionCreated', dim);
     return dim;
+  }
+
+  // ─── Tier-1 #6 — Double-click-to-edit dimension API ─────────────────────
+  //
+  // Three pieces:
+  //   1. `getDimensions()` — array of every dimension's id + label +
+  //      world position (mid-point of the visual) so an overlay can hit-
+  //      test a double-click and position the inline editor next to it.
+  //   2. `editDimension(id, newValueMm)` — change the value of the
+  //      stored dimension AND of the underlying solver constraint (if
+  //      any), re-solve, and refresh the visual. Returns the post-solve
+  //      status so the caller knows whether the sketch is now under /
+  //      fully / over-defined.
+  //   3. `getDimensionAt(worldPoint, tolMm)` — best-match hit-test used
+  //      by the overlay when the viewport sends a double-click event.
+
+  /**
+   * Return one row per dimension in the sketch with everything an
+   * overlay needs to render an inline editor next to it.
+   *
+   * Coordinates are returned in WORLD space (metres) because the
+   * overlay projects them through the camera to screen space.
+   *
+   * @returns {Array<{ id, value_mm, kind, midWorld:{x,y,z}, p1, p2,
+   *                   targetEntityIndex }>}
+   */
+  getDimensions() {
+    const out = [];
+    if (!this.planeOrigin) return out;
+    for (const d of this.dimensions) {
+      const midU = (d.p1.u + d.p2.u) / 2;
+      const midV = (d.p1.v + d.p2.v) / 2 + 0.005;
+      const w = this._to3D(midU, midV);
+      out.push({
+        id: d.id,
+        value_mm: (d.value || 0) * 1000,
+        kind: d.kind || 'distance',
+        midWorld: { x: w.x, y: w.y, z: w.z },
+        p1: d.p1,
+        p2: d.p2,
+        targetEntityIndex: d.targetEntityIndex ?? null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Edit the value of an existing dimension by id. Updates the stored
+   * value, drives the linked solver constraint (if any), re-solves,
+   * refreshes the visual, and repaints DoF colours.
+   *
+   * @param {string} id  dimension id (from getDimensions())
+   * @param {number} newValueMm  new dimension value in millimetres
+   * @returns {{ ok, value_mm?, state?, signedDof?, reason? }}
+   */
+  editDimension(id, newValueMm) {
+    if (!Number.isFinite(newValueMm) || newValueMm <= 0) {
+      return { ok: false, reason: 'value must be > 0 mm' };
+    }
+    const dim = this.dimensions.find(d => d.id === id);
+    if (!dim) return { ok: false, reason: `dimension '${id}' not found` };
+    const newValueM = newValueMm / 1000;
+
+    // Drive the underlying solver constraint. If the dimension is tied
+    // to a specific entity (set by applyDimension), update or insert a
+    // distance constraint on that entity's endpoints. If not, add a
+    // distance constraint between two free SketchPoints created from
+    // the dimension's stored p1/p2 (a no-op for purely-decorative dims).
+    if (dim.targetEntityIndex !== null && dim.targetEntityIndex !== undefined) {
+      const e = this.entities[dim.targetEntityIndex];
+      if (e && e.type === 'line') {
+        // Find an existing distance constraint on these two points and
+        // update its `targetDistance` in place — keeps DoF accounting
+        // stable. Otherwise add a fresh one.
+        const existing = this.solver.constraints.find(c =>
+          c.type === 'distance' &&
+          c.entities &&
+          c.entities[0] === e.solverP1 &&
+          c.entities[1] === e.solverP2);
+        if (existing) {
+          existing.targetDistance = newValueM;
+          if (existing.params) existing.params.distance = newValueM;
+        } else {
+          this.solver.distance(e.solverP1, e.solverP2, newValueM);
+        }
+      } else if (e && e.type === 'circle') {
+        // Circle radius dimension: edit the RadiusConstraint or add one.
+        const existing = this.solver.constraints.find(c =>
+          c.type === 'radius' && c.entities && c.entities[0] === e.solverCircle);
+        if (existing) {
+          existing.targetRadius = newValueM;
+          if (existing.params) existing.params.radius = newValueM;
+        } else {
+          this.solver.radius(e.solverCircle, newValueM);
+        }
+      }
+    } else {
+      // Decorative dimension — just update the stored value; no solver
+      // re-bind needed. Caller still gets a re-solve so any other
+      // pending constraint changes propagate.
+    }
+
+    dim.value = newValueM;
+    const result = this.solver.solve();
+    this._updateAllVisuals?.();
+    // Redraw the dimension visual with the new label.
+    if (dim.visual && this.sketchGroup) {
+      try {
+        if (dim.visual.line) {
+          this.sketchGroup.remove(dim.visual.line);
+          dim.visual.line.geometry?.dispose?.();
+          dim.visual.line.material?.dispose?.();
+        }
+        if (dim.visual.sprite) {
+          this.sketchGroup.remove(dim.visual.sprite);
+          dim.visual.sprite.material?.map?.dispose?.();
+          dim.visual.sprite.material?.dispose?.();
+        }
+      } catch (_) {}
+      dim.visual = this._drawDimension3D(dim.p1, dim.p2, dim.value, 0xffaa00);
+    }
+    try { this.applyDoFColouring(); } catch (_) {}
+    const st = this.getStatus();
+    this._notify('dimensionEdited', { id, value_mm: newValueMm, state: st.state, signedDof: st.signedDof });
+    return {
+      ok: true,
+      value_mm: newValueMm,
+      state: st.state,
+      signedDof: st.signedDof,
+      converged: !!result.converged,
+    };
+  }
+
+  /**
+   * Hit-test the sketch's dimensions against a world-space point.
+   * Returns the closest dimension whose mid-point is within `tolMm`
+   * (default 8 mm) or null.
+   *
+   * @param {{x,y,z}} worldPoint  3D point in world space
+   * @param {number} tolMm        match tolerance in mm
+   * @returns {{ id, value_mm, kind, midWorld, p1, p2 } | null}
+   */
+  getDimensionAt(worldPoint, tolMm = 8) {
+    if (!worldPoint || !this.planeOrigin) return null;
+    const dims = this.getDimensions();
+    let best = null;
+    let bestDist = (tolMm / 1000) ** 2;
+    for (const d of dims) {
+      const dx = d.midWorld.x - worldPoint.x;
+      const dy = d.midWorld.y - worldPoint.y;
+      const dz = d.midWorld.z - worldPoint.z;
+      const dd = dx * dx + dy * dy + dz * dz;
+      if (dd < bestDist) { bestDist = dd; best = d; }
+    }
+    return best;
   }
 
   // --- 3D visualization helpers ---

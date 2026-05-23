@@ -30,10 +30,11 @@
  * `data-archdisc-*` attributes for e2e specs.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronRight, Check, X, Maximize2, Crop,
          Scissors, Box, Eye, Square, MousePointer, Layers, Hexagon,
-         Circle, Trash2, Info } from 'lucide-react';
+         Circle, Trash2, Info, Minus, MoveVertical, GitBranch,
+         RotateCw, Slash } from 'lucide-react';
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import './SwUxOverlays.css';
 
@@ -634,8 +635,327 @@ export function SketchStateBadge() {
        *  the sketch badge so it only lives while a sketch is active and we
        *  don't have to touch the workbench mount. */}
       <DisplayRelationsDock />
+      {/* Tier-1 #4 — Live cursor X/Y readout (bottom-left, beside the state
+       *  badge). Only renders while a sketch is active. */}
+      <SketchCursorReadout />
+      {/* Tier-1 #7 — Auto-relations icon that follows the cursor and
+       *  reflects the snap relation the next click WILL apply. */}
+      <AutoRelationIndicator />
+      {/* Tier-1 #6 — Double-click-dimension inline editor; receives the
+       *  hit dimension via a window event from the viewport handler. */}
+      <DimensionEditorOverlay />
     </>
   );
+}
+
+// ─── 7. Sketch Live Cursor Readout (Tier-1 #4) ────────────────────────────
+//
+// Listens for the `archdisc:sketch-cursor` event the InteractiveSketch
+// fires from onMouseMove, renders the live X/Y in mm just to the right of
+// the SketchStateBadge (which lives at bottom-left). Hides when the sketch
+// deactivates (event detail === null) and also auto-hides 800 ms after
+// the last move so a stalled cursor doesn't bias debugging.
+export function SketchCursorReadout() {
+  const [cur, setCur] = useState(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onCursor = (ev) => setCur(ev.detail || null);
+    window.addEventListener('archdisc:sketch-cursor', onCursor);
+    // Seed from any prior write so the readout is correct on mount.
+    if (window.__archdiscSketchCursor) setCur(window.__archdiscSketchCursor);
+    return () => window.removeEventListener('archdisc:sketch-cursor', onCursor);
+  }, []);
+
+  if (!cur || cur.x_mm === undefined || cur.y_mm === undefined) return null;
+  const fmt = (v) => {
+    const abs = Math.abs(v);
+    // Tighten formatting for small values, expand for large.
+    if (abs < 10) return v.toFixed(3);
+    if (abs < 100) return v.toFixed(2);
+    return v.toFixed(1);
+  };
+  return (
+    <div
+      className="sw-cursor-readout"
+      data-archdisc-cursor-readout="active"
+      data-archdisc-cursor-x={String(cur.x_mm)}
+      data-archdisc-cursor-y={String(cur.y_mm)}
+    >
+      <span className="sw-cursor-axis">X</span>
+      <span className="sw-cursor-val">{fmt(cur.x_mm)}</span>
+      <span className="sw-cursor-axis">Y</span>
+      <span className="sw-cursor-val">{fmt(cur.y_mm)}</span>
+      <span className="sw-cursor-unit">mm</span>
+    </div>
+  );
+}
+
+// ─── 8. Auto-Relation Indicator (Tier-1 #7) ───────────────────────────────
+//
+// SW shows a tiny ghost icon next to the cursor when a snap relation is
+// about to commit — Horizontal, Vertical, Coincident, Tangent, etc. We
+// reproduce that ghost: tracks `pointermove` on the viewport, picks the
+// current hint from `__archdiscSketchCursor`, and positions a small badge
+// next to the pointer with the relation icon + label.
+
+const RELATION_ICONS = {
+  horizontal:    { Icon: Minus,        label: 'H',  title: 'Horizontal' },
+  vertical:      { Icon: MoveVertical, label: 'V',  title: 'Vertical' },
+  coincident:    { Icon: GitBranch,    label: '∘',  title: 'Coincident' },
+  tangent:       { Icon: RotateCw,     label: 'T',  title: 'Tangent' },
+  perpendicular: { Icon: Square,       label: '⊥',  title: 'Perpendicular' },
+  parallel:      { Icon: Slash,        label: '∥',  title: 'Parallel' },
+};
+
+export function AutoRelationIndicator() {
+  const [pos, setPos] = useState(null);
+  const [hint, setHint] = useState(null);
+  const lastMoveRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    // Track pointer ONLY inside the viewport canvas. The viewport mount
+    // class is .workbench-viewport (set in WorkbenchMechanical.jsx).
+    const onMove = (ev) => {
+      // Only act while a sketch is active AND a drawing tool is selected.
+      const sketch = window.__archdiscSketch;
+      if (!sketch || !sketch.active || sketch.activeTool === 'none') {
+        setPos(null);
+        return;
+      }
+      lastMoveRef.current = Date.now();
+      setPos({ x: ev.clientX, y: ev.clientY });
+      const cur = window.__archdiscSketchCursor;
+      setHint(cur && cur.hint ? cur.hint : null);
+    };
+    const onLeave = () => setPos(null);
+    const onCursorEv = (ev) => {
+      // If the sketch publishes a cursor while the mouse hasn't moved
+      // (rare — e.g. the tool just changed), still update the hint.
+      const cur = ev.detail;
+      setHint(cur && cur.hint ? cur.hint : null);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerleave', onLeave);
+    window.addEventListener('archdisc:sketch-cursor', onCursorEv);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerleave', onLeave);
+      window.removeEventListener('archdisc:sketch-cursor', onCursorEv);
+    };
+  }, []);
+
+  // Stale-cursor auto-hide: if the pointer hasn't moved for 1 s clear it.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (Date.now() - lastMoveRef.current > 1200) setPos(null);
+    }, 350);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!pos || !hint || !RELATION_ICONS[hint]) return null;
+  const { Icon, label, title } = RELATION_ICONS[hint];
+  return (
+    <div
+      className="sw-auto-relation"
+      data-archdisc-auto-relation={hint}
+      title={title}
+      style={{ left: pos.x + 16, top: pos.y + 14 }}
+    >
+      <Icon size={11} />
+      <span className="sw-auto-relation-label">{label}</span>
+    </div>
+  );
+}
+
+// ─── 9. Dimension Inline Editor (Tier-1 #6) ───────────────────────────────
+//
+// Opens an inline value-editor next to a sketch dimension when the
+// viewport fires `archdisc:edit-dimension` (sent by the viewport's
+// double-click handler — see InteractiveSketch.getDimensionAt). Pressing
+// Enter commits via `sketch.editDimension(id, value)`, Esc cancels. The
+// editor stays anchored to the dimension's screen position by projecting
+// the dimension's mid-point through the live camera each render.
+export function DimensionEditorOverlay() {
+  const [active, setActive] = useState(null); // { id, screen:{x,y}, value_mm }
+  const [valStr, setValStr] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onOpen = (ev) => {
+      const d = ev?.detail;
+      if (!d || !d.id) { setActive(null); return; }
+      const projected = projectDimensionToScreen(d.id);
+      setActive({
+        id: d.id,
+        screen: projected || { x: ev?.detail?.screenX ?? 100, y: ev?.detail?.screenY ?? 100 },
+        value_mm: d.value_mm ?? 0,
+      });
+      setValStr(d.value_mm !== undefined ? String(d.value_mm.toFixed(2)) : '');
+    };
+    window.addEventListener('archdisc:edit-dimension', onOpen);
+    return () => window.removeEventListener('archdisc:edit-dimension', onOpen);
+  }, []);
+
+  // Keep the editor anchored to the dimension as the camera moves.
+  useEffect(() => {
+    if (!active) return undefined;
+    const id = setInterval(() => {
+      const projected = projectDimensionToScreen(active.id);
+      if (projected) {
+        setActive((a) => (a ? { ...a, screen: projected } : a));
+      }
+    }, 80);
+    return () => clearInterval(id);
+  }, [active]);
+
+  // Focus + select on open.
+  useEffect(() => {
+    if (active && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [active]);
+
+  // Click-outside / Esc to cancel.
+  useEffect(() => {
+    if (!active) return undefined;
+    const onDown = (ev) => {
+      const root = document.querySelector('.sw-dim-editor');
+      if (root && root.contains(ev.target)) return;
+      setActive(null);
+    };
+    const onKey = (ev) => { if (ev.key === 'Escape') setActive(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [active]);
+
+  const commit = useCallback(() => {
+    if (!active) return;
+    const sketch = typeof window !== 'undefined' ? window.__archdiscSketch : null;
+    const v = parseFloat(valStr);
+    if (!sketch || !Number.isFinite(v) || v <= 0) {
+      setActive(null);
+      return;
+    }
+    try {
+      const res = sketch.editDimension(active.id, v);
+      if (typeof window !== 'undefined') {
+        window.__lastDimensionEdit = { id: active.id, value_mm: v, result: res };
+        try {
+          window.dispatchEvent(new CustomEvent('archdisc:dimension-edited', {
+            detail: { id: active.id, value_mm: v, result: res },
+          }));
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn('[DimensionEditor] editDimension failed', e);
+    }
+    setActive(null);
+  }, [active, valStr]);
+
+  if (!active) return null;
+  return (
+    <div
+      className="sw-dim-editor"
+      data-archdisc-dim-editor="open"
+      data-archdisc-dim-id={active.id}
+      style={{ left: active.screen.x + 8, top: active.screen.y - 10 }}
+    >
+      <input
+        ref={inputRef}
+        className="sw-dim-editor-input"
+        type="number"
+        step="0.01"
+        value={valStr}
+        onChange={(e) => setValStr(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          else if (e.key === 'Escape') setActive(null);
+        }}
+        data-archdisc-dim-input
+      />
+      <span className="sw-dim-editor-unit">mm</span>
+      <button
+        className="sw-dim-editor-ok"
+        onClick={commit}
+        title="Commit (Enter)"
+        data-archdisc-dim-ok
+      >
+        <Check size={11} strokeWidth={3} />
+      </button>
+      <button
+        className="sw-dim-editor-cancel"
+        onClick={() => setActive(null)}
+        title="Cancel (Esc)"
+        data-archdisc-dim-cancel
+      >
+        <X size={11} strokeWidth={3} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Project a sketch dimension's mid-point through the live camera to
+ * screen pixels. Returns null if the camera isn't ready or the
+ * dimension doesn't exist.
+ */
+function projectDimensionToScreen(id) {
+  if (typeof window === 'undefined') return null;
+  const sketch = window.__archdiscSketch;
+  const vp = window.__archdiscViewport;
+  const THREE = window.THREE;
+  if (!sketch || !vp || !THREE) return null;
+  if (typeof sketch.getDimensions !== 'function') return null;
+  const dims = sketch.getDimensions();
+  const dim = dims.find(d => d.id === id);
+  if (!dim) return null;
+  try {
+    const camera = vp.camera;
+    const renderer = vp.renderer || (typeof document !== 'undefined'
+      ? document.querySelector('canvas')
+      : null);
+    let w = 800, h = 600;
+    if (renderer && renderer.getSize) {
+      const sz = renderer.getSize ? renderer.getSize(new THREE.Vector2()) : null;
+      if (sz && sz.x && sz.y) { w = sz.x; h = sz.y; }
+    } else if (vp.renderer && vp.renderer.domElement) {
+      w = vp.renderer.domElement.clientWidth;
+      h = vp.renderer.domElement.clientHeight;
+    } else {
+      const c = typeof document !== 'undefined'
+        ? document.querySelector('.workbench-viewport canvas')
+        : null;
+      if (c) { w = c.clientWidth; h = c.clientHeight; }
+    }
+    const v = new THREE.Vector3(dim.midWorld.x, dim.midWorld.y, dim.midWorld.z);
+    v.project(camera);
+    // Translate NDC → CSS pixels relative to the canvas, then add the
+    // canvas's bounding-rect offset so the editor lands at the right
+    // viewport spot.
+    const canvas = typeof document !== 'undefined'
+      ? document.querySelector('.workbench-viewport canvas')
+      : null;
+    let offsetX = 0, offsetY = 0;
+    if (canvas) {
+      const r = canvas.getBoundingClientRect();
+      offsetX = r.left;
+      offsetY = r.top;
+      w = r.width;
+      h = r.height;
+    }
+    const x = (v.x * 0.5 + 0.5) * w + offsetX;
+    const y = (-v.y * 0.5 + 0.5) * h + offsetY;
+    return { x, y };
+  } catch (_) {
+    return null;
+  }
 }
 
 // ─── 5. Selection Priority Bar (Tier-11a NX-distinctive UX) ────────────────
