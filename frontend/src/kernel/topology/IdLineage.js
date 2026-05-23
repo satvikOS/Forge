@@ -67,7 +67,22 @@
  * This module is the single place that consumes `Modified/Generated/IsDeleted`
  * — every spine-aware boolean (S3) and feature op (S4) imports
  * `carryLineage()` from here.
+ *
+ * ──  SP-2 attribute survival hook  ──────────────────────────────────────────
+ * As of SP-2 (`Attributes.js`), `carryLineage` ALSO propagates attribute
+ * payloads from each input entity onto the survivor result entity, by calling
+ * `propagateAttributes(result, source, report)` at the point where the
+ * lineage edge is recorded. Each attribute's `survives` policy ('verbatim' /
+ * 'lineage' / 'union') determines how it carries through booleans + features +
+ * local ops + transforms. The report exposes:
+ *   - `report.attributesCarried`  total attributes copied/merged onto results
+ *   - `report.attributeConflicts` count of verbatim-collision throws caught
+ *   - `report.attributeErrors`    per-conflict diagnostic objects (loud, not silent)
+ * `body.diagnostics.attributes` stores the same report.attributeErrors so the
+ * Topology Inspector / e2e can see them after binding.
  */
+
+import { propagateAttributes } from './Attributes.js';
 
 /**
  * Run the persistent-ID carry-through on a freshly-bound result spine.
@@ -106,6 +121,11 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
     faceMap: new Map(),
     edgeMap: new Map(),
     vertexMap: new Map(),
+    // SP-2 — attribute survival counters; populated by propagateAttributes via
+    // applyLineage and the Generated/derivedFrom branch below.
+    attributesCarried: 0,
+    attributeConflicts: 0,
+    attributeErrors: [],
   };
 
   // ── Index every result spine entity by its engine sub-shape (geomRef) ──
@@ -124,6 +144,22 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
   const claimedFace   = new Map(); // resultEntity → inputPersistentId (the winner)
   const claimedEdge   = new Map();
   const claimedVertex = new Map();
+
+  // SP-2 — propagate BODY-level attributes first. Body attributes (e.g. a
+  // body's `name`, `material`, `partNumber`) survive transforms verbatim and
+  // survive booleans by *union*: the result body inherits attribute keys from
+  // every input body. The default policy is whatever the source declared; for
+  // a boolean with two inputs both carrying `name='Pulley'` the verbatim
+  // policy would error, so users tagging body-level attributes that survive
+  // booleans should use 'union' or 'lineage' explicitly. The propagator
+  // handles all three.
+  for (const ib of inputBodies) {
+    const inBody = ib.body || ib;
+    if (!inBody) continue;
+    if (inBody.attributes && Object.keys(inBody.attributes).length > 0) {
+      propagateAttributes(resultBody, inBody, report);
+    }
+  }
 
   // ── Walk every input body's entities and consult Modified/Generated/IsDeleted ──
   for (const ib of inputBodies) {
@@ -183,6 +219,10 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
         if (!resultEntity) continue;
         appendDerivedFrom(resultEntity, inFace.persistentId);
         report.generated += 1;
+        // SP-2 — generated entities carry attributes from their source per the
+        // survives policy. A rolling-ball fillet face Generated from a seed
+        // edge inherits the edge's attributes (e.g. material/finish provenance).
+        propagateAttributes(resultEntity, inFace, report);
       }
     }
 
@@ -222,6 +262,9 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
         if (!resultEntity) continue;
         appendDerivedFrom(resultEntity, inEdge.persistentId);
         report.generated += 1;
+        // SP-2 — generated edges carry attributes (e.g. tolerance H7) from
+        // their seed edge per the survives policy.
+        propagateAttributes(resultEntity, inEdge, report);
       }
     }
 
@@ -261,6 +304,16 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
   }
 
   resultBody.diagnostics.lineage = report;
+  // SP-2 — expose attribute survival diagnostics at the body level so the
+  // Topology Inspector / e2e can inspect any conflicts that occurred.
+  if (report.attributesCarried > 0 || report.attributeConflicts > 0
+      || report.attributeErrors.length > 0) {
+    resultBody.diagnostics.attributes = {
+      carried: report.attributesCarried,
+      conflicts: report.attributeConflicts,
+      errors: report.attributeErrors,
+    };
+  }
   return report;
 }
 
@@ -296,6 +349,11 @@ function applyLineage(resultEntity, inputEntity, claimed, map, report, kind, sur
       report.notes.push(
         `${kind} conflict: ${inputId} → ${resultEntity.persistentId} ` +
         `(already claimed by ${winner}; recorded as merge in derivedFrom)`);
+      // SP-2 — even on a merge (subsequent input not the winner), propagate
+      // the new source's attributes onto the result. The survival policy
+      // ('lineage' merges add to derivedFrom; 'verbatim' collisions throw;
+      // 'union' arrays concatenate) handles every case deterministically.
+      propagateAttributes(resultEntity, inputEntity, report);
     }
     map.set(inputId, resultEntity.persistentId);
     return;
@@ -306,6 +364,11 @@ function applyLineage(resultEntity, inputEntity, claimed, map, report, kind, sur
   appendDerivedFrom(resultEntity, inputId);
   claimed.set(resultEntity, inputId);
   map.set(inputId, inputId);
+  // SP-2 — primary survivor inherits every attribute from the source per the
+  // attribute's survives policy. For the common case (a face's user-tagged
+  // finish='mirror' with policy='verbatim') this means the survivor face
+  // carries the finish across the op.
+  propagateAttributes(resultEntity, inputEntity, report);
   // For traceability: if the freshly-bound id is interesting, log it.
   if (previous && previous !== inputId) {
     report.notes.push(

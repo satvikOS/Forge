@@ -55,6 +55,14 @@ import validateSpine from './validateSpine.js';
  *        on `body.geomEngineShape` (typically the BrepShape the op returned).
  * @param {boolean} [opts.validate]  run validateSpine and attach the report
  *        to `body.diagnostics.validation` (default true).
+ * @param {object}  [opts.preserveBodyAttributes]  SP-2 — a plain attribute
+ *        payload (e.g. `srcBody.attributes`) to verbatim-copy onto the result
+ *        body's `attributes` AFTER binding. Used by ops that preserve body
+ *        identity (transforms): the body itself didn't change in any
+ *        meaningful sense, so its body-level attributes (name, partNumber,
+ *        material) flow verbatim onto the rebuilt spine Body without going
+ *        through `carryLineage`. Per-entity attributes still flow via
+ *        `carryLineage` for ops that call it.
  * @returns {import('./Body.js').default} the spine Body.
  */
 export default function bindSpine(oc, shape, opts = {}) {
@@ -316,6 +324,19 @@ export default function bindSpine(oc, shape, opts = {}) {
     // validateSpine treats as an error.
     if (opts.declaredKind) body.declaredKind = opts.declaredKind;
     body.assertKind();
+
+    // ── SP-2 — body-level attribute preservation. If the caller passes the
+    //          source body's `attributes` payload, verbatim-copy it onto the
+    //          result body BEFORE validation. Per-entity attributes are NOT
+    //          preserved here — they flow through `IdLineage.carryLineage`
+    //          which has the engine's Modified/Generated map.
+    if (opts.preserveBodyAttributes && typeof opts.preserveBodyAttributes === 'object') {
+      try {
+        body.attributes = JSON.parse(JSON.stringify(opts.preserveBodyAttributes));
+      } catch (_e) {
+        body.attributes = { ...opts.preserveBodyAttributes };
+      }
+    }
 
     // ── 9. Validate ──────────────────────────────────────────────────────────
     if (opts.validate !== false) {
