@@ -10,7 +10,11 @@ import {
   makeBox, makeCylinder, makeSphere, makeCone, makeTorus,
 } from './BrepPrimitives.js';
 import { fuse, cut, common } from './BrepBoolean.js';
-import { extrudeRect, revolveRect, filletAll, chamferAll, variableFillet } from './BrepFeatures.js';
+import {
+  extrudeRect, revolveRect, filletAll, chamferAll, variableFillet,
+  // SP-6 — arbitrary trimmed-wire profile features (Area B, T1).
+  extrudeProfile, revolveProfile, sweepProfile,
+} from './BrepFeatures.js';
 import { exportStep, importStep } from './BrepStep.js';
 import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 import { sweep, loft } from './BrepSurfacing.js';
@@ -59,6 +63,13 @@ export const ArchDiscKernel = {
     makeCylinder, makeSphere, makeCone, makeTorus,
     fuse, cut, common,
     extrudeRect, revolveRect, filletAll, chamferAll, variableFillet,
+    // ── SP-6 Sketch-feature generalisation (Area B, T1) ───────────────────
+    /** Extrude an arbitrary closed planar wire to a prismatic solid. */
+    extrudeProfile,
+    /** Revolve an arbitrary closed planar wire around an axis to a solid. */
+    revolveProfile,
+    /** Sweep an arbitrary closed planar profile wire along a path wire. */
+    sweepProfile,
     shell, thicken, offsetShape, draft,
     sweep, loft,
     checkSelfIntersection, checkClash, selfIntersect,

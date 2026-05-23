@@ -5,7 +5,12 @@ export {
   makeBox, makeCylinder, makeSphere, makeCone, makeTorus,
 } from './BrepPrimitives.js';
 export { fuse, cut, common } from './BrepBoolean.js';
-export { extrudeRect, revolveRect, filletAll, chamferAll, variableFillet } from './BrepFeatures.js';
+export {
+  extrudeRect, revolveRect, filletAll, chamferAll, variableFillet,
+  // SP-6 — Sketch-feature generalisation (Area B, T1): arbitrary closed-
+  // trimmed-wire profile sweep / extrude / revolve.
+  extrudeProfile, revolveProfile, sweepProfile,
+} from './BrepFeatures.js';
 export { exportStep, importStep } from './BrepStep.js';
 export { tessellate } from './BrepTessellate.js';
 export { brepToMesh } from './brepToMesh.js';
