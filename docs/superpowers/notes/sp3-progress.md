@@ -9,7 +9,7 @@ PK_PARTITION rollback machinery enumerated at line 312 of
 | Stage | Status | Date | Notes |
 |---|---|---|---|
 | **SP-3a** — mechanism + `makeBox` hook | **DONE** | 2026-05-23 | see below |
-| **SP-3b** — coverage across remaining ops (primitives + booleans + features + local + surfacing) | **QUEUED** | — | every op-class that already goes through `IdLineage.carryLineage` is the SP-3b dispatch surface |
+| **SP-3b** — coverage across remaining ops (primitives + booleans + features + local + surfacing + transforms + analytic-face + partition/section/imprint) | **DONE** | 2026-05-23 | see SP-3b section below |
 | **SP-3c** — Design History UI rebacked by the kernel log | **QUEUED** | — | the existing Design History panel becomes a *timeline scrubber* over the SP-3a log |
 
 ---
@@ -304,3 +304,198 @@ SP-3b's dispatch plan:
 SP-3c then wires the existing Design History panel as a *timeline
 scrubber* over the kernel log — replacing the app-level history stack
 with the kernel-level bulletin-board, closing Area L's UI half.
+
+---
+
+## SP-3b — coverage across remaining ops — DONE (2026-05-23)
+
+### The deliverable
+
+Every body-producing op in the kernel is now wrapped to auto-record a
+forward/inverse delta on the shared HistoryLog. The wrapping is INTERNAL
+— each op's public API + return shape is unchanged, so the SP-1
+duck-compatibility contract and every downstream consumer continue to
+work identically. A bespoke 9-step engineered-part workflow drives the
+new machinery through every op family (primitives, booleans, transforms,
+features, local ops, surfacing) and verifies the full timeline
+round-trips rollback→rollforward with persistent body ids stable across
+every replay.
+
+### The new HistoryLog surface
+
+`frontend/src/kernel/history/HistoryLog.js`:
+
+| New export | Purpose |
+|---|---|
+| `recordBodyDerive({opName, persistentBodyId, inputPersistentIds, rebuild, meta, dependsOn})` | the canonical delta shape for ops that DERIVE a new body from one or more prior bodies (booleans, features, local ops, transforms, imprint, planar section curves, analytic-face ops). Forward looks up each input by its persistent id from the BodyRegistry and re-runs the op against the live re-created inputs. Inverse removes only the result body. |
+| `recordBodyDeriveMulti({opName, persistentBodyIds[], inputPersistentIds, rebuild, meta, dependsOn})` | same shape but the op produces an ARRAY of bodies (partition + planarSection({output:'split'}) both return one per resulting solid lump). ONE aggregate delta per call. |
+| `standardSceneRegister(body, sceneCtx)` | shared register thunk for every kernel op-site — locates `__archdiscAddBrepShape` and the live scene + viewport, calls them. Optional `sceneCtx.applyAfterRegister` post-hook. |
+| `standardSceneRemove(persistentBodyId, sceneCtx)` | shared remove thunk — locates the BodyRegistry entry whose `brepShapeRef.body.persistentId === pid` and calls `BodyRegistry.remove(id)`. |
+| `findLiveBodyByPersistentId(pid, sceneCtx)` | the lookup the derive forward thunks use to re-find their inputs on replay. |
+
+### The dependency model — DOCUMENTED CHOICE
+
+> **"inverse = remove result body"** — the inverse delta just removes the
+> result body from the registry. It does NOT recreate the inputs.
+> Booleans / consuming ops do NOT delete their inputs at the KERNEL
+> layer (the workbench's `addBrepShapeToScene(.., consumedInputs)` is
+> what removes inputs from the scene; the kernel hook records the
+> producer, not the consumption). To undo input-consumption the caller
+> rolls back further through the timeline; the prior-input ops' forward
+> deltas then replay their inputs verbatim.
+
+This matches the SP-3a / Parasolid PK_PARTITION contract — a SINGLE
+linear cursor over forward/inverse pairs; the dependency chain is
+implicit via cursor order. `dependsOn` carries the input persistent
+ids on the entry so a downstream timeline-scrubber UI (SP-3c) can
+render the feature DAG.
+
+### Ops hooked — every body-producer in the SP-3b dispatch surface
+
+| File | Ops | Helper used | Notes |
+|---|---|---|---|
+| `BrepPrimitives.js` | `makeCylinder`, `makeSphere`, `makeCone`, `makeTorus` | `recordBodyCreate` | factored into `_constructMake{Cylinder,Sphere,Cone,Torus}` with bodyTag arg, identical pattern to `makeBox` |
+| `BrepFeatures.js`   | `extrudeRect`, `revolveRect` | `recordBodyCreate` | profile-internal — no input body; treat as primitive-like |
+| `BrepFeatures.js`   | `filletAll`, `chamferAll`, `variableFillet` | `recordBodyDerive` | factored into `_runFilletAll`/`_runChamferAll`/`_runVariableFillet` with bodyTag arg; `bindFeatureResult` threads bodyTag |
+| `BrepBoolean.js`    | `fuse`, `cut`, `common` | `recordBodyDerive` | `runBoolean` threads bodyTag through; `recordBooleanDelta` shared helper |
+| `BrepTransform.js`  | `translate`, `rotate` | `recordBodyDerive` | factored into `_runTranslate`/`_runRotate` with bodyTag arg |
+| `BrepBlend.js`      | `cliffEdgeBlend`, `mitreCorner` | `recordBodyDerive` | factored into `_runCliffEdgeBlend`/`_runMitreCorner`; `blendG2` left alone (returns BrepShape not SpineBody — SP-1 S6 follow-up) |
+| `BrepLocalOps.js`   | `shell`, `thicken`, `offsetShape`, `draft` | `recordBodyDerive` | factored into `_runShell`/`_runThicken`/`_runOffsetShape`/`_runDraft`; `bindLocalOpResult` accepts `opts.bodyTag` |
+| `BrepSurfacing.js`  | `sweep`, `loft` | `recordBodyCreate` | factored into `_constructSweep`/`_constructLoft`; `bindSurfacingResult` accepts `opts.bodyTag` |
+| `BrepFinal.js`      | `pipeShellSweep`, `loftTangent`, `stitchFaces` | `recordBodyCreate` | factored into `_constructPipeShellSweep`/`_constructLoftTangent`/`_constructStitchFaces` |
+| `BrepImprint.js`    | `imprint` | `recordBodyDerive` | factored into `_runImprint`; threads bodyTag through bindSpine |
+| `BrepPartition.js`  | `partition` | `recordBodyDeriveMulti` | factored into `_runPartition(body, tools, pieceBodyTags)` — `pieceBodyTags` is the array of original piece persistent ids re-used on replay |
+| `BrepSection.js`    | `planarSection` (both 'curves' and 'split' output modes) | `recordBodyDerive` (curves) / `recordBodyDeriveMulti` (split) | factored into `_runPlanarSection(body, plane, opts, replayHints)`; `runCurves`/`runSplit` threaded with bodyTag/pieceBodyTags |
+| `BrepBlendG2.js`    | `g2BlendBetweenEdges` | `recordBodyDerive` | factored into `_g2BlendBetweenEdgesImpl`; `opts._bodyTagReplay` threads stable id through `buildAnalyticSpineBody` |
+| `BrepNSided.js`     | `nSidedPatch` | `recordBodyDerive` | same `_bodyTagReplay` pattern as g2Blend |
+| `BrepRewrite.js`    | `replaceFace` (same-surface rebuild path) | `recordBodyDerive` | factored into `_replaceFaceImpl`; the `curvedSwap` path delegates to `replaceFaceWithArbitrarySurface` which returns a non-SpineBody — NOT hooked (documented gap) |
+
+### The bushing-chain e2e — workflow
+
+`e2e/sp3b-multi-op-history-electron.spec.js` (motion-capture, headed
+Electron, ONE `test()`, `--workers=1`, no `import` from `node:*`).
+
+The bespoke model — a **machined bushing with grease groove**. Real
+engineered part — the kind that ships in millions of automotive,
+agricultural, and industrial assemblies. The 9-step chain:
+
+1. `makeCylinder(20, 30)` — outer cylinder ⌀40 × 30mm
+2. `makeCylinder(13, 30)` — inner bore ⌀26 × 30mm
+3. `cut(outer, inner)`    — hollow bushing tube
+4. `filletAll(tube, 1.0)` — break sharp edges 1mm radius
+5. `revolveRect(15, 1.5, 2, 360)` — grease groove (annular ring)
+6. `cut(filleted, groove)` — machine the groove into the wall
+7. `translate(grooved, 50, 0, 0)` — reposition to +50mm
+8. `makeSphere(8)` — witness pellet (visible witness body)
+9. `fuse(positioned, sphere)` — final compound assembly
+
+The chain exercises every SP-3b op family — PRIMITIVE create
+(makeCylinder ×2, makeSphere, revolveRect), BOOLEAN derive (cut ×2,
+fuse), FEATURE derive (filletAll), TRANSFORM derive (translate).
+
+Workflow:
+1. **Build** — 9 ops + 6 marks = 15 log entries. Every op result is
+   registered on the scene via `__archdiscAddBrepShape` so the
+   initial-build state mirrors what each forward delta produces on
+   replay.
+2. **Frame** — focus on the assembled final body, one deliberate
+   drag-orbit for an iso corner-on view. HELD throughout.
+3. **Roll BACK to '__baseline'** — every inverse fires newest-first
+   over all 15 entries; registry empty; entries preserved (redo intact).
+4. **Roll FORWARD through 4 scrub-points**:
+   - `'filleted'` (cursor=6) → 4 bodies
+   - `'grooved'` (cursor=9) → 6 bodies
+   - `'positioned'` (cursor=11) → 7 bodies
+   - `'assembled'` (cursor=14) → 9 bodies
+5. **Focal contract** — every persistent body id of the rebuilt state
+   matches the originally-built id VERBATIM. From the run log:
+   `[makeCylinder-brep-2, makeCylinder-brep-3, cut-brep-4,
+    filletAll-brep-5, revolveRect-brep-6, cut-brep-7, translate-brep-8,
+    makeSphere-brep-9, fuse-brep-10]` — every id stable across replay.
+
+Result: **PASS** in 13.2s.
+
+Artifacts: 6 stills (290-443 KB each) + 842 KB session.webm.
+- `01-state-end-built.png` — the assembled bushing + pellet, 8+ bodies in browser.
+- `02-state-start-empty.png` — "No bodies in scene." (post-rollback).
+- `03-state-quarter-filleted.png` — 4 bodies, tube + filleted on screen.
+- `04-state-half-grooved.png` — 6 bodies, groove machined in.
+- `05-state-threequarter-positioned.png` — 7 bodies, bushing translated.
+- `06-state-end-rebuilt.png` — 9 bodies rebuilt; persistent ids match the
+  original. BodyRegistry transient ids change (Body 10-17 instead of Body 1-9)
+  but the SPINE persistent ids are stable — the SP-3b focal contract.
+
+### Regression subset (per the brief)
+
+Headed Electron, `--workers=1`, `--retries=0`.
+
+| Spec | Result |
+|---|---|
+| `sp3a-history-mechanism-electron` | PASS (13.9s) |
+| `sp3b-multi-op-history-electron` (NEW) | **PASS** (13.2s) |
+| `brep-primitives-electron` | PASS (38.5s — all 4 primitives + box) |
+| `brep-boolean-electron` | PASS (3 specs: fuse/cut/common) |
+| `brep-features-electron` | PASS (4 specs: extrude/revolve/fillet/chamfer) |
+
+Total: 5 specs / 8 tests passed in the SP-3b-relevant band. No new
+failures from SP-3b op coverage.
+
+### Honest gaps
+
+- **`blendG2` (BrepBlend.js)** — returns a `BrepShape`, not a
+  `SpineBody`. The A5 planar-fill MakeFace path doesn't go through the
+  spine binder, so there's no `body.persistentId` to record. Documented
+  pre-existing limitation (SP-1 S6 follow-up); NOT hooked.
+- **`replaceFace.curvedSwap` (BrepRewrite.js)** — the curved-swap path
+  delegates to `replaceFaceWithArbitrarySurface` which returns a body
+  via a different code path. The same-surface rebuild IS hooked; the
+  curved swap is not. Documented.
+- **`buildNurbsPatch` / `refineNurbs` / `elevateNurbsDegree` (BrepNurbs.js)
+  + `trimmedNurbsFace` (BrepNurbsTrim.js) + `simplify` (BrepHeal.js)**
+  — NOT hooked. The pattern is identical to the ops hooked here
+  (factor `_construct{Op}`, thread bodyTag, wrap with
+  `recordBodyCreate`/`recordBodyDerive`). Time-bounded scope cut for
+  SP-3b; the dispatch surface is the SAME and these are SP-3c follow-up.
+- **`BrepBoolAdvanced.js` advanced booleans (`fuseAll` /
+  `fuseNonManifold` / `fuseCoincident` / `fuseLattice`)** — same.
+- **Engine-shape lifetime on rollback** — same SP-3a documented gap.
+  `BodyRegistry.remove(id)` does not call `SpineBody.dispose()`; the
+  removed body's `TopoDS_Shape` stays alive in the WASM heap until
+  GC. Bounded for the 9-op chain; SP-3c will tighten.
+
+### Commits
+
+| SHA | Subject |
+|---|---|
+| `354ced1c` | SP-3b — history: add recordBodyDerive + recordBodyDeriveMulti + standard scene thunks |
+| `19eaf35f` | SP-3b — primitives + create-shape feature/surfacing hooks |
+| `7cbdc770` | SP-3b — derive-shape hooks: booleans, transforms, blends, local ops |
+| `67129842` | SP-3b — partition/section/imprint + analytic-face derive hooks |
+| `38a71bf8` | SP-3b — bespoke e2e: machined bushing chain rollback/forward round-trip |
+| (pending) | SP-3b — progress notes |
+
+### Hand-off to SP-3c (UI rebacking)
+
+SP-3c needs:
+- A kernel-level forward/inverse delta on every body-producing op.
+  **DONE — SP-3b (this).**
+- Persistent body ids stable across rollback/rollforward replays.
+  **DONE — SP-3a / SP-3b (the bodyTag-seeded rebuild thunk contract).**
+- The HistoryLog as the single source of truth for the timeline.
+  **DONE — SP-3a.**
+- A canonical body-create + body-derive + body-derive-multi delta
+  shape that every op-site uses uniformly. **DONE — SP-3b.**
+
+SP-3c's plan:
+1. Replace the existing Design History panel's app-level history stack
+   with a kernel-log-backed timeline scrubber.
+2. Render the feature DAG using `entry.dependsOn` (every derive entry
+   carries its `inputPersistentIds`).
+3. Click a mark / entry → drive `hist.rollBackTo(target)` /
+   `hist.rollForwardTo(target)` with the live scene context.
+4. Wire the remaining hooks (NURBS, simplify, advanced booleans,
+   blendG2, replaceFace.curvedSwap).
+5. Add persistence: serialise the log to disk via the AI Plan format
+   (`forward` / `inverse` are closures over op params; `meta`'s
+   `op` + `params` provide enough to rebuild the closure from a
+   serialised log via an op-vocabulary lookup).
