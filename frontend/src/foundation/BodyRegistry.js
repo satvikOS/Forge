@@ -145,8 +145,22 @@ class BodyRegistry {
     };
     group.userData.bodyId = id;
     // Also store on group.userData so selectedBrepShapes can access it
-    // even without the BodyEntry in hand.
-    if (brepShape) group.userData.brepShapeRef = brepShape;
+    // even without the BodyEntry in hand. Stored as a NON-ENUMERABLE
+    // property so it survives `Object3D.copy()`'s `JSON.parse(JSON.stringify(
+    // userData))` round-trip without dragging the brepShape graph through a
+    // JSON serializer (SP-1 S2: a SpineBody's spine has back-reference cycles
+    // — Lump↔Shell, Shell↔Face, Loop↔Coedge, Edge↔Coedge — that JSON.stringify
+    // legitimately rejects, but a non-enumerable property is skipped so the
+    // clone works; the reference itself can still be read via the explicit
+    // `group.userData.brepShapeRef` read path used by selectedBrepShapes()).
+    if (brepShape) {
+      Object.defineProperty(group.userData, 'brepShapeRef', {
+        value: brepShape,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
     this.bodies.push(entry);
     this._notify();
     return id;
