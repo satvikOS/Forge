@@ -629,7 +629,7 @@ Horizontal, Vertical, Coincident, Parallel, Perpendicular, Tangent, Equal + Auto
 | Mirror Entities | Mirror Sketch | **Done** |
 | Linear Sketch Pattern | (likely missing in Sketch tab; Linear Pattern in Part) | **Missing** at sketch level |
 | Circular Sketch Pattern | (likely missing in Sketch tab) | **Missing** at sketch level |
-| Move / Rotate / Copy / Scale / Stretch / Split Entities | (likely missing) | **Missing** |
+| Move / Rotate / Copy / Scale / Stretch / Split Entities | Move / Rotate / Copy / Scale / Stretch (Tier-2c — `InteractiveSketch.moveEntities` / `rotateEntities` / `copyEntities` / `scaleEntities` / `stretchEntities`; ribbon Sketch→Transform group; selection-driven; solver re-solves after each transform). Split Entities still missing | **Partial** — 5 of 6 shipped; Stretch via explicit endpoint picks (not marquee-box selection idiom) |
 | Fully Define Sketch | Auto-Constrain | **Done** (Auto-Constrain is the rough equivalent) |
 | Display/Delete Relations | Display Relations dock | **Done** (Tier-2b — right-side dock lists every relation with named label + delete buttons) |
 | 3D Sketch | (likely missing) | **Missing** |

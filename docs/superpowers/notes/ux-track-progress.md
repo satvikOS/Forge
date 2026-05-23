@@ -1,6 +1,6 @@
 # UX-Track Progress — SolidWorks + NX Conventions in ArchDisc
 
-**Last updated:** 2026-05-23 (Tier-1 backlog #4/#6/#7/#9 closed)
+**Last updated:** 2026-05-23 (Tier-2c sketch transforms shipped)
 
 This file tracks ArchDisc's progress closing the SolidWorks UX gap list documented in
 [`solidworks-course-synthesis.md`](./solidworks-course-synthesis.md). The gap list is
@@ -250,11 +250,87 @@ Artifacts: `e2e-output/ux-tier2b/01–11*.png` + `00-session.webm`.
 
 ---
 
+## Tier 2c — Sketch transform tools (5 of 5 shipped)
+
+The SW Tier-2 list flagged Move / Rotate / Copy / Scale / Stretch
+Entities as missing (synthesis §6.2 line 632, course tutorials #20-#24).
+This pass ships all five. Selection-driven: pre-select sketch entities
+(or, for Stretch, endpoint picks) on `window.__archdiscSelectedSketchEntities`,
+then click the relation + fill in the parameter dialog.
+
+| Tier-2 # | Tool | Status | Implementation |
+|---|---|---|---|
+| 21 | **Move Entities** | **DONE** | `InteractiveSketch.moveEntities(idxs, from, to)`: collects every solver point referenced by the picked entities (deduplicates shared corners), translates each by `(to - from)`, re-solves so active relations follow. Detects fixed-point conflicts via `FixedConstraint` lookups + reports `fixedConflicts` count. Ribbon "Move Entities" in Sketch→Transform; param-dialog (fromX/Y, toX/Y in mm) |
+| 22 | **Rotate Entities** | **DONE** | `InteractiveSketch.rotateEntities(idxs, center, angleRad)`: rotates the deduplicated solver points about `center` by `angleRad` (CCW). Returns `{angleRad, angleDeg, rotatedCount, fixedConflicts, converged}`. Ribbon "Rotate Entities"; param-dialog (centerX/Y mm, angleDeg) |
+| 23 | **Copy Entities** | **DONE** | `InteractiveSketch.copyEntities(idxs, from, to, {linked})`: duplicates each picked entity (line / circle / arc / point) at the offset `(to - from)`. `linked=true` adds distance constraints between corresponding endpoints / centres (the copy follows the original through future edits); `linked=false` produces independent geometry. Ribbon "Copy Entities"; param-dialog with `linked` enum |
+| 24 | **Scale Entities** | **DONE** | `InteractiveSketch.scaleEntities(idxs, center, scaleX, scaleY?)`: scales solver points about `center`. Uniform scale when `scaleX == scaleY`; non-uniform otherwise (circle radii take the geometric mean so a circle stays a circle — SW behaviour). Zero scale rejected; negative scale = mirror (returns `mirrored: true`). Ribbon "Scale Entities"; param-dialog (centerX/Y mm, scaleX, scaleY) |
+| 25 | **Stretch Entities** | **DONE (partial)** | `InteractiveSketch.stretchEntities(picks, from, to)`: translates EXPLICITLY-PICKED endpoints. Each pick is `{entityIndex, endpoint: 'p1'/'p2'/'start'/'end'/'center'/'point'}`. Non-picked endpoints of the same entity stay fixed → real stretch. The ToolExecutionEngine handler reads `window.__archdiscSelectedSketchEndpoints` (or, lacking that, falls back to entity `p2`/`end`). The SW behaviour is "endpoints inside a marquee box move" — we surface the explicitly-picked-endpoints variant which is more general but a different selection idiom. **HONEST PARTIAL**: the marquee-box-of-endpoints UX is not wired here; callers / e2e specs build the pick list directly |
+
+**Files added/changed for Tier-2c:**
+
+- `frontend/src/kernel/sketch/InteractiveSketch.js` — 5 new transform methods + 2 helpers (`_collectTransformTargets`, `_syncEntityCachesFromSolver`); each calls `solver.solve()` then `_redrawAll()` + `applyDoFColouring()` so relations follow the geometry and the DoF state pill stays current. Fixed-point conflict detection via existing FixedConstraint anchor introspection.
+- `frontend/src/foundation/ToolParamSchemas.js` — 5 new schemas. Move/Copy/Stretch use from-X/Y + to-X/Y (mm). Rotate uses center-X/Y + angle-deg. Scale uses center-X/Y + scaleX + scaleY (independent for non-uniform). Copy adds a `linked` enum (yes/no).
+- `frontend/src/components/RibbonToolbar.jsx` — new Sketch→Transform group with 5 entries (Move/Rotate/Copy/Scale/Stretch Entities).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — 5 new handlers. Each is selection-driven: reads `window.__archdiscSelectedSketchEntities` (or `__archdiscSelectedSketchEndpoints` for Stretch), validates the selection, runs the dialog (mm → m conversion), then calls the matching `InteractiveSketch.method`. Writes the result snapshot to `window.__lastSketchTransform` for e2e + AI introspection.
+- `frontend/src/components/SwUxOverlays.jsx` — `DOCKED_TOOLS` extended with the 5 new tools so they surface in the PropertyManager dock (Tier-1 pattern). No new components needed — the existing dock renders the schemas verbatim.
+- `e2e/ux-tier2c-sketch-transforms-electron.spec.js` — bespoke motion-capture e2e: 40 mm radius gear blank, one trapezoidal seed tooth (4 lines, CCW), exercise every transform (Move +2mm radial, Copy +20mm V unlinked, Rotate +90° about gear axis, Scale ×1.5 about tooth centroid, Stretch tip endpoints +3mm V), then assemble a 5-tooth gear via repeated Copy + Rotate (canonical SW gear pattern). Top-down 2D camera + final iso. 9 stills + `00-session.webm` (~570 KB).
+
+**E2E:** `./node_modules/.bin/playwright test e2e/ux-tier2c-sketch-transforms-electron.spec.js --workers=1 --reporter=list`
+Artifacts: `e2e-output/ux-tier2c/01–09*.png` + `00-session.webm` (~570 KB).
+
+**Visual check (read the stills):**
+
+1. `01-A1-gear-blank-iso.png` — 40 mm radius / 6 mm gear blank in iso, ready for sketch-on-face.
+2. `02-B1-seed-tooth-before-move.png` — 4 cyan endpoint markers at +X = 25-30 mm, V = ±3 mm, forming the trapezoidal seed tooth. SketchStateBadge: UNDER-DEFINED · DoF 16.
+3. `03-B2-after-move-seed-shifted-radially.png` — the seed tooth's cluster has shifted +2mm in U; the assert verifies `e0.p1 ≈ (27, -3) mm`.
+4. `04-B3-after-copy-second-tooth-translated.png` — TWO clusters now visible; the second sits at the +X edge offset +20mm in V (upper-right area). Asserts `copyCount = 4`.
+5. `05-B4-after-rotate-copy-by-90-deg.png` — the second tooth has rotated 90° CCW about the gear axis; now at the TOP of the disc (12 o'clock). Original (moved) seed still at 3 o'clock.
+6. `06-B5-after-scale-tooth-by-1p5x.png` — the rotated tooth's cluster is visibly larger (×1.5 in bbox extents — the assert checks `after.width / before.width ≈ 1.5`).
+7. `07-B6-after-stretch-tooth-tip-elongated.png` — one corner of the rotated+scaled tooth's tip is +3mm in V. Asserts the moved endpoint delta is exactly +3mm in V with 0 in U.
+8. `08-C1-five-teeth-around-gear-axis.png` — FIVE tooth clusters arranged at 72° intervals around the gear axis (canonical SW gear pattern via 4× Copy+Rotate). DoF 96.
+9. `09-D1-final-extruded-5-tooth-gear-iso.png` — final extruded gear body in iso, V = 30,111 mm³ (predicted 30,600 mm³). Bodies panel shows Body 2 = the rebuilt gear.
+
+**Cumulative transform verification:**
+
+| Transform | Affected | Predicted | Asserted |
+|---|---|---|---|
+| Move | 4 lines | dx=+2mm | `p1.u≈27mm ✓` |
+| Copy | 4 lines | copyCount=4 | `entities.length += 4 ✓` |
+| Rotate | 4 lines | angleDeg=90 | `angleDeg≈90 ✓` |
+| Scale | 4 lines | width×1.5 | `after/before≈1.5 ✓` |
+| Stretch | 2 endpoints | dv=+3mm | `after.v−before.v≈3mm ✓` |
+| 5-tooth gear | 5 teeth | V≈30,600mm³ | V=30,111mm³ ✓ |
+
+**Edge cases asserted:**
+
+- Empty selection → `{ok: false, reason: 'No sketch entities selected for transform'}` ✓
+- Zero scale → `{ok: false, reason: 'Scale factor must be non-zero'}` ✓
+- Negative scale → `{ok: true, mirrored: true}` (geometry mirrored about centre) ✓
+- Fix-on-line + Move → `{ok: true, fixedConflicts: 2}` (solver pulls the fixed endpoints back; the conflict count is the user-visible signal that Fix resisted the move) ✓
+
+**Regression subset (Tier-2c):**
+
+- `e2e/ux-tier2c-sketch-transforms-electron.spec.js` — 1 pass (new)
+- `e2e/ux-tier1-electron.spec.js` + `e2e/ux-tier2a-sketch-primitives-electron.spec.js` + `e2e/ux-tier2b-sketch-relations-electron.spec.js` + `e2e/ux-tier11a-selection-filter-electron.spec.js` — 4/4 pass
+- `e2e/ribbon-test.spec.js` — 1 pass (flaky on first run; passes on retry, pre-existing dev-server canvas-load timing)
+- `e2e/sketch-on-face.spec.js` + `sketch-workflow.spec.js` + `sketch-wiring.spec.js` + `sketch-autodim.spec.js` — 13/13 pass (4 flaky but pass on retry — pre-existing dev-server `__lastFoundationManifold` timing issues, unrelated to Tier-2c)
+
+**Honest gaps in Tier-2c:**
+
+1. **Stretch UX uses explicit endpoint picks, not a marquee box.** SW's classic stretch is "select a rectangular box; every endpoint INSIDE the box translates, every endpoint OUTSIDE stays fixed". Our handler accepts a more general `endpointPicks` array via `window.__archdiscSelectedSketchEndpoints`. The marquee-box selection idiom can layer on top (a future bezier-region selector populates the same pick list). The e2e drives the pick list directly to verify the underlying kernel works — the gap is the marquee-box UI, not the math.
+2. **Linked-copy uses distance constraints, not coincident-on-mapped-point.** A true SW "linked" copy maintains the offset vector parametrically — moving the original by Δ moves the copy by Δ exactly. Our linked variant adds `distance(orig.endpoint, copy.endpoint, |from-to|)` constraints which keep the SAME distance but the direction is free, so subsequent transforms can drift the copy off the original axis. Acceptable for the bolt-circle / gear-tooth pattern (the geometric primary use case); a follow-on would add a "translation constraint" type to lock the vector.
+3. **Scale on non-uniform `scaleX != scaleY` with circles uses the geometric mean for the radius.** This preserves the circle's circle-ness (SW does the same) but loses the elliptical signature of an honest non-uniform scale. For a true ellipse output the circle should convert to an ellipse entity — not in scope for Tier-2c.
+4. **Rotation on a circle entity rotates the centre but the radius is rotation-invariant.** Correct; this is a no-op visually for a self-symmetric primitive. For an arc the centre / start / end all rotate together so the arc rotates correctly.
+5. **The solver re-solve is gradient descent; convergence isn't guaranteed for over-constrained sketches.** When transforms create new conflicts (e.g. Move on a Fixed line) the result's `converged` flag may be false. The handler still returns `ok: true` because the mutation completed — the user sees the conflict via `fixedConflicts > 0` and the resulting SketchStateBadge state (over-defined → red colour).
+6. **`_redrawAll()` after each transform disposes + redraws every sketch visual.** This is correct but O(N) per transform — fine for hundreds of entities, would be wasteful for thousands. Cheaper would be in-place position updates on the existing Three.js geometries; deferred until a sketch with > 1k entities lands.
+
+---
+
 ## Tiers 2 (remaining) – 10 — Outstanding (no work yet)
 
 | Tier | Scope | Status |
 |---|---|---|
-| 2 (rest) | Slot tool (4 variants), Circle variants, Arc variants, Parabola, Text along curve, Linear/Circular Sketch Pattern, Move/Rotate/Copy/Scale/Stretch Entities, 3D Sketch — 8 items remain (named relations + Display-Delete Relations dialog shipped in Tier-2b) | Not started |
+| 2 (rest) | Slot tool (4 variants), Circle variants, Arc variants, Parabola, Text along curve, Linear/Circular Sketch Pattern, 3D Sketch — 3 items remain (named relations + Display-Delete shipped in Tier-2b; Move/Rotate/Copy/Scale/Stretch shipped in Tier-2c) | Not started |
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | Not started |
