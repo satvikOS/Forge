@@ -1793,6 +1793,124 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ── SP-5 Boolean & partition completion (Area C, T1) ────────────────
+    // Imprint  — project tool boundary onto body's faces (volume preserved).
+    // Partition — split body by N tools into multiple pieces (volume conserved).
+    // Section — planar cut: 'curves' returns intersection wire body; 'split'
+    //           partitions the body into the two half-pieces along the plane.
+    //
+    // All three follow the selection-driven, dialog-driven, in-motion contract:
+    //   - Imprint:   2-body selection (body, tool).
+    //   - Partition: ≥ 2-body selection (body, tool₁, …, toolₙ).
+    //   - Section:   1-body selection; dialog supplies plane origin + normal
+    //                + output mode ('curves' | 'split').
+
+    'Imprint': async (scene, viewport) => {
+      try {
+        const [body, tool] = _pickBodies(2);
+        const { cancelled } = await requestToolParams('Imprint');
+        if (cancelled) return { status: 'warn', message: 'Imprint: cancelled' };
+        const result = await ArchDiscKernel.brep.imprint(body, tool);
+        // Consuming op for the BODY only — the tool stays in the scene
+        // (imprint is non-destructive for the tool; the body is rewritten with
+        // the imprinted face partition, so the old body entry is dropped).
+        await addBrepShapeToScene(scene, viewport, result, 0x4caf50, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const r = (result.meta && result.meta.imprintReport) || {};
+        const newEdges = r.newEdges != null ? r.newEdges : '?';
+        const newFaces = r.newFaces != null ? r.newFaces : '?';
+        const noteStr = r.note ? ` (${r.note})` : '';
+        return {
+          status: 'success',
+          message: `Imprint${noteStr}: +${newEdges} edges, +${newFaces} faces, V = ${m.volume.toFixed(0)} mm³ (volRelErr ${(r.volRelErr || 0).toExponential(2)}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Imprint: ' + err.message };
+      }
+    },
+
+    'Partition': async (scene, viewport) => {
+      try {
+        const all = _pickBodies(Infinity);   // ≥ 2 selected
+        const body = all[0];
+        const tools = all.slice(1);
+        const { cancelled } = await requestToolParams('Partition');
+        if (cancelled) return { status: 'warn', message: 'Partition: cancelled' };
+        // partition returns an array of SpineBodies with .report glued on
+        // (so withScope's survivor detection preserves every piece).
+        const pieces = await ArchDiscKernel.brep.partition(body, tools);
+        const report = pieces.report || {};
+        // Consuming op: the body is replaced by every piece, plus tools are
+        // dropped (they were "used up" by the cut). Add every piece to the scene.
+        const consumed = [body, ...tools];
+        // Distinct color per piece so the user visually sees the split.
+        const palette = [0x4caf50, 0xff9800, 0x9c27b0, 0x00bcd4, 0xffeb3b, 0xf44336];
+        for (let i = 0; i < pieces.length; i++) {
+          // Only the first piece consumes the inputs; subsequent pieces add to
+          // the scene fresh (the inputs are already gone).
+          const consumedThis = i === 0 ? consumed : [];
+          await addBrepShapeToScene(scene, viewport, pieces[i], palette[i % palette.length], consumedThis);
+        }
+        const vols = (report.perPieceVolumes || []).map(v => v.toFixed(0)).join(' + ');
+        return {
+          status: 'success',
+          message: `Partition: ${pieces.length} pieces (V = ${vols} = ${report.volAfter.toFixed(0)} mm³, ` +
+            `volRelErr ${(report.volRelErr || 0).toExponential(2)}, ${report.note}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Partition: ' + err.message };
+      }
+    },
+
+    'Section': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Section');
+        if (cancelled) return { status: 'warn', message: 'Section: cancelled' };
+        const output = (values.output === 'split') ? 'split' : 'curves';
+        const plane = {
+          origin: [
+            Number(values.originX) || 0,
+            Number(values.originY) || 0,
+            Number(values.originZ) || 0,
+          ],
+          normal: [
+            Number.isFinite(values.normalX) ? values.normalX : 0,
+            Number.isFinite(values.normalY) ? values.normalY : 0,
+            Number.isFinite(values.normalZ) ? values.normalZ : 1,
+          ],
+        };
+        const result = await ArchDiscKernel.brep.planarSection(body, plane, { output });
+        if (output === 'curves') {
+          // Non-consuming: the body stays; the result is a wire-body overlay.
+          await addBrepShapeToScene(scene, viewport, result, 0xffeb3b);
+          const r = (result.meta && result.meta.sectionReport) || {};
+          const noteStr = r.note ? ` (${r.note})` : '';
+          return {
+            status: 'success',
+            message: `Section curves${noteStr}: ${r.edgeCount || 0} edge(s), maxPlaneDev ${(r.maxPlaneDeviation || 0).toExponential(2)} mm via ArchDisc Kernel`,
+          };
+        }
+        // 'split' — consuming for the body; add every piece. The result
+        // is an ARRAY of SpineBodies with .report glued on (the survivor-
+        // detection pattern; see BrepSection.runSplit's return contract).
+        const pieces = result;
+        const report = pieces.report || {};
+        const palette = [0x4caf50, 0xff9800];
+        for (let i = 0; i < pieces.length; i++) {
+          const consumedThis = i === 0 ? [body] : [];
+          await addBrepShapeToScene(scene, viewport, pieces[i], palette[i % palette.length], consumedThis);
+        }
+        const vols = (report.perPieceVolumes || []).map(v => v.toFixed(0)).join(' + ');
+        return {
+          status: 'success',
+          message: `Section split: ${pieces.length} pieces (V = ${vols} mm³, ${report.note}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Section: ' + err.message };
+      }
+    },
+
     // ── Solid Primitives (Solid Primitives ribbon section) ──────────────
 
     'Box': async (scene, viewport) => {

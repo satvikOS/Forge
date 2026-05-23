@@ -131,6 +131,15 @@ const TABS = {
         { name: 'Combine (Coincident)', icon: '≈', key: 'part' },
         { name: 'Lattice Fuse', icon: '⊞', key: 'part' },
       ]},
+      // SP-5 — Boolean & partition completion (Area C, T1).
+      // Imprint adds tool-edge footprints to body faces (volume preserved).
+      // Partition splits a body by N tools into multiple pieces (volume conserved).
+      // Section cuts the body by a plane — curves (intersection wire) or split (halves).
+      { label: 'Partition', tools: [
+        { name: 'Imprint',   icon: '⊕', key: 'part' },
+        { name: 'Partition', icon: '⊞', key: 'part' },
+        { name: 'Section',   icon: '⊟', key: 'part' },
+      ]},
       { label: 'Pattern', tools: [
         { name: 'Linear Pattern', icon: '⫶', key: 'part' },
         { name: 'Circular Pattern', icon: '◎', key: 'part' },

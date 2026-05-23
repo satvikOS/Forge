@@ -483,6 +483,38 @@ export const TOOL_PARAM_SCHEMAS = {
     fields: [],
   },
 
+  // ─── SP-5 BOOLEAN COMPLETION (Area C) ────────────────────────────────────
+  // Imprint, Partition, Section — split/imprint/slice without losing volume.
+  // All three accept a viewport selection: Imprint takes (body, tool), Partition
+  // takes (body, tool₁, …, toolₙ ≥ 1), Section takes (body) and resolves the
+  // plane from the dialog params (origin + normal) or an optional 3-point pick.
+
+  'Imprint': {
+    title: 'Imprint — Project Tool Footprint onto Body',
+    blurb: 'Project the tool body\'s boundary edges onto the recipient body\'s faces as new edges, splitting faces along the projection curves WITHOUT changing the body\'s volume. Selection: pick the body first, then the tool.',
+    fields: [],
+  },
+
+  'Partition': {
+    title: 'Partition — Split Body by Tools',
+    blurb: 'Split the selected body along one or more tool surfaces / solids into multiple pieces. Volume is conserved (Σ pieces = original). Selection: pick the body first, then ≥ 1 tools.',
+    fields: [],
+  },
+
+  'Section': {
+    title: 'Section — Planar Cut',
+    blurb: 'Cut the selected body by a plane (origin + normal). Output: \'curves\' returns the intersection wire body (cross-section outline); \'split\' partitions the body into the two half-pieces. Selection: pick the body to section.',
+    fields: [
+      { name: 'output',  label: 'Output mode',        type: 'string', default: 'curves', hint: '\'curves\' (intersection wire) or \'split\' (partition into halves)' },
+      { name: 'originX', label: 'Plane origin X',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'originY', label: 'Plane origin Y',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'originZ', label: 'Plane origin Z',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'normalX', label: 'Plane normal X',     type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'normalY', label: 'Plane normal Y',     type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'normalZ', label: 'Plane normal Z',     type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+    ],
+  },
+
   // ─── TOPOLOGY / DIRECT EDIT ───────────────────────────────────────────────
   'Replace Face': {
     title: 'Replace Face',

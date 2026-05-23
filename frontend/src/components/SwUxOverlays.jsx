@@ -431,6 +431,10 @@ export const DOCKED_TOOLS = new Set([
   // Tier-2a (sketch primitives)
   'Sketch Chamfer',
   'Convert Entities',
+  // SP-5 — Boolean & partition completion (Area C, T1).
+  'Imprint',
+  'Partition',
+  'Section',
 ]);
 
 export function PropertyManagerDock() {
