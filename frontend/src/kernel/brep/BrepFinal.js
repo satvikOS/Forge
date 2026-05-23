@@ -9,6 +9,20 @@
  *   stitchFaces(opts)       — tolerant stitching via BRepBuilderAPI_Sewing
  *   convergentSolid(opts)   — facet-mesh → B-rep solid via Sewing + MakeSolid_3
  *
+ * SP-1 S4c — surfacing subset migration. `pipeShellSweep` / `loftTangent` /
+ * `stitchFaces` return `SpineBody`s with persistent-ID carry-through from
+ * the internally-built profile / section / panel sheets. `convergentSolid`
+ * is also spine-aware: every triangle face is spined; its ids carry onto
+ * the result solid via the sewing algorithm's history.
+ *
+ * For `stitchFaces` we cannot reuse the standard `BRepBuilderAPI_MakeShape`
+ * lineage path because `BRepBuilderAPI_Sewing` exposes `Modified(shape) →
+ * TopoDS_Shape` (a single shape, NOT a list) and `IsModified(shape)`; it
+ * also has its own `NbDeletedFaces`/`DeletedFace(i)` deletion accessor.
+ * `IdLineage.carryLineage` is `BRepBuilderAPI_MakeShape`-shaped, so we
+ * wrap the sewing's queries with a small synthetic algo proxy
+ * (`makeSewingAlgoProxy`) that adapts the API surface.
+ *
  * NOT_REACHABLE in this build:
  *   N-Sided Patching — BRepOffsetAPI_MakeFilling.Build() throws a raw WASM C++
  *   exception for ALL inputs; variational solver not functional in this WASM build.
@@ -16,6 +30,9 @@
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { carryLineage } from '../topology/IdLineage.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -105,11 +122,18 @@ function _extractShell(oc, sewedShape) {
 /**
  * Sweep a circular profile along a tortuous polyline path with right-angle bends.
  *
+ * SP-1 S4c — returns a SpineBody. The circular profile face is spined as a
+ * temporary sheet body so the pipe-shell's `Modified` / `Generated` /
+ * `IsDeleted` history can propagate its persistent ids onto the resulting
+ * solid. `BRepOffsetAPI_MakePipeShell extends BRepPrimAPI_MakeSweep extends
+ * BRepBuilderAPI_MakeShape` — the full history surface inherited from the
+ * base.
+ *
  * @param {object} [opts]
  * @param {number} [opts.profileRadius=4]  Circle profile radius (mm).
  * @param {number} [opts.segLength=20]     Length of each path segment (mm).
  * @param {number} [opts.bendCount=2]      Number of right-angle bends (1–6).
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function pipeShellSweep(opts = {}) {
   const profileRadius = opts.profileRadius ?? 4;
@@ -165,6 +189,23 @@ export async function pipeShellSweep(opts = {}) {
     if (!pw.IsDone()) throw new Error('pipeShellSweep: profile wire failed to build');
     const profileWire = track(pw.Wire());
 
+    // Wrap the profile wire in a face so we can spine it for lineage. The
+    // pipe-shell algorithm itself accepts the wire (Add_1(profileWire,
+    // false, false)) — the face is only used as the spinable handle on the
+    // input side.
+    const profileFM = track(new oc.BRepBuilderAPI_MakeFace_15(profileWire, true));
+    const profileFace = profileFM.IsDone() ? track(profileFM.Face()) : null;
+    let profileBody = null;
+    if (profileFace && !profileFace.IsNull()) {
+      try {
+        profileBody = bindSpine(oc, profileFace, {
+          bodyTag: 'pipeShellSweepProfile', validate: false,
+        });
+      } catch (_e) {
+        profileBody = null;
+      }
+    }
+
     // Construct PipeShell — no suffix variant in this build.
     const pipeShell = track(new oc.BRepOffsetAPI_MakePipeShell(spineWire));
 
@@ -187,11 +228,28 @@ export async function pipeShellSweep(opts = {}) {
       throw new Error('pipeShellSweep: resulting shape is null');
     }
 
-    return new BrepShape(shape, {
+    const meta = {
       op: 'pipeShellSweep',
       params: opts,
       description: `Tortuous-path pipe sweep: r=${profileRadius}mm, segLen=${segLength}mm, bends=${bendCount}`,
+    };
+    const wrapper = new BrepShape(shape, meta);
+    const resultBody = bindSpine(oc, shape, {
+      bodyTag: `pipeShellSweep-${wrapper.id}`, geomEngineShape: wrapper,
     });
+    if (profileBody) {
+      const lineage = carryLineage(oc, pipeShell, resultBody, [
+        { body: profileBody, role: 'arg' },
+      ]);
+      meta.lineage = {
+        survived: lineage.survived, modified: lineage.modified,
+        generated: lineage.generated, deleted: lineage.deleted,
+        conflicts: lineage.conflicts,
+        faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+        edgeMap: [...lineage.edgeMap.entries()].slice(0, 64),
+      };
+    }
+    return new SpineBody(resultBody, wrapper, meta);
   });
 }
 
@@ -202,6 +260,13 @@ export async function pipeShellSweep(opts = {}) {
 /**
  * Loft 3 square sections with tangent smoothing (SetSmoothing).
  *
+ * SP-1 S4c — returns a SpineBody. Each section wire is wrapped in a planar
+ * face and spined into a temporary sheet body; the ThruSections's `Modified`
+ * / `Generated` history then carries the section ids onto the cap +
+ * lateral faces of the resulting loft solid. `BRepOffsetAPI_ThruSections
+ * extends BRepBuilderAPI_MakeShape` so the history surface is the base
+ * contract.
+ *
  * @param {object} [opts]
  * @param {number} [opts.s0=40]   Side length of section 0 (mm).
  * @param {number} [opts.s1=20]   Side length of section 1 (mm).
@@ -209,7 +274,7 @@ export async function pipeShellSweep(opts = {}) {
  * @param {number} [opts.z0=0]    Z height of section 0 (mm).
  * @param {number} [opts.z1=20]   Z height of section 1 (mm).
  * @param {number} [opts.z2=40]   Z height of section 2 (mm).
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function loftTangent(opts = {}) {
   const s0 = opts.s0 ?? 40;
@@ -225,6 +290,25 @@ export async function loftTangent(opts = {}) {
     const wire0 = _makeSquareWireAtZ(oc, s0, z0);
     const wire1 = _makeSquareWireAtZ(oc, s1, z1);
     const wire2 = _makeSquareWireAtZ(oc, s2, z2);
+
+    // Spine each section by wrapping its wire in a planar face; this gives
+    // the section edges + vertices persistent ids that the loft's lineage
+    // propagation can carry onto the result lateral / cap faces.
+    function spineSection(wire, tag) {
+      const fm = track(new oc.BRepBuilderAPI_MakeFace_15(wire, true));
+      if (!fm.IsDone()) return null;
+      const sectionFace = track(fm.Face());
+      try {
+        return bindSpine(oc, sectionFace, {
+          bodyTag: tag, validate: false,
+        });
+      } catch (_e) {
+        return null;
+      }
+    }
+    const sectionBody0 = spineSection(wire0, 'loftTangentSection0');
+    const sectionBody1 = spineSection(wire1, 'loftTangentSection1');
+    const sectionBody2 = spineSection(wire2, 'loftTangentSection2');
 
     // Construct ThruSections — isSolid=true, isRuled=false, presPar=1e-6.
     const thru = track(new oc.BRepOffsetAPI_ThruSections(true, false, 1e-6));
@@ -250,11 +334,29 @@ export async function loftTangent(opts = {}) {
       throw new Error('loftTangent: resulting shape is null');
     }
 
-    return new BrepShape(shape, {
+    const meta = {
       op: 'loftTangent',
       params: opts,
       description: `Tangent-smoothed loft: s0=${s0}, s1=${s1}, s2=${s2} mm at z=${z0},${z1},${z2} mm`,
+    };
+    const wrapper = new BrepShape(shape, meta);
+    const resultBody = bindSpine(oc, shape, {
+      bodyTag: `loftTangent-${wrapper.id}`, geomEngineShape: wrapper,
     });
+    const sectionBodies = [sectionBody0, sectionBody1, sectionBody2]
+      .filter((sb) => !!sb)
+      .map((body) => ({ body, role: 'arg' }));
+    if (sectionBodies.length > 0) {
+      const lineage = carryLineage(oc, thru, resultBody, sectionBodies);
+      meta.lineage = {
+        survived: lineage.survived, modified: lineage.modified,
+        generated: lineage.generated, deleted: lineage.deleted,
+        conflicts: lineage.conflicts,
+        faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+        edgeMap: [...lineage.edgeMap.entries()].slice(0, 64),
+      };
+    }
+    return new SpineBody(resultBody, wrapper, meta);
   });
 }
 
@@ -263,14 +365,107 @@ export async function loftTangent(opts = {}) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Wrap a `BRepBuilderAPI_Sewing` so `IdLineage.carryLineage` can consume it.
+ *
+ * The sewing algo's history surface differs from `BRepBuilderAPI_MakeShape`:
+ *   - `Modified(shape)` returns a SINGLE `TopoDS_Shape`, NOT a list.
+ *   - `IsModified(shape)` returns true if Modified(shape) differs from shape.
+ *   - `IsDeleted(shape)` is not exposed; sewing instead exposes
+ *     `NbDeletedFaces()` + `DeletedFace(i)` for FACE deletions only.
+ *
+ * The proxy adapts these to look like the standard contract: `Modified`
+ * returns a synthetic list-like object (Size / First_1 / Last_1) so
+ * `safeShapeList` works; `IsDeleted` consults the deleted-faces table
+ * (FACE only — edges/vertices fall back to false, an honest documented
+ * gap, since sewing's deletion semantics are face-level).
+ */
+function makeSewingAlgoProxy(oc, sewing) {
+  // Build the deleted-face set once for IsDeleted lookups.
+  const deletedFaces = [];
+  try {
+    const nDel = typeof sewing.NbDeletedFaces === 'function'
+      ? sewing.NbDeletedFaces() : 0;
+    for (let i = 1; i <= nDel; i++) {
+      try { deletedFaces.push(sewing.DeletedFace(i)); } catch (_e) { /* skip */ }
+    }
+  } catch (_e) { /* sewing without deletions */ }
+
+  // A minimal list-like object — Size + First_1 + Last_1 — matches what
+  // `IdLineage.safeShapeList` reads. Returning a single mapped shape gives
+  // Size=1 + First_1=the shape.
+  function singletonList(shape) {
+    return {
+      Size: () => 1,
+      Extent: () => 1,
+      IsEmpty: () => false,
+      First_1: () => shape,
+      Last_1: () => shape,
+    };
+  }
+  function emptyList() {
+    return {
+      Size: () => 0,
+      Extent: () => 0,
+      IsEmpty: () => true,
+      First_1: () => null,
+      Last_1: () => null,
+    };
+  }
+
+  return {
+    Modified: (S) => {
+      try {
+        // IsModifiedSubShape handles edges/vertices; IsModified the face case.
+        const isFaceMod = typeof sewing.IsModified === 'function'
+          && sewing.IsModified(S);
+        const isSubMod = typeof sewing.IsModifiedSubShape === 'function'
+          && sewing.IsModifiedSubShape(S);
+        if (isFaceMod) {
+          const m = sewing.Modified(S);
+          if (m && !m.IsSame(S)) return singletonList(m);
+          return emptyList();
+        }
+        if (isSubMod) {
+          const m = sewing.ModifiedSubShape(S);
+          if (m && !m.IsSame(S)) return singletonList(m);
+          return emptyList();
+        }
+        return emptyList();
+      } catch (_e) {
+        return emptyList();
+      }
+    },
+    Generated: (_S) => emptyList(), // sewing has no Generated history
+    IsDeleted: (S) => {
+      try {
+        for (const df of deletedFaces) {
+          if (df && S && typeof df.IsSame === 'function' && df.IsSame(S)) {
+            return true;
+          }
+        }
+      } catch (_e) { /* skip */ }
+      return false;
+    },
+  };
+}
+
+/**
  * Stitch two planar rectangular faces with a small gap using BRepBuilderAPI_Sewing.
+ *
+ * SP-1 S4c — returns a SpineBody. Both panel faces are spined as temporary
+ * sheet bodies; the sewing's `Modified` / `IsDeleted` history (wrapped via
+ * `makeSewingAlgoProxy` to fit the standard lineage contract) propagates
+ * the panel ids onto the result sewn shape. A face whose TShape survived
+ * the sewing carries its id verbatim; a face that was modified by the
+ * sewing (e.g. its shared edge replaced by a stitched edge) records the
+ * panel id in `derivedFrom`.
  *
  * @param {object} [opts]
  * @param {number} [opts.gap=0.05]       Gap between the two panels (mm).
  * @param {number} [opts.tolerance=0.1]  Sewing tolerance (mm); must be > gap.
  * @param {number} [opts.panelW=20]      Panel width (mm).
  * @param {number} [opts.panelH=20]      Panel height (mm).
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function stitchFaces(opts = {}) {
   const gap       = opts.gap       ?? 0.05;
@@ -284,6 +479,21 @@ export async function stitchFaces(opts = {}) {
     const faceA = _makeRectFace(oc, 0,            0, panelW,            panelH, 0);
     // Face B: (panelW+gap .. 2*panelW+gap, 0..panelH, 0) — small gap at shared edge
     const faceB = _makeRectFace(oc, panelW + gap, 0, 2 * panelW + gap, panelH, 0);
+
+    // Spine each panel face for lineage. The sewing algo's history walks
+    // these input bodies' faces / edges / vertices.
+    let panelBodyA = null;
+    let panelBodyB = null;
+    try {
+      panelBodyA = bindSpine(oc, faceA, {
+        bodyTag: 'stitchFacesPanelA', validate: false,
+      });
+    } catch (_e) { panelBodyA = null; }
+    try {
+      panelBodyB = bindSpine(oc, faceB, {
+        bodyTag: 'stitchFacesPanelB', validate: false,
+      });
+    } catch (_e) { panelBodyB = null; }
 
     // CRITICAL: Constructor requires EXACTLY 5 args.
     // new oc.BRepBuilderAPI_Sewing(tol) → BindingError "expected (5) parameters"
@@ -307,11 +517,30 @@ export async function stitchFaces(opts = {}) {
       throw new Error('stitchFaces: SewedShape() returned null');
     }
 
-    return new BrepShape(sewedShape, {
+    const meta = {
       op: 'stitchFaces',
       params: opts,
       description: `Tolerant stitching: 2 panels (${panelW}×${panelH}mm) with gap=${gap}mm, tol=${tolerance}mm`,
+    };
+    const wrapper = new BrepShape(sewedShape, meta);
+    const resultBody = bindSpine(oc, sewedShape, {
+      bodyTag: `stitchFaces-${wrapper.id}`, geomEngineShape: wrapper,
     });
+    const panelBodies = [panelBodyA, panelBodyB]
+      .filter((b) => !!b)
+      .map((body) => ({ body, role: 'arg' }));
+    if (panelBodies.length > 0) {
+      const sewingProxy = makeSewingAlgoProxy(oc, sewing);
+      const lineage = carryLineage(oc, sewingProxy, resultBody, panelBodies);
+      meta.lineage = {
+        survived: lineage.survived, modified: lineage.modified,
+        generated: lineage.generated, deleted: lineage.deleted,
+        conflicts: lineage.conflicts,
+        faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+        edgeMap: [...lineage.edgeMap.entries()].slice(0, 64),
+      };
+    }
+    return new SpineBody(resultBody, wrapper, meta);
   });
 }
 

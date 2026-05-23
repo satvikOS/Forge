@@ -32,6 +32,37 @@
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { carryLineage } from '../topology/IdLineage.js';
+
+/**
+ * Wrap a `BRepTools_History` (obtained from `ShapeUpgrade_UnifySameDomain.
+ * History_1()`) so `IdLineage.carryLineage` can consume it like a standard
+ * `BRepBuilderAPI_MakeShape` algorithm.
+ *
+ * The history's API surface IS the same shape as the standard contract:
+ *   - `Modified(initial) → TopTools_ListOfShape`  ✓
+ *   - `Generated(initial) → TopTools_ListOfShape` ✓
+ *   - `IsRemoved(initial) → bool`                 (renamed from IsDeleted)
+ *
+ * We adapt `IsRemoved` to the `IsDeleted` method name. The proxy is what
+ * `carryLineage` walks; the underlying history object lives in `history`
+ * (the caller owns its lifetime via `withScope` / `track`).
+ */
+function makeHistoryAlgoProxy(_oc, history) {
+  return {
+    Modified: (S) => {
+      try { return history.Modified(S); } catch (_e) { return null; }
+    },
+    Generated: (S) => {
+      try { return history.Generated(S); } catch (_e) { return null; }
+    },
+    IsDeleted: (S) => {
+      try { return !!history.IsRemoved(S); } catch (_e) { return false; }
+    },
+  };
+}
 
 /** Count members of a shape of a given TopAbs enum. Caller is inside withScope. */
 function countSubShapes(oc, shape, enumVal) {
@@ -47,7 +78,25 @@ function countSubShapes(oc, shape, enumVal) {
  * Simplify a solid: remove tiny / sliver faces below a size threshold, then
  * unify same-domain faces and drop redundant edges.
  *
- * The returned BrepShape carries `meta.stats` with:
+ * SP-1 S4c — returns a SpineBody. The Stage-2 same-domain merge
+ * (`ShapeUpgrade_UnifySameDomain.History_1()`) exposes a
+ * `BRepTools_History` with the standard `Modified` / `Generated` /
+ * `IsRemoved` surface — wrapped via `makeHistoryAlgoProxy` to fit
+ * `IdLineage.carryLineage`'s `IsDeleted` naming. The source body's
+ * face / edge / vertex persistent ids carry onto the simplified result:
+ * a face whose TShape was preserved by both stages survives verbatim;
+ * a face merged with its neighbour into a single same-domain face is
+ * Modified, with the source id recorded in the result face's
+ * `derivedFrom`; a face dropped by Stage-1 small-feature removal is
+ * Removed and its id correctly dies (though `ShapeFix_FixSmallFace`
+ * itself does NOT expose a history — Stage-1 deletions are inferred by
+ * the absence of the source TShape from the result spine, which the
+ * standard lineage pass handles via the same `findBySameShape`
+ * mechanism). The Stage-1-removed faces also do not contribute lineage
+ * edges (no history), so their ids are simply not carried — a documented
+ * honest gap in the `ShapeFix_FixSmallFace` history surface.
+ *
+ * The returned SpineBody carries `meta.stats` with:
  *   - `removedFeatures`   total tiny features removed (small faces + the
  *                         small edges that vanished with them)
  *   - `removedFaces`      tiny / sliver faces removed
@@ -55,16 +104,16 @@ function countSubShapes(oc, shape, enumVal) {
  *   - `facesBefore` / `facesAfter` / `edgesBefore` / `edgesAfter`
  *   - `facesMerged` / `edgesMerged`  reductions attributable to Stage 2
  *
- * @param {BrepShape} brepShape
+ * @param {SpineBody|BrepShape} brepShape
  * @param {{minFeatureSize?:number, tolerance?:number}} [opts]
  *        minFeatureSize  size (mm) below which a face is "tiny" and removed
  *                        (drives `ShapeFix_FixSmallFace` precision).
  *                        Default 1.0 mm.
  *        tolerance       linear tolerance (mm) for the same-domain merge.
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function simplify(brepShape, opts = {}) {
-  if (!brepShape || !brepShape.shape) throw new Error('simplify: needs a BrepShape');
+  if (!brepShape || !brepShape.shape) throw new Error('simplify: needs a SpineBody or BrepShape');
   const oc = await getOCCT();
   const minFeatureSize = opts.minFeatureSize > 0 ? opts.minFeatureSize : 1.0;
   const tolerance = opts.tolerance > 0 ? opts.tolerance : 0;
@@ -126,21 +175,62 @@ export async function simplify(brepShape, opts = {}) {
     const facesMerged = Math.max(0, facesAfterStage1 - facesAfter);
     const edgesMerged = Math.max(0, edgesAfterStage1 - edgesAfter);
 
-    const result = new BrepShape(shape, { op: 'simplify', parents: [brepShape.id] });
-    result.meta.params = { minFeatureSize, tolerance };
-    result.meta.stats = {
-      // "features removed" = tiny faces dropped + the small edges that went
-      // with them; this is the headline §3.5 metric the handler reports.
-      removedFeatures: removedFaces + Math.max(0, edgesBefore - edgesAfterStage1),
-      removedFaces,
-      removedEdges,
-      facesBefore,
-      facesAfter,
-      edgesBefore,
-      edgesAfter,
-      facesMerged,
-      edgesMerged,
+    const meta = {
+      op: 'simplify',
+      parents: [brepShape.id],
+      params: { minFeatureSize, tolerance },
+      stats: {
+        // "features removed" = tiny faces dropped + the small edges that went
+        // with them; this is the headline §3.5 metric the handler reports.
+        removedFeatures: removedFaces + Math.max(0, edgesBefore - edgesAfterStage1),
+        removedFaces,
+        removedEdges,
+        facesBefore,
+        facesAfter,
+        edgesBefore,
+        edgesAfter,
+        facesMerged,
+        edgesMerged,
+      },
     };
-    return result;
+    const wrapper = new BrepShape(shape, meta);
+    const resultBody = bindSpine(oc, shape, {
+      bodyTag: `simplify-${wrapper.id}`, geomEngineShape: wrapper,
+    });
+    if (brepShape.body) {
+      // Carry-through via the Stage-2 history. Stage-1's small-face removal
+      // has no exposed history — its dropped faces simply won't be findable
+      // in the result spine (their TShape is gone), so they receive no
+      // lineage edge. This is the honest documented behaviour.
+      let historyHandle = null;
+      try {
+        if (typeof unifier.History_1 === 'function') {
+          historyHandle = unifier.History_1();
+        } else if (typeof unifier.History_2 === 'function') {
+          historyHandle = unifier.History_2();
+        }
+      } catch (_e) { historyHandle = null; }
+      if (historyHandle) {
+        try {
+          const historyObj = (typeof historyHandle.get === 'function')
+            ? historyHandle.get() : historyHandle;
+          const proxy = makeHistoryAlgoProxy(oc, historyObj);
+          const lineage = carryLineage(oc, proxy, resultBody, [
+            { body: brepShape.body, role: 'arg' },
+          ]);
+          meta.lineage = {
+            survived: lineage.survived, modified: lineage.modified,
+            generated: lineage.generated, deleted: lineage.deleted,
+            conflicts: lineage.conflicts,
+            faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+            edgeMap: [...lineage.edgeMap.entries()].slice(0, 64),
+          };
+        } catch (_e) {
+          // History handle present but un-usable — documented honest degrade.
+          meta.lineage = { historyGap: true };
+        }
+      }
+    }
+    return new SpineBody(resultBody, wrapper, meta);
   });
 }

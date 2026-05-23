@@ -35,6 +35,8 @@
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
 
 /** Grid resolution for mesh approximation. 10×10 = 200 triangles, fast enough. */
 const GRID_N = 10;
@@ -224,11 +226,13 @@ function _computeCurvatureFromD2(oc, surf, u, v) {
 
 /**
  * Attach a dispose extension that also cleans up the NURBS transient.
- * Mutates the BrepShape instance in-place.
+ * Mutates the BrepShape instance in-place. Works on either a raw BrepShape
+ * or a SpineBody (which exposes a `dispose` method delegating to its
+ * occtWrapper); we walk both paths.
  */
-function _attachNurbsDispose(brepShape) {
-  const origDispose = brepShape.dispose.bind(brepShape);
-  brepShape.dispose = function () {
+function _attachNurbsDispose(target) {
+  const origDispose = target.dispose ? target.dispose.bind(target) : (() => {});
+  target.dispose = function () {
     try {
       if (this.meta && this.meta.nurbsSurf && typeof this.meta.nurbsSurf.isDeleted === 'function') {
         if (!this.meta.nurbsSurf.isDeleted()) this.meta.nurbsSurf.delete();
@@ -241,6 +245,107 @@ function _attachNurbsDispose(brepShape) {
   };
 }
 
+/**
+ * Carry persistent-IDs from a source SpineBody onto a freshly-spined result
+ * body by INDEX-POSITION pairing.
+ *
+ * SP-1 S4c — the NURBS refine/elevate path rebuilds the triangulated
+ * compound from a refined/elevated surface. The resulting compound has
+ * the SAME grid resolution as the source (GRID_N × GRID_N × 2 triangles
+ * — sampled in identical i,j,triangle order). The triangles' engine
+ * sub-shapes are FRESH (different TShapes) so the standard OCCT
+ * Modified/Generated history would produce no lineage. We instead
+ * rely on the algorithmic fact that triangle index `k` in the result
+ * samples the SAME parametric (u,v) cell as triangle `k` in the
+ * source — a deterministic by-index pairing.
+ *
+ * For each result face / edge / vertex at index `k`:
+ *   - If the source body has a face / edge / vertex at index `k`, the
+ *     source persistent id is appended to the result entity's
+ *     `derivedFrom` list, and the result entity's `persistentId` is
+ *     set to the source's id (so the result face inherits the source
+ *     face's identity verbatim — "id persists through refine/elevate"
+ *     as the surfacing brief specifies).
+ *   - Otherwise (index out of range): no lineage edge from this entity.
+ *
+ * This is honest about its scope — it's a positional-pairing helper, not
+ * a kernel-history walk. The brief's claim "refine/elevate preserve the
+ * underlying surface; assert face IDs persist verbatim through them"
+ * is met because every result face has its derivedFrom recording the
+ * matching source face's id, AND the persistentId is set to that source
+ * id (so an assertion querying `result.faces()[k].persistentId ===
+ * source.faces()[k].persistentId` succeeds).
+ *
+ * @param {object} sourceSpineBody  the input SpineBody (must have a `body`)
+ * @param {object} resultBody       the freshly-bound result spine Body
+ * @returns {{
+ *   facesCarried: number, edgesCarried: number, verticesCarried: number,
+ *   sourceFaceCount: number, sourceEdgeCount: number, sourceVertexCount: number,
+ *   resultFaceCount: number, resultEdgeCount: number, resultVertexCount: number,
+ *   facesPositionallyMatched: number,
+ * }}
+ */
+function carryByIndex(sourceSpineBody, resultBody) {
+  const report = {
+    facesCarried: 0, edgesCarried: 0, verticesCarried: 0,
+    sourceFaceCount: 0, sourceEdgeCount: 0, sourceVertexCount: 0,
+    resultFaceCount: 0, resultEdgeCount: 0, resultVertexCount: 0,
+    facesPositionallyMatched: 0,
+  };
+  if (!sourceSpineBody || !sourceSpineBody.body) return report;
+
+  const srcFaces = sourceSpineBody.body.faces();
+  const srcEdges = sourceSpineBody.body.edges();
+  const srcVerts = sourceSpineBody.body.vertices();
+  const resFaces = resultBody.faces();
+  const resEdges = resultBody.edges();
+  const resVerts = resultBody.vertices();
+  report.sourceFaceCount = srcFaces.length;
+  report.sourceEdgeCount = srcEdges.length;
+  report.sourceVertexCount = srcVerts.length;
+  report.resultFaceCount = resFaces.length;
+  report.resultEdgeCount = resEdges.length;
+  report.resultVertexCount = resVerts.length;
+
+  const nF = Math.min(srcFaces.length, resFaces.length);
+  for (let k = 0; k < nF; k++) {
+    const src = srcFaces[k]; const dst = resFaces[k];
+    if (!src || !dst || !src.persistentId) continue;
+    if (!dst.derivedFrom) dst.derivedFrom = [];
+    if (!dst.derivedFrom.includes(src.persistentId)) {
+      dst.derivedFrom.push(src.persistentId);
+    }
+    dst.persistentId = src.persistentId;
+    report.facesCarried += 1;
+    report.facesPositionallyMatched += 1;
+  }
+  const nE = Math.min(srcEdges.length, resEdges.length);
+  for (let k = 0; k < nE; k++) {
+    const src = srcEdges[k]; const dst = resEdges[k];
+    if (!src || !dst || !src.persistentId) continue;
+    if (!dst.derivedFrom) dst.derivedFrom = [];
+    if (!dst.derivedFrom.includes(src.persistentId)) {
+      dst.derivedFrom.push(src.persistentId);
+    }
+    dst.persistentId = src.persistentId;
+    report.edgesCarried += 1;
+  }
+  const nV = Math.min(srcVerts.length, resVerts.length);
+  for (let k = 0; k < nV; k++) {
+    const src = srcVerts[k]; const dst = resVerts[k];
+    if (!src || !dst || !src.persistentId) continue;
+    if (!dst.derivedFrom) dst.derivedFrom = [];
+    if (!dst.derivedFrom.includes(src.persistentId)) {
+      dst.derivedFrom.push(src.persistentId);
+    }
+    dst.persistentId = src.persistentId;
+    report.verticesCarried += 1;
+  }
+
+  resultBody.diagnostics.byIndexLineage = report;
+  return report;
+}
+
 // ---------------------------------------------------------------------------
 // 1. buildNurbsPatch
 // ---------------------------------------------------------------------------
@@ -248,15 +353,20 @@ function _attachNurbsDispose(brepShape) {
 /**
  * Build a 4×4 clamped-cubic sail-like NURBS patch.
  *
+ * SP-1 S4c — returns a SpineBody. The triangulated compound is spined into
+ * a `sheet` body (a faceless surface body — the canonical sheet-body kind
+ * the SP-1 §2.2 taxonomy reserves for open-surface results). The NURBS
+ * surface transient is stored in `meta.nurbsSurf` for downstream
+ * refine/elevate/curvature operations; the dispose extension wraps the
+ * SpineBody so the transient is cleaned up alongside the engine shape.
+ *
  * Default control grid: 40×40 mm footprint, inner 2×2 poles lifted z=crown.
- * The surface is sampled on a 20×20 grid → triangulated compound for BRep use.
- * The NURBS surface transient is stored in `brepShape.meta.nurbsSurf` for
- * downstream refine/elevate/curvature operations.
+ * The surface is sampled on a 10×10 grid → triangulated compound for BRep use.
  *
  * @param {object} [opts]
  * @param {number} [opts.size=40]    Base dimension (mm).
  * @param {number} [opts.crown=8]    Z-lift of inner 2×2 poles (mm).
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function buildNurbsPatch(opts = {}) {
   const size   = opts.size   ?? 40;
@@ -280,14 +390,20 @@ export async function buildNurbsPatch(opts = {}) {
 
     const compound = _buildMeshCompound(oc, surf);
 
-    const brepShape = new BrepShape(compound, {
+    const meta = {
       op: 'buildNurbsPatch',
       params: { size, crown },
       description: `4×4 clamped-cubic NURBS sail patch (${size}×${size} mm, crown=${crown} mm); ${GRID_N}×${GRID_N} triangulated mesh`,
       nurbsSurf: surf,
+    };
+    const wrapper = new BrepShape(compound, meta);
+    const resultBody = bindSpine(oc, compound, {
+      bodyTag: `buildNurbsPatch-${wrapper.id}`, geomEngineShape: wrapper,
+      validate: false,
     });
-    _attachNurbsDispose(brepShape);
-    return brepShape;
+    const spineBody = new SpineBody(resultBody, wrapper, meta);
+    _attachNurbsDispose(spineBody);
+    return spineBody;
   });
 }
 
@@ -299,12 +415,22 @@ export async function buildNurbsPatch(opts = {}) {
  * Refine a NURBS patch by inserting knots at u=0.25, 0.5, 0.75 and
  * v=0.25, 0.5, 0.75 (h-refinement). Preserves the surface shape exactly.
  *
- * @param {BrepShape} brepShape   Must have been created by buildNurbsPatch.
- * @returns {Promise<BrepShape>}
+ * SP-1 S4c — returns a SpineBody. h-refinement preserves the underlying
+ * surface (the same point set, just more knots / control points), so the
+ * source spine body's face / edge / vertex persistent ids are carried
+ * VERBATIM onto the result via `carryByIndex` (positional pairing
+ * by-index — the rebuild walks the same GRID_N grid in the same order,
+ * so triangle k in the source ⇔ triangle k in the result). The result
+ * entity's `persistentId` is set to the source's id (not freshly
+ * allocated); the source id is also appended to `derivedFrom` for
+ * provenance.
+ *
+ * @param {SpineBody|BrepShape} brepShape   Must have been created by buildNurbsPatch.
+ * @returns {Promise<SpineBody>}
  */
 export async function refineNurbs(brepShape, opts = {}) {
   if (!brepShape || !brepShape.shape) {
-    throw new Error('refineNurbs: first argument must be a BrepShape with a live shape');
+    throw new Error('refineNurbs: first argument must be a SpineBody or BrepShape with a live shape');
   }
   const srcSurf = brepShape.meta && brepShape.meta.nurbsSurf;
   if (!srcSurf) {
@@ -325,15 +451,32 @@ export async function refineNurbs(brepShape, opts = {}) {
 
     const compound = _buildMeshCompound(oc, surf);
 
-    const resultShape = new BrepShape(compound, {
+    const meta = {
       op: 'refineNurbs',
       params: { knotsU: knotPositions, knotsV: knotPositions },
       parents: [brepShape.id],
       description: 'NURBS h-refinement — knots inserted at 0.25, 0.5, 0.75 in u and v',
       nurbsSurf: surf,
+    };
+    const wrapper = new BrepShape(compound, meta);
+    const resultBody = bindSpine(oc, compound, {
+      bodyTag: `refineNurbs-${wrapper.id}`, geomEngineShape: wrapper,
+      validate: false,
     });
-    _attachNurbsDispose(resultShape);
-    return resultShape;
+    if (brepShape.body) {
+      const lineage = carryByIndex(brepShape, resultBody);
+      meta.lineage = {
+        survived: lineage.facesCarried,
+        modified: 0,
+        generated: 0,
+        deleted: 0,
+        conflicts: 0,
+        byIndex: lineage,
+      };
+    }
+    const spineBody = new SpineBody(resultBody, wrapper, meta);
+    _attachNurbsDispose(spineBody);
+    return spineBody;
   });
 }
 
@@ -345,15 +488,20 @@ export async function refineNurbs(brepShape, opts = {}) {
  * Elevate the degree of a NURBS patch in u and/or v (p-refinement).
  * Does NOT change the surface shape.
  *
- * @param {BrepShape} brepShape   Must have been created by buildNurbsPatch.
+ * SP-1 S4c — returns a SpineBody. p-refinement preserves the underlying
+ * surface (the same point set, just a higher-degree basis), so the source
+ * spine body's face / edge / vertex persistent ids are carried VERBATIM
+ * onto the result via `carryByIndex` — same algorithm as refineNurbs.
+ *
+ * @param {SpineBody|BrepShape} brepShape   Must have been created by buildNurbsPatch.
  * @param {object}    [opts]
  * @param {number}    [opts.uDegree]   Target u-degree (default: current + 1).
  * @param {number}    [opts.vDegree]   Target v-degree (default: current + 1).
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function elevateNurbsDegree(brepShape, opts = {}) {
   if (!brepShape || !brepShape.shape) {
-    throw new Error('elevateNurbsDegree: first argument must be a BrepShape with a live shape');
+    throw new Error('elevateNurbsDegree: first argument must be a SpineBody or BrepShape with a live shape');
   }
   const srcSurf = brepShape.meta && brepShape.meta.nurbsSurf;
   if (!srcSurf) {
@@ -379,15 +527,32 @@ export async function elevateNurbsDegree(brepShape, opts = {}) {
 
     const compound = _buildMeshCompound(oc, surf);
 
-    const resultShape = new BrepShape(compound, {
+    const meta = {
       op: 'elevateNurbsDegree',
       params: { uDegree: targetU, vDegree: targetV },
       parents: [brepShape.id],
       description: `NURBS degree elevation: u=${currentU}→${targetU}, v=${currentV}→${targetV}`,
       nurbsSurf: surf,
+    };
+    const wrapper = new BrepShape(compound, meta);
+    const resultBody = bindSpine(oc, compound, {
+      bodyTag: `elevateNurbsDegree-${wrapper.id}`, geomEngineShape: wrapper,
+      validate: false,
     });
-    _attachNurbsDispose(resultShape);
-    return resultShape;
+    if (brepShape.body) {
+      const lineage = carryByIndex(brepShape, resultBody);
+      meta.lineage = {
+        survived: lineage.facesCarried,
+        modified: 0,
+        generated: 0,
+        deleted: 0,
+        conflicts: 0,
+        byIndex: lineage,
+      };
+    }
+    const spineBody = new SpineBody(resultBody, wrapper, meta);
+    _attachNurbsDispose(spineBody);
+    return spineBody;
   });
 }
 

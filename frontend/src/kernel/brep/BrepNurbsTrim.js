@@ -44,6 +44,8 @@
 
 import { getKernel } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
 
 // ---------------------------------------------------------------------------
 // Internal: build NURBS sail transient for rendering
@@ -158,8 +160,16 @@ function _measureFaceArea(oc, face) {
  * @param {number} [opts.trimVMin=0.25]  Normalised V start of trim window [0..1).
  * @param {number} [opts.trimVMax=0.75]  Normalised V end   of trim window (0..1].
  * @param {number} [opts.tol=1e-6]       Face tolerance (mm).
- * @returns {Promise<BrepShape>}  Trimmed compound wrapped in a BrepShape.
- *   shape.trimStats = { fullAreaMm2, trimmedAreaMm2, trimRatio }
+ * @returns {Promise<SpineBody>}  Trimmed compound wrapped in a SpineBody.
+ *   spineBody.trimStats = { fullAreaMm2, trimmedAreaMm2, trimRatio }
+ *
+ * SP-1 S4c — returns a SpineBody. The triangulated trim-window compound is
+ * spined into a `sheet` body (no closed shell — it is an open trimmed
+ * surface). No input body to carry — the trim is self-constructed —
+ * so the result spine carries freshly-allocated persistent ids; downstream
+ * ops (thicken, etc.) that take this body as input will then carry these
+ * ids onto their result via their own lineage path (the mixed-currency
+ * adapter shipped in S2).
  */
 export async function trimmedNurbsFace(opts = {}) {
   const sizeX    = opts.sizeX    ?? 80;
@@ -313,10 +323,10 @@ export async function trimmedNurbsFace(opts = {}) {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // Wrap in BrepShape; attach trimStats and NURBS transient.
+    // Wrap in SpineBody; attach trimStats and NURBS transient.
     // ────────────────────────────────────────────────────────────────────────
 
-    const brepShape = new BrepShape(compound, {
+    const meta = {
       op: 'trimmedNurbsFace',
       params: { sizeX, sizeY, bulge, trimUMin, trimUMax, trimVMin, trimVMax, tol },
       description:
@@ -327,17 +337,22 @@ export async function trimmedNurbsFace(opts = {}) {
         `(${(trimRatio * 100).toFixed(1)}% retained); ` +
         `B-rep face via MakeFace_14 on sphere surface`,
       nurbsSurf: sailSurf,
+    };
+    const wrapper = new BrepShape(compound, meta);
+    const resultBody = bindSpine(oc, compound, {
+      bodyTag: `trimmedNurbsFace-${wrapper.id}`, geomEngineShape: wrapper,
+      validate: false,
     });
-
-    brepShape.trimStats = {
+    const spineBody = new SpineBody(resultBody, wrapper, meta);
+    spineBody.trimStats = {
       fullAreaMm2,
       trimmedAreaMm2,
       trimRatio,
     };
 
     // Dispose extension: also clean up the NURBS transient.
-    const origDispose = brepShape.dispose.bind(brepShape);
-    brepShape.dispose = function () {
+    const origDispose = spineBody.dispose.bind(spineBody);
+    spineBody.dispose = function () {
       try {
         if (this.meta && this.meta.nurbsSurf) {
           try { this.meta.nurbsSurf.delete(); } catch { /* already gone */ }
@@ -347,6 +362,6 @@ export async function trimmedNurbsFace(opts = {}) {
       origDispose();
     };
 
-    return brepShape;
+    return spineBody;
   });
 }

@@ -1,18 +1,102 @@
 /**
  * ArchDisc Kernel — surfacing operations: sweep along a path,
- * loft through sections. A2 builds profiles/sections internally.
+ * loft through sections.
+ *
+ * SP-1 S4c (surfacing subset) — every op here is spine-aware:
+ *   1. Run the engine algorithm (BRepOffsetAPI_MakePipe / ThruSections —
+ *      geometry unchanged).
+ *   2. Bind the result shape to a spine `Body` via `bindSpine`.
+ *   3. Carry persistent-ID lineage through using the algorithm's
+ *      `Modified` / `Generated` / `IsDeleted` history maps. Both
+ *      `BRepOffsetAPI_MakePipe` (via `BRepPrimAPI_MakeSweep`) and
+ *      `BRepOffsetAPI_ThruSections` inherit the full contract from
+ *      `BRepBuilderAPI_MakeShape` — confirmed in
+ *      `opencascade.full.d.ts` lines 11072-11081 (MakePipe inherits
+ *      Modified/IsDeleted from base; declares Generated_1/Generated_2),
+ *      lines 11230-11253 (ThruSections extends MakeShape, declares
+ *      Generated natively, inherits Modified/IsDeleted), and lines
+ *      11768-11774 (MakeShape base).
+ *   4. Wrap in a `SpineBody`.
+ *
+ * Surfacing ops do not consume an existing body — the profile / section
+ * wires are constructed internally. To carry persistent ids onto the
+ * result we spine the profile face (sweep) and the section wires (loft)
+ * as TEMPORARY sheet bodies, then call `carryLineage` consuming the
+ * sweep/loft algorithm's history. This mirrors the extrudeRect / revolveRect
+ * pattern in BrepFeatures.js. The bottom cap of a sweep is the profile
+ * face (`survived-as-id`); the top cap is its `Modified`; the lateral
+ * tube faces are `Generated` from each profile edge — the canonical
+ * sweep lineage contract.
+ *
  * Verified kernel sequences: docs/superpowers/notes/kernel-api-A2.md items 5-6.
  */
 
 import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
+import bindSpine from '../topology/bindSpine.js';
+import SpineBody from '../topology/SpineBody.js';
+import { carryLineage } from '../topology/IdLineage.js';
+
+/**
+ * Shared spine-binding + lineage-carry tail for the surfacing ops. Mirrors the
+ * `bindFeatureResult` / `bindLocalOpResult` helpers so all S4 ops follow the
+ * same canonical migration shape.
+ *
+ *   1. Wrap the engine TopoDS_Shape in a heap-managed BrepShape.
+ *   2. bindSpine the engine result.
+ *   3. If a `profileBody` is provided (the spined profile face / section
+ *      sheet), carry its persistent ids through via `carryLineage(oc, algo,
+ *      resultBody, [{body: profileBody}])`. Records the lineage report on
+ *      `meta.lineage`.
+ *   4. Wrap in a SpineBody.
+ *
+ * @param {object} oc            the engine module
+ * @param {string} opName        op tag used in bodyTag + error prefix
+ * @param {object[]} profileBodies  list of spined profile bodies whose ids
+ *                                  should carry onto the result. Empty list
+ *                                  is allowed (no lineage to carry).
+ * @param {object} algo          the BRepOffsetAPI_* algorithm instance
+ *                               (post-Build, IsDone()=true). Must expose
+ *                               Modified(S) / Generated(S) / IsDeleted(S).
+ * @param {object} shape         the engine TopoDS_Shape returned by the algo.
+ * @param {object} meta          result meta — op + params, parents.
+ * @returns {SpineBody}
+ */
+function bindSurfacingResult(oc, opName, profileBodies, algo, shape, meta) {
+  if (shape.IsNull()) throw new Error(`${opName}: kernel produced a null shape`);
+  const wrapper = new BrepShape(shape, meta);
+  const resultBody = bindSpine(oc, shape, {
+    bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+  });
+  const inputBodies = profileBodies
+    .filter((pb) => !!pb)
+    .map((body) => ({ body, role: 'arg' }));
+  if (inputBodies.length > 0) {
+    const lineage = carryLineage(oc, algo, resultBody, inputBodies);
+    meta.lineage = {
+      survived: lineage.survived, modified: lineage.modified,
+      generated: lineage.generated, deleted: lineage.deleted,
+      conflicts: lineage.conflicts,
+      faceMap: [...lineage.faceMap.entries()].slice(0, 64),
+      edgeMap: [...lineage.edgeMap.entries()].slice(0, 64),
+    };
+  }
+  return new SpineBody(resultBody, wrapper, meta);
+}
 
 /**
  * Sweep a circular profile (radius `r`) along a straight path of `length`
  * along +Z, producing a solid rod.
+ *
+ * SP-1 S4c — returns a SpineBody. The circular profile face is spined as a
+ * temporary sheet body so the pipe's `Modified` / `Generated` history can
+ * propagate its face / edge / vertex persistent ids onto the resulting
+ * solid (bottom cap from the profile face; top cap from its Modified; the
+ * tube lateral face Generated from the profile edge).
+ *
  * @param {number} r       profile radius (mm)
  * @param {number} length  path length along +Z (mm)
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function sweep(r, length) {
   if (!(r > 0 && length > 0)) throw new Error(`sweep: r and length must be positive (got ${r}, ${length})`);
@@ -45,6 +129,13 @@ export async function sweep(r, length) {
     const profileFM   = track(new oc.BRepBuilderAPI_MakeFace_15(profileWire, true));
     const profileFace = track(profileFM.Face());
 
+    // Spine the profile face into a temporary sheet body so its faces /
+    // edges / vertices have persistent ids. This is the input body for
+    // the pipe's lineage propagation.
+    const profileBody = bindSpine(oc, profileFace, {
+      bodyTag: 'sweepProfile', validate: false,
+    });
+
     // Step 2: Build path wire (straight line from z=0 to z=length)
     const pathP0   = track(new oc.gp_Pnt_3(0, 0, 0));
     const pathP1   = track(new oc.gp_Pnt_3(0, 0, length));
@@ -58,18 +149,25 @@ export async function sweep(r, length) {
     const pipe  = track(new oc.BRepOffsetAPI_MakePipe_1(pathWire, profileFace));
     const shape = pipe.Shape();
 
-    if (shape.IsNull()) throw new Error('sweep: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'sweep', params: { r, length } });
+    const meta = { op: 'sweep', params: { r, length } };
+    return bindSurfacingResult(oc, 'sweep', [profileBody], pipe, shape, meta);
   });
 }
 
 /**
  * Loft a solid through two square section wires: side `bottomSize` at z=0
  * and side `topSize` at z=`height`.
+ *
+ * SP-1 S4c — returns a SpineBody. Each section wire is spined into a
+ * temporary sheet body (the wire is wrapped in a planar face for spining,
+ * giving its edges + vertices persistent ids); the loft's `Modified` /
+ * `Generated` history then carries those ids onto the cap + lateral faces
+ * of the resulting solid.
+ *
  * @param {number} bottomSize  bottom square side (mm)
  * @param {number} topSize     top square side (mm)
  * @param {number} height      (mm)
- * @returns {Promise<BrepShape>}
+ * @returns {Promise<SpineBody>}
  */
 export async function loft(bottomSize, topSize, height) {
   if (!(bottomSize > 0 && topSize > 0 && height > 0)) {
@@ -95,8 +193,34 @@ export async function loft(bottomSize, topSize, height) {
       return track(wm.Wire());
     }
 
+    /**
+     * Wrap a planar closed wire in a face so it can be spined (the bindSpine
+     * adapter wants a face/shell/solid root, not a bare wire — wire-only spines
+     * are sheet-bodies but in this build a wire alone produces no face for
+     * lineage). We just take the face of the wire and use that as the sheet
+     * for spining.
+     */
+    function spineSectionWire(wire, tag) {
+      const fm = track(new oc.BRepBuilderAPI_MakeFace_15(wire, true));
+      if (!fm.IsDone()) return null;
+      const sectionFace = track(fm.Face());
+      try {
+        return bindSpine(oc, sectionFace, {
+          bodyTag: tag, validate: false,
+        });
+      } catch (_e) {
+        // bindSpine throws on degenerate shapes — surfacing always returns a
+        // valid loft regardless, so a degenerate section body just means no
+        // lineage edge from that section (honest documented degrade).
+        return null;
+      }
+    }
+
     const wire0 = makeSquareWire(bottomSize, 0);
     const wire1 = makeSquareWire(topSize, height);
+
+    const sectionBody0 = spineSectionWire(wire0, 'loftSection0');
+    const sectionBody1 = spineSectionWire(wire1, 'loftSection1');
 
     // Step 2: ThruSections (undecorated, NOT _1/_2)
     // Constructor: (isSolid: bool, isRuled: bool, pres3d: Real)
@@ -114,7 +238,8 @@ export async function loft(bottomSize, topSize, height) {
     if (!loftOp.IsDone()) throw new Error('loft: BRepOffsetAPI_ThruSections did not complete');
     const shape = loftOp.Shape();
 
-    if (shape.IsNull()) throw new Error('loft: kernel produced a null shape');
-    return new BrepShape(shape, { op: 'loft', params: { bottomSize, topSize, height } });
+    const meta = { op: 'loft', params: { bottomSize, topSize, height } };
+    return bindSurfacingResult(
+      oc, 'loft', [sectionBody0, sectionBody1], loftOp, shape, meta);
   });
 }
