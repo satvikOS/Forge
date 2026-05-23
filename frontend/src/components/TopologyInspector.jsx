@@ -71,7 +71,20 @@ function useActiveSpineBody() {
 
   useEffect(() => {
     const reg = getBodyRegistry();
-    const recalc = () => { setActive(readActive()); setTick(t => t + 1); };
+    // BodyRegistry notify fires DURING addBrepShapeToScene (right when
+    // registerBody runs), BEFORE the window.__lastSpine* slots are
+    // populated (a few lines later in the same function). So a synchronous
+    // readActive() at notify time can miss the spine. Defer to the next
+    // macro-tick so the window slot has been set; this is the canonical
+    // "register a body & finish wiring" sequence pattern used by
+    // ToolExecutionEngine. setTimeout(0) is sufficient — `addBrepShapeToScene`
+    // is fully synchronous between registerBody and the window slot.
+    const recalc = () => {
+      setTimeout(() => {
+        setActive(readActive());
+        setTick(t => t + 1);
+      }, 0);
+    };
     const unsub = reg.onChange(recalc);
     // Also listen for the topology-inspector drill event so the read-out
     // refreshes when the user clicks a tree node (per-entity readout
