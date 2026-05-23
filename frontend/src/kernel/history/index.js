@@ -24,6 +24,11 @@ export {
   getHistoryLog,
   setHistoryLogForTest,
   recordBodyCreate,
+  recordBodyDerive,
+  recordBodyDeriveMulti,
+  standardSceneRegister,
+  standardSceneRemove,
+  findLiveBodyByPersistentId,
   setRecordingSuppressed,
   isRecordingSuppressed,
 } from './HistoryLog.js';

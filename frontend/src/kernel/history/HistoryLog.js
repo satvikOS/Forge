@@ -531,3 +531,267 @@ export function recordBodyCreate(spec) {
     },
   });
 }
+
+// ─── SP-3b — canonical scene-bridge thunks + body-derive helper ─────────────
+//
+// Every body-producing op (primitive, boolean, feature, local op, surfacing,
+// partition, analytic-face) takes the EXACT same `register` and `remove`
+// thunks — locate the registry / addBrepShape hook on the scene context (or
+// fall back to the globals installed by WorkbenchMechanical), call them.
+//
+// Factoring them here keeps every kernel op-site small (one `recordBodyCreate`
+// call with op-specific `rebuild`) and KEEPS the kernel decoupled from React /
+// the workbench (no imports of components or scene helpers — only the global
+// hooks the workbench installs at mount).
+//
+// Both thunks fail-soft: when the hooks aren't installed (pure-kernel scripts,
+// recon-only e2e specs), the recording is silently skipped at registration
+// time. Honest behaviour: the geometry op still returns its SpineBody; only
+// the time-travel side-effect is muted.
+
+/**
+ * Standard register thunk for SP-3b ops. Looks up `__archdiscAddBrepShape` on
+ * the scene context (preferred) or the global, and the live scene + viewport
+ * the same way. Optional `sceneCtx.applyAfterRegister(group, body)` runs once
+ * the body is in the scene — used by e2e specs that need to re-apply a
+ * per-body adjustment on forward replay (e.g. crate-stack offsets).
+ *
+ * @param {object} body      the rebuilt SpineBody returned by rebuild().
+ * @param {object} [sceneCtx]  optional override context — { addBrepShape, scene,
+ *                              viewport, applyAfterRegister }.
+ * @returns {Promise<any>}  the registered Three.js group, or undefined if
+ *                          the hook is unavailable (recording fail-soft).
+ */
+export async function standardSceneRegister(body, sceneCtx) {
+  const adder = (sceneCtx && sceneCtx.addBrepShape)
+    || (typeof globalThis !== 'undefined' && globalThis.__archdiscAddBrepShape)
+    || null;
+  if (typeof adder !== 'function') return undefined;
+  const scene = (sceneCtx && sceneCtx.scene)
+    || (typeof globalThis !== 'undefined'
+        && globalThis.__archdiscViewport
+        && globalThis.__archdiscViewport.scene) || null;
+  const viewport = (sceneCtx && sceneCtx.viewport)
+    || (typeof globalThis !== 'undefined' && globalThis.__archdiscViewport) || null;
+  if (!scene) return undefined;
+  const color = (sceneCtx && sceneCtx.color) || 0x9aa3ad;
+  const group = await adder(scene, viewport, body, color);
+  if (sceneCtx && typeof sceneCtx.applyAfterRegister === 'function') {
+    try { await sceneCtx.applyAfterRegister(group, body); }
+    catch { /* honest-skip — caller chooses to surface */ }
+  }
+  return group;
+}
+
+/**
+ * Standard remove thunk for SP-3b ops. Locates the BodyRegistry entry whose
+ * underlying spine body has the matching persistentId, then calls
+ * `BodyRegistry.remove(id)` — which atomically detaches the Three.js group
+ * from the scene AND clears the body from selection.
+ *
+ * @param {string} persistentBodyId  the id to remove.
+ * @param {object} [sceneCtx]  optional override context — { registry }.
+ */
+export async function standardSceneRemove(persistentBodyId, sceneCtx) {
+  const reg = (sceneCtx && sceneCtx.registry)
+    || (typeof globalThis !== 'undefined' && globalThis.__archdiscRegistry)
+    || null;
+  if (!reg || typeof reg.remove !== 'function') return;
+  const entry = reg.bodies.find((b) => {
+    const ref = b && (b.brepShapeRef
+      || (b.group && b.group.userData && b.group.userData.brepShapeRef));
+    return !!(ref && ref.body && ref.body.persistentId === persistentBodyId);
+  });
+  if (entry) reg.remove(entry.id);
+}
+
+/**
+ * Look up a live SpineBody currently in the BodyRegistry by its persistent id.
+ * Used by SP-3b derive-op rebuild thunks — when the forward delta replays, the
+ * input bodies' own forward deltas have already re-created them (earlier in
+ * the timeline), so the rebuild thunk can find them by id and re-run the op.
+ *
+ * @param {string} persistentBodyId  the id of the input to fetch.
+ * @param {object} [sceneCtx]  optional override context — { registry }.
+ * @returns {object|null}  the registry entry's `brepShapeRef` (a SpineBody),
+ *                         or null if no such body is currently in the registry.
+ */
+export function findLiveBodyByPersistentId(persistentBodyId, sceneCtx) {
+  const reg = (sceneCtx && sceneCtx.registry)
+    || (typeof globalThis !== 'undefined' && globalThis.__archdiscRegistry)
+    || null;
+  if (!reg || !Array.isArray(reg.bodies)) return null;
+  const entry = reg.bodies.find((b) => {
+    const ref = b && (b.brepShapeRef
+      || (b.group && b.group.userData && b.group.userData.brepShapeRef));
+    return !!(ref && ref.body && ref.body.persistentId === persistentBodyId);
+  });
+  if (!entry) return null;
+  return entry.brepShapeRef
+    || (entry.group && entry.group.userData && entry.group.userData.brepShapeRef)
+    || null;
+}
+
+/**
+ * Record a "body derived from prior bodies" op on the shared log — the canonical
+ * SP-3b delta shape for booleans, features, local ops, surfacing, partition,
+ * imprint, planar-section, and the analytic-face ops (g2BlendBetweenEdges /
+ * nSidedPatch / replaceFace).
+ *
+ * The dependency model — DOCUMENTED CHOICE:
+ *
+ *   "inverse = remove result body". The inverse delta just removes the
+ *   result body from the registry. It does NOT recreate the inputs
+ *   (booleans / consuming ops do not delete inputs at the kernel layer —
+ *   the workbench's `addBrepShapeToScene(.., consumedInputs)` is what
+ *   removes inputs from the scene; the kernel hook records the producer,
+ *   not the consumption). To undo input-consumption the caller rolls back
+ *   further through the timeline; the prior-input ops' forward deltas
+ *   then replay their inputs verbatim. This matches the SP-3a/Parasolid
+ *   PK_PARTITION contract — a single linear cursor over forward/inverse
+ *   pairs; the dependency chain is implicit via cursor order.
+ *
+ *   `dependsOn` carries the input persistent ids on the entry so a
+ *   downstream timeline-scrubber UI (SP-3c) can render the feature DAG.
+ *
+ * On forward (replay): `rebuild(inputs)` is called with the list of live
+ * SpineBodies (looked up from the registry by `inputPersistentIds`). The
+ * thunk must re-run the kernel op and return a SpineBody whose persistentId
+ * matches the original — typically by passing the captured persistentBodyId
+ * back into the kernel construct helper as its `bodyTag` (the SP-3a pattern).
+ *
+ * If any input is missing from the registry at replay time, the rebuild is
+ * skipped and a `console.warn` surfaces the gap — honest, not silent.
+ *
+ * @param {{
+ *   opName:    string,
+ *   persistentBodyId: string,
+ *   inputPersistentIds: string[],
+ *   rebuild:   (liveInputs:object[]) => Promise<object>|object,
+ *   meta?:     object,
+ *   dependsOn?: string[],
+ * }} spec
+ * @returns {object|null}
+ */
+export function recordBodyDerive(spec) {
+  if (!spec || typeof spec.rebuild !== 'function'
+      || !spec.persistentBodyId
+      || !Array.isArray(spec.inputPersistentIds)) {
+    throw new Error(
+      'recordBodyDerive: spec must include {opName, persistentBodyId, inputPersistentIds, rebuild}',
+    );
+  }
+  if (_recordingSuppressed) return null;
+  const log = getHistoryLog();
+  // dependsOn defaults to the inputPersistentIds — every derive op
+  // depends on its inputs by definition. Callers can supplement with
+  // extra ids if needed.
+  const dependsOn = spec.dependsOn && spec.dependsOn.length
+    ? spec.dependsOn.slice()
+    : spec.inputPersistentIds.slice();
+  return log.recordOp({
+    opName: spec.opName,
+    dependsOn,
+    meta: {
+      ...(spec.meta || {}),
+      persistentBodyId: spec.persistentBodyId,
+      inputPersistentIds: spec.inputPersistentIds.slice(),
+    },
+    forward: async (sceneCtx) => {
+      const liveInputs = [];
+      for (const pid of spec.inputPersistentIds) {
+        const live = findLiveBodyByPersistentId(pid, sceneCtx);
+        if (!live) {
+          // Honest failure — the timeline cursor reached this op before
+          // its inputs were re-created. The forward refuses to lie about
+          // state; the cursor will not advance past this point.
+          throw new Error(
+            `recordBodyDerive(${spec.opName}): input '${pid}' missing from registry at replay time`,
+          );
+        }
+        liveInputs.push(live);
+      }
+      const body = await spec.rebuild(liveInputs);
+      await standardSceneRegister(body, sceneCtx);
+      return body;
+    },
+    inverse: async (sceneCtx) => {
+      await standardSceneRemove(spec.persistentBodyId, sceneCtx);
+    },
+  });
+}
+
+/**
+ * Record an op that produces an ARRAY of bodies (the canonical SP-3b shape for
+ * `partition` and `planarSection({output:'split'})` which return one piece per
+ * resulting solid lump).
+ *
+ * The delta shape — ONE entry per call, NOT one per piece. This matches
+ * Parasolid's "PK_BODY_make_partitions" history convention: the partition is
+ * a single op, the array of pieces is its product. On inverse, every piece is
+ * removed from the registry in one atomic step. On forward (replay), the op
+ * is re-run with the same input bodies; every piece's persistentId matches
+ * the originally-built one because the kernel construct helper seeds each
+ * piece's bindSpine call with a deterministic per-piece bodyTag (the original
+ * piece's persistent id).
+ *
+ * @param {{
+ *   opName:    string,
+ *   persistentBodyIds: string[],
+ *   inputPersistentIds: string[],
+ *   rebuild:   (liveInputs:object[]) => Promise<object[]>|object[],
+ *   meta?:     object,
+ *   dependsOn?: string[],
+ * }} spec
+ * @returns {object|null}
+ */
+export function recordBodyDeriveMulti(spec) {
+  if (!spec || typeof spec.rebuild !== 'function'
+      || !Array.isArray(spec.persistentBodyIds)
+      || !Array.isArray(spec.inputPersistentIds)) {
+    throw new Error(
+      'recordBodyDeriveMulti: spec must include {opName, persistentBodyIds, inputPersistentIds, rebuild}',
+    );
+  }
+  if (_recordingSuppressed) return null;
+  const log = getHistoryLog();
+  const dependsOn = spec.dependsOn && spec.dependsOn.length
+    ? spec.dependsOn.slice()
+    : spec.inputPersistentIds.slice();
+  return log.recordOp({
+    opName: spec.opName,
+    dependsOn,
+    meta: {
+      ...(spec.meta || {}),
+      persistentBodyIds: spec.persistentBodyIds.slice(),
+      inputPersistentIds: spec.inputPersistentIds.slice(),
+    },
+    forward: async (sceneCtx) => {
+      const liveInputs = [];
+      for (const pid of spec.inputPersistentIds) {
+        const live = findLiveBodyByPersistentId(pid, sceneCtx);
+        if (!live) {
+          throw new Error(
+            `recordBodyDeriveMulti(${spec.opName}): input '${pid}' missing from registry at replay time`,
+          );
+        }
+        liveInputs.push(live);
+      }
+      const bodies = await spec.rebuild(liveInputs);
+      if (!Array.isArray(bodies)) {
+        throw new Error(
+          `recordBodyDeriveMulti(${spec.opName}): rebuild() returned ${typeof bodies}, expected an array`,
+        );
+      }
+      for (const b of bodies) {
+        await standardSceneRegister(b, sceneCtx);
+      }
+      return bodies;
+    },
+    inverse: async (sceneCtx) => {
+      for (const pid of spec.persistentBodyIds) {
+        await standardSceneRemove(pid, sceneCtx);
+      }
+    },
+  });
+}
