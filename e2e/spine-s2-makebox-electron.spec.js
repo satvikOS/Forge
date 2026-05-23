@@ -251,9 +251,11 @@ test('SP-1 S2 — makeBox migration: SpineBody flows facade→scene→registry, 
         op: last.meta && last.meta.op,
         parents: last.meta && last.meta.parents,
         volume: m.volume,
-        // Is the post-fillet body itself a SpineBody (NO — filletAll is
-        // un-migrated in S2) or a BrepShape (YES). The adapter's contract is
-        // exactly this MIXED-CURRENCY state — and the spec verifies it.
+        // Is the post-fillet body itself a SpineBody? After S4 (features
+        // subset) filletAll is now migrated — YES. The MIXED-CURRENCY
+        // adapter contract S2 introduced still works (a SpineBody flows
+        // into filletAll and out as a SpineBody), and that round-trip is
+        // what this assertion verifies post-S4.
         isSpineBody: !!(last && last.body && last.occtWrapper),
       };
     });
@@ -262,8 +264,9 @@ test('SP-1 S2 — makeBox migration: SpineBody flows facade→scene→registry, 
     expect(filleted.volume, 'fillet shaved volume from the 64,000 mm³ box').toBeLessThan(64000);
     expect(filleted.volume, 'fillet kept most of the volume').toBeGreaterThan(60000);
     expect(filleted.isSpineBody,
-      'S2 leaves filletAll un-migrated — its result is a legacy BrepShape (mixed-currency adapter contract)')
-      .toBe(false);
+      'After S4 (features subset) filletAll is migrated and its result is a SpineBody — ' +
+      'SpineBody-in → SpineBody-out, the canonical S4 path')
+      .toBe(true);
 
     // ── Step 7 — multi-angle render via REAL drag-orbits — no blank frames ───
     const cap = await captureAllAngles(win, 'spine-s2-makebox', { story, drags: 7 });
