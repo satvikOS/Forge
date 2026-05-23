@@ -36,6 +36,11 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import {
+  recordBodyCreate,
+  standardSceneRegister,
+  standardSceneRemove,
+} from '../history/HistoryLog.js';
 
 /**
  * Shared spine-binding + lineage-carry tail for the surfacing ops. Mirrors the
@@ -69,7 +74,7 @@ function bindSurfacingResult(oc, opName, profileBodies, algo, shape, meta, opts 
   // all close a swept profile into a volume). buildNurbsPatch / trimmedNurbsFace
   // explicitly declare 'sheet'.
   const resultBody = bindSpine(oc, shape, {
-    bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+    bodyTag: opts.bodyTag || `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
     declaredKind: opts.declaredKind || 'solid',
   });
   const inputBodies = profileBodies
@@ -102,8 +107,7 @@ function bindSurfacingResult(oc, opName, profileBodies, algo, shape, meta, opts 
  * @param {number} length  path length along +Z (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function sweep(r, length) {
-  if (!(r > 0 && length > 0)) throw new Error(`sweep: r and length must be positive (got ${r}, ${length})`);
+async function _constructSweep(r, length, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     // verified sequence from kernel-api-A2.md item 5
@@ -154,8 +158,30 @@ export async function sweep(r, length) {
     const shape = pipe.Shape();
 
     const meta = { op: 'sweep', params: { r, length } };
-    return bindSurfacingResult(oc, 'sweep', [profileBody], pipe, shape, meta);
+    return bindSurfacingResult(oc, 'sweep', [profileBody], pipe, shape, meta, { bodyTag });
   });
+}
+
+export async function sweep(r, length) {
+  if (!(r > 0 && length > 0)) throw new Error(`sweep: r and length must be positive (got ${r}, ${length})`);
+  const spineBody = await _constructSweep(r, length);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'sweep',
+        persistentBodyId,
+        meta: { op: 'sweep', params: { r, length } },
+        rebuild: () => _constructSweep(r, length, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('sweep: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
 
 /**
@@ -173,10 +199,7 @@ export async function sweep(r, length) {
  * @param {number} height      (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function loft(bottomSize, topSize, height) {
-  if (!(bottomSize > 0 && topSize > 0 && height > 0)) {
-    throw new Error(`loft: all params must be positive (got ${bottomSize}, ${topSize}, ${height})`);
-  }
+async function _constructLoft(bottomSize, topSize, height, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     // verified sequence from kernel-api-A2.md item 6
@@ -244,6 +267,30 @@ export async function loft(bottomSize, topSize, height) {
 
     const meta = { op: 'loft', params: { bottomSize, topSize, height } };
     return bindSurfacingResult(
-      oc, 'loft', [sectionBody0, sectionBody1], loftOp, shape, meta);
+      oc, 'loft', [sectionBody0, sectionBody1], loftOp, shape, meta, { bodyTag });
   });
+}
+
+export async function loft(bottomSize, topSize, height) {
+  if (!(bottomSize > 0 && topSize > 0 && height > 0)) {
+    throw new Error(`loft: all params must be positive (got ${bottomSize}, ${topSize}, ${height})`);
+  }
+  const spineBody = await _constructLoft(bottomSize, topSize, height);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'loft',
+        persistentBodyId,
+        meta: { op: 'loft', params: { bottomSize, topSize, height } },
+        rebuild: () => _constructLoft(bottomSize, topSize, height, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('loft: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }

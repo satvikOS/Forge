@@ -34,6 +34,12 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import {
+  recordBodyCreate,
+  recordBodyDerive,
+  standardSceneRegister,
+  standardSceneRemove,
+} from '../history/HistoryLog.js';
 
 /**
  * Build a planar rectangular face in the XY plane (z=0), corner at origin.
@@ -74,10 +80,7 @@ function buildRectFaceXY(oc, w, h) {
  * @param {number} depth  extrusion distance along +Z (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function extrudeRect(w, h, depth) {
-  if (!(w > 0 && h > 0 && depth > 0)) {
-    throw new Error(`extrudeRect: w, h, depth must be positive (got ${w}, ${h}, ${depth})`);
-  }
+async function _constructExtrudeRect(w, h, depth, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const face = buildRectFaceXY(oc, w, h);
@@ -94,7 +97,7 @@ export async function extrudeRect(w, h, depth) {
     const meta = { op: 'extrudeRect', params: { w, h, depth } };
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `extrudeRect-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `extrudeRect-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
     // Carry persistent ids from the profile sheet body through the prism.
@@ -116,6 +119,32 @@ export async function extrudeRect(w, h, depth) {
   });
 }
 
+export async function extrudeRect(w, h, depth) {
+  if (!(w > 0 && h > 0 && depth > 0)) {
+    throw new Error(`extrudeRect: w, h, depth must be positive (got ${w}, ${h}, ${depth})`);
+  }
+  // No input body — extrudeRect builds the profile internally. SP-3b records
+  // this as a body-CREATE (like a primitive), not a body-derive.
+  const spineBody = await _constructExtrudeRect(w, h, depth);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'extrudeRect',
+        persistentBodyId,
+        meta: { op: 'extrudeRect', params: { w, h, depth } },
+        rebuild: () => _constructExtrudeRect(w, h, depth, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('extrudeRect: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
+}
+
 /**
  * Revolve a rectangular profile around the Z axis to make a ring/disc solid.
  * The profile sits in the XZ plane, offset from the axis by `innerR`.
@@ -131,10 +160,7 @@ export async function extrudeRect(w, h, depth) {
  * @param {number} angleDeg revolution angle in degrees (e.g. 360 for a full ring)
  * @returns {Promise<SpineBody>}
  */
-export async function revolveRect(innerR, width, height, angleDeg) {
-  if (!(innerR >= 0 && width > 0 && height > 0 && angleDeg > 0 && angleDeg <= 360)) {
-    throw new Error(`revolveRect: invalid params (got ${innerR}, ${width}, ${height}, ${angleDeg})`);
-  }
+async function _constructRevolveRect(innerR, width, height, angleDeg, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     // Rectangular profile in the XZ plane.
@@ -164,7 +190,7 @@ export async function revolveRect(innerR, width, height, angleDeg) {
     const meta = { op: 'revolveRect', params: { innerR, width, height, angleDeg } };
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `revolveRect-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `revolveRect-${wrapper.id}`, geomEngineShape: wrapper,
       // 360° → solid; partial angle → still solid (a closed-volume revolution).
       declaredKind: 'solid',
     });
@@ -179,6 +205,31 @@ export async function revolveRect(innerR, width, height, angleDeg) {
     };
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function revolveRect(innerR, width, height, angleDeg) {
+  if (!(innerR >= 0 && width > 0 && height > 0 && angleDeg > 0 && angleDeg <= 360)) {
+    throw new Error(`revolveRect: invalid params (got ${innerR}, ${width}, ${height}, ${angleDeg})`);
+  }
+  const spineBody = await _constructRevolveRect(innerR, width, height, angleDeg);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'revolveRect',
+        persistentBodyId,
+        meta: { op: 'revolveRect', params: { innerR, width, height, angleDeg } },
+        rebuild: () =>
+          _constructRevolveRect(innerR, width, height, angleDeg, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('revolveRect: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
 
 /**
@@ -219,14 +270,14 @@ function forEachUniqueEdge(oc, shape, addEdge) {
  * @param {object} meta         result meta — op + params, parents.
  * @returns {SpineBody}
  */
-function bindFeatureResult(oc, opName, src, maker, meta) {
+function bindFeatureResult(oc, opName, src, maker, meta, bodyTag) {
   maker.Build(track(new oc.Message_ProgressRange_1()));
   if (!maker.IsDone()) throw new Error(`${opName}: ${opName} did not complete`);
   const shape = maker.Shape();
   if (shape.IsNull()) throw new Error(`${opName}: kernel produced a null shape`);
   const wrapper = new BrepShape(shape, meta);
   const resultBody = bindSpine(oc, shape, {
-    bodyTag: `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
+    bodyTag: bodyTag || `${opName}-${wrapper.id}`, geomEngineShape: wrapper,
     // Fillet / chamfer preserves the input's kind — if the input is a solid
     // (the contract — assertSolid below), the result is a solid. S5.
     declaredKind: 'solid',
@@ -258,17 +309,38 @@ function bindFeatureResult(oc, opName, src, maker, meta) {
  * @param {number} radius  fillet radius (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function filletAll(src, radius) {
-  if (!src || !src.shape) throw new Error('filletAll: needs a SpineBody or BrepShape');
-  if (!(radius > 0)) throw new Error(`filletAll: radius must be positive (got ${radius})`);
+async function _runFilletAll(src, radius, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepFilletAPI_MakeFillet(
       src.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
     forEachUniqueEdge(oc, src.shape, (edge) => { maker.Add_2(radius, edge); });
     const meta = { op: 'filletAll', params: { radius }, parents: [src.id] };
-    return bindFeatureResult(oc, 'filletAll', src, maker, meta);
+    return bindFeatureResult(oc, 'filletAll', src, maker, meta, bodyTag);
   });
+}
+
+export async function filletAll(src, radius) {
+  if (!src || !src.shape) throw new Error('filletAll: needs a SpineBody or BrepShape');
+  if (!(radius > 0)) throw new Error(`filletAll: radius must be positive (got ${radius})`);
+  const result = await _runFilletAll(src, radius);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'filletAll',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'filletAll', params: { radius } },
+        rebuild: ([liveSrc]) => _runFilletAll(liveSrc, radius, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('filletAll: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -282,16 +354,37 @@ export async function filletAll(src, radius) {
  * @param {number} distance  chamfer setback (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function chamferAll(src, distance) {
-  if (!src || !src.shape) throw new Error('chamferAll: needs a SpineBody or BrepShape');
-  if (!(distance > 0)) throw new Error(`chamferAll: distance must be positive (got ${distance})`);
+async function _runChamferAll(src, distance, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepFilletAPI_MakeChamfer(src.shape));
     forEachUniqueEdge(oc, src.shape, (edge) => { maker.Add_2(distance, edge); });
     const meta = { op: 'chamferAll', params: { distance }, parents: [src.id] };
-    return bindFeatureResult(oc, 'chamferAll', src, maker, meta);
+    return bindFeatureResult(oc, 'chamferAll', src, maker, meta, bodyTag);
   });
+}
+
+export async function chamferAll(src, distance) {
+  if (!src || !src.shape) throw new Error('chamferAll: needs a SpineBody or BrepShape');
+  if (!(distance > 0)) throw new Error(`chamferAll: distance must be positive (got ${distance})`);
+  const result = await _runChamferAll(src, distance);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'chamferAll',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'chamferAll', params: { distance } },
+        rebuild: ([liveSrc]) => _runChamferAll(liveSrc, distance, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('chamferAll: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -305,15 +398,36 @@ export async function chamferAll(src, distance) {
  * @param {number} r2  end radius (mm)
  * @returns {Promise<SpineBody>}
  */
-export async function variableFillet(src, r1, r2) {
-  if (!src || !src.shape) throw new Error('variableFillet: needs a SpineBody or BrepShape');
-  if (!(r1 > 0 && r2 > 0)) throw new Error(`variableFillet: r1, r2 must be positive (got ${r1}, ${r2})`);
+async function _runVariableFillet(src, r1, r2, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
     const maker = track(new oc.BRepFilletAPI_MakeFillet(
       src.shape, oc.ChFi3d_FilletShape.ChFi3d_Rational));
     forEachUniqueEdge(oc, src.shape, (edge) => { maker.Add_3(r1, r2, edge); });
     const meta = { op: 'variableFillet', params: { r1, r2 }, parents: [src.id] };
-    return bindFeatureResult(oc, 'variableFillet', src, maker, meta);
+    return bindFeatureResult(oc, 'variableFillet', src, maker, meta, bodyTag);
   });
+}
+
+export async function variableFillet(src, r1, r2) {
+  if (!src || !src.shape) throw new Error('variableFillet: needs a SpineBody or BrepShape');
+  if (!(r1 > 0 && r2 > 0)) throw new Error(`variableFillet: r1, r2 must be positive (got ${r1}, ${r2})`);
+  const result = await _runVariableFillet(src, r1, r2);
+  const persistentBodyId = result.body && result.body.persistentId;
+  const srcPid = src.body && src.body.persistentId;
+  if (persistentBodyId && srcPid) {
+    try {
+      recordBodyDerive({
+        opName: 'variableFillet',
+        persistentBodyId,
+        inputPersistentIds: [srcPid],
+        meta: { op: 'variableFillet', params: { r1, r2 } },
+        rebuild: ([liveSrc]) => _runVariableFillet(liveSrc, r1, r2, persistentBodyId),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('variableFillet: history recordBodyDerive failed —', err && err.message || err);
+    }
+  }
+  return result;
 }

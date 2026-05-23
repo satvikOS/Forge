@@ -33,6 +33,11 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { carryLineage } from '../topology/IdLineage.js';
+import {
+  recordBodyCreate,
+  standardSceneRegister,
+  standardSceneRemove,
+} from '../history/HistoryLog.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -135,7 +140,7 @@ function _extractShell(oc, sewedShape) {
  * @param {number} [opts.bendCount=2]      Number of right-angle bends (1–6).
  * @returns {Promise<SpineBody>}
  */
-export async function pipeShellSweep(opts = {}) {
+async function _constructPipeShellSweep(opts, bodyTag) {
   const profileRadius = opts.profileRadius ?? 4;
   const segLength     = opts.segLength     ?? 20;
   const bendCount     = opts.bendCount     ?? 2;
@@ -235,7 +240,7 @@ export async function pipeShellSweep(opts = {}) {
     };
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `pipeShellSweep-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `pipeShellSweep-${wrapper.id}`, geomEngineShape: wrapper,
     });
     if (profileBody) {
       const lineage = carryLineage(oc, pipeShell, resultBody, [
@@ -251,6 +256,27 @@ export async function pipeShellSweep(opts = {}) {
     }
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function pipeShellSweep(opts = {}) {
+  const spineBody = await _constructPipeShellSweep(opts);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'pipeShellSweep',
+        persistentBodyId,
+        meta: { op: 'pipeShellSweep', params: opts },
+        rebuild: () => _constructPipeShellSweep(opts, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('pipeShellSweep: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +302,7 @@ export async function pipeShellSweep(opts = {}) {
  * @param {number} [opts.z2=40]   Z height of section 2 (mm).
  * @returns {Promise<SpineBody>}
  */
-export async function loftTangent(opts = {}) {
+async function _constructLoftTangent(opts, bodyTag) {
   const s0 = opts.s0 ?? 40;
   const s1 = opts.s1 ?? 20;
   const s2 = opts.s2 ?? 30;
@@ -341,7 +367,7 @@ export async function loftTangent(opts = {}) {
     };
     const wrapper = new BrepShape(shape, meta);
     const resultBody = bindSpine(oc, shape, {
-      bodyTag: `loftTangent-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `loftTangent-${wrapper.id}`, geomEngineShape: wrapper,
     });
     const sectionBodies = [sectionBody0, sectionBody1, sectionBody2]
       .filter((sb) => !!sb)
@@ -358,6 +384,27 @@ export async function loftTangent(opts = {}) {
     }
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function loftTangent(opts = {}) {
+  const spineBody = await _constructLoftTangent(opts);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'loftTangent',
+        persistentBodyId,
+        meta: { op: 'loftTangent', params: opts },
+        rebuild: () => _constructLoftTangent(opts, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('loftTangent: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +514,7 @@ function makeSewingAlgoProxy(oc, sewing) {
  * @param {number} [opts.panelH=20]      Panel height (mm).
  * @returns {Promise<SpineBody>}
  */
-export async function stitchFaces(opts = {}) {
+async function _constructStitchFaces(opts, bodyTag) {
   const gap       = opts.gap       ?? 0.05;
   const tolerance = opts.tolerance ?? 0.1;
   const panelW    = opts.panelW    ?? 20;
@@ -524,7 +571,7 @@ export async function stitchFaces(opts = {}) {
     };
     const wrapper = new BrepShape(sewedShape, meta);
     const resultBody = bindSpine(oc, sewedShape, {
-      bodyTag: `stitchFaces-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `stitchFaces-${wrapper.id}`, geomEngineShape: wrapper,
     });
     const panelBodies = [panelBodyA, panelBodyB]
       .filter((b) => !!b)
@@ -542,6 +589,27 @@ export async function stitchFaces(opts = {}) {
     }
     return new SpineBody(resultBody, wrapper, meta);
   });
+}
+
+export async function stitchFaces(opts = {}) {
+  const spineBody = await _constructStitchFaces(opts);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'stitchFaces',
+        persistentBodyId,
+        meta: { op: 'stitchFaces', params: opts },
+        rebuild: () => _constructStitchFaces(opts, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('stitchFaces: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
 
 // ---------------------------------------------------------------------------

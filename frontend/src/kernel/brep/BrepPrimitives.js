@@ -25,7 +25,11 @@ import { getOCCT } from './kernelLoader.js';
 import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
-import { recordBodyCreate } from '../history/HistoryLog.js';
+import {
+  recordBodyCreate,
+  standardSceneRegister,
+  standardSceneRemove,
+} from '../history/HistoryLog.js';
 
 /**
  * Construct the makeBox spine body. Factored out so the SP-3a history
@@ -188,12 +192,42 @@ export async function makeBox(dx, dy, dz) {
 }
 
 /**
+ * Construct the makeCylinder spine body. Factored so the SP-3b history hook's
+ * `rebuild` thunk can re-run the SAME construction on replay with a fixed
+ * `bodyTag` — the rebuilt body's persistent id then matches the originally-
+ * built one and id-keyed downstream lookups continue to resolve.
+ *
+ * @param {number} radius
+ * @param {number} height
+ * @param {string=} bodyTag  when supplied, drives bindSpine's IdAllocator.
+ * @returns {Promise<SpineBody>}
+ */
+async function _constructMakeCylinder(radius, height, bodyTag) {
+  const oc = await getOCCT();
+  return withScope(() => {
+    const maker = track(new oc.BRepPrimAPI_MakeCylinder_1(radius, height));
+    const shape = maker.Shape();
+    if (shape.IsNull()) throw new Error('makeCylinder: kernel produced a null shape');
+    const meta = { op: 'makeCylinder', params: { radius, height } };
+    const wrapper = new BrepShape(shape, meta);
+    const body = bindSpine(oc, shape, {
+      bodyTag: bodyTag || `makeCylinder-${wrapper.id}`, geomEngineShape: wrapper,
+      declaredKind: 'solid',
+    });
+    return new SpineBody(body, wrapper, meta);
+  });
+}
+
+/**
  * Make a cylinder solid (axis = +Z, base at origin).
  *
  * Spine topology — 3 faces (side, top cap, bottom cap), 3 edges (top circle,
  * bottom circle, vertical seam — the side face wraps around so it has a seam
  * edge), 2 vertices (one on the seam on top, one on the seam on bottom).
  *   V − E_real + F − R = 2 − 3 + 3 − 0 = 2 = 2(1 − 0) → genus 0. ✓
+ *
+ * SP-3b history hook — every invocation auto-records a forward/inverse delta
+ * to the kernel HistoryLog (identical pattern to `makeBox`).
  *
  * @param {number} radius  (mm)
  * @param {number} height  (mm)
@@ -203,15 +237,37 @@ export async function makeCylinder(radius, height) {
   if (!(radius > 0 && height > 0)) {
     throw new Error(`makeCylinder: radius and height must be positive (got ${radius}, ${height})`);
   }
+  const spineBody = await _constructMakeCylinder(radius, height);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'makeCylinder',
+        persistentBodyId,
+        meta: { op: 'makeCylinder', params: { radius, height } },
+        rebuild: () => _constructMakeCylinder(radius, height, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('makeCylinder: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
+}
+
+/** _constructMakeSphere — see _constructMakeCylinder header for the pattern. */
+async function _constructMakeSphere(radius, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
-    const maker = track(new oc.BRepPrimAPI_MakeCylinder_1(radius, height));
+    const maker = track(new oc.BRepPrimAPI_MakeSphere_1(radius));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeCylinder: kernel produced a null shape');
-    const meta = { op: 'makeCylinder', params: { radius, height } };
+    if (shape.IsNull()) throw new Error('makeSphere: kernel produced a null shape');
+    const meta = { op: 'makeSphere', params: { radius } };
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
-      bodyTag: `makeCylinder-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `makeSphere-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
@@ -227,20 +283,44 @@ export async function makeCylinder(radius, height) {
  * degenerate edges are excluded from E (they are zero-length parametric
  * artefacts), so V − E_real + F = 2 − 1 + 1 = 2 → genus 0. ✓
  *
+ * SP-3b history hook — auto-records a forward/inverse delta on every call.
+ *
  * @param {number} radius  (mm)
  * @returns {Promise<SpineBody>}
  */
 export async function makeSphere(radius) {
   if (!(radius > 0)) throw new Error(`makeSphere: radius must be positive (got ${radius})`);
+  const spineBody = await _constructMakeSphere(radius);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'makeSphere',
+        persistentBodyId,
+        meta: { op: 'makeSphere', params: { radius } },
+        rebuild: () => _constructMakeSphere(radius, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('makeSphere: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
+}
+
+/** _constructMakeCone — see _constructMakeCylinder header for the pattern. */
+async function _constructMakeCone(radius1, radius2, height, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
-    const maker = track(new oc.BRepPrimAPI_MakeSphere_1(radius));
+    const maker = track(new oc.BRepPrimAPI_MakeCone_1(radius1, radius2, height));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeSphere: kernel produced a null shape');
-    const meta = { op: 'makeSphere', params: { radius } };
+    if (shape.IsNull()) throw new Error('makeCone: kernel produced a null shape');
+    const meta = { op: 'makeCone', params: { radius1, radius2, height } };
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
-      bodyTag: `makeSphere-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `makeCone-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
@@ -255,6 +335,8 @@ export async function makeSphere(radius) {
  * (radius2 = 0): 2 faces (side + base), 2 edges (base circle + degenerate
  * apex), 2 vertices.
  *
+ * SP-3b history hook — auto-records a forward/inverse delta on every call.
+ *
  * @param {number} radius1  base radius (mm)
  * @param {number} radius2  top radius (mm); 0 for a sharp cone
  * @param {number} height   (mm)
@@ -264,15 +346,37 @@ export async function makeCone(radius1, radius2, height) {
   if (!(radius1 >= 0 && radius2 >= 0 && height > 0) || (radius1 === 0 && radius2 === 0)) {
     throw new Error(`makeCone: invalid radii/height (got ${radius1}, ${radius2}, ${height})`);
   }
+  const spineBody = await _constructMakeCone(radius1, radius2, height);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'makeCone',
+        persistentBodyId,
+        meta: { op: 'makeCone', params: { radius1, radius2, height } },
+        rebuild: () => _constructMakeCone(radius1, radius2, height, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('makeCone: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
+}
+
+/** _constructMakeTorus — see _constructMakeCylinder header for the pattern. */
+async function _constructMakeTorus(majorRadius, minorRadius, bodyTag) {
   const oc = await getOCCT();
   return withScope(() => {
-    const maker = track(new oc.BRepPrimAPI_MakeCone_1(radius1, radius2, height));
+    const maker = track(new oc.BRepPrimAPI_MakeTorus_1(majorRadius, minorRadius));
     const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeCone: kernel produced a null shape');
-    const meta = { op: 'makeCone', params: { radius1, radius2, height } };
+    if (shape.IsNull()) throw new Error('makeTorus: kernel produced a null shape');
+    const meta = { op: 'makeTorus', params: { majorRadius, minorRadius } };
     const wrapper = new BrepShape(shape, meta);
     const body = bindSpine(oc, shape, {
-      bodyTag: `makeCone-${wrapper.id}`, geomEngineShape: wrapper,
+      bodyTag: bodyTag || `makeTorus-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind: 'solid',
     });
     return new SpineBody(body, wrapper, meta);
@@ -289,6 +393,8 @@ export async function makeCone(radius1, radius2, height) {
  * This is the canonical genus-1 body in the spine — the toroidal handle is
  * the topological signature.
  *
+ * SP-3b history hook — auto-records a forward/inverse delta on every call.
+ *
  * @param {number} majorRadius  ring radius (mm)
  * @param {number} minorRadius  tube radius (mm)
  * @returns {Promise<SpineBody>}
@@ -297,17 +403,22 @@ export async function makeTorus(majorRadius, minorRadius) {
   if (!(majorRadius > 0 && minorRadius > 0 && minorRadius < majorRadius)) {
     throw new Error(`makeTorus: need 0 < minorRadius < majorRadius (got ${majorRadius}, ${minorRadius})`);
   }
-  const oc = await getOCCT();
-  return withScope(() => {
-    const maker = track(new oc.BRepPrimAPI_MakeTorus_1(majorRadius, minorRadius));
-    const shape = maker.Shape();
-    if (shape.IsNull()) throw new Error('makeTorus: kernel produced a null shape');
-    const meta = { op: 'makeTorus', params: { majorRadius, minorRadius } };
-    const wrapper = new BrepShape(shape, meta);
-    const body = bindSpine(oc, shape, {
-      bodyTag: `makeTorus-${wrapper.id}`, geomEngineShape: wrapper,
-      declaredKind: 'solid',
-    });
-    return new SpineBody(body, wrapper, meta);
-  });
+  const spineBody = await _constructMakeTorus(majorRadius, minorRadius);
+  const persistentBodyId = spineBody.body && spineBody.body.persistentId;
+  if (persistentBodyId) {
+    try {
+      recordBodyCreate({
+        opName: 'makeTorus',
+        persistentBodyId,
+        meta: { op: 'makeTorus', params: { majorRadius, minorRadius } },
+        rebuild: () => _constructMakeTorus(majorRadius, minorRadius, persistentBodyId),
+        register: standardSceneRegister,
+        remove: standardSceneRemove,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('makeTorus: history recordBodyCreate failed —', err && err.message || err);
+    }
+  }
+  return spineBody;
 }
