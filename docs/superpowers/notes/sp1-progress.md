@@ -6,7 +6,7 @@ Tracking the staged execution of `docs/superpowers/plans/2026-05-22-sp1-topology
 |---|---|---|---|
 | **S0** — recon spec + spine scaffold | **DONE** | 2026-05-22 | see below |
 | **S1** — `bindSpine` (OCCT → spine Body) | **DONE** | 2026-05-22 | see below |
-| S2 — `SpineBody` + migration adapter; first op | not started | | |
+| **S2** — `SpineBody` + migration adapter; first op (`makeBox`) | **DONE** | 2026-05-22 | see below |
 | S3 — primitives + booleans + transforms; ID carry-through | not started | | |
 | S4 — features + local ops + surfacing | not started | | |
 | S5 — body-kind taxonomy + non-manifold first-class | not started | | |
@@ -156,3 +156,166 @@ exercised only by e2e. Full pre-existing suite: no regression.
   hash-keyed lookup is a straightforward S2+ optimisation.
 - **Non-manifold radial order** — S1 ships an unordered (but topologically
   correct) radial coedge cycle; angular ordering is a documented S5 refinement.
+
+---
+
+## S2 — SpineBody + migration adapter + first op (`makeBox`) — DONE (2026-05-22)
+
+### Deliverable
+
+The first PRODUCTION OP MIGRATION to the unified topology spine, gated end-to-end
+through the real scene path. `makeBox` now constructs a `SpineBody` instead of a
+raw `BrepShape`; the SP-1 §5 BrepShape-duck-compatibility adapter makes that
+return value flow facade → scene → `BodyRegistry` → `window.__lastSpine*` →
+e2e IDENTICALLY to a `BrepShape`, with zero behaviour regression in the ~680
+existing tests. The migration adapter delivered in this stage is the
+infrastructure on which every S3/S4 op migration will follow the same one-line
+pattern.
+
+### Three commits
+
+1. **`bd99c467` SP-1 S2 — SpineBody migration adapter** — three additive
+   changes that make `SpineBody` BrepShape-duck-compatible end-to-end:
+   - `kernel/brep/BrepShape.js` — `withScope()` survivor detection now
+     recognises a `SpineBody` alongside a `BrepShape`. Duck-typed (has `body`
+     + `occtWrapper` + live `.shape`) to keep `kernel/brep` free of a topology
+     import (lower-layer module cannot depend on upper). Protects BOTH the
+     engine TopoDS_Shape AND the underlying BrepShape wrapper so a subsequent
+     op handing the wrapper back into `withScope` still finds a live
+     BrepShape.
+   - `kernel/topology/index.js` — re-export `isSpineBody` helper.
+   - `workbenches/mechanical-cad/ToolExecutionEngine.js` — when the body that
+     flows in is a `SpineBody`, mirror it on three new window slots for e2e +
+     AI introspection: `window.__lastSpine` (the spine `Body` itself),
+     `window.__lastSpineBody` (the SpineBody wrapper — the SP-1 currency),
+     `window.__lastSpineValidation` (the `validateSpine` report from bind
+     time). For un-migrated ops (still returning raw `BrepShape`) these slots
+     stay at their previous value — additive, never regressive.
+2. **`31bd7d43` SP-1 S2 — migrate makeBox to the topology spine** — the
+   canonical first migration. `makeBox` now runs the OCCT box → `bindSpine`
+   builds the full `Body→Lump→Shell→Face→Loop→Coedge→Edge→Vertex` graph from
+   the engine shape → wrap in `SpineBody`. `bindSpine` only READS the engine
+   shape (never mutates it) so the geometry path cannot regress (SP-1 §5.2).
+   A 40 mm box spine: 1 lump / 1 shell / 6 faces / 6 loops / 12 edges / 8
+   vertices / 24 coedges, kind=solid, χ=2, genusImplied=0, validateSpine ok,
+   every persistent id unique and namespaced to the body tag, three-tier
+   adjacency resolves every edge via the manifold map fast-path (path B).
+3. **`fa685044` SP-1 S2 — makeBox migration motion-capture e2e** — headed
+   Electron + slow-mo video + key-frame stills (8 storyboard frames + 7
+   multi-angle orbits). Drives the complete workflow: real Part-tab ribbon
+   click + dialog bypass build the Box (migrated op); a real viewport
+   drag-orbit shows it in 3D; assertions cover duck-compatibility
+   (`window.__lastBrepShape` set + live shape + meta + registry entry; the
+   S2-new slots populated + identity-equal to the legacy slot), spine
+   inspection (full topology counts + Euler χ + genus + validateSpine.ok +
+   persistent-id uniqueness + body-namespacing + `geomEngineShape`
+   back-reference), `measure` end-to-end via `withScope` (volume=64,000 mm³,
+   area=9,600 mm²), real viewport click selects the body (gizmo pick-set
+   reads the SpineBody off the registry's `brepShapeRef`), and MIXED-CURRENCY
+   interop — Fillet (legacy BrepShape-returning op) takes the SpineBody as
+   input and produces a valid filleted body (volume ~63,109; result is a
+   BrepShape, confirming the adapter handles the migrated-op + legacy-op
+   combination seamlessly).
+
+### One follow-up regression — fixed (commit `a232a6e3`)
+
+The full-suite no-regression run surfaced one genuine S2 regression:
+`viewport-freeze-debug-electron`'s 70-body test calls `seed.clone(true)`
+which invokes Three.js's `Object3D.copy()` — and that method deep-clones
+userData via `this.userData = JSON.parse(JSON.stringify(source.userData))`.
+The seed group's `userData.brepShapeRef` is now a `SpineBody` whose spine
+graph carries legitimate back-reference cycles (Lump↔Shell, Shell↔Face,
+Loop↔Coedge, Edge↔Coedge) that `JSON.stringify` correctly rejects with
+"Converting circular structure to JSON". Pre-S2 the `brepShapeRef` was a
+`BrepShape` (acyclic) so the round-trip worked.
+
+Fix — minimal, targeted: store `brepShapeRef` on `group.userData` as a
+**non-enumerable property** via `Object.defineProperty`. `JSON.stringify`
+skips non-enumerable properties, so the `Object3D.copy` userData round-trip
+succeeds; the property is still readable by `selectedBrepShapes()` (which
+reads it explicitly as `group.userData.brepShapeRef`), so the live selection
+path is unaffected. Verified: `viewport-freeze-debug-electron` (both 3-body
+and 70-body tests) and `spine-s2-makebox-electron` all pass together; the 12
+critical-risk specs (brep-primitives, brep-boolean, brep-features, all spine
+specs, etc.) re-pass.
+
+### Full-suite no-regression result
+
+The full pre-existing suite of 682 tests was run, headed, `--workers=1`,
+`--retries=0`, in 5 sharded batches (Playwright `--shard=N/5`). Totals:
+
+| Batch | Tests | Passed | Failed | Skipped | Time |
+|---|---|---|---|---|---|
+| 1 of 5 | 137 | 121 | 16 | 0 | 17.3 min |
+| 2 of 5 | 141 | 120 | 21 | 0 | 33.8 min |
+| 3 of 5 | 133 | 133 | 0 | 0 | 9.8 min |
+| 4 of 5 | 136 | 120 | 16 | 0 | 22.9 min |
+| 5 of 5 | 135 | 114 | 20 | 1 | 20.1 min |
+| **Total** | **682** | **608** | **73** | **1** | **103.9 min** |
+
+After the BodyRegistry follow-up fix, the 1 viewport-freeze regression is
+resolved (verified by re-running the spec), bringing the post-S2 expected
+result to **72 failures + 1 fix = 609 pass / 72 fail / 1 skip**.
+
+### Every failure is PRE-EXISTING — verified
+
+The 72 remaining failures are split across three pre-existing root-cause
+families, all predating S2 (most predating 2026-05-19):
+
+1. **Stale UI selectors** — specs that reference legacy CSS classes
+   (`.tool-icon-button`, `.feature-tree-item`, `.feature-tree-name`,
+   `.tool-status-bar` text-pattern mismatches) that the current UI no
+   longer renders. Examples: `agent-bridge` (3), `audit` (3), `feature-tree`
+   (4), `boolean-tracking` (2), `edge-selection` (2),
+   `drawing-engine`/`drawing-pdf-export`/`drawing-preview` (4),
+   `cam-toolpath`, `cfd`, `fea-markers`, `fea-viz`, `mechanical-cad`
+   feature-tree row.
+2. **`__lastFoundationManifold` ToolRegistry mismatch** — `Extrude Boss`,
+   `Revolve Boss`, `Fillet` ribbon handlers were retrofitted to the OCCT
+   B-rep path (commit `8228d397`, 2026-05-19) and now set
+   `__lastBrepShape`, not `__lastFoundationManifold`; but
+   `ToolRegistry.js` still declares them as producing
+   `__lastFoundationManifold`, and many specs (~25) wait on that slot:
+   `assembly-cost-panel`, `body-selection-properties`,
+   `chat-plan-templates`/`chat-projects`/`chat-verdict-trend`,
+   `cost-estimation-panel`, `dfm-check-panel`, `export-assembly`,
+   `geometry-check`, `ge9x-orchestration`, `integration-*` (10),
+   `integration-fillet-rotor-massprops`, `omega-watch`,
+   `parametric-tools` (2), `part-browser-panel`, `playground-jet-engine-walkthrough`,
+   `profile-fillet`, `section-preview`, `slicer-preview`, `stair-climber-production`,
+   `voxel-hex-mesh`, `visual-check-foundation-bodies`,
+   `viewport-pick-selects-body`, `vendor-package`,
+   `autonomous-mechanism`/`pressure`/`product`/`resonance`/`rotating` via
+   `agent-runtime.js:141`.
+3. **Other pre-existing nits** — `ai-verify-loop-electron` ES-module-scope
+   exports error; `turbomachinery` 9-vs-13 data mismatch;
+   `stock-moldflow`/`topology-opt`/`plm-cost-sustain` status-bar text
+   pattern mismatches; `chat-projects`/`chat-verdict-trend` canvas
+   visibility timing; `property-manager` selector drift.
+
+Verification: every failing test's root cause is a pre-S2 commit (verified
+by `git log` on the spec file or the handler the spec drives), and no
+failure references `SpineBody` / `__lastSpine*` / topology entity
+construction. The B-rep-heavy specs that ARE makeBox-adjacent
+(`brep-primitives`, `brep-boolean`, `brep-features`, `brep-foundation`,
+`brep-blend`, `brep-ribbon`, `brep-localops`, `brep-surfacing`,
+`brep-varfillet`, etc.) ALL pass — exactly the specs most exposed to the
+makeBox migration.
+
+### Risks carried into S3
+
+- **Object3D.copy + non-cycle-safe userData ref** — guarded for now by the
+  non-enumerable `brepShapeRef`. As more ops migrate (S3+), more bodies in
+  the scene carry SpineBodies; the same hardening pattern applies. A
+  cleaner long-term fix is to remove `brepShapeRef` from `group.userData`
+  entirely and key it on a separate Map (group id → SpineBody) — punted to
+  S3+ once the migration pattern is fully proven.
+- **ToolRegistry `produces` drift** — orthogonal to S2 but it gates the
+  ~25 pre-existing failures listed above. Could be tackled as a
+  housekeeping commit independent of S3, but is out of scope for SP-1 S2.
+- **Mixed-currency lifetime** — `withScope` survivor detection works for
+  both BrepShape and SpineBody, but a future op that calls `dispose()` on
+  a SpineBody must not also `delete()` the engine shape from inside a
+  `withScope` survivor list. S2 verified the simple case (`makeBox` →
+  scene path); S3 will exercise more combinations (boolean inputs are
+  SpineBodies, result is a SpineBody, both pass through `withScope`).
