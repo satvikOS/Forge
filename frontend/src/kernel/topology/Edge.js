@@ -112,6 +112,22 @@ export default class Edge {
       `→V${this.endVertex ? (this.endVertex.persistentId || this.endVertex.transientId) : '?'}` +
       `, ${this.coedges.size} coedge${this.coedges.size === 1 ? '' : 's'})`;
   }
+
+  // ── SP-2 attribute accessors ────────────────────────────────────────────
+  /** Keys of every attribute on this edge. */
+  attributeKeys() { return Object.keys(this.attributes || {}); }
+  /** Get one attribute record, or null. */
+  getAttribute(key) { return (this.attributes && this.attributes[key]) || null; }
+  /** Get the value of one attribute, or undefined. */
+  attributeValue(key) {
+    const r = this.getAttribute(key); return r ? r.value : undefined;
+  }
+  /** True if this edge has an attribute under `key`. */
+  hasAttribute(key) { return !!(this.attributes && this.attributes[key]); }
+  /** Iterate every attribute record on this edge. */
+  *listAttributes() {
+    if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
+  }
 }
 
 function distance(a, b) {

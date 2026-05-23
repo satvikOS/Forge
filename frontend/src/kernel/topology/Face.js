@@ -138,6 +138,24 @@ export default class Face {
     return this;
   }
 
+  // ── SP-2 attribute accessors ────────────────────────────────────────────
+  // Read-only iteration surface over `this.attributes`. Writes go through
+  // `attachAttribute` from `Attributes.js` so the survival policy is honoured.
+  /** Keys of every attribute on this face. */
+  attributeKeys() { return Object.keys(this.attributes || {}); }
+  /** Get one attribute record, or null. */
+  getAttribute(key) { return (this.attributes && this.attributes[key]) || null; }
+  /** Get the value of one attribute, or undefined. */
+  attributeValue(key) {
+    const r = this.getAttribute(key); return r ? r.value : undefined;
+  }
+  /** True if this face has an attribute under `key`. */
+  hasAttribute(key) { return !!(this.attributes && this.attributes[key]); }
+  /** Iterate every attribute record on this face. */
+  *listAttributes() {
+    if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
+  }
+
   toString() {
     return `Face#${this.persistentId || this.transientId}` +
       `(${this.surface ? (this.surface.type || 'surface') : 'no-surf'}` +

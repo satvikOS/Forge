@@ -87,4 +87,15 @@ export default class Coedge {
       `(edge ${e ? (e.persistentId || e.transientId) : '?'}` +
       `${this.reversed ? ' reversed' : ''})`;
   }
+
+  // ── SP-2 attribute accessors ────────────────────────────────────────────
+  attributeKeys() { return Object.keys(this.attributes || {}); }
+  getAttribute(key) { return (this.attributes && this.attributes[key]) || null; }
+  attributeValue(key) {
+    const r = this.getAttribute(key); return r ? r.value : undefined;
+  }
+  hasAttribute(key) { return !!(this.attributes && this.attributes[key]); }
+  *listAttributes() {
+    if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
+  }
 }

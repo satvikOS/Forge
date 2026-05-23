@@ -39,6 +39,24 @@ export { default as SpineBody, isSpineBody } from './SpineBody.js';
 // ── Persistent-ID carry-through across booleans (S3) ──────────────────────────
 export { carryLineage } from './IdLineage.js';
 
+// ── Persistent attribute system (SP-2) ───────────────────────────────────────
+export {
+  ATTRIBUTE_NAMESPACES,
+  SURVIVAL_POLICIES,
+  AttributeConflictError,
+  attachAttribute,
+  getAttribute,
+  getAttributeValue,
+  removeAttribute,
+  listAttributes,
+  hasAttribute,
+  propagateAttributes,
+  mergeAttribute,
+  snapshotAttributes,
+  listAllAttributes,
+  attributeAccessor,
+} from './Attributes.js';
+
 // ── Spine-native analytic-face builder (S6 — G2 blend / N-sided / face-replace) ──
 export { buildAnalyticSpineBody } from './AnalyticFace.js';
 export { NurbsSurfaceAdapter } from './AnalyticNurbsFace.js';

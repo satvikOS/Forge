@@ -151,4 +151,15 @@ export default class Shell {
       `${this.isClosed() ? 'closed' : 'open'}` +
       `${this.isManifold() ? '' : ', non-manifold'})`;
   }
+
+  // ── SP-2 attribute accessors ────────────────────────────────────────────
+  attributeKeys() { return Object.keys(this.attributes || {}); }
+  getAttribute(key) { return (this.attributes && this.attributes[key]) || null; }
+  attributeValue(key) {
+    const r = this.getAttribute(key); return r ? r.value : undefined;
+  }
+  hasAttribute(key) { return !!(this.attributes && this.attributes[key]); }
+  *listAttributes() {
+    if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
+  }
 }

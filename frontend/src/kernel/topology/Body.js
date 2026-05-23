@@ -445,6 +445,21 @@ export default class Body {
       `V${this.vertices().length} E${this.edges().length} F${this.faces().length})`;
   }
 
+  // ── SP-2 attribute accessors ────────────────────────────────────────────
+  // Body-level attributes (e.g. partNumber, material grade, name) — survive
+  // booleans via the attribute's `survives` policy (carryLineage propagates
+  // body-level attributes between input and result bodies), and survive
+  // transforms verbatim via bindSpine's `preserveBodyAttributes`.
+  attributeKeys() { return Object.keys(this.attributes || {}); }
+  getAttribute(key) { return (this.attributes && this.attributes[key]) || null; }
+  attributeValue(key) {
+    const r = this.getAttribute(key); return r ? r.value : undefined;
+  }
+  hasAttribute(key) { return !!(this.attributes && this.attributes[key]); }
+  *listAttributes() {
+    if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
+  }
+
   // ── S7 Topology Inspector — pure read-side JSON projection ────────────────
   //
   // The Inspector UI never holds a live spine reference (the spine graph has
