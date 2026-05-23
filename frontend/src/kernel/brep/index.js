@@ -18,6 +18,10 @@ export { translate, rotate, makeCompound } from './BrepTransform.js';
 export { simplify } from './BrepHeal.js';
 export { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 export { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
+// SP-5 — Boolean & partition completion (Area C, T1).
+export { imprint } from './BrepImprint.js';
+export { partition } from './BrepPartition.js';
+export { planarSection } from './BrepSection.js';
 export { replaceFace } from './BrepRewrite.js';
 export { subdivideShape } from './BrepSubdivide.js';
 export { retopoShape } from './BrepRetopo.js';

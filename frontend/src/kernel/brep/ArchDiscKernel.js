@@ -22,6 +22,10 @@ import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
 import { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 import { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
+// SP-5 — Boolean & partition completion (Area C, T1).
+import { imprint } from './BrepImprint.js';
+import { partition } from './BrepPartition.js';
+import { planarSection } from './BrepSection.js';
 import { replaceFace } from './BrepRewrite.js';
 import { subdivideShape } from './BrepSubdivide.js';
 import { retopoShape } from './BrepRetopo.js';
@@ -58,6 +62,13 @@ export const ArchDiscKernel = {
     simplify,
     blendG2, cliffEdgeBlend, mitreCorner,
     fuseAll, fuseNonManifold, fuseCoincident, fuseLattice,
+    // ── SP-5 Boolean & partition completion (Area C, T1) ──────────────────
+    /** Project tool boundary edges onto body faces (volume preserved). */
+    imprint,
+    /** Split a body along N tool surfaces / solids into multiple pieces (volume conserved). */
+    partition,
+    /** Planar section of a body — 'curves' (intersection wire) or 'split' (partition into halves). */
+    planarSection,
     replaceFace,
     subdivideShape,
     retopoShape,
