@@ -53,6 +53,13 @@ import RibbonToolbar from '../../components/RibbonToolbar';
 import PropertyManager from '../../components/PropertyManager';
 import AssemblyTree from '../../components/AssemblyTree';
 import ComponentTreePanel from '../../components/ComponentTreePanel';
+import {
+    ConfirmationCorner,
+    HeadsUpViewToolbar,
+    PropertyManagerDock,
+    SketchStateBadge,
+} from '../../components/SwUxOverlays';
+import '../../components/SwUxOverlays.css';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -1143,6 +1150,16 @@ function WorkbenchMechanical() {
                     onSelectProject={(id) => setActiveProjectId(id)}
                     onNewProject={() => setActiveProjectId(null)}
                 />
+
+                {/* ─── Tier-1 SolidWorks UX overlays ──────────────────── */}
+                {/* Heads-up View Toolbar (top-centre): Zoom/Section/View/Display */}
+                <HeadsUpViewToolbar />
+                {/* Confirmation Corner (top-right): green-check / red-X */}
+                <ConfirmationCorner />
+                {/* PropertyManager Dock (left): docked param dialog for migrated tools */}
+                <PropertyManagerDock />
+                {/* Sketch State Badge (bottom-left): UNDER/FULL/OVER-DEFINED */}
+                <SketchStateBadge />
             </main>
 
             {/* RIGHT PROPERTIES PANEL */}
