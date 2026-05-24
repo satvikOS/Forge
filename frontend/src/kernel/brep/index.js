@@ -56,3 +56,9 @@ export {
 export {
   pushPullFace, moveFace, deleteFaceAndHeal, inferFeature,
 } from './BrepDirectOps.js';
+// SP-11 — Sheet & tolerant modeling (Area G, T2).
+export {
+  makeSheetBody, makeLamina,
+  tolerantEdges, tolerantVertices, tolerantFaces,
+  setBodyTolerance, BodyKindError,
+} from './BrepSheet.js';

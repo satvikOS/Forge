@@ -59,6 +59,12 @@ import {
 import {
   pushPullFace, moveFace, deleteFaceAndHeal, inferFeature,
 } from './BrepDirectOps.js';
+// SP-11 — Sheet & tolerant modeling (Area G, T2).
+import {
+  makeSheetBody, makeLamina,
+  tolerantEdges, tolerantVertices, tolerantFaces,
+  setBodyTolerance, BodyKindError,
+} from './BrepSheet.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -156,6 +162,21 @@ export const ArchDiscKernel = {
     deleteFaceAndHeal,
     /** Infer the feature (boss/hole/fillet/chamfer/...) the picked face belongs to. */
     inferFeature,
+    // ── SP-11 Sheet & tolerant modeling (Area G) ──────────────────────────
+    /** Build a SpineBody{kind:'sheet'} from a set of faces / shell / compound. */
+    makeSheetBody,
+    /** Build a single-face SpineBody{kind:'sheet'} — the Parasolid/ACIS lamina. */
+    makeLamina,
+    /** Every edge with tolerance > threshold, sorted descending. */
+    tolerantEdges,
+    /** Every vertex with tolerance > threshold, sorted descending. */
+    tolerantVertices,
+    /** Every face with tolerance > threshold, sorted descending. */
+    tolerantFaces,
+    /** Stamp the body-level modelling tolerance (chainable). */
+    setBodyTolerance,
+    /** Exception class raised by Body.assertSolid/Sheet/Wire/Lamina. */
+    BodyKindError,
     /** All metrics in one call — convenient for e2e assertions. */
     async measure(brepShape) {
       return {
