@@ -574,4 +574,561 @@ export function brokenView(manifold, breakStart, breakEnd, options = {}) {
   };
 }
 
-export default { auxiliaryView, cropView, brokenView };
+// ───────────────────────────────────────────────────────────────────────────
+// UX Tier 8b — Model Items + BOM + Auto-Balloon
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Model Items — auto-import the 3D part's dimensions onto a drawing view.
+ *
+ * SolidWorks convention: the 3D model carries dimensions (from sketches +
+ * features); Model Items projects every parametric dimension onto the
+ * active view, attached via leader lines to a heuristic anchor point.
+ *
+ * Algorithm: for every feature in the part's construction history
+ * (Part.features array from kernel/atomic/Part.js), extract one or
+ * more "dimension" records. Each record has:
+ *   { kind, value_mm, label, leader: { x1,y1, x2,y2 }, textPos: {x,y} }
+ *
+ * Supported feature → dimension extraction:
+ *   sketchRectangle → 2 dims (Width, Height)
+ *   sketchCircle    → 1 dim  (Ø Radius·2)
+ *   extrude         → 1 dim  (Extrude Depth)
+ *   cut             → 1 dim  (Cut Depth)
+ *   revolve         → 1 dim  (Revolve Angle)
+ *   fillet          → 1 dim  (Fillet Radius)
+ *   circularPattern → 2 dims (Count, Angle)
+ *   linearPattern   → 2 dims (Count, Pitch)
+ *
+ * Args:
+ *   manifold — foundation Manifold body (used for FRONT-view projection)
+ *   features — array of {type, params} from Part.features (or compatible)
+ *   options  — { name, viewKind = 'front', startLabelIndex = 1 }
+ *
+ * Returns:
+ *   { svg, info: { dimensions, dimensionCount, unsupportedFeatures, edgeCount } }
+ */
+export function modelItems(manifold, features, options = {}) {
+  const partName = options.name || 'Untitled Part';
+  const date = options.date || new Date().toISOString().slice(0, 10);
+  const viewKind = options.viewKind || 'front';
+
+  const bb = manifold.boundingBox();
+  const partOrigin = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2];
+  const partExtent = Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) || 1;
+
+  const SVG_W = 297, SVG_H = 210;
+  const boxW = 200, boxH = 140;
+  const paperScale = Math.min(0.75 * boxW / (partExtent * 1.4), 0.75 * boxH / (partExtent * 1.4), 1);
+
+  // FRONT projection: eye = -Y, up = +Z, world-X → paper-X, world-Z → paper-Y (up).
+  const front = projectEdges(manifold, [0, -1, 0], [0, 0, 1], partOrigin, paperScale);
+  const viewCx = (front.bbox.minX + front.bbox.maxX) / 2;
+  const viewCy = (front.bbox.minY + front.bbox.maxY) / 2;
+  const viewW = front.bbox.maxX - front.bbox.minX;
+  const viewH = front.bbox.maxY - front.bbox.minY;
+
+  const originX = 35 + boxW / 2 - viewCx;
+  const originY = 30 + boxH / 2 - viewCy;
+
+  // Walk features → produce dimensions. The leader-line anchor placement
+  // uses a deterministic round-robin around the view's bounding rectangle
+  // so dimensions don't visually pile up. Each new dim picks the next
+  // slot around the edge (top/right/bottom/left rotated) — SolidWorks
+  // does fancier "auto-arrange to nearest feature" but this is honest,
+  // visible, and won't pretend to find the exact feature triangle.
+  const dimensions = [];
+  const unsupported = [];
+  let slotIdx = 0;
+  const NUM_SLOTS = 12;
+  const slotPos = (i) => {
+    // 12 slots: 3 top, 3 right, 3 bottom, 3 left, evenly spaced
+    const ring = i % NUM_SLOTS;
+    const side = Math.floor(ring / 3);
+    const offset = (ring % 3 + 1) / 4;  // 0.25 / 0.5 / 0.75 along edge
+    const pad = 8;
+    if (side === 0) {
+      // top
+      return {
+        anchor: { x: front.bbox.minX + viewW * offset, y: front.bbox.minY },
+        text:   { x: front.bbox.minX + viewW * offset, y: front.bbox.minY - pad - 1 },
+        leader: { x1: front.bbox.minX + viewW * offset, y1: front.bbox.minY,
+                  x2: front.bbox.minX + viewW * offset, y2: front.bbox.minY - pad },
+        anchorAt: 'top',
+      };
+    } else if (side === 1) {
+      return {
+        anchor: { x: front.bbox.maxX, y: front.bbox.minY + viewH * offset },
+        text:   { x: front.bbox.maxX + pad + 1, y: front.bbox.minY + viewH * offset + 1 },
+        leader: { x1: front.bbox.maxX, y1: front.bbox.minY + viewH * offset,
+                  x2: front.bbox.maxX + pad, y2: front.bbox.minY + viewH * offset },
+        anchorAt: 'right',
+      };
+    } else if (side === 2) {
+      return {
+        anchor: { x: front.bbox.minX + viewW * offset, y: front.bbox.maxY },
+        text:   { x: front.bbox.minX + viewW * offset, y: front.bbox.maxY + pad + 3 },
+        leader: { x1: front.bbox.minX + viewW * offset, y1: front.bbox.maxY,
+                  x2: front.bbox.minX + viewW * offset, y2: front.bbox.maxY + pad },
+        anchorAt: 'bottom',
+      };
+    } else {
+      return {
+        anchor: { x: front.bbox.minX, y: front.bbox.minY + viewH * offset },
+        text:   { x: front.bbox.minX - pad - 14, y: front.bbox.minY + viewH * offset + 1 },
+        leader: { x1: front.bbox.minX, y1: front.bbox.minY + viewH * offset,
+                  x2: front.bbox.minX - pad, y2: front.bbox.minY + viewH * offset },
+        anchorAt: 'left',
+      };
+    }
+  };
+
+  const pushDim = (kind, value_mm, label) => {
+    const slot = slotPos(slotIdx++);
+    dimensions.push({
+      id: `dim-${dimensions.length + 1}`,
+      kind,
+      value_mm,
+      label,
+      anchor: slot.anchor,
+      textPos: slot.text,
+      leader:  slot.leader,
+      anchorAt: slot.anchorAt,
+    });
+  };
+
+  for (const f of (features || [])) {
+    if (!f || !f.type) continue;
+    const t = f.type;
+    const p = f.params || {};
+    switch (t) {
+      case 'sketchRectangle': {
+        if (p.w > 0) pushDim('width',  p.w, `${p.w.toFixed(1)} mm`);
+        if (p.h > 0) pushDim('height', p.h, `${p.h.toFixed(1)} mm`);
+        break;
+      }
+      case 'sketchCircle': {
+        if (p.r > 0) pushDim('diameter', p.r * 2, `Ø${(p.r * 2).toFixed(1)} mm`);
+        break;
+      }
+      case 'extrude':
+      case 'extrudeRect':
+      case 'extrudeCircle': {
+        if (p.distance > 0 || p.depth > 0) {
+          const v = p.distance ?? p.depth;
+          pushDim('depth', v, `${v.toFixed(1)} mm depth`);
+        }
+        break;
+      }
+      case 'cut': {
+        if (p.distance > 0) pushDim('cut-depth', p.distance, `${p.distance.toFixed(1)} mm cut`);
+        break;
+      }
+      case 'revolve': {
+        if (p.degrees > 0) pushDim('angle', p.degrees, `${p.degrees.toFixed(0)}°`);
+        break;
+      }
+      case 'fillet':
+      case 'filletAll': {
+        if (p.radius > 0) pushDim('radius', p.radius, `R${p.radius.toFixed(1)} mm`);
+        break;
+      }
+      case 'chamfer': {
+        if (p.distance > 0) pushDim('chamfer', p.distance, `${p.distance.toFixed(1)} mm × 45°`);
+        break;
+      }
+      case 'circularPattern': {
+        if (p.count >= 1) pushDim('count', p.count, `${p.count}×`);
+        if (p.angle > 0) pushDim('pattern-angle', p.angle, `${p.angle.toFixed(0)}°`);
+        break;
+      }
+      case 'linearPattern': {
+        if (p.count >= 1) pushDim('count', p.count, `${p.count}×`);
+        if (Number.isFinite(p.dx) || Number.isFinite(p.dy)) {
+          const pitch = Math.hypot(p.dx || 0, p.dy || 0);
+          if (pitch > 0) pushDim('pitch', pitch, `pitch ${pitch.toFixed(1)} mm`);
+        }
+        break;
+      }
+      case 'startSketch':
+      case 'finishSketch':
+        break;  // bookkeeping ops carry no dimension
+      default:
+        unsupported.push(t);
+        break;
+    }
+  }
+
+  // Render the SVG sheet.
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="model-items" data-dim-count="${dimensions.length}">`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="white" stroke="black" stroke-width="0.4"/>`);
+
+  // FRONT projection — the host view.
+  out.push(`<g class="view view-front" data-view-name="front" transform="translate(${originX.toFixed(3)},${originY.toFixed(3)})">`);
+  for (const e of front.edges) {
+    out.push(`<line x1="${e.x1.toFixed(3)}" y1="${e.y1.toFixed(3)}" x2="${e.x2.toFixed(3)}" y2="${e.y2.toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+  }
+  out.push('</g>');
+
+  // Dimension overlay group — leader lines + text labels.
+  out.push(`<g class="model-items" data-archdisc-model-items="${dimensions.length}" transform="translate(${originX.toFixed(3)},${originY.toFixed(3)})">`);
+  for (const d of dimensions) {
+    // Leader line
+    out.push(`<line data-dim-id="${d.id}" data-dim-kind="${d.kind}" x1="${d.leader.x1.toFixed(3)}" y1="${d.leader.y1.toFixed(3)}" x2="${d.leader.x2.toFixed(3)}" y2="${d.leader.y2.toFixed(3)}" stroke="#1c5fa1" stroke-width="0.35"/>`);
+    // Anchor dot
+    out.push(`<circle cx="${d.anchor.x.toFixed(3)}" cy="${d.anchor.y.toFixed(3)}" r="0.4" fill="#1c5fa1"/>`);
+    // Text label — anchored by side
+    let textAnchor = 'middle';
+    if (d.anchorAt === 'right') textAnchor = 'start';
+    else if (d.anchorAt === 'left') textAnchor = 'start';
+    out.push(`<text x="${d.textPos.x.toFixed(3)}" y="${d.textPos.y.toFixed(3)}" font-family="monospace" font-size="3" fill="#1c5fa1" text-anchor="${textAnchor}">${esc(d.label)}</text>`);
+  }
+  out.push('</g>');
+
+  // Title block
+  out.push(`<g class="title-block">`);
+  out.push(`<rect x="${SVG_W - 105}" y="${SVG_H - 35}" width="100" height="30" fill="white" stroke="black" stroke-width="0.4"/>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 26}" font-family="monospace" font-size="3.6" font-weight="bold">${esc(partName)}</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 18}" font-family="monospace" font-size="2.7">Model Items  ${dimensions.length} dim(s) from ${features?.length || 0} feature(s)</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 10}" font-family="monospace" font-size="2.7">Date ${date}  Scale ${paperScale.toFixed(3)}:1  View ${esc(viewKind.toUpperCase())}</text>`);
+  out.push(`</g>`);
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      bbox: front.bbox,
+      dimensions,
+      dimensionCount: dimensions.length,
+      featureCount: features?.length || 0,
+      unsupportedFeatures: unsupported,
+      edgeCount: front.edges.length,
+      paperScale,
+    },
+  };
+}
+
+/**
+ * BOM (Bill of Materials) — table listing every component in an assembly.
+ *
+ * SolidWorks convention: rows = components, columns = Item No / Part No /
+ * Description / Quantity / Material. Each row is auto-populated from the
+ * assembly's component list + the per-body attributes that the SP-2-style
+ * attribute system (BodyRegistry.attachAttribute) carries.
+ *
+ * The BOM is rendered as a real SVG table on the sheet — ready to be
+ * referenced by the Auto-Balloon op.
+ *
+ * Args:
+ *   components — array of { name, partNumber, description, material,
+ *                           quantity, manifold? }. `manifold` is optional
+ *                           but used by Auto-Balloon for anchor placement.
+ *   options    — { name (assembly title), date, mergeByPartNumber = true }
+ *
+ * Returns:
+ *   { svg, info: { rows, rowCount, partNumbers, totalQty } }
+ */
+export function bom(components, options = {}) {
+  const partName = options.name || 'Untitled Assembly';
+  const date = options.date || new Date().toISOString().slice(0, 10);
+  const merge = options.mergeByPartNumber !== false;
+
+  // Build rows. Optionally merge by partNumber so 4 identical fasteners
+  // produce ONE BOM row with quantity 4 (SolidWorks does this).
+  const rows = [];
+  const byPN = new Map();
+  for (const c of (components || [])) {
+    if (!c) continue;
+    const pn   = c.partNumber || c.name || 'PN-?';
+    const desc = c.description || c.name || '';
+    const mat  = c.material || '-';
+    const qty  = Number.isFinite(c.quantity) && c.quantity > 0 ? c.quantity : 1;
+    if (merge && byPN.has(pn)) {
+      const existing = byPN.get(pn);
+      existing.quantity += qty;
+      if (c.manifold) existing.manifolds.push(c.manifold);
+      if (c.name) existing.componentNames.push(c.name);
+    } else {
+      const row = {
+        itemNo: rows.length + 1,
+        partNumber: pn,
+        description: desc,
+        material: mat,
+        quantity: qty,
+        manifolds: c.manifold ? [c.manifold] : [],
+        componentNames: c.name ? [c.name] : [],
+      };
+      rows.push(row);
+      byPN.set(pn, row);
+    }
+  }
+
+  // Sheet geometry: A3 landscape would crowd this; use A4 landscape and put
+  // the BOM table on the right edge. (The Auto-Balloon op re-emits a fresh
+  // sheet that anchors balloons to the front-view projection alongside.)
+  const SVG_W = 297, SVG_H = 210;
+  const tableX = 110, tableY = 40;
+  const colWidths = [12, 38, 70, 26, 32];  // Item / PN / Desc / Qty / Material
+  const tableW = colWidths.reduce((a, b) => a + b, 0);
+  const rowH = 8;
+  const headerH = 10;
+
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="bom" data-bom-rows="${rows.length}">`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="white" stroke="black" stroke-width="0.4"/>`);
+
+  // Title bar across the top.
+  out.push(`<text x="${SVG_W / 2}" y="20" font-family="monospace" font-size="6" font-weight="bold" fill="#222" text-anchor="middle">BILL OF MATERIALS</text>`);
+  out.push(`<text x="${SVG_W / 2}" y="28" font-family="monospace" font-size="3.5" fill="#444" text-anchor="middle">${esc(partName)}</text>`);
+
+  // Table frame.
+  const tableH = headerH + rows.length * rowH;
+  out.push(`<g class="bom-table" data-archdisc-bom-table="${rows.length}">`);
+  out.push(`<rect x="${tableX}" y="${tableY}" width="${tableW}" height="${tableH}" fill="white" stroke="black" stroke-width="0.5"/>`);
+
+  // Header row.
+  let cx = tableX;
+  const headers = ['Item', 'Part Number', 'Description', 'Qty', 'Material'];
+  for (let i = 0; i < headers.length; i++) {
+    out.push(`<rect x="${cx}" y="${tableY}" width="${colWidths[i]}" height="${headerH}" fill="#f0f4f8" stroke="black" stroke-width="0.4"/>`);
+    out.push(`<text x="${cx + colWidths[i] / 2}" y="${tableY + headerH / 2 + 1.5}" font-family="monospace" font-size="3.2" font-weight="bold" fill="#222" text-anchor="middle">${esc(headers[i])}</text>`);
+    cx += colWidths[i];
+  }
+
+  // Data rows.
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const ry = tableY + headerH + r * rowH;
+    let dx = tableX;
+    const fields = [
+      String(row.itemNo),
+      row.partNumber,
+      row.description,
+      String(row.quantity),
+      row.material,
+    ];
+    for (let i = 0; i < fields.length; i++) {
+      out.push(`<rect data-bom-row="${row.itemNo}" data-bom-col="${headers[i].toLowerCase()}" x="${dx}" y="${ry}" width="${colWidths[i]}" height="${rowH}" fill="white" stroke="black" stroke-width="0.3"/>`);
+      // Truncate long descriptions to fit. Monospace at 2.7 ≈ 1.6mm/char.
+      const maxChars = Math.floor((colWidths[i] - 2) / 1.6);
+      const txt = fields[i].length > maxChars ? fields[i].slice(0, maxChars - 1) + '…' : fields[i];
+      const textAnchor = (i === 0 || i === 3) ? 'middle' : 'start';
+      const tx = textAnchor === 'middle' ? dx + colWidths[i] / 2 : dx + 1.5;
+      out.push(`<text x="${tx}" y="${ry + rowH / 2 + 1.4}" font-family="monospace" font-size="2.8" fill="#222" text-anchor="${textAnchor}">${esc(txt)}</text>`);
+      dx += colWidths[i];
+    }
+  }
+  out.push('</g>');
+
+  // Title block
+  out.push(`<g class="title-block">`);
+  out.push(`<rect x="${SVG_W - 105}" y="${SVG_H - 35}" width="100" height="30" fill="white" stroke="black" stroke-width="0.4"/>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 26}" font-family="monospace" font-size="3.6" font-weight="bold">${esc(partName)}</text>`);
+  let totalQty = 0;
+  for (const r of rows) totalQty += r.quantity;
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 18}" font-family="monospace" font-size="2.7">BOM  ${rows.length} row(s), ${totalQty} part(s)</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 10}" font-family="monospace" font-size="2.7">Date ${date}  A4 ISO  Sorted by Item No</text>`);
+  out.push(`</g>`);
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      rows,
+      rowCount: rows.length,
+      partNumbers: rows.map(r => r.partNumber),
+      totalQty,
+      mergeByPartNumber: merge,
+    },
+  };
+}
+
+/**
+ * Auto-Balloon — for each component in the BOM, place a small numbered
+ * "balloon" callout on the drawing view, connected via a leader line
+ * to the component's anchor point.
+ *
+ * Auto-placement: balloons are arranged radially around the assembly's
+ * projected centroid at a fixed radius outside the bounding rect. The
+ * angular position is computed from the angle between the component's
+ * own projected centroid and the assembly centroid — so a part on the
+ * left gets a balloon on the left, etc. Overlap detection: balloons
+ * that would collide get bumped CCW one slot at a time until clear.
+ *
+ * Args:
+ *   components — array of { name, partNumber, manifold }. The `manifold`
+ *                is REQUIRED for anchor placement; components without
+ *                one are still listed but balloon-less.
+ *   assemblyManifold — the unioned assembly manifold (used for the
+ *                FRONT-view projection backdrop)
+ *   options    — { name, date, mergeByPartNumber = true,
+ *                  balloonRadius_mm = 5 }
+ *
+ * Returns:
+ *   { svg, info: { balloons, balloonCount, overlapBumps, rows } }
+ */
+export function autoBalloon(components, assemblyManifold, options = {}) {
+  const partName = options.name || 'Untitled Assembly';
+  const date = options.date || new Date().toISOString().slice(0, 10);
+  const merge = options.mergeByPartNumber !== false;
+  const balloonR = options.balloonRadius_mm || 5;
+
+  const bb = assemblyManifold.boundingBox();
+  const partOrigin = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2];
+  const partExtent = Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) || 1;
+
+  const SVG_W = 297, SVG_H = 210;
+  const boxW = 220, boxH = 150;
+  const paperScale = Math.min(0.70 * boxW / (partExtent * 1.4), 0.70 * boxH / (partExtent * 1.4), 1);
+
+  // Project the assembly silhouette for the backdrop.
+  const front = projectEdges(assemblyManifold, [0, -1, 0], [0, 0, 1], partOrigin, paperScale);
+  const viewCx = (front.bbox.minX + front.bbox.maxX) / 2;
+  const viewCy = (front.bbox.minY + front.bbox.maxY) / 2;
+  const viewExtent = Math.max(front.bbox.maxX - front.bbox.minX, front.bbox.maxY - front.bbox.minY) || 1;
+
+  const originX = 30 + boxW / 2 - viewCx;
+  const originY = 35 + boxH / 2 - viewCy;
+
+  // Step 1 — build BOM rows so balloons can reference Item No.
+  const bomResult = bom(components, { name: partName, date, mergeByPartNumber: merge });
+  const rows = bomResult.info.rows;
+
+  // Step 2 — for each row's first component manifold, compute its
+  // PROJECTED centroid in paper-space (so we know where to anchor the
+  // leader line).
+  const anchors = [];
+  for (const row of rows) {
+    if (!row.manifolds || row.manifolds.length === 0) {
+      anchors.push({ row, projected: null });
+      continue;
+    }
+    const m = row.manifolds[0];
+    const cbb = m.boundingBox();
+    // Component world-space centroid → translate to assembly-relative →
+    // project through the FRONT view.
+    const c = [(cbb.min[0] + cbb.max[0]) / 2, (cbb.min[1] + cbb.max[1]) / 2, (cbb.min[2] + cbb.max[2]) / 2];
+    const view = buildViewMatrix([0, -1, 0], [0, 0, 1]);
+    const rel = [c[0] - partOrigin[0], c[1] - partOrigin[1], c[2] - partOrigin[2]];
+    const pp = projectPoint(rel, view);
+    const px = pp[0] * paperScale;
+    const py = -pp[1] * paperScale;  // SVG y-flip
+    anchors.push({ row, projected: { x: px, y: py } });
+  }
+
+  // Step 3 — place balloons radially. Compute each balloon's preferred
+  // angle from the assembly centroid through the component anchor; then
+  // walk the placement ring once detecting overlap and bumping CCW.
+  const ringR = viewExtent * 0.7 + balloonR + 6;
+  const centroidPaperX = (front.bbox.minX + front.bbox.maxX) / 2;
+  const centroidPaperY = (front.bbox.minY + front.bbox.maxY) / 2;
+
+  const balloons = [];
+  let overlapBumps = 0;
+
+  for (const a of anchors) {
+    let angleDeg;
+    if (a.projected) {
+      const dx = a.projected.x - centroidPaperX;
+      const dy = a.projected.y - centroidPaperY;
+      angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+    } else {
+      // Component had no manifold — pick a default slot below the view.
+      angleDeg = 90;  // bottom
+    }
+
+    // Snap to nearest 30° slot to start; bump CCW if occupied.
+    let slot = Math.round(angleDeg / 30) * 30;
+    const seen = new Set(balloons.map(b => b.slotDeg));
+    while (seen.has(slot)) {
+      slot = (slot + 30) % 360;
+      overlapBumps++;
+      if (overlapBumps > balloons.length * 12 + 24) break;  // safety net
+    }
+    const rad = slot * Math.PI / 180;
+    const bx = centroidPaperX + ringR * Math.cos(rad);
+    const by = centroidPaperY + ringR * Math.sin(rad);
+
+    balloons.push({
+      itemNo: a.row.itemNo,
+      partNumber: a.row.partNumber,
+      anchor: a.projected || { x: centroidPaperX, y: centroidPaperY },
+      balloonPos: { x: bx, y: by },
+      slotDeg: slot,
+      angleDeg,
+    });
+  }
+
+  // Step 4 — render the SVG sheet (front-view + balloons + leaders).
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="auto-balloon" data-balloon-count="${balloons.length}">`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="white" stroke="black" stroke-width="0.4"/>`);
+
+  // FRONT view backdrop.
+  out.push(`<g class="view view-front" data-view-name="front" transform="translate(${originX.toFixed(3)},${originY.toFixed(3)})">`);
+  for (const e of front.edges) {
+    out.push(`<line x1="${e.x1.toFixed(3)}" y1="${e.y1.toFixed(3)}" x2="${e.x2.toFixed(3)}" y2="${e.y2.toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+  }
+  out.push('</g>');
+
+  // Balloons + leader lines.
+  out.push(`<g class="auto-balloons" data-archdisc-auto-balloons="${balloons.length}" transform="translate(${originX.toFixed(3)},${originY.toFixed(3)})">`);
+  for (const b of balloons) {
+    // Leader line — anchor to balloon centre.
+    out.push(`<line data-balloon-leader="${b.itemNo}" x1="${b.anchor.x.toFixed(3)}" y1="${b.anchor.y.toFixed(3)}" x2="${b.balloonPos.x.toFixed(3)}" y2="${b.balloonPos.y.toFixed(3)}" stroke="#333" stroke-width="0.35"/>`);
+    // Anchor dot.
+    out.push(`<circle cx="${b.anchor.x.toFixed(3)}" cy="${b.anchor.y.toFixed(3)}" r="0.6" fill="#333"/>`);
+    // Balloon — circle with the item number.
+    out.push(`<circle data-balloon="${b.itemNo}" data-balloon-pn="${esc(b.partNumber)}" cx="${b.balloonPos.x.toFixed(3)}" cy="${b.balloonPos.y.toFixed(3)}" r="${balloonR}" fill="white" stroke="#1c5fa1" stroke-width="0.6"/>`);
+    out.push(`<text x="${b.balloonPos.x.toFixed(3)}" y="${(b.balloonPos.y + 1.6).toFixed(3)}" font-family="monospace" font-size="4.5" font-weight="bold" fill="#1c5fa1" text-anchor="middle">${b.itemNo}</text>`);
+  }
+  out.push('</g>');
+
+  // Mini BOM in the corner so the reader can decode the balloon numbers.
+  const miniX = SVG_W - 100, miniY = 5;
+  const miniW = 95, miniRowH = 5.5;
+  out.push(`<g class="auto-balloon-bom" data-archdisc-auto-balloon-bom="${rows.length}">`);
+  out.push(`<rect x="${miniX}" y="${miniY}" width="${miniW}" height="${5 + rows.length * miniRowH + 6}" fill="white" stroke="black" stroke-width="0.4"/>`);
+  out.push(`<text x="${miniX + miniW / 2}" y="${miniY + 4}" font-family="monospace" font-size="3" font-weight="bold" fill="#222" text-anchor="middle">BOM (Auto-Balloon)</text>`);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const yy = miniY + 8 + i * miniRowH;
+    out.push(`<circle cx="${miniX + 5}" cy="${yy + 1}" r="2.2" fill="white" stroke="#1c5fa1" stroke-width="0.4"/>`);
+    out.push(`<text x="${miniX + 5}" y="${yy + 2.1}" font-family="monospace" font-size="2.7" font-weight="bold" fill="#1c5fa1" text-anchor="middle">${r.itemNo}</text>`);
+    const desc = `${r.partNumber}  ×${r.quantity}  ${r.material}`;
+    const maxC = 38;
+    const truncated = desc.length > maxC ? desc.slice(0, maxC - 1) + '…' : desc;
+    out.push(`<text x="${miniX + 10}" y="${yy + 2.2}" font-family="monospace" font-size="2.6" fill="#222">${esc(truncated)}</text>`);
+  }
+  out.push(`</g>`);
+
+  // Title block.
+  out.push(`<g class="title-block">`);
+  out.push(`<rect x="${SVG_W - 105}" y="${SVG_H - 35}" width="100" height="30" fill="white" stroke="black" stroke-width="0.4"/>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 26}" font-family="monospace" font-size="3.6" font-weight="bold">${esc(partName)}</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 18}" font-family="monospace" font-size="2.7">Auto-Balloon  ${balloons.length} balloon(s) / ${rows.length} BOM row(s)</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 10}" font-family="monospace" font-size="2.7">Date ${date}  Scale ${paperScale.toFixed(3)}:1  A4 ISO</text>`);
+  out.push(`</g>`);
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      bbox: front.bbox,
+      balloons,
+      balloonCount: balloons.length,
+      overlapBumps,
+      rows,
+      rowCount: rows.length,
+      ringRadius_mm: ringR,
+      paperScale,
+      bomSvg: bomResult.svg,
+    },
+  };
+}
+
+export default { auxiliaryView, cropView, brokenView, modelItems, bom, autoBalloon };

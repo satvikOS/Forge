@@ -109,7 +109,8 @@ import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js'
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import InteractiveSketch, { TOOLS as SK_TOOLS } from '../../kernel/sketch/InteractiveSketch.js';
-import { auxiliaryView as drawAuxiliaryView, cropView as drawCropView, brokenView as drawBrokenView } from '../drawing/DrawingViews.js';
+import { auxiliaryView as drawAuxiliaryView, cropView as drawCropView, brokenView as drawBrokenView,
+         modelItems as drawModelItems, bom as drawBOM, autoBalloon as drawAutoBalloon } from '../drawing/DrawingViews.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -5752,6 +5753,151 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Broken View: drawn length ${info.finalLength.toFixed(1)} mm = ${info.leftLength.toFixed(1)} (left) + ${info.rightLength.toFixed(1)} (right); foreshortened ${info.gapLength.toFixed(1)} mm; (left+right vs drawn) gap = ${lengthCheckPct.toFixed(3)}% via workbench.drawing.brokenView`,
+      };
+    },
+
+    // ─── UX TIER 8b — Model Items / BOM / Auto-Balloon ─────────────────────
+    // Three drafting tools that turn a 3D part / assembly into a real
+    // dimensioned, BOM-tabled, balloon-labelled drawing sheet.
+    //
+    // Model Items reads from the active body PLUS an upstream-published
+    //   `window.__archdiscLastPartFeatures` array (the workflow that built
+    //   the body — sketch/extrude/cut/fillet records). The e2e seeds this
+    //   slot directly; in a fuller integration the WorkbenchMechanical
+    //   atomic-CAD bridge publishes it on every `A.render(part)` call.
+    //
+    // BOM + Auto-Balloon walk the BodyRegistry, reading the body-level
+    //   attributes (partNumber / description / material) added via the
+    //   new BodyRegistry.attachAttribute API. Bodies without attributes
+    //   fall back to their default `Body N` name + `-` material.
+    'Model Items': async () => {
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Model Items: build a body in the Part tab first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Model Items');
+      if (cancelled) return { status: 'warn', message: 'Model Items: cancelled' };
+
+      // Read features from the upstream slot. The Part returned by the
+      // atomic CAD ops carries .features; the WorkbenchMechanical layer
+      // (or an e2e spec) publishes them at window.__archdiscLastPartFeatures.
+      let features = [];
+      if (typeof window !== 'undefined' && Array.isArray(window.__archdiscLastPartFeatures)) {
+        features = window.__archdiscLastPartFeatures;
+      }
+      if (!features.length) {
+        // Honest fallback — derive a single "Overall length" dim from the
+        // bounding box so the sheet isn't blank when the part history is
+        // unknown (the typical SW gotcha is that a loaded STEP file has
+        // no history to mine, so the overall envelope is all we have).
+        const bb = m.boundingBox();
+        const dx = bb.max[0] - bb.min[0], dy = bb.max[1] - bb.min[1], dz = bb.max[2] - bb.min[2];
+        features = [
+          { type: 'sketchRectangle', params: { w: dx, h: dz } },  // FRONT view paper-X = world-X, paper-Y = world-Z
+          { type: 'extrude', params: { distance: dy } },
+        ];
+      }
+      const { svg, info } = drawModelItems(m, features, {
+        name: 'Model Items',
+        viewKind: values.viewKind || 'front',
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastModelItems = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Model Items: ${info.dimensionCount} dimension(s) placed from ${info.featureCount} feature(s); ${info.edgeCount} view edges; ${info.unsupportedFeatures.length} unsupported feature type(s) via workbench.drawing.modelItems`,
+      };
+    },
+
+    'BOM': async () => {
+      const reg = getBodyRegistry();
+      const allBodies = reg.list().filter((b) => b && b.manifold);
+      if (allBodies.length === 0) {
+        return { status: 'warn', message: 'BOM: no bodies in the scene — build geometry first.' };
+      }
+      const { values, cancelled } = await requestToolParams('BOM');
+      if (cancelled) return { status: 'warn', message: 'BOM: cancelled' };
+
+      const merge = (values.mergeByPartNumber || 'yes') === 'yes';
+      const components = allBodies.map((b) => ({
+        name: b.name,
+        partNumber: reg.getAttribute(b.id, 'partNumber') ?? b.name,
+        description: reg.getAttribute(b.id, 'description') ?? b.name,
+        material: reg.getAttribute(b.id, 'material') ?? '-',
+        quantity: Number(reg.getAttribute(b.id, 'quantity')) || 1,
+        manifold: b.manifold,
+      }));
+
+      const { svg, info } = drawBOM(components, {
+        name: 'Assembly BOM',
+        mergeByPartNumber: merge,
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastBOM = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `BOM: ${info.rowCount} row(s) from ${allBodies.length} body(s), ${info.totalQty} total part(s); merge-by-PN = ${merge} via workbench.drawing.bom`,
+      };
+    },
+
+    'Auto-Balloon': async () => {
+      const reg = getBodyRegistry();
+      const allBodies = reg.list().filter((b) => b && b.manifold);
+      if (allBodies.length === 0) {
+        return { status: 'warn', message: 'Auto-Balloon: no bodies in the scene — build geometry first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Auto-Balloon');
+      if (cancelled) return { status: 'warn', message: 'Auto-Balloon: cancelled' };
+
+      const merge = (values.mergeByPartNumber || 'yes') === 'yes';
+      const balloonR = Number.isFinite(values.balloonRadius) ? values.balloonRadius : 5;
+
+      const components = allBodies.map((b) => ({
+        name: b.name,
+        partNumber: reg.getAttribute(b.id, 'partNumber') ?? b.name,
+        description: reg.getAttribute(b.id, 'description') ?? b.name,
+        material: reg.getAttribute(b.id, 'material') ?? '-',
+        quantity: Number(reg.getAttribute(b.id, 'quantity')) || 1,
+        manifold: b.manifold,
+      }));
+
+      // Need an assembly silhouette for the backdrop. Use the FIRST body
+      // as a representative if union isn't available, else union them.
+      let assemblyManifold = _lastFoundationManifold;
+      let unioned = false;
+      try {
+        if (allBodies.length > 1) {
+          const Mod = await getManifold();
+          assemblyManifold = Mod.Manifold.union(allBodies.map((b) => b.manifold));
+          unioned = true;
+        } else {
+          assemblyManifold = allBodies[0].manifold;
+        }
+      } catch (err) {
+        console.warn('Auto-Balloon: union failed, falling back to active body', err);
+        if (!assemblyManifold) assemblyManifold = allBodies[0].manifold;
+      }
+
+      const { svg, info } = drawAutoBalloon(components, assemblyManifold, {
+        name: 'Auto-Balloon Sheet',
+        mergeByPartNumber: merge,
+        balloonRadius_mm: balloonR,
+      });
+      // Clean up the temporary union if we built one.
+      if (unioned && assemblyManifold && typeof assemblyManifold.delete === 'function') {
+        try { assemblyManifold.delete(); } catch { /* swallow */ }
+      }
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastAutoBalloon = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Auto-Balloon: ${info.balloonCount} balloon(s) placed on ${info.rowCount} BOM row(s); ${info.overlapBumps} overlap bump(s); ring R ${info.ringRadius_mm.toFixed(1)} mm via workbench.drawing.autoBalloon`,
       };
     },
 

@@ -205,6 +205,52 @@ class BodyRegistry {
     this._notify();
   }
 
+  /**
+   * Tier 8b — body-level attribute system (partNumber / material /
+   * description / vendor / cost / mass / etc.). The kernel topology
+   * `attachAttribute` operates on spine entities (Face/Edge/Vertex);
+   * for BOM rendering we need attributes at the BODY level. Each entry
+   * gets a lazy `.attributes` object; helpers below mutate it without
+   * disturbing the rest of the BodyEntry shape.
+   *
+   * Survives op-time mutations because BodyRegistry entries persist
+   * for the lifetime of the body in the scene; if a body is removed
+   * and re-registered (sculpt rebuild), the caller must re-attach.
+   */
+  attachAttribute(id, key, value) {
+    const b = this.bodies.find(x => x.id === id);
+    if (!b) return false;
+    if (!b.attributes) b.attributes = {};
+    if (typeof key !== 'string' || !key.length) return false;
+    b.attributes[key] = value;
+    this._notify();
+    return true;
+  }
+
+  /** Attach multiple attributes at once (object spread). */
+  attachAttributes(id, kv) {
+    const b = this.bodies.find(x => x.id === id);
+    if (!b || !kv || typeof kv !== 'object') return false;
+    if (!b.attributes) b.attributes = {};
+    for (const [k, v] of Object.entries(kv)) {
+      if (typeof k === 'string' && k.length) b.attributes[k] = v;
+    }
+    this._notify();
+    return true;
+  }
+
+  /** Read one attribute value (or undefined). */
+  getAttribute(id, key) {
+    const b = this.bodies.find(x => x.id === id);
+    return b?.attributes?.[key];
+  }
+
+  /** Return the full attribute bag (a shallow copy), or {}. */
+  getAttributes(id) {
+    const b = this.bodies.find(x => x.id === id);
+    return b?.attributes ? { ...b.attributes } : {};
+  }
+
   showAll() {
     for (const b of this.bodies) {
       b.visible = true;

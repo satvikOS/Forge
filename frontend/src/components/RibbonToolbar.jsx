@@ -319,6 +319,11 @@ const TABS = {
         { name: 'Balloon', icon: '①', key: 'documentation' },
         { name: 'GD&T Frame', icon: '⊕', key: 'documentation' },
         { name: 'Surface Finish', icon: '▽', key: 'documentation' },
+        { name: 'Model Items', icon: '⤓', key: 'documentation', primary: true },
+      ]},
+      { label: 'BOM', tools: [
+        { name: 'BOM', icon: '☷', key: 'documentation', primary: true },
+        { name: 'Auto-Balloon', icon: '③', key: 'documentation' },
       ]},
       { label: 'Export', tools: [
         { name: 'Export Assembly', icon: '⊕', key: 'documentation', primary: true },

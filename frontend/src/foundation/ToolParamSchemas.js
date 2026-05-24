@@ -1051,6 +1051,35 @@ export const TOOL_PARAM_SCHEMAS = {
     blurb: 'Fully constrain two components in their CURRENT relative position. Pre-select TWO components, then click. Removes all 6 DOF (3 trans + 3 rot) — the two components become a rigid sub-assembly.',
     fields: [],
   },
+
+  // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
+  //
+  // Three drafting-tab tools that turn a 3D part / assembly into a
+  // dimensioned, annotated, balloon-labelled drawing sheet. All three are
+  // selection-driven — read the active body or the registered assembly —
+  // so the schemas only carry the few user-tweakable options.
+  'Model Items': {
+    title: 'Model Items — Auto-Import Part Dimensions',
+    blurb: 'Project every parametric dimension from the active body\'s feature history (sketch widths, extrude depths, fillet radii, etc.) onto the FRONT drawing view with auto-placed leader lines.',
+    fields: [
+      { name: 'viewKind', label: 'Target view', type: 'enum', default: 'front', options: ['front', 'top', 'right', 'iso'], hint: 'Currently FRONT is wired; others coming.' },
+    ],
+  },
+  'BOM': {
+    title: 'BOM — Bill of Materials Table',
+    blurb: 'Build a Bill-of-Materials table from every body in the scene. Pulls partNumber / description / material from each body\'s attribute bag (set via BodyRegistry.attachAttribute or the Body Properties panel).',
+    fields: [
+      { name: 'mergeByPartNumber', label: 'Merge identical part numbers', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'Yes = four identical bolts → one row qty 4; No = four rows qty 1.' },
+    ],
+  },
+  'Auto-Balloon': {
+    title: 'Auto-Balloon — Number Every Component',
+    blurb: 'Drop a numbered balloon callout on each component, linked to its BOM row. Auto-placement uses radial layout around the assembly centroid with overlap detection.',
+    fields: [
+      { name: 'balloonRadius', label: 'Balloon radius', type: 'number', default: 5, unit: 'mm', min: 2, max: 12, step: 0.5 },
+      { name: 'mergeByPartNumber', label: 'Merge identical part numbers', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'Match the BOM merge setting.' },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {
