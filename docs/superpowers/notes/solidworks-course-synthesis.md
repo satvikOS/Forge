@@ -765,11 +765,11 @@ Assembly Animation.
 | SolidWorks mate | ArchDisc | Status |
 |---|---|---|
 | Coincident | Coincident | **Done** |
-| Parallel | (none) | **Missing** |
-| Perpendicular | (none) | **Missing** |
-| Tangent | (none) | **Missing** |
+| Parallel | Parallel Mate | **Done** (Tier-7a) |
+| Perpendicular | Perpendicular Mate | **Done** (Tier-7a) |
+| Tangent | Tangent Mate | **Done** (Tier-7a) |
 | Concentric | Concentric | **Done** |
-| Lock | (none) | **Missing** |
+| Lock | Lock Mate | **Done** (Tier-7a) |
 | Distance | Distance | **Done** |
 | Angle | Angle | **Done** |
 | Width (advanced) | (none) | **Missing** |
@@ -957,8 +957,11 @@ The single largest gap. Needs:
 
 ### Tier 7 — Missing assembly capabilities
 
-- **Parallel, Perpendicular, Tangent, Lock** standard mates (only Coincident, Distance,
-  Concentric, Angle currently exposed)
+- ~~**Parallel, Perpendicular, Tangent, Lock** standard mates~~ — **DONE** (Tier-7a;
+  ribbon Assembly→Mates entries + selection-driven param-dialog handlers; real solver
+  equations in `kernel/assembly/MateSolver.js` + kernel-free residual helpers in
+  `foundation/KinematicsCore.js`; DOF accounting parallel=2, perpendicular=1,
+  tangent=1, lock=6)
 - All Advanced mates: Width, Symmetric, Path, Linear-Coupler, Distance-Limit, Angle-Limit
 - All Mechanical mates exposed in UI: Gear, Hinge, Cam, Rack-and-Pinion, Screw, Universal Joint
   (kernel KinematicsCore has joint types; needs UI exposure)
