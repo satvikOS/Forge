@@ -20,6 +20,14 @@
  *   parallel(partA, dirA, partB, dirB)
  *     Two direction vectors point the same way.
  *
+ *   perpendicular(partA, dirA, partB, dirB)              [Tier-7a]
+ *     Two direction vectors at 90° (dot product = 0).
+ *
+ *   tangent(partA, axisA, partB, anchorB, radius)        [Tier-7a]
+ *     A point/anchor on partB lies at distance `radius` from the cylindrical
+ *     axis on partA. Works for cylinder/sphere/cone-equivalent surfaces by
+ *     supplying the axis line + radius from the analytic geometry.
+ *
  *   angle(partA, dirA, partB, dirB, theta_rad)
  *     Two direction vectors at angle θ.
  *
@@ -119,6 +127,14 @@ export class Assembly {
     this.mates.push({ kind: 'parallel', partA, dirA, partB, dirB });
     return this;
   }
+  perpendicular(partA, dirA, partB, dirB) {
+    this.mates.push({ kind: 'perpendicular', partA, dirA, partB, dirB });
+    return this;
+  }
+  tangent(partA, axisA, partB, anchorB, radius) {
+    this.mates.push({ kind: 'tangent', partA, axisA, partB, anchorB, radius });
+    return this;
+  }
   angle(partA, dirA, partB, dirB, thetaRad) {
     this.mates.push({ kind: 'angle', partA, dirA, partB, dirB, theta: thetaRad });
     return this;
@@ -168,6 +184,29 @@ export class Assembly {
           const dB = vNorm(transformDir(m.partB, m.dirB.dir));
           const c = vCross(dA, dB);
           r.push(c[0], c[1], c[2]);
+          break;
+        }
+        case 'perpendicular': {
+          // Tier-7a: dot product of unit direction vectors = 0
+          // (single scalar residual — removes 1 rotational DOF).
+          const dA = vNorm(transformDir(m.partA, m.dirA.dir));
+          const dB = vNorm(transformDir(m.partB, m.dirB.dir));
+          r.push(vDot(dA, dB));
+          break;
+        }
+        case 'tangent': {
+          // Tier-7a: distance from anchorB to axisA = radius.
+          // For a cylinder of radius R centred on axisA, this constrains
+          // the anchor point on partB to touch the surface tangentially
+          // (single scalar residual — removes 1 DOF).
+          const oA = transformPoint(m.partA, m.axisA.origin);
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const pB = transformPoint(m.partB, m.anchorB.xyz);
+          // Perpendicular distance from pB to line(oA, dA).
+          const w = vSub(pB, oA);
+          const proj = vDot(w, dA);
+          const perp = vSub(w, [dA[0] * proj, dA[1] * proj, dA[2] * proj]);
+          r.push(vLen(perp) - m.radius);
           break;
         }
         case 'angle': {

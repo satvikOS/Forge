@@ -27,6 +27,130 @@ const PLANAR_CONSTRAINTS = { revolute: 2, prismatic: 2, gear: 1, cam: 1 };
 // Spatial freedom of each joint type (used by Kutzbach).
 const SPATIAL_FREEDOM = { revolute: 1, prismatic: 1, cylindrical: 2, spherical: 3, planar: 3 };
 
+// ── Tier-7a Assembly mate residual helpers ─────────────────────────
+//
+// The four NEW standard mates added in Tier-7a — Parallel, Perpendicular,
+// Tangent, Lock — operate on the kernel-level MateSolver but the residual
+// equations are pure math, so we expose them here as kernel-free helpers.
+// Node-importable for e2e + algorithmic verification.
+//
+// Conventions:
+//   - All vectors are plain arrays [x, y, z].
+//   - All anchors are world-space (the caller transforms local→world).
+//   - Each returns a scalar residual (0 = satisfied).
+//   - DOF removed is recorded as a sibling export `ASSEMBLY_MATE_DOF`.
+
+/** DOF count removed by each Tier-7a mate (sum of 6-DOF per body model). */
+export const ASSEMBLY_MATE_DOF = Object.freeze({
+  parallel: 2,         // 2 rotational DOF (two angles to align)
+  perpendicular: 1,    // 1 rotational DOF (one angle = 90°)
+  tangent: 1,          // 1 translational DOF (point on cylinder surface)
+  lock: 6,             // 3 translational + 3 rotational (rigid attach)
+});
+
+function _len(v) { return Math.hypot(v[0], v[1], v[2]); }
+function _dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function _sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+function _cross(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+function _normalize(v) {
+  const l = _len(v) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+/**
+ * Parallel mate residual — two world-space direction vectors are parallel
+ * iff |dA × dB| == 0. Returns the magnitude of the cross product (scalar).
+ * Range [0, 1] for unit vectors; 0 = satisfied.
+ */
+export function parallelResidual(dAWorld, dBWorld) {
+  const a = _normalize(dAWorld);
+  const b = _normalize(dBWorld);
+  return _len(_cross(a, b));
+}
+
+/**
+ * Perpendicular mate residual — two unit direction vectors are perpendicular
+ * iff dA · dB == 0. Returns |dot product| (scalar). Range [0, 1].
+ */
+export function perpendicularResidual(dAWorld, dBWorld) {
+  const a = _normalize(dAWorld);
+  const b = _normalize(dBWorld);
+  return Math.abs(_dot(a, b));
+}
+
+/**
+ * Tangent mate residual — point pBWorld lies tangent to cylinder
+ * (axisOriginWorld + t*axisDirWorld, radius). Returns
+ * |perpendicular-distance(pB → axis) − radius| (scalar).
+ *
+ * Generalises naturally to spheres (pass axisOriginWorld = sphere centre +
+ * any axisDirWorld; the perpendicular distance == |pB − origin| when the
+ * "axis" is contained in the perpendicular plane).
+ */
+export function tangentResidual(pBWorld, axisOriginWorld, axisDirWorld, radius) {
+  const dN = _normalize(axisDirWorld);
+  const w = _sub(pBWorld, axisOriginWorld);
+  const proj = _dot(w, dN);
+  const perp = [
+    w[0] - dN[0] * proj,
+    w[1] - dN[1] * proj,
+    w[2] - dN[2] * proj,
+  ];
+  return Math.abs(_len(perp) - radius);
+}
+
+/**
+ * Lock mate residual — partA and partB share the same world-space pose.
+ * Inputs are { translation:[x,y,z], rotation:[rx,ry,rz] }. Returns the
+ * 6-vector L2 norm (translation magnitude + rotation magnitude).
+ *
+ * For a rigid attach, mateResidual = 0 iff both parts have identical
+ * translation AND identical rotation. The 6 scalar residuals are the
+ * three translation differences plus the three rotation differences.
+ */
+export function lockResidual(poseA, poseB) {
+  const tA = poseA.translation, tB = poseB.translation;
+  const rA = poseA.rotation,    rB = poseB.rotation;
+  const dt = [tA[0] - tB[0], tA[1] - tB[1], tA[2] - tB[2]];
+  const dr = [rA[0] - rB[0], rA[1] - rB[1], rA[2] - rB[2]];
+  return Math.hypot(
+    dt[0], dt[1], dt[2],
+    dr[0], dr[1], dr[2],
+  );
+}
+
+/**
+ * Bundle: compute residuals for every Tier-7a mate kind in one call. Used
+ * by AssemblyMate/MateSolver consistency checks + e2e.
+ *
+ * Each input is `{ kind: 'parallel'|'perpendicular'|'tangent'|'lock', ... }`
+ * with the mate-kind-specific world-space inputs already resolved.
+ */
+export function assemblyMateResiduals(mates) {
+  return mates.map((m) => {
+    switch (m.kind) {
+      case 'parallel':      return { kind: m.kind, r: parallelResidual(m.dAWorld, m.dBWorld) };
+      case 'perpendicular': return { kind: m.kind, r: perpendicularResidual(m.dAWorld, m.dBWorld) };
+      case 'tangent':       return { kind: m.kind, r: tangentResidual(m.pBWorld, m.axisOriginWorld, m.axisDirWorld, m.radius) };
+      case 'lock':          return { kind: m.kind, r: lockResidual(m.poseA, m.poseB) };
+      default:              throw new Error(`assemblyMateResiduals: unknown kind '${m.kind}'`);
+    }
+  });
+}
+
+/** Sum of DOFs removed by a list of Tier-7a mate kinds. */
+export function totalAssemblyMateDOF(mateKinds) {
+  let sum = 0;
+  for (const k of mateKinds) sum += ASSEMBLY_MATE_DOF[k] ?? 0;
+  return sum;
+}
+
 /**
  * Grübler mobility for a planar mechanism.
  * DOF = 3(n−1) − Σ constraints, n = link count including ground.

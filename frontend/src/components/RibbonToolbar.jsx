@@ -166,6 +166,16 @@ const TABS = {
         { name: 'Circular Pattern', icon: '◎', key: 'part' },
         { name: 'Mirror Feature', icon: '⟷', key: 'part' },
       ]},
+      // SP-8 — Healing & repair completion (Area H, T1).
+      // Auto-Fill Holes patches open-edge loops with N-sided patches;
+      // Auto-Repair Self-Intersection detects + heals face crossings;
+      // Harmonize Normals walks the shell and flips inconsistent faces.
+      // Selection-driven — each consumes the user's body selection.
+      { label: 'Heal / Repair', tools: [
+        { name: 'Auto-Fill Holes',               icon: '✚', key: 'part' },
+        { name: 'Auto-Repair Self-Intersection', icon: '⊗', key: 'part' },
+        { name: 'Harmonize Normals',             icon: '⇅', key: 'part' },
+      ]},
     ]
   },
   assembly: {
@@ -181,6 +191,11 @@ const TABS = {
         { name: 'Distance', icon: '↔', key: 'assembly' },
         { name: 'Concentric', icon: '◎', key: 'assembly' },
         { name: 'Angle', icon: '∠', key: 'assembly' },
+        // Tier-7a — standard mates (SW set completion)
+        { name: 'Parallel Mate', icon: '∥', key: 'assembly' },
+        { name: 'Perpendicular Mate', icon: '⊥', key: 'assembly' },
+        { name: 'Tangent Mate', icon: '◖', key: 'assembly' },
+        { name: 'Lock Mate', icon: '⊞', key: 'assembly' },
       ]},
       { label: 'Analyze', tools: [
         { name: 'Exploded View', icon: '💥', key: 'assembly' },

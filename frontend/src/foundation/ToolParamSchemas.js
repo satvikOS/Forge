@@ -965,6 +965,63 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'axis',           label: 'Long axis',                     type: 'enum',   default: 'x',  options: ['x', 'y'] },
     ],
   },
+
+  // ─── ASSEMBLY TIER-7a — Standard mates (Parallel / Perpendicular / Tangent / Lock) ──
+  //
+  // Four new SW standard mates that complete the standard-mate set
+  // (Coincident / Distance / Concentric / Angle already exposed). Each is
+  // selection-driven: the user pre-picks two components (or two faces / two
+  // edges of the components) in the viewport, then clicks the mate. The
+  // axis vectors below are GUIDANCE that the handler honours when the
+  // selection doesn't carry an explicit axis — defaults to component Z-axis
+  // (the most common case for cylindrical / face-normal mates).
+  'Parallel Mate': {
+    title: 'Parallel — Standard Assembly Mate',
+    blurb: 'Constrain two faces / edges / axes of two components to be parallel (or anti-parallel). Pre-select TWO components, then click. Removes 2 rotational DOF.',
+    fields: [
+      { name: 'axisAx', label: 'Axis A — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component A (default Z)' },
+      { name: 'axisAy', label: 'Axis A — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisAz', label: 'Axis A — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBx', label: 'Axis B — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component B (default Z)' },
+      { name: 'axisBy', label: 'Axis B — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBz', label: 'Axis B — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'antiparallel', label: 'Anti-parallel', type: 'enum', default: 'no', options: ['no', 'yes'],
+        hint: 'no = vectors point the same way; yes = opposite direction' },
+    ],
+  },
+  'Perpendicular Mate': {
+    title: 'Perpendicular — Standard Assembly Mate',
+    blurb: 'Constrain two faces / edges / axes of two components to be at 90° to each other. Pre-select TWO components, then click. Removes 1 rotational DOF.',
+    fields: [
+      { name: 'axisAx', label: 'Axis A — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component A (default Z)' },
+      { name: 'axisAy', label: 'Axis A — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisAz', label: 'Axis A — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBx', label: 'Axis B — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component B (default Z)' },
+      { name: 'axisBy', label: 'Axis B — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBz', label: 'Axis B — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+    ],
+  },
+  'Tangent Mate': {
+    title: 'Tangent — Standard Assembly Mate',
+    blurb: 'Constrain a point/anchor on component B to touch a cylindrical/spherical surface on component A at radius R. Pre-select TWO components (A = cylinder, B = touching component), then click. Removes 1 DOF.',
+    fields: [
+      { name: 'axisOriginX', label: 'Cyl. axis origin X (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'axisOriginY', label: 'Cyl. axis origin Y (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'axisOriginZ', label: 'Cyl. axis origin Z (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'axisDirX',    label: 'Cyl. axis dir X',  type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisDirY',    label: 'Cyl. axis dir Y',  type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisDirZ',    label: 'Cyl. axis dir Z',  type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'pointBx',     label: 'Anchor on B — X (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'pointBy',     label: 'Anchor on B — Y (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'pointBz',     label: 'Anchor on B — Z (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'radius',      label: 'Cylinder radius',  type: 'number', default: 10, unit: 'mm', min: 0.01, max: 5000, step: 0.5 },
+    ],
+  },
+  'Lock Mate': {
+    title: 'Lock — Standard Assembly Mate',
+    blurb: 'Fully constrain two components in their CURRENT relative position. Pre-select TWO components, then click. Removes all 6 DOF (3 trans + 3 rot) — the two components become a rigid sub-assembly.',
+    fields: [],
+  },
 };
 
 export function getSchemaForTool(toolName) {

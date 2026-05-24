@@ -19,6 +19,14 @@ import {
   PartNumbering, CostingEngine, Sustainability,
 } from '../../kernel/index.js';
 import AssemblyBridge from '../../kernel/bridge/AssemblyBridge.js';
+import MateSolver from '../../kernel/assembly/MateSolver.js';
+import {
+  parallelResidual as fParallelResidual,
+  perpendicularResidual as fPerpendicularResidual,
+  tangentResidual as fTangentResidual,
+  lockResidual as fLockResidual,
+  ASSEMBLY_MATE_DOF as F_MATE_DOF,
+} from '../../foundation/KinematicsCore.js';
 
 // Foundation kernel (manifold-3d + validated math modules) — wired
 // into specific tool handlers (Linear Pattern, Circular Pattern,
@@ -3651,6 +3659,40 @@ const TOOL_HANDLERS = {
     'Coincident Mate': () => ({ status: 'success', message: 'Coincident Mate: Faces aligned — 0 DOF remaining' }),
     'Concentric Mate': () => ({ status: 'success', message: 'Concentric Mate: Cylinders aligned concentrically' }),
     'Distance Mate': () => ({ status: 'success', message: 'Distance Mate: 10mm separation applied' }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Tier-7a — STANDARD MATES (Parallel / Perpendicular / Tangent / Lock)
+    //
+    // Selection-driven: each handler reads
+    // `window.__archdiscSelectedAssemblyParts` (an [idA, idB] tuple of
+    // PartInstance ids) — if absent, defaults to the LAST two parts in the
+    // assembly. The Param Dialog supplies axis vectors / point / radius;
+    // defaults are sensible (component Z-axis) so headless plan runs work.
+    //
+    // Each handler:
+    //   1. resolves / refuses if the assembly has < 2 parts;
+    //   2. calls `_currentAssembly.addMate(...)` with the kind + params;
+    //   3. runs MateSolver.solve to enforce the constraint NOW;
+    //   4. computes DOF before/after via MateSolver.computeDOF;
+    //   5. re-renders the assembly so the user sees the parts snap;
+    //   6. records the result on `window.__lastMateApplied` for e2e.
+    'Parallel Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('parallel', scene, viewport);
+      return r;
+    },
+    'Perpendicular Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('perpendicular', scene, viewport);
+      return r;
+    },
+    'Tangent Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('tangent', scene, viewport);
+      return r;
+    },
+    'Lock Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('lock', scene, viewport);
+      return r;
+    },
+
     'Exploded View': (scene) => {
       if (_currentAssembly && _currentAssemblyRoot) {
         AssemblyBridge.explode(_currentAssemblyRoot, _currentAssembly, 3);
@@ -6712,6 +6754,166 @@ function helixPath(radiusMm, heightMm, steps) {
 
 function needSolid(toolName) {
   return { status: 'warn', message: `${toolName}: Create a solid first (use Part Design tools)` };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tier-7a — Standard mate apply helper
+//
+// Wires Parallel / Perpendicular / Tangent / Lock into the active assembly
+// using:
+//   1. Selection — reads `window.__archdiscSelectedAssemblyParts` (an
+//      [idA, idB] tuple) if set, else uses the LAST two parts in
+//      `_currentAssembly` (the most-recently inserted pair).
+//   2. Param dialog — `requestToolParams(toolName)` supplies axis vectors,
+//      anchor points, radius, etc. The schemas live in
+//      `foundation/ToolParamSchemas.js` and ship sensible defaults.
+//   3. Mate add — calls `_currentAssembly.addMate(kind, idA, idB, params)`
+//      with the kind-specific params shape MateSolver expects.
+//   4. Solve — `MateSolver.solve(_currentAssembly)` runs the iterative
+//      satisfaction loop; the relevant residual function physically moves
+//      the non-fixed part into the constrained position.
+//   5. DOF — `MateSolver.computeDOF` gives the before / after / removed
+//      counts. We also surface the foundation `ASSEMBLY_MATE_DOF` constant
+//      so the user-visible DOF-removed claim matches the kernel-free helper.
+//   6. Re-render — disposes the assembly group and re-builds it via
+//      `AssemblyBridge.renderAssembly` so the user SEES the snap.
+//   7. Introspect — writes `window.__lastMateApplied` for e2e + AI tools.
+async function _applyStandardMate(kind, scene, viewport) {
+  const labelMap = { parallel: 'Parallel', perpendicular: 'Perpendicular', tangent: 'Tangent', lock: 'Lock' };
+  const toolName = `${labelMap[kind]} Mate`;
+  if (!_currentAssembly || _currentAssembly.parts.length < 2) {
+    return { status: 'warn', message: `${toolName}: Insert at least 2 components into an assembly first.` };
+  }
+
+  // 1. Selection — picked pair, or fall back to last two parts.
+  let idA = null, idB = null;
+  if (typeof window !== 'undefined' && Array.isArray(window.__archdiscSelectedAssemblyParts)
+      && window.__archdiscSelectedAssemblyParts.length >= 2) {
+    [idA, idB] = window.__archdiscSelectedAssemblyParts;
+  } else {
+    const n = _currentAssembly.parts.length;
+    idA = _currentAssembly.parts[n - 2].id;
+    idB = _currentAssembly.parts[n - 1].id;
+  }
+  const partA = _currentAssembly.getPart(idA);
+  const partB = _currentAssembly.getPart(idB);
+  if (!partA || !partB) {
+    return { status: 'warn', message: `${toolName}: Could not resolve selected components.` };
+  }
+
+  // 2. Param dialog.
+  let values = null, cancelled = false;
+  try {
+    const dialog = await requestToolParams(toolName);
+    values = dialog && dialog.values;
+    cancelled = dialog && dialog.cancelled;
+  } catch (_) {
+    // Schema-less or test bypass: use defaults.
+    values = null;
+  }
+  if (cancelled) return { status: 'warn', message: `${toolName}: cancelled` };
+  values = values || {};
+
+  // 3. Build kind-specific params shape for MateSolver.
+  // Defaults: component Z-axis if no selection provides an axis.
+  const params = {};
+  if (kind === 'parallel' || kind === 'perpendicular') {
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
+    if (kind === 'parallel') params.antiparallel = values.antiparallel === 'yes';
+  } else if (kind === 'tangent') {
+    // Convert mm -> kernel units (m). The PartInstance positions are in
+    // metres so axis origins / point anchors / radius all need mm→m here.
+    const M = 0.001;
+    params.axisOriginA = new Vec3(
+      (values.axisOriginX ?? 0) * M,
+      (values.axisOriginY ?? 0) * M,
+      (values.axisOriginZ ?? 0) * M,
+    );
+    params.axisDirA = new Vec3(values.axisDirX ?? 0, values.axisDirY ?? 0, values.axisDirZ ?? 1);
+    params.pointB = new Vec3(
+      (values.pointBx ?? 0) * M,
+      (values.pointBy ?? 0) * M,
+      (values.pointBz ?? 0) * M,
+    );
+    params.radius = (values.radius ?? 10) * M;
+  } else if (kind === 'lock') {
+    // No params — Lock captures the CURRENT relative pose. Recording both
+    // translation delta and rotation delta keeps partB at its current
+    // position+orientation relative to partA. Satisfaction enforces that
+    // delta forever; if partA later moves, partB rides along rigidly.
+    params.offset = partB.position.sub(partA.position);
+    params.rotationDelta = partB.rotation.sub(partA.rotation);
+  }
+
+  // 4. Add mate + solve.
+  const dofBefore = MateSolver.computeDOF(_currentAssembly);
+  const mate = _currentAssembly.addMate(kind, idA, idB, params);
+  const dofExpected = dofBefore - (MateSolver._mateDOFRemoved(kind));
+  const solveResult = MateSolver.solve(_currentAssembly);
+  const dofAfter = MateSolver.computeDOF(_currentAssembly);
+
+  // 5. Re-render so the user sees the parts snap.
+  if (_currentAssemblyRoot) AssemblyBridge.dispose(_currentAssemblyRoot, scene);
+  _currentAssemblyRoot = AssemblyBridge.renderAssembly(_currentAssembly, scene);
+
+  // 6. Compute a foundation-side residual cross-check for visibility. We
+  //    use the kernel-free helpers so the number is what algorithmic tests
+  //    would compute independently.
+  let foundationResidual = null;
+  try {
+    if (kind === 'parallel' || kind === 'perpendicular') {
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      foundationResidual = (kind === 'parallel')
+        ? fParallelResidual([dA.x, dA.y, dA.z], [dB.x, dB.y, dB.z])
+        : fPerpendicularResidual([dA.x, dA.y, dA.z], [dB.x, dB.y, dB.z]);
+    } else if (kind === 'tangent') {
+      const dN = MateSolver._rotateLocal(partA, params.axisDirA);
+      const aO = partA.position.add(params.axisOriginA);
+      const pB = partB.position.add(params.pointB);
+      foundationResidual = fTangentResidual(
+        [pB.x, pB.y, pB.z], [aO.x, aO.y, aO.z], [dN.x, dN.y, dN.z], params.radius,
+      );
+    } else if (kind === 'lock') {
+      foundationResidual = fLockResidual(
+        { translation: [partA.position.x, partA.position.y, partA.position.z],
+          rotation:    [partA.rotation.x, partA.rotation.y, partA.rotation.z] },
+        { translation: [partB.position.x - params.offset.x,
+                         partB.position.y - params.offset.y,
+                         partB.position.z - params.offset.z],
+          rotation:    [partB.rotation.x, partB.rotation.y, partB.rotation.z] },
+      );
+    }
+  } catch (e) {
+    foundationResidual = null;
+  }
+
+  // 7. Introspect.
+  if (typeof window !== 'undefined') {
+    window.__lastMateApplied = {
+      kind, toolName,
+      partAId: idA, partBId: idB,
+      dofBefore, dofExpected, dofAfter,
+      dofRemovedExpected: F_MATE_DOF[kind] ?? 0,
+      dofRemovedActual: dofBefore - dofAfter,
+      converged: solveResult.converged,
+      satisfiedCount: solveResult.satisfiedCount,
+      totalMateCount: solveResult.totalCount,
+      iterations: solveResult.iterations,
+      residual: solveResult.residual,
+      foundationResidual,
+      mateId: mate.id,
+      params,
+    };
+  }
+
+  const headline =
+    `${toolName}: ${kind} mate applied between ${partA.name} ↔ ${partB.name} ` +
+    `— DOF ${dofBefore} → ${dofAfter} (-${dofBefore - dofAfter}); ` +
+    `solver ${solveResult.converged ? 'converged' : 'did NOT converge'} ` +
+    `in ${solveResult.iterations} iter (residual ${solveResult.residual.toExponential(2)})`;
+  return { status: solveResult.converged ? 'success' : 'warn', message: headline };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
