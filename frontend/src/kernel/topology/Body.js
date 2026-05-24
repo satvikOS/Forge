@@ -65,6 +65,17 @@ export default class Body {
     this.attributes = {};         // SP-2 hook — body-level attributes
     this.diagnostics = {};        // bindSpine / validateSpine notes
     this.userData = {};
+    // SP-11 — body-level modelling tolerance + sheet-construction notes
+    // live on `metadata` (an additive plain-object carrier). `tolerance`
+    // (a finite ≥0 number, 0 = exact) is the body-wide fuzzy threshold
+    // ops fall back to when no per-entity tolerance applies. carryLineage
+    // updates this to the MAX of input tolerances on every boolean.
+    this.metadata = opts.metadata && typeof opts.metadata === 'object'
+      ? { ...opts.metadata }
+      : {};
+    if (typeof opts.tolerance === 'number' && Number.isFinite(opts.tolerance) && opts.tolerance >= 0) {
+      this.metadata.tolerance = opts.tolerance;
+    }
     this.name = opts.name || '';
   }
 
@@ -292,6 +303,129 @@ export default class Body {
         `${JSON.stringify(allowed)}, got '${this.kind}'.`);
     }
     return this;
+  }
+
+  // ── SP-11 first-class sheet & tolerant invariants ─────────────────────
+  //
+  // The body-kind contract is enforced ON CONSTRUCTION via assertKind()
+  // (above) and ON OP-ENTRY via the assertSolid/Sheet/Wire gates. SP-11
+  // adds positive structural predicates that ops can ASK rather than rely
+  // on `kind === 'solid'` heuristics across the codebase:
+  //
+  //   - isWatertight()  every shell of every lump is closed (a solid body
+  //                     contract — used to validate the result of an op
+  //                     that promised a solid).
+  //   - isLamina()      this body is a sheet whose single shell carries
+  //                     exactly one face (a "lamina" — a degenerate sheet
+  //                     useful as a trim tool and as an intermediate
+  //                     between primitive face-construction and a real
+  //                     thickened sheet).
+  //   - hasFreeBoundary() at least one non-degenerate edge has <2 coedges
+  //                     (the canonical "open" predicate — true for every
+  //                     sheet body, false for every solid body).
+
+  /**
+   * True if every shell of every lump is closed (no free-boundary
+   * non-degenerate edges). The structural definition of a watertight body.
+   * A solid body MUST be watertight; a sheet body MUST NOT be.
+   */
+  isWatertight() {
+    if (this.lumps.length === 0) return false;
+    for (const lump of this.lumps) {
+      if (lump.shells.length === 0) return false;
+      for (const shell of lump.shells) {
+        if (!shell.isClosed()) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * True if any non-degenerate edge has fewer than 2 coedges — the body
+   * carries a free boundary (a sheet body's defining property).
+   */
+  hasFreeBoundary() {
+    for (const e of this.edges()) {
+      if (e.isDegenerate()) continue;
+      if (e.coedges.size < 2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * True if this body is a "lamina" — a sheet body whose ONE shell of ONE
+   * lump carries exactly ONE face. The degenerate sheet body kind useful
+   * as a trim tool / intermediate. A lamina is necessarily a sheet body
+   * (its single face has a free boundary).
+   */
+  isLamina() {
+    if (this.kind !== 'sheet') return false;
+    if (this.lumps.length !== 1) return false;
+    const lump = this.lumps[0];
+    if (lump.shells.length !== 1) return false;
+    return lump.shells[0].faces.size === 1;
+  }
+
+  /**
+   * Assert this body is a lamina. Pre-condition for ops that consume the
+   * single-face degenerate sheet kind (some imprint / trim variants).
+   * @throws if `this` is not a lamina.
+   */
+  assertLamina(opName) {
+    if (!this.isLamina()) {
+      const lbl = opName ? `${opName}: ` : '';
+      const faceCount = this.faces().length;
+      throw new Error(
+        `BodyKindAssertionError: ${lbl}expected a 'lamina' (single-face sheet ` +
+        `body), got kind='${this.kind}' with ${faceCount} face(s).`);
+    }
+    return this;
+  }
+
+  // ── SP-11 body-level modelling tolerance ──────────────────────────────
+  //
+  // Distinct from per-entity tolerance (Face/Edge/Vertex.tolerance) — the
+  // body-level tolerance is the OP-WIDE default used when an op needs a
+  // fuzzy threshold without a specific entity in hand (e.g. a boolean
+  // tolerance, a sew tolerance). Survives via `metadata.tolerance` so
+  // serialisation + carryLineage can record + propagate it without
+  // touching the spine entity graph. The max-rule for mixed-tolerance
+  // booleans applies HERE too — the result body's `metadata.tolerance`
+  // becomes the MAX of the inputs' (set by `carryLineage`).
+
+  /**
+   * Set the body-level modelling tolerance (mm). Default 0 = exact.
+   * @param {number} value
+   * @returns {this}
+   * @throws if `value` is negative, NaN, or non-finite.
+   */
+  setBodyTolerance(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `Body.setBodyTolerance: expected a finite ≥0 number, got ${String(value)}`);
+    }
+    if (!this.metadata || typeof this.metadata !== 'object') this.metadata = {};
+    this.metadata.tolerance = value;
+    return this;
+  }
+
+  /** Read the body-level modelling tolerance (mm). 0 = exact. */
+  getBodyTolerance() {
+    if (!this.metadata) return 0;
+    return Number.isFinite(this.metadata.tolerance) ? this.metadata.tolerance : 0;
+  }
+
+  /**
+   * Get the MAX tolerance carried anywhere on the body — body-level OR any
+   * face / edge / vertex. The single number a tolerant-aware op should use
+   * when deciding whether to widen its fuzzy threshold.
+   */
+  getMaxEntityTolerance() {
+    let m = this.getBodyTolerance();
+    for (const f of this.faces()) { const t = f.getTolerance ? f.getTolerance() : (f.tolerance || 0); if (t > m) m = t; }
+    for (const e of this.edges()) { const t = e.getTolerance ? e.getTolerance() : (e.tolerance || 0); if (t > m) m = t; }
+    for (const v of this.vertices()) { const t = v.getTolerance ? v.getTolerance() : (v.tolerance || 0); if (t > m) m = t; }
+    return m;
   }
 
   // ── Euler-Poincaré ─────────────────────────────────────────────────────────
