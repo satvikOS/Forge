@@ -308,13 +308,13 @@ onward).
 
 | Tool | First taught | Notes |
 |---|---|---|
-| 3D Sketch | `05:38:13` | Underlying skeleton |
-| Structural Member | `05:45:09` | Standard → Profile → Size; group selection |
-| Trim/Extend | `06:03:33` | Cope cuts |
-| End Cap | (within Weldments section) | |
-| Gusset | (within Weldments section) | |
-| Weld Bead | `06:15:42` | Spot/continuous; all-around; size |
-| Cut List | `06:00:19` | Auto-generated BOM-like list of all members |
+| 3D Sketch | `05:38:13` | Underlying skeleton — Tier 6a uses dialog start/end points; full 3D-sketch UI queued for Tier-6b |
+| Structural Member | `05:45:09` | Standard → Profile → Size; group selection — **DONE (Tier 6a)** with 6 standard profile families |
+| Trim/Extend | `06:03:33` | Cope cuts — **DONE (Tier 6a)** butt + mitered modes; cope cut (saddle) queued for Tier-6b |
+| End Cap | (within Weldments section) | **DONE (Tier 6a)** — flat / thick cap prism + fuse |
+| Gusset | (within Weldments section) | Queued Tier-6b |
+| Weld Bead | `06:15:42` | Spot/continuous; all-around; size — queued Tier-6b |
+| Cut List | `06:00:19` | Auto-generated BOM-like list of all members — queued Tier-6b |
 
 ### Assemblies
 
@@ -751,18 +751,26 @@ bends[]}`, and downstream ops can ASK whether a body is sheet metal via
 
 ### 6.6 — Weldments mapping
 
-**ArchDisc has NO Weldments tab either.**
+**ArchDisc has a Weldments ribbon tab as of UX Tier 6a (3 foundational ops).**
 
 | SolidWorks weldments tool | ArchDisc | Status |
 |---|---|---|
-| 3D Sketch | None | **Missing** |
-| Structural Member (Standard → Profile → Size) | None | **Missing** — partial-related: turbomachinery has its own blade rows |
-| Trim/Extend (weldment) | None | **Missing** |
-| End Cap | None | **Missing** |
-| Gusset | None | **Missing** |
-| Weld Bead | None | **Missing** |
-| Cut List | None | **Missing** |
-| Standard profile library (ANSI/ISO) | None | **Missing** |
+| 3D Sketch | None (path supplied by start/end points in the dialog) | **Partial** — multi-segment paths via `window.__archdiscWeldmentPath` global override; full 3D-sketch UI is queued for Tier-6b |
+| Structural Member (Standard → Profile → Size) | Structural Member | **DONE** (Tier 6a — `K.brep.structuralMember(path, {profile, size})`; standard ISO/ANSI profile library with ≥3 sizes per family) |
+| Trim/Extend (weldment) | Trim/Extend Members | **DONE** (Tier 6a — `K.brep.trimMembers(members, {mode})`; butt + mitered modes; real boolean cut) |
+| End Cap | End Cap | **DONE** (Tier 6a — `K.brep.endCap(member, end, {thickness})`; flat-cap prism + fuse) |
+| Gusset | None | **Missing** — queued Tier-6b |
+| Weld Bead | None | **Missing** — queued Tier-6b |
+| Cut List | None | **Missing** — queued Tier-6b |
+| Standard profile library (ANSI/ISO) | STANDARD_PROFILES (recttube/squaretube/roundtube/angle/channel/ibeam) | **Done — foundation** (3 ISO/ANSI sizes per family; custom profile import queued for Tier-6b) |
+
+The dedicated **Weldments** ribbon tab (between Sheet Metal and Drawing)
+now exists with three groups: **Members** (Structural Member),
+**Trim** (Trim/Extend Members), **Caps** (End Cap). Weldment-aware
+metadata travels with every body created via these ops via
+`body.metadata.weldment = {profile, size, length, dims, trims[], caps[]}`,
+and downstream ops can ASK whether a body is a weldment member via
+`K.brep.isWeldment(body)`.
 
 ### 6.7 — Assemblies mapping
 
@@ -954,15 +962,18 @@ The single largest gap. Needs:
 - K-factor / Bend Allowance / Bend Deduction / Bend Table / Gauge Table
 - Forming Tools library
 
-### Tier 6 — Missing workbench: Weldments (entire ribbon tab + kernel)
+### Tier 6 — Weldments workbench (Tier 6a foundation shipped; remainder queued)
 
-- Weldments ribbon tab
-- 3D Sketch (likely reused from sheet-metal)
-- Structural Member tool with Standard (ANSI/ISO) → Profile type → Size selection chain
-- Standard profile library (ANSI/ISO/DIN angle-iron, channel, square-tube, pipe, etc.)
-- Trim/Extend Members
-- End Cap, Gusset, Weld Bead
-- Cut List (auto BOM-like list of all members + lengths)
+- ~~Weldments ribbon tab~~ — **DONE** (Tier 6a; alongside Part / Assembly / Drawing / Sheet Metal / Simulate)
+- 3D Sketch (likely reused from sheet-metal) — **Partial** (path supplied via dialog start/end points or `window.__archdiscWeldmentPath` global; full 3D-sketch UI queued)
+- ~~Structural Member tool with Standard (ANSI/ISO) → Profile type → Size selection chain~~ — **DONE** (Tier 6a; sweep along 3D path with standard ISO profile)
+- ~~Standard profile library (ANSI/ISO/DIN angle-iron, channel, square-tube, pipe, etc.)~~ — **DONE** (Tier 6a; 6 families × 3 sizes minimum: rect/square/round tube + angle + C-channel + I-beam IPE)
+- ~~Trim/Extend Members~~ — **DONE** (Tier 6a; butt + mitered modes via real boolean cut)
+- ~~End Cap~~ — **DONE** (Tier 6a; flat-cap prism + fuse; thickness option)
+- Gusset, Weld Bead — **Missing** (queued Tier-6b)
+- Cut List (auto BOM-like list of all members + lengths) — **Missing** (queued Tier-6b)
+- Cope Cut (cylindrical-tube saddle cut) — **Missing** (queued Tier-6b)
+- Sub-Weldment + Custom Profile Import — **Missing** (queued Tier-6b)
 
 ### Tier 7 — Missing assembly capabilities
 

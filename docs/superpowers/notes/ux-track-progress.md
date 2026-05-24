@@ -742,7 +742,7 @@ preservation + tightened the both-unfixed tie-break).
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a foundation shipped (3 of ~18 ops)** |
-| 6 | Weldments workbench (structural members + cut list) | Not started |
+| 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a foundation shipped (3 of ~8 ops)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, all Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a shipped (4/12+; standard-mate set complete 8/8)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, Title Block edit) | **Partial — Tier 8a + Tier 8b shipped (6/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | Not started |
@@ -1179,3 +1179,210 @@ the ribbon still renders cleanly with the new entry.
    (zero thickness) for a sheet-metal mid-surface representation can
    call `makeSheetBody` from SP-11 on the mid-surface; that is a
    separate workflow.
+
+---
+
+## Tier 6a — Weldments workbench foundation (3 of 3 in this pass; ~8 SW weldments ops in tier total)
+
+**Date:** 2026-05-24
+
+The Weldments workbench foundation — a dedicated **Weldments** ribbon
+tab alongside Part / Assembly / Drawing / Sheet Metal / Simulate, with
+the three FOUNDATIONAL weldments ops every SolidWorks-compatible CAD
+must ship:
+
+1. **Structural Member** — the FOUNDATIONAL weldments op. Takes a 3D
+   path (open or closed polyline, currently supplied via the dialog's
+   start/end points or a one-shot global `window.__archdiscWeldmentPath`)
+   + a standard ISO/ANSI profile (rect tube, square tube, round tube,
+   angle, C-channel, I-beam) + a catalogue size → real
+   `K.brep.sweepProfile` along the path. Result body is tagged
+   `body.metadata.weldment = {profile, size, length, dims, pathStart,
+   pathEnd, pathTangentStart, pathTangentEnd, trims[], caps[]}`. Multiple
+   Structural Member calls in one workflow → multiple member bodies.
+
+2. **Trim/Extend Members** — pick 2+ weldment members + a trim mode
+   (`butt` or `mitered`) → real boolean trim at the joint:
+   - `butt`: subtracts each successive member from the first member's
+     volume so the first yields to the rest (clean butt joint).
+   - `mitered`: builds an angular half-space tool at the joint bisector
+     and subtracts it from BOTH members so they meet at a clean mitre
+     corner — the canonical welded-frame corner joint.
+   Each successful trim appends to `metadata.weldment.trims[]`.
+
+3. **End Cap** — pick the open end of a structural member ('start' or
+   'end') + a cap thickness → real face construction: builds a
+   bounding-rect prism at the picked end along the path tangent,
+   extrudes it by the cap thickness, and **fuses** it onto the parent
+   so the result is one connected body with one extra cap face.
+   Records every cap in `metadata.weldment.caps[]`.
+
+### Standard profile library (kernel-level)
+
+`STANDARD_PROFILES` (kernel/brep/BrepWeldments.js) ships **6 ISO/ANSI
+families with 3 sizes each** (18 catalogue entries):
+
+| Family | Sizes | Standard |
+|---|---|---|
+| Rectangular tube | 40×60×3, 50×100×4, 80×120×5 | ISO 4019 cold-formed |
+| Square tube      | 40×40×3, 50×50×4, 80×80×5  | ISO 4019 |
+| Round tube       | Ø48.3×3.6, Ø60.3×3.6, Ø88.9×4.0 | ISO 4200 |
+| Angle iron       | 50×50×5, 65×65×7, 80×80×8  | ISO 657-21 (equal-leg L) |
+| C-channel        | 100×50×5, 150×75×6.5, 200×75×8.5 | ISO 657-11 |
+| I-beam (IPE)     | IPE100, IPE160, IPE200     | EN 10365 / IPE |
+
+`K.brep.standardProfileSizes()` exposes the catalogue as
+`{ family → [sizeLabels...] }`; `K.brep.buildStandardProfile(family, size)`
+returns the CCW closed polygon (mm) + the dims meta.
+
+### Files added/changed
+
+- `frontend/src/kernel/brep/BrepWeldments.js` (new — 3 weldments kernel
+  ops + standard-profile library + metadata helpers)
+- `frontend/src/kernel/brep/index.js` (modified — re-export the new ops)
+- `frontend/src/kernel/brep/ArchDiscKernel.js` (modified — facade entries
+  `K.brep.structuralMember / trimMembers / endCap / isWeldment /
+  getWeldmentMetadata / buildStandardProfile / standardProfileSizes /
+  STANDARD_PROFILES`)
+- `frontend/src/components/RibbonToolbar.jsx` (modified — NEW `weldments`
+  tab between Sheet Metal and Drawing with 3 groups: Members | Trim |
+  Caps)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — 3 schemas
+  appended at end: Structural Member (9 params, incl. start/end XYZ +
+  profile enum), Trim/Extend Members (mode enum), End Cap (end enum +
+  thickness))
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js`
+  (modified — new `weldments:` handler group with 3 handlers; the rest
+  of the TOOL_HANDLERS object untouched per allowlist)
+- `frontend/src/workbenches/weldments/WorkbenchWeldments.jsx` (new —
+  ride-along workbench wrapper hinting the ribbon to default to the
+  weldments tab)
+- `frontend/src/workbenches/weldments/index.js` (new — barrel re-export
+  of the kernel ops + `WELDMENT_TOOLS` list)
+- `e2e/ux-tier6a-weldments-electron.spec.js` (new — motion-capture e2e
+  on a welded steel workbench frame)
+
+### Bespoke real workflow — welded steel workbench frame
+
+A real engineered weldments workflow that exercises every op shipped
+this pass — different from every prior bespoke model (which has been
+sketch tabs, sheet-metal enclosures, hydraulic spools, mouse-grip
+shells, lathe legs, etc.):
+
+| Stage | Op | Geometry |
+|---|---|---|
+| 1 | Weldments tab activated | Ribbon tab "Weldments" highlighted; Members / Trim / Caps groups visible |
+| 2 | Structural Member ×4 (legs)  | Square tube 40×40×3, 750 mm tall, at the 4 corners of a 1200×600 mm footprint |
+| 3 | Structural Member ×4 (beams) | Rect tube 50×100×4, two long (1200 mm) + two short (600 mm) along the top frame |
+| 4 | Structural Member ×4 (cross-braces) | Angle 50×50×5, diagonal struts from each corner toward the centre |
+| 5 | Trim/Extend Members (mitered) | Mitered corners at the top-frame beams |
+| 6 | Trim/Extend Members (butt)    | Butt joints on the cross-braces |
+| 7 | End Cap ×4 | Flat 3 mm caps on the leg bottoms (footing) |
+
+After step 7 the part is a real welded steel workbench frame — the
+canonical Weldments use-case. The leg/beam/brace count (12 members)
+exercises the standard profile library across 3 families and the trim/
+cap path on real boolean ops.
+
+### Framing — perfectly viewable
+
+| Frame | Headline |
+|---|---|
+| 01 | Weldments ribbon tab active — Members / Trim / Caps groups + 3 tools visible |
+| 02 | 4 legs built — vertical square-tube columns at corners |
+| 03 | Structural members materialized — all 12 members in iso view |
+| 04 | Iso of the welded frame (held framing) |
+| 05 | After mitered trim on the top-frame corners |
+| 06 | After 4× End Cap on the leg bottoms |
+| 07 | Final iso of the welded steel workbench frame |
+| 08 | Short orbit revealing the mitered joints (4 × 18° steps) |
+
+ONE iso of the welded frame; whole thing fits. 4-5 stills at key
+states (paths sketched in dialog, structural members materialized,
+after trim, after end caps). No 7-angle orbit. One short orbit at the
+end revealing the mitered joints.
+
+### Focal assertions (verified live in the spec)
+
+| Op | Assertion | Value |
+|---|---|---|
+| Weldments tab | ribbon shows `Structural Member` / `Trim/Extend Members` / `End Cap` | 3/3 visible |
+| Catalogue | `≥3 sizes per family` for recttube/squaretube/roundtube/angle | 3/3/3/3 ok |
+| Structural Member | `body.metadata.weldment.profile === 'squaretube'` for legs | squaretube ok |
+| Structural Member | `body.metadata.weldment.size === '40x40x3'` for legs | 40x40x3 ok |
+| Structural Member | `body.metadata.weldment.length === 750` mm for legs | 750 ok |
+| Trim/Extend Members | `window.__lastWeldmentTrim` slot exists; mode matches | mitered / butt ok |
+| End Cap | `faceDelta > 0` on at least one cap | >0 ok |
+| End Cap | `caps[].end === 'start'` for leg-bottom caps | start ok |
+| End Cap | `caps[].thickness === 3` mm | 3 ok |
+
+### E2E + regression subset (Tier 6a)
+
+Headed Electron, `--workers=1`, `--retries=0`. The targeted regression
+band:
+
+| Spec | Notes |
+|---|---|
+| `ux-tier6a-weldments-electron` (NEW) | This pass's acceptance |
+| `ux-tier5a-sheet-metal-electron` (regression — Tier-5a wrapper sibling) | Adjacent ribbon tab |
+| `sp11-sheet-tolerant-electron` (regression — sheet-body foundation) | Underlies sheet-metal + indirectly weldments via spine |
+| `ribbon-test` (regression — ribbon tabs + tool counts) | Confirms the new 9th tab renders cleanly |
+
+The new Weldments tab adds a 9th ribbon tab (after Sheet Metal's 8th).
+
+### Honest gaps + queued Tier-6 follow-ups
+
+1. **Foundation only — 3 of ~8 SW weldments ops shipped.** Queued for
+   follow-on Tier-6b dispatches:
+   - **Gusset** (corner reinforcement between two perpendicular members
+     — typically a triangular plate fillet-welded at the inside corner).
+   - **Weld Bead** (spot / continuous / all-around toggle; bead size
+     + cross-section — the cosmetic + structural welded-joint mark).
+   - **Cut List** (auto-generated BOM-like list of every member +
+     cut length + profile, with grouping by identical entries — the
+     headline Weldments deliverable for fabrication).
+   - **Sub-Weldment** (nested weldment hierarchy — a group of members
+     becomes a single sub-assembly that can be re-used elsewhere).
+   - **Custom Profile Import** (sketch-based profile → extend
+     STANDARD_PROFILES with caller-supplied 2D polygons).
+   - **Cope Cut** (cylindrical-tube saddle cut at non-orthogonal joints
+     — requires surface-surface intersection that the simple boolean
+     trim path doesn't handle in one shot).
+
+2. **3D Sketch UI is dialog-driven, not viewport-driven.** Structural
+   Member takes start/end XYZ via the dialog (or a one-shot
+   `window.__archdiscWeldmentPath` global for AI / multi-segment paths).
+   The full SolidWorks-style "Insert 3D Sketch, Tab to switch plane,
+   draw a multi-plane skeleton" UI is queued for Tier-6b. Documented
+   as the cleanest path here — the kernel `structuralMember(path, ...)`
+   already accepts arbitrary polylines, so the UI work is purely the
+   sketch-side.
+
+3. **Profile orientation around the path tangent.** The profile's
+   local +X axis is aligned with the path-start tangent's "right" via
+   a deterministic frame builder (world-up = [0,0,1] unless tangent is
+   parallel, then world-X). This is a reasonable default but doesn't
+   offer the SW "Locate Profile" rotate / mirror / offset workflow.
+   Queued for Tier-6b — the dialog can grow a `rotateAboutPath` /
+   `mirrorAboutPath` enum once the workflow is real.
+
+4. **Hollow tube profiles render as solid prisms.** The foundation
+   pass ships SOLID rectangles for rect / square / round tube — a
+   hollow tube (with a second inner loop in the profile) requires
+   `Face_2(wire, withHole)` which the kernel-level profile builder
+   doesn't synthesise this pass. The dims (wall thickness `t`) are
+   still recorded; queued Tier-6b adds the inner-loop wire.
+
+5. **End Cap caps the bounding rectangle of the profile, not the
+   exact profile.** For rect / square / round tube the bounding rect
+   IS the profile (or its bounding box). For angle / channel / I-beam
+   the cap is the convex bounding rectangle so the fuse is robust;
+   capping the EXACT end profile (e.g. a cap that follows the L-shape
+   of an angle iron) is queued for Tier-6b.
+
+6. **Trim/Extend best-effort on flush-coincident corners.** The
+   boolean `cut` engine can fail on perfectly flush corner cases (the
+   exact same OCCT pain that the Sheet Metal Tier-5a documented).
+   The spec's contract is "at least one trim recorded OR honest skip
+   with the diagnostic slot populated". Mitre + butt both honour this
+   contract.
