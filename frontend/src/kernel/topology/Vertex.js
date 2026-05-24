@@ -97,4 +97,38 @@ export default class Vertex {
   *listAttributes() {
     if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
   }
+
+  // ── SP-11 tolerance accessors ─────────────────────────────────────────
+  //
+  // First-class tolerant vertices — the Parasolid "tvertex" / ACIS
+  // "tolerant vertex" contract. A vertex's tolerance is the radius of the
+  // sphere around its `point` within which the geometry of every incident
+  // edge end must terminate. Default 0 = exact. SP-11 promotes the field
+  // from a passive S0 carrier into an ACTIVE op input + lineage carry
+  // (see Edge.setTolerance for the broader policy).
+
+  /**
+   * Set this vertex's modelling tolerance (mm). Must be a finite ≥0 number.
+   * @param {number} value
+   * @returns {this}
+   * @throws if `value` is negative, NaN, or non-finite.
+   */
+  setTolerance(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `Vertex.setTolerance: expected a finite ≥0 number, got ${String(value)}`);
+    }
+    this.tolerance = value;
+    return this;
+  }
+
+  /** Read this vertex's modelling tolerance (mm). 0 = exact. */
+  getTolerance() {
+    return Number.isFinite(this.tolerance) ? this.tolerance : 0;
+  }
+
+  /** True if this vertex is "tolerant" (tolerance > `threshold`, default 0). */
+  isTolerant(threshold = 0) {
+    return this.getTolerance() > threshold;
+  }
 }

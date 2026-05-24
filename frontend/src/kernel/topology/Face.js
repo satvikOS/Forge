@@ -41,6 +41,11 @@ export default class Face {
     this.derivedFrom = [];
     this.attributes = {};          // SP-2 hook
     this.userData = {};
+    // SP-11 — per-entity tolerance. Default 0 = exact. A face's tolerance is
+    // the maximum modelling distance its surface may diverge from the
+    // kernel-ideal trimmed face boundary; ops can widen their fuzzy
+    // thresholds by querying `getTolerance()`. Survives ops via lineage.
+    this.tolerance = Number.isFinite(opts.tolerance) ? opts.tolerance : 0;
 
     // Link loops to this face.
     if (this.outerLoop) {
@@ -154,6 +159,37 @@ export default class Face {
   /** Iterate every attribute record on this face. */
   *listAttributes() {
     if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
+  }
+
+  // ── SP-11 tolerance accessors ─────────────────────────────────────────
+  //
+  // First-class tolerant faces — symmetric with tolerant edges + vertices.
+  // A face's tolerance is the maximum modelling distance its surface may
+  // diverge from the kernel-ideal trimmed face boundary. Default 0 = exact.
+
+  /**
+   * Set this face's modelling tolerance (mm). Must be a finite ≥0 number.
+   * @param {number} value
+   * @returns {this}
+   * @throws if `value` is negative, NaN, or non-finite.
+   */
+  setTolerance(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `Face.setTolerance: expected a finite ≥0 number, got ${String(value)}`);
+    }
+    this.tolerance = value;
+    return this;
+  }
+
+  /** Read this face's modelling tolerance (mm). 0 = exact. */
+  getTolerance() {
+    return Number.isFinite(this.tolerance) ? this.tolerance : 0;
+  }
+
+  /** True if this face is "tolerant" (tolerance > `threshold`, default 0). */
+  isTolerant(threshold = 0) {
+    return this.getTolerance() > threshold;
   }
 
   toString() {

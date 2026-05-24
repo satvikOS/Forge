@@ -128,6 +128,47 @@ export default class Edge {
   *listAttributes() {
     if (this.attributes) for (const r of Object.values(this.attributes)) yield r;
   }
+
+  // ── SP-11 tolerance accessors ─────────────────────────────────────────
+  //
+  // First-class tolerant edges — the Parasolid "tedge" / ACIS "tolerant
+  // edge" contract. An edge's tolerance is the maximum modelling distance
+  // its curve geometry may diverge from the kernel-ideal curve before
+  // adjacent ops should still treat the edge as valid. Default 0 = exact.
+  // SP-11 promotes tolerance from a passive S0 field into an ACTIVE op
+  // input: ops query `getTolerance()` to widen their fuzzy thresholds;
+  // booleans propagate the MAX of input tolerances onto result edges via
+  // `carryLineage`; tolerant edges are listed via `BrepSheet.tolerantEdges`.
+  //
+  // The setter validates that the value is a non-negative finite number —
+  // a tolerance is a distance, never negative, and NaN/Infinity would
+  // poison the survival propagation max-rule. Throws on a bad value
+  // rather than silently coercing.
+
+  /**
+   * Set this edge's modelling tolerance (mm). Must be a finite ≥0 number.
+   * @param {number} value  tolerance in millimetres (0 = exact).
+   * @returns {this}
+   * @throws if `value` is negative, NaN, or non-finite.
+   */
+  setTolerance(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `Edge.setTolerance: expected a finite ≥0 number, got ${String(value)}`);
+    }
+    this.tolerance = value;
+    return this;
+  }
+
+  /** Read this edge's modelling tolerance (mm). 0 = exact. */
+  getTolerance() {
+    return Number.isFinite(this.tolerance) ? this.tolerance : 0;
+  }
+
+  /** True if this edge is "tolerant" (tolerance > `threshold`, default 0). */
+  isTolerant(threshold = 0) {
+    return this.getTolerance() > threshold;
+  }
 }
 
 function distance(a, b) {
