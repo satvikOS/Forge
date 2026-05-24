@@ -73,6 +73,11 @@ import {
   tolerantEdges, tolerantVertices, tolerantFaces,
   setBodyTolerance, BodyKindError,
 } from './BrepSheet.js';
+// UX Tier 5a — Sheet Metal workbench foundation.
+import {
+  baseFlange, edgeFlange, flatPattern,
+  isSheetMetal, getSheetMetalMetadata, bendAllowance,
+} from './BrepSheetMetal.js';
 // SP-13 — Data exchange completion (Area M, T2).
 import {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
@@ -204,6 +209,19 @@ export const ArchDiscKernel = {
     setBodyTolerance,
     /** Exception class raised by Body.assertSolid/Sheet/Wire/Lamina. */
     BodyKindError,
+    // ── UX Tier 5a Sheet Metal workbench foundation ───────────────────────
+    /** Base Flange — sketch profile + thickness + K-factor → sheet-metal-tagged solid body. */
+    baseFlange,
+    /** Edge Flange — pick an edge on a sheet-metal body and extrude a flange off it at `angleDeg`. */
+    edgeFlange,
+    /** Flat Pattern — unfold a bent sheet-metal part into its flat manufacturing layout. */
+    flatPattern,
+    /** Predicate — does the body carry sheet-metal metadata (tagged by Base Flange)? */
+    isSheetMetal,
+    /** Read the sheet-metal metadata bag — {thickness, kFactor, bendRadius, isFlat, bends[]}. */
+    getSheetMetalMetadata,
+    /** Sheet-metal bend-allowance formula — BA = π(R + K·t)(θ/180°). */
+    bendAllowance,
     // ── SP-13 Data exchange completion (Area M, T2) ──────────────────────
     /** Export to STEP AP242 (PMI + colour + property attributes). */
     exportStepAp242,

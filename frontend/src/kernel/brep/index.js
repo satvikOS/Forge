@@ -70,6 +70,11 @@ export {
   tolerantEdges, tolerantVertices, tolerantFaces,
   setBodyTolerance, BodyKindError,
 } from './BrepSheet.js';
+// UX Tier 5a — Sheet Metal workbench foundation.
+export {
+  baseFlange, edgeFlange, flatPattern,
+  isSheetMetal, getSheetMetalMetadata, bendAllowance,
+} from './BrepSheetMetal.js';
 // SP-13 — Data exchange completion (Area M, T2) — re-export from kernel/export/.
 export {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
