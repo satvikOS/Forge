@@ -134,6 +134,44 @@ let _currentAssembly = null;
 export function getCurrentAssembly() { return _currentAssembly; }
 let _currentAssemblyRoot = null;
 let _assemblyIndex = -1;
+
+// ─── Tier-7a — Assembly API exposure for headed e2e ─────────────────
+//
+// The 4 new standard mates (Parallel / Perpendicular / Tangent / Lock)
+// need a real multi-part assembly to demonstrate; bundled-Electron e2e
+// cannot dynamic-import /src/* modules. We expose the kernel Assembly +
+// MateSolver + PrimitiveBuilder + Vec3 + AssemblyBridge as a small read
+// surface that the Tier-7a spec uses to construct + manipulate parts.
+// The slot is INSTALL-ONCE (idempotent) and only touches window when
+// running in a browser context.
+if (typeof window !== 'undefined') {
+  window.__archdiscAssemblyApi = {
+    Assembly,
+    PrimitiveBuilder,
+    Vec3,
+    MateSolver,
+    AssemblyBridge,
+    /**
+     * Replace the engine's `_currentAssembly` with the caller-supplied
+     * one and re-render. Used by Tier-7a e2e to seed a real multi-part
+     * fixture-jig before the user clicks any mate. The re-render
+     * disposes the existing assembly root if any.
+     */
+    setCurrentAssembly: (assy, scene, viewport) => {
+      if (_currentAssemblyRoot && scene) AssemblyBridge.dispose(_currentAssemblyRoot, scene);
+      _currentAssembly = assy;
+      if (scene) {
+        _currentAssemblyRoot = AssemblyBridge.renderAssembly(_currentAssembly, scene);
+        if (viewport?.camera && viewport?.controls) {
+          AssemblyBridge.focusOnAssembly(_currentAssemblyRoot, viewport.camera, viewport.controls);
+        }
+      }
+      return { partCount: _currentAssembly.parts.length };
+    },
+    getCurrentAssembly: () => _currentAssembly,
+    getCurrentAssemblyRoot: () => _currentAssemblyRoot,
+  };
+}
 let _lastGCode = null;
 let _lastSliceResult = null;
 let _lastFEAResult = null;
@@ -3610,6 +3648,104 @@ const TOOL_HANDLERS = {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Simplify Geometry: ' + err.message };
       }
     },
+
+    // ── SP-8 — Healing & repair completion (Area H, T1). ──────────────────
+    // Auto-Fill Holes / Auto-Repair Self-Intersection / Harmonize Normals.
+    // Selection-driven (arity 1); each is a consuming op (the healed body
+    // replaces the source in the scene).
+
+    'Auto-Fill Holes': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Auto-Fill Holes');
+        if (cancelled) return { status: 'warn', message: 'Auto-Fill Holes: cancelled' };
+        const opts = {
+          tolerance:         Number(values.tolerance)         || 1e-3,
+          subdivisions:      Math.round(Number(values.subdivisions)      || 3),
+          fairingIterations: Math.round(Number(values.fairingIterations) || 40),
+        };
+        const result = await ArchDiscKernel.brep.autoFillMissingFaces(body, opts);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const report = (result.meta && result.meta.fillReport) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastAutoFill = { report };
+        }
+        return {
+          status: 'success',
+          message:
+            `Auto-Fill Holes: ${report.patchesAdded || 0} patch(es), ` +
+            `${report.loopsClosed || 0} loop(s) closed, ` +
+            `${report.loopsSkipped || 0} skipped — watertight=${!!report.watertight} ` +
+            `(${report.note || 'done'}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Auto-Fill Holes: ' + err.message,
+        };
+      }
+    },
+
+    'Auto-Repair Self-Intersection': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Auto-Repair Self-Intersection');
+        if (cancelled) return { status: 'warn', message: 'Auto-Repair Self-Intersection: cancelled' };
+        const opts = {
+          tolerance:  Number(values.tolerance)  || 1e-2,
+          deflection: Number(values.deflection) || 0.1,
+        };
+        const result = await ArchDiscKernel.brep.autoRepairSelfIntersection(body, opts);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const report = (result.meta && result.meta.repairReport) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastAutoRepairSI = { report };
+        }
+        return {
+          status: 'success',
+          message:
+            `Auto-Repair Self-Intersection: ${report.pairsBefore || 0} → ${report.pairsAfter || 0} pair(s), ` +
+            `${report.pairsResolved || 0} resolved via [${(report.strategiesAttempted || []).join(', ') || 'none'}] ` +
+            `(${report.note || 'done'}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Auto-Repair Self-Intersection: ' + err.message,
+        };
+      }
+    },
+
+    'Harmonize Normals': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Harmonize Normals');
+        if (cancelled) return { status: 'warn', message: 'Harmonize Normals: cancelled' };
+        const opts = {
+          outward:    Number(values.outward) !== 0,
+          deflection: Number(values.deflection) || 0.5,
+        };
+        const result = await ArchDiscKernel.brep.harmonizeNormals(body, opts);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const report = (result.meta && result.meta.harmonizeReport) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastHarmonizeNormals = { report };
+        }
+        return {
+          status: 'success',
+          message:
+            `Harmonize Normals: consistency ${(report.consistencyBefore || 0).toFixed(3)} → ` +
+            `${(report.consistencyAfter || 0).toFixed(3)}, ` +
+            `direction=${report.globalDirection || 'outward'} ` +
+            `(${report.note || 'done'}) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Harmonize Normals: ' + err.message,
+        };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -6847,10 +6983,19 @@ async function _applyStandardMate(kind, scene, viewport) {
   }
 
   // 4. Add mate + solve.
+  //    The kernel MateSolver uses iterative point relaxation (serial
+  //    per-mate satisfier with RELAXATION=0.5); on a multi-mate system
+  //    parallel/perpendicular's Euler-axis-projection approximation
+  //    oscillates slightly below the strict 1e-5 default tolerance, so
+  //    we loosen to 1e-3 (1 micron at the per-mate scale, well below the
+  //    geometric noise floor of typical CAD assemblies). The
+  //    foundation/AssemblyMate Levenberg-Marquardt solver would converge
+  //    tighter; the kernel solver here is the pragmatic "snap into place"
+  //    iterator the user sees in the viewport.
   const dofBefore = MateSolver.computeDOF(_currentAssembly);
   const mate = _currentAssembly.addMate(kind, idA, idB, params);
   const dofExpected = dofBefore - (MateSolver._mateDOFRemoved(kind));
-  const solveResult = MateSolver.solve(_currentAssembly);
+  const solveResult = MateSolver.solve(_currentAssembly, { tolerance: 1e-3, maxIter: 200 });
   const dofAfter = MateSolver.computeDOF(_currentAssembly);
 
   // 5. Re-render so the user sees the parts snap.

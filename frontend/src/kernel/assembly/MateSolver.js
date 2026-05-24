@@ -117,16 +117,22 @@ export default class MateSolver {
   static _satisfyMate(mate) {
     if (!mate.partA || !mate.partB) return 0;
 
-    // The non-fixed part gets corrected; if both fixed, return current error
+    // The non-fixed part gets corrected; if both fixed, return current error.
+    // If both are non-fixed, pick partB as the free side — the convention is
+    // the user picks the "anchor" then the "to-mate" component (partB), so
+    // partB is the one that should move. If partB is fixed and partA is
+    // not, partA moves. This also helps when partA is INDIRECTLY fixed via
+    // another mate (e.g. a Lock anchored to a fixed Base) — the iteration
+    // restores partA's pose via the Lock on the next pass.
     const fixedA = mate.partA.fixed;
     const fixedB = mate.partB.fixed;
     if (fixedA && fixedB) {
       return MateSolver._mateError(mate);
     }
-
-    // The "free" part is the one we'll move
-    const free = fixedA ? mate.partB : mate.partA;
-    const anchor = fixedA ? mate.partA : mate.partB;
+    let free, anchor;
+    if (fixedA) { free = mate.partB; anchor = mate.partA; }
+    else if (fixedB) { free = mate.partA; anchor = mate.partB; }
+    else { free = mate.partB; anchor = mate.partA; }    // both unfixed → partB moves
 
     switch (mate.type) {
       case 'coincident':
