@@ -7,9 +7,21 @@
    `.ribbon-container` rule below (the ribbon's own `.ribbon-content` flex
    already handles horizontal scrolling, so any overflow tools remain
    reachable). Placeholder wrappers mount `.workbench-ribbon-placeholder`
-   matching the same height. */
+   matching the same height.
+
+   Reserved gutters for the toolbar / rollback / properties drawers. These
+   widths are FIXED at the layout level so the viewport canvas occupies a
+   stable rectangle regardless of which drawers are open or collapsed —
+   collapsing a drawer empties its gutter visually but does NOT grow the
+   viewport. This is the "fixed viewport, dynamic chrome" model: the user's
+   view of the 3D model never shifts as panels toggle. */
 :root {
     --ribbon-height: 124px;
+    /* The toolbar / rollback / properties gutters reserve fixed pixel real
+       estate inside the stage. The viewport sits between the toolbar gutter
+       on the left and the (rollback + properties) gutter on the right. */
+    --rollback-gutter: 72px;
+    --rollback-gutter-collapsed: 28px;
 }
 
 /* Constrain the live RibbonToolbar to the canonical row height. Defined
@@ -17,64 +29,92 @@
    contract owned by the workbench shell, not by the ribbon component.
    The descendant-selector form `.workbench-container .ribbon-container`
    wins the cascade against `RibbonToolbar.css`'s `.ribbon-container` rule
-   regardless of import order, because it has higher specificity. */
+   regardless of import order, because it has higher specificity.
+
+   The ribbon is placed in the stage's "ribbon-row" via grid-area override
+   (the ribbon's own rule says `grid-area: ribbon` for the OLD layout; we
+   re-target it to the new stage-internal grid via the `.workbench-stage >`
+   selector for higher specificity). */
 .workbench-container .ribbon-container {
     height: var(--ribbon-height);
     max-height: var(--ribbon-height);
     min-height: var(--ribbon-height);
 }
 
-/* ========== MAIN CONTAINER - GRID LAYOUT ==========
+/* Higher-specificity override so it wins regardless of source order
+   against the legacy `.workbench-container .workbench-ribbon-placeholder`
+   rule lower in this file. */
+.workbench-container .workbench-stage > .ribbon-container,
+.workbench-container .workbench-stage > .workbench-ribbon-placeholder {
+    grid-area: ribbon-row;
+}
+
+/* ========== MAIN CONTAINER - FIXED-VIEWPORT GRID LAYOUT ==========
  *
- * Layout columns:
- *   toolbar  | viewport | rollback | properties
- *   var(--toolbar-width) | 1fr (flex) | rollback-width (auto, 0 when empty)
- *   | var(--properties-width)
+ * The shell is a five-row grid with a SINGLE column for the body rows; the
+ * ribbon / toolbar / properties / rollback drawers are NOT grid columns
+ * anymore — they're absolute overlays inside the stage. This makes the
+ * viewport the fixed centre and the chrome dynamically overlays it.
  *
- * The `rollback` column hosts the kernel-history timeline strip in its
- * VERTICAL form — see `frontend/src/components/SwUxOverlays.jsx::RollbackBar`.
- * The strip used to render as an absolute-positioned overlay at top:48 of
- * the viewport (obstructing the 3D model); it now lives in this dedicated
- * grid column so the viewport is unobstructed. The column collapses to
- * 0 width when the kernel HistoryLog is empty (the bar returns null), and
- * shrinks to a 28px sliver when the user collapses the bar manually.
+ *   grid-template-rows: header | ribbon | stage | statusbar | footer
+ *   grid-template-columns: 1fr
  *
- * Every workbench wrapper (Mechanical CAD / Architecture & BIM / Gaming &
- * VFX / Automotive / Electronics — and the Sheet Metal / Weldments
- * wrappers that delegate to Mechanical) mounts the same three grid
- * children (`.workbench-tools` / `.workbench-viewport` / `.workbench-properties`)
- * so viewport sizing is uniform across tabs by construction.
+ * The .workbench-stage row hosts the toolbar / viewport / properties /
+ * rollback as absolute-positioned overlays. Their reserved gutters are
+ * fixed at the layout level so the viewport canvas stays the same size
+ * when drawers toggle.
+ *
+ * BACKWARD-COMPATIBILITY NOTE: each workbench wrapper returns a Fragment
+ * that includes both the ribbon (grid-area: ribbon) AND the toolbar /
+ * viewport / properties (formerly grid-area: toolbar/viewport/properties).
+ * The Workbench shell wraps the WHOLE returned tree in `.workbench-stage`
+ * — but the ribbon's `grid-area: ribbon` would be ignored inside a non-
+ * grid stage element. We solve this by making `.workbench-stage` itself a
+ * sub-grid covering the ribbon row above (via `display: subgrid`) — except
+ * subgrid support is uneven, so the LIVE implementation lifts the ribbon
+ * to row 1 of the stage via positioning. See `.ribbon-container` rule
+ * below for the actual placement.
  */
 .workbench-container {
     height: 100vh;
     width: 100vw;
     display: grid;
-    /*
-     * The `ribbon` row uses an `auto` track. Some workbench wrappers
-     * (Mechanical CAD) mount a tall ribbon there; the placeholder
-     * wrappers (Architecture & BIM / Gaming & VFX / Automotive /
-     * Electronics) mount a stub. The stub forces the same row height
-     * (`--ribbon-height` set in index.css) so the viewport row receives
-     * IDENTICAL space across every tab — fixing the user-reported
-     * "viewport is cutting in some tabs" symptom. See
-     * `frontend/src/styles/workbench.css::.workbench-ribbon-placeholder`.
-     */
-    grid-template-rows: var(--header-height) auto minmax(0, 1fr) 22px auto;
-    grid-template-columns:
-        var(--toolbar-width)
-        minmax(0, 1fr)
-        auto
-        var(--properties-width);
+    grid-template-rows: var(--header-height) minmax(0, 1fr) 22px auto;
+    grid-template-columns: 1fr;
     grid-template-areas:
-        "header   header   header   header"
-        "ribbon   ribbon   ribbon   ribbon"
-        "toolbar  viewport rollback properties"
-        "statusbar statusbar statusbar statusbar"
-        "footer   footer   footer   footer";
+        "header"
+        "stage"
+        "statusbar"
+        "footer";
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow: hidden;
 }
+
+/* The stage hosts the ribbon (top row) AND the viewport + drawer overlays
+   (bottom area). Internally a 2-row grid: ribbon over rest. Drawers and
+   viewport mount inside the "rest" area as absolute children. */
+.workbench-stage {
+    grid-area: stage;
+    position: relative;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: 1fr;
+    grid-template-areas:
+        "ribbon-row"
+        "main-row";
+    overflow: hidden;
+    background: var(--bg-primary);
+    min-height: 0;
+    min-width: 0;
+}
+
+/* The "main-row" inside the stage is the actual canvas + drawer area.
+   We mount a virtual grid item that's `position: relative` and holds the
+   absolute children. Implemented via a CSS rule that targets the
+   .workbench-viewport / .workbench-tools / .workbench-properties /
+   .workbench-rollback selectors so the wrappers don't need a new wrapper
+   element. */
 
 /* Placeholder ribbon mounted by workbench wrappers that do not (yet) ship
    their own full RibbonToolbar. Reserves the same vertical space the
@@ -125,33 +165,55 @@
     letter-spacing: 0.3px;
 }
 
-/* ========== ROLLBACK COLUMN (vertical history scrubber) ========== */
+/* ========== ROLLBACK STRIP (vertical history scrubber) ==========
+ *
+ * The rollback strip is an absolute-positioned drawer pinned to the RIGHT
+ * edge of the stage's main area, immediately INSIDE the Properties drawer
+ * (reading order, left → right: toolbar | viewport | rollback | properties).
+ * The reserved gutter (--rollback-gutter) holds it. When collapsed it
+ * shrinks visually to a sliver but the gutter remains — the viewport
+ * canvas does NOT change size. When empty (no kernel HistoryLog entries)
+ * the drawer hides itself (opacity 0) — the gutter stays so the viewport
+ * rectangle is INVARIANT across history states.
+ *
+ * Honest note: a stable viewport rectangle costs us a few px of always-
+ * reserved gutter even when no rollback content exists; that's the price
+ * the user explicitly chose ("viewport should be fixed sized").
+ *
+ * Positioning: absolute relative to the .workbench-stage. `top` clears
+ * the ribbon row (--ribbon-height) so it sits below the ribbon.
+ */
 .workbench-rollback {
-    grid-area: rollback;
-    /* Default = expanded (72 px). Modifier classes below shrink: collapsed
-       hand-folded by the user (28 px sliver), or empty when the kernel
-       HistoryLog has no entries (0 px — column fully hides). */
-    width: 72px;
-    min-width: 0;
-    height: 100%;
+    position: absolute;
+    top: var(--ribbon-height);
+    bottom: 0;
+    /* Sits immediately to the LEFT of the properties drawer. */
+    right: var(--properties-width);
+    width: var(--rollback-gutter);
     overflow: hidden;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
-    background: transparent;
+    background: var(--bg-secondary, #16162a);
+    border-left: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    z-index: 8;
+    transition: width 0.18s ease-out, opacity 0.18s ease-out;
 }
 
-/* Collapsed sliver — declared BEFORE the empty rule below so empty wins
-   when both classes apply (we want a fully-empty timeline to disappear
-   entirely, not show a 28 px sliver). */
+/* Collapsed sliver — the drawer visually shrinks to a 28 px sliver but
+   the viewport DOES NOT widen (the gutter is reserved at the stage level
+   via the viewport's `right:` offset, which is fixed). */
 .workbench-rollback.workbench-rollback-collapsed {
-    width: 28px;
+    width: var(--rollback-gutter-collapsed);
 }
 
-/* Empty — overrides collapsed (last in source order = wins). */
+/* Empty — when the kernel HistoryLog has no entries, the bar component
+   returns null. We hide the gutter visually but keep its space reserved
+   so the viewport stays the same size as when the log has content. */
 .workbench-rollback.workbench-rollback-empty {
-    width: 0;
-    border: none;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .workbench-rollback > * {
@@ -323,9 +385,20 @@
     margin-left: auto;
 }
 
-/* ========== LEFT TOOLBAR - ICON ONLY ========== */
+/* ========== LEFT TOOLBAR - ICON ONLY ==========
+ *
+ * Absolute-positioned drawer pinned to the LEFT edge of the stage. Width
+ * matches --toolbar-width; the viewport's left offset matches, so the
+ * toolbar always sits in its own reserved gutter — collapsing it does
+ * NOT widen the viewport.
+ *
+ * `top: var(--ribbon-height)` clears the ribbon at the top of the stage.
+ */
 .workbench-tools {
-    grid-area: toolbar;
+    position: absolute;
+    top: var(--ribbon-height);
+    bottom: 0;
+    left: 0;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     width: var(--toolbar-width);
@@ -333,6 +406,14 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    z-index: 9;
+    transition: transform 0.18s ease-out;
+}
+
+.workbench-tools.workbench-tools-collapsed {
+    /* When collapsed, slide most of the toolbar off-screen but keep a
+       thin sliver visible so the user has a re-expand affordance. */
+    transform: translateX(calc(-1 * var(--toolbar-width) + 18px));
 }
 
 .workbench-tools-inner {
@@ -403,14 +484,32 @@
     border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
 }
 
-/* ========== VIEWPORT ========== */
+/* ========== VIEWPORT ==========
+ *
+ * The viewport occupies a STABLE rectangle inside the stage:
+ *   left  = --toolbar-width                 (toolbar gutter)
+ *   right = --rollback-gutter + --properties-width (rollback + properties gutters)
+ *
+ * These offsets are FIXED at the layout level — opening, closing, or
+ * resizing any drawer does not move them. The 3D canvas inside therefore
+ * keeps the same CSS pixel dimensions throughout a session for a given
+ * window size. The ONLY thing that resizes the viewport is the OS window
+ * resize (handled by Viewport3D's window.resize listener).
+ *
+ * z-index 1 keeps it below the drawer overlays (toolbar z:9, properties
+ * z:9, rollback z:8) so chrome floats over the viewport edge cleanly.
+ */
 .workbench-viewport {
-    grid-area: viewport;
-    position: relative;
+    position: absolute;
+    top: var(--ribbon-height);
+    bottom: 0;
+    left: var(--toolbar-width);
+    right: calc(var(--rollback-gutter) + var(--properties-width));
     background: #1a1a2e;
     overflow: hidden;
     min-height: 0;
     min-width: 0;
+    z-index: 1;
 }
 
 .workbench-viewport canvas {
@@ -497,15 +596,81 @@
     color: var(--text-inverse);
 }
 
-/* ========== RIGHT PROPERTIES PANEL ========== */
+/* ========== RIGHT PROPERTIES PANEL ==========
+ *
+ * Absolute-positioned drawer pinned to the RIGHT edge of the stage. Sits
+ * in its own reserved --properties-width gutter — when collapsed it
+ * slides off-screen (keeping a thin sliver visible) but the viewport
+ * does NOT widen.
+ */
 .workbench-properties {
-    grid-area: properties;
+    position: absolute;
+    top: var(--ribbon-height);
+    bottom: 0;
+    right: 0;
     background: var(--bg-secondary);
     border-left: 1px solid var(--border-color);
     width: var(--properties-width);
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    z-index: 9;
+    transition: transform 0.18s ease-out;
+}
+
+.workbench-properties.workbench-properties-collapsed {
+    transform: translateX(calc(var(--properties-width) - 18px));
+}
+
+/* ========== DRAWER COLLAPSE TOGGLES ==========
+ *
+ * Every drawer (toolbar, properties, rollback) ships a small chevron
+ * toggle pinned to its inner edge. Clicking it toggles the drawer's
+ * collapsed state; the choice is persisted in localStorage by the
+ * Workbench component so it survives reload. The toggles use the same
+ * unified visual token set as the in-viewport overlays — see
+ * SwUxOverlays.css. */
+.workbench-drawer-toggle {
+    position: absolute;
+    width: 18px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary, #111122);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, transform 0.12s;
+    padding: 0;
+    z-index: 12;
+}
+
+.workbench-drawer-toggle:hover {
+    background: var(--bg-hover, #1a1a2e);
+    color: var(--text-primary);
+}
+
+.workbench-tools .workbench-drawer-toggle {
+    /* Sit on the inner (right) edge of the toolbar so it always points
+       into the viewport regardless of collapse direction. */
+    right: -9px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.workbench-properties .workbench-drawer-toggle {
+    /* Inner (left) edge of the properties drawer. */
+    left: -9px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.workbench-rollback .workbench-drawer-toggle {
+    /* Sits at the TOP of the rollback strip. */
+    top: 6px;
+    right: 5px;
 }
 
 .workbench-properties > * {

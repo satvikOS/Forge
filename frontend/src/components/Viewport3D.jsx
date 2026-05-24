@@ -1115,21 +1115,38 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
 
         // --- Resize ---
         //
-        // Two sources drive a resize:
-        //   1. window.resize (the user resizes the OS window, or the
-        //      developer console toggles open/closed in Electron).
-        //   2. ResizeObserver on the container — fires whenever a sibling
-        //      panel (rollback column, properties panel) appears /
-        //      disappears / collapses, or the workbench tab swaps to
-        //      another workbench wrapper. Without this the renderer holds
-        //      its old size and the canvas appears stretched or clipped.
+        // FIXED-VIEWPORT MODEL: in this UI the viewport canvas occupies a
+        // stable CSS rectangle inside the .workbench-stage. The toolbar /
+        // properties / rollback drawers are absolute overlays that animate
+        // over their reserved gutters — they DO NOT push the viewport.
+        // Consequently the only legitimate trigger for a viewport resize
+        // is an OUTER WINDOW size change (user resizes the OS window, or
+        // the Electron dev-console toggles, which both shrink the renderer
+        // inner viewport).
+        //
+        // We listen to `window.resize` directly for that case. We also
+        // keep a defensive ResizeObserver on the container so that if a
+        // future change (a CSS variable swap, an a11y zoom, a workbench
+        // wrapper swap) does alter the container's CSS rect, the renderer
+        // still tracks it — but in the steady-state fixed-viewport flow,
+        // the observer never fires because the container size is invariant
+        // under drawer toggles.
         //
         // Both sources funnel through a single 50 ms debounced re-fit so
-        // a flurry of layout changes only triggers one renderer.setSize.
+        // a flurry of layout changes triggers exactly one renderer.setSize.
         let resizeTimer;
+        let lastAppliedW = container.clientWidth;
+        let lastAppliedH = container.clientHeight;
         const applyResize = () => {
             const w = container.clientWidth, h = container.clientHeight;
             if (w === 0 || h === 0) return;
+            // Skip the re-fit if nothing actually changed — a stray observer
+            // tick during animations otherwise re-runs setSize for no reason
+            // and the canvas can flash. In the fixed-viewport model this
+            // guard is the steady state.
+            if (w === lastAppliedW && h === lastAppliedH) return;
+            lastAppliedW = w;
+            lastAppliedH = h;
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
@@ -1140,10 +1157,13 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         };
         window.addEventListener('resize', handleResize);
 
-        // ResizeObserver — fully dynamic. Tracks container size on EVERY
-        // layout change (sibling panels collapsing, dev console toggling,
-        // tab switching, OS window resizing). Falls back gracefully when
-        // ResizeObserver isn't supported (very old environments).
+        // Defensive container observer — see note above. In the
+        // fixed-viewport layout this is essentially dormant during normal
+        // operation; it only fires when the OUTER window resize cascades
+        // into a container-size change, which is exactly the case the
+        // window.resize handler also covers (the redundancy is the
+        // belt-and-braces design). Drawer collapse / expand events do
+        // NOT change the container size because the gutters are reserved.
         let resizeObserver = null;
         if (typeof ResizeObserver !== 'undefined') {
             resizeObserver = new ResizeObserver(handleResize);

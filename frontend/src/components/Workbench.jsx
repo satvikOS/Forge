@@ -244,25 +244,41 @@ function WorkbenchContainer() {
                     </div>
                 </header>
 
-                {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) - renders as grid children */}
-                {renderWorkbench()}
+                {/*
+                 * STAGE — the fixed-viewport area. The 3D viewport occupies
+                 * a stable rectangle inside this wrapper; the toolbar /
+                 * properties / rollback drawers are absolute-positioned
+                 * overlays that never push the viewport (they animate over
+                 * their own reserved gutters). See
+                 * `frontend/src/styles/workbench.css::.workbench-stage`.
+                 *
+                 * Workbench wrappers still mount the same three children
+                 * (`.workbench-tools`, `.workbench-viewport`,
+                 * `.workbench-properties`) — they used to be grid items at
+                 * the container level; they're now absolute children of
+                 * this stage element.
+                 */}
+                <div className="workbench-stage" data-archdisc-stage="active">
+                    {renderWorkbench()}
 
-                {/* ROLLBACK COLUMN — vertical kernel-history timeline scrubber,
-                    relocated OUT of the viewport overlay layer. Sits in its
-                    own grid column between the viewport and the Properties
-                    panel so the 3D model is never obstructed. Auto-hides
-                    (zero-width column) when the kernel HistoryLog is empty. */}
-                <aside
-                    className={
-                        'workbench-rollback'
-                        + (rollbackHasItems ? '' : ' workbench-rollback-empty')
-                        + (rollbackCollapsed ? ' workbench-rollback-collapsed' : '')
-                    }
-                    data-archdisc-rollback-column={rollbackHasItems ? 'active' : 'empty'}
-                    data-archdisc-rollback-column-collapsed={rollbackCollapsed ? 'true' : 'false'}
-                >
-                    <RollbackBar />
-                </aside>
+                    {/* ROLLBACK STRIP — vertical kernel-history timeline
+                        scrubber, pinned to the right gutter (between the
+                        viewport and the Properties drawer) as an absolute
+                        overlay. The reserved gutter width is fixed, so the
+                        viewport canvas does NOT change size when the strip
+                        toggles empty / collapsed / expanded. */}
+                    <aside
+                        className={
+                            'workbench-rollback'
+                            + (rollbackHasItems ? '' : ' workbench-rollback-empty')
+                            + (rollbackCollapsed ? ' workbench-rollback-collapsed' : '')
+                        }
+                        data-archdisc-rollback-column={rollbackHasItems ? 'active' : 'empty'}
+                        data-archdisc-rollback-column-collapsed={rollbackCollapsed ? 'true' : 'false'}
+                    >
+                        <RollbackBar />
+                    </aside>
+                </div>
 
                 {/* STATUS BAR */}
                 <StatusBarPro />
