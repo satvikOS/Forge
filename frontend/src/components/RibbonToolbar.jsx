@@ -331,6 +331,25 @@ const TABS = {
       ]},
     ],
   },
+  // UX Tier 6a — Weldments workbench. A dedicated CommandManager tab alongside
+  // Part / Assembly / Drawing / Sheet Metal / Simulate. Foundation ops shipped
+  // this dispatch: Structural Member (sweep an ISO/ANSI profile along a 3D
+  // path), Trim/Extend Members (boolean trim joints — butt | mitered), End
+  // Cap (close an open member end). Bodies tagged via body.metadata.weldment.
+  weldments: {
+    label: 'Weldments',
+    groups: [
+      { label: 'Members', tools: [
+        { name: 'Structural Member', icon: '⌹', key: 'weldments', primary: true },
+      ]},
+      { label: 'Trim', tools: [
+        { name: 'Trim/Extend Members', icon: '✂', key: 'weldments' },
+      ]},
+      { label: 'Caps', tools: [
+        { name: 'End Cap', icon: '⊓', key: 'weldments' },
+      ]},
+    ],
+  },
   drawing: {
     label: 'Drawing',
     groups: [

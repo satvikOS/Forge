@@ -6365,6 +6365,167 @@ const TOOL_HANDLERS = {
       }
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WELDMENTS — UX Tier 6a foundation
+  //
+  // Three foundational weldments ops:
+  //   - Structural Member  — sweep an ISO/ANSI profile along a 3D path.
+  //   - Trim/Extend Members — boolean trim 2+ members at a joint.
+  //   - End Cap            — close an open member end with a flat / thick cap.
+  //
+  // Bodies are tagged via `body.metadata.weldment = {profile, size, length, ...}`
+  // so the weldment nature is first-class (mirrors the SP-11 + Sheet-Metal
+  // metadata pattern). See kernel/brep/BrepWeldments.js for the standard
+  // profile library (ISO 4019 rect/square tube, ISO 4200 round tube,
+  // ISO 657 angle/channel, IPE I-beam — 3 sizes per family).
+  // ═══════════════════════════════════════════════════════════════════════════
+  weldments: {
+    'Structural Member': async (scene, viewport) => {
+      // Arity 0 — the path is provided either via plan params (startX/Y/Z,
+      // endX/Y/Z in mm) or via window.__archdiscWeldmentPath which can carry
+      // a multi-segment path. The standard profile is built in the kernel.
+      try {
+        const { values, cancelled } = await requestToolParams('Structural Member');
+        if (cancelled) return { status: 'warn', message: 'Structural Member: cancelled' };
+        const profile = String(values.profile || 'recttube').toLowerCase();
+        const size    = String(values.size    || '40x60x3');
+        const start = [
+          (Number(values.startX) || 0) / 1000,
+          (Number(values.startY) || 0) / 1000,
+          (Number(values.startZ) || 0) / 1000,
+        ];
+        let path;
+        // Optional multi-segment override: window.__archdiscWeldmentPath
+        // is an array of [x,y,z] points in mm; if present, it takes priority
+        // (used by e2e + AI plans for L-shaped / multi-segment members).
+        if (typeof window !== 'undefined' && Array.isArray(window.__archdiscWeldmentPath) && window.__archdiscWeldmentPath.length >= 2) {
+          path = window.__archdiscWeldmentPath.map(p => [p[0] / 1000, p[1] / 1000, p[2] / 1000]);
+          // One-shot — clear so the next call doesn't reuse it accidentally.
+          window.__archdiscWeldmentPath = null;
+        } else {
+          const end = [
+            (Number(values.endX) || 0) / 1000,
+            (Number(values.endY) || 0) / 1000,
+            (Number(values.endZ) || 0) / 1000,
+          ];
+          // If the end equals the start, use the length param along +Z.
+          const dx = end[0] - start[0], dy = end[1] - start[1], dz = end[2] - start[2];
+          const dlen = Math.hypot(dx, dy, dz);
+          if (dlen < 1e-6) {
+            const Lm = (Number(values.length) || 600) / 1000;
+            path = [start, [start[0], start[1], start[2] + Lm]];
+          } else {
+            path = [start, end];
+          }
+        }
+        const result = await ArchDiscKernel.brep.structuralMember(path, { profile, size });
+        // Colour: a deep blue-grey for visible weldment members.
+        await addBrepShapeToScene(scene, viewport, result, 0x546e7a);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const wm = ArchDiscKernel.brep.getWeldmentMetadata(result);
+        if (typeof window !== 'undefined') {
+          window.__lastWeldmentBody = result;
+          window.__lastWeldmentMeta = wm;
+          if (!Array.isArray(window.__archdiscWeldmentMembers)) window.__archdiscWeldmentMembers = [];
+          window.__archdiscWeldmentMembers.push(result);
+        }
+        return {
+          status: 'success',
+          message: `Structural Member: ${profile}/${size}, L = ${(wm?.length ?? 0).toFixed(0)} mm → ` +
+            `${m.faceCount} faces, V = ${m.volume.toFixed(0)} mm³ — body tagged as weldment via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Structural Member: ' + (err.message || err) };
+      }
+    },
+
+    'Trim/Extend Members': async (scene, viewport) => {
+      // Arity Infinity — pre-select ≥ 2 weldment members; the dialog picks the
+      // trim mode (butt | mitered). Consuming op: trimmed result replaces the
+      // input bodies in the registry.
+      try {
+        const picked = _pickBodies(Infinity);
+        const members = picked.filter(b => ArchDiscKernel.brep.isWeldment(b));
+        if (members.length < 2) {
+          return { status: 'warn', message: 'Trim/Extend Members: select at least 2 weldment members first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Trim/Extend Members');
+        if (cancelled) return { status: 'warn', message: 'Trim/Extend Members: cancelled' };
+        const mode = String(values.mode || 'mitered').toLowerCase();
+        const result = await ArchDiscKernel.brep.trimMembers(members, { mode });
+        // Re-add each TRIMMED member to the scene (the bodies are NEW spine bodies
+        // after the boolean cut). The originals stay in the registry — but a
+        // sophisticated UX would replace them. For the foundation pass we add
+        // the trimmed bodies alongside; consuming op semantics are followed by
+        // passing `consumedInputs` to addBrepShapeToScene.
+        let addedCount = 0;
+        for (let i = 0; i < result.members.length; i++) {
+          const memberOut = result.members[i];
+          const originalInput = members[i];
+          if (memberOut && memberOut !== originalInput) {
+            await addBrepShapeToScene(scene, viewport, memberOut, 0x607d8b, [originalInput]);
+            addedCount++;
+          }
+        }
+        if (typeof window !== 'undefined') {
+          window.__lastWeldmentTrim = {
+            mode,
+            trimCount: result.trimCount,
+            memberCount: result.members.length,
+            replacedCount: addedCount,
+          };
+          window.__archdiscWeldmentMembers = result.members.slice();
+        }
+        return {
+          status: 'success',
+          message: `Trim/Extend Members: mode = ${mode}, ${members.length} members → ${result.trimCount} joint(s) trimmed, ` +
+            `${addedCount} member(s) replaced via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Trim/Extend Members: ' + (err.message || err) };
+      }
+    },
+
+    'End Cap': async (scene, viewport) => {
+      // Arity 1 — pick a weldment member; the dialog picks which end + the
+      // cap thickness. Consuming op: capped result replaces the input body.
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isWeldment(body)) {
+          return { status: 'warn', message: 'End Cap: selected body is not a weldment member — run Structural Member first.' };
+        }
+        const { values, cancelled } = await requestToolParams('End Cap');
+        if (cancelled) return { status: 'warn', message: 'End Cap: cancelled' };
+        const end = String(values.end || 'start');
+        const thickness = Number(values.thickness) > 0 ? Number(values.thickness) : 3;
+        const preFaceCount = body.body && typeof body.body.faces === 'function' ? body.body.faces().length : 0;
+        const result = await ArchDiscKernel.brep.endCap(body, end, { thickness });
+        const postFaceCount = result.body && typeof result.body.faces === 'function' ? result.body.faces().length : 0;
+        await addBrepShapeToScene(scene, viewport, result, 0x546e7a, [body]);
+        const wm = ArchDiscKernel.brep.getWeldmentMetadata(result);
+        if (typeof window !== 'undefined') {
+          window.__lastWeldmentBody = result;
+          window.__lastWeldmentMeta = wm;
+          window.__lastEndCap = {
+            end,
+            thickness,
+            preFaceCount,
+            postFaceCount,
+            faceDelta: postFaceCount - preFaceCount,
+          };
+        }
+        const capCount = wm?.caps?.length ?? 0;
+        return {
+          status: 'success',
+          message: `End Cap: end = ${end}, t = ${thickness} mm → ${preFaceCount} → ${postFaceCount} faces (+${postFaceCount - preFaceCount}), ` +
+            `${capCount} cap(s) recorded via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'End Cap: ' + (err.message || err) };
+      }
+    },
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

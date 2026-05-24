@@ -1171,6 +1171,52 @@ export const TOOL_PARAM_SCHEMAS = {
     blurb: 'Unfold the picked sheet-metal part into its FLAT manufacturing layout (the developed shape sent to the laser cutter). Each bend is unrolled CO-PLANAR with the base, with the developed length = (flange length + bend allowance) via the part\'s K-factor. Result face count = 1 (base) + N (one per flange).',
     fields: [],
   },
+
+  // ─── UX TIER 6a — Weldments workbench foundation ──────────────────────
+  //
+  // Three foundational weldments ops with their param schemas. Structural
+  // Member seeds the part + stamps the weldment metadata; Trim/Extend
+  // joins members at a clean joint (butt or mitered); End Cap closes the
+  // open end of a member.
+  'Structural Member': {
+    title: 'Structural Member — Weldments Foundation',
+    blurb: 'Sweep a STANDARD ISO/ANSI profile (rect tube, square tube, round tube, angle, channel, I-beam) along a 3D path to create a structural member. The body is tagged as a weldment — profile / size / length travel with it so every downstream weldments op can identify it. The path is supplied either via the in-progress 3D sketch or by the start/end points below; the profile is built in the path-start frame.',
+    fields: [
+      { name: 'profile',  label: 'Profile family', type: 'enum',
+        options: ['recttube', 'squaretube', 'roundtube', 'angle', 'channel', 'ibeam'],
+        default: 'recttube', hint: 'ISO/ANSI standard profile family.' },
+      { name: 'size',     label: 'Profile size',  type: 'string', default: '40x60x3',
+        hint: 'Catalogue size label, e.g. 40x60x3 (rect tube), Ø48.3×3.6 (round), 50x50x5 (angle).' },
+      { name: 'length',   label: 'Member length', type: 'number', default: 600, unit: 'mm', min: 10, max: 10000, step: 1,
+        hint: 'Length along the path (when path start/end are not supplied).' },
+      { name: 'startX',   label: 'Start X',       type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'startY',   label: 'Start Y',       type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'startZ',   label: 'Start Z',       type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'endX',     label: 'End X',         type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'endY',     label: 'End Y',         type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'endZ',     label: 'End Z',         type: 'number', default: 600, unit: 'mm', step: 1, hint: 'When (endX,endY,endZ) ≠ (startX,startY,startZ), the path overrides the length field.' },
+    ],
+  },
+  'Trim/Extend Members': {
+    title: 'Trim/Extend Members — Weldments Joint',
+    blurb: 'Pick 2+ structural-member bodies and trim them at their joint. BUTT mode subtracts each successive member from the first (the first yields to the rest). MITERED mode subtracts a half-space tool from BOTH members at the joint bisector so they meet at a clean mitre. Real boolean trim — face count drops; bodies abut without overlap.',
+    fields: [
+      { name: 'mode', label: 'Trim mode', type: 'enum',
+        options: ['butt', 'mitered'], default: 'mitered',
+        hint: 'butt = first yields to the rest; mitered = both yield at the joint bisector.' },
+    ],
+  },
+  'End Cap': {
+    title: 'End Cap — Close an Open Member End',
+    blurb: 'Pick a weldment member and close one of its open ends with a flat (or thick) cap. The cap is the bounding rectangle of the profile at the picked end, extruded by the cap thickness and fused onto the parent member. Face count rises by ~1 per cap.',
+    fields: [
+      { name: 'end',       label: 'Which end',  type: 'enum',
+        options: ['start', 'end'], default: 'start',
+        hint: 'start = the side where the path begins; end = the far side.' },
+      { name: 'thickness', label: 'Cap thickness', type: 'number', default: 3, unit: 'mm', min: 0.5, max: 50, step: 0.5,
+        hint: 'Cap prism thickness (flat cap = thin; thick cap = chunkier closure).' },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {
