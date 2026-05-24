@@ -110,6 +110,17 @@ const TABS = {
         { name: 'Full Round Fillet', icon: '◡', key: 'part' },
         { name: 'Corner Mitre', icon: '◺', key: 'part' },
       ]},
+      // SP-10 — Blending suite completion (Area D, T2).
+      // Hold-Line Blend, Face-Face Blend, Setback Corner, G3 Blend
+      // are the four new blend variants extending the existing fillet/chamfer
+      // / variable-radius / mitre/G2 suite. Selection-driven; param dialogs
+      // supply edge/face/vertex indices + per-edge setbacks + hold curve.
+      { label: 'Blends', tools: [
+        { name: 'Hold-Line Blend', icon: '⏧', key: 'part' },
+        { name: 'Face-Face Blend', icon: '◣', key: 'part' },
+        { name: 'Setback Corner',  icon: '⌬', key: 'part' },
+        { name: 'G3 Blend',        icon: '∾', key: 'part' },
+      ]},
       { label: 'Surface', tools: [
         { name: 'Thicken', icon: '⧈', key: 'surface' },
         { name: 'Subdivide Surface',       icon: '◈', key: 'surface' },

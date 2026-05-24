@@ -461,6 +461,64 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── SP-10 — Blending suite completion (Area D, T2) ──────────────────────
+  // Four new blending operators on the Part tab Blends group:
+  //   - Hold-Line Blend   : variable-radius G2 surface that touches a hold curve
+  //   - Face-Face Blend   : rolling-ball fillet between two selected faces
+  //   - Setback Corner    : multi-edge vertex blend w/ per-edge setback
+  //   - G3 Blend          : curvature-derivative-continuous blend (degree 7 in v)
+  // Selection: pick the body first. Face/edge/vertex/hold-curve parameters
+  // supplied via the dialog as INDICES into the body's enumeration, plus
+  // numeric setbacks / hold-curve points encoded as small parametric strings.
+
+  'Hold-Line Blend': {
+    title: 'Hold-Line Blend — variable-radius G2 blend constrained to a 3-D hold curve',
+    blurb: 'Build a degree-3×5 G2 blend surface between two edges, with its centreline (rolling-ball locus) constrained to pass within tolerance of a supplied 3-D hold curve. The hold curve is supplied as four offset points (default = thumb-track curve). Variable-reach per station so the midpoint of the blend lands on the hold curve.',
+    fields: [
+      { name: 'edgeA',     label: 'Edge A index',     type: 'number', default: 0,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the first boundary edge' },
+      { name: 'edgeB',     label: 'Edge B index',     type: 'number', default: 2,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the second boundary edge' },
+      { name: 'holdCenterX', label: 'Hold curve mid X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1, hint: 'Mid-point of the hold curve in mm' },
+      { name: 'holdCenterY', label: 'Hold curve mid Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'holdCenterZ', label: 'Hold curve mid Z', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'holdSpread',  label: 'Hold curve spread', type: 'number', default: 20, unit: 'mm', min: 1, max: 200, step: 1, hint: 'Half-length of the hold curve' },
+      { name: 'uSegments', label: 'U segments',       type: 'number', default: 32, unit: '', min: 8, max: 128, step: 4 },
+      { name: 'vSegments', label: 'V segments',       type: 'number', default: 16, unit: '', min: 4, max: 64,  step: 2 },
+    ],
+  },
+
+  'Face-Face Blend': {
+    title: 'Face-Face Blend — rolling-ball blend between two selected faces',
+    blurb: 'Apply a constant-radius rolling-ball blend along the shared edges between two selected faces of the body. OCCT BRepFilletAPI over the face-pair shared edge set. Selection: pick the body, supply face indices + radius. Adds the filleted body; the original is consumed.',
+    fields: [
+      { name: 'face1', label: 'Face 1 index', type: 'number', default: 0, unit: '', min: 0, max: 1000, step: 1, hint: 'Index of face 1 (0-based unique-face enumeration)' },
+      { name: 'face2', label: 'Face 2 index', type: 'number', default: 1, unit: '', min: 0, max: 1000, step: 1, hint: 'Index of face 2' },
+      { name: 'radius', label: 'Blend radius', type: 'number', default: 4, unit: 'mm', min: 0.05, max: 100, step: 0.5, hint: 'Rolling-ball blend radius' },
+    ],
+  },
+
+  'Setback Corner': {
+    title: 'Setback Corner — multi-edge vertex blend with per-edge setbacks',
+    blurb: 'At a multi-edge vertex (3+ edges meeting), specify a per-edge setback distance; the fillet retracts (smaller radius) near the vertex and expands to full radius further along the edge. Selection: pick the body; supply vertex index + the three per-edge setbacks + the base radius.',
+    fields: [
+      { name: 'vertex',   label: 'Vertex index', type: 'number', default: 0, unit: '', min: 0, max: 10000, step: 1, hint: 'Index of the multi-edge corner vertex' },
+      { name: 'setback1', label: 'Setback edge 1', type: 'number', default: 2, unit: 'mm', min: 0.05, max: 50, step: 0.1 },
+      { name: 'setback2', label: 'Setback edge 2', type: 'number', default: 3, unit: 'mm', min: 0.05, max: 50, step: 0.1 },
+      { name: 'setback3', label: 'Setback edge 3', type: 'number', default: 4, unit: 'mm', min: 0.05, max: 50, step: 0.1 },
+      { name: 'radius',   label: 'Base fillet radius', type: 'number', default: 2, unit: 'mm', min: 0.05, max: 50, step: 0.1, hint: 'Far-from-vertex blend radius' },
+    ],
+  },
+
+  'G3 Blend': {
+    title: 'G3 Blend — curvature-derivative-continuous blend between two edges',
+    blurb: 'Fair a true G3 (third-derivative-continuous) blend surface between two edges. Degree-7-in-v / degree-3-in-u NURBS — matches position, tangent, curvature AND curvature-derivative (jerk) at both edges. The Class-A industrial-design contract beyond G2. Adds the fairing surface; the body is kept.',
+    fields: [
+      { name: 'edgeA',     label: 'Edge A index',     type: 'number', default: 0,  unit: '', min: 0, max: 200, step: 1 },
+      { name: 'edgeB',     label: 'Edge B index',     type: 'number', default: 2,  unit: '', min: 0, max: 200, step: 1 },
+      { name: 'uSegments', label: 'U segments',       type: 'number', default: 32, unit: '', min: 8, max: 128, step: 4 },
+      { name: 'vSegments', label: 'V segments',       type: 'number', default: 16, unit: '', min: 4, max: 64,  step: 2 },
+    ],
+  },
+
   // ─── SUB-PROJECT G — CLASS-A MODELLING WORKFLOW ───────────────────────────
 
   'Class-A Analyze': {

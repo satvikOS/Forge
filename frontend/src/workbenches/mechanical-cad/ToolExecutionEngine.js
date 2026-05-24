@@ -2964,6 +2964,183 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-10 — Blending suite completion (Area D, T2) ──────────────────────
+    // Four new blending variants on the Part-tab Blends ribbon group:
+    //   Hold-Line Blend (variable-radius G2 touching a 3-D hold curve)
+    //   Face-Face Blend (rolling-ball fillet over shared edges)
+    //   Setback Corner  (multi-edge vertex with per-edge setback)
+    //   G3 Blend        (curvature-derivative-continuous, degree 3×7 NURBS)
+
+    'Hold-Line Blend': async (scene, viewport) => {
+      // Arity 1 — pick the body; param dialog supplies edge indices + hold
+      // curve. ADDITIVE: surface added; parent stays.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Hold-Line Blend');
+        if (cancelled) return { status: 'warn', message: 'Hold-Line Blend: cancelled' };
+
+        // Build the hold curve from the dialog inputs — 4 points spanning the
+        // mid-region of the body, default = a short straight line of 4 mm.
+        const cx = Number(values.holdCenterX) || 0;
+        const cy = Number(values.holdCenterY) || 0;
+        const cz = Number(values.holdCenterZ) || 0;
+        const sp = Number(values.holdSpread)  || 20;
+        const holdCurve = [
+          [cx - sp,       cy, cz],
+          [cx - sp * 0.3, cy, cz],
+          [cx + sp * 0.3, cy, cz],
+          [cx + sp,       cy, cz],
+        ];
+
+        const result = await ArchDiscKernel.brep.holdLineBlend(body, holdCurve, {
+          edgeIndexA: Math.round(Number(values.edgeA) || 0),
+          edgeIndexB: Math.round(Number(values.edgeB) ?? 2),
+          uSegments:  Math.round(Number(values.uSegments) || 32),
+          vSegments:  Math.round(Number(values.vSegments) || 16),
+        });
+
+        await addBrepShapeToScene(scene, viewport, result, 0xb78a4a);
+
+        const stats = (result.meta && result.meta.holdLineStats) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastHoldLineBlend = { stats };
+        }
+        return {
+          status: 'success',
+          message:
+            `Hold-Line Blend: variable-radius G2 between edge ${stats.edgeIndexA} ` +
+            `↔ ${stats.edgeIndexB} — centreline within ` +
+            `${stats.centrelineMaxError ? stats.centrelineMaxError.toExponential(2) : 'n/a'} mm ` +
+            `of the hold curve (${stats.holdCurveSamples} samples, ${stats.triangleCount} tris) ` +
+            `via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Hold-Line Blend: ' + err.message,
+        };
+      }
+    },
+
+    'Face-Face Blend': async (scene, viewport) => {
+      // Arity 1 — pick the body; dialog supplies face1/face2 indices + radius.
+      // Consuming op: faceFaceBlend transforms `body` into `result`.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Face-Face Blend');
+        if (cancelled) return { status: 'warn', message: 'Face-Face Blend: cancelled' };
+
+        const f1 = Math.round(Number(values.face1) || 0);
+        const f2 = Math.round(Number(values.face2) ?? 1);
+        const radius = Number(values.radius) || 4;
+
+        const result = await ArchDiscKernel.brep.faceFaceBlend(body, f1, f2, radius);
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sec = (result.meta && result.meta.params && result.meta.params.sharedEdgeCount) || 0;
+        if (typeof window !== 'undefined') {
+          window.__lastFaceFaceBlend = {
+            face1Idx: f1, face2Idx: f2, radius,
+            sharedEdgeCount: sec,
+            volume: m.volume, faceCount: m.faceCount,
+          };
+        }
+        return {
+          status: 'success',
+          message:
+            `Face-Face Blend: r=${radius} mm over ${sec} shared edge(s) between faces ` +
+            `${f1}/${f2} — V=${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Face-Face Blend: ' + err.message,
+        };
+      }
+    },
+
+    'Setback Corner': async (scene, viewport) => {
+      // Arity 1 — pick the body; dialog supplies vertex index + 3 per-edge
+      // setbacks + base radius. Consuming op.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('Setback Corner');
+        if (cancelled) return { status: 'warn', message: 'Setback Corner: cancelled' };
+
+        const vIdx = Math.round(Number(values.vertex) || 0);
+        const setbacks = [
+          Number(values.setback1) || 2,
+          Number(values.setback2) || 3,
+          Number(values.setback3) || 4,
+        ];
+        const radius = Number(values.radius) || 2;
+
+        const result = await ArchDiscKernel.brep.setbackCorner(body, vIdx, setbacks, { radius });
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const used = (result.meta && result.meta.params && result.meta.params.usedSetbacks) || [];
+        if (typeof window !== 'undefined') {
+          window.__lastSetbackCorner = {
+            vertexIdx: vIdx, edgeSetbacks: setbacks, radius,
+            spokeCount: used.length,
+            usedSetbacks: used,
+            volume: m.volume, faceCount: m.faceCount,
+          };
+        }
+        return {
+          status: 'success',
+          message:
+            `Setback Corner: vertex ${vIdx} (${used.length} spokes) with setbacks ` +
+            `[${setbacks.map(s => s.toFixed(1)).join(', ')}] mm, base r=${radius} mm — ` +
+            `V=${m.volume.toFixed(0)} mm³, ${m.faceCount} faces via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Setback Corner: ' + err.message,
+        };
+      }
+    },
+
+    'G3 Blend': async (scene, viewport) => {
+      // Arity 1 — pick the body; dialog supplies edge indices + tess params.
+      // ADDITIVE: G3 blend surface added; parent body stays.
+      try {
+        const [body] = _pickBodies(1);
+        const { values, cancelled } = await requestToolParams('G3 Blend');
+        if (cancelled) return { status: 'warn', message: 'G3 Blend: cancelled' };
+
+        const result = await ArchDiscKernel.brep.g3BlendBetweenEdges(body, {
+          edgeIndexA: Math.round(Number(values.edgeA) || 0),
+          edgeIndexB: Math.round(Number(values.edgeB) ?? 2),
+          uSegments:  Math.round(Number(values.uSegments) || 32),
+          vSegments:  Math.round(Number(values.vSegments) || 16),
+        });
+
+        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+
+        const stats = (result.meta && result.meta.g3Stats) || {};
+        if (typeof window !== 'undefined') {
+          window.__lastG3Blend = { stats };
+        }
+        return {
+          status: 'success',
+          message:
+            `G3 Blend: curvature-derivative-continuous fairing between edge ` +
+            `${stats.edgeIndexA} ↔ ${stats.edgeIndexB} — degree ${stats.degreeU}×${stats.degreeV}, ` +
+            `${stats.controlPointsU}×${stats.controlPointsV} CPs, |∂³S/∂v³| @ boundaries A/B = ` +
+            `${stats.thirdDerivMagAtBoundaryA ? stats.thirdDerivMagAtBoundaryA.toExponential(2) : 'n/a'} / ` +
+            `${stats.thirdDerivMagAtBoundaryB ? stats.thirdDerivMagAtBoundaryB.toExponential(2) : 'n/a'} ` +
+            `via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return {
+          status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'G3 Blend: ' + err.message,
+        };
+      }
+    },
+
     // ── §3.3 Advanced Surfacing: N-sided patch (genuine pure-JS) ─────────────
 
     'N-Sided Patch': async (scene, viewport) => {

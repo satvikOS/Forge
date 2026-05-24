@@ -450,6 +450,11 @@ export const DOCKED_TOOLS = new Set([
   'Imprint',
   'Partition',
   'Section',
+  // SP-10 — Blending suite completion (Area D, T2).
+  'Hold-Line Blend',
+  'Face-Face Blend',
+  'Setback Corner',
+  'G3 Blend',
 ]);
 
 export function PropertyManagerDock() {
