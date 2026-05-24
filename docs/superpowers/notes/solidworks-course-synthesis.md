@@ -809,13 +809,14 @@ Export glTF.
 | Model View | (likely implicit) | **Partial** |
 | Smart Dimension | Smart Dimension | **Done** |
 | Note | Note | **Done** |
-| Balloon | Balloon | **Done** — verify Auto-Balloon |
-| BOM | (none) | **Missing** as separate annotation table |
+| Balloon | Balloon | **Done** — Auto-Balloon shipped in Tier 8b |
+| BOM | BOM (Tier 8b) | **Done** — real 5-column SVG table (Item / Part Number / Description / Quantity / Material); auto-merges identical part numbers |
 | Title Block / Sheet Format edit | (likely missing) | **Missing** |
 | Sheet Size (A3/A4/ISO) | Unknown | **Missing/Unverified** |
 | GD&T Frame | GD&T Frame | **Done** |
 | Surface Finish | Surface Finish | **Done** |
-| Model Items (auto-import dims) | (none) | **Missing** |
+| Model Items (auto-import dims) | Model Items (Tier 8b) | **Done** — walks the part's feature history and emits dimensions for sketchRectangle/Circle, extrude, cut, revolve, fillet, chamfer, circularPattern, linearPattern |
+| Auto-Balloon (one-click) | Auto-Balloon (Tier 8b) | **Done** — radial layout around assembly centroid with 30° slot overlap-bump |
 
 ### 6.9 — Mold Tools mapping
 
@@ -976,9 +977,9 @@ The single largest gap. Needs:
 - ~~**Auxiliary View** (view normal to an inclined edge)~~ — **DONE** (Tier 8a; ribbon Drawing→Auxiliary View; projection along caller-supplied face normal)
 - ~~**Crop View** (close-profile + crop)~~ — **DONE** (Tier 8a; ribbon Drawing→Crop View; SVG `<clipPath>` reversible clipping)
 - ~~**Broken View** (spline-defined break, for long parts)~~ — **DONE** (Tier 8a; ribbon Drawing→Broken View; zig-zag break-line, exact `(left+right) == drawn` arithmetic)
-- **Model Items** annotation (auto-import all part dimensions onto the drawing)
-- **BOM** (Annotation→Tables→Bill of Materials)
-- **Auto-Balloon** (one-click balloons for all components linked to BOM)
+- ~~**Model Items** annotation (auto-import all part dimensions onto the drawing)~~ — **DONE** (Tier 8b; ribbon Drawing→Annotate→Model Items; walks Part.features and emits per-parameter dimension annotations with auto-placed leader lines)
+- ~~**BOM** (Annotation→Tables→Bill of Materials)~~ — **DONE** (Tier 8b; ribbon Drawing→BOM→BOM; reads body-level attributes from the BodyRegistry; auto-merges identical part numbers)
+- ~~**Auto-Balloon** (one-click balloons for all components linked to BOM)~~ — **DONE** (Tier 8b; ribbon Drawing→BOM→Auto-Balloon; radial placement around assembly centroid with overlap-bump)
 - **Title Block / Sheet Format** edit
 - **Sheet Size** dialog (A4/A3/A2/A1/Letter/etc., ISO/ANSI standards)
 

@@ -642,11 +642,16 @@ export function modelItems(manifold, features, options = {}) {
   let slotIdx = 0;
   const NUM_SLOTS = 12;
   const slotPos = (i) => {
-    // 12 slots: 3 top, 3 right, 3 bottom, 3 left, evenly spaced
+    // 12 slots: 3 top, 3 right, 3 bottom, 3 left, evenly spaced. Each
+    // SIDE's slots are staggered in the perpendicular direction so the
+    // labels don't pile up when the view is small relative to the label
+    // text — e.g. on the top, each of the 3 slots sits at a different
+    // vertical distance from the view edge.
     const ring = i % NUM_SLOTS;
     const side = Math.floor(ring / 3);
-    const offset = (ring % 3 + 1) / 4;  // 0.25 / 0.5 / 0.75 along edge
-    const pad = 8;
+    const slotN = ring % 3;
+    const offset = (slotN + 1) / 4;  // 0.25 / 0.5 / 0.75 along edge
+    const pad = 8 + slotN * 6;       // stagger perpendicular distance
     if (side === 0) {
       // top
       return {

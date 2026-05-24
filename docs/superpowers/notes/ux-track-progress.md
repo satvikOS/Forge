@@ -744,7 +744,7 @@ preservation + tightened the both-unfixed tie-break).
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | Not started |
 | 6 | Weldments workbench (structural members + cut list) | Not started |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, all Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a shipped (4/12+; standard-mate set complete 8/8)** |
-| 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, Model Items, BOM/Auto-Balloon, Title Block edit) | **Partial — Tier 8a shipped (3/8)** |
+| 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, Title Block edit) | **Partial — Tier 8a + Tier 8b shipped (6/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | Not started |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
 
@@ -869,3 +869,120 @@ View"` etc), with each tool exercised once and asserted against:
 4. **Broken View Y-axis path is implemented but untested in e2e.** The `axis: 'y'` branch is wired (the spec only exercises `axis: 'x'`); regression on a Y-long part should be a follow-on smoke test.
 5. **The DrawingPreviewPanel header still reads "Engineering Drawing — A3 third-angle projection".** The actual sheet in our three view-types is A4, and "third-angle" doesn't apply to a single auxiliary projection. The preview header is generic-display; the title block inside the SVG carries the accurate per-view label. Future cosmetic polish would auto-update the preview header from the SVG's `data-archdisc-view` attribute.
 6. **No Drawing-tab handler file separation.** Per the dispatch allowlist, the three handlers live in `ToolExecutionEngine.js::document` (where existing Drawing tools live) rather than a new `frontend/src/workbenches/drawing/handlers.js`. A future refactor that lifts the entire `document:` block out of ToolExecutionEngine.js into the drawing workbench would be a cleaner long-term home; doing it under Tier-8a would have touched files outside the allowlist.
+
+---
+
+## Tier 8b — Drawing Model Items + BOM + Auto-Balloon (3 of 3 shipped)
+
+Closes the remaining three "Tier 8 — Missing drawing capabilities" items
+the SW course synthesis identified. After Tier 8a (Auxiliary / Crop /
+Broken view types), Tier 8b adds the ANNOTATION layer that turns a 3D
+part / assembly into a fully labelled engineering drawing sheet:
+
+| Tier 8b # | Convention | Status | Implementation |
+|---|---|---|---|
+| 86 | **Model Items** — auto-import all part dimensions onto a drawing view | **DONE** | `workbenches/drawing/DrawingViews.js::modelItems`. Walks the body's feature history (sketchRectangle, sketchCircle, extrude, cut, revolve, fillet, chamfer, circularPattern, linearPattern) and emits one dimension annotation per parametric value (Width / Height / Ø Diameter / Depth / Radius / Angle / Count / Pitch). Leader lines are auto-placed via a 12-slot round-robin around the view's bounding rectangle, with each slot's perpendicular distance staggered so labels don't pile up on tight views. The handler reads features from `window.__archdiscLastPartFeatures` (the e2e seeds this; a future WorkbenchMechanical bridge publishes on every `A.render(part)`). Honest fallback: when no feature history is known (e.g. an imported STEP) the handler synthesises a single "Overall bounding box" dimension from the manifold's bbox so the sheet isn't blank |
+| 87 | **BOM (Bill of Materials)** — table of every assembly component | **DONE** | `workbenches/drawing/DrawingViews.js::bom`. Renders a real 5-column SVG table (Item / Part Number / Description / Quantity / Material) sourced from the BodyRegistry. Each body's BOM-relevant attributes (`partNumber`, `description`, `material`, `quantity`) are stored via the new `BodyRegistry.attachAttribute(id, key, value)` / `attachAttributes(id, kv)` / `getAttribute(id, key)` API on each `BodyEntry`. The default merge-by-partNumber pass folds identical SKUs into one row with summed quantity (4 identical bolts → one row qty 4). Truncates long descriptions to fit the column width so the table never overflows |
+| 88 | **Auto-Balloon** — one-click numbered callouts linked to BOM | **DONE** | `workbenches/drawing/DrawingViews.js::autoBalloon`. For each BOM row, project the component's bounding-box centroid into the FRONT view's paper space, then snap the balloon position to the nearest 30° slot on a ring of radius `viewExtent * 0.7 + balloonR + 6` around the assembly centroid. Overlap detection: a balloon whose slot is already taken bumps CCW one 30° step at a time until it finds an empty slot — every balloon ends up owning a unique angular slot. Renders a circle-with-number for each balloon, a leader line back to the projected anchor, and a small "BOM (Auto-Balloon)" legend in the top-right that decodes each item number with its part number / qty / material |
+
+**Files added/changed for Tier 8b:**
+
+- `frontend/src/workbenches/drawing/DrawingViews.js` (modified — three new public functions `modelItems` / `bom` / `autoBalloon` sharing the existing `projectEdges` silhouette/crease classifier; each emits a self-contained A4 SVG sheet)
+- `frontend/src/foundation/BodyRegistry.js` (modified — body-level attribute API `attachAttribute` / `attachAttributes` / `getAttribute` / `getAttributes` so BOM/Auto-Balloon can read per-body partNumber/material/description in one walk)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — three Tier 8b schemas appended at end: `Model Items` (target view), `BOM` (merge-by-part-number toggle), `Auto-Balloon` (balloon radius + merge toggle))
+- `frontend/src/components/RibbonToolbar.jsx` (modified — `Model Items` added to Drawing → Annotate group; new Drawing → BOM group with `BOM` + `Auto-Balloon` entries)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (modified — three new handlers in the `document:` group: `Model Items` (reads `window.__archdiscLastPartFeatures` + `_lastFoundationManifold`), `BOM` (walks `getBodyRegistry().list()` + per-body attributes), `Auto-Balloon` (same body walk + unions every body into an assembly silhouette for the FRONT-view backdrop). Each writes both `__lastDrawingSVG` (so the DrawingPreviewPanel renders it) and a tool-specific introspection slot for e2e assertions)
+- `e2e/ux-tier8b-drawing-bom-electron.spec.js` (new — motion-capture e2e on a real conveyor-roller assembly; 5 stills + a session video)
+
+### Bespoke real workflow — conveyor-roller assembly
+
+`e2e/ux-tier8b-drawing-bom-electron.spec.js` builds a real engineered
+conveyor-roller assembly with **6 bodies / 5 distinct part numbers**:
+
+| # | Component | Geometry | Material | Part No |
+|---|---|---|---|---|
+| 1 | Roller tube | Ø60 × 200 mm (hollow Ø44 bore) | AISI 1020 Steel | CR-100 |
+| 2 | Left end cap | Ø60 × 12 mm puck | Aluminium 6061-T6 | CR-200L |
+| 3 | Right end cap | Ø60 × 12 mm puck | Aluminium 6061-T6 | CR-200R |
+| 4 | Centre shaft | Ø20 × 280 mm through the bore | AISI 1045 Steel | CR-300 |
+| 5+6 | Bearings (×2, identical) | Ø32 × 8 mm at each end | Chrome Steel | SKF-6004 |
+
+Each body is built via the same atomic CAD ops a user would click and
+registered to the scene; each gets its BOM-relevant attributes attached
+via the new `BodyRegistry.attachAttributes(id, {partNumber, description,
+material, quantity, name})` API. The roller tube is set as the active
+foundation manifold so Model Items has a multi-feature body to mine.
+
+The Drawing tab is then driven via real ribbon clicks, with each tool
+exercised once:
+
+- **Model Items** — projects the roller tube's feature dimensions onto
+  the FRONT view. Result: **4 dimensions from 8 features** (Ø60 + 200mm
+  depth + Ø44 + 220mm cut), 0 unsupported feature types, 9.2 KB SVG
+- **BOM** — auto-builds the table from all 6 bodies. Result: **5 rows
+  / 6 total parts** (the two SKF-6004 bearings merge into row qty 2),
+  9.0 KB SVG with the full 5-column table
+- **Auto-Balloon** — places one numbered balloon per BOM row. Result:
+  **5 balloons / 5 BOM rows** with 2 overlap-bumps, ring R = 63.5 mm,
+  every balloon at a unique 30° slot, 110 KB SVG (the assembly's many
+  visible edges via the unioned silhouette account for the size)
+
+### 5 stills + session video (1.14 MB)
+
+| Frame | Headline |
+|---|---|
+| 01 — A1 | Conveyor-roller assembly built; Drawing tab opened; ribbon shows Model Items + BOM + Auto-Balloon entries; 6 bodies listed in the Bodies panel |
+| 02 — B1 | Model Items — 4 dimensions placed on the FRONT view of the roller tube: Ø60.0 mm, 200.0 mm depth, Ø44.0 mm (staggered along the top edge so they don't overlap), 220.0 mm cut on the right. Title block reads "Model Items 4 dim(s) from 8 feature(s)" |
+| 03 — C1 | BOM — real BILL OF MATERIALS table with the 5 columns (Item / Part Number / Description / Quantity / Material) populated from the 5 merged rows (CR-100 ×1 AISI 1020 / CR-200L ×1 Al / CR-200R ×1 Al / CR-300 ×1 AISI 1045 / SKF-6004 **×2** Chrome). Title block reads "BOM 5 row(s), 6 part(s)" |
+| 04 — D1 | Auto-Balloon — 5 numbered balloons placed radially around the projected assembly silhouette, each with a leader line back to its component's projected centroid. Mini BOM legend in the top-right decodes each item number with its part number / qty / material. Title block reads "Auto-Balloon 5 balloon(s) / 5 BOM row(s)" |
+| 05 — E1 | Marquee final shot — Auto-Balloon sheet re-rendered with a slightly larger balloon radius (6 mm) for the session-video closing pose |
+
+**Visual check (READ the stills):**
+
+1. **Frame 01** — Roller assembly visible (grey tube, gold caps, dark blue bearings), Drawing tab active in ribbon, the new Model Items / BOM / Auto-Balloon entries are visible in the Annotate + BOM groups, 6 bodies listed on the right (Body 1..6 with volumes).
+2. **Frame 02** — Model Items SVG with the roller tube's FRONT projection (small black rectangle = the side-view of the 60 mm Ø × 200 mm cylinder). FOUR dimension callouts visible: three stacked along the top edge (`Ø60.0 mm` lowest, `200.0 mm depth` middle, `Ø44.0 mm` topmost — the perpendicular stagger working) + one leader on the right reading `220.0 mm cut`. Each callout connects to its anchor dot via a blue leader line. Title block records the dim-count + feature-count.
+3. **Frame 03** — BILL OF MATERIALS header centred at top. Table with the 5 column headers (Item / Part Number / Description / Qty / Material) in light-blue header row + 5 data rows in the order: 1) CR-100 / Conveyor roller tube Ø60×200 / 1 / AISI 1020 Steel — 2) CR-200L / Roller end cap (drive side) / 1 / Aluminium 6061-T6 — 3) CR-200R / Roller end cap (idler side) / 1 / Aluminium 6061-T6 — 4) CR-300 / Conveyor roller shaft Ø20×280 / 1 / AISI 1045 Steel — 5) SKF-6004 / Deep groove ball bearing 6004 / **2** / Chrome Steel. The bearing row's quantity 2 is the BOM-merge in action.
+4. **Frame 04** — Auto-Balloon sheet. The assembly silhouette is rendered as a real CAD-style projection (the roller is oriented vertically in this view because the long axis is the world Z which paper-Y-up flips into vertical). FIVE balloons (numbered 1, 2, 3, 4, 5) circle the part. Each balloon has a leader line to its component's projected centroid. Mini BOM legend top-right: `① CR-100 ×1 AISI 1020 Steel`, `② CR-200L ×1 Aluminium 6061-T6`, `③ CR-200R ×1 Aluminium 6061-T6`, `④ CR-300 ×1 AISI 1045 Steel`, `⑤ SKF-6004 ×2 Chrome Steel` — each circled number matches a balloon. The balloons are visibly non-overlapping (5 unique slots).
+5. **Frame 05** — Same Auto-Balloon composition with a slightly larger balloon radius (6 vs 5 mm) for the session-video closing pose.
+
+**Focal assertions (verified live in the spec — every assertion passes):**
+
+| Tool | Assertion | Value |
+|---|---|---|
+| Model Items | dimensionCount ≥ 3 | 4 ✓ |
+| Model Items | featureCount equals body's `.features.length` | 8 ✓ |
+| Model Items | unsupportedFeatures.length === 0 | 0 ✓ |
+| Model Items | SVG contains `data-archdisc-view="model-items"`, `data-dim-id`, `Ø` glyph | ✓ |
+| BOM | rowCount === 5 (5 distinct part numbers from 6 bodies; bearings merge) | 5 ✓ |
+| BOM | totalQty === 6 | 6 ✓ |
+| BOM | SVG contains all 5 column headers + `data-archdisc-view="bom"` | ✓ |
+| BOM | SKF-6004 row's `quantity === 2` (merge proof) | 2 ✓ |
+| Auto-Balloon | balloonCount === rowCount === 5 (1:1 balloon-to-BOM) | 5/5 ✓ |
+| Auto-Balloon | Every balloon owns a UNIQUE `slotDeg` (non-overlapping) | 5 unique ✓ |
+| Auto-Balloon | Item numbers cover 1..5 in order | [1,2,3,4,5] ✓ |
+| Auto-Balloon | SVG contains `data-balloon="N"` + `data-balloon-leader="N"` for each N | ✓ |
+| Auto-Balloon | Mini BOM legend "BOM (Auto-Balloon)" present | ✓ |
+
+### E2E + regression subset (Tier 8b)
+
+Headed Electron, `--workers=1`, `--retries=0`.
+
+| Spec | Result |
+|---|---|
+| `ux-tier8b-drawing-bom-electron` (NEW) | **PASS** (~18 s) |
+| `ux-tier8a-drawing-views-electron` (regression) | PASS (~14 s) |
+| `ribbon-test` (regression) | PASS (~19 s) |
+
+No regressions from the new Tier 8b handlers or schemas. The
+`BodyRegistry.attachAttribute` additions are pure-additive (only call
+sites are the new Tier 8b handlers).
+
+### Honest gaps in Tier 8b
+
+1. **Model Items reads from `window.__archdiscLastPartFeatures`, not directly from the active body.** A foundation Manifold doesn't carry a feature history — the history lives on the `kernel/atomic/Part` object that BUILT it. The WorkbenchMechanical atomic bridge does NOT currently publish `part.features` on every `A.render(part)`; the e2e seeds it explicitly. Wiring the bridge to publish on every render is a 2-line follow-on; for now the handler is honest about its data source. When the slot is empty, the handler falls back to ONE bounding-box dimension so the sheet still has SOMETHING (an honest "we don't know the history but here's the envelope") rather than rendering empty.
+2. **Model Items projects only onto the FRONT view.** The `viewKind` schema enum exposes front/top/right/iso slots, but only `front` is wired in this pass. Each additional view needs the same projection-eye flip we already do in Tier 8a's auxiliary view; the labour is mechanical and an obvious follow-on.
+3. **Sketch dimensions are only width/height/radius, not user-placed Smart Dimensions.** SolidWorks' Model Items also imports SmartDimensions the user explicitly placed inside the sketch. Our atomic sketch ops record only the PARAMETRIC dimensions (`sketchRectangle` records `w` + `h`, etc.); user-placed dimensions via the kernel `InteractiveSketch.applyDimension` flow are NOT mined yet. The InteractiveSketch path is the Tier 1-2 work and lives in `kernel/sketch/InteractiveSketch.js`; surfacing its `dimensions` array as a second feature-history source is a clean follow-on (kernel-side change deferred per allowlist).
+4. **BOM attribute storage is in-memory only.** The new `BodyRegistry.attachAttribute` writes to `BodyEntry.attributes` which lives in the process. A page reload empties the registry (and SessionMemory doesn't persist this yet). For the typical "build → drawing → done" workflow this is fine; cross-session persistence is a SessionMemory follow-on.
+5. **Auto-Balloon uses the FIRST manifold of a merged BOM row as the anchor source.** Identical SKF-6004 bearings merge into one BOM row with qty 2; the balloon's leader line anchors to the LEFT bearing's centroid (the first registered). A "smart" Auto-Balloon would anchor to one balloon per physical instance (so 2 leader lines per balloon for 2 bearings), but the SW convention is one-balloon-per-BOM-row, which is what we do.
+6. **Balloon radial layout doesn't reflect the anchor-to-balloon angle perfectly.** The handler snaps each balloon's preferred angle (computed from the anchor → centroid vector) to the nearest 30° slot. So two parts at slightly different angles can still snap to the same slot; the second then bumps CCW. The leader line goes from anchor to balloon-at-bumped-slot, which can mean the leader doesn't perfectly point "outward" from the centroid through the anchor. Acceptable for the 5-component test; finer 15° slots would tighten this but cost more bumps on dense assemblies.
+7. **DrawingPreviewPanel header still reads "Engineering Drawing — A3 third-angle projection".** Same cosmetic gap as Tier 8a — the SVG's internal title block carries the accurate per-view label ("Model Items" / "Assembly BOM" / "Auto-Balloon Sheet"); the modal header is generic. A future polish would read the SVG's `data-archdisc-view` attribute and update the header accordingly.
