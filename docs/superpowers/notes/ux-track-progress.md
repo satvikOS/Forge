@@ -1386,3 +1386,38 @@ The new Weldments tab adds a 9th ribbon tab (after Sheet Metal's 8th).
    The spec's contract is "at least one trim recorded OR honest skip
    with the diagnostic slot populated". Mitre + butt both honour this
    contract.
+
+---
+
+## Viewport-uniformity + Rollback relocation (2026-05-24)
+
+User feedback this pass:
+
+1. *"the viewport is cutting in some tabs and features fix it and make it uniform throughout"*
+2. *"and fully dynamic"*
+3. *"remove the rollback bar from the viewport, its obstructing the models,
+   either put them in the side of the viewport in vertical form or put it
+   somewhere in the platform"*
+
+### What changed
+
+| Concern | Resolution | Files |
+|---|---|---|
+| Viewport sizing uniformity across the 5 workbench tabs (Mechanical CAD / Architecture & BIM / Gaming & VFX / Automotive / Electronics) | Audit confirmed every wrapper already mounts the same three grid children (`.workbench-tools` / `.workbench-viewport` / `.workbench-properties`) mapped via `grid-template-areas` in `styles/workbench.css`. The Sheet Metal + Weldments wrappers delegate to `<WorkbenchMechanical />` so they inherit the same layout. NO per-wrapper sizing changes were needed — the layout is uniform by construction. The root container was reshaped to add a 4th `rollback` column (see below) so a sibling panel no longer competes for the viewport's grid cell. | `frontend/src/styles/workbench.css` (`.workbench-container` grid columns + areas) |
+| Fully dynamic resize — must track window resize, panel collapse/expand, the Electron dev-console toggle, AND workbench tab swap | Added a `ResizeObserver` on the viewport container inside `Viewport3D`. On every container size change the renderer's `setSize` + camera aspect + projection matrix update under a 50 ms debounce. The existing `window.resize` listener stays for parity. The two sources funnel through one `applyResize` so a flurry of changes only re-fits once. | `frontend/src/components/Viewport3D.jsx` (`useEffect` resize block) |
+| Rollback bar OFF the viewport | The bar used to render as an absolute-positioned overlay at `top:48px` of `.workbench-viewport` (sat ON TOP of the 3D model). Now mounted at the workbench-container level as a VERTICAL right-side strip in its own grid column (`workbench-rollback`) between the viewport and the right Properties panel. The bar reads top → bottom chronologically (baseline at top, tail entry at bottom). A chevron toggle collapses the strip to a 28 px sliver (persisted in `localStorage`) so the user can reclaim horizontal real estate without losing the timeline. The column auto-hides (zero width) when the kernel HistoryLog is empty. All interactions — click an entry / mark / baseline → roll; drag-scrub; right-click a mark for context menu (Roll To / Rename / Delete) — are preserved exactly. | `frontend/src/components/SwUxOverlays.jsx` (`RollbackBar` rewritten vertical, `HeadsUpViewToolbar` no longer mounts it), `frontend/src/components/SwUxOverlays.css` (`.sw-rollback-*-vertical` rules + collapse-toggle), `frontend/src/components/Workbench.jsx` (mounts the `<RollbackBar />` inside `<aside className="workbench-rollback">`), `frontend/src/styles/workbench.css` (`.workbench-rollback` grid area + empty/collapsed modifiers) |
+
+### Files added / modified
+
+- `frontend/src/components/SwUxOverlays.jsx` (RollbackBar vertical + collapse toggle; HeadsUpViewToolbar no longer renders it inline)
+- `frontend/src/components/SwUxOverlays.css` (.sw-rollback-bar-vertical + variants)
+- `frontend/src/components/Workbench.jsx` (mounts `<RollbackBar />` in its own grid column)
+- `frontend/src/styles/workbench.css` (4-column grid: toolbar | viewport | rollback | properties)
+- `frontend/src/components/Viewport3D.jsx` (ResizeObserver + applyResize debounce)
+- `e2e/ux-viewport-uniform-and-rollback-relocation-electron.spec.js` (new — multi-tab visit, asserts canvas rect identical across all 5 workbenches; resizes window wider then narrower and asserts canvas tracks; asserts rollback bar's DOM ancestor is NOT `.workbench-viewport`)
+
+### Honest scope
+
+- The horizontal `.sw-rollback-bar` CSS rules remain in place for any external caller that still mounts the bar in its original top-of-viewport overlay layout. The live workbench mounts the vertical variant via `Workbench.jsx`.
+- The bar's collapse toggle is the only NEW user-facing control. The three pre-existing interaction modes (click / drag-scrub / right-click context) are preserved verbatim — only the axis flipped (X → Y) and a few positioning rules updated.
+- A short window-resize debounce (50 ms) means the canvas updates one animation-frame after a rapid resize event. This is the same debounce the original `window.resize` listener used; the ResizeObserver path inherits it.
