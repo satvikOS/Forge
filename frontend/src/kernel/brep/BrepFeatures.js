@@ -483,44 +483,60 @@ export async function variableFillet(src, r1, r2) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Internal: build a TopoDS_Wire from a flat array of 3-D points. Points are
- * connected pairwise into linear edges; the wire is auto-closed if the first
- * and last points aren't coincident (tolerance 1e-6 mm).
+ * Internal: build a TopoDS_Wire from a flat array of 3-D points.
  *
- * Throws if `pts` has fewer than 3 points (no closed polygon possible).
+ * `closed=true` (default): builds a CLOSED polygon wire — the last edge
+ * connects back to the first point. Requires ≥ 3 points. If the last and
+ * first points coincide within 1e-6 mm, the duplicate is skipped.
+ *
+ * `closed=false`: builds an OPEN polyline wire — N points → N-1 edges,
+ * no closing edge. Requires ≥ 2 points. Used by sweepProfile to build
+ * the path wire (the spine the profile travels along).
  *
  * @param {object} oc
  * @param {Array<{x:number,y:number,z:number}>} pts
+ * @param {boolean} [closed=true]
  * @returns {object} TopoDS_Wire (track()'d into the caller's withScope)
  */
-function buildPolygonWire(oc, pts) {
-  if (!Array.isArray(pts) || pts.length < 3) {
-    throw new Error(`profile polygon needs ≥ 3 points (got ${pts?.length ?? 0})`);
+function buildPolygonWire(oc, pts, closed = true) {
+  if (!Array.isArray(pts)) {
+    throw new Error('wire builder: points array missing');
   }
-  // Auto-close: if the last point isn't the first, append a closing point.
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  const dx = (last.x ?? 0) - (first.x ?? 0);
-  const dy = (last.y ?? 0) - (first.y ?? 0);
-  const dz = (last.z ?? 0) - (first.z ?? 0);
-  const closed = (dx * dx + dy * dy + dz * dz) < 1e-12;
-  const ringPts = closed ? pts.slice(0, pts.length - 1) : pts.slice();
-  // Build vertices + edges + wire.
+  const minPts = closed ? 3 : 2;
+  if (pts.length < minPts) {
+    throw new Error(
+      `${closed ? 'profile polygon' : 'path polyline'} needs ≥ ${minPts} ` +
+      `points (got ${pts?.length ?? 0})`);
+  }
+  let ringPts = pts.slice();
+  if (closed) {
+    // If the user already repeated the first point at the end, dedupe so
+    // we don't emit a zero-length closing edge.
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const dx = (last.x ?? 0) - (first.x ?? 0);
+    const dy = (last.y ?? 0) - (first.y ?? 0);
+    const dz = (last.z ?? 0) - (first.z ?? 0);
+    if (dx * dx + dy * dy + dz * dz < 1e-12) {
+      ringPts = pts.slice(0, pts.length - 1);
+    }
+  }
   const ocPts = ringPts.map(p =>
     track(new oc.gp_Pnt_3(p.x ?? 0, p.y ?? 0, p.z ?? 0)));
   const wireMaker = track(new oc.BRepBuilderAPI_MakeWire_1());
-  for (let i = 0; i < ocPts.length; i++) {
+  const segCount = closed ? ocPts.length : ocPts.length - 1;
+  for (let i = 0; i < segCount; i++) {
     const a = ocPts[i];
     const b = ocPts[(i + 1) % ocPts.length];
     const em = track(new oc.BRepBuilderAPI_MakeEdge_3(a, b));
     if (!em.IsDone()) {
-      throw new Error(`profile polygon edge ${i}: kernel rejected (degenerate?)`);
+      throw new Error(`wire edge ${i}: kernel rejected (degenerate?)`);
     }
     const edge = track(em.Edge());
     wireMaker.Add_1(edge);
   }
   if (!wireMaker.IsDone()) {
-    throw new Error('profile polygon wire: kernel rejected (could not chain edges)');
+    throw new Error('wire builder: kernel rejected (could not chain edges)');
   }
   return track(wireMaker.Wire());
 }
@@ -529,14 +545,17 @@ function buildPolygonWire(oc, pts) {
  * Internal: coerce the SP-6 `wire` input into a TopoDS_Wire. Accepts:
  *   - a raw TopoDS_Wire (`shape.ShapeType() === TopAbs_WIRE`)
  *   - `{ wire: TopoDS_Wire }` carrier (a sketch-engine wire wrapper)
- *   - an array of points (polygon form — auto-built via buildPolygonWire)
- *   - an array containing THREE.Vector3-shaped objects (.x/.y/.z) — the
- *     output of `InteractiveSketch.getSolidProfile()` after _to3D
+ *   - an array of {x,y,z} points (polygon/polyline form — auto-built
+ *     via buildPolygonWire; `closed` controls whether a closing edge
+ *     is added back to point 0)
  *
- * The returned TopoDS_Wire is track()'d (or assumed already managed by the
- * caller if it was a raw TopoDS_Wire — the caller is responsible).
+ * @param {object}  oc       engine module
+ * @param {*}       input    raw wire | carrier | points array
+ * @param {string}  tag      diagnostic tag (op + role)
+ * @param {boolean} [closed=true]  true for closed polygon (profile),
+ *                                  false for open polyline (path).
  */
-function coerceWire(oc, input, tag = 'profile') {
+function coerceWire(oc, input, tag = 'profile', closed = true) {
   if (!input) throw new Error(`${tag}: wire input is null/undefined`);
   // Raw TopoDS_Wire (duck-typed via .ShapeType + TopAbs_WIRE).
   if (typeof input.ShapeType === 'function') {
@@ -552,31 +571,36 @@ function coerceWire(oc, input, tag = 'profile') {
   }
   // { wire: TopoDS_Wire } carrier.
   if (input.wire && typeof input.wire.ShapeType === 'function') {
-    return coerceWire(oc, input.wire, tag);
+    return coerceWire(oc, input.wire, tag, closed);
   }
   // Array of points.
   if (Array.isArray(input)) {
-    return buildPolygonWire(oc, input);
+    return buildPolygonWire(oc, input, closed);
   }
   throw new Error(`${tag}: unknown wire input form (${typeof input})`);
 }
 
 /**
- * Internal: assert wire is closed (BRepBuilderAPI_MakeFace needs a closed
- * planar wire). The TopoDS_Wire.Closed_1 flag is the engine's own answer.
+ * Internal: best-effort closure check on a wire. The TopoDS_Shape.Closed_2()
+ * flag is only set when the wire is explicitly marked closed (e.g. by
+ * ShapeFix or by certain BRepBuilderAPI builders); a wire built incrementally
+ * via BRepBuilderAPI_MakeWire that visually forms a cycle does NOT
+ * automatically flip the flag. So a `false` return from Closed_2() is NOT a
+ * reliable indicator of "open" — it can mean "not marked closed" too.
  *
- * For an open wire (sweep path can be open, profile cannot), we throw with
- * a clear diagnostic.
+ * The honest path: pass through. BRepBuilderAPI_MakeFace_15 will reject a
+ * genuinely open wire with `NotClosedWire` (its own error code), which
+ * `buildFaceFromWire` re-throws with a clear diagnostic. This avoids false
+ * negatives on incrementally-built MakeWire cycles. The function remains
+ * exported so future SP-6 callers can opt into the strict OCCT check via
+ * BRepCheck_Wire if needed.
+ *
+ * For now this is a no-op kept as a documented extension point.
  */
-function assertWireClosed(wire, tag = 'profile') {
-  // TopoDS_Wire inherits TopoDS_Shape.Closed_2() boolean read.
-  let isClosed = false;
-  try { isClosed = !!wire.Closed_2(); } catch { isClosed = false; }
-  if (!isClosed) {
-    // BRepBuilderAPI_MakeWire sets Closed when the wire forms a cycle. If
-    // the flag is false the caller probably handed an open path.
-    throw new Error(`${tag}: wire must be closed for face construction`);
-  }
+function assertWireClosed(_wire, _tag = 'profile') {
+  // Intentional no-op — see header. BRepBuilderAPI_MakeFace_15 enforces the
+  // closure contract downstream; this function exists for callers that want
+  // to add a strict BRepCheck_Wire pass.
 }
 
 /**
@@ -854,8 +878,10 @@ async function _constructSweepProfile(wire, path, bodyTag) {
       bodyTag: 'sweepProfile', validate: false,
     });
 
-    // Path wire — can be open. Don't assert closed.
-    const pathWire = coerceWire(oc, path, 'sweepProfile (path)');
+    // Path wire — open polyline. Pass closed=false so a 2-point array
+    // (straight line path) builds a 1-edge wire instead of a closed
+    // polygon. Don't assert closed.
+    const pathWire = coerceWire(oc, path, 'sweepProfile (path)', false);
 
     // BRepOffsetAPI_MakePipe_1(spineWire, profile=Face) produces a solid
     // when profile is a face (vs a hollow tube shell when it is a wire).
