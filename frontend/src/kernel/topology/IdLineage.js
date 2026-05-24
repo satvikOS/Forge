@@ -126,6 +126,12 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
     attributesCarried: 0,
     attributeConflicts: 0,
     attributeErrors: [],
+    // SP-11 — per-entity tolerance survival counters; populated by
+    // propagateTolerance via applyLineage on every survivor branch. The
+    // body-level tolerance MAX is set on `report.bodyToleranceMax` (and
+    // mirrored onto `resultBody.metadata.tolerance`) below.
+    tolerancesCarried: 0,
+    bodyToleranceMax: 0,
   };
 
   // ── Index every result spine entity by its engine sub-shape (geomRef) ──
@@ -159,6 +165,37 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
     if (inBody.attributes && Object.keys(inBody.attributes).length > 0) {
       propagateAttributes(resultBody, inBody, report);
     }
+  }
+
+  // SP-11 — propagate BODY-level modelling tolerance using the MAX rule.
+  // When combining bodies with different tolerances, the result body's
+  // `metadata.tolerance` records the MAX of (existing result, all inputs)
+  // — the tolerant-modeling rule: result inherits the loosest tolerance so
+  // downstream ops widen their fuzzy thresholds enough to absorb every
+  // input's slop. Recorded on the lineage report as `bodyToleranceMax`
+  // (also stored on `resultBody.metadata.tolerance`).
+  report.bodyToleranceMax = 0;
+  let inputMaxTol = 0;
+  for (const ib of inputBodies) {
+    const inBody = ib.body || ib;
+    if (!inBody) continue;
+    const t = (typeof inBody.getBodyTolerance === 'function')
+      ? inBody.getBodyTolerance()
+      : (inBody.metadata && Number.isFinite(inBody.metadata.tolerance)
+          ? inBody.metadata.tolerance : 0);
+    if (t > inputMaxTol) inputMaxTol = t;
+  }
+  const existingResultTol = (typeof resultBody.getBodyTolerance === 'function')
+    ? resultBody.getBodyTolerance()
+    : (resultBody.metadata && Number.isFinite(resultBody.metadata.tolerance)
+        ? resultBody.metadata.tolerance : 0);
+  const newBodyTol = Math.max(existingResultTol, inputMaxTol);
+  if (newBodyTol > 0) {
+    if (!resultBody.metadata || typeof resultBody.metadata !== 'object') {
+      resultBody.metadata = {};
+    }
+    resultBody.metadata.tolerance = newBodyTol;
+    report.bodyToleranceMax = newBodyTol;
   }
 
   // ── Walk every input body's entities and consult Modified/Generated/IsDeleted ──
@@ -223,6 +260,10 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
         // survives policy. A rolling-ball fillet face Generated from a seed
         // edge inherits the edge's attributes (e.g. material/finish provenance).
         propagateAttributes(resultEntity, inFace, report);
+        // SP-11 — generated entities also inherit MAX tolerance from their
+        // seed entity (a new face Generated from a tolerant face is itself
+        // at least that tolerant).
+        propagateTolerance(resultEntity, inFace, report);
       }
     }
 
@@ -265,6 +306,8 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
         // SP-2 — generated edges carry attributes (e.g. tolerance H7) from
         // their seed edge per the survives policy.
         propagateAttributes(resultEntity, inEdge, report);
+        // SP-11 — generated edges inherit MAX tolerance from their seed.
+        propagateTolerance(resultEntity, inEdge, report);
       }
     }
 
@@ -314,6 +357,15 @@ export function carryLineage(oc, algo, resultBody, inputBodies) {
       errors: report.attributeErrors,
     };
   }
+  // SP-11 — expose tolerance survival diagnostics. The body-level max
+  // (mirrored onto `metadata.tolerance`) and the per-entity count let
+  // the Topology Inspector / e2e see what survived the op.
+  if (report.tolerancesCarried > 0 || report.bodyToleranceMax > 0) {
+    resultBody.diagnostics.tolerance = {
+      entitiesCarried: report.tolerancesCarried,
+      bodyToleranceMax: report.bodyToleranceMax,
+    };
+  }
   return report;
 }
 
@@ -354,6 +406,9 @@ function applyLineage(resultEntity, inputEntity, claimed, map, report, kind, sur
       // ('lineage' merges add to derivedFrom; 'verbatim' collisions throw;
       // 'union' arrays concatenate) handles every case deterministically.
       propagateAttributes(resultEntity, inputEntity, report);
+      // SP-11 — same merge applies to per-entity tolerance: result inherits
+      // MAX(existing, new source) so the loosest of every input survives.
+      propagateTolerance(resultEntity, inputEntity, report);
     }
     map.set(inputId, resultEntity.persistentId);
     return;
@@ -369,11 +424,45 @@ function applyLineage(resultEntity, inputEntity, claimed, map, report, kind, sur
   // finish='mirror' with policy='verbatim') this means the survivor face
   // carries the finish across the op.
   propagateAttributes(resultEntity, inputEntity, report);
+  // SP-11 — primary survivor inherits MAX(existing, source) tolerance —
+  // the tolerant-modelling carry rule. A tolerant edge survives an op as
+  // a tolerant edge of at least the original tolerance. Idempotent and
+  // commutative: order of input bodies does not change the survivor.
+  propagateTolerance(resultEntity, inputEntity, report);
   // For traceability: if the freshly-bound id is interesting, log it.
   if (previous && previous !== inputId) {
     report.notes.push(
       `${kind} ${survived ? 'survived' : 'modified'}: ${inputId} ← ` +
       `(was ${previous})`);
+  }
+}
+
+/**
+ * SP-11 — per-entity tolerance survival on lineage application. Mutates
+ * `resultEntity.tolerance` to `max(existing, sourceEntity.tolerance)` so
+ * a tolerant entity (a tedge / tvertex / tface) survives as at least as
+ * tolerant on the result. Updates `report.tolerancesCarried` so e2e can
+ * assert the count of tolerance promotions.
+ *
+ * Idempotent (re-running with the same source is a no-op) and commutative
+ * (input order does not change the result). Operates only on entities that
+ * carry a `.tolerance` field (Face / Edge / Vertex per S0/SP-11).
+ */
+function propagateTolerance(resultEntity, sourceEntity, report) {
+  if (!resultEntity || !sourceEntity) return;
+  // Both `tolerance` fields are present in spine entity classes since S0
+  // (Face/Edge/Vertex), so the check is defensive (covers any future
+  // entity kinds — Coedge/Loop/Shell/Lump — that may or may not).
+  if (typeof resultEntity.tolerance !== 'number') return;
+  if (typeof sourceEntity.tolerance !== 'number') return;
+  const src = sourceEntity.tolerance;
+  if (!Number.isFinite(src) || src <= 0) return;
+  const existing = Number.isFinite(resultEntity.tolerance) ? resultEntity.tolerance : 0;
+  if (src > existing) {
+    resultEntity.tolerance = src;
+    if (report) {
+      report.tolerancesCarried = (report.tolerancesCarried || 0) + 1;
+    }
   }
 }
 
