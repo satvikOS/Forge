@@ -72,7 +72,7 @@ import '../../components/ComponentTreePanel.css';
 import {
     MousePointer, Move, Pencil, Box, Layers, Link2,
     Settings, BarChart3, Waves, Wrench, FileText,
-    ChevronRight, Ruler, Pipette, GitBranch,
+    ChevronRight, ChevronLeft, Ruler, Pipette, GitBranch,
     Crosshair, Zap, X, CheckCircle, AlertTriangle, Info
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
@@ -428,6 +428,40 @@ function WorkbenchMechanical() {
     const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const [activeProjectId, setActiveProjectId] = useState(null);
     const [selection, setSelection] = useState(null);
+    // Drawer collapse state — both the left toolbar (icon strip) and the
+    // right properties panel can be collapsed to thin slivers so the user
+    // can reclaim viewport real estate without losing access to the
+    // drawer's content (re-expand via the same chevron). Persisted in
+    // localStorage so the user's preference survives reload.
+    //
+    // Fixed-viewport contract: collapsing a drawer does NOT widen the
+    // 3D viewport canvas. The drawer's reserved gutter (defined in
+    // workbench.css) stays the same width; the drawer's CONTENTS slide
+    // off-screen behind the gutter edge.
+    const [toolsCollapsed, setToolsCollapsed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        try { return window.localStorage.getItem('archdisc.tools.collapsed') === '1'; }
+        catch { return false; }
+    });
+    const [propsCollapsed, setPropsCollapsed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        try { return window.localStorage.getItem('archdisc.properties.collapsed') === '1'; }
+        catch { return false; }
+    });
+    const toggleToolsCollapsed = useCallback(() => {
+        setToolsCollapsed((p) => {
+            const n = !p;
+            try { window.localStorage.setItem('archdisc.tools.collapsed', n ? '1' : '0'); } catch {}
+            return n;
+        });
+    }, []);
+    const togglePropsCollapsed = useCallback(() => {
+        setPropsCollapsed((p) => {
+            const n = !p;
+            try { window.localStorage.setItem('archdisc.properties.collapsed', n ? '1' : '0'); } catch {}
+            return n;
+        });
+    }, []);
 
     // Expose setSelection on window so headed e2e specs can trigger the
     // ThoughtBubble without needing a real 3D viewport pick.
@@ -1035,8 +1069,25 @@ function WorkbenchMechanical() {
                 onToolClick={(groupKey, toolName) => handleToolExecute(groupKey, toolName)}
             />
 
-            {/* LEFT TOOLBAR - Icon buttons only, dropdown rendered outside */}
-            <aside className="workbench-tools">
+            {/* LEFT TOOLBAR - Icon buttons only, dropdown rendered outside.
+                The collapse toggle lets the user fold the toolbar to a thin
+                sliver; the viewport canvas size stays the same because the
+                toolbar's reserved gutter (--toolbar-width) is fixed at the
+                stage level. */}
+            <aside
+                className={'workbench-tools' + (toolsCollapsed ? ' workbench-tools-collapsed' : '')}
+                data-archdisc-tools-collapsed={toolsCollapsed ? 'true' : 'false'}
+            >
+                <button
+                    className="workbench-drawer-toggle"
+                    title={toolsCollapsed ? 'Expand tool palette' : 'Collapse tool palette'}
+                    aria-label={toolsCollapsed ? 'Expand tool palette' : 'Collapse tool palette'}
+                    aria-expanded={!toolsCollapsed}
+                    data-archdisc-tools-toggle={toolsCollapsed ? 'collapsed' : 'expanded'}
+                    onClick={toggleToolsCollapsed}
+                >
+                    {toolsCollapsed ? <ChevronRight size={11} /> : <ChevronLeft size={11} />}
+                </button>
                 <div className="workbench-tools-inner">
                     {/* Pointer tools */}
                     <button
@@ -1167,8 +1218,25 @@ function WorkbenchMechanical() {
                 <SelectionPriorityBar />
             </main>
 
-            {/* RIGHT PROPERTIES PANEL */}
-            <aside className="workbench-properties">
+            {/* RIGHT PROPERTIES PANEL — collapse toggle on the inner edge.
+                Collapsing the panel slides its contents off-screen behind
+                the gutter edge; the viewport stays the same size because
+                the gutter (--properties-width) is reserved at the stage
+                level. */}
+            <aside
+                className={'workbench-properties' + (propsCollapsed ? ' workbench-properties-collapsed' : '')}
+                data-archdisc-properties-collapsed={propsCollapsed ? 'true' : 'false'}
+            >
+                <button
+                    className="workbench-drawer-toggle"
+                    title={propsCollapsed ? 'Expand properties panel' : 'Collapse properties panel'}
+                    aria-label={propsCollapsed ? 'Expand properties panel' : 'Collapse properties panel'}
+                    aria-expanded={!propsCollapsed}
+                    data-archdisc-properties-toggle={propsCollapsed ? 'collapsed' : 'expanded'}
+                    onClick={togglePropsCollapsed}
+                >
+                    {propsCollapsed ? <ChevronLeft size={11} /> : <ChevronRight size={11} />}
+                </button>
                 {/* Design history — every foundation tool run appears here */}
                 <DesignHistoryPanel />
 
