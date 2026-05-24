@@ -287,6 +287,35 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ── SP-8 — Healing & repair completion (Area H, T1). ──────────────────────
+  'Auto-Fill Holes': {
+    title: 'Auto-Fill Holes',
+    blurb: 'Automatic: finds every closed open-edge loop (a hole / missing face) of an open-shell body and patches it with an N-sided variational patch, stitching the result back into a watertight body. Selection: pick the body first. Single-loop holes handled correctly; multi-loop holes (a hole bridged by an internal wire) fill the OUTER loop only.',
+    fields: [
+      { name: 'tolerance',         label: 'Closure tolerance', type: 'number', default: 0.001, unit: 'mm', min: 0.0001, max: 1,   step: 0.001, hint: 'Free-bound endpoints within this distance are unified into one loop' },
+      { name: 'subdivisions',      label: 'Patch density',     type: 'number', default: 3,    unit: '',    min: 0,      max: 5,   step: 1,    hint: '1→5 refinement passes per patch' },
+      { name: 'fairingIterations', label: 'Fairing iterations', type: 'number', default: 40,  unit: '',    min: 0,      max: 200, step: 5,    hint: 'Patch bending-energy minimisation iterations' },
+    ],
+  },
+
+  'Auto-Repair Self-Intersection': {
+    title: 'Auto-Repair Self-Intersection',
+    blurb: 'Detect every face-pair crossing in the body (Möller triangle-triangle detector on the tessellation), then heal them via ShapeFix_Shape tolerance widening + ShapeFix_Shell.FixFaceOrientation. Selection: pick the body first. Simple cases (sliver overlaps, single inverted face) repair cleanly; tangled multi-curve crossings are reported as un-repairable with per-pair diagnosis.',
+    fields: [
+      { name: 'tolerance',  label: 'Heal tolerance',  type: 'number', default: 0.01, unit: 'mm', min: 0.0001, max: 1,   step: 0.001, hint: 'ShapeFix max-tolerance for tolerant-edge absorption' },
+      { name: 'deflection', label: 'Detector mesh',   type: 'number', default: 0.1,  unit: 'mm', min: 0.01,   max: 2,   step: 0.01,  hint: 'Tessellation chord deviation for the detector; finer = more sensitive' },
+    ],
+  },
+
+  'Harmonize Normals': {
+    title: 'Harmonize Normals',
+    blurb: 'Walk the body shell and flip every face whose outward-normal disagrees with its neighbours. Backed by ShapeFix_Shell.FixFaceOrientation. Selection: pick the body first. outward=1 (default) makes every normal point OUT; outward=0 makes every normal point IN.',
+    fields: [
+      { name: 'outward',    label: 'Outward (1) / Inward (0)', type: 'number', default: 1,   unit: '',   min: 0,    max: 1, step: 1,    hint: '1 = every face normal points outward; 0 = every face normal points inward' },
+      { name: 'deflection', label: 'Gauss-test mesh',          type: 'number', default: 0.5, unit: 'mm', min: 0.05, max: 5, step: 0.05, hint: 'Tessellation chord deviation for the JS-side consistency verifier' },
+    ],
+  },
+
   'Subdivide Surface': {
     title: 'Subdivide Surface — Loop Subdivision',
     blurb: 'Apply piecewise-smooth Loop subdivision to the selected body. Defaults: 2 levels, 30° crease threshold.',
