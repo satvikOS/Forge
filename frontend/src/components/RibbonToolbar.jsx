@@ -294,6 +294,9 @@ const TABS = {
         { name: 'Section View', icon: '⊟', key: 'documentation' },
         { name: 'Detail View', icon: '🔍', key: 'documentation' },
         { name: 'Isometric View', icon: '⬡', key: 'documentation' },
+        { name: 'Auxiliary View', icon: '⇗', key: 'documentation' },
+        { name: 'Crop View', icon: '▭', key: 'documentation' },
+        { name: 'Broken View', icon: '⌇', key: 'documentation' },
       ]},
       { label: 'Annotate', tools: [
         { name: 'Smart Dimension', icon: '↔', key: 'documentation' },

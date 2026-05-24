@@ -101,6 +101,7 @@ import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js'
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import InteractiveSketch, { TOOLS as SK_TOOLS } from '../../kernel/sketch/InteractiveSketch.js';
+import { auxiliaryView as drawAuxiliaryView, cropView as drawCropView, brokenView as drawBrokenView } from '../drawing/DrawingViews.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -5476,6 +5477,106 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Revision Table: ${revs.length} entries (REV/ECN/DATE/APPROVED)` };
     },
     'Export PDF': () => ({ status: 'success', message: 'Export: PDF drawing package generated' }),
+
+    // ─── UX TIER 8a — Auxiliary / Crop / Broken View ───────────────────────
+    // Three first-class drawing-view types. Each pops a small param dialog
+    // (e2e + AI plans bypass it via __archdiscBypassDialog / planParams) and
+    // writes both `__lastDrawingSVG` (so the DrawingPreviewPanel renders it
+    // inline) and a tool-specific introspection slot for e2e assertions.
+    'Auxiliary View': async () => {
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Auxiliary View: build a body in the Part tab first.' };
+      }
+
+      // Param defaults: dialog returns {nx, ny, nz, label}. A face-pick
+      // upstream of this call can stash a real face normal at
+      // window.__archdiscAuxiliaryNormal which overrides the dialog.
+      const { values, cancelled } = await requestToolParams('Auxiliary View');
+      if (cancelled) return { status: 'warn', message: 'Auxiliary View: cancelled' };
+
+      let normal = { x: values.nx, y: values.ny, z: values.nz };
+      if (typeof window !== 'undefined' && window.__archdiscAuxiliaryNormal) {
+        const n = window.__archdiscAuxiliaryNormal;
+        if (Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z)) {
+          normal = { x: n.x, y: n.y, z: n.z };
+        }
+        delete window.__archdiscAuxiliaryNormal;
+      }
+
+      const { svg, info } = drawAuxiliaryView(m, normal, { label: values.label, name: 'Auxiliary View' });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastAuxiliaryView = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Auxiliary View ${info.label}: projected along (${info.projection.x.toFixed(3)}, ${info.projection.y.toFixed(3)}, ${info.projection.z.toFixed(3)}); ${info.edgeCount} edges + arrow on FRONT thumb; scale ${info.paperScale.toFixed(3)}:1 via workbench.drawing.auxiliaryView`,
+      };
+    },
+
+    'Crop View': async () => {
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Crop View: build a body in the Part tab first.' };
+      }
+
+      const { values, cancelled } = await requestToolParams('Crop View');
+      if (cancelled) return { status: 'warn', message: 'Crop View: cancelled' };
+
+      // x, y, w, h are paper-mm centred on the view centre (user dialog).
+      // The DrawingViews implementation takes (x, y, w, h) relative to the
+      // view's paper-coord origin which is also centred → translate is None.
+      const crop = { x: values.x, y: values.y, w: values.w, h: values.h };
+
+      const { svg, info } = drawCropView(m, crop, { name: 'Crop View' });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastCropView = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Crop View: clipped to ${info.crop.w.toFixed(1)} × ${info.crop.h.toFixed(1)} mm boundary, ${info.edgesInside} edges fully inside + ${info.edgesCrossing} crossing (of ${info.originalEdgeCount} total); reversible via workbench.drawing.cropView`,
+      };
+    },
+
+    'Broken View': async () => {
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Broken View: build a body in the Part tab first.' };
+      }
+
+      const { values, cancelled } = await requestToolParams('Broken View');
+      if (cancelled) return { status: 'warn', message: 'Broken View: cancelled' };
+
+      // Convert fractional break positions to paper-mm by first projecting
+      // the body's front view to learn its X/Y extent. The DrawingViews
+      // op recomputes the projection but does so cheaply (single mesh
+      // pass) so a duplicate sample here is acceptable.
+      const bb = m.boundingBox();
+      const partOrigin = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2];
+      const partExtent = Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]);
+      // Same paper-scale math the brokenView SVG builder uses internally,
+      // so the dialog-supplied fractional positions map correctly.
+      const paperScale = Math.min(0.85 * 250 / (partExtent * 1.4), 0.85 * 90 / (partExtent * 1.4), 1);
+      const longExtent = (values.axis === 'y' ? (bb.max[1] - bb.min[1]) : (bb.max[0] - bb.min[0])) * paperScale;
+      const halfExtent = longExtent / 2;
+      const bs = -halfExtent + longExtent * values.breakStartFrac;
+      const be = -halfExtent + longExtent * values.breakEndFrac;
+
+      const { svg, info } = drawBrokenView(m, bs, be, { axis: values.axis, name: 'Broken View' });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastBrokenView = { ...info, svgBytes: svg.length };
+      }
+      const lengthCheckPct = Math.abs((info.leftLength + info.rightLength) - info.finalLength) /
+                              Math.max(info.finalLength, 1e-6) * 100;
+      return {
+        status: 'success',
+        message: `Broken View: drawn length ${info.finalLength.toFixed(1)} mm = ${info.leftLength.toFixed(1)} (left) + ${info.rightLength.toFixed(1)} (right); foreshortened ${info.gapLength.toFixed(1)} mm; (left+right vs drawn) gap = ${lengthCheckPct.toFixed(3)}% via workbench.drawing.brokenView`,
+      };
+    },
+
     'Export Assembly': async () => {
       // Compose EVERY foundation body in the scene into one assembly and
       // export it. This is the multi-body export an engine or any
