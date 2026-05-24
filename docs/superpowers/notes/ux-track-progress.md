@@ -1421,3 +1421,114 @@ User feedback this pass:
 - The horizontal `.sw-rollback-bar` CSS rules remain in place for any external caller that still mounts the bar in its original top-of-viewport overlay layout. The live workbench mounts the vertical variant via `Workbench.jsx`.
 - The bar's collapse toggle is the only NEW user-facing control. The three pre-existing interaction modes (click / drag-scrub / right-click context) are preserved verbatim — only the axis flipped (X → Y) and a few positioning rules updated.
 - A short window-resize debounce (50 ms) means the canvas updates one animation-frame after a rapid resize event. This is the same debounce the original `window.resize` listener used; the ResizeObserver path inherits it.
+
+---
+
+## UX rework — **Reversed:** fixed-viewport + dynamic chrome (2026-05-24)
+
+The previous dispatch (`dcc857a9` / `ac15d376` / `2a2b84e4` / `c755c36b`) implemented "fully dynamic viewport"
+— the canvas tracked every chrome change so collapsing a sidebar widened the 3D area. The user reviewed
+that build and asked for the OPPOSITE contract: **"the viewport should be fixed sized and ribbons and
+sidebars and options should be fully dynamic"**. The 3D model's view stays put as panels toggle; the chrome
+morphs around it. This pass reverses the model + does a visual cleanup of the in-viewport overlays.
+
+### Architecture — "Fixed-Viewport, Reserved-Gutter" model
+
+| Concern | Before (dynamic viewport) | After (fixed viewport) |
+|---|---|---|
+| Grid columns | 4: toolbar / viewport (1fr) / rollback (auto) / properties | 1 column — the stage row is a single cell |
+| Grid rows | header / ribbon / viewport-row / status / footer | header / **stage** / status / footer |
+| Toolbar / viewport / rollback / properties | grid items in the viewport row, viewport flexes around their widths | absolute children INSIDE the stage; each pinned to its own RESERVED GUTTER |
+| Viewport `left` / `right` offsets | implicit (grid 1fr) | `left: var(--toolbar-width)`, `right: calc(var(--rollback-gutter) + var(--properties-width))` — **FIXED** |
+| Collapsing a drawer | grid column shrank → viewport widened (canvas resized) | drawer slides off-screen behind its gutter edge → viewport canvas dimensions UNCHANGED |
+| ResizeObserver on viewport container | fired on every chrome toggle | only fires on outer-window resize (steady state, container size is invariant under drawer toggles) |
+
+The .workbench-stage itself is an inner 2-row grid (`ribbon-row` over `main-row`); the ribbon sits in the
+top row, and the absolute children are pinned with `top: var(--ribbon-height)` to start below it.
+
+**Implementation files:**
+
+- `frontend/src/styles/workbench.css` — added `:root { --rollback-gutter: 72px; --rollback-gutter-collapsed: 28px; }`; reshaped `.workbench-container` grid from 4-col to 1-col; added `.workbench-stage` rule (display:grid, position:relative); moved `.workbench-tools`, `.workbench-viewport`, `.workbench-properties`, `.workbench-rollback` from grid-area declarations to absolute positioning with `top: var(--ribbon-height)` and explicit `left/right` offsets that NEVER change; added `.workbench-tools-collapsed` + `.workbench-properties-collapsed` modifiers that translate the drawer content off-screen via `transform: translateX(...)`; added `.workbench-drawer-toggle` rule for the per-drawer chevron handle.
+- `frontend/src/components/Workbench.jsx` — wraps `renderWorkbench()` in `<div className="workbench-stage">`; the rollback aside now sits inside the stage as an absolute overlay (no longer a grid column).
+- `frontend/src/components/Viewport3D.jsx` — kept the ResizeObserver as a defensive belt-and-braces, but added a steady-state-skip (compares last applied W/H so a stray observer tick doesn't re-run setSize). Comment block re-written to document that the observer is "essentially dormant during normal operation" because the container is now size-invariant under drawer toggles.
+- `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` — added `toolsCollapsed` / `propsCollapsed` state hooks (persisted in localStorage), with a `.workbench-drawer-toggle` chevron button on the inner edge of each drawer.
+- `frontend/src/components/SwUxOverlays.jsx` — added a collapse toggle to `PropertyManagerDock` (persists `archdisc.propertyDock.collapsed` in localStorage).
+
+### Visual cleanup — unified token set + deliberate quadrant placement
+
+Every in-viewport overlay now draws from a SHARED set of CSS custom properties defined at the top of
+`SwUxOverlays.css`, scoped to `.workbench-viewport, .workbench-stage`:
+
+```css
+--sw-panel-bg            /* base panel background (semi-transparent dark) */
+--sw-panel-bg-strong     /* stronger panel bg for foreground panels */
+--sw-panel-border        /* uniform border colour */
+--sw-panel-border-active /* accent border for active / focused panels */
+--sw-panel-radius        /* 6 px corner radius — uniform */
+--sw-panel-shadow        /* uniform drop shadow */
+--sw-panel-blur          /* uniform backdrop blur */
+--sw-text-primary/secondary/muted
+--sw-accent-info / success / warn / danger
+--sw-pad-xs/sm/md/lg     /* 4 / 8 / 12 / 16 px rhythm */
+```
+
+**Quadrant placement** — each overlay owns one quadrant; no two compete for the same pixel:
+
+| Quadrant | Overlay | Hide condition |
+|---|---|---|
+| Top-left | Selection Priority Bar (NX-style filter) | always visible |
+| Top-centre | Heads-up View Toolbar (Zoom / Section / Orient / Display) | always visible |
+| Top-right | Confirmation Corner (green ✓ / red ✕) | only when a confirmable tool is active |
+| Mid-left (below Selection Bar at top:48) | PropertyManager Dock (param dialog) | only when a docked tool is active |
+| Mid-right (below Confirmation Corner at top:48) | Display/Delete Relations Dock | only when Display Relations is opened (sketch mode) |
+| Bottom-left | Sketch State Badge + Live Cursor Readout | only in sketch mode |
+| Cursor-tracking | Auto-Relation Indicator, Dimension Inline Editor | only in sketch / dimension-edit contexts |
+
+The PropertyManager Dock and Display/Delete Relations Dock both moved from `top: 8px` (which collided
+with the Selection Bar / Confirmation Corner respectively) down to `top: 48px` so the four corners /
+edges are now distinct.
+
+### Dynamic chrome — collapse / expand + localStorage persistence
+
+| Drawer | Toggle source | localStorage key |
+|---|---|---|
+| Left tool palette | `.workbench-drawer-toggle` chevron on the inner-right edge | `archdisc.tools.collapsed` |
+| Right properties panel | `.workbench-drawer-toggle` chevron on the inner-left edge | `archdisc.properties.collapsed` |
+| Rollback strip | `.sw-rollback-collapse-toggle` chevron at the top | `archdisc.rollbackBar.collapsed` |
+| PropertyManager Dock | `.sw-pm-dock-collapse-toggle` chevron in the dock header | `archdisc.propertyDock.collapsed` |
+
+Each toggle persists its state across reload. The drawers animate via CSS transform/opacity transitions
+(180 ms ease-out) so collapse/expand feels smooth, not jumpy.
+
+### Bespoke e2e — `e2e/ux-viewport-fixed-chrome-dynamic-electron.spec.js`
+
+Motion-capture, ONE `test()`, `--workers=1`. The workflow:
+
+1. Mechanical CAD baseline — capture the viewport canvas rect.
+2. Collapse the rollback strip → assert canvas rect UNCHANGED (within 2 px).
+3. Collapse the properties drawer → assert canvas rect UNCHANGED.
+4. Collapse the left tool palette → assert canvas rect UNCHANGED.
+5. Re-expand. Probe PropertyManager Dock absence → confirms it doesn't push the viewport.
+6. Inspect overlay quadrants — selection bar in top-left, heads-up toolbar centred, etc.
+7. Switch to Sheet Metal (delegate-to-mechanical) for parity check.
+
+6+ key-frame stills + slow-mo video.
+
+### Honest gaps
+
+- The other 4 workbench wrappers (Architecture / Gaming / Automotive / Electronics) are placeholder
+  shells that mount `.workbench-tools` + `.workbench-properties` without the collapse toggles. They
+  inherit the fixed-viewport geometry (their panels still occupy the same reserved gutters) but
+  without a chevron the user cannot collapse them. Adding the chevrons everywhere is a follow-on —
+  not in this dispatch's allowlist.
+- The existing `ux-viewport-uniform-and-rollback-relocation-electron.spec.js` was written against
+  the PREVIOUS (dynamic-viewport) contract — its Step 7 asserts `viewport width grew after rollback
+  strip collapsed`, which is the OPPOSITE of the new contract. That test will fail after this
+  dispatch; the brief explicitly forbade editing other e2e specs, so it is documented as deliberately
+  broken (the user reversed the underlying behavioural contract).
+- Toolbar's "expand to icon-only mode" / "ribbon collapse to icon-only" is not implemented — the
+  ribbon stays at full 124 px height. The drawer collapse toggles (above) cover the user-cited
+  "dynamic chrome" requirement for sidebars; making the ribbon ITSELF collapsible is a follow-on.
+- The PropertyManager Dock's collapsed state hides INPUT rows but keeps the header visible.
+  Re-opening it after collapse via the chevron expands the dock fully (the collapsed state doesn't
+  fully tear down the dock subtree).
