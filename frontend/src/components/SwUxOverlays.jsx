@@ -459,6 +459,24 @@ export const DOCKED_TOOLS = new Set([
 export function PropertyManagerDock() {
   const [state, setState] = useState({ open: false, schema: null, toolName: null, values: {} });
   const [sectionsOpen, setSectionsOpen] = useState({ inputs: true, options: true });
+  // Collapsed state — the dock can be folded to a thin sliver so the user
+  // can see the full viewport without dismissing the active tool. Persisted
+  // to localStorage so the user's preference survives reload.
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem('archdisc.propertyDock.collapsed') === '1';
+    } catch { return false; }
+  });
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try { window.localStorage.setItem('archdisc.propertyDock.collapsed', next ? '1' : '0'); } catch {}
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const unsub = onParamRequest(({ toolName, schema }) => {
@@ -523,8 +541,22 @@ export function PropertyManagerDock() {
   };
 
   return (
-    <aside className="sw-property-dock" data-archdisc-pm-dock={state.toolName}>
+    <aside
+      className={'sw-property-dock' + (collapsed ? ' sw-property-dock-collapsed' : '')}
+      data-archdisc-pm-dock={state.toolName}
+      data-archdisc-pm-dock-collapsed={collapsed ? 'true' : 'false'}
+    >
       <div className="sw-pm-dock-header">
+        <button
+          className="sw-pm-dock-collapse-toggle"
+          title={collapsed ? 'Expand PropertyManager (show inputs)' : 'Collapse PropertyManager (show viewport)'}
+          aria-label={collapsed ? 'Expand PropertyManager' : 'Collapse PropertyManager'}
+          aria-expanded={!collapsed}
+          data-archdisc-pm-collapse-toggle={collapsed ? 'collapsed' : 'expanded'}
+          onClick={(e) => { e.stopPropagation(); toggleCollapsed(); }}
+        >
+          {collapsed ? <ChevronRight size={11} /> : <ChevronLeft size={11} />}
+        </button>
         <div className="sw-pm-dock-title">{state.schema.title}</div>
         <div className="sw-pm-dock-actions">
           <button

@@ -1,3 +1,81 @@
+/* ArchDisc in-viewport UX overlays — unified visual token set.
+ *
+ * Every overlay mounted ON the viewport (the 4-quadrant layout below) draws
+ * from the SAME visual token set so the surface reads as ONE language, not
+ * a pile of throwaway debug widgets. The tokens live as CSS custom
+ * properties so per-overlay rules can reference them and we never drift
+ * out of sync.
+ *
+ *   --sw-panel-bg            — base panel background (semi-transparent dark)
+ *   --sw-panel-bg-strong     — stronger panel bg for foreground panels
+ *   --sw-panel-border        — uniform border colour
+ *   --sw-panel-border-active — accent border for active / focused panels
+ *   --sw-panel-radius        — uniform corner radius (6 px)
+ *   --sw-panel-shadow        — uniform drop shadow
+ *   --sw-panel-blur          — uniform backdrop blur amount
+ *   --sw-text-primary        — primary text colour on overlays
+ *   --sw-text-secondary      — secondary / metadata text colour
+ *   --sw-text-muted          — disabled / muted text colour
+ *   --sw-accent-info         — informational accent (blue)
+ *   --sw-accent-success      — success / confirm accent (green)
+ *   --sw-accent-warn         — warning / mark accent (amber)
+ *   --sw-accent-danger       — destructive / over-defined accent (red)
+ *
+ * DELIBERATE QUADRANT PLACEMENT — each overlay lives in exactly one
+ * screen region so they never compete for the same pixel:
+ *
+ *   ┌────────────────────────────────────────────────────────────┐
+ *   │ TOP-LEFT       │ TOP-CENTRE     │ TOP-RIGHT                │
+ *   │ Selection      │ Heads-up View  │ Confirmation Corner      │
+ *   │ Priority Bar   │ Toolbar        │ Display/Relations Dock   │
+ *   ├────────────────┼────────────────┼──────────────────────────┤
+ *   │ MID-LEFT       │ VIEWPORT       │ MID-RIGHT                │
+ *   │ PropertyMgr    │ (canvas)       │ (free — no overlay)      │
+ *   │ Dock (active   │                │                          │
+ *   │ tool only)     │                │                          │
+ *   ├────────────────┴────────────────┼──────────────────────────┤
+ *   │ BOTTOM-LEFT                     │ BOTTOM-RIGHT             │
+ *   │ Sketch State + Cursor Readout   │ Toast area (workbench    │
+ *   │ (sketch mode only)              │ wrapper renders here)    │
+ *   └─────────────────────────────────┴──────────────────────────┘
+ *
+ * Auto-Relation Indicator follows the cursor; Dimension Editor anchors to
+ * its dimension target. These are pointer-tracking overlays so they don't
+ * occupy a fixed quadrant.
+ *
+ * Every quadrant overlay HIDES when not relevant (sketch state/cursor
+ * only in sketch mode; confirmation corner only with an active confirmable
+ * tool; PropertyManager dock only with an active docked tool). The
+ * viewport is never crowded with stale chrome.
+ */
+
+.workbench-viewport,
+.workbench-stage {
+  /* Unified token set, scoped to the workbench area so wider app surfaces
+     (settings panels, AI console) can use different visual languages
+     without bleed-through. */
+  --sw-panel-bg:            rgba(18, 19, 23, 0.82);
+  --sw-panel-bg-strong:     rgba(20, 22, 27, 0.94);
+  --sw-panel-border:        rgba(255, 255, 255, 0.08);
+  --sw-panel-border-active: rgba(74, 144, 217, 0.55);
+  --sw-panel-radius:        6px;
+  --sw-panel-shadow:        0 4px 18px rgba(0, 0, 0, 0.55);
+  --sw-panel-blur:          12px;
+  --sw-text-primary:        #ececef;
+  --sw-text-secondary:      #b8babf;
+  --sw-text-muted:          #6f7176;
+  --sw-accent-info:         #4a90d9;
+  --sw-accent-success:      #3ec77e;
+  --sw-accent-warn:         #fbc068;
+  --sw-accent-danger:       #e35454;
+  /* Vertical rhythm + horizontal padding scales — keeps overlays aligned
+     to the same 4 / 8 / 12 px grid the ribbon uses. */
+  --sw-pad-xs: 4px;
+  --sw-pad-sm: 8px;
+  --sw-pad-md: 12px;
+  --sw-pad-lg: 16px;
+}
+
 /* SolidWorks-convention UX overlays — Tier 1 styling.
  *
  * Visual style matches the existing ribbon + viewport-overlay tone:
@@ -14,19 +92,23 @@
 /* ─── 1. Confirmation Corner (top-right) ───────────────────────────────── */
 .sw-confirm-corner {
   position: absolute;
-  top: 60px;       /* below viewport overlays */
-  right: 8px;
+  /* Top-right quadrant — pinned to the upper-right of the viewport.
+     Sits at the top edge so it never collides with the Heads-up View
+     Toolbar (top-centre) and is the most natural eye-target for a
+     SolidWorks-trained user looking for the confirmation cue. */
+  top: var(--sw-pad-sm);
+  right: var(--sw-pad-sm);
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: rgba(18, 18, 18, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 6px;
-  padding: 4px 6px 4px 10px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  gap: var(--sw-pad-xs);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 4px 6px 4px var(--sw-pad-md);
+  box-shadow: var(--sw-panel-shadow);
   animation: sw-fade-in 0.12s ease-out;
 }
 
@@ -79,20 +161,20 @@
 /* ─── 2. Heads-up View Toolbar (top-centre) ─────────────────────────────── */
 .sw-heads-up-toolbar {
   position: absolute;
-  top: 8px;
+  top: var(--sw-pad-sm);
   left: 50%;
   transform: translateX(-50%);
   z-index: 28;
   display: flex;
   align-items: center;
   gap: 1px;
-  background: rgba(18, 18, 18, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
+  background: var(--sw-panel-bg);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
   padding: 3px 4px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--sw-panel-shadow);
 }
 
 .sw-hu-btn {
@@ -167,30 +249,55 @@
   color: #aac8ff;
 }
 
-/* ─── 3. PropertyManager Dock (left side) ──────────────────────────────── */
+/* ─── 3. PropertyManager Dock (mid-left, only with an active docked tool) ─ */
+/* The PropertyManager Dock SHOWS UP only when a docked tool is active
+ * (the schema-driven param dialog). It nests below the Selection Priority
+ * Bar (top-left, ~38 px high) so the two never overlap. The user can
+ * collapse the dock to reclaim viewport area via the chevron in its
+ * header — the dock collapses to a thin sliver with the active tool
+ * name still visible. */
 .sw-property-dock {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  /* Sits just below the Selection Priority Bar (which occupies top-left
+     at top:8, ~30 px height). 48 px clears that bar with a comfortable
+     gap. */
+  top: 48px;
+  left: var(--sw-pad-sm);
   width: 280px;
-  max-height: calc(100% - 16px);
+  max-height: calc(100% - 56px);
   z-index: 26;
   display: flex;
   flex-direction: column;
-  background: rgba(20, 20, 20, 0.94);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(74, 144, 217, 0.45);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border-active);
   border-left-width: 3px;
-  border-radius: 6px;
-  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.65);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
   overflow-y: auto;
   animation: sw-slide-in-left 0.14s ease-out;
+  transition: width 0.18s ease-out, max-height 0.18s ease-out;
+}
+
+/* Collapsed PropertyManager Dock — shrinks to a 28 px sliver showing only
+ * the title row; clicking the toggle expands it again. */
+.sw-property-dock.sw-property-dock-collapsed {
+  width: 36px;
+  max-height: 36px;
+  overflow: hidden;
+}
+
+.sw-property-dock.sw-property-dock-collapsed .sw-pm-dock-title,
+.sw-property-dock.sw-property-dock-collapsed .sw-pm-dock-blurb,
+.sw-property-dock.sw-property-dock-collapsed .sw-pm-dock-section {
+  display: none;
 }
 
 .sw-pm-dock-header {
   display: flex;
   align-items: center;
+  gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg,
@@ -199,6 +306,27 @@
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+.sw-pm-dock-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--sw-text-secondary);
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+  flex-shrink: 0;
+}
+.sw-pm-dock-collapse-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sw-text-primary);
+  border-color: var(--sw-panel-border);
 }
 
 .sw-pm-dock-title {
@@ -330,26 +458,26 @@ body.sw-dock-suppress-floating .tpd-backdrop {
   display: none !important;
 }
 
-/* ─── 4. Sketch State Badge (bottom-left) ──────────────────────────────── */
+/* ─── 4. Sketch State Badge (bottom-left, sketch mode only) ─────────────── */
 .sw-sketch-state {
   position: absolute;
-  bottom: 8px;
-  left: 8px;
+  bottom: var(--sw-pad-sm);
+  left: var(--sw-pad-sm);
   z-index: 26;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(20, 20, 20, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  gap: var(--sw-pad-sm);
+  padding: 4px var(--sw-pad-md);
+  border-radius: var(--sw-panel-radius);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
   font-size: 10px;
   letter-spacing: 0.5px;
   font-weight: 600;
-  color: #ddd;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.6);
+  color: var(--sw-text-primary);
+  box-shadow: var(--sw-panel-shadow);
 }
 
 .sw-sketch-state-dot {
@@ -391,19 +519,23 @@ body.sw-dock-suppress-floating .tpd-backdrop {
  * as the "active mode" cue NX shows on its selection bar. */
 .sw-selection-bar {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  /* Top-left quadrant. The Heads-up View Toolbar lives dead-centre; the
+     Confirmation Corner lives top-right. The Selection Bar therefore owns
+     the top-left exclusively. Icon-only buttons keep the bar narrow so it
+     never crowds the centre toolbar. */
+  top: var(--sw-pad-sm);
+  left: var(--sw-pad-sm);
   z-index: 29;        /* above viewport content, below dropdown menus */
   display: flex;
   align-items: center;
   gap: 1px;
-  background: rgba(18, 18, 18, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  padding: 3px 5px 3px 8px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  background: var(--sw-panel-bg);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 3px 5px 3px var(--sw-pad-sm);
+  box-shadow: var(--sw-panel-shadow);
 }
 
 .sw-selection-bar-label {
@@ -473,22 +605,26 @@ body.sw-dock-suppress-floating .tpd-backdrop {
  */
 .sw-relations-dock {
   position: absolute;
-  top: 70px;
-  right: 8px;
+  /* Mid-right — sits below the Confirmation Corner (which is at top:8,
+     ~32 px high). 48 px clears it. Only visible while a sketch is active
+     AND the user has opened Display Relations — so it never overlays the
+     viewport mid-modelling. */
+  top: 48px;
+  right: var(--sw-pad-sm);
   z-index: 28;
   width: 264px;
   max-height: 60vh;
-  background: rgba(20, 20, 20, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 6px;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.65);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
   display: flex;
   flex-direction: column;
   animation: sw-fade-in 0.14s ease-out;
   font-size: 11px;
-  color: #d8d8d8;
+  color: var(--sw-text-primary);
   overflow: hidden;
 }
 
@@ -631,24 +767,24 @@ body.sw-dock-suppress-floating .tpd-backdrop {
  * mirroring the SolidWorks status-bar convention. */
 .sw-cursor-readout {
   position: absolute;
-  bottom: 8px;
+  bottom: var(--sw-pad-sm);
   left: 232px;   /* clears the SketchStateBadge (which auto-sizes to ~210 px) */
   z-index: 26;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(20, 20, 20, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  gap: var(--sw-pad-xs);
+  padding: 4px var(--sw-pad-md);
+  border-radius: var(--sw-panel-radius);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
   font-size: 10.5px;
   letter-spacing: 0.4px;
   font-weight: 500;
-  color: #d8d8d8;
+  color: var(--sw-text-primary);
   font-family: 'Consolas', monospace;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--sw-panel-shadow);
   animation: sw-fade-in 0.14s ease-out;
 }
 
@@ -796,6 +932,10 @@ body.sw-dock-suppress-floating .tpd-backdrop {
  * has anchor text even at rest.
  */
 .sw-rollback-bar {
+  /* Legacy horizontal-bar shape — retained for back-compat with any
+     external callers that still mount the bar as an in-viewport overlay.
+     The live workbench mounts the VERTICAL variant in its right-side
+     gutter via Workbench.jsx (see .sw-rollback-bar-vertical below). */
   position: absolute;
   top: 48px;       /* just below the Heads-up View Toolbar (top:8 + ~32 height) */
   left: 50%;
@@ -804,13 +944,13 @@ body.sw-dock-suppress-floating .tpd-backdrop {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(18, 18, 18, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 6px;
-  padding: 5px 8px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 5px var(--sw-pad-sm);
+  box-shadow: var(--sw-panel-shadow);
   animation: sw-fade-in 0.12s ease-out;
   /* Don't pin the bar at one width — it should grow to fit ~30 entries. */
   max-width: 78vw;
@@ -1158,9 +1298,12 @@ body.sw-dock-suppress-floating .tpd-backdrop {
  * The horizontal `.sw-rollback-bar` rules above remain for back-compat with
  * any callers that mount the bar in its original top-of-viewport layout.
  * The live workbench mounts the VERTICAL variant via Workbench.jsx — it
- * lives in its own grid column (`grid-area: rollback`) between the viewport
- * and the right-hand Properties panel, so the bar NEVER overlays the 3D
- * canvas. The column is fully collapsible via the chevron button.
+ * lives in its own ABSOLUTELY POSITIONED gutter inside the .workbench-stage
+ * (see `frontend/src/styles/workbench.css::.workbench-rollback`), so the
+ * bar NEVER overlays the 3D canvas AND opening/closing it does NOT change
+ * the viewport canvas size. The bar is fully collapsible via the chevron
+ * button (state persisted in localStorage so the user's preference
+ * survives reload).
  */
 .sw-rollback-bar.sw-rollback-bar-vertical {
   /* Reset the absolute / overlay positioning the horizontal variant uses. */
@@ -1176,12 +1319,13 @@ body.sw-dock-suppress-floating .tpd-backdrop {
   align-items: stretch;
   justify-content: flex-start;
   gap: 6px;
-  padding: 8px 6px;
+  padding: var(--sw-pad-sm) 6px;
   border-radius: 0;
   border: none;
-  border-left: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-  border-right: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-  background: var(--bg-secondary, rgba(18, 18, 18, 0.96));
+  /* Visual separation handled by .workbench-rollback's own border-left /
+     border-right; the bar itself stays unframed so the gutter reads as
+     a single visual region. */
+  background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
