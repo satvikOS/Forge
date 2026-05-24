@@ -715,15 +715,17 @@ N-Sided Patch, G2 Blend, Class-A Analyze, Zebra Stripes.
 
 ### 6.5 — Sheet Metal tool mapping
 
-**ArchDisc has NO Sheet Metal tab at all.** This is the single largest UI gap relative to the
-SolidWorks course.
+**Sheet Metal foundation shipped in Tier 5a (2026-05-24).** The dedicated
+ribbon tab + the three foundational ops (Base Flange / Edge Flange /
+Flat Pattern) ARE shipped; the rest of the SW sheet-metal toolset remains
+queued for follow-on Tier-5 dispatches (a, b, c, ...).
 
 | SolidWorks sheet-metal tool | ArchDisc | Status |
 |---|---|---|
-| Base Flange / Tab | None | **Missing** |
+| Base Flange / Tab | Base Flange (Sheet Metal tab -> Create) | **Done** (Tier 5a) |
 | Convert to Sheet Metal | None | **Missing** |
 | Lofted Bend | None | **Missing** |
-| Edge Flange | None | **Missing** |
+| Edge Flange | Edge Flange (Sheet Metal tab -> Bend) | **Done** (Tier 5a) |
 | Miter Flange | None | **Missing** |
 | Hem (4 variants) | None | **Missing** |
 | Jog | None | **Missing** |
@@ -734,12 +736,18 @@ SolidWorks course.
 | Forming Tool | None | **Missing** |
 | Sweep Flange | None | **Missing** |
 | Rib (Sheet Metal) | None | **Missing** |
-| Flat Pattern | None | **Missing** |
-| K-Factor / Bend Allowance / Bend Deduction | None | **Missing** |
+| Flat Pattern | Flat Pattern (Sheet Metal tab -> Manufacturing) | **Done** (Tier 5a) |
+| K-Factor / Bend Allowance / Bend Deduction | K-Factor + bend-allowance formula | **Done** (K-factor; the bend-allowance + bend-deduction + gauge-table switches are follow-on Tier 5b) |
 | Gauge Table | None | **Missing** |
 | Auto-Relief | None | **Missing** |
 
-This entire workbench (with its own kernel ops for flange/bend math) is missing.
+The dedicated **Sheet Metal** ribbon tab (between Simulate and Drawing)
+now exists with three groups: **Create** (Base Flange), **Bend** (Edge
+Flange), **Manufacturing** (Flat Pattern). Sheet-metal-aware metadata
+travels with every body created via these ops via
+`body.metadata.sheetMetal = {thickness, kFactor, bendRadius, isFlat,
+bends[]}`, and downstream ops can ASK whether a body is sheet metal via
+`K.brep.isSheetMetal(body)`.
 
 ### 6.6 — Weldments mapping
 

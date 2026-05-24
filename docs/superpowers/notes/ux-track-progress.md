@@ -741,7 +741,7 @@ preservation + tightened the both-unfixed tie-break).
 | 2 (rest) | Slot tool (4 variants), Circle variants, Arc variants, Parabola, Text along curve, Linear/Circular Sketch Pattern, 3D Sketch — 3 items remain (named relations + Display-Delete shipped in Tier-2b; Move/Rotate/Copy/Scale/Stretch shipped in Tier-2c) | Not started |
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
-| 5 | Sheet Metal workbench (entire ribbon tab + kernel) | Not started |
+| 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a foundation shipped (3 of ~18 ops)** |
 | 6 | Weldments workbench (structural members + cut list) | Not started |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, all Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a shipped (4/12+; standard-mate set complete 8/8)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, Title Block edit) | **Partial — Tier 8a + Tier 8b shipped (6/8)** |
@@ -986,3 +986,196 @@ sites are the new Tier 8b handlers).
 5. **Auto-Balloon uses the FIRST manifold of a merged BOM row as the anchor source.** Identical SKF-6004 bearings merge into one BOM row with qty 2; the balloon's leader line anchors to the LEFT bearing's centroid (the first registered). A "smart" Auto-Balloon would anchor to one balloon per physical instance (so 2 leader lines per balloon for 2 bearings), but the SW convention is one-balloon-per-BOM-row, which is what we do.
 6. **Balloon radial layout doesn't reflect the anchor-to-balloon angle perfectly.** The handler snaps each balloon's preferred angle (computed from the anchor → centroid vector) to the nearest 30° slot. So two parts at slightly different angles can still snap to the same slot; the second then bumps CCW. The leader line goes from anchor to balloon-at-bumped-slot, which can mean the leader doesn't perfectly point "outward" from the centroid through the anchor. Acceptable for the 5-component test; finer 15° slots would tighten this but cost more bumps on dense assemblies.
 7. **DrawingPreviewPanel header still reads "Engineering Drawing — A3 third-angle projection".** Same cosmetic gap as Tier 8a — the SVG's internal title block carries the accurate per-view label ("Model Items" / "Assembly BOM" / "Auto-Balloon Sheet"); the modal header is generic. A future polish would read the SVG's `data-archdisc-view` attribute and update the header accordingly.
+
+---
+
+## Tier 5a — Sheet Metal workbench foundation (3 of 3 in this pass; ~18 SW sheet-metal ops in tier total)
+
+**Date:** 2026-05-24
+
+The Sheet Metal workbench foundation — a dedicated **Sheet Metal** ribbon
+tab alongside Part / Assembly / Drawing / Simulate, with the three
+FOUNDATIONAL sheet-metal ops every SolidWorks-compatible CAD must ship:
+
+1. **Base Flange** — sketch profile + thickness + K-factor → a thick body
+   tagged as **SHEET METAL** via `body.metadata.sheetMetal =
+   {thickness, kFactor, bendRadius, isFlat:true, bends:[]}`. This is the
+   single op that makes a body "sheet metal" — the metadata signals every
+   downstream op that the body should be treated as sheet metal.
+
+2. **Edge Flange** — pick an edge on a sheet-metal body and extrude a real
+   flange off it at the chosen angle. Computes the bend allowance from
+   the body's K-factor + bend radius via `BA = pi(R + K * t)(theta/180)`.
+   Fuses the flange onto the parent so the result is one connected
+   sheet-metal part; appends a bend record to `bends[]` with every datum
+   Flat Pattern needs.
+
+3. **Flat Pattern** — the marquee unfolding op. Walks `bends[]`, lays the
+   base back flat, and unrolls each flange CO-PLANAR with the base.
+   Developed length per flange = `flange.length + bendAllowance`, so the
+   unfolded layout matches what the manufacturer (laser cutter / press
+   brake) actually needs. Tagged `isFlat=true` on the result.
+
+### Files added/changed
+
+- `frontend/src/kernel/brep/BrepSheetMetal.js` (new — 3 sheet-metal kernel
+  ops + metadata helpers + bend-allowance formula)
+- `frontend/src/kernel/brep/index.js` (modified — re-export the new ops)
+- `frontend/src/kernel/brep/ArchDiscKernel.js` (modified — facade entries
+  `K.brep.baseFlange / edgeFlange / flatPattern / isSheetMetal /
+  getSheetMetalMetadata / bendAllowance`)
+- `frontend/src/components/RibbonToolbar.jsx` (modified — NEW `sheetMetal`
+  tab between Simulate and Drawing with 3 groups: Create | Bend |
+  Manufacturing)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — 3 schemas
+  appended at end: Base Flange (5 params), Edge Flange (4 params), Flat
+  Pattern (no params))
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js`
+  (modified — new `sheetMetal:` handler group with 3 handlers; the rest
+  of the TOOL_HANDLERS object untouched per allowlist)
+- `frontend/src/workbenches/sheet-metal/WorkbenchSheetMetal.jsx` (new —
+  ride-along workbench wrapper hinting the ribbon to default to the
+  sheetMetal tab)
+- `frontend/src/workbenches/sheet-metal/index.js` (new — barrel re-export
+  of the kernel ops + `SHEET_METAL_TOOLS` list)
+- `e2e/ux-tier5a-sheet-metal-electron.spec.js` (new — motion-capture e2e
+  on a real electrical enclosure box; 10 stills + 1.0 MB session video)
+
+### Bespoke real workflow — electrical enclosure box
+
+A real engineered sheet-metal workflow that exercises every op shipped
+this pass:
+
+| Stage | Op | Geometry |
+|---|---|---|
+| 1 | Box (ribbon sanity check) | 40x40x40 mm primitive box |
+| 2 | Base Flange (Sheet Metal tab -> Create) | 100x80 mm rectangle thickened to 1.5 mm; tagged K=0.4, R=1.5 mm |
+| 3 | Edge Flange x4 (Sheet Metal tab -> Bend) | One per side edge of the base flange's top face (top / bottom / left / right) at 90 deg, length 25 mm |
+| 4 | Flat Pattern (Sheet Metal tab -> Manufacturing) | Unfold the bent box into a cross-shaped flat layout |
+
+After step 3 the part is an OPEN BOX (back + 4 walls). After step 4 the
+part is unfolded into a real laser-cut layout. The developed length per
+flange is `25 + pi*(1.5 + 0.4 * 1.5) * 0.5 ~= 28.30 mm`; total bend
+allowance across the 4 bends ~= 13.19 mm.
+
+### 10 stills + session video (1.0 MB)
+
+| Frame | Headline |
+|---|---|
+| 01 — seed-box-via-ribbon | Primitive Box built to prove the build is healthy |
+| 02 — sheetmetal-ribbon-active | Sheet Metal ribbon tab opened; Create / Bend / Manufacturing groups + 3 tools visible |
+| 03 — base-flange-created | Base Flange done: thin 100x80 mm sheet body in the viewport; status bar reads "Base Flange: 100x80 mm, t = 1.5 mm, K = 0.40, R = 1.5 mm -> 6 faces, V = 12000 mm^3 — body tagged as sheet metal via ArchDisc Kernel"; Design History shows the new feature |
+| 04 — edge-flange-top | First edge flange grown off the TOP edge of the base; status bar: "Edge Flange: edge #10, L = 25 mm, theta = 90 deg -> 10 faces, BA = 3.30 mm, bends now 1 via ArchDisc Kernel" |
+| 05 — edge-flange-bottom | Second flange on the BOTTOM edge; 14 faces, bends now 2 |
+| 06 — edge-flange-left | Third flange on the LEFT edge; 19 faces, bends now 3 |
+| 07 — edge-flange-right | Fourth flange on the RIGHT edge; the OPEN BOX is complete; 24 faces, bends now 4 |
+| 08 — flat-pattern-topdown | Marquee shot. Top-down view of the Flat Pattern result: a real cross-shaped manufacturing layout — central rectangle (base) + 4 rectangles (the unfolded walls, each 28.30 mm long including bend allowance); status bar: "Flat Pattern: 4 bend(s) unfolded -> 25 faces, total bend allowance = 13.19 mm, V = 8490 mm^3 via ArchDisc Kernel" |
+| 09 — 3d-enclosure-iso | Iso view of the BENT 3D enclosure to re-show the manufactured part |
+| 10 — 3d-enclosure-orbit-end | Short orbit reveal of the box interior |
+
+**Visual check (READ the stills):**
+
+1. **Frame 02** — Sheet Metal tab is highlighted in the ribbon strip
+   (between Simulate and Drawing). Three tool groups are visible in the
+   ribbon content area: Create (with Base Flange icon), Bend (with
+   Edge Flange icon), Manufacturing (with Flat Pattern icon).
+2. **Frame 03** — Single thin grey sheet body in the viewport, lying
+   flat in the XY plane. Design History panel lists "Base Flange" as
+   the most recent feature with the params summary in the timeline.
+3. **Frame 07** — All four walls visible: the back lies flat with four
+   perpendicular walls rising up — the open electrical-enclosure box.
+4. **Frame 08** — Marquee. A real CROSS-SHAPED flat layout in orange:
+   central rectangle (the back) with four rectangles extending out
+   (top, bottom, left, right — the four walls "unrolled" co-planar).
+   This is exactly the geometry sent to a laser cutter.
+
+**Focal assertions (verified live in the spec — every assertion passes):**
+
+| Op | Assertion | Value |
+|---|---|---|
+| Base Flange | `body.body.kind === 'solid'` | solid ok |
+| Base Flange | `isSheetMetal(body) === true` | true ok |
+| Base Flange | `metadata.sheetMetal.thickness === 1.5` | 1.5 ok |
+| Base Flange | `metadata.sheetMetal.kFactor === 0.4` | 0.4 ok |
+| Base Flange | `metadata.sheetMetal.bendRadius === 1.5` | 1.5 ok |
+| Base Flange | `metadata.sheetMetal.isFlat === true` | true ok |
+| Base Flange | `metadata.sheetMetal.bends.length === 0` | 0 ok |
+| Edge Flange #1 | `bendCount === 1`; `bend.length === 25`; `bend.angleDeg === 90` | 1 / 25 / 90 ok |
+| Edge Flange #1 | `bend.bendAllowance ~= pi*(1.5+0.4*1.5)*0.5 ~= 3.2987` | 3.2987 ok |
+| Edge Flange x4 | all 4 flanges complete (24 faces after #4) | 4/4 ok |
+| Flat Pattern | `body.metadata.sheetMetal.isFlat === true` | true ok |
+| Flat Pattern | `body.metadata.sheetMetal.bends.length === 4` | 4 ok |
+| Flat Pattern | `body.body.faces().length >= 1` (>= base) | 25 ok |
+| Bend Allowance | `bendAllowance(1.5, 1.5, 0.4, 90) ~= 3.2987` (closed-form check) | 3.2987 ok |
+
+### E2E + regression subset (Tier 5a)
+
+Headed Electron, `--workers=1`, `--retries=0`.
+
+| Spec | Result |
+|---|---|
+| `ux-tier5a-sheet-metal-electron` (NEW) | **PASS** (~16.6 s) |
+| `sp11-sheet-tolerant-electron` (regression — sheet-body foundation) | PASS (~10.7 s) |
+| `ribbon-test` (regression — ribbon tabs + tool counts) | PASS (~9.6 s) |
+
+The new Sheet Metal tab adds an 8th ribbon tab; `ribbon-test` confirms
+the ribbon still renders cleanly with the new entry.
+
+### Honest gaps + queued Tier-5 follow-ups
+
+1. **Foundation only — 3 of ~18 SW sheet-metal ops shipped.** The
+   following sheet-metal ops from `solidworks-course-synthesis.md` §6.5
+   remain QUEUED for follow-on Tier-5 dispatches (a, b, c, ...):
+   - **Convert to Sheet Metal** (tag an existing solid as sheet metal
+     by picking a fixed face + bend edges).
+   - **Lofted Bend** (lofted sheet between two profile sketches).
+   - **Miter Flange** (sketched profile swept along multiple edges).
+   - **Hem** (4 variants: Closed / Open / Tear-Drop / Rolled).
+   - **Jog** (sheet-metal Z-bend).
+   - **Sketched Bend** (apply a bend along a user-drawn sketch line).
+   - **Closed Corner** (overlap or butt the corners of two adjacent
+     flanges — replaces the gap in the current open-box result).
+   - **Corner Trim / Corner Relief** (rectangular / tear / obround).
+   - **Cross Break** (display-only stiffening line).
+   - **Forming Tool** (library of louver / emboss / bridge).
+   - **Sweep Flange** (sheet-metal swept flange — profile + path).
+   - **Rib (Sheet Metal version)** (sheet-metal rib feature).
+   - **Auto-Relief** (rectangular / tear / obround relief cuts where
+     bend lines meet).
+   - **Bend Allowance / Bend Deduction / Gauge Table** (the dispatch
+     ships K-Factor only; the SW dialog also offers bend-allowance /
+     bend-deduction / a per-thickness gauge table — switchable).
+
+2. **Sharp-corner flanges (no rolled bend).** The Edge Flange ships a
+   sharp-corner right-angle flange. A real production sheet-metal part
+   has a rolled cylindrical bend along the bend axis with radius `R`
+   on the inside, `R + thickness` on the outside. The rolled bend
+   would require a sweep along the bend-axis cylinder; the math
+   (K-factor / bend allowance) is fully recorded on the bend record,
+   so the rolled-bend geometry can be a pure-additive future dispatch.
+
+3. **Edge Flange picks by index, not by viewport.** The dialog asks
+   for a 1-based edge index (visible-edge order); a "click the edge in
+   the viewport" pick-set would be SP-1-style work touching Viewport3D
+   (which the allowlist forbids). Sheet Metal's selection-driven path
+   currently falls back to the dialog index, the same path every
+   ribbon tool uses for selection-by-id under Playwright.
+
+4. **Flat Pattern bounds = bend-anchor rectangle.** The flat back
+   rectangle is computed from the bend anchors' bounding rectangle
+   in the base plane. For the typical "rectangular box with flanges
+   on every side" case the anchors define the rectangle that EXACTLY
+   matches the base flange's outline (and the spec verifies this with
+   a real 4-bend enclosure). For asymmetric flange placement or a
+   non-rectangular sketch profile, the flat back would need a richer
+   boundary reconstruction from the sketch profile — the metadata
+   schema can carry that (Tier-5b will store the original sketch
+   profile on `metadata.sheetMetal.baseProfile` for richer unfolding).
+
+5. **Body-kind contract is `solid` (not `sheet`).** SolidWorks parts
+   ARE solids (they have a finite thickness). The "sheet metal" nature
+   is the METADATA, not the body kind — this is consistent with how SW
+   models sheet metal internally. Callers wanting a true sheet-body
+   (zero thickness) for a sheet-metal mid-surface representation can
+   call `makeSheetBody` from SP-11 on the mid-surface; that is a
+   separate workflow.
