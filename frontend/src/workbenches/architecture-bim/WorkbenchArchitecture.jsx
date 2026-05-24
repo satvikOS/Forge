@@ -2,12 +2,30 @@ import React from 'react';
 import Viewport3D from '../../components/Viewport3D';
 
 /**
- * Architecture & BIM Workbench - Blender Layout  
+ * Architecture & BIM Workbench - Blender Layout
  * Industry Standard: Revit, ArchiCAD
  */
 function WorkbenchArchitecture() {
     return (
         <>
+            {/* PLACEHOLDER RIBBON - reserves the same vertical space the
+                Mechanical CAD ribbon occupies so the viewport row is
+                IDENTICAL height across every workbench tab. Without this
+                stub the ribbon grid row collapses to 0 px in this
+                workbench and the viewport balloons in height vs Mechanical
+                CAD — which is the "viewport is cutting in some tabs"
+                inconsistency the user reported. The stub is a
+                visually-quiet header showing the workbench's name so the
+                ribbon row reads intentional rather than empty. */}
+            <div className="workbench-ribbon-placeholder" data-archdisc-ribbon-placeholder="architecture">
+                <div className="workbench-ribbon-placeholder-tabs">
+                    <span className="workbench-ribbon-placeholder-tab">Architecture &amp; BIM</span>
+                </div>
+                <div className="workbench-ribbon-placeholder-body">
+                    Wall · Door · Window · Floor · Roof · Column · Level (placeholder ribbon)
+                </div>
+            </div>
+
             {/* LEFT TOOLBAR - ICON ONLY */}
             <aside className="workbench-tools">
                 <button className="tool-icon-button" title="Select">⬚</button>

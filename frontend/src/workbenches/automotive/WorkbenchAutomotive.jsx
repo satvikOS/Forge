@@ -8,6 +8,18 @@ import Viewport3D from '../../components/Viewport3D';
 function WorkbenchAutomotive() {
     return (
         <>
+            {/* PLACEHOLDER RIBBON - see WorkbenchArchitecture.jsx for the
+                rationale (uniform ribbon row height keeps the viewport
+                identical across all workbench tabs). */}
+            <div className="workbench-ribbon-placeholder" data-archdisc-ribbon-placeholder="automotive">
+                <div className="workbench-ribbon-placeholder-tabs">
+                    <span className="workbench-ribbon-placeholder-tab">Automotive</span>
+                </div>
+                <div className="workbench-ribbon-placeholder-body">
+                    Surface · Curve · Blend · Trim · Mirror · Airflow · Render (placeholder ribbon)
+                </div>
+            </div>
+
             {/* LEFT TOOLBAR - ICON ONLY */}
             <aside className="workbench-tools">
                 <button className="tool-icon-button" title="Select">⬚</button>
