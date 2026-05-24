@@ -20,7 +20,13 @@ export { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 export { checkSelfIntersection, checkClash, selfIntersect } from './BrepCheck.js';
 export { tessellatePerFace } from './BrepTessellate.js';
 export { translate, rotate, makeCompound } from './BrepTransform.js';
-export { simplify } from './BrepHeal.js';
+export {
+  simplify,
+  // SP-8 — Healing & repair completion (Area H, T1).
+  autoFillMissingFaces,
+  autoRepairSelfIntersection,
+  harmonizeNormals,
+} from './BrepHeal.js';
 export { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
 export { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
 // SP-5 — Boolean & partition completion (Area C, T1).

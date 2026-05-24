@@ -20,7 +20,13 @@ import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 import { sweep, loft } from './BrepSurfacing.js';
 import { checkSelfIntersection, checkClash, selfIntersect } from './BrepCheck.js';
 import { translate, rotate, makeCompound } from './BrepTransform.js';
-import { simplify } from './BrepHeal.js';
+import {
+  simplify,
+  // SP-8 — Healing & repair completion (Area H, T1).
+  autoFillMissingFaces,
+  autoRepairSelfIntersection,
+  harmonizeNormals,
+} from './BrepHeal.js';
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
@@ -75,6 +81,13 @@ export const ArchDiscKernel = {
     checkSelfIntersection, checkClash, selfIntersect,
     translate, rotate, makeCompound,
     simplify,
+    // ── SP-8 Healing & repair completion (Area H, T1) ─────────────────────
+    /** Auto-fill missing faces — patches every closed open-edge loop with an N-sided patch and stitches the result back to a watertight body. */
+    autoFillMissingFaces,
+    /** Auto-repair face-level self-intersection — detect via Möller, then heal via ShapeFix_Shape tolerance widening + ShapeFix_Shell.FixFaceOrientation. */
+    autoRepairSelfIntersection,
+    /** Harmonise face normals so every face's outward normal points consistently (or all inward via opts.outward=false). */
+    harmonizeNormals,
     blendG2, cliffEdgeBlend, mitreCorner,
     fuseAll, fuseNonManifold, fuseCoincident, fuseLattice,
     // ── SP-5 Boolean & partition completion (Area C, T1) ──────────────────
