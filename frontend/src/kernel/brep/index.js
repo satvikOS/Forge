@@ -70,3 +70,13 @@ export {
   tolerantEdges, tolerantVertices, tolerantFaces,
   setBodyTolerance, BodyKindError,
 } from './BrepSheet.js';
+// SP-13 — Data exchange completion (Area M, T2) — re-export from kernel/export/.
+export {
+  exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
+} from '../export/StepExportAp242.js';
+export {
+  exportIges, parseIgesSummary, importIges,
+} from '../export/IgesExport.js';
+export {
+  exportGltf, parseGltfSummary,
+} from '../export/GltfExport.js';

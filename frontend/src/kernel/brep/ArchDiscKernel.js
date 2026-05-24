@@ -73,6 +73,16 @@ import {
   tolerantEdges, tolerantVertices, tolerantFaces,
   setBodyTolerance, BodyKindError,
 } from './BrepSheet.js';
+// SP-13 — Data exchange completion (Area M, T2).
+import {
+  exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
+} from '../export/StepExportAp242.js';
+import {
+  exportIges, parseIgesSummary, importIges,
+} from '../export/IgesExport.js';
+import {
+  exportGltf, parseGltfSummary,
+} from '../export/GltfExport.js';
 
 export const ArchDiscKernel = {
   /** Ensure the B-rep kernel WASM module is loaded. */
@@ -194,6 +204,26 @@ export const ArchDiscKernel = {
     setBodyTolerance,
     /** Exception class raised by Body.assertSolid/Sheet/Wire/Lamina. */
     BodyKindError,
+    // ── SP-13 Data exchange completion (Area M, T2) ──────────────────────
+    /** Export to STEP AP242 (PMI + colour + property attributes). */
+    exportStepAp242,
+    /** Parse the AP242 STEP file and return PMI/colour/property entity counts. */
+    parseStepAp242Summary,
+    /** Import an AP242 STEP file + reconstruct attribute manifest. */
+    async importStepAp242WithAttrs(stepText) {
+      const { importStep } = await import('./BrepStep.js');
+      return importStepAp242WithAttrs(stepText, importStep);
+    },
+    /** Export to IGES 5.3 via OCCT IGESControl_Writer. */
+    exportIges,
+    /** Parse an IGES file and return section-count summary. */
+    parseIgesSummary,
+    /** Import an IGES file via OCCT IGESControl_Reader. */
+    importIges,
+    /** Export to glTF 2.0 with PBR material + per-face colour + attribute extras. */
+    exportGltf,
+    /** Parse a glTF 2.0 file and return material + extras summary. */
+    parseGltfSummary,
     /** All metrics in one call — convenient for e2e assertions. */
     async measure(brepShape) {
       return {
