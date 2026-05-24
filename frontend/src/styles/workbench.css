@@ -1,22 +1,163 @@
 /* ArchDisc - Blender-Style Professional UI */
 /* Polished visual layer - layout structure preserved */
 
-/* ========== MAIN CONTAINER - GRID LAYOUT ========== */
+/* Canonical ribbon row height. Every workbench wrapper sees the ribbon row
+   at exactly this height so the viewport row below is uniform across tabs.
+   Mechanical CAD's full ribbon is constrained to this height via the
+   `.ribbon-container` rule below (the ribbon's own `.ribbon-content` flex
+   already handles horizontal scrolling, so any overflow tools remain
+   reachable). Placeholder wrappers mount `.workbench-ribbon-placeholder`
+   matching the same height. */
+:root {
+    --ribbon-height: 124px;
+}
+
+/* Constrain the live RibbonToolbar to the canonical row height. Defined
+   here (not in RibbonToolbar.css) because the constraint is a layout-level
+   contract owned by the workbench shell, not by the ribbon component.
+   The descendant-selector form `.workbench-container .ribbon-container`
+   wins the cascade against `RibbonToolbar.css`'s `.ribbon-container` rule
+   regardless of import order, because it has higher specificity. */
+.workbench-container .ribbon-container {
+    height: var(--ribbon-height);
+    max-height: var(--ribbon-height);
+    min-height: var(--ribbon-height);
+}
+
+/* ========== MAIN CONTAINER - GRID LAYOUT ==========
+ *
+ * Layout columns:
+ *   toolbar  | viewport | rollback | properties
+ *   var(--toolbar-width) | 1fr (flex) | rollback-width (auto, 0 when empty)
+ *   | var(--properties-width)
+ *
+ * The `rollback` column hosts the kernel-history timeline strip in its
+ * VERTICAL form — see `frontend/src/components/SwUxOverlays.jsx::RollbackBar`.
+ * The strip used to render as an absolute-positioned overlay at top:48 of
+ * the viewport (obstructing the 3D model); it now lives in this dedicated
+ * grid column so the viewport is unobstructed. The column collapses to
+ * 0 width when the kernel HistoryLog is empty (the bar returns null), and
+ * shrinks to a 28px sliver when the user collapses the bar manually.
+ *
+ * Every workbench wrapper (Mechanical CAD / Architecture & BIM / Gaming &
+ * VFX / Automotive / Electronics — and the Sheet Metal / Weldments
+ * wrappers that delegate to Mechanical) mounts the same three grid
+ * children (`.workbench-tools` / `.workbench-viewport` / `.workbench-properties`)
+ * so viewport sizing is uniform across tabs by construction.
+ */
 .workbench-container {
     height: 100vh;
     width: 100vw;
     display: grid;
+    /*
+     * The `ribbon` row uses an `auto` track. Some workbench wrappers
+     * (Mechanical CAD) mount a tall ribbon there; the placeholder
+     * wrappers (Architecture & BIM / Gaming & VFX / Automotive /
+     * Electronics) mount a stub. The stub forces the same row height
+     * (`--ribbon-height` set in index.css) so the viewport row receives
+     * IDENTICAL space across every tab — fixing the user-reported
+     * "viewport is cutting in some tabs" symptom. See
+     * `frontend/src/styles/workbench.css::.workbench-ribbon-placeholder`.
+     */
     grid-template-rows: var(--header-height) auto minmax(0, 1fr) 22px auto;
-    grid-template-columns: var(--toolbar-width) 1fr var(--properties-width);
+    grid-template-columns:
+        var(--toolbar-width)
+        minmax(0, 1fr)
+        auto
+        var(--properties-width);
     grid-template-areas:
-        "header header header"
-        "ribbon ribbon ribbon"
-        "toolbar viewport properties"
-        "statusbar statusbar statusbar"
-        "footer footer footer";
+        "header   header   header   header"
+        "ribbon   ribbon   ribbon   ribbon"
+        "toolbar  viewport rollback properties"
+        "statusbar statusbar statusbar statusbar"
+        "footer   footer   footer   footer";
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow: hidden;
+}
+
+/* Placeholder ribbon mounted by workbench wrappers that do not (yet) ship
+   their own full RibbonToolbar. Reserves the same vertical space the
+   Mechanical CAD ribbon occupies so the viewport row is the SAME HEIGHT
+   regardless of which workbench is active. */
+.workbench-container .workbench-ribbon-placeholder {
+    grid-area: ribbon;
+    background: var(--bg-secondary, #16162a);
+    border-bottom: 1px solid var(--border-color, #2a2a3e);
+    height: var(--ribbon-height, 124px);
+    min-height: var(--ribbon-height, 124px);
+    max-height: var(--ribbon-height, 124px);
+    display: flex;
+    flex-direction: column;
+}
+
+.workbench-ribbon-placeholder-tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 8px;
+    background: var(--bg-tertiary, #111122);
+    border-bottom: 1px solid var(--border-color, #2a2a3e);
+    flex-shrink: 0;
+    height: 24px;
+    align-items: stretch;
+}
+
+.workbench-ribbon-placeholder-tab {
+    color: var(--text-secondary, #888);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 14px;
+    border-bottom: 2px solid var(--accent-primary, #4a90d9);
+    letter-spacing: 0.3px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.workbench-ribbon-placeholder-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted, #555);
+    font-size: 11px;
+    font-style: italic;
+    letter-spacing: 0.3px;
+}
+
+/* ========== ROLLBACK COLUMN (vertical history scrubber) ========== */
+.workbench-rollback {
+    grid-area: rollback;
+    /* Default = expanded (72 px). Modifier classes below shrink: collapsed
+       hand-folded by the user (28 px sliver), or empty when the kernel
+       HistoryLog has no entries (0 px — column fully hides). */
+    width: 72px;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    background: transparent;
+}
+
+/* Collapsed sliver — declared BEFORE the empty rule below so empty wins
+   when both classes apply (we want a fully-empty timeline to disappear
+   entirely, not show a 28 px sliver). */
+.workbench-rollback.workbench-rollback-collapsed {
+    width: 28px;
+}
+
+/* Empty — overrides collapsed (last in source order = wins). */
+.workbench-rollback.workbench-rollback-empty {
+    width: 0;
+    border: none;
+}
+
+.workbench-rollback > * {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
 }
 
 /* ========== TOP HEADER ========== */

@@ -14,6 +14,8 @@ import ProjectLibrary from './ProjectLibrary';
 import ComponentInfoPanel from './ComponentInfoPanel';
 import CommandPalette from './CommandPalette';
 import ToastContainer from './ToastContainer';
+import { RollbackBar } from './SwUxOverlays';
+import './SwUxOverlays.css';
 import { ViewportProvider } from '../contexts/ViewportContext';
 import apiService from '../services/api';
 import '../styles/workbench.css';
@@ -34,6 +36,41 @@ function WorkbenchContainer() {
     const [redoStack, setRedoStack] = useState([]);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [activeProjectId, setActiveProjectId] = useState(null);
+    // Rollback column visibility — driven by the live kernel HistoryLog.
+    // The RollbackBar component returns null when the log is empty so we
+    // collapse the grid column to 0 width to avoid an empty gap between
+    // the viewport and the right Properties panel. This is the only piece
+    // of state the workbench shell needs from the bar; the bar itself owns
+    // expand/collapse + scrubbing.
+    const [rollbackHasItems, setRollbackHasItems] = useState(false);
+    const [rollbackCollapsed, setRollbackCollapsed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        try {
+            return window.localStorage.getItem('archdisc.rollbackBar.collapsed') === '1';
+        } catch { return false; }
+    });
+
+    // Subscribe to the kernel history-changed event so the column hides
+    // when the log goes empty (and reappears when ops record). The bar
+    // mirrors `__archdiscRollbackBarHasItems` on every snapshot.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const refresh = () => {
+            setRollbackHasItems(!!window.__archdiscRollbackBarHasItems);
+            try {
+                setRollbackCollapsed(
+                    window.localStorage.getItem('archdisc.rollbackBar.collapsed') === '1'
+                );
+            } catch { /* localStorage unavailable */ }
+        };
+        refresh();
+        window.addEventListener('archdisc:history-changed', refresh);
+        const id = setInterval(refresh, 600);  // belt-and-braces poll
+        return () => {
+            window.removeEventListener('archdisc:history-changed', refresh);
+            clearInterval(id);
+        };
+    }, []);
 
     // Toast helper
     const addToast = (message, type = 'info', duration = 3000) => {
@@ -209,6 +246,23 @@ function WorkbenchContainer() {
 
                 {/* WORKBENCH CONTENT (Toolbar + Viewport + Properties) - renders as grid children */}
                 {renderWorkbench()}
+
+                {/* ROLLBACK COLUMN — vertical kernel-history timeline scrubber,
+                    relocated OUT of the viewport overlay layer. Sits in its
+                    own grid column between the viewport and the Properties
+                    panel so the 3D model is never obstructed. Auto-hides
+                    (zero-width column) when the kernel HistoryLog is empty. */}
+                <aside
+                    className={
+                        'workbench-rollback'
+                        + (rollbackHasItems ? '' : ' workbench-rollback-empty')
+                        + (rollbackCollapsed ? ' workbench-rollback-collapsed' : '')
+                    }
+                    data-archdisc-rollback-column={rollbackHasItems ? 'active' : 'empty'}
+                    data-archdisc-rollback-column-collapsed={rollbackCollapsed ? 'true' : 'false'}
+                >
+                    <RollbackBar />
+                </aside>
 
                 {/* STATUS BAR */}
                 <StatusBarPro />

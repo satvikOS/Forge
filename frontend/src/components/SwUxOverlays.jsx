@@ -31,7 +31,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ChevronDown, ChevronRight, Check, X, Maximize2, Crop,
+import { ChevronDown, ChevronRight, ChevronLeft, Check, X, Maximize2, Crop,
          Scissors, Box, Eye, Square, MousePointer, Layers, Hexagon,
          Circle, Trash2, Info, Minus, MoveVertical, GitBranch,
          RotateCw, Slash, Flag, Clock, SkipBack, SkipForward,
@@ -264,12 +264,11 @@ export function HeadsUpViewToolbar() {
 
   return (
     <>
-    {/* Tier-1 #10 — Rollback bar mounts as a sibling so the bar is always
-     *  present whenever the heads-up toolbar is mounted (every workbench).
-     *  Auto-hides when the kernel HistoryLog is empty (no point showing an
-     *  empty timeline). See `RollbackBar` definition at the bottom of this
-     *  file for the SP-3c kernel-history-backed scrubber. */}
-    <RollbackBar />
+    {/* Tier-1 #10 — Rollback bar has been relocated OUT of the viewport
+     *  overlay layer (it was obstructing the 3D model). It now mounts at
+     *  the workbench-container level as a VERTICAL right-side strip in its
+     *  own grid column (see Workbench.jsx + workbench.css `.workbench-rollback`).
+     *  This file still exports `RollbackBar`; Workbench.jsx imports it. */}
     <div className="sw-heads-up-toolbar" data-archdisc-headsup="active" onMouseLeave={closeMenus}>
       <button
         className="sw-hu-btn"
@@ -1327,10 +1326,17 @@ export function DisplayRelationsDock() {
 
 // ─── 10. Rollback Bar — Tier-1 #10 (SP-3c kernel-history timeline scrubber) ──
 //
-// A real, HistoryLog-backed timeline strip at the top of the viewport. Lives
-// just under the Heads-up View Toolbar (which is centred at top:8). The
-// Rollback bar sits beneath it (top:48) so the two never collide and the
-// timeline reads naturally as "below the camera controls".
+// A real, HistoryLog-backed VERTICAL timeline strip mounted as a dedicated
+// grid column on the right edge of the workbench layout (between the
+// viewport and the right Properties panel). The bar lives OFF the viewport
+// — it does not overlay the 3D content. Reads chronologically top → bottom:
+// the baseline flag at the top, then each entry / mark in record order, with
+// the current cursor caret pulsing between them.
+//
+// The strip is collapsible via the chevron at its top — when collapsed it
+// shrinks to a 28px sliver showing the cursor position only, so the user can
+// reclaim that horizontal real estate for the viewport without losing
+// access to the timeline.
 //
 // What it shows:
 //   - A horizontal strip with every entry in the kernel HistoryLog
@@ -1461,6 +1467,15 @@ export function RollbackBar() {
   const [contextMenu, setContextMenu] = useState(null); // {x,y,entry}
   const [renameEditing, setRenameEditing] = useState(null); // {entryId, value}
   const [scrubbing, setScrubbing] = useState(false);
+  // Collapse toggle — when collapsed the side strip shrinks to a 28 px sliver
+  // so the user can reclaim the horizontal real estate for the viewport.
+  // Persisted to localStorage so the user's preference survives reload.
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem('archdisc.rollbackBar.collapsed') === '1';
+    } catch { return false; }
+  });
   const stripRef = useRef(null);
   const rafThrottleRef = useRef({ pendingIdx: null, raf: null });
   const renameInputRef = useRef(null);
@@ -1503,13 +1518,14 @@ export function RollbackBar() {
     if (next) setSnap(next);
   }, []);
 
-  // Drag-scrub: track pointer X over the strip, map to nearest entry idx.
+  // Drag-scrub: track pointer Y over the (vertical) strip, map to nearest
+  // entry idx. The strip reads top→bottom — baseline at top, tail at bottom.
   const onStripPointerDown = useCallback((ev) => {
     if (ev.button !== 0) return;
     if (!stripRef.current) return;
     setScrubbing(true);
     const rect = stripRef.current.getBoundingClientRect();
-    const idx = resolveIdxFromX(ev.clientX, rect, snap);
+    const idx = resolveIdxFromY(ev.clientY, rect, snap);
     queueRollToIndex(idx);
     try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch {}
   }, [snap, queueRollToIndex]);
@@ -1517,7 +1533,7 @@ export function RollbackBar() {
   const onStripPointerMove = useCallback((ev) => {
     if (!stripRef.current) return;
     const rect = stripRef.current.getBoundingClientRect();
-    const idx = resolveIdxFromX(ev.clientX, rect, snap);
+    const idx = resolveIdxFromY(ev.clientY, rect, snap);
     setHoverIdx(idx);
     if (scrubbing) queueRollToIndex(idx);
   }, [snap, scrubbing, queueRollToIndex]);
@@ -1627,6 +1643,28 @@ export function RollbackBar() {
     if (next) setSnap(next);
   }, []);
 
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try { window.localStorage.setItem('archdisc.rollbackBar.collapsed', next ? '1' : '0'); } catch {}
+      }
+      return next;
+    });
+  }, []);
+
+  // The bar AUTO-HIDES the timeline (returns null) when the log is empty,
+  // but the empty state also drives whether the SIDE COLUMN should appear
+  // in the workbench layout at all. We surface that via a window flag so
+  // workbench.css can pick a zero-width column for an empty log without
+  // forcing a re-mount of the React subtree.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const hasItems = snap && snap.items.length > 0;
+    window.__archdiscRollbackBarHasItems = !!hasItems;
+    return undefined;
+  }, [snap]);
+
   // Bar hides when there's no log content.
   if (!snap || snap.items.length === 0) {
     return null;
@@ -1635,7 +1673,8 @@ export function RollbackBar() {
   const N = snap.items.length;
   // Cursor cell — cursor = -1 means baseline (BEFORE entries[0]); we render
   // the strip with N+1 positions: position 0 is the "before any op" slot
-  // (the baseline flag), and positions 1..N are the entries.
+  // (the baseline flag at the TOP of the vertical strip), and positions
+  // 1..N are the entries reading top → bottom.
   const cursorCell = snap.cursor + 1;  // 0 ⇔ baseline, N ⇔ tail entry
   const totalCells = N + 1;
   const stepPercent = 100 / totalCells;
@@ -1643,60 +1682,79 @@ export function RollbackBar() {
   return (
     <>
       <div
-        className={'sw-rollback-bar' + (scrubbing ? ' sw-rollback-bar-scrubbing' : '')}
+        className={
+          'sw-rollback-bar sw-rollback-bar-vertical'
+          + (scrubbing ? ' sw-rollback-bar-scrubbing' : '')
+          + (collapsed ? ' sw-rollback-bar-collapsed' : '')
+        }
         data-archdisc-rollback-bar="active"
+        data-archdisc-rollback-bar-vertical="true"
+        data-archdisc-rollback-bar-collapsed={collapsed ? 'true' : 'false'}
         data-archdisc-rollback-entries={N}
         data-archdisc-rollback-cursor={snap.cursor}
         data-archdisc-rollback-current={snap.currentId || 'baseline'}
         role="toolbar"
         aria-label="Kernel rollback timeline"
       >
-        <div className="sw-rollback-bar-meta">
-          <Clock size={11} />
-          <span className="sw-rollback-bar-meta-label">Rollback</span>
-          <span className="sw-rollback-bar-meta-sep">·</span>
-          <span className="sw-rollback-bar-meta-count">{N} ops</span>
-          <span className="sw-rollback-bar-meta-sep">·</span>
-          <span className="sw-rollback-bar-meta-cursor">
-            cursor {snap.cursor === -1 ? '—' : snap.cursor}/{N - 1}
-          </span>
-        </div>
         <button
-          className="sw-rollback-step"
-          title="Roll back to baseline"
-          data-archdisc-rollback-action="rewind"
-          onClick={() => clickEntry(-1)}
-          aria-label="Rewind to baseline"
+          className="sw-rollback-collapse-toggle"
+          title={collapsed ? 'Expand rollback timeline' : 'Collapse rollback timeline'}
+          aria-label={collapsed ? 'Expand rollback timeline' : 'Collapse rollback timeline'}
+          aria-expanded={!collapsed}
+          data-archdisc-rollback-collapse-toggle={collapsed ? 'collapsed' : 'expanded'}
+          onClick={(e) => { e.stopPropagation(); toggleCollapsed(); }}
         >
-          <SkipBack size={11} />
+          {collapsed ? <ChevronLeft size={11} /> : <ChevronRight size={11} />}
         </button>
+
+        {!collapsed && (
+          <div className="sw-rollback-bar-meta">
+            <Clock size={11} />
+            <span className="sw-rollback-bar-meta-label">Rollback</span>
+            <span className="sw-rollback-bar-meta-sep">·</span>
+            <span className="sw-rollback-bar-meta-count">{N} ops</span>
+          </div>
+        )}
+
+        {!collapsed && (
+          <button
+            className="sw-rollback-step"
+            title="Roll back to baseline"
+            data-archdisc-rollback-action="rewind"
+            onClick={() => clickEntry(-1)}
+            aria-label="Rewind to baseline"
+          >
+            <SkipBack size={11} />
+          </button>
+        )}
+
         <div
           ref={stripRef}
-          className="sw-rollback-strip"
+          className={'sw-rollback-strip sw-rollback-strip-vertical'
+            + (collapsed ? ' sw-rollback-strip-collapsed' : '')}
           data-archdisc-rollback-strip="active"
           onPointerDown={onStripPointerDown}
           onPointerMove={onStripPointerMove}
           onPointerUp={onStripPointerUp}
           onPointerLeave={onStripPointerLeave}
           onPointerCancel={onStripPointerUp}
-          style={{ minWidth: ROLLBACK_BAR_MIN_WIDTH + 'px' }}
         >
-          {/* Cursor caret — positioned by cell index. Pulses when scrubbing. */}
+          {/* Cursor caret — positioned along the Y axis by cell index. */}
           <div
-            className={'sw-rollback-cursor'
+            className={'sw-rollback-cursor sw-rollback-cursor-vertical'
               + (scrubbing ? ' sw-rollback-cursor-pulse' : '')}
             data-archdisc-rollback-caret={snap.cursor}
-            style={{ left: `calc(${(cursorCell + 0.5) * stepPercent}% - 1px)` }}
+            style={{ top: `calc(${(cursorCell + 0.5) * stepPercent}% - 1px)` }}
           />
-          {/* Baseline flag at the very left. */}
+          {/* Baseline flag at the very TOP of the strip. */}
           <button
             type="button"
-            className={'sw-rollback-baseline'
+            className={'sw-rollback-baseline sw-rollback-baseline-vertical'
               + (snap.cursor === -1 ? ' sw-rollback-baseline-active' : '')}
             title="Baseline (before any op)"
             data-archdisc-rollback-baseline="present"
             data-archdisc-rollback-active={snap.cursor === -1 ? 'true' : 'false'}
-            style={{ left: `calc(${0.5 * stepPercent}% - 7px)` }}
+            style={{ top: `calc(${0.5 * stepPercent}% - 7px)` }}
             onClick={(e) => { e.stopPropagation(); clickEntry(-1); }}
           >
             <Flag size={10} />
@@ -1713,7 +1771,9 @@ export function RollbackBar() {
                 key={item.id}
                 type="button"
                 className={
-                  (isMark ? 'sw-rollback-mark' : 'sw-rollback-entry')
+                  (isMark
+                    ? 'sw-rollback-mark sw-rollback-mark-vertical'
+                    : 'sw-rollback-entry sw-rollback-entry-vertical')
                   + (isCurrent ? ' sw-rollback-entry-current' : '')
                   + (isApplied ? ' sw-rollback-entry-applied' : ' sw-rollback-entry-pending')
                   + (isHovered ? ' sw-rollback-entry-hover' : '')
@@ -1725,8 +1785,8 @@ export function RollbackBar() {
                 data-archdisc-rollback-entry-applied={isApplied ? 'true' : 'false'}
                 data-archdisc-rollback-entry-current={isCurrent ? 'true' : 'false'}
                 style={{
-                  left: isMark
-                    ? `calc(${cellCenterPercent}% - 9px)`
+                  top: isMark
+                    ? `calc(${cellCenterPercent}% - 11px)`
                     : `calc(${cellCenterPercent}% - 5px)`,
                 }}
                 title={
@@ -1740,25 +1800,39 @@ export function RollbackBar() {
                 {isMark ? (
                   <>
                     <Flag size={9} />
-                    <span className="sw-rollback-mark-label">{item.mark}</span>
+                    {!collapsed && (
+                      <span className="sw-rollback-mark-label">{item.mark}</span>
+                    )}
                   </>
                 ) : null}
               </button>
             );
           })}
         </div>
-        <button
-          className="sw-rollback-step"
-          title="Roll forward to tail"
-          data-archdisc-rollback-action="ffwd"
-          onClick={() => clickEntry(N - 1)}
-          aria-label="Roll forward to tail"
-        >
-          <SkipForward size={11} />
-        </button>
-        {hoverIdx !== null && snap.items[hoverIdx] && (
+
+        {!collapsed && (
+          <button
+            className="sw-rollback-step"
+            title="Roll forward to tail"
+            data-archdisc-rollback-action="ffwd"
+            onClick={() => clickEntry(N - 1)}
+            aria-label="Roll forward to tail"
+          >
+            <SkipForward size={11} />
+          </button>
+        )}
+
+        {!collapsed && (
+          <div className="sw-rollback-bar-meta sw-rollback-bar-meta-footer">
+            <span className="sw-rollback-bar-meta-cursor">
+              cursor {snap.cursor === -1 ? '—' : snap.cursor}/{N - 1}
+            </span>
+          </div>
+        )}
+
+        {!collapsed && hoverIdx !== null && snap.items[hoverIdx] && (
           <div
-            className="sw-rollback-tip"
+            className="sw-rollback-tip sw-rollback-tip-vertical"
             data-archdisc-rollback-tip={snap.items[hoverIdx].id}
           >
             <span className="sw-rollback-tip-op">{snap.items[hoverIdx].opName}</span>
@@ -1836,6 +1910,9 @@ export function RollbackBar() {
 /**
  * Map a pointer X (clientX) onto the nearest entry index, given the strip
  * bounding rect + current snapshot. Returns -1 for the baseline cell.
+ *
+ * Retained for any external callers that depended on the horizontal-strip
+ * mapping; the live RollbackBar now uses `resolveIdxFromY`.
  */
 function resolveIdxFromX(clientX, rect, snap) {
   if (!snap || snap.items.length === 0) return -1;
@@ -1843,6 +1920,22 @@ function resolveIdxFromX(clientX, rect, snap) {
   const totalCells = N + 1;
   const x = clientX - rect.left;
   const cell = Math.floor((x / rect.width) * totalCells);
+  const clamped = Math.max(0, Math.min(totalCells - 1, cell));
+  // Cell 0 = baseline (-1); cells 1..N map to entries 0..N-1.
+  return clamped === 0 ? -1 : clamped - 1;
+}
+
+/**
+ * Map a pointer Y (clientY) onto the nearest entry index for the VERTICAL
+ * rollback strip. Top of the strip = baseline cell, bottom = tail entry.
+ * Returns -1 for the baseline cell.
+ */
+function resolveIdxFromY(clientY, rect, snap) {
+  if (!snap || snap.items.length === 0) return -1;
+  const N = snap.items.length;
+  const totalCells = N + 1;
+  const y = clientY - rect.top;
+  const cell = Math.floor((y / rect.height) * totalCells);
   const clamped = Math.max(0, Math.min(totalCells - 1, cell));
   // Cell 0 = baseline (-1); cells 1..N map to entries 0..N-1.
   return clamped === 0 ? -1 : clamped - 1;

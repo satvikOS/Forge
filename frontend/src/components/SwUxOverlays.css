@@ -1152,3 +1152,216 @@ body.sw-dock-suppress-floating .tpd-backdrop {
   from { opacity: 0; transform: translateX(-12px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+
+/* ─── Vertical Rollback Bar — relocated OUT of the viewport overlay ─────── */
+/*
+ * The horizontal `.sw-rollback-bar` rules above remain for back-compat with
+ * any callers that mount the bar in its original top-of-viewport layout.
+ * The live workbench mounts the VERTICAL variant via Workbench.jsx — it
+ * lives in its own grid column (`grid-area: rollback`) between the viewport
+ * and the right-hand Properties panel, so the bar NEVER overlays the 3D
+ * canvas. The column is fully collapsible via the chevron button.
+ */
+.sw-rollback-bar.sw-rollback-bar-vertical {
+  /* Reset the absolute / overlay positioning the horizontal variant uses. */
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  /* Stack from top → bottom: toggle, meta, rewind, strip, ffwd, cursor meta. */
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 8px 6px;
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-right: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  background: var(--bg-secondary, rgba(18, 18, 18, 0.96));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.sw-rollback-bar.sw-rollback-bar-vertical.sw-rollback-bar-collapsed {
+  padding: 8px 2px;
+  align-items: center;
+}
+
+.sw-rollback-collapse-toggle {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  color: #c8c8c8;
+  cursor: pointer;
+  transition: background 0.08s, border-color 0.08s, color 0.08s;
+  flex-shrink: 0;
+}
+.sw-rollback-collapse-toggle:hover {
+  background: rgba(74, 144, 217, 0.22);
+  border-color: rgba(74, 144, 217, 0.45);
+  color: #fff;
+}
+.sw-rollback-bar-collapsed .sw-rollback-collapse-toggle {
+  align-self: center;
+}
+
+.sw-rollback-bar-vertical .sw-rollback-bar-meta {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0;
+  gap: 4px;
+  font-size: 9.5px;
+}
+
+.sw-rollback-bar-vertical .sw-rollback-bar-meta-footer {
+  margin-top: auto;
+  font-size: 9px;
+  color: #aac8ff;
+}
+
+.sw-rollback-bar-vertical .sw-rollback-step {
+  align-self: center;
+  width: 26px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+/* The strip rotates 90° conceptually — width is fixed-narrow, height is the
+   timeline length. Dots, marks, caret and baseline all position by `top`. */
+.sw-rollback-strip.sw-rollback-strip-vertical {
+  position: relative;
+  flex: 1 1 auto;
+  width: 28px;
+  min-width: 28px;
+  min-height: 180px;
+  height: 100%;
+  align-self: center;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(0, 0, 0, 0.18) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  cursor: ns-resize;
+  overflow: hidden;
+}
+.sw-rollback-bar-collapsed .sw-rollback-strip.sw-rollback-strip-vertical {
+  width: 14px;
+  min-width: 14px;
+}
+
+/* Vertical baseline rail through the centre (replaces the horizontal rail). */
+.sw-rollback-strip.sw-rollback-strip-vertical::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  height: auto;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.10);
+  pointer-events: none;
+}
+
+/* Caret — horizontal stripe across the strip's width, slid along Y. */
+.sw-rollback-cursor.sw-rollback-cursor-vertical {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 0;
+  bottom: auto;
+  width: auto;
+  height: 3px;
+  background: linear-gradient(90deg, #4a90d9 0%, #aac8ff 50%, #4a90d9 100%);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(74, 144, 217, 0.65),
+              0 0 14px rgba(74, 144, 217, 0.35);
+  transition: top 0.10s ease-out;
+}
+
+/* Baseline flag at the TOP of the strip. */
+.sw-rollback-baseline.sw-rollback-baseline-vertical {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 14px;
+}
+.sw-rollback-baseline.sw-rollback-baseline-vertical:hover {
+  transform: translateX(-50%) scale(1.08);
+}
+
+/* Op entry dots — centered horizontally, slid along Y by `top`. */
+.sw-rollback-entry.sw-rollback-entry-vertical {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+}
+.sw-rollback-entry.sw-rollback-entry-vertical:hover,
+.sw-rollback-entry.sw-rollback-entry-vertical.sw-rollback-entry-hover {
+  transform: translateX(-50%) scale(1.25);
+}
+.sw-rollback-entry.sw-rollback-entry-vertical.sw-rollback-entry-current {
+  transform: translateX(-50%) scale(1.30);
+}
+
+/* Mark flags — narrow + tall, labels read across (visible only when the
+   strip is expanded). When collapsed we show just the flag icon. */
+.sw-rollback-mark.sw-rollback-mark-vertical {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px 0 4px;
+  font-size: 9px;
+}
+.sw-rollback-bar-collapsed .sw-rollback-mark.sw-rollback-mark-vertical {
+  min-width: 12px;
+  padding: 0 2px;
+}
+.sw-rollback-mark.sw-rollback-mark-vertical .sw-rollback-mark-label {
+  pointer-events: none;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sw-rollback-mark.sw-rollback-mark-vertical:hover {
+  transform: translateX(-50%) translateY(-1px) scale(1.04);
+}
+.sw-rollback-mark.sw-rollback-mark-vertical.sw-rollback-entry-current {
+  transform: translateX(-50%) scale(1.08);
+}
+
+/* Vertical hover tooltip — flows to the LEFT of the strip so it stays
+   inside the workbench layout (the right edge is the Properties panel). */
+.sw-rollback-tip.sw-rollback-tip-vertical {
+  position: absolute;
+  top: 6px;
+  bottom: auto;
+  left: auto;
+  right: calc(100% + 6px);
+  transform: none;
+  margin: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
