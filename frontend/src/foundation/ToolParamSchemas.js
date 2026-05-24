@@ -926,6 +926,45 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'staggerTip', label: 'Tip stagger', type: 'number', default: 0.4, unit: 'rad', min: -1.5, max: 1.5, step: 0.05 },
     ],
   },
+
+  // ─── DRAWING WORKBENCH — UX TIER 8a (Auxiliary / Crop / Broken Views) ────
+  //
+  // Each schema pops a small dialog before generating the corresponding
+  // 2D drawing sheet. The Auxiliary View dialog takes the projection
+  // direction (face-normal); the Crop View dialog takes a rectangle in
+  // paper-space mm; the Broken View dialog takes two break X positions.
+  // Defaults are sane for a generic 100-mm-class part; the in-app handler
+  // also accepts overrides via `window.__archdiscDrawingViewParams` so an
+  // e2e or AI plan can plug in real face-derived numbers.
+  'Auxiliary View': {
+    title: 'Auxiliary View — Project Normal to Face',
+    blurb: 'Generate a drawing view projected perpendicular to a picked face. The face normal is the projection direction.',
+    fields: [
+      { name: 'nx',    label: 'Normal X', type: 'number', default: 1.0, unit: '', min: -10, max: 10, step: 0.05 },
+      { name: 'ny',    label: 'Normal Y', type: 'number', default: 0.0, unit: '', min: -10, max: 10, step: 0.05 },
+      { name: 'nz',    label: 'Normal Z', type: 'number', default: 0.5, unit: '', min: -10, max: 10, step: 0.05, hint: 'Magnitude is irrelevant; direction only' },
+      { name: 'label', label: 'View label', type: 'enum', default: 'A', options: ['A', 'B', 'C', 'D', 'E', 'F'] },
+    ],
+  },
+  'Crop View': {
+    title: 'Crop View — Clip Drawing to Region',
+    blurb: 'Clip the front view to a rectangular boundary in paper-space mm. Use to focus on a detail without generating a separate Detail view.',
+    fields: [
+      { name: 'x', label: 'Crop X (paper mm, from view centre)', type: 'number', default: -25, unit: 'mm', min: -200, max: 200, step: 1 },
+      { name: 'y', label: 'Crop Y (paper mm, from view centre)', type: 'number', default: -20, unit: 'mm', min: -200, max: 200, step: 1 },
+      { name: 'w', label: 'Crop width',  type: 'number', default: 60, unit: 'mm', min: 1, max: 400, step: 1 },
+      { name: 'h', label: 'Crop height', type: 'number', default: 50, unit: 'mm', min: 1, max: 400, step: 1 },
+    ],
+  },
+  'Broken View': {
+    title: 'Broken View — Foreshorten Long Part',
+    blurb: 'Drop a stretch from the middle of the drawing and connect with a zig-zag break line. For long shafts / beams / rods.',
+    fields: [
+      { name: 'breakStartFrac', label: 'Break start (frac. of length)', type: 'number', default: 0.35, unit: '', min: 0.05, max: 0.95, step: 0.05 },
+      { name: 'breakEndFrac',   label: 'Break end (frac. of length)',   type: 'number', default: 0.65, unit: '', min: 0.05, max: 0.95, step: 0.05, hint: 'Must be > start' },
+      { name: 'axis',           label: 'Long axis',                     type: 'enum',   default: 'x',  options: ['x', 'y'] },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {
