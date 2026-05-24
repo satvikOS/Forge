@@ -803,9 +803,9 @@ Export glTF.
 | Section View | Section View | **Done** |
 | Detail View | Detail View | **Done** |
 | Isometric View | Isometric View | **Done** |
-| Auxiliary View | (none) | **Missing** |
-| Crop View | (none) | **Missing** |
-| Broken View | (none) | **Missing** |
+| Auxiliary View | Auxiliary View (Tier 8a) | **Done** — projects perpendicular to caller-supplied face normal; renders FRONT thumb + projection-arrow + AUX view on one A4 sheet |
+| Crop View | Crop View (Tier 8a) | **Done** — SVG `<clipPath>` clips a FRONT projection to a rectangle, reversible |
+| Broken View | Broken View (Tier 8a) | **Done** — left+right zones with a zig-zag indicator; exact `(left+right) == drawn` numerical identity |
 | Model View | (likely implicit) | **Partial** |
 | Smart Dimension | Smart Dimension | **Done** |
 | Note | Note | **Done** |
@@ -970,9 +970,9 @@ The single largest gap. Needs:
 
 ### Tier 8 — Missing drawing capabilities
 
-- **Auxiliary View** (view normal to an inclined edge)
-- **Crop View** (close-profile + crop)
-- **Broken View** (spline-defined break, for long parts)
+- ~~**Auxiliary View** (view normal to an inclined edge)~~ — **DONE** (Tier 8a; ribbon Drawing→Auxiliary View; projection along caller-supplied face normal)
+- ~~**Crop View** (close-profile + crop)~~ — **DONE** (Tier 8a; ribbon Drawing→Crop View; SVG `<clipPath>` reversible clipping)
+- ~~**Broken View** (spline-defined break, for long parts)~~ — **DONE** (Tier 8a; ribbon Drawing→Broken View; zig-zag break-line, exact `(left+right) == drawn` arithmetic)
 - **Model Items** annotation (auto-import all part dimensions onto the drawing)
 - **BOM** (Annotation→Tables→Bill of Materials)
 - **Auto-Balloon** (one-click balloons for all components linked to BOM)

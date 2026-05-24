@@ -597,7 +597,7 @@ Artifacts: `e2e-output/ux-tier2c/01–09*.png` + `00-session.webm` (~570 KB).
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | Not started |
 | 6 | Weldments workbench (structural members + cut list) | Not started |
 | 7 | Missing assembly capabilities (Parallel/Perpendicular/Tangent/Lock mates, all Advanced + Mechanical mates, Component Pattern, Toolbox) | Not started |
-| 8 | Missing drawing capabilities (Auxiliary/Crop/Broken View, Model Items, BOM/Auto-Balloon, Title Block edit) | Not started |
+| 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, Model Items, BOM/Auto-Balloon, Title Block edit) | **Partial — Tier 8a shipped (3/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | Not started |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
 
@@ -639,3 +639,86 @@ Artifacts: `e2e-output/ux-tier11a/01–08*.png` + `00-session.webm` (~1 MB).
 3. **Edge picking picks the nearest triangle edge, not the analytic edge.** On a flat face that's a true model edge (the e2e proves this — the picked edge on the upper plate is exactly the corner of the rectangle). On a triangulated curved surface it picks an internal mesh edge, which is honest but not what a true B-rep edge picker would return.
 4. **Vertex picking picks the nearest mesh vertex of the hit triangle.** Same trade-off as edges: on a flat polygon's corner you get the right vertex; inside a curved face you get a mesh vertex.
 5. **Hover-highlight follow-the-cursor is NOT wired** in this pass. The hover-highlight pattern that NX shows (preview-highlight before commit) would need a `pointermove` raycast loop and a separate transient overlay. Out of scope here — the same Selection Bar will pick up that work in a follow-on.
+
+---
+
+## Tier 8a — Drawing-view types: Auxiliary + Crop + Broken (3 of 3 shipped)
+
+Closes three of the four "Tier 8 — Missing drawing capabilities" items the
+SW course synthesis identified. The fourth (Model Items annotation,
+BOM/Auto-Balloon, Title Block edit) remains under Tier 8.
+
+| Tier-8a # | Convention | Status | Implementation |
+|---|---|---|---|
+| 71 | **Auxiliary View** — project perpendicular to a picked face/edge | **DONE** | `workbenches/drawing/DrawingViews.js::auxiliaryView`. Takes a `{x,y,z}` normal (face-pick upstream populates `window.__archdiscAuxiliaryNormal`; dialog defaults supply Nx/Ny/Nz/label). Builds a real A4 sheet with: (a) small FRONT thumb on the left, (b) red projection-arrow on the FRONT thumb pointing toward the auxiliary view in PAPER space (computed by projecting `n` onto the FRONT view's paper plane), (c) large AUXILIARY view on the right labelled `VIEW A-A (AUX)`. Title block records the projection normal `(nx, ny, nz)` numerically |
+| 72 | **Crop View** — clip a view to a closed boundary | **DONE** | `workbenches/drawing/DrawingViews.js::cropView`. Dialog takes a paper-mm rectangle `{x, y, w, h}` (relative to the FRONT view's centre). The SVG uses `<clipPath id="archdisc-crop-clip">` so the FRONT projection is genuinely clipped at the boundary — partial-cross edges trim correctly. The full FRONT view is also drawn faintly underneath as a "ghost" so the user sees what was cropped. Reversible by re-running with a larger rectangle. Edge-in-boundary count vs total-edge count is published to `window.__lastCropView` for e2e assertions |
+| 73 | **Broken View** — foreshorten a long part with a zig-zag indicator | **DONE** | `workbenches/drawing/DrawingViews.js::brokenView`. Dialog takes break-start + break-end as FRACTIONS of the long-axis extent (so the dialog is dimensionless). Internally: projects the body in FRONT, then for every visible edge: (a) fully-left of bs → keep; (b) fully-right of be → translate -gap; (c) inside the gap → drop; (d) crossing the boundary → split at the crossing with parametric `(bs - ax)/(bx - ax)` lerp. A zig-zag polyline is drawn at the join (8 zig-zag segments). The **focal numerical identity** `(leftLength + rightLength) == finalLength` is exact to 0% (the e2e asserts the gap is < 0.5%); `finalLength + gapLength == fullLength` likewise exact |
+
+**Files added/changed for Tier 8a:**
+
+- `frontend/src/workbenches/drawing/DrawingViews.js` (new — self-contained projection module + 3 view-type builders; private mesh/linear-algebra helpers mirror foundation/Drawing2D so SP-6 kernel agent can work in parallel on the foundation module without us stepping on it)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (modified — three new handlers in the `document:` group: Auxiliary View / Crop View / Broken View; reads from `_lastFoundationManifold` and writes `window.__lastDrawingSVG` plus tool-specific introspection slots `__lastAuxiliaryView`, `__lastCropView`, `__lastBrokenView`)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — three new schemas appended at end of the schema map: `'Auxiliary View'`, `'Crop View'`, `'Broken View'`)
+- `frontend/src/components/RibbonToolbar.jsx` (modified — three new ribbon entries in the Drawing → Views group, alongside the existing Standard 3 View / Section View / Detail View / Isometric View entries)
+- `e2e/ux-tier8a-drawing-views-electron.spec.js` (new — motion-capture e2e on a real engineered long shaft with side-hole + end-pocket detail; 5 stills + a session video)
+
+**Bespoke real workflow — long shaft with side-hole detail + end pocket:**
+
+`e2e/ux-tier8a-drawing-views-electron.spec.js` builds a real 220×16×16 mm
+beam-shaft (XY-rectangle extrude), drills a Ø 4 mm side-hole at +95 mm
+along X via a top-face cut, and adds a 16×10×4 mm end-pocket near -95 mm
+along X via another top-face cut. All three primitives are placed via the
+same atomic CAD ops a user would click. The Drawing tab is then driven via
+real ribbon clicks (`.ribbon-tab Drawing` → `.ribbon-tool-label "Auxiliary
+View"` etc), with each tool exercised once and asserted against:
+
+- **Auxiliary View** — supplied normal `(0.5, 0, 0.866)` (the 30°-from-+Z
+  direction in the XZ plane). Assertions: `__lastAuxiliaryView.projection`
+  matches the supplied normal to 1e-2; SVG contains `data-archdisc-view=
+  "auxiliary"`, both `data-view-name="front"` and `data-view-name=
+  "auxiliary"`, the projection arrow `data-aux-arrow="A"`, and the label
+  `VIEW A-A`. Edge count > 0 on both panels.
+- **Crop View** — supplied rectangle `{x: 40, y: -15, w: 40, h: 30}` (paper
+  mm relative to view centre). Assertions: edges-fully-inside + edges-
+  crossing < total edges (proves the clip rejected something); SVG contains
+  `<clipPath id="archdisc-crop-clip">`, `data-crop-boundary="rect"`,
+  `data-view-name="front-ghost"`, `data-view-name="cropped"`, and the
+  cropped group has `clip-path="url(#archdisc-crop-clip)"`.
+- **Broken View** — break from 35% → 65% of the X extent. Assertions:
+  `leftLength + rightLength == finalLength` to within 0.5% (in our run:
+  0.000% — exact arithmetic identity); `finalLength + gapLength ==
+  fullLength` to within 0.5% (0.000%); SVG contains `data-archdisc-view=
+  "broken"`, both `data-view-name="broken-left"` and `"broken-right"`, and
+  the zig-zag indicator `data-break-line="zigzag"`.
+
+**5 stills + session video:**
+
+| Frame | Headline |
+|---|---|
+| 01 | Auxiliary View — FRONT thumb (small horizontal shaft) on left + red arrow `A` + AUXILIARY view (vertical-looking projection) on right + title block with projection normal `(0.500, 0.000, 0.866)` |
+| 02 | Crop View — full ghost shaft (faint dashed) + cyan `CROP` rectangle on the right enclosing the side-hole detail area + title block "boundary 40.0 × 30.0 mm" |
+| 03 | Broken View — foreshortened shaft with zig-zag `BREAK` indicator at the centre + length annotation "Full 220.0 mm \| Hidden 66.0 mm \| Drawn 154.0 mm" + title block |
+| 04 | Broken View final framing (same sheet, fresh capture for the session-video closing pose) |
+| 05 | Auxiliary marquee — the AUX SVG re-rendered as the session-video closing shot |
+
+**Visual check (read the stills):**
+
+1. **Frame 01** — A4 sheet has the FRONT thumbnail showing the horizontal shaft with the small left-end pocket + right-end hole. A real red arrow points up-and-right from the FRONT view's centre toward the labelled `A` — the direction matches `(0.5, 0, 0.866)` projected onto the FRONT view's paper plane (FRONT view: world-X → paper-X, world-Z → paper-Y-up, so paper direction is `(0.5, -0.866)` = up-right). The AUXILIARY VIEW on the right shows the shaft from the inclined-normal angle — it looks tall and narrow because the inclined projection compresses the shaft's long axis (world-X) into the paper.
+2. **Frame 02** — The CROP boundary (cyan dashed rectangle) cleanly encloses the right portion of the shaft including the side hole. Inside the boundary the lines are SOLID black (the real drawn cropped view). Outside the boundary the lines are FAINT GREY (the ghost). The title block records the boundary dimensions.
+3. **Frame 03** — The shaft is rendered with a clear vertical gap in the middle. A red zig-zag line bridges the gap. The left fragment (~19 paper-mm) + the right fragment (~19 paper-mm) = ~38 paper-mm drawn total. The text annotation above the shaft reads `Full 220.0 mm | Hidden 66.0 mm | Drawn 154.0 mm` — world-mm dimensions that arithmetically sum: 154 + 66 = 220 ✓.
+
+### E2E + regression subset (Tier 8a)
+
+- `e2e/ux-tier8a-drawing-views-electron.spec.js` — **1 pass** (new; ~10.1 s)
+- `e2e/drawing-preview.spec.js` — pre-existing dev-server suite; not run in this Tier 8a dispatch (electron headed only)
+- `e2e/ribbon-test.spec.js` — re-checked, still passes
+- `e2e/foundation-drawings.spec.js`, `e2e/drawing-engine.spec.js`, `e2e/drawing-tables.spec.js` — pre-existing dev-server suites; not in scope
+
+### Honest gaps in Tier 8a
+
+1. **Auxiliary view uses normal-direction dialog inputs, not in-viewport face picking.** The handler reads the normal from `window.__archdiscAuxiliaryNormal` if set, OR from the dialog's `(nx, ny, nz)` fields. A true SW workflow is "click an inclined face on a viewport view → ArchDisc reads its face normal → opens the auxiliary view". The Tier-11a face-picker is the missing piece — once it cleanly resolves an analytic face for foundation manifolds, the auxiliary view can subscribe to the face-pick and populate `__archdiscAuxiliaryNormal` automatically. Until then, the workflow is dialog-driven (which is honest, matching the SolidWorks dialog itself — the SW PropertyManager for Auxiliary View also exposes an explicit "reference edge" field, even though clicks populate it).
+2. **Crop View boundary is an axis-aligned rectangle, not a closed polyline.** SolidWorks Crop View allows any closed sketch (often a spline). Rectangular clipping is the 80%-case and what SVG `<clipPath>` natively supports; a polyline-bounded clip would need an SVG `<polygon>` clip-path which is achievable but not in this pass.
+3. **Broken View axis is X-only (or Y) — single break.** A single break in a single direction. SolidWorks supports multiple breaks + spline-shaped break-lines + curve breaks. Our impl is rectangular-break only and limited to ONE break window. The math `(left + right) == drawn` extends trivially to multiple breaks (sum over all kept ranges) and that's the obvious follow-on.
+4. **Broken View Y-axis path is implemented but untested in e2e.** The `axis: 'y'` branch is wired (the spec only exercises `axis: 'x'`); regression on a Y-long part should be a follow-on smoke test.
+5. **The DrawingPreviewPanel header still reads "Engineering Drawing — A3 third-angle projection".** The actual sheet in our three view-types is A4, and "third-angle" doesn't apply to a single auxiliary projection. The preview header is generic-display; the title block inside the SVG carries the accurate per-view label. Future cosmetic polish would auto-update the preview header from the SVG's `data-archdisc-view` attribute.
+6. **No Drawing-tab handler file separation.** Per the dispatch allowlist, the three handlers live in `ToolExecutionEngine.js::document` (where existing Drawing tools live) rather than a new `frontend/src/workbenches/drawing/handlers.js`. A future refactor that lifts the entire `document:` block out of ToolExecutionEngine.js into the drawing workbench would be a cleaner long-term home; doing it under Tier-8a would have touched files outside the allowlist.
