@@ -1114,18 +1114,41 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         rafRef.current = requestAnimationFrame(animate);
 
         // --- Resize ---
+        //
+        // Two sources drive a resize:
+        //   1. window.resize (the user resizes the OS window, or the
+        //      developer console toggles open/closed in Electron).
+        //   2. ResizeObserver on the container — fires whenever a sibling
+        //      panel (rollback column, properties panel) appears /
+        //      disappears / collapses, or the workbench tab swaps to
+        //      another workbench wrapper. Without this the renderer holds
+        //      its old size and the canvas appears stretched or clipped.
+        //
+        // Both sources funnel through a single 50 ms debounced re-fit so
+        // a flurry of layout changes only triggers one renderer.setSize.
         let resizeTimer;
+        const applyResize = () => {
+            const w = container.clientWidth, h = container.clientHeight;
+            if (w === 0 || h === 0) return;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        };
         const handleResize = () => {
             clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                const w = container.clientWidth, h = container.clientHeight;
-                if (w === 0 || h === 0) return;
-                camera.aspect = w / h;
-                camera.updateProjectionMatrix();
-                renderer.setSize(w, h);
-            }, 50);
+            resizeTimer = setTimeout(applyResize, 50);
         };
         window.addEventListener('resize', handleResize);
+
+        // ResizeObserver — fully dynamic. Tracks container size on EVERY
+        // layout change (sibling panels collapsing, dev console toggling,
+        // tab switching, OS window resizing). Falls back gracefully when
+        // ResizeObserver isn't supported (very old environments).
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(handleResize);
+            resizeObserver.observe(container);
+        }
 
         // --- Notify ---
         // Register PixelManager
@@ -1152,6 +1175,10 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             cancelAnimationFrame(rafRef.current);
             clearTimeout(resizeTimer);
             window.removeEventListener('resize', handleResize);
+            if (resizeObserver) {
+                try { resizeObserver.disconnect(); } catch { /* ignore */ }
+                resizeObserver = null;
+            }
             window.removeEventListener('keydown', handleKeyDown);
             if (renderer.domElement) {
                 renderer.domElement.removeEventListener('pointerup', handleClick);
