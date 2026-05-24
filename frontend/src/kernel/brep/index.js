@@ -27,7 +27,11 @@ export {
   autoRepairSelfIntersection,
   harmonizeNormals,
 } from './BrepHeal.js';
-export { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
+export {
+  blendG2, cliffEdgeBlend, mitreCorner,
+  // SP-10 — Blending suite completion (Area D, T2).
+  faceFaceBlend, setbackCorner,
+} from './BrepBlend.js';
 export { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
 // SP-5 — Boolean & partition completion (Area C, T1).
 export { imprint } from './BrepImprint.js';
@@ -42,7 +46,11 @@ export { catmullClarkShape } from './BrepCatmullClark.js';
 export { intersectSurfaces } from './BrepNurbsSSI.js';
 export { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
 export { trimmedNurbsFace } from './BrepNurbsTrim.js';
-export { g2BlendBetweenEdges } from './BrepBlendG2.js';
+export {
+  g2BlendBetweenEdges,
+  // SP-10 — hold-line variable-radius blend + G3 (curvature-derivative) blend.
+  holdLineBlend, g3BlendBetweenEdges,
+} from './BrepBlendG2.js';
 export { nSidedPatch } from './BrepNSided.js';
 export { classAAnalyze } from './BrepClassA.js';
 export {

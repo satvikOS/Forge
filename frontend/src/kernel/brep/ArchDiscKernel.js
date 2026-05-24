@@ -30,7 +30,11 @@ import {
 import { tessellate } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
-import { blendG2, cliffEdgeBlend, mitreCorner } from './BrepBlend.js';
+import {
+  blendG2, cliffEdgeBlend, mitreCorner,
+  // SP-10 — Blending suite completion (Area D, T2).
+  faceFaceBlend, setbackCorner,
+} from './BrepBlend.js';
 import { fuseAll, fuseNonManifold, fuseCoincident, fuseLattice } from './BrepBoolAdvanced.js';
 // SP-5 — Boolean & partition completion (Area C, T1).
 import { imprint } from './BrepImprint.js';
@@ -45,7 +49,11 @@ import { catmullClarkShape } from './BrepCatmullClark.js';
 import { intersectSurfaces } from './BrepNurbsSSI.js';
 import { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
 import { trimmedNurbsFace } from './BrepNurbsTrim.js';
-import { g2BlendBetweenEdges } from './BrepBlendG2.js';
+import {
+  g2BlendBetweenEdges,
+  // SP-10 — hold-line variable-radius blend + G3 (curvature-derivative) blend.
+  holdLineBlend, g3BlendBetweenEdges,
+} from './BrepBlendG2.js';
 import { nSidedPatch } from './BrepNSided.js';
 import { classAAnalyze } from './BrepClassA.js';
 import {
@@ -95,6 +103,15 @@ export const ArchDiscKernel = {
     /** Harmonise face normals so every face's outward normal points consistently (or all inward via opts.outward=false). */
     harmonizeNormals,
     blendG2, cliffEdgeBlend, mitreCorner,
+    // ── SP-10 Blending suite completion (Area D, T2) ──────────────────────
+    /** Rolling-ball blend between two SELECTED FACES — shared-edge fillet. */
+    faceFaceBlend,
+    /** Multi-edge vertex blend with per-edge setback distances. */
+    setbackCorner,
+    /** Variable-radius G2 blend constrained to TOUCH a 3-D hold curve. */
+    holdLineBlend,
+    /** G3 (curvature-derivative-continuous) blend between two edges — degree 3×7 NURBS. */
+    g3BlendBetweenEdges,
     fuseAll, fuseNonManifold, fuseCoincident, fuseLattice,
     // ── SP-5 Boolean & partition completion (Area C, T1) ──────────────────
     /** Project tool boundary edges onto body faces (volume preserved). */
