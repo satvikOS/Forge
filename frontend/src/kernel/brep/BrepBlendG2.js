@@ -823,21 +823,27 @@ async function _holdLineBlendImpl(brepShape, holdCurve, opts = {}) {
       // Hold-curve sample at this station
       const Hk = holdSamples.points[Math.min(holdSamples.points.length - 1, i)];
 
-      // Cross-tangent at A: direction from Pa toward (2*Hk - Pb) — the
-      // "mirror" of Pb across Hk — so the degree-5 midpoint targets Hk.
-      // We use the chord midpoint as the practical hint; the construction
-      // is robust because the cubic interpolation in u smooths station-to-
-      // station discontinuities.
-      const dirA = v3sub(Hk, Pa);
-      const dirB = v3sub(Hk, Pb);
-      // Reach: tangent length scaled so the degree-5 midpoint reproduces
-      // Hk to within blend solver tolerance. The 32/5 factor is the exact
-      // scale for a clean degree-5 Bezier midpoint match (see derivation
-      // above); we damp it by 0.5 to keep the surface fair (over-shooting
-      // the midpoint produces wavy isocurves).
-      const reachScale = 0.5 * 32 / 5;
-      tangentsA.push(v3unit(dirA).map(c => c * v3len(dirA) * reachScale / Math.max(1, n)));
-      tangentsB.push(v3unit(dirB).map(c => c * v3len(dirB) * reachScale / Math.max(1, n)));
+      // Cross-tangent construction targeting the hold curve sample at this
+      // station. The degree-5 Bezier surface has:
+      //   M (midpoint at v=0.5) = (P0+P5)/2 + 3(T_A - T_B)/32
+      // (derived from M = (P0 + 5P1 + 10P2 + 10P3 + 5P4 + P5)/32 with
+      //  P1 = P0 + T_A/5, P4 = P5 - T_B/5, and small-K approximation
+      //  P2≈P1, P3≈P4. Foundation convention: T_A is the cross-tangent
+      //  leaving boundary A, T_B is the natural Bezier derivative at v=1
+      //  which by foundation convention points FROM blend INTO boundary B.)
+      //
+      // Setting T_A = α*(Hk-Pa) and T_B = α*(Pb-Hk) gives:
+      //   T_A - T_B = α*(Hk - Pa) - α*(Pb - Hk) = 2α*(Hk - chordMid)
+      //   M = chordMid + 6α*(Hk - chordMid)/32
+      // To make M = Hk, solve: 6α/32 = 1 → α = 32/6 ≈ 5.333.
+      //
+      // For station-by-station robustness we use the exact α = 16/3 (the
+      // analytic factor for a clean degree-5 midpoint match).
+      const PaToHk = v3sub(Hk, Pa);
+      const HkToPb = v3sub(Pb, Hk);
+      const alpha = 16 / 3;  // exact midpoint-matching scale
+      tangentsA.push([PaToHk[0] * alpha, PaToHk[1] * alpha, PaToHk[2] * alpha]);
+      tangentsB.push([HkToPb[0] * alpha, HkToPb[1] * alpha, HkToPb[2] * alpha]);
     }
 
     // 4. Build the G2 NURBS surface from these boundaries — the existing
@@ -851,14 +857,16 @@ async function _holdLineBlendImpl(brepShape, holdCurve, opts = {}) {
 
     // 5. Measure the centreline-to-hold-curve distance (the SP-10 focal
     // assertion). Sample the surface at v=0.5 for every station k and find
-    // the closest hold-curve sample.
+    // the closest hold-curve sample. Also report per-station matching
+    // (M[i] vs Hk[i]) for diagnostics.
     const centrelineErrors = [];
+    const stationMatchErrors = [];
     let maxCenterErr = 0;
     for (let i = 0; i < n; i++) {
       const u = surface.uMin + (surface.uMax - surface.uMin) * (i / (n - 1));
       const v = 0.5 * (surface.vMin + surface.vMax);
       const S = surface.eval(u, v);
-      // Closest hold-curve sample
+      // Closest hold-curve sample (over ALL samples, not just same-i).
       let minD = Infinity;
       for (const Hp of holdSamples.points) {
         const dx = S[0] - Hp[0], dy = S[1] - Hp[1], dz = S[2] - Hp[2];
@@ -867,7 +875,13 @@ async function _holdLineBlendImpl(brepShape, holdCurve, opts = {}) {
       }
       centrelineErrors.push(minD);
       if (minD > maxCenterErr) maxCenterErr = minD;
+      // Same-station match
+      const Hk = holdSamples.points[Math.min(holdSamples.points.length - 1, i)];
+      const sm = Math.hypot(S[0] - Hk[0], S[1] - Hk[1], S[2] - Hk[2]);
+      stationMatchErrors.push(sm);
     }
+    const maxStationMatchErr = stationMatchErrors.length > 0
+      ? Math.max(...stationMatchErrors) : 0;
 
     // 6. Tessellate, sew, render as a shell + wrap in a SpineBody with the
     // analytic face primary.
@@ -936,6 +950,7 @@ async function _holdLineBlendImpl(brepShape, holdCurve, opts = {}) {
         stations: n,
         centrelineMaxError: maxCenterErr,
         centrelineMeanError: centrelineErrors.reduce((a, b) => a + b, 0) / centrelineErrors.length,
+        stationMatchMaxError: maxStationMatchErr,
         boundaryAMaxError: fitStats.boundary0MaxError,
         boundaryBMaxError: fitStats.boundary1MaxError,
         degreeU: fitStats.degreeU,

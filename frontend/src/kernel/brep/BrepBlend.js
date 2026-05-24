@@ -694,8 +694,10 @@ async function _runSetbackCorner(src, vertexIdx, edgeSetbacks, opts = {}, bodyTa
       const setback = setbacks[i];
 
       // Detect orientation: which end of the edge is the target vertex?
-      // FirstVertex / LastVertex of a TopoDS_Edge.
-      const vFirst = track(oc.TopExp.FirstVertex_1(edge, false));
+      // FirstVertex / LastVertex of a TopoDS_Edge. TopExp.FirstVertex is a
+      // static method on the TopExp class (no _N suffix needed in this WASM
+      // binding — only one overload).
+      const vFirst = track(oc.TopExp.FirstVertex(edge, false));
       const isVertexAtFirst = vFirst.IsSame(vertex);
 
       // Near-vertex radius = small (retracted/setback effect); far = baseRadius.
