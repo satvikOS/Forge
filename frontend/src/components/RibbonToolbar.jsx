@@ -312,6 +312,25 @@ const TABS = {
       ]},
     ]
   },
+  // UX Tier 5a — Sheet Metal workbench. A dedicated CommandManager tab that
+  // sits alongside Part / Assembly / Drawing. Activated when a sheet-metal
+  // part is the active body (tagged by Base Flange) or by the user clicking
+  // the tab directly. Foundation ops shipped this dispatch: Base Flange,
+  // Edge Flange, Flat Pattern.
+  sheetMetal: {
+    label: 'Sheet Metal',
+    groups: [
+      { label: 'Create', tools: [
+        { name: 'Base Flange', icon: '▭', key: 'sheetMetal', primary: true },
+      ]},
+      { label: 'Bend', tools: [
+        { name: 'Edge Flange', icon: '⌐', key: 'sheetMetal' },
+      ]},
+      { label: 'Manufacturing', tools: [
+        { name: 'Flat Pattern', icon: '⊞', key: 'sheetMetal', primary: true },
+      ]},
+    ],
+  },
   drawing: {
     label: 'Drawing',
     groups: [

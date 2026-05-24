@@ -1138,6 +1138,39 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'mergeByPartNumber', label: 'Merge identical part numbers', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'Match the BOM merge setting.' },
     ],
   },
+
+  // ─── UX TIER 5a — Sheet Metal workbench foundation ────────────────────
+  //
+  // Three foundational sheet-metal ops with their param schemas. Base
+  // Flange seeds the part + stamps the sheet-metal metadata; Edge Flange
+  // grows a bent wall off any selected edge; Flat Pattern unfolds the
+  // bent part to its laser-cut layout.
+  'Base Flange': {
+    title: 'Base Flange — Sheet Metal Foundation',
+    blurb: 'Create the FIRST sheet-metal feature. A rectangular sketch profile is thickened by the sheet thickness, and the resulting body is tagged as sheet metal — thickness, K-factor, and bend radius travel with the body so every downstream sheet-metal op can ask. Defaults: 100×80 mm, t=1.5 mm, K=0.4.',
+    fields: [
+      { name: 'width',      label: 'Width (X)',     type: 'number', default: 100,  unit: 'mm', min: 1,    max: 5000, step: 1, hint: 'Sketch profile width.' },
+      { name: 'depth',      label: 'Depth (Y)',     type: 'number', default: 80,   unit: 'mm', min: 1,    max: 5000, step: 1, hint: 'Sketch profile depth.' },
+      { name: 'thickness',  label: 'Sheet thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.1, max: 50,   step: 0.1, hint: 'Material gauge.' },
+      { name: 'kFactor',    label: 'K-factor',      type: 'number', default: 0.4,  min: 0,    max: 1,    step: 0.05, hint: 'Neutral-fibre ratio (0..1). SW default 0.4.' },
+      { name: 'bendRadius', label: 'Bend radius',   type: 'number', default: 1.5,  unit: 'mm', min: 0.1, max: 100,  step: 0.1, hint: 'Inside bend radius — typically equal to thickness.' },
+    ],
+  },
+  'Edge Flange': {
+    title: 'Edge Flange — Sheet Metal Bend',
+    blurb: 'Pick an edge on a sheet-metal body and extrude a flange off it. Length sets how far the flange extends; angle sets the bend (90° = perpendicular). The bend allowance is computed from the part\'s K-factor + bend radius. Pre-select the sheet-metal body; choose an edge index for the picked edge.',
+    fields: [
+      { name: 'edgeIndex',  label: 'Edge index (1-based)', type: 'number', default: 1, min: 1, max: 1000, step: 1, hint: 'Visible-edge order; defaults walk in spine order.' },
+      { name: 'length',     label: 'Flange length',  type: 'number', default: 25, unit: 'mm', min: 1,  max: 1000, step: 1 },
+      { name: 'angleDeg',   label: 'Bend angle',     type: 'number', default: 90, unit: '°',  min: 0,  max: 180,  step: 1, hint: '0 = co-planar; 90 = perpendicular wall.' },
+      { name: 'bendRadius', label: 'Bend radius (override)', type: 'number', default: 0,  unit: 'mm', min: 0,  max: 100,  step: 0.1, hint: '0 = use body\'s recorded bend radius.' },
+    ],
+  },
+  'Flat Pattern': {
+    title: 'Flat Pattern — Unfold to Manufacturing Layout',
+    blurb: 'Unfold the picked sheet-metal part into its FLAT manufacturing layout (the developed shape sent to the laser cutter). Each bend is unrolled CO-PLANAR with the base, with the developed length = (flange length + bend allowance) via the part\'s K-factor. Result face count = 1 (base) + N (one per flange).',
+    fields: [],
+  },
 };
 
 export function getSchemaForTool(toolName) {

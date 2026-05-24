@@ -6237,6 +6237,134 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Exported ${solid.name || 'solid'} as glTF 2.0 — legacy kernel` };
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHEET METAL — UX Tier 5a foundation
+  //
+  // Three foundational ops shipped this dispatch:
+  //   - Base Flange   — sketch profile → sheet-metal-tagged thick body.
+  //   - Edge Flange   — pick an edge on a sheet-metal body → grow a flange.
+  //   - Flat Pattern  — unfold the bent part into its laser-cut layout.
+  //
+  // The "Sheet Metal" body kind is signalled by `body.metadata.sheetMetal`
+  // (see kernel/brep/BrepSheetMetal.js). The metadata travels with the body
+  // through subsequent ops so the sheet-metal nature is first-class even
+  // though the body's spine kind stays 'solid' (sheet-metal parts have
+  // finite thickness — they ARE solids).
+  // ═══════════════════════════════════════════════════════════════════════════
+  sheetMetal: {
+    'Base Flange': async (scene, viewport) => {
+      // Arity 0 — sketch is supplied via the param dialog (width × depth
+      // rectangle). Defaults: 100 × 80 mm @ t=1.5 mm, K=0.4, R=1.5 mm.
+      try {
+        const { values, cancelled } = await requestToolParams('Base Flange');
+        if (cancelled) return { status: 'warn', message: 'Base Flange: cancelled' };
+        const w = Number(values.width)      || 100;
+        const d = Number(values.depth)      || 80;
+        const t = Number(values.thickness)  || 1.5;
+        const k = Number(values.kFactor);
+        const kFactor = (Number.isFinite(k) && k >= 0 && k <= 1) ? k : 0.4;
+        const bendR = Number(values.bendRadius) > 0 ? Number(values.bendRadius) : t;
+        // Build a CCW closed rectangle in the XY plane (extrudeProfile
+        // takes either a wire or a points array; we hand a 4-point array
+        // and let extrudeProfile auto-close it).
+        const profile = [
+          { x: -w / 2, y: -d / 2, z: 0 },
+          { x:  w / 2, y: -d / 2, z: 0 },
+          { x:  w / 2, y:  d / 2, z: 0 },
+          { x: -w / 2, y:  d / 2, z: 0 },
+        ];
+        const result = await ArchDiscKernel.brep.baseFlange(profile, {
+          thickness: t, kFactor, bendRadius: bendR,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        // Expose for the e2e to assert against.
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+        }
+        return {
+          status: 'success',
+          message: `Base Flange: ${w}×${d} mm, t = ${t} mm, K = ${kFactor.toFixed(2)}, R = ${bendR} mm → ` +
+            `${m.faceCount} faces, V = ${m.volume.toFixed(0)} mm³ — body tagged as sheet metal via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Base Flange: ' + (err.message || err) };
+      }
+    },
+
+    'Edge Flange': async (scene, viewport) => {
+      // Arity 1 — pick a sheet-metal body; the dialog supplies edge index +
+      // flange length + bend angle. Consuming op: the parent body is rewritten
+      // with the flange fused on so the old entry is dropped.
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Edge Flange: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Edge Flange');
+        if (cancelled) return { status: 'warn', message: 'Edge Flange: cancelled' };
+        const edgeIndex = Math.max(1, Math.floor(Number(values.edgeIndex) || 1));
+        const length = Number(values.length) || 25;
+        const angleDeg = Number.isFinite(Number(values.angleDeg)) ? Number(values.angleDeg) : 90;
+        const bendROverride = Number(values.bendRadius) > 0 ? Number(values.bendRadius) : null;
+        const opts = { length, angleDeg };
+        if (bendROverride) opts.bendRadius = bendROverride;
+        const result = await ArchDiscKernel.brep.edgeFlange(body, edgeIndex, opts);
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const lastBend = sm && sm.bends && sm.bends[sm.bends.length - 1];
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+        }
+        return {
+          status: 'success',
+          message: `Edge Flange: edge #${edgeIndex}, L = ${length} mm, θ = ${angleDeg}° → ` +
+            `${m.faceCount} faces, BA = ${(lastBend?.bendAllowance ?? 0).toFixed(2)} mm, ` +
+            `bends now ${sm?.bends?.length ?? '?'} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Edge Flange: ' + (err.message || err) };
+      }
+    },
+
+    'Flat Pattern': async (scene, viewport) => {
+      // Arity 1 — pick a bent sheet-metal body; the unfolded layout becomes a
+      // NEW body alongside the original (the bent and flat parts are useful
+      // side-by-side: the bent for assembly checks, the flat for the laser
+      // cutter). NON-consuming.
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Flat Pattern: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { cancelled } = await requestToolParams('Flat Pattern');
+        if (cancelled) return { status: 'warn', message: 'Flat Pattern: cancelled' };
+        const result = await ArchDiscKernel.brep.flatPattern(body);
+        await addBrepShapeToScene(scene, viewport, result, 0xffa726);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const bendCount = (sm && sm.bends) ? sm.bends.length : 0;
+        const totalBA = (sm && sm.bends)
+          ? sm.bends.reduce((s, b) => s + (b.bendAllowance || 0), 0) : 0;
+        if (typeof window !== 'undefined') {
+          window.__lastFlatPatternBody = result;
+          window.__lastSheetMetalMeta = sm;
+        }
+        return {
+          status: 'success',
+          message: `Flat Pattern: ${bendCount} bend(s) unfolded → ${m.faceCount} faces, ` +
+            `total bend allowance = ${totalBA.toFixed(2)} mm, V = ${m.volume.toFixed(0)} mm³ via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Flat Pattern: ' + (err.message || err) };
+      }
+    },
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
