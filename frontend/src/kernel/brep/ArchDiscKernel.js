@@ -49,6 +49,10 @@ import { catmullClarkShape } from './BrepCatmullClark.js';
 import { intersectSurfaces } from './BrepNurbsSSI.js';
 import { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
 import { trimmedNurbsFace } from './BrepNurbsTrim.js';
+// SP-12 — Auto-trimming NURBS B-rep (Area F, T3) — the headline NURBS gap.
+import {
+  autoTrimNurbsBrep, intersectNurbsSurfaces, sideOfSurface, NURBSSurface,
+} from './BrepNurbsAutoTrim.js';
 import {
   g2BlendBetweenEdges,
   // SP-10 — hold-line variable-radius blend + G3 (curvature-derivative) blend.
@@ -78,6 +82,12 @@ import {
   baseFlange, edgeFlange, flatPattern,
   isSheetMetal, getSheetMetalMetadata, bendAllowance,
 } from './BrepSheetMetal.js';
+// UX Tier 6a — Weldments workbench foundation.
+import {
+  structuralMember, trimMembers, endCap,
+  isWeldment, getWeldmentMetadata,
+  buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
+} from './BrepWeldments.js';
 // SP-13 — Data exchange completion (Area M, T2).
 import {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
@@ -145,6 +155,15 @@ export const ArchDiscKernel = {
     projectPointsOntoBrep,
     projectMeshOntoBrep,
     trimmedNurbsFace,
+    // ── SP-12 Auto-trimming NURBS B-rep (Area F, T3) ───────────────────────
+    /** Take N NURBS surfaces; produce a self-consistent B-rep where each face is trimmed by the SSI curves. */
+    autoTrimNurbsBrep,
+    /** Surface-surface intersection between two NURBS surfaces — returns 3-D polylines + (u,v) pcurves on each surface. */
+    intersectNurbsSurfaces,
+    /** Classify a 3-D point against a NURBS surface — 'outside'/'inside'/'on' by normal convention. */
+    sideOfSurface,
+    /** Foundation NURBSSurface class — exposed here so the kernel facade carries the SP-12 input type. */
+    NURBSSurface,
     g2BlendBetweenEdges,
     nSidedPatch,
     classAAnalyze,
@@ -222,6 +241,23 @@ export const ArchDiscKernel = {
     getSheetMetalMetadata,
     /** Sheet-metal bend-allowance formula — BA = π(R + K·t)(θ/180°). */
     bendAllowance,
+    // ── UX Tier 6a Weldments workbench foundation ─────────────────────────
+    /** Structural Member — sweep a standard ISO/ANSI profile along a 3D path; tags the result with weldment metadata. */
+    structuralMember,
+    /** Trim/Extend Members — boolean trim of 2+ weldment members at their joint (butt | mitered). */
+    trimMembers,
+    /** End Cap — flat (or thick) cap closing an open end of a structural member. */
+    endCap,
+    /** Predicate — does the body carry weldment metadata (tagged by Structural Member)? */
+    isWeldment,
+    /** Read the weldment metadata bag — {profile, size, length, dims, trims[], caps[]}. */
+    getWeldmentMetadata,
+    /** Build a 2D polygon (mm) for one of the standard ISO/ANSI profile families. */
+    buildStandardProfile,
+    /** Map of {profileFamily → sizeLabels[]} of every standard profile shipped. */
+    standardProfileSizes,
+    /** Raw catalogue of standard profile dimensions (for advanced callers). */
+    STANDARD_PROFILES,
     // ── SP-13 Data exchange completion (Area M, T2) ──────────────────────
     /** Export to STEP AP242 (PMI + colour + property attributes). */
     exportStepAp242,

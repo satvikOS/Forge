@@ -46,6 +46,10 @@ export { catmullClarkShape } from './BrepCatmullClark.js';
 export { intersectSurfaces } from './BrepNurbsSSI.js';
 export { projectPointsOntoBrep, projectMeshOntoBrep } from './BrepSurfaceProject.js';
 export { trimmedNurbsFace } from './BrepNurbsTrim.js';
+// SP-12 — Auto-trimming NURBS B-rep (Area F, T3) — the headline NURBS gap closure.
+export {
+  autoTrimNurbsBrep, intersectNurbsSurfaces, sideOfSurface, NURBSSurface,
+} from './BrepNurbsAutoTrim.js';
 export {
   g2BlendBetweenEdges,
   // SP-10 — hold-line variable-radius blend + G3 (curvature-derivative) blend.
@@ -75,6 +79,12 @@ export {
   baseFlange, edgeFlange, flatPattern,
   isSheetMetal, getSheetMetalMetadata, bendAllowance,
 } from './BrepSheetMetal.js';
+// UX Tier 6a — Weldments workbench foundation.
+export {
+  structuralMember, trimMembers, endCap,
+  isWeldment, getWeldmentMetadata,
+  buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
+} from './BrepWeldments.js';
 // SP-13 — Data exchange completion (Area M, T2) — re-export from kernel/export/.
 export {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
