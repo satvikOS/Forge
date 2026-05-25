@@ -74,8 +74,8 @@ the first tutorial in level two."*
 | **45. Split (feature)** | | `04:03:35` | Use a sketch/surface to split a body into multiple bodies; export bodies as separate parts |
 | **46. Save bodies as parts** | | `04:11:42` | Body folder → save each as new part file |
 | **47. SURFACING — intro** | #66 (approx) | `04:13:50` | Right-click toolbar → Surfaces; or Insert→Surface. Surfaces toolbox parallels Features toolbox |
-| **48. Extruded Surface** | | `04:15:46` | Open-profile or closed; thin-feature off |
-| **49. Revolved Surface** | | `04:21:57` | Open profile + axis |
+| **48. Extruded Surface** | **DONE (Tier-4)** — `K.brep.extrudedSurface(wire, depth, {direction})` | `04:15:46` | Open-profile or closed; thin-feature off — prism the WIRE (not a face) → sheet body of lateral faces, no caps; ribbon Part→Surface "Extruded Surface" |
+| **49. Revolved Surface** | **DONE (Tier-4)** — `K.brep.revolvedSurface(wire, axis, angle)` | `04:21:57` | Open profile + axis — revolve the WIRE (not a face) → sheet body of SOR faces, no caps; ribbon Part→Surface "Revolved Surface" |
 | **50. Swept Surface** | | `04:29:04` | Profile + path on a surface |
 | **51. Lofted Surface** | | (cross-ref) | Like lofted boss but produces a sheet body |
 | **52. Boundary Surface (= Boundary Boss in features)** | | `03:36:05` / `04:41:45` | 2 directions of curves (Direction-1 + Direction-2); tangent constraints at edges |
@@ -691,8 +691,8 @@ N-Sided Patch, G2 Blend, Class-A Analyze, Zebra Stripes.
 
 | SolidWorks surface tool | ArchDisc | Status |
 |---|---|---|
-| Extruded Surface | (none as named surface op) | **Missing** — likely just extrude + thin |
-| Revolved Surface | (none as named surface op) | **Missing** |
+| Extruded Surface | `extrudedSurface` | **DONE (Tier-4)** — sheet-body prism of a wire (not a face); no caps; result kind='sheet' |
+| Revolved Surface | `revolvedSurface` | **DONE (Tier-4)** — sheet-body revolve of a wire (not a face); no caps; result kind='sheet' |
 | Swept Surface | Sweep Tortuous | **Partial** (different naming) |
 | Lofted Surface | Loft Tangent | **Partial** |
 | Boundary Surface | (none) | **Missing** |
@@ -942,7 +942,7 @@ Prioritized roughly by impact on first-touch usability:
 
 ### Tier 4 — Missing surfacing tools (named variants)
 
-37. **Extruded / Revolved Surface** as named ops (separate from solid extrude/revolve)
+37. **Extruded / Revolved Surface** as named ops (separate from solid extrude/revolve) — **DONE (Tier-4)** — `K.brep.extrudedSurface(wire, depth, {direction})` + `K.brep.revolvedSurface(wire, axis, angle)`; prism/revolve the WIRE (not a face) → sheet body of lateral / SOR faces with no caps; result kind='sheet'. Ribbon Part→Surface entries; param dialogs in DOCKED_TOOLS
 38. **Boundary Surface**
 39. **Filled Surface** (with the simple n-sided / planar variants explicitly named)
 40. **Planar Surface**

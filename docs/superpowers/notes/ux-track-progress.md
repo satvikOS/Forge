@@ -2428,3 +2428,124 @@ new `ux-tier3a-*`. Pre-existing failures outside scope.
    and continues without bailing — the rest of the workflow tests the
    ops in isolation.
 
+---
+
+## Tier 4 (focused) — Extruded Surface + Revolved Surface (2 of 8 in Tier; sheet-body variants of SP-6 Extrude/Revolve Boss)
+
+Two SW Tier-4 surfacing ops shipped in this campaign as the named
+**sheet-body** variants of the SP-6 solid feature ops `extrudeProfile`
+and `revolveProfile`. Where the SP-6 solid variants build a closed FACE
+from the input wire and then prism/revolve THAT face (caps + lateral),
+the Tier-4 surface ops prism/revolve the **wire itself** — the OCCT
+`BRepPrimAPI_MakePrism_1` / `BRepPrimAPI_MakeRevol_1` swept-shape
+contract: when the seed is a wire, the algorithm sweeps each EDGE into
+a lateral / SOR face and joins them into a SHELL with no end caps. The
+result body kind is explicitly `'sheet'`. This is the SW course
+synthesis Tier-4 items #37/#38 (Extruded Surface, Revolved Surface).
+
+### Implementation summary
+
+| Item | Implementation | Files |
+|---|---|---|
+| **Extruded Surface** | `BrepSurfaceFeatures.extrudedSurface(wire, depth, {direction})` — coerces the wire input (raw `TopoDS_Wire` / `{wire}` carrier / `[{x,y,z}, …]` polyline; auto-closes on first/last coincidence). `BRepPrimAPI_MakePrism_1` on the **wire** produces a shell of lateral faces, no caps. Spine-bound with `declaredKind:'sheet'`; `carryLineage` propagates each profile EDGE id onto a lateral FACE via `Generated(edge_i)` — the SP-6 lineage contract with the cap binding dropped. Meta records `profileEdgeIds` + `profileVertexIds` so callers can assert provenance. | `frontend/src/kernel/brep/BrepSurfaceFeatures.js` (new), `frontend/src/kernel/brep/index.js`, `frontend/src/kernel/brep/ArchDiscKernel.js` |
+| **Revolved Surface** | `BrepSurfaceFeatures.revolvedSurface(wire, axis, angle)` — same input coercion. `BRepPrimAPI_MakeRevol_1` on the **wire** produces a shell of surface-of-revolution faces, no caps. Open meridian wires are valid (a straight line revolved gives one cylindrical face; a polyline gives a conic + cylinder + … chain). Spine-bound with `declaredKind:'sheet'`; lineage carry identical to Extruded Surface. | `frontend/src/kernel/brep/BrepSurfaceFeatures.js`, `index.js`, `ArchDiscKernel.js` |
+| Ribbon entries | Two new buttons appended to the **Part → Surface** group: "Extruded Surface" + "Revolved Surface". Both are docked (PropertyManagerDock) — added to `DOCKED_TOOLS` in `SwUxOverlays.jsx`. | `frontend/src/components/RibbonToolbar.jsx`, `frontend/src/components/SwUxOverlays.jsx` |
+| Param schemas | `'Extruded Surface'` (depth + direction X/Y/Z); `'Revolved Surface'` (angle + axis origin + axis direction). | `frontend/src/foundation/ToolParamSchemas.js` |
+| Handlers | Two new entries appended to the `part` group in `ToolExecutionEngine.js`. Both resolve the profile points from (1) orchestration plan `values.profile`, (2) live interactive sketch `_activeSketch.getSolidProfile()`, (3) default rectangle / arc fallback. Render via `addBrepShapeToScene`; mirror result onto `window.__lastSurfaceBody` for e2e introspection. | `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` |
+
+### Bespoke real workflow — HVAC ductwork transition piece
+
+`e2e/ux-tier4-surface-extrude-revolve-electron.spec.js` builds a square-
+to-round HVAC duct transition — the canonical industrial use case for
+surface-only extrude/revolve (the part has open ends BY DESIGN; airflow
+passes through). ONE `test()` block, motion-capture, `--workers=1`,
+no `node:*` imports.
+
+**Workflow:**
+
+1. **Extruded Surface** on a closed 200×150 mm rectangle (the HVAC trunk
+   inlet flange) extruded -60 mm along Z. Produces 4 lateral faces only.
+2. **Revolved Surface** on an open meridian polyline at r=60 mm,
+   z∈[-60, -120] mm, revolved 360° around +Z. Produces 1 cylindrical
+   SOR face (the round outlet collar).
+3. **Stitch** the two sheet bodies into one transition piece (via
+   `makeSheetBody` on the union of both face sets).
+
+| Frame | Headline |
+|---|---|
+| 01 | Extruded Surface — rectangular inlet collar (4 lateral faces, no caps) |
+| 02 | Revolved Surface — round outlet collar (1 SOR face, no caps) |
+| 03 | Stitch — both sheet bodies sewn into the transition piece |
+| 04 | Iso of the full transition |
+| 05 | Final framed iso |
+
+**Visual check (read the stills):**
+
+1. **Frame 01** — the rectangular inlet collar renders as 4 vertical
+   sheet panels in the +Z half (the closed top of the trunk is OPEN —
+   you can see through it because there are no caps). The 4 panels meet
+   along 4 vertical edges; the top + bottom rectangle outlines are
+   visible as free boundary edges.
+2. **Frame 02** — the round outlet appears below the inlet — a thin
+   cylindrical SOR strip at r=60 mm, z∈[-60, -120]. Again no caps; the
+   top and bottom of the cylinder are open circular free boundaries.
+3. **Frame 03** — both sheets visible together in the same scene, sewn
+   into one body. The stitched body's face count equals
+   inlet_faces + outlet_faces (4 + 1 = 5 minimum; sewing may unify
+   edges but preserves face count).
+4. **Frame 04/05** — iso frame revealing the inlet-above / outlet-below
+   composition; the transition between the two open ends is the
+   next-tier work (Boundary Surface).
+
+### Focal assertions (focused on the SP-6 → Tier-4 difference)
+
+- **A** `extrudedSurface(closedRectWire, depth)` → `SpineBody{kind='sheet'}`;
+  `isWatertight === false`; `hasFreeBoundary === true`; `faceCount === 4`
+  (one lateral face per profile edge); every profile edge persistentId
+  appears in the result's per-face `derivedFrom` (lineage carry contract).
+- **B** `revolvedSurface(openLineWire, +Z axis, 360°)` → `SpineBody{
+  kind='sheet'}`; `isWatertight === false`; `hasFreeBoundary === true`;
+  `faceCount === 1` (a single cylindrical SOR face from a single straight
+  edge); profile edge persistentId appears in the result face's
+  `derivedFrom`.
+- **C** `makeSheetBody(inlet.faces ++ outlet.faces)` composes a single
+  sheet body whose face count ≥ sum of input face counts (real
+  composition, not a no-op).
+
+### E2E + regression subset
+
+- `e2e/ux-tier4-surface-extrude-revolve-electron.spec.js` — new
+- `e2e/sp6-arbitrary-profile-features-electron.spec.js` — regression
+  (sibling `extrudeProfile`/`revolveProfile` paths)
+- `e2e/sp11-sheet-tolerant-electron.spec.js` — regression (sheet-body
+  contract + `makeSheetBody` stitch path used by the bespoke)
+- `e2e/ribbon-test.spec.js` — regression (ribbon button wiring)
+
+### Honest gaps in Tier-4 (focused)
+
+The 6 remaining Tier-4 items are queued for follow-on work:
+
+1. **Filled Surface** — patch a hole bounded by a closed loop; closely
+   parallels the existing `nSidedPatch` but as a NAMED user-facing op
+   with its own ribbon entry + param dialog.
+2. **Planar Surface** — flat face from a closed planar boundary; the
+   simplest case of Filled Surface (degenerate to `BRepBuilderAPI_MakeFace`).
+3. **Untrim Surface** — restore the underlying full surface of a
+   trimmed face (drop the wire boundaries). Needs a `BRepTools::OuterWire`
+   walk + `BRep_Builder::UpdateFace` to rebind the full geometric surface.
+4. **Extend Surface** — extend a sheet's free boundary by distance or
+   up-to a face. Approachable via `BRepBuilderAPI_MakeShape`-shape extend
+   primitives (the OCCT toolset exists).
+5. **Free Form (surface)** — surface variant of SW Free Form (curves +
+   control points deform the surface); requires a NURBS surface editor
+   beyond the current kernel's exposed surface-manipulation surface.
+6. **Ruled Surface** — extend edges with surfaces tangentially. Falls
+   back to `loftTangent` between 2 edges as a precursor.
+
+These six items remain marked **Outstanding** in
+[`solidworks-course-synthesis.md`](./solidworks-course-synthesis.md)
+under §6 Tier-4. The current campaign ships the two highest-leverage
+items (Extruded Surface + Revolved Surface) — the two NAMED ops that
+the SP-6 solid feature ops were missing distinct user-facing entry
+points for.
+
