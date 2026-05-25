@@ -93,6 +93,10 @@ import {
   draftAnalysis, partingLine, toolingSplit,
   isMold, getMoldMetadata,
 } from './BrepMoldTools.js';
+// UX Tier 3a — Advanced feature ops (Boundary Boss / Rib / Helix).
+import {
+  boundaryBoss, rib, helix,
+} from './BrepAdvancedFeatures.js';
 // SP-13 — Data exchange completion (Area M, T2).
 import {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
@@ -274,6 +278,13 @@ export const ArchDiscKernel = {
     isMold,
     /** Read the mold metadata bag — {draftAnalysis, partingLine, half, toolingSplit}. */
     getMoldMetadata,
+    // ── UX Tier 3a Advanced feature ops ───────────────────────────────────
+    /** Boundary Boss / Cut — loft through N profile wires with optional M guide curves; SW's marquee surfacing feature. */
+    boundaryBoss,
+    /** Rib — extrude a sketched LINE into a thin wall feature intersected with a parent body. */
+    rib,
+    /** Helix — 3D helical CURVE (wire body) for sweeping springs / threads. */
+    helix,
     // ── SP-13 Data exchange completion (Area M, T2) ──────────────────────
     /** Export to STEP AP242 (PMI + colour + property attributes). */
     exportStepAp242,

@@ -93,6 +93,10 @@ export {
   draftAnalysis, partingLine, toolingSplit,
   isMold, getMoldMetadata,
 } from './BrepMoldTools.js';
+// UX Tier 3a — Advanced feature ops (Boundary Boss / Rib / Helix).
+export {
+  boundaryBoss, rib, helix,
+} from './BrepAdvancedFeatures.js';
 // SP-13 — Data exchange completion (Area M, T2) — re-export from kernel/export/.
 export {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
