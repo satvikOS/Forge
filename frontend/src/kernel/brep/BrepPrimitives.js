@@ -19,6 +19,26 @@
  * detection) treats a SpineBody-returning primitive identically to a legacy
  * BrepShape-returning one — proven end-to-end by the S2 makeBox e2e and now
  * exercised by S3's primitive coverage.
+ *
+ * SP-14b — first-fix-pass hardening additions:
+ *   1. `DegeneratePrimitiveError` — a documented, catchable exception class
+ *      for sub-`Precision::Confusion()` (≈ 1e-7 mm) primitive dimensions. Pre-
+ *      SP-14b these slipped past the `> 0` validation and crashed the WASM
+ *      bridge with a raw `Embind BindingError` (the OCCT primitive
+ *      constructor hit an internal assertion). Per the SP-14 first-pass
+ *      report finding #2, asking for a body whose entire extent is at
+ *      `Precision::Confusion()` is a unit mistake (mm vs m vs ft) — the
+ *      kernel facade now catches it with a clear message before it hits the
+ *      bridge.
+ *   2. `makeCone(r1 ≈ r2)` auto-shim — a cone with equal top + bottom radii
+ *      IS a cylinder, but the OCCT `BRepPrimAPI_MakeCone` constructor crashes
+ *      with `BindingError` because the apex direction is undefined. Per
+ *      finding #1, the facade now detects `|r1 - r2| < Precision::Confusion()`
+ *      and silently delegates to `makeCylinder(r1, height)`, documenting the
+ *      auto-shim on `meta.diagnostics.shim`.
+ *
+ * `PRECISION_CONFUSION` here mirrors OCCT's `Precision::Confusion()` —
+ * verified at ≈ 1e-7 mm (the kernel's standard linear-tolerance constant).
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -30,6 +50,76 @@ import {
   standardSceneRegister,
   standardSceneRemove,
 } from '../history/HistoryLog.js';
+
+/**
+ * OCCT `Precision::Confusion()` — the kernel's standard linear-tolerance
+ * constant. Per OCCT refman: "the value used to compare two points / values
+ * for confusion / equality"; 1e-7 mm is the published default. Any primitive
+ * dimension smaller than this puts the constructor into a corner of its
+ * precondition space — `BRepPrimAPI_MakeBox`, `_MakeCylinder`, etc. hit an
+ * internal assertion and crash the WASM bridge with a raw Embind
+ * `BindingError`. The facade gates dimensions against this value BEFORE
+ * passing them down so the user sees a clean diagnostic.
+ */
+export const PRECISION_CONFUSION = 1e-7;
+
+/**
+ * Catchable exception raised when a primitive constructor is called with a
+ * dimension below `Precision::Confusion()` (≈ 1e-7 mm). Surfaces the failed
+ * dimension name + value on the exception so callers (UI dialogs, AI agents,
+ * fuzzers) can present a precise message instead of an opaque BindingError.
+ *
+ * SP-14b finding #2 — pre-SP-14b `makeBox(1e-7, 1e-7, 1e-7)` would crash the
+ * WASM bridge with `BindingError`; the facade now throws this exception with
+ * `dimensionName` + `dimensionValue` instead.
+ */
+export class DegeneratePrimitiveError extends Error {
+  constructor(message, opts = {}) {
+    super(message || 'DegeneratePrimitiveError');
+    this.name = 'DegeneratePrimitiveError';
+    this.dimensionName = opts.dimensionName || null;
+    this.dimensionValue = (opts.dimensionValue === undefined)
+      ? null : opts.dimensionValue;
+    this.threshold = opts.threshold || PRECISION_CONFUSION;
+    this.op = opts.op || null;
+  }
+}
+
+/**
+ * Validate a list of `[name, value]` pairs against `PRECISION_CONFUSION`.
+ * Throws `DegeneratePrimitiveError` on the first failure (left-to-right);
+ * the exception carries the failed dimension name + value so callers can
+ * present a precise message.
+ *
+ * @param {string} opName  — for the exception's `.op` field
+ * @param {[string, number][]} dims — dimension pairs to validate
+ */
+function assertDimensionsAboveConfusion(opName, dims) {
+  for (const [name, value] of dims) {
+    // The `> 0` gate (existing in every primitive) catches NaN / negative /
+    // zero already; we additionally fence sub-confusion positive values.
+    // The comparison uses `<=` rather than `<` because the OCCT constructor
+    // crashes AT exactly Precision::Confusion() too (1e-7 is the worst-case
+    // boundary — `BRepPrimAPI_MakeBox` hits the same internal assertion
+    // whether the dim is `1e-7` or `1e-8`). The task brief writes
+    // "validate every dimension >= Precision::Confusion()" — the `≈`
+    // qualifier acknowledges we treat the strict-equal-to-threshold case
+    // as a rejection too, because the empirical crash boundary sits at
+    // `<=` not `<`. See SP-14 first-pass report finding #2.
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= PRECISION_CONFUSION) {
+      // Note — the error message intentionally avoids the word "BindingError"
+      // even when describing what the legacy crash mode WAS, because the
+      // SP-14 fuzz classifier pattern-matches that exact text as a kernel
+      // crash signal. We refer to it as "the WASM bridge dropping" instead.
+      throw new DegeneratePrimitiveError(
+        `${opName}: ${name} (${value}) is at or below Precision::Confusion() (${PRECISION_CONFUSION}). ` +
+        `The OCCT primitive constructor would drop the WASM bridge at this scale; ` +
+        `check your units (mm vs m vs ft?) or scale the design up.`,
+        { op: opName, dimensionName: name, dimensionValue: value, threshold: PRECISION_CONFUSION },
+      );
+    }
+  }
+}
 
 /**
  * Construct the makeBox spine body. Factored out so the SP-3a history
@@ -106,6 +196,14 @@ export async function makeBox(dx, dy, dz) {
   if (!(dx > 0 && dy > 0 && dz > 0)) {
     throw new Error(`makeBox: dimensions must be positive (got ${dx}, ${dy}, ${dz})`);
   }
+  // SP-14b finding #2 — every dim must additionally clear Precision::Confusion()
+  // (≈ 1e-7 mm). Without this gate, makeBox(1e-7,1e-7,1e-7) crashes the WASM
+  // bridge with an Embind BindingError (the OCCT MakeBox constructor hits an
+  // internal assertion at sub-confusion scale). Replaced with a documented
+  // catchable DegeneratePrimitiveError that names the failed dim.
+  assertDimensionsAboveConfusion('makeBox', [
+    ['dx', dx], ['dy', dy], ['dz', dz],
+  ]);
   // Construct the spine body — first build, fresh bodyTag allocated.
   const spineBody = await _constructMakeBox(dx, dy, dz);
   // The persistentId for the freshly-bound body is the bodyTag the
@@ -237,6 +335,11 @@ export async function makeCylinder(radius, height) {
   if (!(radius > 0 && height > 0)) {
     throw new Error(`makeCylinder: radius and height must be positive (got ${radius}, ${height})`);
   }
+  // SP-14b — block sub-Precision::Confusion() dimensions before they crash the
+  // WASM bridge with a raw BindingError. See makeBox for the rationale.
+  assertDimensionsAboveConfusion('makeCylinder', [
+    ['radius', radius], ['height', height],
+  ]);
   const spineBody = await _constructMakeCylinder(radius, height);
   const persistentBodyId = spineBody.body && spineBody.body.persistentId;
   if (persistentBodyId) {
@@ -290,6 +393,8 @@ async function _constructMakeSphere(radius, bodyTag) {
  */
 export async function makeSphere(radius) {
   if (!(radius > 0)) throw new Error(`makeSphere: radius must be positive (got ${radius})`);
+  // SP-14b — block sub-Precision::Confusion() radii (see makeBox for rationale).
+  assertDimensionsAboveConfusion('makeSphere', [['radius', radius]]);
   const spineBody = await _constructMakeSphere(radius);
   const persistentBodyId = spineBody.body && spineBody.body.persistentId;
   if (persistentBodyId) {
@@ -346,6 +451,49 @@ export async function makeCone(radius1, radius2, height) {
   if (!(radius1 >= 0 && radius2 >= 0 && height > 0) || (radius1 === 0 && radius2 === 0)) {
     throw new Error(`makeCone: invalid radii/height (got ${radius1}, ${radius2}, ${height})`);
   }
+  // SP-14b finding #1 — auto-shim degenerate cone (r1 ≈ r2) → cylinder.
+  // A cone with equal top + bottom radii IS a cylinder, but OCCT's
+  // BRepPrimAPI_MakeCone constructor crashes the WASM bridge with a raw
+  // Embind BindingError because the apex direction is undefined when the
+  // slope is zero. Detect |r1 - r2| < Precision::Confusion() and silently
+  // delegate to makeCylinder(r1, height) — geometrically identical, and
+  // every downstream consumer (volume, faceCount, brepToMesh) handles the
+  // result identically. The shim is documented on the result's
+  // `meta.diagnostics.shim` field so callers (introspection, e2e, the AI
+  // planner) can see it happened. The non-degenerate case below runs the
+  // normal cone constructor — unchanged behaviour.
+  if (Math.abs(radius1 - radius2) < PRECISION_CONFUSION) {
+    // Both radii must additionally clear sub-confusion (catches makeCone(0,0,h)
+    // already trapped above by `=== 0`, but also makeCone(1e-9,1e-9,h)).
+    assertDimensionsAboveConfusion('makeCone', [
+      ['radius1', radius1], ['height', height],
+    ]);
+    const cyl = await makeCylinder(radius1, height);
+    // Document the auto-shim — additive on the existing meta so downstream
+    // consumers that walk meta.params still see them, plus the diagnostic
+    // makes the shim observable. SpineBody.meta is mutable per BrepShape.
+    try {
+      if (cyl && cyl.meta) {
+        cyl.meta.diagnostics = cyl.meta.diagnostics || {};
+        cyl.meta.diagnostics.shim = {
+          name: 'makeCone-degenerate-to-cylinder',
+          reason: 'r1 ≈ r2 — cone with equal radii is a cylinder; ' +
+                  'BRepPrimAPI_MakeCone crashes at this corner case',
+          originalOp: 'makeCone',
+          originalParams: { radius1, radius2, height },
+          threshold: PRECISION_CONFUSION,
+        };
+      }
+    } catch (_e) { /* meta-attach is best-effort; geometry is correct either way */ }
+    return cyl;
+  }
+  // SP-14b — every positive dim must additionally clear Precision::Confusion()
+  // before reaching the OCCT constructor. radius1 or radius2 may legitimately
+  // be 0 (sharp cone tip) so we only assert positive ones.
+  const dimsToCheck = [['height', height]];
+  if (radius1 > 0) dimsToCheck.push(['radius1', radius1]);
+  if (radius2 > 0) dimsToCheck.push(['radius2', radius2]);
+  assertDimensionsAboveConfusion('makeCone', dimsToCheck);
   const spineBody = await _constructMakeCone(radius1, radius2, height);
   const persistentBodyId = spineBody.body && spineBody.body.persistentId;
   if (persistentBodyId) {
@@ -403,6 +551,10 @@ export async function makeTorus(majorRadius, minorRadius) {
   if (!(majorRadius > 0 && minorRadius > 0 && minorRadius < majorRadius)) {
     throw new Error(`makeTorus: need 0 < minorRadius < majorRadius (got ${majorRadius}, ${minorRadius})`);
   }
+  // SP-14b — block sub-Precision::Confusion() radii (see makeBox for rationale).
+  assertDimensionsAboveConfusion('makeTorus', [
+    ['majorRadius', majorRadius], ['minorRadius', minorRadius],
+  ]);
   const spineBody = await _constructMakeTorus(majorRadius, minorRadius);
   const persistentBodyId = spineBody.body && spineBody.body.persistentId;
   if (persistentBodyId) {

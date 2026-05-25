@@ -3,6 +3,9 @@ export { getKernel, getOCCT, _reset } from './kernelLoader.js';
 export { BrepShape, withScope, track } from './BrepShape.js';
 export {
   makeBox, makeCylinder, makeSphere, makeCone, makeTorus,
+  // SP-14b — documented catchable exception for sub-Precision::Confusion()
+  // primitive dimensions (was a raw Embind BindingError pre-SP-14b).
+  DegeneratePrimitiveError, PRECISION_CONFUSION,
 } from './BrepPrimitives.js';
 export { fuse, cut, common } from './BrepBoolean.js';
 export {
