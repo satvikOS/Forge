@@ -440,6 +440,10 @@ export const DOCKED_TOOLS = new Set([
   'Draft',
   'Linear Pattern',
   'Circular Pattern',
+  // UX Tier 11c — NX unified Pattern Feature. The single 'Pattern' tool
+  // replaces Linear Pattern + Circular Pattern on the ribbon; the legacy
+  // entries remain in this DOCKED_TOOLS set for API/AI plan callers.
+  'Pattern',
   // Tier-2a (sketch primitives)
   'Sketch Chamfer',
   'Convert Entities',

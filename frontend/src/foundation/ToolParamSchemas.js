@@ -984,6 +984,59 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
     ],
   },
+
+  // ─── UX TIER 11C — UNIFIED PATTERN FEATURE (NX takeaway #2) ────────────────
+  //
+  // NX consolidates Linear / Circular / Curve-Driven / Sketch-Driven / etc.
+  // into ONE "Pattern Feature" tool with a Layout selector at the top of
+  // the dialog. ArchDisc previously shipped Linear Pattern + Circular
+  // Pattern as separate ribbon entries; this unified schema replaces them
+  // on the ribbon while leaving the kernel ops (and the underlying
+  // 'Linear Pattern' / 'Circular Pattern' handlers) intact for backward
+  // compatibility with AI plans + direct API callers.
+  //
+  // Fields are listed for every layout; the handler reads only the
+  // relevant subset based on `layout`. The dialog renders every field
+  // (no conditional rendering in the schema layer) — hints document which
+  // layout each field applies to so the user can ignore the rest.
+  //
+  //   layout='linear'   → uses dirX/Y/Z + count + spacing
+  //   layout='circular' → uses axisX/Y/Z + count + angle
+  //   layout='polygon'  → uses axisX/Y/Z + count + polygonRadius + startAngle
+  //                       (implemented as N circular-pattern instances at
+  //                        equal angular increments on a circle of
+  //                        radius=polygonRadius)
+  //
+  // Queued (not yet implemented; will surface as the 'sketchDriven' and
+  // 'reference' layouts in a follow-up): NX-style sketch-driven pattern
+  // (place instances at each point in a driver sketch) + reference pattern
+  // (pattern-of-a-pattern propagating the seed of another feature).
+  'Pattern': {
+    title: 'Pattern Feature — Unified Layouts',
+    blurb: 'NX-style unified Pattern Feature. Pick a layout (linear / circular / polygon); the handler reads only the relevant fields. Pattern of the currently-selected foundation body (useCurrentBody=true) OR a default Ø6×15 mm seed cylinder.',
+    fields: [
+      { name: 'layout',         label: 'Layout',                type: 'enum',   default: 'linear',
+        options: ['linear', 'circular', 'polygon'],
+        hint: 'linear=along a direction; circular=around an axis; polygon=N copies at equal angles on a circle of polygonRadius. sketchDriven + reference queued for a follow-up.' },
+      { name: 'count',          label: 'Count',                 type: 'number', default: 4,   unit: '',   min: 1,    max: 400,  step: 1 },
+      // ─ linear-layout inputs
+      { name: 'spacing',        label: 'Spacing (linear)',      type: 'number', default: 20,  unit: 'mm', min: 0.1,  max: 5000, step: 1,    hint: 'linear layout only — distance between adjacent copies along the direction vector' },
+      { name: 'dirX',           label: 'Direction X (linear)',  type: 'number', default: 1,   unit: '',   min: -1,   max: 1,    step: 0.05, hint: 'linear layout only — unit vector; default (1,0,0) = +X' },
+      { name: 'dirY',           label: 'Direction Y (linear)',  type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      { name: 'dirZ',           label: 'Direction Z (linear)',  type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      // ─ circular / polygon shared axis
+      { name: 'axisX',          label: 'Axis X (circ/poly)',    type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05, hint: 'circular + polygon — rotation axis through origin; default (0,0,1) = +Z' },
+      { name: 'axisY',          label: 'Axis Y (circ/poly)',    type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      { name: 'axisZ',          label: 'Axis Z (circ/poly)',    type: 'number', default: 1,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      // ─ circular-layout inputs
+      { name: 'angle',          label: 'Total angle (circular)',type: 'number', default: 360, unit: 'deg', min: 1,   max: 360,  step: 1,    hint: 'circular layout only — sweep angle of the N copies; 360 = full revolution' },
+      { name: 'radius',         label: 'Radius (circular)',     type: 'number', default: 20,  unit: 'mm', min: 0.1,  max: 5000, step: 1,    hint: 'circular layout only — seed offset from axis; ignored if useCurrentBody=true' },
+      // ─ polygon-layout inputs
+      { name: 'polygonRadius',  label: 'Radius (polygon)',      type: 'number', default: 30,  unit: 'mm', min: 0.1,  max: 5000, step: 1,    hint: 'polygon layout only — circle radius on which the N copies sit' },
+      { name: 'startAngle',     label: 'Start angle (polygon)', type: 'number', default: 0,   unit: 'deg', min: -360, max: 360, step: 1,    hint: 'polygon layout only — angular offset of the first copy' },
+    ],
+  },
+
   'Impact Simulation': {
     title: 'Impact Simulation — Explicit Dynamics',
     blurb: 'Mass-spring transient impact. Defaults: a 1.8 kg bird-strike-class impact at 90 m/s.',

@@ -2635,6 +2635,160 @@ const TOOL_HANDLERS = {
       };
     },
 
+    // ───────────────────────────────────────────────────────────────────────
+    // UX Tier 11c — Unified Pattern Feature (NX takeaway #2).
+    //
+    // ONE ribbon tool that dispatches to the existing Linear / Circular
+    // pattern kernel ops based on the `layout` field, plus a 'polygon'
+    // layout that synthesises N circular-pattern instances at equal
+    // angular increments on a circle of `polygonRadius`. The standalone
+    // 'Linear Pattern' + 'Circular Pattern' handlers remain (the kernel
+    // ops they call are unchanged) so AI plans + direct API callers keep
+    // working — Tier 11c is purely a UX consolidation on the ribbon.
+    //
+    // Layout dispatch:
+    //   linear   → foundation.linearPattern(seed, dir, count, spacing)
+    //   circular → foundation.circularPattern({body, axis, anchor:[0,0,0], count, totalAngle})
+    //   polygon  → place the seed translated to (cos θ_i, sin θ_i, 0)·polygonRadius
+    //              for i in [0, count) at equally-spaced θ_i, then union them
+    //              (mirrors what a polygon layout does in NX — N points on a
+    //               circle, not a rotation-around-a-shared-axis like circular).
+    //
+    // Queued (Honest gap): the 'sketchDriven' + 'reference' NX layouts are
+    // accepted in the enum but rejected by the handler with a clear queued-
+    // feature message; their implementations need a sketch-point picker +
+    // a feature-reference picker respectively.
+    'Pattern': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Pattern');
+      if (cancelled) return { status: 'warn', message: 'Pattern cancelled' };
+      const layout = (values.layout || 'linear').toLowerCase();
+
+      if (layout === 'linear') {
+        // Marshal the unified-schema values into the legacy linearPattern
+        // shape, then call the existing kernel op directly. We don't
+        // re-prompt the user (we already have their values).
+        try {
+          const Mod = await getManifold();
+          const count = values.count ?? 4;
+          const spacing = values.spacing ?? 20;
+          const axis = [
+            values.dirX ?? 1,
+            values.dirY ?? 0,
+            values.dirZ ?? 0,
+          ];
+          const usedExisting = !!_lastFoundationManifold && values.useCurrentBody === true;
+          const seedR = values.seedRadius ?? 3;
+          const seed = usedExisting
+            ? _lastFoundationManifold
+            : Mod.Manifold.cylinder(values.seedHeight ?? 15, seedR, seedR, 64, true);
+          const seedV = seed.volume();
+          let arr = await fLinearPattern(seed, axis, count, spacing);
+          if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
+          if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
+          const totalV = arr.volume();
+          addFoundationManifoldToScene(scene, viewport, arr, 0x9aa3ad);
+          return {
+            status: 'success',
+            message: `Pattern (linear): ${count}× seed @ ${spacing} mm along [${axis}] `
+              + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via Tier-11c → foundation.linearPattern)`,
+          };
+        } catch (err) {
+          return { status: 'error', message: 'Pattern (linear): ' + err.message };
+        }
+      }
+
+      if (layout === 'circular') {
+        try {
+          const Mod = await getManifold();
+          const count = values.count ?? 6;
+          const axis = [
+            values.axisX ?? 0,
+            values.axisY ?? 0,
+            values.axisZ ?? 1,
+          ];
+          const radius = values.radius ?? 20;
+          let seed;
+          if (values.useCurrentBody === true && _lastFoundationManifold) {
+            seed = _lastFoundationManifold;
+          } else {
+            const s = values.seedSize ?? [2, 6, 10];
+            seed = Mod.Manifold.cube(s, true).translate([radius, 0, 0]);
+          }
+          const seedV = seed.volume();
+          const totalAngle = (values.angle ?? 360) * Math.PI / 180;
+          let arr = await fCircularPattern({ body: seed, axis, anchor: [0, 0, 0], count, totalAngle });
+          if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
+          if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
+          const totalV = arr.volume();
+          addFoundationManifoldToScene(scene, viewport, arr, 0x9aa3ad);
+          return {
+            status: 'success',
+            message: `Pattern (circular): ${count}× around [${axis}] @ R=${radius} mm, ${values.angle ?? 360}° `
+              + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via Tier-11c → foundation.circularPattern)`,
+          };
+        } catch (err) {
+          return { status: 'error', message: 'Pattern (circular): ' + err.message };
+        }
+      }
+
+      if (layout === 'polygon') {
+        // Polygon layout = N copies on a circle of polygonRadius, each
+        // translated (no shared rotation axis like circular pattern's
+        // around-the-axis sweep). Equivalent to placing the seed at the
+        // vertices of a regular polygon.
+        try {
+          const Mod = await getManifold();
+          const count = Math.max(1, Math.floor(values.count ?? 6));
+          const polygonRadius = values.polygonRadius ?? 30;
+          const startDeg = values.startAngle ?? 0;
+          const usedExisting = !!_lastFoundationManifold && values.useCurrentBody === true;
+          const seedR = values.seedRadius ?? 3;
+          const seed = usedExisting
+            ? _lastFoundationManifold
+            : Mod.Manifold.cylinder(values.seedHeight ?? 15, seedR, seedR, 64, true);
+          const seedV = seed.volume();
+          let arr = null;
+          for (let i = 0; i < count; i += 1) {
+            const theta = (startDeg + (i * 360) / count) * Math.PI / 180;
+            const dx = polygonRadius * Math.cos(theta);
+            const dy = polygonRadius * Math.sin(theta);
+            const copy = seed.translate([dx, dy, 0]);
+            if (arr === null) {
+              arr = copy;
+            } else {
+              const next = arr.add(copy);
+              if (typeof arr.delete === 'function' && arr !== seed) arr.delete();
+              if (typeof copy.delete === 'function') copy.delete();
+              arr = next;
+            }
+          }
+          if (Array.isArray(values.rotate)) arr = arr.rotate(values.rotate);
+          if (Array.isArray(values.translate)) arr = arr.translate(values.translate);
+          const totalV = arr.volume();
+          addFoundationManifoldToScene(scene, viewport, arr, 0x9aa3ad);
+          return {
+            status: 'success',
+            message: `Pattern (polygon): ${count}× on circle R=${polygonRadius} mm, start ${startDeg}° `
+              + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via Tier-11c polygon layout)`,
+          };
+        } catch (err) {
+          return { status: 'error', message: 'Pattern (polygon): ' + err.message };
+        }
+      }
+
+      if (layout === 'sketchdriven' || layout === 'sketch-driven' || layout === 'reference') {
+        // Honest gap — Tier-11c queues these for a follow-up. Each needs
+        // an extra picker the schema layer doesn't yet expose (sketch
+        // points for sketchDriven; feature reference for reference).
+        return {
+          status: 'warn',
+          message: `Pattern (${layout}): layout queued — Tier 11c first wave ships linear/circular/polygon; sketchDriven + reference layouts need a sketch-point picker + feature-reference picker (queued in ux-track-progress.md).`,
+        };
+      }
+
+      return { status: 'error', message: `Pattern: unknown layout "${values.layout}". Valid: linear | circular | polygon.` };
+    },
+
     // ═══════════════════════════════════════════════════════════════════════
     // UX Tier 4 (focused) — Extruded Surface + Revolved Surface.
     // Sheet-body variants of SP-6 Extrude/Revolve Boss. Prism/revolve the

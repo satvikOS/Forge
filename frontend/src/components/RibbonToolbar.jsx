@@ -191,10 +191,23 @@ const TABS = {
         { name: 'Delete Face',    icon: '✕', key: 'part' },
         { name: 'Infer Feature',  icon: '🔍', key: 'part' },
       ]},
+      // UX Tier 11c — NX unified Pattern Feature.
+      // The new 'Pattern' tool is the PRIMARY entry — NX-style single
+      // tool with a layout selector (linear / circular / polygon) at
+      // the top of its dialog (schema in ToolParamSchemas.js, dispatch
+      // handler in ToolExecutionEngine.js). The previously-separate
+      // 'Linear Pattern' + 'Circular Pattern' entries remain on the
+      // ribbon as deprecated direct-access buttons so existing
+      // integration specs / AI plans / external callers that click
+      // them keep working through this cycle; they will be removed
+      // from the ribbon in a follow-up once all callers migrate. The
+      // underlying kernel ops (foundation.linearPattern + foundation.
+      // circularPattern) are unchanged.
       { label: 'Pattern', tools: [
-        { name: 'Linear Pattern', icon: '⫶', key: 'part' },
+        { name: 'Pattern',          icon: '⫯', key: 'part' },
+        { name: 'Linear Pattern',   icon: '⫶', key: 'part' },
         { name: 'Circular Pattern', icon: '◎', key: 'part' },
-        { name: 'Mirror Feature', icon: '⟷', key: 'part' },
+        { name: 'Mirror Feature',   icon: '⟷', key: 'part' },
       ]},
       // SP-8 — Healing & repair completion (Area H, T1).
       // Auto-Fill Holes patches open-edge loops with N-sided patches;
