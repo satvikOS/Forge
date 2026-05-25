@@ -1136,4 +1136,330 @@ export function autoBalloon(components, assemblyManifold, options = {}) {
   };
 }
 
-export default { auxiliaryView, cropView, brokenView, modelItems, bom, autoBalloon };
+// ───────────────────────────────────────────────────────────────────────────
+// UX Tier 8c — Sheet Format + Title Block
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Real-world drawing sheet sizes in millimetres (W × H, natural / portrait
+ * orientation for the ISO A-series; ANSI's "landscape natural" convention
+ * is kept by setting the larger value as H so flipping to landscape gives
+ * a wider sheet).
+ *
+ * Sources: ISO 216 (A0..A4) and ASME Y14.1 (ANSI A..E).
+ */
+export const SHEET_SIZES = Object.freeze({
+  'A0':     { w: 841,  h: 1189 },
+  'A1':     { w: 594,  h: 841  },
+  'A2':     { w: 420,  h: 594  },
+  'A3':     { w: 297,  h: 420  },
+  'A4':     { w: 210,  h: 297  },
+  'ANSI-A': { w: 216,  h: 279  },  // 8.5 × 11 in
+  'ANSI-B': { w: 279,  h: 432  },  // 11 × 17 in
+  'ANSI-C': { w: 432,  h: 559  },  // 17 × 22 in
+  'ANSI-D': { w: 559,  h: 864  },  // 22 × 34 in
+  'ANSI-E': { w: 864,  h: 1118 },  // 34 × 44 in
+});
+
+/**
+ * Compute sheet dimensions (W,H in paper-mm) for a {size, orientation}
+ * pair. The size's `w` / `h` is the natural-portrait orientation; if the
+ * caller asks for `landscape` and natural is already portrait (w<h), the
+ * dimensions get swapped. Returns { w, h, size, orientation }.
+ *
+ * Defaults to A3 landscape (the closest match to the legacy 297×210
+ * sheet the rest of the drawing pipeline used).
+ */
+export function resolveSheet(opts = {}) {
+  const sizeName = SHEET_SIZES[opts.size] ? opts.size : 'A3';
+  const natural = SHEET_SIZES[sizeName];
+  let w = natural.w;
+  let h = natural.h;
+  const orientation = (opts.orientation || 'landscape').toLowerCase();
+  const naturalIsPortrait = w < h;
+  if (orientation === 'landscape' && naturalIsPortrait) { const t = w; w = h; h = t; }
+  if (orientation === 'portrait' && !naturalIsPortrait) { const t = w; w = h; h = t; }
+  return { w, h, size: sizeName, orientation };
+}
+
+/**
+ * Render a real ASME/ISO engineering title block in the bottom-right
+ * corner of a sheet, embedded in a full standalone drawing SVG that
+ * shows the active body's FRONT projection on the chosen sheet size.
+ *
+ * The title block is a 3-row, multi-column grid (mirrors SolidWorks /
+ * Siemens NX title-block layout):
+ *
+ *   ┌───────────────────────────────────────────────────────────┐
+ *   │  PART NUMBER                                              │   ← Title row (24mm tall)
+ *   │  Description                                              │
+ *   ├──────────────┬───────────────┬───────────────┬────────────┤
+ *   │  Drawn by    │  Date         │  Material     │  Scale     │   ← Properties row 1 (12mm)
+ *   ├──────────────┼───────────────┼───────────────┼────────────┤
+ *   │  Sheet n/N   │  Standard     │  Units        │  Tolerance │   ← Properties row 2 (12mm)
+ *   ├──────────────┴───────────────┴───────────────┴────────────┤
+ *   │  Approved   /   Signature                                 │   ← Approval row (12mm)
+ *   └───────────────────────────────────────────────────────────┘
+ *
+ * Block footprint: 120 mm × 60 mm, anchored at (sheetW - 5 - 120,
+ * sheetH - 5 - 60) so it lives inside the 5mm sheet margin.
+ *
+ * Args:
+ *   manifold — foundation Manifold body (FRONT view goes on the sheet)
+ *   opts     — {
+ *      // sheet
+ *      size, orientation,
+ *      // title-block fields
+ *      partNumber, description, drawnBy, date, material, scale,
+ *      sheetN, sheetTotal, approval,
+ *      // misc
+ *      units = 'mm', standard = 'ASME Y14.5', tolerance = '±0.1',
+ *   }
+ *
+ * Returns:
+ *   { svg, info: { sheet: {w,h,size,orientation}, fields: {...},
+ *                  titleBlockBBox: {x,y,w,h}, edgeCount, paperScale } }
+ */
+export function titleBlock(manifold, opts = {}) {
+  const sheet = resolveSheet(opts);
+  const SVG_W = sheet.w, SVG_H = sheet.h;
+
+  const fields = {
+    partNumber:  opts.partNumber  || 'PN-0000',
+    description: opts.description || 'Untitled Part',
+    drawnBy:     opts.drawnBy     || '—',
+    date:        opts.date        || new Date().toISOString().slice(0, 10),
+    material:    opts.material    || '—',
+    scale:       opts.scale       || '1:1',
+    sheetN:      Number.isFinite(opts.sheetN)     ? opts.sheetN     : 1,
+    sheetTotal:  Number.isFinite(opts.sheetTotal) ? opts.sheetTotal : 1,
+    approval:    opts.approval    || 'PENDING',
+    units:       opts.units       || 'mm',
+    standard:    opts.standard    || 'ASME Y14.5',
+    tolerance:   opts.tolerance   || '±0.1',
+  };
+
+  // Title-block footprint — bottom-right corner.
+  const TB_W = 120, TB_H = 60;
+  const TB_X = SVG_W - 5 - TB_W;
+  const TB_Y = SVG_H - 5 - TB_H;
+
+  // FRONT view — fit the body into the area ABOVE the title block, with a
+  // 15 mm top/left margin, ~10 mm right margin and ~5mm gap above the
+  // title block. We accept the body's natural aspect; the paper-scale is
+  // sized to fit whichever dimension is the binding constraint.
+  let edges = [];
+  let paperScale = 1;
+  let viewBBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  if (manifold && typeof manifold.boundingBox === 'function') {
+    const bb = manifold.boundingBox();
+    const partOrigin = [(bb.min[0] + bb.max[0]) / 2,
+                       (bb.min[1] + bb.max[1]) / 2,
+                       (bb.min[2] + bb.max[2]) / 2];
+    const partExtent = Math.max(bb.max[0] - bb.min[0],
+                                bb.max[1] - bb.min[1],
+                                bb.max[2] - bb.min[2]) || 1;
+    const viewBoxW = SVG_W - 30;                  // 15 + 15 mm margins
+    const viewBoxH = SVG_H - 30 - TB_H - 5;       // 15mm top + 15mm gap-to-TB + TB height
+    paperScale = Math.min(0.85 * viewBoxW / (partExtent * 1.4),
+                          0.85 * viewBoxH / (partExtent * 1.4), 1);
+    // Project TOP-DOWN (looking along -Z with +Y as paper-up). This shows
+    // the body's XY silhouette directly — the natural plane for the
+    // atomic Part API (which sketches in XY + extrudes along Z), so the
+    // title-block / sheet preview matches what the user just built.
+    const proj = projectEdges(manifold, [0, 0, -1], [0, 1, 0], partOrigin, paperScale);
+    edges = proj.edges;
+    viewBBox = proj.bbox;
+  }
+  const viewCx = (viewBBox.minX + viewBBox.maxX) / 2;
+  const viewCy = (viewBBox.minY + viewBBox.maxY) / 2;
+  const viewAreaCx = (SVG_W - 30) / 2 + 15;
+  const viewAreaCy = (SVG_H - TB_H - 20) / 2 + 15;
+  const originX = viewAreaCx - viewCx;
+  const originY = viewAreaCy - viewCy;
+
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="title-block" data-sheet-size="${esc(sheet.size)}" data-sheet-orientation="${esc(sheet.orientation)}" data-tb-part-number="${esc(fields.partNumber)}">`);
+
+  // Sheet border (double-line ASME convention: outer + inner).
+  out.push(`<rect x="2.5" y="2.5" width="${SVG_W - 5}" height="${SVG_H - 5}" fill="white" stroke="black" stroke-width="0.3"/>`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="none" stroke="black" stroke-width="0.5"/>`);
+
+  // FRONT view (the body itself).
+  out.push(`<g class="view view-front" data-view-name="front" transform="translate(${originX.toFixed(3)},${originY.toFixed(3)})">`);
+  for (const e of edges) {
+    out.push(`<line x1="${e.x1.toFixed(3)}" y1="${e.y1.toFixed(3)}" x2="${e.x2.toFixed(3)}" y2="${e.y2.toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+  }
+  if (edges.length > 0) {
+    out.push(`<text x="${viewBBox.minX.toFixed(3)}" y="${(viewBBox.minY - 4).toFixed(3)}" font-family="monospace" font-size="4" fill="#222">FRONT</text>`);
+  }
+  out.push('</g>');
+
+  // ── Title block — 3-row engineering grid in the bottom-right corner ──
+  const TITLE_H    = 24;   // Row 1 — Title (PN + description)
+  const PROPS_H    = 12;   // Rows 2 & 3 — Properties cells
+  const APPROVAL_H = 12;   // Row 4 — Approval
+
+  // Column widths for the properties grid (4 columns).
+  const colW = TB_W / 4;   // 30 mm each
+
+  out.push(`<g class="title-block" data-archdisc-title-block="1" data-tb-x="${TB_X}" data-tb-y="${TB_Y}" data-tb-w="${TB_W}" data-tb-h="${TB_H}">`);
+
+  // Outer title-block frame.
+  out.push(`<rect x="${TB_X}" y="${TB_Y}" width="${TB_W}" height="${TB_H}" fill="white" stroke="black" stroke-width="0.6"/>`);
+
+  // ── Title row ──
+  out.push(`<rect x="${TB_X}" y="${TB_Y}" width="${TB_W}" height="${TITLE_H}" fill="#fafbfc" stroke="black" stroke-width="0.5"/>`);
+  out.push(`<text x="${TB_X + 4}" y="${TB_Y + 10}" font-family="monospace" font-size="6.5" font-weight="bold" fill="#111">${esc(fields.partNumber)}</text>`);
+  out.push(`<text x="${TB_X + 4}" y="${TB_Y + 19}" font-family="monospace" font-size="3.8" fill="#333">${esc(fields.description)}</text>`);
+
+  // ── Properties grid: 4 columns × 2 rows ──
+  // Cell layout (left→right, top→bottom):
+  //   [Drawn by] [Date]      [Material] [Scale]
+  //   [Sheet]    [Standard]  [Units]    [Tol]
+  const propsRow1Y = TB_Y + TITLE_H;
+  const propsRow2Y = propsRow1Y + PROPS_H;
+
+  const drawCell = (cx, cy, w, h, label, value) => {
+    out.push(`<rect data-tb-cell="${esc(label.toLowerCase())}" x="${cx}" y="${cy}" width="${w}" height="${h}" fill="white" stroke="black" stroke-width="0.4"/>`);
+    out.push(`<text x="${cx + 1.5}" y="${cy + 3.5}" font-family="monospace" font-size="2.4" fill="#666">${esc(label)}</text>`);
+    out.push(`<text x="${cx + 1.5}" y="${cy + 9.5}" font-family="monospace" font-size="3.6" font-weight="bold" fill="#111">${esc(value)}</text>`);
+  };
+
+  drawCell(TB_X + 0 * colW, propsRow1Y, colW, PROPS_H, 'DRAWN',    fields.drawnBy);
+  drawCell(TB_X + 1 * colW, propsRow1Y, colW, PROPS_H, 'DATE',     fields.date);
+  drawCell(TB_X + 2 * colW, propsRow1Y, colW, PROPS_H, 'MATERIAL', fields.material);
+  drawCell(TB_X + 3 * colW, propsRow1Y, colW, PROPS_H, 'SCALE',    fields.scale);
+
+  drawCell(TB_X + 0 * colW, propsRow2Y, colW, PROPS_H, 'SHEET',    `${fields.sheetN} / ${fields.sheetTotal}`);
+  drawCell(TB_X + 1 * colW, propsRow2Y, colW, PROPS_H, 'STANDARD', fields.standard);
+  drawCell(TB_X + 2 * colW, propsRow2Y, colW, PROPS_H, 'UNITS',    fields.units);
+  drawCell(TB_X + 3 * colW, propsRow2Y, colW, PROPS_H, 'TOL',      fields.tolerance);
+
+  // ── Approval row ──
+  const approvalY = propsRow2Y + PROPS_H;
+  out.push(`<rect data-tb-cell="approval" x="${TB_X}" y="${approvalY}" width="${TB_W}" height="${APPROVAL_H}" fill="#fafbfc" stroke="black" stroke-width="0.5"/>`);
+  out.push(`<text x="${TB_X + 2}" y="${approvalY + 3.5}" font-family="monospace" font-size="2.4" fill="#666">APPROVED</text>`);
+  out.push(`<text x="${TB_X + 2}" y="${approvalY + 9.5}" font-family="monospace" font-size="3.6" font-weight="bold" fill="#111">${esc(fields.approval)}</text>`);
+  // Signature line on the right half of the approval cell.
+  out.push(`<line x1="${TB_X + TB_W * 0.55}" y1="${approvalY + 9}" x2="${TB_X + TB_W - 3}" y2="${approvalY + 9}" stroke="black" stroke-width="0.3"/>`);
+  out.push(`<text x="${TB_X + TB_W * 0.55 + 1}" y="${approvalY + 11}" font-family="monospace" font-size="2" fill="#888">SIGNATURE</text>`);
+
+  out.push('</g>');
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      sheet,
+      fields,
+      titleBlockBBox: { x: TB_X, y: TB_Y, w: TB_W, h: TB_H },
+      edgeCount: edges.length,
+      paperScale,
+    },
+  };
+}
+
+/**
+ * Re-render the active sheet at a different size / orientation. Draws
+ * the FRONT view (active body) + the standard double-line ASME border +
+ * a minimal title block (so the user sees the sheet immediately rather
+ * than an empty rectangle). The full-fledged title block is added by
+ * the separate Title Block op; Sheet Format owns sheet-level geometry.
+ *
+ * Args:
+ *   manifold — foundation Manifold body (optional; if absent, renders the
+ *              empty sheet so the user can confirm the new size).
+ *   opts     — { size, orientation, partName?, date? }
+ *
+ * Returns:
+ *   { svg, info: { sheet: {w,h,size,orientation}, edgeCount, paperScale,
+ *                  borderInset_mm, sheetArea_mm2 } }
+ */
+export function sheetFormat(manifold, opts = {}) {
+  const sheet = resolveSheet(opts);
+  const SVG_W = sheet.w, SVG_H = sheet.h;
+  const partName = opts.partName || 'Untitled Sheet';
+  const date = opts.date || new Date().toISOString().slice(0, 10);
+
+  // Mini title block (corner) — bottom-right. Sized smaller than the
+  // full Title Block op so the two SVGs differ visually too.
+  const MTB_W = 100, MTB_H = 30;
+  const MTB_X = SVG_W - 5 - MTB_W;
+  const MTB_Y = SVG_H - 5 - MTB_H;
+
+  let edges = [];
+  let paperScale = 1;
+  let viewBBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  if (manifold && typeof manifold.boundingBox === 'function') {
+    const bb = manifold.boundingBox();
+    const partOrigin = [(bb.min[0] + bb.max[0]) / 2,
+                       (bb.min[1] + bb.max[1]) / 2,
+                       (bb.min[2] + bb.max[2]) / 2];
+    const partExtent = Math.max(bb.max[0] - bb.min[0],
+                                bb.max[1] - bb.min[1],
+                                bb.max[2] - bb.min[2]) || 1;
+    const viewBoxW = SVG_W - 30;
+    const viewBoxH = SVG_H - 30 - MTB_H - 5;
+    paperScale = Math.min(0.85 * viewBoxW / (partExtent * 1.4),
+                          0.85 * viewBoxH / (partExtent * 1.4), 1);
+    // Project TOP-DOWN (looking along -Z with +Y as paper-up). This shows
+    // the body's XY silhouette directly — the natural plane for the
+    // atomic Part API (which sketches in XY + extrudes along Z), so the
+    // title-block / sheet preview matches what the user just built.
+    const proj = projectEdges(manifold, [0, 0, -1], [0, 1, 0], partOrigin, paperScale);
+    edges = proj.edges;
+    viewBBox = proj.bbox;
+  }
+  const viewCx = (viewBBox.minX + viewBBox.maxX) / 2;
+  const viewCy = (viewBBox.minY + viewBBox.maxY) / 2;
+  const viewAreaCx = (SVG_W - 30) / 2 + 15;
+  const viewAreaCy = (SVG_H - MTB_H - 20) / 2 + 15;
+  const originX = viewAreaCx - viewCx;
+  const originY = viewAreaCy - viewCy;
+
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="sheet-format" data-sheet-size="${esc(sheet.size)}" data-sheet-orientation="${esc(sheet.orientation)}" data-sheet-w="${SVG_W}" data-sheet-h="${SVG_H}">`);
+
+  // ASME double-line border, sized to fit the new sheet.
+  out.push(`<rect x="2.5" y="2.5" width="${SVG_W - 5}" height="${SVG_H - 5}" fill="white" stroke="black" stroke-width="0.3"/>`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="none" stroke="black" stroke-width="0.5"/>`);
+
+  // Sheet legend in the top-left corner — confirms the new format choice.
+  out.push(`<text x="10" y="14" font-family="monospace" font-size="4" font-weight="bold" fill="#222">SHEET ${esc(sheet.size)} (${esc(sheet.orientation.toUpperCase())})  ${SVG_W} × ${SVG_H} mm</text>`);
+
+  // FRONT view (active body).
+  out.push(`<g class="view view-front" data-view-name="front" transform="translate(${originX.toFixed(3)},${originY.toFixed(3)})">`);
+  for (const e of edges) {
+    out.push(`<line x1="${e.x1.toFixed(3)}" y1="${e.y1.toFixed(3)}" x2="${e.x2.toFixed(3)}" y2="${e.y2.toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+  }
+  if (edges.length > 0) {
+    out.push(`<text x="${viewBBox.minX.toFixed(3)}" y="${(viewBBox.minY - 4).toFixed(3)}" font-family="monospace" font-size="4" fill="#222">FRONT</text>`);
+  }
+  out.push('</g>');
+
+  // Mini title block, fitted to the new sheet's corner.
+  out.push(`<g class="title-block" data-archdisc-title-block="mini">`);
+  out.push(`<rect x="${MTB_X}" y="${MTB_Y}" width="${MTB_W}" height="${MTB_H}" fill="white" stroke="black" stroke-width="0.5"/>`);
+  out.push(`<text x="${MTB_X + 3}" y="${MTB_Y + 9}" font-family="monospace" font-size="4" font-weight="bold" fill="#111">${esc(partName)}</text>`);
+  out.push(`<text x="${MTB_X + 3}" y="${MTB_Y + 17}" font-family="monospace" font-size="2.8" fill="#333">Sheet ${esc(sheet.size)}  ${esc(sheet.orientation)}  ${SVG_W}×${SVG_H} mm</text>`);
+  out.push(`<text x="${MTB_X + 3}" y="${MTB_Y + 25}" font-family="monospace" font-size="2.8" fill="#333">Date ${esc(date)}  Scale ${paperScale.toFixed(3)}:1</text>`);
+  out.push(`</g>`);
+
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      sheet,
+      edgeCount: edges.length,
+      paperScale,
+      borderInset_mm: 5,
+      sheetArea_mm2: SVG_W * SVG_H,
+    },
+  };
+}
+
+export default { auxiliaryView, cropView, brokenView, modelItems, bom, autoBalloon, titleBlock, sheetFormat, resolveSheet, SHEET_SIZES };
