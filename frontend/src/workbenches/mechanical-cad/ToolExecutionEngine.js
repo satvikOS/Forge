@@ -7062,6 +7062,108 @@ const TOOL_HANDLERS = {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'End Cap: ' + (err.message || err) };
       }
     },
+
+    // ── UX Tier 6b — Weldments additions ──────────────────────────────────
+    //
+    // Two foundational reinforcement / weld ops on top of the Tier-6a
+    // weldment-tagged members:
+    //   - Gusset    — triangular (or polygon) reinforcement plate fillet
+    //                 welded between two structural members at their joint.
+    //   - Weld Bead — small fillet / square / V / bevel weld solid swept
+    //                 along the joint between two members.
+    //
+    // Both ops require TWO weldment-tagged members selected; both bodies
+    // record the gusset/weld id in `body.metadata.weldment.gussets[]` /
+    // `welds[]`. The created gusset / bead is itself a weldment-tagged
+    // child body so the cut-list (Tier-6c) can aggregate it cleanly.
+
+    'Gusset': async (scene, viewport) => {
+      // Arity 2 — pre-select 2 weldment members that share a joint.
+      try {
+        const picked = _pickBodies(Infinity);
+        const members = picked.filter(b => ArchDiscKernel.brep.isWeldment(b));
+        if (members.length < 2) {
+          return { status: 'warn', message: 'Gusset: select 2 weldment members that share a joint first.' };
+        }
+        const memberA = members[0];
+        const memberB = members[1];
+        const { values, cancelled } = await requestToolParams('Gusset');
+        if (cancelled) return { status: 'warn', message: 'Gusset: cancelled' };
+        const type      = String(values.type || 'triangular').toLowerCase();
+        const size      = Number(values.size) > 0 ? Number(values.size) : 100;
+        const thickness = Number(values.thickness) > 0 ? Number(values.thickness) : 6;
+        const position  = String(values.position || 'inner').toLowerCase();
+        const result = await ArchDiscKernel.brep.gusset(memberA, memberB, { type, size, thickness, position });
+        // Gusset colour — a brighter steel tint than the parent members.
+        await addBrepShapeToScene(scene, viewport, result.gusset, 0x90a4ae);
+        const m = await ArchDiscKernel.brep.measure(result.gusset);
+        if (typeof window !== 'undefined') {
+          window.__lastGusset = {
+            gussetId: result.gussetId,
+            type,
+            size,
+            thickness,
+            position,
+            joint: result.joint,
+            faceCount: m.faceCount,
+            volume: m.volume,
+          };
+          window.__lastWeldmentBody = result.gusset;
+          if (!Array.isArray(window.__archdiscWeldmentGussets)) window.__archdiscWeldmentGussets = [];
+          window.__archdiscWeldmentGussets.push(result.gusset);
+        }
+        return {
+          status: 'success',
+          message: `Gusset: ${type}, ${size} mm legs × ${thickness} mm thick → ${m.faceCount} faces, ` +
+            `id ${result.gussetId.slice(0, 16)}… recorded on both members via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Gusset: ' + (err.message || err) };
+      }
+    },
+
+    'Weld Bead': async (scene, viewport) => {
+      // Arity 2 — pre-select 2 weldment members sharing a joint.
+      try {
+        const picked = _pickBodies(Infinity);
+        const members = picked.filter(b => ArchDiscKernel.brep.isWeldment(b));
+        if (members.length < 2) {
+          return { status: 'warn', message: 'Weld Bead: select 2 weldment members that share a joint first.' };
+        }
+        const memberA = members[0];
+        const memberB = members[1];
+        const { values, cancelled } = await requestToolParams('Weld Bead');
+        if (cancelled) return { status: 'warn', message: 'Weld Bead: cancelled' };
+        const type   = String(values.type || 'fillet').toLowerCase();
+        const size   = Number(values.size) > 0 ? Number(values.size) : 6;
+        const length = Number(values.length) > 0 ? Number(values.length) : undefined;
+        const result = await ArchDiscKernel.brep.weldBead(memberA, memberB, { type, size, length });
+        // Bead colour — a warm copper/bronze for visible weld bead.
+        await addBrepShapeToScene(scene, viewport, result.bead, 0xb87333);
+        const m = await ArchDiscKernel.brep.measure(result.bead);
+        if (typeof window !== 'undefined') {
+          window.__lastWeldBead = {
+            weldId: result.weldId,
+            type,
+            size,
+            length: result.beadLength,
+            joint: result.joint,
+            faceCount: m.faceCount,
+            volume: m.volume,
+          };
+          window.__lastWeldmentBody = result.bead;
+          if (!Array.isArray(window.__archdiscWeldmentBeads)) window.__archdiscWeldmentBeads = [];
+          window.__archdiscWeldmentBeads.push(result.bead);
+        }
+        return {
+          status: 'success',
+          message: `Weld Bead: ${type}, ${size} mm × ${result.beadLength.toFixed(0)} mm → ${m.faceCount} faces, ` +
+            `id ${result.weldId.slice(0, 14)}… recorded on both members via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Weld Bead: ' + (err.message || err) };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

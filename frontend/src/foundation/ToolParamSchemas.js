@@ -1363,6 +1363,43 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 6b — Weldments additions ────────────────────────────────────
+  //
+  // Gusset + Weld Bead — reinforcement + welder-spec joint geometry on top
+  // of the Tier-6a structural members. Both ops take TWO pre-selected
+  // weldment-tagged members that share a joint and produce a NEW
+  // weldment-tagged child body, while recording the gusset / weld id on
+  // both parent members' metadata.weldment.gussets[] / welds[].
+  'Gusset': {
+    title: 'Gusset — Triangular Reinforcement Plate',
+    blurb: 'Pre-select TWO structural members that share a joint endpoint. The gusset is a flat plate (triangular by default; 5-sided polygon optional) sitting in the joint plane, fillet-welded between the two members. Real welded-frame reinforcement: drastically stiffens the corner. Both members record the gusset id in their metadata.',
+    fields: [
+      { name: 'type',      label: 'Gusset shape',   type: 'enum',
+        options: ['triangular', 'polygon'], default: 'triangular',
+        hint: 'triangular = 3-sided plate (classic); polygon = 5-sided plate with chopped outer corners.' },
+      { name: 'size',      label: 'Leg length',     type: 'number', default: 100, unit: 'mm', min: 10, max: 1000, step: 1,
+        hint: 'Length of each gusset leg along the member tangent from the joint.' },
+      { name: 'thickness', label: 'Plate thickness', type: 'number', default: 6, unit: 'mm', min: 1, max: 30, step: 0.5,
+        hint: 'Gusset plate thickness; typical 6–10 mm for steel weldments.' },
+      { name: 'position',  label: 'Plate position', type: 'enum',
+        options: ['inner', 'outer'], default: 'inner',
+        hint: 'inner = on the joint-bisector side (between the members); outer = opposite side.' },
+    ],
+  },
+  'Weld Bead': {
+    title: 'Weld Bead — Real Welder-Spec Joint',
+    blurb: 'Pre-select TWO structural members that share a joint. The bead is a small solid (fillet triangle, square rectangle, V-groove triangle, or trapezoidal bevel) swept along the joint corner. Real welder cross-sections — fillet is the canonical right triangle, V-groove for butt welds. Both members record the weld id.',
+    fields: [
+      { name: 'type',   label: 'Weld type', type: 'enum',
+        options: ['fillet', 'square', 'V', 'bevel'], default: 'fillet',
+        hint: 'fillet = right triangle (most common); square = rectangle; V = V-groove; bevel = trapezoid.' },
+      { name: 'size',   label: 'Leg size',  type: 'number', default: 6, unit: 'mm', min: 1, max: 30, step: 0.5,
+        hint: 'Bead cross-section leg dimension; typical 5–10 mm for structural welds.' },
+      { name: 'length', label: 'Bead run length', type: 'number', default: 0, unit: 'mm', min: 0, max: 5000, step: 1,
+        hint: '0 = auto (min of member length, capped). Otherwise the explicit bead run length.' },
+    ],
+  },
+
   // ─── UX TIER 9 — Mold Tools workbench foundation ──────────────────────
   //
   // Three foundational mold-tools ops with their param schemas. Draft

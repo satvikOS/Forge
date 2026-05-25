@@ -373,6 +373,11 @@ const TABS = {
       { label: 'Caps', tools: [
         { name: 'End Cap', icon: '⊓', key: 'weldments' },
       ]},
+      // UX Tier 6b — Weldments additions: Gusset + Weld Bead.
+      { label: 'Reinforcement', tools: [
+        { name: 'Gusset', icon: '◣', key: 'weldments' },
+        { name: 'Weld Bead', icon: '〰', key: 'weldments' },
+      ]},
     ],
   },
   // UX Tier 9 — Mold Tools workbench. A dedicated CommandManager tab alongside

@@ -470,6 +470,9 @@ export const DOCKED_TOOLS = new Set([
   // UX Tier 8c — Drawing sheet header (Title Block + Sheet Format).
   'Title Block',
   'Sheet Format',
+  // UX Tier 6b — Weldments additions (Gusset + Weld Bead).
+  'Gusset',
+  'Weld Bead',
 ]);
 
 export function PropertyManagerDock() {
