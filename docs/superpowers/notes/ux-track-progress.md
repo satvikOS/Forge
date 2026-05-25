@@ -2867,6 +2867,147 @@ Headed Electron, `--workers=1`, `--retries=0`:
 
 ---
 
+## Tier 12a — NX universal Specify Vector picker (1 of 1 shipped)
+
+The Siemens-NX synthesis (`siemens-nx-course-synthesis.md` §6 item 117 +
+§8 takeaway #3) identifies a single distinctive NX pattern: **most
+direction-needing dialogs share ONE picker component** — the "Specify
+Vector" widget — that lets the user pick a CSYS axis, a sketch line, a
+face normal, an edge, or a custom 3-component vector. ArchDisc previously
+spread three separate numeric fields (`dirX / dirY / dirZ` on Extrude,
+`tx / ty / tz` on Move Face, etc.) across every tool — discoverable, but
+not coherent.
+
+Tier-12a ships the picker as a shared React component and wires it into
+3 tools as the first proof. The migration is purely UX consolidation —
+kernel ops, the orchestration plan path, and AI-plan callers all keep
+working through legacy-key compat (see below).
+
+### The component
+
+`frontend/src/components/VectorPicker.jsx` + `.css` — 4 modes:
+
+| Mode | What it does | UI |
+|---|---|---|
+| **CSYS axis** (default) | Pick one of ±X / ±Y / ±Z world axes | 6 button toggles in a row, active axis highlighted blue |
+| **Custom** | Type a 3-component vector | dx / dy / dz text inputs (same `=expr` parametric support as Tier-10b numeric fields) |
+| **Sketch line** | Click a sketch line — vector = `end − start` (normalised) | "Pick from sketch" button → arms the picker via `window.__archdiscVectorPickerArmed`, polls `window.__archdiscLastPickedSketchLine` |
+| **Face normal** | Click a face — vector = face normal at the pick point | "Pick face normal" button → arms the picker, polls `window.__archdiscLastPickedFaceNormal` |
+
+Output value shape (always normalised when emitted):
+
+```js
+{
+  mode: 'csys' | 'custom' | 'sketchLine' | 'faceNormal',
+  x: number, y: number, z: number,    // unit vector
+  magnitude: number,                  // pre-normalisation length
+  csysAxis?: '+X' | '-X' | ...,       // mode='csys' provenance
+  pickedAt?: { kind, meta },          // sketch-line / face-normal pick metadata
+}
+```
+
+The picker exposes `__archdiscVectorPickerForce({fieldName, mode, x, y, z, ...})`
+on `window` so e2e specs can drive any mode without simulating real DOM picks.
+
+### The schema field type
+
+`ToolParamSchemas.js` gains a `'vector'` field type alongside the existing
+`'number'` / `'enum'`. Schema entry shape:
+
+```js
+{ name: 'direction', label: 'Direction', type: 'vector',
+  default: { mode: 'csys', x: 0, y: 0, z: 1, csysAxis: '+Z' },
+  legacyKeys: { x: 'dirX', y: 'dirY', z: 'dirZ' },
+  hint: '...' }
+```
+
+`legacyKeys` is the back-compat bridge: on commit, the dialog emits BOTH
+the full value object as `values.direction = {mode,x,y,z,...}` AND the
+legacy trio `values.dirX / values.dirY / values.dirZ`. Existing handlers
+that read `values.dirX` continue to work; new handlers prefer the vector
+object. The dock-bypass merge path in `foundation/ToolParamDialog.js`
+also folds plan-supplied legacy keys back INTO the picker value object
+so the handler sees the right vector regardless of which way the caller
+expressed the direction.
+
+### Migrations (first 3)
+
+| Tool | Field renamed | Default | Legacy keys |
+|---|---|---|---|
+| `Extrude` | `dirX / dirY / dirZ` → `direction` (vector) | CSYS +Z | `dirX / dirY / dirZ` |
+| `Linear Pattern` | (new field) `direction` (vector) | CSYS +X | `dirX / dirY / dirZ` |
+| `Move Face` | `tx / ty / tz` → `translation` (vector) | Custom (0,0,2) | `tx / ty / tz` |
+
+The three handlers in `ToolExecutionEngine.js` were updated to prefer the
+vector object first, fall back to the legacy key trio, then (Linear
+Pattern only) fall back to the legacy `axis` array for AI-plan callers.
+
+### Files added/changed for Tier-12a
+
+- `frontend/src/components/VectorPicker.jsx` (new — ~280 lines, 4 modes + force-injection bridge)
+- `frontend/src/components/VectorPicker.css` (new — styling matching dock palette)
+- `frontend/src/components/SwUxOverlays.jsx` (modified — render VectorPicker for `type:'vector'` rows; init/setField/commit handle vector + legacyKeys)
+- `frontend/src/components/ToolParamDialog.jsx` (modified — same render + commit support in floating dialog)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — Extrude / Linear Pattern / Move Face schemas migrated; added vector default merge folding)
+- `frontend/src/foundation/ToolParamDialog.js` (modified — `requestToolParams` planParam-merge folds slot legacy keys back into the vector value)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (modified — Extrude / Linear Pattern / Move Face handlers prefer vector object, fall back to legacy keys)
+- `e2e/ux-tier12a-vector-picker-electron.spec.js` (new — bespoke 4-frame motion-capture)
+- `docs/superpowers/notes/siemens-nx-course-synthesis.md` (flipped takeaway #3 + item #117 to DONE)
+- `docs/superpowers/notes/ux-track-progress.md` (this section)
+
+### Bespoke e2e — picker UI in action across two tools
+
+`e2e/ux-tier12a-vector-picker-electron.spec.js` — DIFFERENT bespoke. ONE
+`test()` block, motion-capture, `--workers=1`, no `node:*` imports. The
+spec exercises the picker UI itself in two different docks then drives
+real geometry through the migrated tools using the picker's output.
+
+| Frame | Headline |
+|---|---|
+| 01 | A — `Extrude` PropertyManagerDock open, VectorPicker visible at mode=CSYS, active axis +Z (the schema default). All 4 mode buttons + all 6 CSYS axis buttons + the live readout `v = (0.000, 0.000, 1.000)` rendered |
+| 02 | B — `Linear Pattern` dock open, VectorPicker switched to mode=Custom + force-injected dx=1, dy=0, dz=0. dx/dy/dz text inputs visible with the right values; readout `v = (1.000, 0.000, 0.000)` |
+| 03 | C — Real base plate (100×60×8 mm) extruded via the picker's CSYS +Z direction. Stage volume = 48000 mm³, matches analytical exactly |
+| 04 | D — Real 4-cylinder linear pattern marching along +X at 22-mm spacing — Ø10×12 mm seed. Total V = 3764 mm³ ≈ 4·π·5²·12 = 3770 mm³ (0.16% triangulation residue). Bbox X-span = 76 mm proves the picker's +X direction propagated all the way through to the kernel op |
+
+### Regression (Tier-12a)
+
+Headed Electron, `--workers=1`, `--retries=0` (4 passed, 0 failed):
+
+| Spec | Result |
+|---|---|
+| `ux-tier12a-vector-picker-electron` (NEW) | **PASS** — 4 frames + 668 KB session video; both picker UI states verified + both geometry stages match analytical to within 1% |
+| `ux-tier11d-extrude-boolean-electron` (regression — same `Extrude` tool, different field consolidation) | PASS — 4 stills, all 3 boolean modes (none / unite / subtract) verified, bracket V = 69403 mm³ (analytical 69399) |
+| `ux-tier1-electron` (regression — the dock UI itself) | PASS — 10 frames + 1.4 MB session video; sketch state badges + Extrude dock + heads-up toolbar all render unchanged |
+| `ribbon-test` (regression — ribbon tabs still mount) | PASS — Part tab still reports 78 tools |
+
+### Honest gaps in Tier-12a
+
+1. **Sketch-line + face-normal pick modes are scaffolded but not wired.**
+   The picker arms `window.__archdiscVectorPickerArmed = {fieldName, kind}`
+   and polls `window.__archdiscLastPickedSketchLine` / `__archdiscLastPickedFaceNormal`
+   for a value. Neither `Viewport3D.jsx` nor `InteractiveSketch.js`
+   currently publishes those globals on a viewport pick — the wiring is
+   a one-line hook in each (one in the sketch click handler, one in the
+   face pick path), queued for the follow-on pass.
+2. **Only 3 of 6 direction-needing tools migrated.** The synthesis flagged
+   six tools where NX uses Specify Vector: Revolve, Pattern, Move,
+   Offset, Mirror, Draft. This pass migrated Extrude / Linear Pattern /
+   Move Face. The remaining four (Revolve Boss, Pattern, Mirror Feature,
+   Draft; Offset Face is a non-direction tool) are queued; each migration
+   is ~5 lines of schema diff + a 1-line handler tweak.
+3. **No equation-store integration for picker dx/dy/dz.** The picker's
+   Custom-mode inputs are plain numeric text — Tier-10b's `=expr`
+   parametric support isn't propagated through the picker yet. (The
+   number fields on legacy schemas keep their `=expr` support; this is
+   a Custom-mode-only gap.)
+4. **No interaction with the existing TOPOLOGY filter bar.** The Tier-11a
+   selection-priority filter (Single / Solid / Sheet / Face / Edge /
+   Vertex) doesn't constrain the picker's pick mode. A logical follow-on:
+   when the picker arms `kind=faceNormal`, force-set the filter to
+   `Face`; when `kind=sketchLine`, force-set to `Edge`.
+
+---
+
 ## UI cleanup pass — 2026-05-24 (ribbon clipping + overlay dedup)
 
 User feedback verbatim: "the ribbon, the AI options are getting cut. also

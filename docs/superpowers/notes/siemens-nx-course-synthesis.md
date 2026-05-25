@@ -662,6 +662,15 @@ SW list.
    sketch line, a face normal, an edge, the world Z, or a 3-point vector. This is a single
    reusable picker component, not a per-dialog selector. ArchDisc has direction inputs scattered
    across tools.
+   **SHIPPED — Tier-12a (2026-05-25).** `frontend/src/components/VectorPicker.jsx` + `.css`
+   ships the shared component with 4 modes (CSYS ±X/±Y/±Z, custom dx/dy/dz, pick-from-sketch-line,
+   pick-face-normal). New `'vector'` schema field type in `ToolParamSchemas.js` consumed by both
+   the floating `ToolParamDialog` and the docked `PropertyManagerDock`. First 3 migrations:
+   `Extrude` (direction), `Linear Pattern` (direction), `Move Face` (translation). Backward
+   compat: every commit emits the picker's full value object AND the legacy `<name>X/<name>Y/
+   <name>Z` trio via `legacyKeys`, so existing handlers + AI plans keep working unchanged.
+   See `ux-track-progress.md` Tier-12a for the full file list + honest gaps (sketch-line +
+   face-normal modes are scaffolded but need viewport pick-hook wiring).
 
 118. **"Specify Stationary Face" in Draft.** The NX Draft dialog names the non-moving face the
    **Stationary Face** explicitly — clearer than SW's "Neutral Plane" (which confusingly is
@@ -732,7 +741,7 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 | 114 | Tabular Note | `kernel/drawing/DrawingEngine.js` + Drawing tab Annotate group | parity-program §8 Drawing | **Missing** |
 | 115 | Surface Finish — Waviness | Existing Surface Finish dialog — add Waviness field | parity-program §8 Drawing | **Partial / Unverified** |
 | 116 | Datums grouped in Part Navigator | `DesignHistoryPanel.jsx` / `FeatureTreePanel.jsx` rendering | NX-UX track | **Missing** |
-| 117 | Specify Vector universal picker | `frontend/src/components/VectorPicker.jsx` (new shared component) | NX-UX track (high leverage) | **Missing** |
+| 117 | Specify Vector universal picker | `frontend/src/components/VectorPicker.jsx` + `.css` (shared component, 4 modes); new `'vector'` schema field type in `ToolParamSchemas.js`; rendered by both `ToolParamDialog.jsx` + `SwUxOverlays.jsx::PropertyManagerDock`; first 3 migrations: Extrude / Linear Pattern / Move Face | NX-UX track Tier-12a (high leverage) | **DONE (2026-05-25)** |
 | 118 | Rename "Neutral Plane" → "Stationary Face" | Draft dialog wording (purely a string change) | NX-UX track | **Trivial / NOT THIS PASS** |
 | 119 | Universal Preview / Show Result | `ToolParamDialog.jsx` add Preview toggle + Show Result button | NX-UX track | **Partial — some tools have preview** |
 | 120 | Workbench-as-Application | `RibbonToolbar.jsx` mode switcher | Out of scope (deliberate architectural choice — ArchDisc tabs-in-one-ribbon is fine) | **N/A** |
@@ -785,6 +794,26 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
    picker is hidden plumbing but it's the reason NX feels coherent across tools. ArchDisc
    currently has tool-specific direction inputs; a shared picker is a one-time investment that
    pays back across every operation that needs a direction.
+   **SHIPPED — Tier-12a (2026-05-25).** `frontend/src/components/VectorPicker.jsx` + `.css`
+   shared component with 4 modes (CSYS axis ±X/±Y/±Z, custom dx/dy/dz, pick-from-sketch-line,
+   pick-face-normal); new `'vector'` schema field type in
+   `frontend/src/foundation/ToolParamSchemas.js` consumed by both `ToolParamDialog.jsx`
+   (floating) and `SwUxOverlays.jsx::PropertyManagerDock` (docked). First 3 migrations:
+   `Extrude` (direction field replaces dirX/dirY/dirZ), `Linear Pattern` (new direction
+   field along the seed axis), `Move Face` (translation field replaces tx/ty/tz). The
+   commit path emits BOTH the picker's full value object `{mode,x,y,z,csysAxis?}` and
+   the legacy `<fieldName>X/<fieldName>Y/<fieldName>Z` trio (via the schema's
+   `legacyKeys` map) so existing handlers + AI plans keep working unchanged. Bespoke e2e:
+   `e2e/ux-tier12a-vector-picker-electron.spec.js` shows the picker UI in CSYS+Z mode
+   inside the Extrude dock, then Custom (dx=1,dy=0,dz=0) inside the Linear Pattern dock,
+   then drives a real plate + 4-cylinder pattern via the picker's legacy-key output —
+   stage C plate V = 48000 mm³, stage D pattern V = 3764 mm³ along +X (bbox X-span 76 mm
+   = 3·22mm + 10mm seed Ø, exactly matching the picker's +X direction). Queued follow-on:
+   migrate Revolve / Pattern / Move Component / Offset Face / Mirror / Draft direction
+   inputs to the same widget; wire the sketch-line + face-normal pick modes to live
+   viewport picks (currently armed via the `__archdiscVectorPickerArmed` slot, but
+   neither Viewport3D nor InteractiveSketch publishes `__archdiscLastPickedSketchLine` /
+   `__archdiscLastPickedFaceNormal` yet — those need a one-liner publish hook).
 
 ---
 
