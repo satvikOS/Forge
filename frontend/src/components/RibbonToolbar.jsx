@@ -419,6 +419,10 @@ const TABS = {
         { name: 'BOM', icon: '☷', key: 'documentation', primary: true },
         { name: 'Auto-Balloon', icon: '③', key: 'documentation' },
       ]},
+      { label: 'Sheet', tools: [
+        { name: 'Title Block', icon: '▤', key: 'documentation', primary: true },
+        { name: 'Sheet Format', icon: '▥', key: 'documentation' },
+      ]},
       { label: 'Export', tools: [
         { name: 'Export Assembly', icon: '⊕', key: 'documentation', primary: true },
         { name: 'Export STEP', icon: '📁', key: 'documentation' },

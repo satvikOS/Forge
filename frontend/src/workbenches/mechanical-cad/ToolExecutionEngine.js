@@ -114,7 +114,8 @@ import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import { tessellatePerFace as kernelTessellatePerFace } from '../../kernel/brep/BrepTessellate.js';
 import InteractiveSketch, { TOOLS as SK_TOOLS } from '../../kernel/sketch/InteractiveSketch.js';
 import { auxiliaryView as drawAuxiliaryView, cropView as drawCropView, brokenView as drawBrokenView,
-         modelItems as drawModelItems, bom as drawBOM, autoBalloon as drawAutoBalloon } from '../drawing/DrawingViews.js';
+         modelItems as drawModelItems, bom as drawBOM, autoBalloon as drawAutoBalloon,
+         titleBlock as drawTitleBlock, sheetFormat as drawSheetFormat } from '../drawing/DrawingViews.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -6379,6 +6380,64 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Auto-Balloon: ${info.balloonCount} balloon(s) placed on ${info.rowCount} BOM row(s); ${info.overlapBumps} overlap bump(s); ring R ${info.ringRadius_mm.toFixed(1)} mm via workbench.drawing.autoBalloon`,
+      };
+    },
+
+    // ─── UX TIER 8c — Title Block + Sheet Format ────────────────────────────
+    // Title Block stamps a real ASME/ISO engineering title block (3-row
+    // grid: Title / Properties / Approval) in the bottom-right corner of
+    // a full sheet that shows the active body's FRONT view. Sheet Format
+    // changes the sheet size + orientation, re-drawing the border + mini
+    // title block to fit. Both ops publish a complete SVG via
+    // `__lastDrawingSVG` so the DrawingPreviewPanel renders them inline.
+    'Title Block': async () => {
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Title Block: build a body in the Part tab first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Title Block');
+      if (cancelled) return { status: 'warn', message: 'Title Block: cancelled' };
+
+      const { svg, info } = drawTitleBlock(m, {
+        size: values.size,
+        orientation: values.orientation,
+        partNumber: values.partNumber,
+        description: values.description,
+        drawnBy: values.drawnBy,
+        date: values.date,
+        material: values.material,
+        scale: values.scale,
+        sheetN: Number(values.sheetN),
+        sheetTotal: Number(values.sheetTotal),
+        approval: values.approval,
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastTitleBlock = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Title Block: PN ${info.fields.partNumber} on ${info.sheet.size} ${info.sheet.orientation} (${info.sheet.w}×${info.sheet.h} mm); ${info.edgeCount} view edges; block ${info.titleBlockBBox.w}×${info.titleBlockBBox.h} mm at (${info.titleBlockBBox.x.toFixed(0)},${info.titleBlockBBox.y.toFixed(0)}) via workbench.drawing.titleBlock`,
+      };
+    },
+
+    'Sheet Format': async () => {
+      const m = _lastFoundationManifold;
+      const { values, cancelled } = await requestToolParams('Sheet Format');
+      if (cancelled) return { status: 'warn', message: 'Sheet Format: cancelled' };
+
+      const { svg, info } = drawSheetFormat(m, {
+        size: values.size,
+        orientation: values.orientation,
+        partName: values.partName || 'Sheet',
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastSheetFormat = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Sheet Format: ${info.sheet.size} ${info.sheet.orientation} → ${info.sheet.w}×${info.sheet.h} mm; ${info.edgeCount} view edges; scale ${info.paperScale.toFixed(3)}:1 via workbench.drawing.sheetFormat`,
       };
     },
 
