@@ -401,12 +401,60 @@ export default class InteractiveSketch {
 
   /**
    * Apply dimension value to a sketch entity.
+   *
+   * UX Tier 10 — `value` may also be:
+   *   - a plain Number in METRES (existing behaviour)
+   *   - a STRING starting with `=` interpreted as a parametric
+   *     expression (e.g. `'=width*2'`) — evaluated through the
+   *     EquationStore in the CURRENT variable scope. The expression
+   *     is treated as **millimetres** to match the rest of the
+   *     dimensioning UX (which speaks mm), and converted to metres
+   *     before being driven into the solver. The raw expression
+   *     string is stored alongside the numeric value so a later
+   *     re-evaluation can pick up variable changes.
+   *
    * @param {number} entityIndex - Index in entities array
-   * @param {number} value - Dimension value in meters
+   * @param {number|string} value - mm-expression `=expr` or metres Number
    */
   applyDimension(entityIndex, value) {
     const entity = this.entities[entityIndex];
     if (!entity) return;
+
+    // UX Tier 10 — `=expr` parametric dimension. Resolve through the
+    // EquationStore so references like `width`, `height` etc. pick up
+    // their live values. Use a dynamic import-style lookup of the
+    // singleton from `window` so this kernel module stays free of
+    // foundation imports (the foundation can import this module, not
+    // the other way around).
+    let expressionSource = null;
+    if (typeof value === 'string') {
+      const raw = value.trim();
+      if (raw.startsWith('=')) {
+        expressionSource = raw;
+        const store = (typeof window !== 'undefined') ? window.__archdiscEquationStore : null;
+        if (!store || typeof store.evaluate !== 'function') {
+          this._notify('dimensionExpressionError', {
+            entityIndex, expression: raw,
+            reason: 'EquationStore singleton not available',
+          });
+          return;
+        }
+        const r = store.evaluate(raw);
+        if (!r.ok || !Number.isFinite(r.value) || r.value <= 0) {
+          this._notify('dimensionExpressionError', {
+            entityIndex, expression: raw,
+            reason: r.error || `expression did not evaluate to a positive number (got ${r.value})`,
+          });
+          return;
+        }
+        // mm → m (the rest of the engine speaks metres).
+        value = r.value / 1000;
+      } else {
+        const n = parseFloat(raw);
+        if (!Number.isFinite(n)) return;
+        value = n;
+      }
+    }
 
     let kind = 'distance';
     let p1 = null, p2 = null;
@@ -427,6 +475,11 @@ export default class InteractiveSketch {
     // Tier-1 #6 — record this dimension on the .dimensions list with
     // its `targetEntityIndex` set so the inline editor can drive the
     // right constraint on edit.
+    //
+    // UX Tier 10 — when this dimension was driven by a parametric
+    // expression, also remember the source expression so a later
+    // refresh (e.g. after a variable changes in the Equation Manager)
+    // can pick up the new value.
     if (p1 && p2) {
       const id = `dim-${this.dimensions.length}-${Date.now().toString(36)}`;
       const visual = this._drawDimension3D(p1, p2, value, 0xffaa00);
@@ -434,6 +487,7 @@ export default class InteractiveSketch {
         id, type: 'dimension', p1, p2, value, visual,
         targetEntityIndex: entityIndex,
         kind,
+        expression: expressionSource,
       });
     }
 
@@ -2118,6 +2172,43 @@ export default class InteractiveSketch {
       signedDof: st.signedDof,
       converged: !!result.converged,
     };
+  }
+
+  /**
+   * UX Tier 10 — re-evaluate every dimension that was driven by a
+   * parametric expression (`=expr`). Looks up the current value of the
+   * expression in the EquationStore and re-drives the corresponding
+   * solver constraint. Returns a per-dimension report.
+   *
+   * Called by the e2e + by the EquationStore change listener so a
+   * variable edit reflows the sketch and any downstream extrude /
+   * cut features that share the same sketch.
+   *
+   * @returns {{ ok, updated:Array<{id, expression, value_mm, state}> }}
+   */
+  refreshParametricDimensions() {
+    const store = (typeof window !== 'undefined') ? window.__archdiscEquationStore : null;
+    if (!store || typeof store.evaluate !== 'function') {
+      return { ok: false, reason: 'EquationStore singleton not available', updated: [] };
+    }
+    const updated = [];
+    for (const dim of this.dimensions) {
+      if (!dim.expression) continue;
+      const r = store.evaluate(dim.expression);
+      if (!r.ok || !Number.isFinite(r.value) || r.value <= 0) {
+        updated.push({ id: dim.id, expression: dim.expression, value_mm: null, error: r.error || 'invalid value' });
+        continue;
+      }
+      const res = this.editDimension(dim.id, r.value);
+      updated.push({
+        id: dim.id,
+        expression: dim.expression,
+        value_mm: r.value,
+        state: res?.state,
+      });
+    }
+    this._notify('parametricDimensionsRefreshed', { updated });
+    return { ok: true, updated };
   }
 
   /**
