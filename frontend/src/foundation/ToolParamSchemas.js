@@ -1217,6 +1217,49 @@ export const TOOL_PARAM_SCHEMAS = {
         hint: 'Cap prism thickness (flat cap = thin; thick cap = chunkier closure).' },
     ],
   },
+
+  // ─── UX TIER 9 — Mold Tools workbench foundation ──────────────────────
+  //
+  // Three foundational mold-tools ops with their param schemas. Draft
+  // Analysis colour-codes faces by draft angle vs the pull direction;
+  // Parting Line traces the silhouette curve; Tooling Split partitions
+  // the body into core + cavity halves along a planar parting surface.
+  // Bodies are tagged via body.metadata.mold; faces carry mold.draft
+  // SP-2 attributes so the analysis survives downstream ops.
+  'Draft Analysis': {
+    title: 'Draft Analysis — Per-face Pull-direction Classification',
+    blurb: 'Pre-select a moldable body. Each face is classified by its OUTWARD normal vs the pull direction: positive (faces +pull) → green, negative (faces -pull) → red, vertical/undercut (within tolerance of perpendicular to pull) → yellow. Faces carry a `mold.draft` SP-2 attribute so the result survives downstream ops.',
+    fields: [
+      { name: 'pullX',       label: 'Pull X',           type: 'number', default: 0, step: 0.1, hint: 'Pull direction X component (world frame).' },
+      { name: 'pullY',       label: 'Pull Y',           type: 'number', default: 0, step: 0.1, hint: 'Pull direction Y component.' },
+      { name: 'pullZ',       label: 'Pull Z',           type: 'number', default: 1, step: 0.1, hint: 'Pull direction Z component (default +Z = open mold upward).' },
+      { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5,
+        hint: 'Green / yellow cutoff. Faces with |angle| < this are flagged as vertical / undercut.' },
+    ],
+  },
+  'Parting Line': {
+    title: 'Parting Line — Silhouette Curve on the Body',
+    blurb: 'Pre-select a moldable body (or run Draft Analysis first). For every edge of the body the two adjacent faces are checked: an edge lies on the parting line iff its faces have OPPOSITE draft signs (one +, one -), or one is vertical / undercut. Returns the parting curve as a list of edges in the body.',
+    fields: [
+      { name: 'pullX',       label: 'Pull X',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullY',       label: 'Pull Y',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullZ',       label: 'Pull Z',           type: 'number', default: 1, step: 0.1 },
+      { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5,
+        hint: 'Cutoff inherited from Draft Analysis; faces below this are vertical / undercut.' },
+    ],
+  },
+  'Tooling Split': {
+    title: 'Tooling Split — Core + Cavity Mold Halves',
+    blurb: 'Pre-select a moldable body. Builds a PLANAR parting surface perpendicular to the pull direction at the body centroid (configurable height via partingZ) and partitions the body into TWO halves: CORE (faces +pull) and CAVITY (opposite). Each piece is tagged with mold.half. Uses SP-5\'s partition op.',
+    fields: [
+      { name: 'pullX',       label: 'Pull X',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullY',       label: 'Pull Y',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullZ',       label: 'Pull Z',           type: 'number', default: 1, step: 0.1 },
+      { name: 'partingZ',    label: 'Parting offset',   type: 'number', default: 0, unit: 'mm', step: 0.5,
+        hint: 'Signed offset of the parting plane along pull from body centroid. 0 = centroid (SW default).' },
+      { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5 },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {

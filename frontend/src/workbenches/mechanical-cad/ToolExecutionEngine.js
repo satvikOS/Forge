@@ -108,6 +108,7 @@ import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
+import { tessellatePerFace as kernelTessellatePerFace } from '../../kernel/brep/BrepTessellate.js';
 import InteractiveSketch, { TOOLS as SK_TOOLS } from '../../kernel/sketch/InteractiveSketch.js';
 import { auxiliaryView as drawAuxiliaryView, cropView as drawCropView, brokenView as drawBrokenView,
          modelItems as drawModelItems, bom as drawBOM, autoBalloon as drawAutoBalloon } from '../drawing/DrawingViews.js';
@@ -201,7 +202,9 @@ const GROUP_ALIASES = {
   documentation: 'document',
   surface: 'surface',
   sheetmetal: 'sheetmetal',
+  sheetMetal: 'sheetMetal',
   weldments: 'weldments',
+  moldTools: 'moldTools',
   piping: 'piping',
 };
 
@@ -6526,7 +6529,346 @@ const TOOL_HANDLERS = {
       }
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MOLD TOOLS — UX Tier 9 foundation
+  //
+  // Three foundational mold-tools ops:
+  //   - Draft Analysis — colour-code faces by draft angle relative to pull
+  //                      (positive=green / negative=red / vertical=yellow).
+  //   - Parting Line  — silhouette curve where adjacent faces have opposite
+  //                      draft signs.
+  //   - Tooling Split — partition the body into CORE + CAVITY halves along
+  //                      a planar parting surface perpendicular to pull.
+  //
+  // Bodies are tagged via `body.metadata.mold = {draftAnalysis, partingLine,
+  // half, toolingSplit}`; faces carry `mold.draft` SP-2 attributes so the
+  // analysis survives downstream ops.
+  // ═══════════════════════════════════════════════════════════════════════════
+  moldTools: {
+    'Draft Analysis': async (scene, viewport) => {
+      // Arity 1 — pre-select a moldable body. Non-consuming: the body
+      // is re-rendered with per-face draft tint.
+      try {
+        const [body] = _pickBodies(1);
+        if (!body || !body.body) {
+          return { status: 'warn', message: 'Draft Analysis: select a body first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Draft Analysis');
+        if (cancelled) return { status: 'warn', message: 'Draft Analysis: cancelled' };
+        const pull = [
+          Number(values.pullX) || 0,
+          Number(values.pullY) || 0,
+          Number(values.pullZ) || 1,
+        ];
+        const minDraftDeg = Number(values.minDraftDeg) >= 0 ? Number(values.minDraftDeg) : 3;
+
+        const report = await ArchDiscKernel.brep.draftAnalysis(body, pull, { minDraftDeg });
+
+        // Render the analysis overlay — replace the body's group with a
+        // tinted mesh built per-face using tessellatePerFace.
+        await applyDraftAnalysisOverlay(scene, viewport, body, report);
+
+        if (typeof window !== 'undefined') {
+          window.__lastDraftAnalysis = {
+            pullDirection: report.pullDirection,
+            minDraftDeg: report.minDraftDeg,
+            positive: report.positive,
+            negative: report.negative,
+            vertical: report.vertical,
+            faceCount: report.faceCount,
+            categories: report.perFace.map(f => ({
+              faceIndex: f.faceIndex,
+              category: f.category,
+              angleDeg: f.angleDeg,
+            })),
+          };
+          window.__lastMoldBody = body;
+        }
+        return {
+          status: 'success',
+          message: `Draft Analysis: pull = (${pull.map(v => v.toFixed(2)).join(', ')}), θ_min = ${minDraftDeg}° → ` +
+            `${report.faceCount} faces (${report.positive} positive / ${report.negative} negative / ${report.vertical} vertical) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Draft Analysis: ' + (err.message || err) };
+      }
+    },
+
+    'Parting Line': async (scene, viewport) => {
+      // Arity 1 — pre-select a moldable body. Non-consuming: traces the
+      // silhouette and adds the parting-line wire as an overlay on the
+      // existing body group.
+      try {
+        const [body] = _pickBodies(1);
+        if (!body || !body.body) {
+          return { status: 'warn', message: 'Parting Line: select a body first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Parting Line');
+        if (cancelled) return { status: 'warn', message: 'Parting Line: cancelled' };
+        const pull = [
+          Number(values.pullX) || 0,
+          Number(values.pullY) || 0,
+          Number(values.pullZ) || 1,
+        ];
+        const minDraftDeg = Number(values.minDraftDeg) >= 0 ? Number(values.minDraftDeg) : 3;
+
+        const result = await ArchDiscKernel.brep.partingLine(body, pull, { minDraftDeg });
+
+        // Render the parting line as a yellow polyline overlay attached
+        // to the body's group (so the same scale 0.001 applies).
+        renderPartingLineOverlay(scene, viewport, body, result);
+
+        if (typeof window !== 'undefined') {
+          window.__lastPartingLine = {
+            pullDirection: result.pullDirection,
+            edgeCount: result.edgeCount,
+            edges: result.edges.map(e => ({
+              edgeIndex: e.edgeIndex,
+              start: e.start, end: e.end,
+              leftDraft: e.leftDraft, rightDraft: e.rightDraft,
+            })),
+          };
+          window.__lastMoldBody = body;
+        }
+        return {
+          status: 'success',
+          message: `Parting Line: pull = (${pull.map(v => v.toFixed(2)).join(', ')}) → ` +
+            `${result.edgeCount} silhouette edge(s) traced via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Parting Line: ' + (err.message || err) };
+      }
+    },
+
+    'Tooling Split': async (scene, viewport) => {
+      // Arity 1 — pre-select a moldable body. CONSUMING: the body is
+      // replaced by two pieces — the core half + the cavity half. Each
+      // is tagged with mold.half and rendered offset along the pull
+      // direction so the two halves are visibly separated.
+      try {
+        const [body] = _pickBodies(1);
+        if (!body || !body.body) {
+          return { status: 'warn', message: 'Tooling Split: select a body first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Tooling Split');
+        if (cancelled) return { status: 'warn', message: 'Tooling Split: cancelled' };
+        const pull = [
+          Number(values.pullX) || 0,
+          Number(values.pullY) || 0,
+          Number(values.pullZ) || 1,
+        ];
+        const partingZ = Number(values.partingZ) || 0;
+        const minDraftDeg = Number(values.minDraftDeg) >= 0 ? Number(values.minDraftDeg) : 3;
+
+        const result = await ArchDiscKernel.brep.toolingSplit(body, pull, {
+          partingZ, minDraftDeg,
+        });
+
+        // Render each piece. The CORE piece (positive side) is offset
+        // along +pull by a small amount, and the CAVITY piece along
+        // -pull, so they're visibly separated for clarity.
+        const offsetMm = 25; // mm — separation of the two halves in the viewport
+        const pullN = (() => {
+          const n = Math.hypot(pull[0], pull[1], pull[2]);
+          if (n < 1e-9) return [0, 0, 1];
+          return [pull[0] / n, pull[1] / n, pull[2] / n];
+        })();
+
+        for (const piece of result.pieces) {
+          const sign = piece.meta && piece.meta.moldHalf === 'core' ? +1 : -1;
+          // Colour: core = blue-grey; cavity = warm red-grey.
+          const color = sign > 0 ? 0x607d8b : 0xc77d6b;
+          const group = await addBrepShapeToScene(scene, viewport, piece, color, sign === +1 ? [body] : []);
+          // After scene scale (mm → m via group.scale 0.001), translate
+          // the group in world units. The viewport group lives at scale
+          // 0.001, so we set group.position in scene units (which means
+          // we add half(offsetMm) in mm, divided by 1000 because
+          // group.position is in scene units (m) but coords inside the
+          // group are mm-scaled to m by the group's scale).
+          if (group && group.position) {
+            // group.position is in the parent (scene) frame; the group
+            // already scales mm → m. We translate by offsetMm/1000 m.
+            const tx = pullN[0] * sign * offsetMm / 1000;
+            const ty = pullN[1] * sign * offsetMm / 1000;
+            const tz = pullN[2] * sign * offsetMm / 1000;
+            group.position.x += tx;
+            group.position.y += ty;
+            group.position.z += tz;
+            group.updateMatrixWorld(true);
+          }
+        }
+
+        if (typeof window !== 'undefined') {
+          window.__lastToolingSplit = {
+            pullDirection: result.pullDirection,
+            pieceCount: result.pieceCount,
+            partingPlane: result.partingPlane,
+            corePresent: !!result.core,
+            cavityPresent: !!result.cavity,
+            coreId: result.core && result.core.id,
+            cavityId: result.cavity && result.cavity.id,
+            partitionReport: result.partitionReport,
+          };
+          window.__lastMoldCore = result.core;
+          window.__lastMoldCavity = result.cavity;
+        }
+        return {
+          status: 'success',
+          message: `Tooling Split: pull = (${pull.map(v => v.toFixed(2)).join(', ')}) → ` +
+            `${result.pieceCount} piece(s) — ${result.core ? 'CORE' : '(no-core)'} + ${result.cavity ? 'CAVITY' : '(no-cavity)'} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Tooling Split: ' + (err.message || err) };
+      }
+    },
+  },
 };
+
+/**
+ * Build a per-face tinted mesh from a draftAnalysis result and replace
+ * the body's existing scene group's mesh with the tinted version.
+ *
+ *   - Positive draft → 0x4caf50 (green)
+ *   - Negative draft → 0xe53935 (red)
+ *   - Vertical / undercut → 0xfbc02d (yellow)
+ */
+async function applyDraftAnalysisOverlay(scene, viewport, body, report) {
+  try {
+    const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+    if (!reg || !reg.bodies) return;
+    const entry = reg.bodies.find(b =>
+      b.brepShapeRef === body || (b.group && b.group.userData && b.group.userData.brepShapeRef === body));
+    if (!entry || !entry.group) return;
+
+    const tpf = await kernelTessellatePerFace(body, 0.1);
+    const positions = tpf && tpf.positions;
+    const indices = tpf && tpf.indices;
+    const faceIds = tpf && tpf.faceIds;
+    // Fall through to the existing (uniform) mesh if tessellatePerFace
+    // is unavailable; the metadata still records the analysis.
+    if (!positions || !indices || !faceIds) return;
+
+    // Build per-vertex colors. Each TRIANGLE has a faceId; each vertex
+    // gets the colour of its first-seen face. (Vertices on face seams
+    // may be ambiguous; using first-seen is fine for visual tinting.)
+    const numVerts = positions.length / 3;
+    const colors = new Float32Array(numVerts * 3);
+    const categoryByFace = new Map();
+    for (const f of report.perFace) categoryByFace.set(f.faceIndex, f.category);
+    const colorFor = (cat) => {
+      if (cat === 'positive') return [0.30, 0.69, 0.31];   // green
+      if (cat === 'negative') return [0.90, 0.22, 0.21];   // red
+      return [0.98, 0.75, 0.18];                            // yellow (vertical)
+    };
+    // Initialise to a neutral grey first.
+    for (let i = 0; i < numVerts; i++) {
+      colors[i * 3 + 0] = 0.6;
+      colors[i * 3 + 1] = 0.63;
+      colors[i * 3 + 2] = 0.68;
+    }
+    // Walk triangles, write per-vertex colour based on faceIds[triIdx].
+    const triCount = indices.length / 3;
+    for (let t = 0; t < triCount; t++) {
+      const fId = faceIds[t];
+      const cat = categoryByFace.get(fId) || 'vertical';
+      const [r, g, b] = colorFor(cat);
+      for (let k = 0; k < 3; k++) {
+        const vIdx = indices[t * 3 + k];
+        colors[vIdx * 3 + 0] = r;
+        colors[vIdx * 3 + 1] = g;
+        colors[vIdx * 3 + 2] = b;
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true, metalness: 0.15, roughness: 0.75, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.draftAnalysis = true;
+
+    // Replace the existing mesh in the entry's group.
+    const oldMeshes = [];
+    entry.group.traverse((obj) => {
+      if (obj && obj.isMesh) oldMeshes.push(obj);
+    });
+    for (const m of oldMeshes) {
+      if (m.parent) m.parent.remove(m);
+      if (m.geometry && typeof m.geometry.dispose === 'function') m.geometry.dispose();
+      if (m.material && typeof m.material.dispose === 'function') m.material.dispose();
+    }
+    entry.group.add(mesh);
+    entry.group.userData.draftAnalysis = {
+      pullDirection: report.pullDirection,
+      minDraftDeg: report.minDraftDeg,
+      positive: report.positive,
+      negative: report.negative,
+      vertical: report.vertical,
+    };
+    entry.group.updateMatrixWorld(true);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('applyDraftAnalysisOverlay: render failed —', err && err.message || err);
+  }
+}
+
+/**
+ * Render the parting line as a vivid yellow polyline overlay attached
+ * to the body's existing scene group. Each parting edge becomes a
+ * THREE.Line segment between its endpoints.
+ */
+function renderPartingLineOverlay(scene, viewport, body, result) {
+  try {
+    const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+    if (!reg || !reg.bodies) return;
+    const entry = reg.bodies.find(b =>
+      b.brepShapeRef === body || (b.group && b.group.userData && b.group.userData.brepShapeRef === body));
+    if (!entry || !entry.group) return;
+
+    // Remove any existing parting-line overlay first.
+    const toRemove = [];
+    entry.group.traverse((obj) => {
+      if (obj && obj.userData && obj.userData.partingLineOverlay) toRemove.push(obj);
+    });
+    for (const o of toRemove) {
+      if (o.parent) o.parent.remove(o);
+      if (o.geometry && typeof o.geometry.dispose === 'function') o.geometry.dispose();
+      if (o.material && typeof o.material.dispose === 'function') o.material.dispose();
+    }
+
+    // Build line segments — one per parting edge.
+    const positions = [];
+    for (const edge of result.edges) {
+      if (!edge.start || !edge.end) continue;
+      positions.push(edge.start.x, edge.start.y, edge.start.z);
+      positions.push(edge.end.x,   edge.end.y,   edge.end.z);
+    }
+    if (positions.length === 0) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const material = new THREE.LineBasicMaterial({
+      color: 0xffeb3b, linewidth: 4, depthTest: false,
+    });
+    const lines = new THREE.LineSegments(geometry, material);
+    lines.userData.partingLineOverlay = true;
+    lines.userData.edgeCount = result.edges.length;
+    // Render on top.
+    lines.renderOrder = 10;
+    entry.group.add(lines);
+    entry.group.updateMatrixWorld(true);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('renderPartingLineOverlay: render failed —', err && err.message || err);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SMART FALLBACK — ensures every tool does something visible

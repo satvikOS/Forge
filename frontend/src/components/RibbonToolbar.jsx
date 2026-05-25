@@ -350,6 +350,26 @@ const TABS = {
       ]},
     ],
   },
+  // UX Tier 9 — Mold Tools workbench. A dedicated CommandManager tab alongside
+  // Part / Assembly / Drawing / Sheet Metal / Weldments / Simulate. Foundation
+  // ops shipped this dispatch: Draft Analysis (colour-code faces by draft
+  // angle relative to pull direction), Parting Line (silhouette curve trace),
+  // Tooling Split (partition into core + cavity halves). Bodies tagged via
+  // body.metadata.mold; faces carry mold.draft SP-2 attributes.
+  moldTools: {
+    label: 'Mold Tools',
+    groups: [
+      { label: 'Analysis', tools: [
+        { name: 'Draft Analysis', icon: '◐', key: 'moldTools', primary: true },
+      ]},
+      { label: 'Parting', tools: [
+        { name: 'Parting Line', icon: '〰', key: 'moldTools' },
+      ]},
+      { label: 'Mold Block', tools: [
+        { name: 'Tooling Split', icon: '⊟', key: 'moldTools', primary: true },
+      ]},
+    ],
+  },
   drawing: {
     label: 'Drawing',
     groups: [
