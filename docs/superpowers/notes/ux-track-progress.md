@@ -1206,7 +1206,8 @@ types with no additional work**.
 - `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (modified — 4 new handlers appended to the existing `sheetMetal:` group; each reads `__archdiscRegistry` for the selected body, validates it via `isSheetMetal`, requests dialog params, calls the kernel op, calls `addBrepShapeToScene`, and writes `window.__lastSheetMetalBody` / `__lastSheetMetalMeta` for e2e + AI introspection)
 - `frontend/src/foundation/ToolParamSchemas.js` (modified — 4 new schemas: `Hem` (edgeIndex + hemType enum + hemLength), `Jog` (edgeIndex + jogOffset + angleDeg + flangeLength), `Miter Flange` (4 edge slots + length + angleDeg + position enum), `Sketched Bend` (edgeIndex + angleDeg + flangeLength + bendPosition enum))
 - `frontend/src/components/SwUxOverlays.jsx` (modified — `DOCKED_TOOLS` extended with `Hem` / `Jog` / `Miter Flange` / `Sketched Bend` so all 4 pop up in the PropertyManager dock with the Tier-1 pattern)
-- `e2e/ux-tier5b-sheet-metal-additions-electron.spec.js` (new — rack-mount server chassis bracket bespoke)
+- `e2e/ux-tier5b-sheet-metal-additions-electron.spec.js` (new — rack-mount server chassis bracket bespoke; all 4 ops)
+- `e2e/ux-tier5b-hem-sketchbend-electron.spec.js` (new — Tier-5b FOCUSED bespoke; **Hem + Sketched Bend only**, rack-mount **side panel** scenario, ONE iso + 5 stills, no orbit — the highest-impact subset for fast targeted regression)
 
 ### Bespoke real workflow — rack-mount server chassis bracket
 
@@ -1277,13 +1278,44 @@ preserved through Flat Pattern.
 - **Auto-Relief** — rectangular / tear / obround relief at bend intersections.
 - **Bend Allowance / Bend Deduction / Gauge Table** switches in the K-Factor input.
 
+### Focused bespoke — rack-mount chassis SIDE PANEL (Hem + Sketched Bend only)
+
+`e2e/ux-tier5b-hem-sketchbend-electron.spec.js` is the **focused
+companion** spec: a different bespoke real workflow that exercises only the
+TWO HIGHEST-IMPACT Tier-5b ops (Hem + Sketched Bend) so targeted
+regression has a fast, deterministic check that focuses on these two ops
+in isolation. The model is a **1U rack-mount chassis SIDE PANEL** —
+distinct from the BRACKET in the all-4-ops spec.
+
+| Step | Op (ribbon click) | Result |
+|---|---|---|
+| 1 | Base Flange | 200 × 88.9 × 1.5 mm side panel, K=0.4, R=1.5, isFlat=true, 0 bends |
+| 2 | Edge Flange (top) | 25 mm @ 90° rail-attachment flange → 1 bend |
+| 3 | **Hem (closed)** on free top edge of rail | finger-safety hem, L=6 mm; bend record carries `type='hem'` + `hemType='closed'` + BA ≈ 6.60 mm (π × 2.1 × 1.0 — 180° fold) |
+| 4 | **Sketched Bend** mid-panel at **30°** | cable-routing custom-angle fold, L=20 mm; bend record carries `type='sketchedBend'` + `angleDeg=30` (NOT the 45 default — proves dialog param landed) + `bendPosition='centered'` + BA ≈ 1.10 mm |
+| 5 | Flat Pattern | unfolds all recorded bends — `isFlat=true`, bend count preserved |
+
+Framing: **ONE iso** of the bent side panel at the end (perfectly
+viewable, fits the whole panel in the camera). **5 stills** total —
+`01-base-flange`, `02-edge-flange-top`, `03-hem-closed`,
+`04-sketched-bend`, `05-side-panel-iso`. **No 7-angle orbit**.
+
+Focal assertions exercised:
+- **A.** Kernel facade exposes `hem` + `sketchedBend`.
+- **B.** Base Flange metadata: t=1.5, K=0.4, R=1.5, isFlat=true.
+- **C.** Edge Flange records 1 bend.
+- **D.** Hem records `type='hem'` + `hemType='closed'` + `hemLength=6` + `bendAllowance≈6.60`.
+- **E.** Sketched Bend records `type='sketchedBend'` + `angleDeg=30` (custom — not the 45 default) + `bendPosition='centered'` + `bendAllowance≈1.10`.
+- **F.** Flat Pattern preserves the bend count and sets isFlat=true.
+
 ### Regression subset (Tier-5b)
 
 Headed Electron, `--workers=1`, `--retries=0`. All targeted specs PASS.
 
 | Spec | Result |
 |---|---|
-| `ux-tier5b-sheet-metal-additions-electron` (NEW) | **PASS** (~26.3 s) |
+| `ux-tier5b-hem-sketchbend-electron` (NEW — focused) | **PASS** |
+| `ux-tier5b-sheet-metal-additions-electron` (4-op bespoke) | **PASS** (~26.3 s) |
 | `ux-tier5a-sheet-metal-electron` | **PASS** (~25.0 s) |
 | `sp11-sheet-tolerant-electron` | **PASS** (~10.8 s) |
 | `ribbon-test` | **PASS** (~9.7 s) |
