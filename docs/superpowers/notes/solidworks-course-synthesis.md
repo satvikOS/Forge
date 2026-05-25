@@ -828,8 +828,8 @@ Export glTF.
 | Note | Note | **Done** |
 | Balloon | Balloon | **Done** — Auto-Balloon shipped in Tier 8b |
 | BOM | BOM (Tier 8b) | **Done** — real 5-column SVG table (Item / Part Number / Description / Quantity / Material); auto-merges identical part numbers |
-| Title Block / Sheet Format edit | (likely missing) | **Missing** |
-| Sheet Size (A3/A4/ISO) | Unknown | **Missing/Unverified** |
+| Title Block / Sheet Format edit | Title Block (Tier 8c) | **Done** — real 3-row ASME / ISO grid (Title / Properties / Approval) anchored bottom-right with 12 tagged cells; fields come from the param dialog and stamp into the drawing SVG |
+| Sheet Size (A3/A4/ISO) | Sheet Format (Tier 8c) | **Done** — 10 real sheet sizes in mm (ISO A0..A4 + ANSI A..E) × 2 orientations; re-renders border + mini title block on size change |
 | GD&T Frame | GD&T Frame | **Done** |
 | Surface Finish | Surface Finish | **Done** |
 | Model Items (auto-import dims) | Model Items (Tier 8b) | **Done** — walks the part's feature history and emits dimensions for sketchRectangle/Circle, extrude, cut, revolve, fillet, chamfer, circularPattern, linearPattern |
@@ -1005,8 +1005,8 @@ The single largest gap. Needs:
 - ~~**Model Items** annotation (auto-import all part dimensions onto the drawing)~~ — **DONE** (Tier 8b; ribbon Drawing→Annotate→Model Items; walks Part.features and emits per-parameter dimension annotations with auto-placed leader lines)
 - ~~**BOM** (Annotation→Tables→Bill of Materials)~~ — **DONE** (Tier 8b; ribbon Drawing→BOM→BOM; reads body-level attributes from the BodyRegistry; auto-merges identical part numbers)
 - ~~**Auto-Balloon** (one-click balloons for all components linked to BOM)~~ — **DONE** (Tier 8b; ribbon Drawing→BOM→Auto-Balloon; radial placement around assembly centroid with overlap-bump)
-- **Title Block / Sheet Format** edit
-- **Sheet Size** dialog (A4/A3/A2/A1/Letter/etc., ISO/ANSI standards)
+- ~~**Title Block / Sheet Format** edit~~ — **DONE** (Tier 8c; ribbon Drawing→Sheet→Title Block; real 3-row ASME / ISO grid (Title / Properties / Approval) anchored bottom-right; fields = partNumber / description / drawnBy / date / material / scale / sheetN / sheetTotal / approval / standard / units / tolerance)
+- ~~**Sheet Size** dialog (A4/A3/A2/A1/Letter/etc., ISO/ANSI standards)~~ — **DONE** (Tier 8c; ribbon Drawing→Sheet→Sheet Format; A0..A4 + ANSI A..E in real mm, landscape/portrait, re-renders border + mini title block to fit)
 
 ### Tier 9 — Mold Tools workbench
 

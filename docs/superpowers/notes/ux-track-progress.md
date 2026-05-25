@@ -860,7 +860,7 @@ accounting in one workflow.
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b shipped (7 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend)** |
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a foundation shipped (3 of ~8 ops)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b shipped (7/12+; standard-mate set complete 8/8 + 3 of 6 advanced)** |
-| 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, Title Block edit) | **Partial — Tier 8a + Tier 8b shipped (6/8)** |
+| 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 foundation shipped (3 of ~8 ops)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
 
@@ -1102,6 +1102,51 @@ sites are the new Tier 8b handlers).
 5. **Auto-Balloon uses the FIRST manifold of a merged BOM row as the anchor source.** Identical SKF-6004 bearings merge into one BOM row with qty 2; the balloon's leader line anchors to the LEFT bearing's centroid (the first registered). A "smart" Auto-Balloon would anchor to one balloon per physical instance (so 2 leader lines per balloon for 2 bearings), but the SW convention is one-balloon-per-BOM-row, which is what we do.
 6. **Balloon radial layout doesn't reflect the anchor-to-balloon angle perfectly.** The handler snaps each balloon's preferred angle (computed from the anchor → centroid vector) to the nearest 30° slot. So two parts at slightly different angles can still snap to the same slot; the second then bumps CCW. The leader line goes from anchor to balloon-at-bumped-slot, which can mean the leader doesn't perfectly point "outward" from the centroid through the anchor. Acceptable for the 5-component test; finer 15° slots would tighten this but cost more bumps on dense assemblies.
 7. **DrawingPreviewPanel header still reads "Engineering Drawing — A3 third-angle projection".** Same cosmetic gap as Tier 8a — the SVG's internal title block carries the accurate per-view label ("Model Items" / "Assembly BOM" / "Auto-Balloon Sheet"); the modal header is generic. A future polish would read the SVG's `data-archdisc-view` attribute and update the header accordingly.
+
+---
+
+## Tier 8c — Drawing Title Block + Sheet Format (2 of 2 shipped)
+
+**Date:** 2026-05-25
+
+Closes the LAST two "Tier 8 — Missing drawing capabilities" items the SW
+course synthesis identified. Tier 8 is now complete (8 of 8).
+
+| Tier 8c # | Convention | Status | Implementation |
+|---|---|---|---|
+| 89 | Title Block | **Done** | Real 3-row ASME / ISO grid (Title / Properties / Approval) anchored bottom-right at (sheetW-5-120, sheetH-5-60); 12 tagged cells (`data-tb-cell=...`): partNumber, description, drawn, date, material, scale, sheet, standard, units, tol, approval + signature line. Fields stamped from param dialog. |
+| ~~ | Sheet Format | **Done** | 10 real sheet sizes in mm (ISO A0..A4 + ANSI A..E) × 2 orientations; updates viewBox + redraws ASME double-line border + fits mini title block to the new corner. |
+
+**Files added/changed for Tier 8c:**
+
+- `frontend/src/workbenches/drawing/DrawingViews.js` (modified — added `SHEET_SIZES` table, `resolveSheet`, `titleBlock`, `sheetFormat`. Both ops project TOP-DOWN (`eye=[0,0,-1]`, `up=[0,1,0]`) so the body's XY silhouette — the natural plane for atomic Part API — appears directly on the sheet)
+- `frontend/src/components/RibbonToolbar.jsx` (modified — appended new `Sheet` group on Drawing tab with `Title Block` + `Sheet Format` entries)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (modified — added import for `drawTitleBlock` + `drawSheetFormat`; appended two handlers after Auto-Balloon writing `__lastTitleBlock` / `__lastSheetFormat` slots)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — appended two schemas: `Title Block` (11 fields including partNumber/description/drawnBy/date/material/scale/sheetN/sheetTotal/approval/size/orientation) and `Sheet Format` (size/orientation/partName))
+- `frontend/src/components/SwUxOverlays.jsx` (modified — appended `Title Block` + `Sheet Format` to `DOCKED_TOOLS`)
+- `e2e/ux-tier8c-titleblock-sheetformat-electron.spec.js` (NEW — bespoke automotive connecting rod (CR-2104-A) workflow: switch sheet to A3 landscape → stamp title block with real engineering fields (AISI 4140, scale 1:2, drawn by A.Eng, date 2026-05-25). 4 stills, NO 3D orbit.)
+- `docs/superpowers/notes/solidworks-course-synthesis.md` (Tier 8 table + #89 entry flipped to Done)
+- `docs/superpowers/notes/ux-track-progress.md` (Tier 8 row updated to 8/8; this section appended)
+
+### E2E + regression subset (Tier 8c)
+
+Headed Electron, `--workers=1`, `--retries=0`.
+
+| Spec | Result |
+|---|---|
+| `ux-tier8c-titleblock-sheetformat-electron` (NEW) | **PASS** (~12 s) |
+| `ux-tier8a-drawing-views-electron` (regression) | PASS (~11 s) |
+| `ux-tier8b-drawing-bom-electron` (regression) | PASS (~12 s) |
+| `ribbon-test` (regression) | PASS |
+
+### Honest gaps in Tier 8c
+
+1. **No revision-block table.** SolidWorks' "Edit Sheet Format" lets a user place a revision-history table that auto-records every change. We have a separate `Revision Table` op in the legacy `DrawingEngine` but it is not stitched into the new Title Block / Sheet Format pipeline. Wiring it is a clean follow-on (probably a `Revision Block` ribbon entry that writes its own SVG group into the same bottom-right corner stack).
+2. **Title-block fields are flat strings, no per-cell formatting / overrides.** SolidWorks supports rich-text + per-field templates (date format, scale auto-derived). Ours stores the field values verbatim — the user sees what they typed. Adequate for engineering-drawing semantics; not for production drafting standards rooms.
+3. **Sheet Format only ships 10 sizes (A0..A4 + ANSI A..E).** Real shops want JIS-B series, Architectural A..F, and custom user-defined sheets. The `SHEET_SIZES` constant in DrawingViews is the single point to extend; adding a custom-size field on the param dialog is a 5-line follow-on.
+4. **Both ops re-render only the FRONT (TOP-DOWN) view of the active body.** A real drawing sheet usually carries 3 + 1 projected views. Title Block / Sheet Format don't re-emit the Standard 3 View composition; they show a single silhouette + the new corner block / border. The user pipelines `Standard 3 View → Title Block` manually for now. A "title-block layer" mode that overlays only the title block onto an existing sheet (without redrawing the views) is the cleanest fix.
+5. **DrawingPreviewPanel header still reads "Engineering Drawing — A3 third-angle projection".** Same cosmetic gap as Tier 8a / 8b — the SVG's internal data-attrs (`data-sheet-size`, `data-sheet-orientation`) carry the accurate label but the modal header is hard-coded.
+6. **Auto-Balloon refinements deferred.** Tier 8b's balloon callouts still snap to 30° slots and don't have per-instance-of-merged-row leader lines. Out of scope for Tier 8c; tracked in Tier 8b's own gap list.
 
 ---
 
