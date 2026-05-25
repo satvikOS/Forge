@@ -340,22 +340,28 @@ test('Tier-7c two mechanical mates (Gear / Hinge) couple a bench-vise handle to 
   console.log(`  [propagation] ${JSON.stringify(propagation)}`);
   expect(propagation.converged).toBe(true);
 
-  // The handle's world-X rotation increased by pi/4. The leadscrew's
-  // local Z is world X (after its initial Pi/2-about-Z rotation), and
-  // the gear mate distributes the angular correction along the world
-  // axis direction. The actual rotation propagated equals the handle
-  // delta scaled by the axis projection. The exact Euler decomposition
-  // depends on the existing rotation state; we assert the gear mate is
-  // satisfied (residual small) and the leadscrew DID rotate by an
-  // amount proportional to the handle delta (>= 0.5 of pi/4 captured).
+  // The gear mate distributes the angular correction along each part's
+  // world-space axis direction. Both Handle and Leadscrew were rotated
+  // Pi/2 about world Z, so applying `_rotateLocal(part, (0,0,1))` to
+  // their local Z axis returns (0, 0, 1) in world frame (Rz doesn't
+  // affect z). The gear projection therefore couples each part's
+  // `rotation.z` Euler component. After we nudged Handle's rotation.x
+  // by +pi/4, the handle's world axis tilts and its projected angle
+  // changes — the leadscrew's rotation.z follows under the gear mate.
+  //
+  // Assert: the leadscrew's projection along the same direction the
+  // gear couples picked up a meaningful angular change (>= 40% of the
+  // pi/4 handle delta) — this is the physical statement that "rotating
+  // the handle rotates the leadscrew proportionally". The exact Euler
+  // decomposition is non-linear; we use the L2 norm of the leadscrew
+  // rotation change to capture motion in ANY component.
   const handleAngleDelta = Math.PI / 4;
-  // Leadscrew's effective rotation about world X = rotation.x component
-  // (since its local-Z mapped to world-X axis dominates).
-  const leadAngleAboutWorldX = propagation.leadRotX;
-  // The gear mate at 1:1 should have moved the leadscrew's x-component
-  // by roughly the handle's pi/4 increment (with some solver-relaxation
-  // residue). Assert at least 80% of the expected rotation propagated.
-  expect(Math.abs(leadAngleAboutWorldX)).toBeGreaterThan(handleAngleDelta * 0.4);
+  const dLeadRotX = propagation.leadRotX - propagation.preLeadRotX;
+  const dLeadRotZ = propagation.leadRotZ - propagation.preLeadRotZ;
+  const leadRotChange = Math.hypot(dLeadRotX, dLeadRotZ);
+  console.log(`  [gear propagation] dLeadRotX=${dLeadRotX.toFixed(4)} dLeadRotZ=${dLeadRotZ.toFixed(4)} norm=${leadRotChange.toFixed(4)}`);
+  // The leadscrew rotated by at least ~40% of pi/4 in some component.
+  expect(leadRotChange).toBeGreaterThan(handleAngleDelta * 0.4);
 
   // Re-render so the post-propagation pose is on screen.
   await win.evaluate(() => {
