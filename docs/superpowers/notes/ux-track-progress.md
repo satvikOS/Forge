@@ -970,7 +970,7 @@ accounting in one workflow.
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b shipped (7 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend)** |
-| 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b shipped (5 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead; Cut List, Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6c)** |
+| 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b + 6c shipped (6 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead + Cut List; Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6d)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c shipped (9/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 2 of 6 mechanical)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b shipped (5 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces; Parting Surface ruled / Side Actions / Cooling Channels queued)** |
@@ -1912,6 +1912,114 @@ ONE iso + 5 stills (1: ribbon active, 2: members built, 3: after gusset,
 | `ux-tier6b-gusset-weldbead-electron` (new — Tier 6b acceptance) | Bespoke welded crane jib: 2 members + gusset + 2 weld beads |
 | `ux-tier6a-weldments-electron` (regression — Tier 6a base) | Confirms the new Tier-6b additions don't break Tier-6a structural member / trim / end-cap workflow |
 | `ribbon-test` (regression — ribbon tab + tool count) | Confirms the Weldments tab grew from 3 to 5 tools cleanly |
+
+---
+
+## Tier 6c — Weldments Cut List — 2026-05-25
+
+The headline Weldments-fabrication deliverable. A BOM-style aggregation of
+every weldment-tagged structural member in the scene, grouped by the
+`(profile, size, length)` triple so the welder reads one line per
+"cut N pieces of <profile>/<size> at <length> mm" item.
+
+### What shipped
+
+| Op | Kernel facade entry | Returns |
+|---|---|---|
+| **Cut List** | `K.brep.cutList({rounding=1})` | `{groups:[{itemNo, profile, size, lengthMm, quantity, totalLengthMm}], totalLines, totalLengthMm}` |
+
+**Implementation** (`frontend/src/kernel/brep/BrepWeldments.js`):
+
+- Scans `window.__archdiscBodies.bodies[]` (the live BodyRegistry).
+- For each entry, dereferences the SpineBody via `brepShapeRef`
+  (or `group.userData.brepShapeRef` fallback) and reads
+  `getWeldmentMetadata(spineBody)`.
+- Filters to bodies whose `profile` is one of the standard families
+  (`recttube`/`squaretube`/`roundtube`/`angle`/`channel`/`ibeam`) — gussets
+  + weld beads are explicitly excluded since they're downstream weld
+  assembly steps, not stock-bar cuts.
+- Groups by `(profile, size, round(length/rounding)*rounding)` — the
+  rounding bucket matches the welder's saw-stop precision so near-identical
+  lengths (e.g. 750.0 vs 750.4 mm) collapse to one line.
+- Sorts deterministically by profile → size → length ascending; stamps
+  `itemNo` 1..N; sums the grand total.
+
+### The Cut List modal
+
+`frontend/src/components/CutListPanel.jsx` + `.css` — full-page modal in
+the Equation-Manager visual idiom (z-index 50, same `sw-panel-*` token
+set, sticky table header). Opens via the global event
+`archdisc:open-cut-list`. Renders:
+
+- Header with title `Cut List` + close button.
+- Hint line summarising the report (N line items, M members, total mm).
+- Table: **Item No / Profile / Size / Length (mm) / Qty / Total (mm)**.
+- Footer with **Copy CSV** (RFC-4180-quoted comma-separated) +
+  **Copy TSV** (tab-separated, Excel-friendly) buttons using
+  `navigator.clipboard.writeText`, plus a Done button.
+
+### Ribbon + handler
+
+- **Ribbon**: Weldments tab grew a 5th group `BOM` with `Cut List`
+  (icon `☷`).
+- **Handler** (`ToolExecutionEngine.js` `weldments` group): runs
+  `ArchDiscKernel.brep.cutList({rounding:1})`, stashes the report on
+  `window.__lastCutList`, and dispatches `archdisc:open-cut-list` so the
+  modal mounts. The Cut List op is NOT registered in `DOCKED_TOOLS` —
+  the handler is a fire-and-forget modal opener, not a parametric op.
+- **Schema** (`ToolParamSchemas.js`): empty-`fields` schema for
+  introspection symmetry only.
+
+### Bespoke e2e — welded steel pallet jack frame
+
+`e2e/ux-tier6c-cutlist-electron.spec.js` builds a fabricated pallet-jack
+frame via 12 real ribbon clicks:
+
+- 4 vertical posts (squaretube 40×40×3, 750 mm)
+- 4 horizontal beams (recttube 50×30×3, 1200 mm)
+- 2 diagonal angle braces (50×50×5, 1500 mm)
+- 2 load-bearing forks (recttube 50×100×4, 1000 mm)
+
+After 12 Structural-Member ops the registry holds 12 weldment-tagged
+bodies. Clicking Cut List on the ribbon opens the modal; the kernel
+`cutList()` returns **4 line items** (one per unique
+`(profile, size, length)` triple), and the sum of every group's
+quantity equals **12**. The spec also asserts the per-profile quantity
+breakdown (4 squaretube + 6 recttube + 2 angle), the modal renders all
+4 rows, and the **Copy CSV** + **Copy TSV** buttons are present.
+
+ONE iso of the pallet-jack + ONE still of the Cut List modal.
+
+### Files added / modified (Tier 6c)
+
+- `frontend/src/kernel/brep/BrepWeldments.js` (cutList op appended)
+- `frontend/src/kernel/brep/index.js` (1 export)
+- `frontend/src/kernel/brep/ArchDiscKernel.js` (1 facade entry)
+- `frontend/src/components/CutListPanel.jsx` (new — modal)
+- `frontend/src/components/CutListPanel.css` (new — Equation-Manager idiom)
+- `frontend/src/components/SwUxOverlays.jsx` (mount + 1 import)
+- `frontend/src/components/RibbonToolbar.jsx` (Weldments tab `BOM` group)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (1 handler in weldments group)
+- `frontend/src/foundation/ToolParamSchemas.js` (1 empty-fields schema)
+- `e2e/ux-tier6c-cutlist-electron.spec.js` (new bespoke e2e)
+
+### E2E + regression subset (Tier 6c)
+
+| Spec | Why |
+|---|---|
+| `ux-tier6c-cutlist-electron` (new — Tier 6c acceptance) | Bespoke pallet-jack frame: 12 members → 4 cut-list rows |
+| `ux-tier6a-weldments-electron` (regression — Tier 6a base) | Confirms the new Cut List entry doesn't break Tier-6a structural member / trim / end-cap workflow |
+| `ux-tier6b-gusset-weldbead-electron` (regression — Tier 6b base) | Confirms the new Cut List entry doesn't break Tier-6b gusset / weld-bead workflow |
+| `ribbon-test` (regression — ribbon tab + tool count) | Confirms the Weldments tab grew from 5 to 6 tools cleanly |
+
+### Honest gaps + queued Tier-6d
+
+- **Sub-Weldment** — grouping members into a sub-weldment that aggregates
+  in the cut list as a single sub-assembly is queued.
+- **Custom Profile Import** — caller-supplied stock-bar profiles beyond
+  the 6 standard ISO/ANSI families are queued.
+- **Cope Cut** — cylindrical-tube-on-cylindrical-tube saddle cut for
+  pipe weldments queued (the four remaining Tier-6 follow-ups).
 
 ---
 

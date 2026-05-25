@@ -314,7 +314,7 @@ onward).
 | End Cap | (within Weldments section) | **DONE (Tier 6a)** — flat / thick cap prism + fuse |
 | Gusset | (within Weldments section) | **DONE (Tier 6b)** — triangular / polygon plate fillet-welded between two members; `body.metadata.weldment.gussets[]` |
 | Weld Bead | `06:15:42` | Spot/continuous; all-around; size — **DONE (Tier 6b)** fillet / square / V / bevel cross-sections swept along the joint; `body.metadata.weldment.welds[]` |
-| Cut List | `06:00:19` | Auto-generated BOM-like list of all members — queued Tier-6b |
+| Cut List | `06:00:19` | Auto-generated BOM-like list of all members — **DONE (Tier 6c)** `K.brep.cutList({rounding})` groups every weldment-tagged structural member by `(profile, size, length)`; `CutListPanel` modal renders the table with Copy CSV / Copy TSV |
 
 ### Assemblies
 
@@ -761,7 +761,7 @@ bends[]}`, and downstream ops can ASK whether a body is sheet metal via
 | End Cap | End Cap | **DONE** (Tier 6a — `K.brep.endCap(member, end, {thickness})`; flat-cap prism + fuse) |
 | Gusset | Gusset | **DONE** (Tier 6b — `K.brep.gusset(memberA, memberB, {type, size, thickness, position})`; both members' `metadata.weldment.gussets[]` records the gusset; the gusset body itself is weldment-tagged with `profile:'gusset'`) |
 | Weld Bead | Weld Bead | **DONE** (Tier 6b — `K.brep.weldBead(memberA, memberB, {type, size, length})`; fillet / square / V / bevel cross-sections swept along the joint; both members' `metadata.weldment.welds[]` records the bead) |
-| Cut List | None | **Missing** — queued Tier-6c (BOM-style aggregation of every member + length + cut count) |
+| Cut List | Cut List | **DONE** (Tier 6c — `K.brep.cutList({rounding})`; iterates the BodyRegistry, filters weldment-tagged structural members, groups by `(profile, size, round(length/rounding)*rounding)`, returns `{groups:[{itemNo, profile, size, lengthMm, quantity, totalLengthMm}], totalLines, totalLengthMm}`; modal `CutListPanel` with Copy CSV / Copy TSV) |
 | Standard profile library (ANSI/ISO) | STANDARD_PROFILES (recttube/squaretube/roundtube/angle/channel/ibeam) | **Done — foundation** (3 ISO/ANSI sizes per family; custom profile import queued for Tier-6b) |
 
 The dedicated **Weldments** ribbon tab (between Sheet Metal and Drawing)
@@ -973,7 +973,7 @@ The single largest gap. Needs:
 - ~~End Cap~~ — **DONE** (Tier 6a; flat-cap prism + fuse; thickness option)
 - ~~Gusset~~ — **DONE** (Tier 6b; triangular / polygon plate fillet-welded between two members; `body.metadata.weldment.gussets[]` recorded on both parents; the gusset body itself is weldment-tagged)
 - ~~Weld Bead~~ — **DONE** (Tier 6b; fillet / square / V / bevel cross-section swept along the joint; `body.metadata.weldment.welds[]` recorded on both parents; the bead body itself is weldment-tagged)
-- Cut List (auto BOM-like list of all members + lengths) — **Missing** (queued Tier-6c)
+- ~~Cut List~~ — **DONE** (Tier 6c; `K.brep.cutList({rounding})` aggregates every weldment-tagged structural member by `(profile, size, length)`; `CutListPanel` modal renders BOM table with Copy CSV / Copy TSV)
 - Cope Cut (cylindrical-tube saddle cut) — **Missing** (queued Tier-6c)
 - Sub-Weldment + Custom Profile Import — **Missing** (queued Tier-6c)
 
