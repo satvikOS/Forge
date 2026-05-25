@@ -215,6 +215,10 @@ const TABS = {
         { name: 'Perpendicular Mate', icon: '⊥', key: 'assembly' },
         { name: 'Tangent Mate', icon: '◖', key: 'assembly' },
         { name: 'Lock Mate', icon: '⊞', key: 'assembly' },
+        // Tier-7b — advanced mates (Width / Path / Distance-Limit)
+        { name: 'Width Mate', icon: '↔', key: 'assembly' },
+        { name: 'Path Mate', icon: '〜', key: 'assembly' },
+        { name: 'Distance-Limit Mate', icon: '⇿', key: 'assembly' },
       ]},
       { label: 'Analyze', tools: [
         { name: 'Exploded View', icon: '💥', key: 'assembly' },

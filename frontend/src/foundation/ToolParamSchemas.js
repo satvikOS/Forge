@@ -1110,6 +1110,67 @@ export const TOOL_PARAM_SCHEMAS = {
     fields: [],
   },
 
+  // ─── ASSEMBLY TIER-7b — Advanced mates (Width / Path / Distance-Limit) ──
+  //
+  // Three SolidWorks-advanced mates that complete the SW advanced-mate
+  // family in ArchDisc. Each contributes a real residual equation +
+  // correct DOF reduction (see kernel MateSolver Tier-7b satisfiers +
+  // foundation KinematicsCore residual helpers):
+  //
+  //   Width          — TAB on partB centred equidistantly between two
+  //                    reference anchors on partA. 1 trans DOF.
+  //   Path           — point on partB lies on a polyline curve in
+  //                    partA's local frame. 2 trans DOF (the two
+  //                    components normal to the local tangent).
+  //   Distance-Limit — distance(A↔B) constrained to [min, max] — slack
+  //                    in range (0 DOF removed), 1 DOF at either clamp.
+  //
+  'Width Mate': {
+    title: 'Width — Advanced Assembly Mate',
+    blurb: 'Centre a TAB on component B equidistantly between two reference faces on component A. Pre-select TWO components, then click. Removes 1 translational DOF along the gap normal.',
+    fields: [
+      { name: 'refA1x', label: 'Ref A1 — X (A-local)', type: 'number', default: -10, unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Left/first reference anchor on component A.' },
+      { name: 'refA1y', label: 'Ref A1 — Y (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'refA1z', label: 'Ref A1 — Z (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'refA2x', label: 'Ref A2 — X (A-local)', type: 'number', default: 10,  unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Right/second reference anchor on component A.' },
+      { name: 'refA2y', label: 'Ref A2 — Y (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'refA2z', label: 'Ref A2 — Z (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'tabBx',  label: 'Tab on B — X (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Centred face / mid-anchor on component B.' },
+      { name: 'tabBy',  label: 'Tab on B — Y (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'tabBz',  label: 'Tab on B — Z (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+    ],
+  },
+  'Path Mate': {
+    title: 'Path — Advanced Assembly Mate',
+    blurb: 'Constrain a point on component B to lie on a path curve in component A\'s local frame. The path is supplied as a polyline (via __archdiscPathMatePath = [[x,y,z], ...] mm in A-local frame, or built from the schema endpoints + segment count). Removes 2 translational DOF; the along-path DOF is free.',
+    fields: [
+      { name: 'startX',   label: 'Path start — X (A-local)', type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'startY',   label: 'Path start — Y (A-local)', type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'startZ',   label: 'Path start — Z (A-local)', type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'endX',     label: 'Path end — X (A-local)',   type: 'number', default: 100,  unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'endY',     label: 'Path end — Y (A-local)',   type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'endZ',     label: 'Path end — Z (A-local)',   type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBx',  label: 'Anchor on B — X (B-local)',type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBy',  label: 'Anchor on B — Y (B-local)',type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBz',  label: 'Anchor on B — Z (B-local)',type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'segments', label: 'Polyline segments',        type: 'number', default: 32,   min: 2, max: 512, step: 1, hint: 'Used when no __archdiscPathMatePath override is set — straight-line samples from start to end.' },
+    ],
+  },
+  'Distance-Limit Mate': {
+    title: 'Distance-Limit — Advanced Assembly Mate',
+    blurb: 'Constrain the distance between two anchors on components A and B to stay within [min, max]. Slack inside the range (0 DOF removed); clamps at either limit (1 DOF removed). Pre-select TWO components, then click.',
+    fields: [
+      { name: 'pointAx', label: 'Anchor A — X (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAy', label: 'Anchor A — Y (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAz', label: 'Anchor A — Z (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBx', label: 'Anchor B — X (B-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBy', label: 'Anchor B — Y (B-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBz', label: 'Anchor B — Z (B-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'minDist', label: 'Min distance', type: 'number', default: 0,   unit: 'mm', min: 0, max: 10000, step: 0.5, hint: 'Lower clamp — distance ≥ this.' },
+      { name: 'maxDist', label: 'Max distance', type: 'number', default: 150, unit: 'mm', min: 0, max: 10000, step: 0.5, hint: 'Upper clamp — distance ≤ this. Set huge to disable the upper limit.' },
+    ],
+  },
+
   // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
   //
   // Three drafting-tab tools that turn a 3D part / assembly into a

@@ -25,6 +25,9 @@ import {
   perpendicularResidual as fPerpendicularResidual,
   tangentResidual as fTangentResidual,
   lockResidual as fLockResidual,
+  widthResidual as fWidthResidual,
+  pathResidual as fPathResidual,
+  distanceLimitResidual as fDistanceLimitResidual,
   ASSEMBLY_MATE_DOF as F_MATE_DOF,
 } from '../../foundation/KinematicsCore.js';
 
@@ -4180,6 +4183,18 @@ const TOOL_HANDLERS = {
       const r = await _applyStandardMate('tangent', scene, viewport);
       return r;
     },
+    'Width Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('width', scene, viewport);
+      return r;
+    },
+    'Path Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('path', scene, viewport);
+      return r;
+    },
+    'Distance-Limit Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('distanceLimit', scene, viewport);
+      return r;
+    },
     'Lock Mate': async (scene, viewport) => {
       const r = await _applyStandardMate('lock', scene, viewport);
       return r;
@@ -8233,7 +8248,11 @@ function needSolid(toolName) {
 //      `AssemblyBridge.renderAssembly` so the user SEES the snap.
 //   7. Introspect — writes `window.__lastMateApplied` for e2e + AI tools.
 async function _applyStandardMate(kind, scene, viewport) {
-  const labelMap = { parallel: 'Parallel', perpendicular: 'Perpendicular', tangent: 'Tangent', lock: 'Lock' };
+  const labelMap = {
+    parallel: 'Parallel', perpendicular: 'Perpendicular', tangent: 'Tangent', lock: 'Lock',
+    // Tier-7b — advanced mates
+    width: 'Width', path: 'Path', distanceLimit: 'Distance-Limit',
+  };
   const toolName = `${labelMap[kind]} Mate`;
   if (!_currentAssembly || _currentAssembly.parts.length < 2) {
     return { status: 'warn', message: `${toolName}: Insert at least 2 components into an assembly first.` };
@@ -8298,6 +8317,73 @@ async function _applyStandardMate(kind, scene, viewport) {
     // delta forever; if partA later moves, partB rides along rigidly.
     params.offset = partB.position.sub(partA.position);
     params.rotationDelta = partB.rotation.sub(partA.rotation);
+  } else if (kind === 'width') {
+    // Tier-7b — convert mm → kernel m for the three local-frame anchors.
+    const M = 0.001;
+    params.refA1 = new Vec3(
+      (values.refA1x ?? -10) * M,
+      (values.refA1y ?? 0) * M,
+      (values.refA1z ?? 0) * M,
+    );
+    params.refA2 = new Vec3(
+      (values.refA2x ?? 10) * M,
+      (values.refA2y ?? 0) * M,
+      (values.refA2z ?? 0) * M,
+    );
+    params.tabB = new Vec3(
+      (values.tabBx ?? 0) * M,
+      (values.tabBy ?? 0) * M,
+      (values.tabBz ?? 0) * M,
+    );
+  } else if (kind === 'path') {
+    // Tier-7b — caller can override the path via window.__archdiscPathMatePath
+    // ([[xMM, yMM, zMM], ...] in A-local frame). Otherwise we synthesise
+    // a straight-line polyline from start→end with `segments` samples.
+    const M = 0.001;
+    const userPath = (typeof window !== 'undefined') ? window.__archdiscPathMatePath : null;
+    if (Array.isArray(userPath) && userPath.length >= 2) {
+      params.pathLocalA = userPath.map(p => new Vec3(p[0] * M, p[1] * M, p[2] * M));
+    } else {
+      const s = [
+        (values.startX ?? 0)   * M,
+        (values.startY ?? 0)   * M,
+        (values.startZ ?? 0)   * M,
+      ];
+      const e = [
+        (values.endX ?? 100) * M,
+        (values.endY ?? 0)   * M,
+        (values.endZ ?? 0)   * M,
+      ];
+      const N = Math.max(2, Math.round(values.segments ?? 32));
+      params.pathLocalA = [];
+      for (let i = 0; i < N; i++) {
+        const t = i / (N - 1);
+        params.pathLocalA.push(new Vec3(
+          s[0] + (e[0] - s[0]) * t,
+          s[1] + (e[1] - s[1]) * t,
+          s[2] + (e[2] - s[2]) * t,
+        ));
+      }
+    }
+    params.pointB = new Vec3(
+      (values.pointBx ?? 0) * M,
+      (values.pointBy ?? 0) * M,
+      (values.pointBz ?? 0) * M,
+    );
+  } else if (kind === 'distanceLimit') {
+    const M = 0.001;
+    params.pointA = new Vec3(
+      (values.pointAx ?? 0) * M,
+      (values.pointAy ?? 0) * M,
+      (values.pointAz ?? 0) * M,
+    );
+    params.pointB = new Vec3(
+      (values.pointBx ?? 0) * M,
+      (values.pointBy ?? 0) * M,
+      (values.pointBz ?? 0) * M,
+    );
+    params.minDist = (values.minDist ?? 0) * M;
+    params.maxDist = (values.maxDist ?? 150) * M;
   }
 
   // 4. Add mate + solve.
@@ -8347,6 +8433,24 @@ async function _applyStandardMate(kind, scene, viewport) {
                          partB.position.z - params.offset.z],
           rotation:    [partB.rotation.x, partB.rotation.y, partB.rotation.z] },
       );
+    } else if (kind === 'width') {
+      const p1 = partA.position.add(params.refA1);
+      const p2 = partA.position.add(params.refA2);
+      const tb = partB.position.add(params.tabB);
+      foundationResidual = fWidthResidual(
+        [tb.x, tb.y, tb.z], [p1.x, p1.y, p1.z], [p2.x, p2.y, p2.z],
+      );
+    } else if (kind === 'path') {
+      const aPos = partA.position;
+      const pts = params.pathLocalA.map(v => [aPos.x + v.x, aPos.y + v.y, aPos.z + v.z]);
+      const aB = partB.position.add(params.pointB);
+      foundationResidual = fPathResidual([aB.x, aB.y, aB.z], pts);
+    } else if (kind === 'distanceLimit') {
+      const pA = partA.position.add(params.pointA);
+      const pB = partB.position.add(params.pointB);
+      foundationResidual = fDistanceLimitResidual(
+        [pA.x, pA.y, pA.z], [pB.x, pB.y, pB.z], params.minDist, params.maxDist,
+      );
     }
   } catch (e) {
     foundationResidual = null;
@@ -8354,6 +8458,15 @@ async function _applyStandardMate(kind, scene, viewport) {
 
   // 7. Introspect.
   if (typeof window !== 'undefined') {
+    // Tier-7b: distance-limit reports its effective DOF (0 in slack, 1
+    // when clamped at a limit) via mate.params._clampedDOF (set by the
+    // kernel _satisfyDistanceLimit handler).
+    const clampedDOF = (kind === 'distanceLimit')
+      ? (mate.params._clampedDOF ?? 0)
+      : null;
+    const activeLimit = (kind === 'distanceLimit')
+      ? (mate.params._activeLimit ?? null)
+      : null;
     window.__lastMateApplied = {
       kind, toolName,
       partAId: idA, partBId: idB,
@@ -8368,6 +8481,9 @@ async function _applyStandardMate(kind, scene, viewport) {
       foundationResidual,
       mateId: mate.id,
       params,
+      // Tier-7b distance-limit only — null otherwise
+      clampedDOF,
+      activeLimit,
     };
   }
 
