@@ -72,6 +72,12 @@ const TABS = {
       { label: 'Solve', tools: [
         { name: 'Auto-Constrain', icon: '✦', key: 'sketch', primary: true },
       ]},
+      // UX Tier 10 — parametric infrastructure entry point.
+      // Same ribbon entry on Sketch + Part tabs (the equation
+      // store is global, so the user can reach it from either tab).
+      { label: 'Parameters', tools: [
+        { name: 'Equation Manager', icon: 'Σ', key: 'sketch' },
+      ]},
     ]
   },
   part: {
@@ -199,6 +205,12 @@ const TABS = {
         { name: 'Auto-Fill Holes',               icon: '✚', key: 'part' },
         { name: 'Auto-Repair Self-Intersection', icon: '⊗', key: 'part' },
         { name: 'Harmonize Normals',             icon: '⇅', key: 'part' },
+      ]},
+      // UX Tier 10 — parametric infrastructure entry point.
+      // Same ribbon entry as on the Sketch tab; the user can open the
+      // Equation Manager from either tab (variables are global).
+      { label: 'Parameters', tools: [
+        { name: 'Equation Manager', icon: 'Σ', key: 'part' },
       ]},
     ]
   },

@@ -1633,3 +1633,15 @@ TOOL_PARAM_SCHEMAS['Revolved Surface'] = {
 export function isInlineSketchCapable(toolName) {
   return INLINE_SKETCH_CAPABLE.has(toolName);
 }
+
+// ─── UX TIER 10 — PARAMETRIC INFRASTRUCTURE ─────────────────────────────────
+// Equation Manager: opens a full-page modal (EquationManager.jsx) where the
+// user adds / edits / deletes global variables and expressions. Zero numeric
+// inputs in the schema — the dialog itself is the table. The schema is here
+// so the planner / orchestration layer can recognise the tool name and the
+// handler is selection-independent.
+TOOL_PARAM_SCHEMAS['Equation Manager'] = {
+  title: 'Equation Manager — Global Variables',
+  blurb: 'Open the Equation Manager modal. Define global variables (width, height, holeSpacing…), use them in sketch dimensions via the "=expr" syntax (e.g. =width/4), and watch downstream geometry reflow when a variable changes.',
+  fields: [],
+};

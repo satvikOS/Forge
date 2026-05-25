@@ -1224,6 +1224,25 @@ const TOOL_HANDLERS = {
       };
     },
 
+    // ─── UX Tier 10 — Equation Manager ────────────────────────────────────
+    // Opens the global Equation Manager modal (EquationManager.jsx via
+    // SwUxOverlays mount tree). Pure event-dispatch handler — the modal
+    // listens for `archdisc:open-equation-manager` and renders itself.
+    'Equation Manager': async () => {
+      if (typeof window === 'undefined') {
+        return { status: 'warn', message: 'Equation Manager requires a browser environment.' };
+      }
+      try {
+        window.dispatchEvent(new CustomEvent('archdisc:open-equation-manager'));
+      } catch (_) {}
+      const store = window.__archdiscEquationStore;
+      const count = store && typeof store.list === 'function' ? store.list().length : 0;
+      return {
+        status: 'success',
+        message: `Equation Manager: opened (${count} variable${count === 1 ? '' : 's'} defined).`,
+      };
+    },
+
     // ─── Tier-2c: Sketch transform tools ─────────────────────────────────
     // Five SW transforms (Move / Rotate / Copy / Scale / Stretch). Each
     // is selection-driven: pre-select sketch entities (or endpoint picks
