@@ -1934,3 +1934,63 @@ band:
 4/4 regression PASS, 1/1 new test PASS. No regressions introduced by
 the Tier-11b additions.
 
+---
+
+## UI cleanup pass — 2026-05-24 (ribbon clipping + overlay dedup)
+
+User feedback verbatim: "the ribbon, the AI options are getting cut. also
+there are old UI behind the newer ones you can see behind the one in
+viewport". A focused cleanup dispatch consolidating five user-visible UI
+fragments. None of these were new features — each was a stale overlay or
+debug artifact that had accumulated as Tier-1 → Tier-11 layered new
+chrome on top of pre-existing components.
+
+### What was fixed
+
+| # | Issue | Resolution |
+|---|---|---|
+| 1 | Part tab ribbon clipped at 124 px — second row of tools cropped, third group label bleeding through | Bumped `--ribbon-height` from 124 → **168 px**. Reworked `.ribbon-group-tools` to a deterministic 2-row layout (`flex-direction: column; flex-wrap: wrap; max-height: 92px;`) so groups stay exactly 2 rows tall and grow horizontally; the ribbon scrolls horizontally for overflow (SW / Fusion 360 convention) |
+| 2 | Duplicate "[Box]" active-tool pill at viewport top-centre | Removed the `.active-tool-indicator` div from `WorkbenchMechanical.jsx`. The canonical active-tool name lives in `SwUxOverlays::ConfirmationCorner` (top-right) which already carries the same data plus the green-check / red-X commit buttons |
+| 3 | Two floating AI buttons at the bottom-right (chat bubble + "AI" pill) | Deleted the standalone `.ai-settings-launcher` button. AI Settings is now reachable from inside the chat panel via a header "Settings" link (`AIChatPanel`'s `onOpenSettings` prop). The chat-launcher relocated to `bottom: 16px` (was 72 px to clear the deleted pill) and carries `data-ai-launcher="canonical"` for e2e identification |
+| 4 | Design History panel showed bare developer text "Feature timeline · viewport Rollback bar = kernel timeline" below the header | Removed the `.dh-scope-note` div. The semantic explanation is preserved as the panel's `title` tooltip on hover |
+| 5 | Left tool palette had 11 category-dropdown launchers (Sketch / Part / Reference / Direct Edit / Surface / Assembly / Sheet Metal / Weldments / Piping / Simulate / Manufacture) — 9 of them duplicated ribbon tabs exactly | Removed all 11 category buttons. Left palette is now scoped to viewport-interaction tools only: Select, Move, Settings (3 buttons). The `TOOL_GROUPS` constant + `renderDropdown` machinery is kept in the file (zero-cost dead code) so the Reference + Piping groups — which don't yet have a ribbon home — can be promoted in a future dispatch with a one-line button-render addition |
+
+### Files added/changed
+
+- `frontend/src/styles/workbench.css` — `--ribbon-height` 124 → 168 px; placeholder fallback values updated to match
+- `frontend/src/components/RibbonToolbar.css` — `.ribbon-group-tools` 2-row clamp; `.ribbon-group` natural width + `overflow: hidden`; doc comments explaining the height budget
+- `frontend/src/workbenches/mechanical-cad/WorkbenchMechanical.jsx` — removed `.active-tool-indicator`; removed `.ai-settings-launcher`; removed the 11 category dropdown buttons; pass `onOpenSettings` to `AIChatPanel`; chat-launcher carries `data-ai-launcher="canonical"`
+- `frontend/src/components/DesignHistoryPanel.jsx` — removed `.dh-scope-note`; moved the explanation into a panel-level `title` tooltip
+- `frontend/src/components/AIChatPanel.jsx` — new `onOpenSettings` prop; header gains a `.chat-header-settings` link that opens AI Settings
+- `frontend/src/components/AIChatPanel.css` — `.chat-launcher` repositioned to `bottom: 16px`; new `.chat-header-settings` style
+- `e2e/ui-cleanup-ribbon-overlay-dedup-electron.spec.js` (NEW) — single test, motion-capture; verifies all five fixes in one workflow
+
+### Bespoke real workflow — Mechanical CAD Part tab cleanup verification
+
+1. Launch headed Electron, land on Mechanical CAD → Part tab.
+2. Measure every `.ribbon-tool` button's bounding box vs. the container's bottom edge — assert no button overhangs the container.
+3. Build a Box atomically (bypass dialog) to exercise the active-tool indicator path.
+4. Query the DOM for `.active-tool-indicator` (must be 0), `.ai-settings-launcher` (must be 0), `[data-ai-launcher="canonical"]` (must be exactly 1), `.tool-icon-button` inside `.workbench-tools-inner` (must be ≤ 4).
+5. Read the Design History panel's innerText — must contain "design history" (case-insensitive) and must NOT contain "kernel timeline".
+6. Capture three storyboard stills (A-part-tab-active, B-box-built, Z-final-cleanup-state) plus the 00-session.webm.
+
+### E2E + regression subset
+
+Headed Electron, `--workers=1`, `--retries=0`:
+
+| Spec | Result |
+|---|---|
+| `ui-cleanup-ribbon-overlay-dedup-electron` (NEW) | **PASS** (16.4 s; 70 ribbon buttons, 0 clipped) |
+| `ribbon-test` (regression — ribbon still renders 10 tabs / 70 Part tools / 38 Sketch / 33 Simulate) | PASS |
+| `ux-tier1-electron` (regression — Confirmation Corner remains canonical active-tool surface) | PASS (32.0 s) |
+
+3/3 PASS. No regressions. The cleanup is purely subtractive (removed
+duplicates + debug text) plus the ribbon-height/layout rework — no
+foundation or kernel touches.
+
+### Honest gaps left for future dispatches
+
+1. **Reference + Piping groups orphaned.** The 11-category palette dedupe removed all category buttons, including Reference (Reference Plane / Axis / Coordinate System) and Piping (Route Pipe / Wire Harness / etc.) which don't yet have a ribbon home. They live in `TOOL_GROUPS` and execute through the AI Console / Command Palette / direct API — the palette button is gone but the tools still function. Promote them to ribbon tabs (or a "Reference & Routing" combined tab) in the next ribbon dispatch.
+2. **Chat-launcher emoji icon.** The `💬` emoji is fine for now but a lucide-react `MessageSquare` icon would match the rest of the workspace's icon language. Cosmetic queue.
+3. **ConfirmationCorner shows only with an active confirmable tool.** When no tool with a commit/cancel interaction is active, the active-tool indicator is silent — that's the SW convention. A user who clicks Box (which auto-commits without a confirmable interaction) won't see ANY active-tool indicator. The transient `tool-status-bar` toast carries the result. This was the SW convention before the cleanup; preserved.
+
