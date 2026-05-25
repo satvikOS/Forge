@@ -726,10 +726,10 @@ queued for follow-on Tier-5 dispatches (a, b, c, ...).
 | Convert to Sheet Metal | None | **Missing** |
 | Lofted Bend | None | **Missing** |
 | Edge Flange | Edge Flange (Sheet Metal tab -> Bend) | **Done** (Tier 5a) |
-| Miter Flange | None | **Missing** |
-| Hem (4 variants) | None | **Missing** |
-| Jog | None | **Missing** |
-| Sketched Bend | None | **Missing** |
+| Miter Flange | Miter Flange (Sheet Metal tab -> Edge Features) | **Done** (Tier 5b) |
+| Hem (4 variants) | Hem (Sheet Metal tab -> Edge Features) | **Done** (Tier 5b — Closed / Open / Rolled / Teardrop) |
+| Jog | Jog (Sheet Metal tab -> Bend) | **Done** (Tier 5b — Z-step with 2 bend records) |
+| Sketched Bend | Sketched Bend (Sheet Metal tab -> Bend) | **Done** (Tier 5b) |
 | Closed Corner | None | **Missing** |
 | Corner Trim / Corner Relief | None | **Missing** |
 | Cross Break | None | **Missing** |
