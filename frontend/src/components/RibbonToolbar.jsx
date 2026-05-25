@@ -224,6 +224,9 @@ const TABS = {
         { name: 'Width Mate', icon: '↔', key: 'assembly' },
         { name: 'Path Mate', icon: '〜', key: 'assembly' },
         { name: 'Distance-Limit Mate', icon: '⇿', key: 'assembly' },
+        // Tier-7c — mechanical mates (Gear / Hinge)
+        { name: 'Gear Mate', icon: '⚙', key: 'assembly' },
+        { name: 'Hinge Mate', icon: '⊰', key: 'assembly' },
       ]},
       { label: 'Analyze', tools: [
         { name: 'Exploded View', icon: '💥', key: 'assembly' },

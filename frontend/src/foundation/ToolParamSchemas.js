@@ -1171,6 +1171,51 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 7c — Mechanical Mates (Gear + Hinge) ────────────────────
+  //
+  // Two mechanical-mate kinds that go beyond geometric constraint into
+  // kinematic coupling:
+  //   - GEAR  : two along-axis rotations coupled by a fixed ratio
+  //             (theta_A * ratio - theta_B === phase mod 2 pi). 1 rotational DOF.
+  //   - HINGE : concentric + coincident-on-axis = 5 DOF removed, leaving
+  //             one rotational DOF about the shared axis, optionally
+  //             clamped by [angleMin, angleMax].
+  //
+  'Gear Mate': {
+    title: 'Gear — Mechanical Assembly Mate',
+    blurb: 'Couple two rotational components by a fixed gear ratio so that theta_A * ratio - theta_B === phase (mod 2 pi). Pre-select TWO components, then click. Removes 1 rotational DOF; translational + perpendicular rotational DOFs remain free. Gear ratio = omega_B / omega_A (so a 2:1 reduction has ratio 0.5; for tooth counts N_A:N_B set ratio = N_A / N_B).',
+    fields: [
+      { name: 'axisAx',    label: 'Axis A — X (A-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',    label: 'Axis A — Y (A-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',    label: 'Axis A — Z (A-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',    label: 'Axis B — X (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',    label: 'Axis B — Y (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',    label: 'Axis B — Z (B-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'gearRatio', label: 'Gear ratio (wB / wA)', type: 'number', default: 1, min: -100, max: 100, step: 0.01, hint: 'Positive ratio = same direction; negative = belt reverse direction.' },
+      { name: 'phase',     label: 'Phase offset', type: 'number', default: 0, unit: 'rad', min: -100, max: 100, step: 0.01, hint: 'Set the relative phase at theta_A = 0.' },
+    ],
+  },
+  'Hinge Mate': {
+    title: 'Hinge — Mechanical Assembly Mate',
+    blurb: 'Single rotational DOF about a shared axis — equivalent to concentric + coincident-along-axis (5 DOF removed). Optional angle limits clamp the remaining hinge angle. Pre-select TWO components, then click.',
+    fields: [
+      { name: 'axisOriginAx', label: 'Pivot A — X (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy', label: 'Pivot A — Y (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz', label: 'Pivot A — Z (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisDirAx',    label: 'Hinge axis A — X',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAy',    label: 'Hinge axis A — Y',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAz',    label: 'Hinge axis A — Z',     type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginBx', label: 'Pivot B — X (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginBy', label: 'Pivot B — Y (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginBz', label: 'Pivot B — Z (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisDirBx',    label: 'Hinge axis B — X',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirBy',    label: 'Hinge axis B — Y',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirBz',    label: 'Hinge axis B — Z',     type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'angleMin',     label: 'Angle min',            type: 'number', default: -180, unit: 'deg', min: -3600, max: 3600, step: 1, hint: 'Lower angle clamp (deg). Set -3600 for free spin in the negative direction.' },
+      { name: 'angleMax',     label: 'Angle max',            type: 'number', default: 180,  unit: 'deg', min: -3600, max: 3600, step: 1, hint: 'Upper angle clamp (deg). Set +3600 for free spin in the positive direction.' },
+    ],
+  },
+
   // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
   //
   // Three drafting-tab tools that turn a 3D part / assembly into a

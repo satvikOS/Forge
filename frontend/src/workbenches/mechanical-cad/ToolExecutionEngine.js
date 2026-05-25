@@ -28,6 +28,8 @@ import {
   widthResidual as fWidthResidual,
   pathResidual as fPathResidual,
   distanceLimitResidual as fDistanceLimitResidual,
+  gearResidual as fGearResidual,
+  hingeResidual as fHingeResidual,
   ASSEMBLY_MATE_DOF as F_MATE_DOF,
 } from '../../foundation/KinematicsCore.js';
 
@@ -4309,6 +4311,15 @@ const TOOL_HANDLERS = {
     },
     'Lock Mate': async (scene, viewport) => {
       const r = await _applyStandardMate('lock', scene, viewport);
+      return r;
+    },
+    // Tier-7c — mechanical mates (Gear / Hinge)
+    'Gear Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('gear', scene, viewport);
+      return r;
+    },
+    'Hinge Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('hinge', scene, viewport);
       return r;
     },
 
@@ -8724,6 +8735,8 @@ async function _applyStandardMate(kind, scene, viewport) {
     parallel: 'Parallel', perpendicular: 'Perpendicular', tangent: 'Tangent', lock: 'Lock',
     // Tier-7b — advanced mates
     width: 'Width', path: 'Path', distanceLimit: 'Distance-Limit',
+    // Tier-7c — mechanical mates
+    gear: 'Gear', hinge: 'Hinge',
   };
   const toolName = `${labelMap[kind]} Mate`;
   if (!_currentAssembly || _currentAssembly.parts.length < 2) {
@@ -8856,6 +8869,36 @@ async function _applyStandardMate(kind, scene, viewport) {
     );
     params.minDist = (values.minDist ?? 0) * M;
     params.maxDist = (values.maxDist ?? 150) * M;
+  } else if (kind === 'gear') {
+    // Tier-7c — local-frame axes for the two rotational components +
+    // gear ratio (omega_B / omega_A) + optional phase. Axes are pure
+    // directions (no mm→m conversion); ratio and phase pass through.
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
+    params.gearRatio = values.gearRatio ?? 1;
+    params.phase = values.phase ?? 0;
+  } else if (kind === 'hinge') {
+    // Tier-7c — pivot origins in mm (convert to m), axis directions are
+    // unit-ish (no conversion), angle limits in degrees (convert to rad).
+    const M = 0.001;
+    const D2R = Math.PI / 180;
+    params.axisOriginA = new Vec3(
+      (values.axisOriginAx ?? 0) * M,
+      (values.axisOriginAy ?? 0) * M,
+      (values.axisOriginAz ?? 0) * M,
+    );
+    params.axisDirA = new Vec3(values.axisDirAx ?? 0, values.axisDirAy ?? 0, values.axisDirAz ?? 1);
+    params.axisOriginB = new Vec3(
+      (values.axisOriginBx ?? 0) * M,
+      (values.axisOriginBy ?? 0) * M,
+      (values.axisOriginBz ?? 0) * M,
+    );
+    params.axisDirB = new Vec3(values.axisDirBx ?? 0, values.axisDirBy ?? 0, values.axisDirBz ?? 1);
+    // Angle limits: -3600/+3600 in the schema means "no limit" — map to ±Infinity.
+    const aMin = values.angleMin ?? -180;
+    const aMax = values.angleMax ?? 180;
+    params.angleMin = (aMin <= -3600) ? -Infinity : aMin * D2R;
+    params.angleMax = (aMax >= +3600) ? +Infinity : aMax * D2R;
   }
 
   // 4. Add mate + solve.
@@ -8923,6 +8966,34 @@ async function _applyStandardMate(kind, scene, viewport) {
       foundationResidual = fDistanceLimitResidual(
         [pA.x, pA.y, pA.z], [pB.x, pB.y, pB.z], params.minDist, params.maxDist,
       );
+    } else if (kind === 'gear') {
+      // Tier-7c: project each part's Euler rotation onto its world-space
+      // axis, then call the foundation gearResidual.
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      const dAlen = Math.hypot(dA.x, dA.y, dA.z) || 1;
+      const dBlen = Math.hypot(dB.x, dB.y, dB.z) || 1;
+      const dAn = [dA.x / dAlen, dA.y / dAlen, dA.z / dAlen];
+      const dBn = [dB.x / dBlen, dB.y / dBlen, dB.z / dBlen];
+      const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
+      const thetaB = partB.rotation.x * dBn[0] + partB.rotation.y * dBn[1] + partB.rotation.z * dBn[2];
+      foundationResidual = fGearResidual(thetaA, thetaB, params.gearRatio ?? 1, params.phase ?? 0);
+    } else if (kind === 'hinge') {
+      // Tier-7c: anchor coincidence + axis alignment + optional angle clamp.
+      const oAW = partA.position.add(params.axisOriginA);
+      const oBW = partB.position.add(params.axisOriginB);
+      const dAW = MateSolver._rotateLocal(partA, params.axisDirA);
+      const dBW = MateSolver._rotateLocal(partB, params.axisDirB);
+      const dAlen = Math.hypot(dAW.x, dAW.y, dAW.z) || 1;
+      const dAn = [dAW.x / dAlen, dAW.y / dAlen, dAW.z / dAlen];
+      const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
+      const thetaB = partB.rotation.x * dAn[0] + partB.rotation.y * dAn[1] + partB.rotation.z * dAn[2];
+      const hingeAngle = thetaB - thetaA;
+      foundationResidual = fHingeResidual(
+        [oAW.x, oAW.y, oAW.z], [oBW.x, oBW.y, oBW.z],
+        [dAW.x, dAW.y, dAW.z], [dBW.x, dBW.y, dBW.z],
+        hingeAngle, params.angleMin ?? -Infinity, params.angleMax ?? +Infinity,
+      );
     }
   } catch (e) {
     foundationResidual = null;
@@ -8933,10 +9004,11 @@ async function _applyStandardMate(kind, scene, viewport) {
     // Tier-7b: distance-limit reports its effective DOF (0 in slack, 1
     // when clamped at a limit) via mate.params._clampedDOF (set by the
     // kernel _satisfyDistanceLimit handler).
-    const clampedDOF = (kind === 'distanceLimit')
+    // Tier-7c: hinge reports the same when angle limits are active.
+    const clampedDOF = (kind === 'distanceLimit' || kind === 'hinge')
       ? (mate.params._clampedDOF ?? 0)
       : null;
-    const activeLimit = (kind === 'distanceLimit')
+    const activeLimit = (kind === 'distanceLimit' || kind === 'hinge')
       ? (mate.params._activeLimit ?? null)
       : null;
     window.__lastMateApplied = {
