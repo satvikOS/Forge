@@ -114,6 +114,16 @@ export default class MateSolver {
                                        //   reports an EFFECTIVE removed=1
                                        //   when currently clamped (set
                                        //   via mate.params._clampedDOF).
+      // ── Tier-7c mechanical mates ─────────────────────────────────
+      case 'gear':  return 1;          // 1 rotational DOF (along-axis
+                                       //   rotation of B coupled to that
+                                       //   of A by `gearRatio`).
+      case 'hinge': return 5;          // 2 translational + 2 rotational
+                                       //   (axis-aligned) + 1 trans along
+                                       //   axis (anchor coincides) = 5;
+                                       //   1 rotational DOF (hinge angle)
+                                       //   left, optionally clamped via
+                                       //   mate.params._clampedDOF.
       default: return 1;
     }
   }
@@ -164,6 +174,10 @@ export default class MateSolver {
         return MateSolver._satisfyPath(mate, free, anchor);
       case 'distanceLimit':
         return MateSolver._satisfyDistanceLimit(mate, free, anchor);
+      case 'gear':
+        return MateSolver._satisfyGear(mate, free, anchor);
+      case 'hinge':
+        return MateSolver._satisfyHinge(mate, free, anchor);
       default:
         return MateSolver._mateError(mate);
     }
@@ -463,6 +477,165 @@ export default class MateSolver {
     return Math.abs(dist - target);
   }
 
+  /**
+   * Gear (Tier-7c): two rotational coordinates θA, θB about each part's
+   * local axis (`axisA`, `axisB`) are coupled by `gearRatio = ωB / ωA`:
+   *   θA · gearRatio − θB ≡ phase    (mod 2π)
+   * params:
+   *   - `axisA`     : Vec3 (local-frame axis of partA)
+   *   - `axisB`     : Vec3 (local-frame axis of partB)
+   *   - `gearRatio` : number (ωB / ωA — `N_A / N_B` for tooth counts)
+   *   - `phase`     : number (rad; default 0)
+   *
+   * Residual = |wrapped(θA·ratio − θB − phase)|. Removes 1 rotational DOF.
+   * The kernel applies the angular correction to free part's along-axis
+   * rotation projection, leaving translational + perpendicular rotational
+   * DOFs untouched.
+   */
+  static _satisfyGear(mate, free, anchor) {
+    const axisAnchor = mate.params.axisA || new Vec3(0, 0, 1);
+    const axisFree   = mate.params.axisB || new Vec3(0, 0, 1);
+    const ratio = mate.params.gearRatio ?? 1;
+    const phase = mate.params.phase ?? 0;
+    // Which local axis belongs to which part (anchor / free decided by fixed flag).
+    const localAnchor = anchor === mate.partA ? axisAnchor : axisFree;
+    const localFree   = anchor === mate.partA ? axisFree   : axisAnchor;
+    // World-space axes for projection.
+    const dA = MateSolver._rotateLocal(anchor, localAnchor);
+    const dB = MateSolver._rotateLocal(free,   localFree);
+    const dAlen = dA.length() || 1;
+    const dBlen = dB.length() || 1;
+    const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+    const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+    // Project the parts' Euler rotation vectors onto their axes.
+    const thetaA = anchor.rotation.x * dAn.x + anchor.rotation.y * dAn.y + anchor.rotation.z * dAn.z;
+    const thetaB = free.rotation.x   * dBn.x + free.rotation.y   * dBn.y + free.rotation.z   * dBn.z;
+    // Effective ratio: anchor → free convention. If anchor is partA in the
+    // mate the ratio is as-given; if anchor is partB it inverts.
+    const eff = (anchor === mate.partA) ? ratio : (ratio === 0 ? 0 : 1 / ratio);
+    const effPhase = (anchor === mate.partA) ? phase : -phase;
+    let delta = thetaA * eff - thetaB - effPhase;
+    const TAU = Math.PI * 2;
+    delta = ((delta % TAU) + TAU) % TAU;
+    if (delta > Math.PI) delta -= TAU;
+    if (Math.abs(delta) < 1e-12) return 0;
+    // Correction: add `delta` to free's along-axis rotation. We distribute
+    // the correction across the Euler XYZ components weighted by dBn.
+    const step = delta * RELAXATION;
+    free.rotation = new Vec3(
+      free.rotation.x + dBn.x * step,
+      free.rotation.y + dBn.y * step,
+      free.rotation.z + dBn.z * step,
+    );
+    return Math.abs(delta);
+  }
+
+  /**
+   * Hinge (Tier-7c): single rotational DOF along a shared axis.
+   * Equivalent to concentric + coincident-along-axis = 5 DOF removed.
+   * params:
+   *   - `axisOriginA`, `axisDirA` : Vec3 (local-frame axis on partA)
+   *   - `axisOriginB`, `axisDirB` : Vec3 (local-frame axis on partB)
+   *   - `angleMin`, `angleMax`    : optional limits (rad); use ±Infinity
+   *                                 (or omit) for free spin
+   *
+   * Per-iteration correction:
+   *   1. Translate `free` so its world-space pivot coincides with anchor's.
+   *   2. Rotate `free`'s axis to align with anchor's (cross-product nudge).
+   *   3. If the relative angle is outside [min, max], clamp `free`'s along-
+   *      axis rotation toward the closer limit; record the active clamp
+   *      via mate.params._clampedDOF (0 = free spin, 1 = clamped).
+   */
+  static _satisfyHinge(mate, free, anchor) {
+    const aOrigA = mate.params.axisOriginA || Vec3.zero();
+    const aDirA  = mate.params.axisDirA   || new Vec3(0, 0, 1);
+    const aOrigB = mate.params.axisOriginB || Vec3.zero();
+    const aDirB  = mate.params.axisDirB   || new Vec3(0, 0, 1);
+    const angleMin = mate.params.angleMin ?? -Infinity;
+    const angleMax = mate.params.angleMax ?? +Infinity;
+
+    // Resolve which local-frame axis belongs to anchor vs free.
+    const oAnchorLocal = anchor === mate.partA ? aOrigA : aOrigB;
+    const dAnchorLocal = anchor === mate.partA ? aDirA  : aDirB;
+    const oFreeLocal   = anchor === mate.partA ? aOrigB : aOrigA;
+    const dFreeLocal   = anchor === mate.partA ? aDirB  : aDirA;
+
+    // World-space axis lines on each part.
+    const oAW = anchor.position.add(oAnchorLocal);
+    const oBW = free.position.add(oFreeLocal);
+    const dAW = MateSolver._rotateLocal(anchor, dAnchorLocal);
+    const dBW = MateSolver._rotateLocal(free,   dFreeLocal);
+    const dAlen = dAW.length() || 1;
+    const dBlen = dBW.length() || 1;
+    const dAn = new Vec3(dAW.x / dAlen, dAW.y / dAlen, dAW.z / dAlen);
+    const dBn = new Vec3(dBW.x / dBlen, dBW.y / dBlen, dBW.z / dBlen);
+
+    // 1. Anchor coincidence — slide `free` so oBW → oAW.
+    const dPos = oAW.sub(oBW);
+    free.position = free.position.add(dPos.mul(RELAXATION));
+
+    // 2. Axis alignment — rotate `free` about axis = dBn × dAn by the angle
+    //    between them, weighted by RELAXATION. Same approximation used by
+    //    `_satisfyParallel` (project axis-angle onto Euler XYZ).
+    const cross = dBn.cross(dAn);
+    const axLen = cross.length();
+    const cos = Math.max(-1, Math.min(1, dBn.dot(dAn)));
+    let axisErr = 0;
+    if (axLen > 1e-9) {
+      const angle = Math.acos(cos);
+      const axisN = cross.mul(1 / axLen);
+      const step = angle * RELAXATION;
+      free.rotation = new Vec3(
+        free.rotation.x + axisN.x * step,
+        free.rotation.y + axisN.y * step,
+        free.rotation.z + axisN.z * step,
+      );
+      axisErr = angle;
+    } else if (cos < 0) {
+      // Anti-parallel — flip free 180° about an arbitrary perpendicular axis.
+      free.rotation = new Vec3(
+        free.rotation.x + Math.PI * RELAXATION, free.rotation.y, free.rotation.z,
+      );
+      axisErr = Math.PI;
+    }
+
+    // 3. Angle limit clamp. The hinge angle is the projection of free's
+    //    rotation onto the shared axis MINUS anchor's same projection (so
+    //    rigid co-rotation contributes zero).
+    let clampedDOF = 0;
+    let activeLimit = null;
+    if (Number.isFinite(angleMin) || Number.isFinite(angleMax)) {
+      const thetaA = anchor.rotation.x * dAn.x + anchor.rotation.y * dAn.y + anchor.rotation.z * dAn.z;
+      const thetaB = free.rotation.x   * dAn.x + free.rotation.y   * dAn.y + free.rotation.z   * dAn.z;
+      const hingeAngle = thetaB - thetaA;
+      if (Number.isFinite(angleMin) && hingeAngle < angleMin) {
+        const delta = angleMin - hingeAngle;
+        const step = delta * RELAXATION;
+        free.rotation = new Vec3(
+          free.rotation.x + dAn.x * step,
+          free.rotation.y + dAn.y * step,
+          free.rotation.z + dAn.z * step,
+        );
+        clampedDOF = 1;
+        activeLimit = 'min';
+      } else if (Number.isFinite(angleMax) && hingeAngle > angleMax) {
+        const delta = angleMax - hingeAngle;
+        const step = delta * RELAXATION;
+        free.rotation = new Vec3(
+          free.rotation.x + dAn.x * step,
+          free.rotation.y + dAn.y * step,
+          free.rotation.z + dAn.z * step,
+        );
+        clampedDOF = 1;
+        activeLimit = 'max';
+      }
+    }
+    mate.params._clampedDOF = clampedDOF;
+    mate.params._activeLimit = activeLimit;
+
+    return dPos.length() + axisErr;
+  }
+
   /** Helper — rotate a local-frame direction by a part's Euler XYZ. */
   static _rotateLocal(part, v) {
     const rx = part.rotation.x, ry = part.rotation.y, rz = part.rotation.z;
@@ -569,6 +742,52 @@ export default class MateSolver {
         if (d < minD) return minD - d;
         if (d > maxD) return d - maxD;
         return 0;
+      }
+      case 'gear': {
+        const axisA = mate.params.axisA || new Vec3(0, 0, 1);
+        const axisB = mate.params.axisB || new Vec3(0, 0, 1);
+        const ratio = mate.params.gearRatio ?? 1;
+        const phase = mate.params.phase ?? 0;
+        const dA = MateSolver._rotateLocal(mate.partA, axisA);
+        const dB = MateSolver._rotateLocal(mate.partB, axisB);
+        const dAlen = dA.length() || 1;
+        const dBlen = dB.length() || 1;
+        const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+        const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+        const thetaA = mate.partA.rotation.x * dAn.x + mate.partA.rotation.y * dAn.y + mate.partA.rotation.z * dAn.z;
+        const thetaB = mate.partB.rotation.x * dBn.x + mate.partB.rotation.y * dBn.y + mate.partB.rotation.z * dBn.z;
+        let d = thetaA * ratio - thetaB - phase;
+        const TAU = Math.PI * 2;
+        d = ((d % TAU) + TAU) % TAU;
+        if (d > Math.PI) d -= TAU;
+        return Math.abs(d);
+      }
+      case 'hinge': {
+        const aOrigA = mate.params.axisOriginA || Vec3.zero();
+        const aDirA  = mate.params.axisDirA   || new Vec3(0, 0, 1);
+        const aOrigB = mate.params.axisOriginB || Vec3.zero();
+        const aDirB  = mate.params.axisDirB   || new Vec3(0, 0, 1);
+        const oAW = mate.partA.position.add(aOrigA);
+        const oBW = mate.partB.position.add(aOrigB);
+        const dAW = MateSolver._rotateLocal(mate.partA, aDirA);
+        const dBW = MateSolver._rotateLocal(mate.partB, aDirB);
+        const dAlen = dAW.length() || 1;
+        const dBlen = dBW.length() || 1;
+        const dAn = new Vec3(dAW.x / dAlen, dAW.y / dAlen, dAW.z / dAlen);
+        const dBn = new Vec3(dBW.x / dBlen, dBW.y / dBlen, dBW.z / dBlen);
+        const anchorErr = oAW.sub(oBW).length();
+        const axisErr = dAn.cross(dBn).length();
+        let clampErr = 0;
+        const angleMin = mate.params.angleMin ?? -Infinity;
+        const angleMax = mate.params.angleMax ?? +Infinity;
+        if (Number.isFinite(angleMin) || Number.isFinite(angleMax)) {
+          const thetaA = mate.partA.rotation.x * dAn.x + mate.partA.rotation.y * dAn.y + mate.partA.rotation.z * dAn.z;
+          const thetaB = mate.partB.rotation.x * dAn.x + mate.partB.rotation.y * dAn.y + mate.partB.rotation.z * dAn.z;
+          const hingeAngle = thetaB - thetaA;
+          if (Number.isFinite(angleMin) && hingeAngle < angleMin) clampErr = angleMin - hingeAngle;
+          else if (Number.isFinite(angleMax) && hingeAngle > angleMax) clampErr = hingeAngle - angleMax;
+        }
+        return anchorErr + axisErr + clampErr;
       }
       default:
         return 0;

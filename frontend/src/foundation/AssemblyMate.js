@@ -178,6 +178,41 @@ export class Assembly {
     return this;
   }
 
+  // ── Tier-7c mechanical mates ─────────────────────────────────────
+  /**
+   * Gear mate — couples the rotational coordinate of partA about `axisA`
+   * to the rotational coordinate of partB about `axisB` by a fixed ratio
+   * `gearRatio = ωB / ωA` (equivalently `θA · gearRatio − θB ≡ phase`).
+   * Removes 1 rotational DOF. The two parts remain free to translate;
+   * only the along-axis rotational coordinate is coupled.
+   *
+   * NOTE: the foundation LM solver expresses the gear residual as a
+   * scalar coupling of the parts' Euler rotation projections onto the
+   * axes (a first-order approximation valid when both axes are world-
+   * aligned; the kernel `_satisfyGear` handles arbitrary axes
+   * iteratively). For arbitrary-axis gears, prefer the kernel solver.
+   */
+  gear(partA, axisA, partB, axisB, gearRatio, phase = 0) {
+    this.mates.push({ kind: 'gear', partA, axisA, partB, axisB, gearRatio, phase });
+    return this;
+  }
+
+  /**
+   * Hinge mate — single rotational DOF along the shared axis. Equivalent
+   * to concentric (2 trans + 2 rot DOF removed) + coincident-along-axis
+   * (1 trans DOF removed) = 5 DOF removed. The remaining 1 rotational
+   * DOF is the hinge angle about the shared axis. Optional `[angleMin,
+   * angleMax]` clamp that remaining DOF.
+   *
+   *   axisA, axisB : `{ origin:[x,y,z], dir:[x,y,z] }` in each local frame.
+   *                  The pivots (axis origins) coincide; the axes align.
+   *   angleMin, angleMax : optional limits in radians (omit for free spin).
+   */
+  hinge(partA, axisA, partB, axisB, angleMin = -Infinity, angleMax = +Infinity) {
+    this.mates.push({ kind: 'hinge', partA, axisA, partB, axisB, angleMin, angleMax });
+    return this;
+  }
+
   /**
    * Compute residuals for the current transform state.
    */
@@ -308,6 +343,64 @@ export class Assembly {
           if (d < m.minDist)      r.push(d - m.minDist);
           else if (d > m.maxDist) r.push(d - m.maxDist);
           else                    r.push(0);
+          break;
+        }
+        case 'gear': {
+          // Tier-7c: gear coupling thetaA*ratio − thetaB ≡ phase (mod 2π).
+          // The "rotational coordinate about the axis" is approximated by
+          // the projection of the part's Euler rotation vector onto the
+          // (world-space) axis direction. For axis-aligned gears (Z-axis
+          // gears, world-aligned shafts) this is exact; for arbitrary axes
+          // the kernel iterative solver handles the geometry — for LM here
+          // it's a useful scalar residual that drops the rotational rank
+          // by 1 in the Jacobian.
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          const rotA = m.partA.transform.rotation.map(v => v * D2R);
+          const rotB = m.partB.transform.rotation.map(v => v * D2R);
+          const thetaA = vDot(rotA, dA);
+          const thetaB = vDot(rotB, dB);
+          // Wrap (thetaA*ratio − thetaB − phase) into (−π, π].
+          let d = thetaA * m.gearRatio - thetaB - (m.phase ?? 0);
+          const TAU = Math.PI * 2;
+          d = ((d % TAU) + TAU) % TAU;
+          if (d > Math.PI) d -= TAU;
+          r.push(d);
+          break;
+        }
+        case 'hinge': {
+          // Tier-7c: equivalent to concentric (4 DOF) + coincident-on-axis
+          // (1 trans DOF) = 5 DOF removed. We emit the residuals already
+          // used by concentric (3 parallel + 3 collinear) so the LM solver
+          // gets a well-posed Jacobian. The remaining 1 rotational DOF
+          // about the axis is the hinge angle.
+          //
+          // Optional angle limits add a one-sided clamp residual.
+          const oA = transformPoint(m.partA, m.axisA.origin);
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const oB = transformPoint(m.partB, m.axisB.origin);
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          // Parallel axes (3 residuals; |cross| = 0 when parallel).
+          const cross = vCross(dA, dB);
+          r.push(cross[0], cross[1], cross[2]);
+          // Anchor coincidence — the two pivots must coincide.
+          r.push(oA[0] - oB[0], oA[1] - oB[1], oA[2] - oB[2]);
+          // Optional angle clamp. The hinge angle is the rotation of B
+          // about dA relative to A. We approximate it via the diff of the
+          // axis-projected Euler rotation vectors (same approximation as
+          // gear). Outside [min, max] → one-sided residual; inside → 0.
+          if (Number.isFinite(m.angleMin) || Number.isFinite(m.angleMax)) {
+            const rotA = m.partA.transform.rotation.map(v => v * D2R);
+            const rotB = m.partB.transform.rotation.map(v => v * D2R);
+            const ang = vDot(rotB, dA) - vDot(rotA, dA);
+            if (Number.isFinite(m.angleMin) && ang < m.angleMin) {
+              r.push(ang - m.angleMin);
+            } else if (Number.isFinite(m.angleMax) && ang > m.angleMax) {
+              r.push(ang - m.angleMax);
+            } else {
+              r.push(0);
+            }
+          }
           break;
         }
         default:

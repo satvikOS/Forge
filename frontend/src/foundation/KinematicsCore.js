@@ -40,7 +40,7 @@ const SPATIAL_FREEDOM = { revolute: 1, prismatic: 1, cylindrical: 2, spherical: 
 //   - Each returns a scalar residual (0 = satisfied).
 //   - DOF removed is recorded as a sibling export `ASSEMBLY_MATE_DOF`.
 
-/** DOF count removed by each Tier-7a/7b mate (sum of 6-DOF per body model). */
+/** DOF count removed by each Tier-7a/7b/7c mate (sum of 6-DOF per body model). */
 export const ASSEMBLY_MATE_DOF = Object.freeze({
   parallel: 2,         // 2 rotational DOF (two angles to align)
   perpendicular: 1,    // 1 rotational DOF (one angle = 90°)
@@ -56,6 +56,17 @@ export const ASSEMBLY_MATE_DOF = Object.freeze({
                        //   limit (clamp). Reported as worst-case 0 here —
                        //   the constraint contributes a residual only when
                        //   the current distance leaves [min, max].
+  // ── Tier-7c mechanical mates ─────────────────────────────────────
+  gear: 1,             // 1 rotational DOF — one rotation coupled to the
+                       //   other by a fixed ratio (θ_A · ratio − θ_B = phase).
+                       //   The two parts remain free to translate; only the
+                       //   along-axis rotational coordinate is coupled.
+  hinge: 5,            // 5 DOF — concentric (4: 2 translational + 2
+                       //   rotational on the axis) plus coincident along
+                       //   the axis (1 translational), leaving exactly one
+                       //   rotational DOF about the hinge axis. Optional
+                       //   angle limits clamp that remaining DOF dynamically
+                       //   (reported via `mate.params._clampedDOF`).
 });
 
 function _len(v) { return Math.hypot(v[0], v[1], v[2]); }
@@ -234,8 +245,105 @@ export function distanceLimitClamp(pAWorld, pBWorld, minDist, maxDist) {
 }
 
 /**
- * Bundle: compute residuals for every Tier-7a / Tier-7b mate kind in one
- * call. Used by AssemblyMate/MateSolver consistency checks + e2e.
+ * Gear mate residual (Tier-7c) — two rotational coordinates θA, θB about
+ * their own axes are coupled by a fixed ratio so that
+ *   `θA · gearRatio − θB ≡ phase    (mod 2π)`.
+ * The residual is the signed phase deviation, wrapped into (−π, π]; 0 = in
+ * sync. `gearRatio = ωB / ωA` (e.g. a 2:1 reduction has gearRatio = 0.5;
+ * to express the SW convention "N_A : N_B" pass gearRatio = N_A / N_B —
+ * the larger gear turns slower). Removes 1 rotational DOF (the along-axis
+ * angle of B is no longer independent of the along-axis angle of A).
+ *
+ * The caller is responsible for resolving θA, θB from the parts' current
+ * orientations + their respective axes (e.g. project the parts' Euler
+ * vectors onto the axis directions). The kernel `_satisfyGear` does this.
+ */
+export function gearResidual(thetaA, thetaB, gearRatio, phase = 0) {
+  let d = thetaA * gearRatio - thetaB - phase;
+  const TAU = Math.PI * 2;
+  // Wrap into (−π, π].
+  d = ((d % TAU) + TAU) % TAU;
+  if (d > Math.PI) d -= TAU;
+  return Math.abs(d);
+}
+
+/**
+ * Gear mate — signed phase delta + correction the kernel solver applies
+ * to part B's along-axis rotation. Returns `{ delta, correction }` where
+ *   delta      = signed wrapped (thetaA · ratio − thetaB − phase)
+ *   correction = the signed angle to ADD to thetaB (so newThetaB = thetaB +
+ *                correction satisfies the coupling at this iteration).
+ */
+export function gearCorrection(thetaA, thetaB, gearRatio, phase = 0) {
+  let d = thetaA * gearRatio - thetaB - phase;
+  const TAU = Math.PI * 2;
+  d = ((d % TAU) + TAU) % TAU;
+  if (d > Math.PI) d -= TAU;
+  return { delta: d, correction: d };
+}
+
+/**
+ * Hinge mate residual (Tier-7c) — a hinge between partA and partB
+ * geometrically equals a Concentric (2 trans + 2 rot DOF removed) +
+ * Coincident-along-axis (1 trans DOF removed) = 5 DOF removed; the
+ * remaining 1 rotational DOF is the hinge angle about the shared axis.
+ * Optional `[angleMin, angleMax]` clamp the hinge angle.
+ *
+ * Inputs (world-space, the caller resolves local → world):
+ *   pAnchorAWorld, pAnchorBWorld : anchor points on each part (the pivot)
+ *   axisAWorld, axisBWorld       : hinge axis direction on each part
+ *   hingeAngle                   : current relative rotation about the axis (rad)
+ *   angleMin, angleMax           : optional limits (rad); omit for free spin
+ *
+ * Returns a scalar = positional anchor mismatch + axis non-alignment + (if
+ * the angle is outside [min, max]) the clamp deviation. Zero ⇔ satisfied.
+ */
+export function hingeResidual(
+  pAnchorAWorld, pAnchorBWorld, axisAWorld, axisBWorld,
+  hingeAngle = 0, angleMin = -Infinity, angleMax = +Infinity,
+) {
+  // 1. Anchor mismatch — the two pivots must coincide in world space.
+  const dPos = _sub(pAnchorAWorld, pAnchorBWorld);
+  const eAnchor = _len(dPos);
+  // 2. Axis non-alignment — |dA × dB| ∈ [0, 1] for unit vectors.
+  const dA = _normalize(axisAWorld);
+  const dB = _normalize(axisBWorld);
+  const eAxis = _len(_cross(dA, dB));
+  // 3. Angle limit deviation (if outside the interval).
+  let eClamp = 0;
+  if (Number.isFinite(angleMin) && hingeAngle < angleMin) eClamp = angleMin - hingeAngle;
+  else if (Number.isFinite(angleMax) && hingeAngle > angleMax) eClamp = hingeAngle - angleMax;
+  return eAnchor + eAxis + eClamp;
+}
+
+/**
+ * Hinge — split residual + clamp signal for the kernel solver. Returns
+ *   { anchorErr, axisErr, clamp:{active, limit, target, delta} }
+ * so the kernel `_satisfyHinge` can apply the right correction per
+ * component (translate to anchor / rotate to axis / clamp to angle).
+ */
+export function hingeBreakdown(
+  pAnchorAWorld, pAnchorBWorld, axisAWorld, axisBWorld,
+  hingeAngle = 0, angleMin = -Infinity, angleMax = +Infinity,
+) {
+  const dPos = _sub(pAnchorAWorld, pAnchorBWorld);
+  const anchorErr = _len(dPos);
+  const dA = _normalize(axisAWorld);
+  const dB = _normalize(axisBWorld);
+  const axisErr = _len(_cross(dA, dB));
+  let clamp = { active: false, limit: null, target: hingeAngle, delta: 0 };
+  if (Number.isFinite(angleMin) && hingeAngle < angleMin) {
+    clamp = { active: true, limit: 'min', target: angleMin, delta: angleMin - hingeAngle };
+  } else if (Number.isFinite(angleMax) && hingeAngle > angleMax) {
+    clamp = { active: true, limit: 'max', target: angleMax, delta: hingeAngle - angleMax };
+  }
+  return { anchorErr, axisErr, clamp };
+}
+
+/**
+ * Bundle: compute residuals for every Tier-7a / Tier-7b / Tier-7c mate
+ * kind in one call. Used by AssemblyMate/MateSolver consistency checks +
+ * e2e.
  *
  * Each input is `{ kind: ..., ... }` with the mate-kind-specific
  * world-space inputs already resolved.
@@ -250,6 +358,8 @@ export function assemblyMateResiduals(mates) {
       case 'width':         return { kind: m.kind, r: widthResidual(m.pTabWorld, m.pRefA1World, m.pRefA2World) };
       case 'path':          return { kind: m.kind, r: pathResidual(m.pBWorld, m.pathPoints) };
       case 'distanceLimit': return { kind: m.kind, r: distanceLimitResidual(m.pAWorld, m.pBWorld, m.minDist, m.maxDist) };
+      case 'gear':          return { kind: m.kind, r: gearResidual(m.thetaA, m.thetaB, m.gearRatio, m.phase ?? 0) };
+      case 'hinge':         return { kind: m.kind, r: hingeResidual(m.pAnchorAWorld, m.pAnchorBWorld, m.axisAWorld, m.axisBWorld, m.hingeAngle ?? 0, m.angleMin ?? -Infinity, m.angleMax ?? Infinity) };
       default:              throw new Error(`assemblyMateResiduals: unknown kind '${m.kind}'`);
     }
   });
