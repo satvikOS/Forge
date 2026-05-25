@@ -222,7 +222,8 @@ export default function DesignHistoryPanel() {
   }, [rolledBackId, startRename]);
 
   return (
-    <div className="design-history-panel" data-archdisc-dh-panel="active">
+    <div className="design-history-panel" data-archdisc-dh-panel="active"
+         title="Design History — feature-level run log. The body-level kernel timeline + scrubber lives in the viewport's Rollback bar.">
       <div className="dh-header">
         <span className="dh-title">Design History</span>
         <span className="dh-count">{entries.length}</span>
@@ -232,17 +233,12 @@ export default function DesignHistoryPanel() {
           </button>
         )}
       </div>
-      {/* SP-3c — explicit semantic note: this panel is FEATURE-level history
-       *   (one row per foundation tool run). The kernel-level body
-       *   bulletin-board lives in the viewport's Rollback bar at the top.
-       *   The Roll Back To Here menu item delegates to the bar. */}
-      <div
-        className="dh-scope-note"
-        data-archdisc-dh-scope-note="active"
-        title="Feature-level run log. The body-level kernel timeline + scrubber lives in the viewport Rollback bar."
-      >
-        Feature timeline · viewport Rollback bar = kernel timeline
-      </div>
+      {/* Scope note (SP-3c semantic): the bare debug text
+       *   "Feature timeline · viewport Rollback bar = kernel timeline"
+       *   that used to render below the header was removed in the
+       *   UX cleanup (2026-05-24) — it was leftover developer text and
+       *   the explanation is preserved as a `title` tooltip on the
+       *   parent panel + on each row. */}
       <div className="dh-list">
         {entries.length === 0 && (
           <div className="dh-empty">No tools run yet.</div>
