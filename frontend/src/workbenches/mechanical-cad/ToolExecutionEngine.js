@@ -7289,6 +7289,120 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ── UX Tier 9b — Undercut Analysis ────────────────────────────────────
+    //
+    // Stricter than Draft Analysis: a face is an UNDERCUT iff its normal
+    // dot pull is negative AND the body shadows the face along +pull.
+    // Faces are colour-coded via the same per-face overlay used by Draft
+    // Analysis, but with a different palette (good=green, undercut=red,
+    // neutral=yellow). Each face also gets a `mold.undercut` SP-2
+    // boolean attribute. Non-consuming: re-tints the existing body.
+    'Undercut Analysis': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!body || !body.body) {
+          return { status: 'warn', message: 'Undercut Analysis: select a body first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Undercut Analysis');
+        if (cancelled) return { status: 'warn', message: 'Undercut Analysis: cancelled' };
+        const pullXraw = Number(values.pullX);
+        const pullYraw = Number(values.pullY);
+        const pullZraw = Number(values.pullZ);
+        let pull = [
+          Number.isFinite(pullXraw) ? pullXraw : 0,
+          Number.isFinite(pullYraw) ? pullYraw : 0,
+          Number.isFinite(pullZraw) ? pullZraw : 0,
+        ];
+        if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) pull = [0, 0, 1];
+        const threshold = Number(values.threshold) >= 0 ? Number(values.threshold) : 3;
+
+        const report = await ArchDiscKernel.brep.undercutAnalysis(body, {
+          pullDirection: pull, threshold,
+        });
+
+        await applyUndercutAnalysisOverlay(scene, viewport, body, report);
+
+        if (typeof window !== 'undefined') {
+          window.__lastUndercutAnalysis = {
+            pullDirection: report.pullDirection,
+            threshold: report.threshold,
+            good: report.good,
+            undercut: report.undercut,
+            neutral: report.neutral,
+            faceCount: report.faceCount,
+            categories: report.perFace.map(f => ({
+              faceIndex: f.faceIndex,
+              category: f.category,
+              undercut: f.undercut,
+              dot: f.dot,
+              shadowHits: f.shadowHits,
+            })),
+          };
+          window.__lastMoldBody = body;
+        }
+        return {
+          status: 'success',
+          message: `Undercut Analysis: pull = (${pull.map(v => v.toFixed(2)).join(', ')}), θ_min = ${threshold}° → ` +
+            `${report.faceCount} faces (${report.good} good / ${report.undercut} undercut / ${report.neutral} neutral) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Undercut Analysis: ' + (err.message || err) };
+      }
+    },
+
+    // ── UX Tier 9b — Shut-Off Surfaces ────────────────────────────────────
+    //
+    // Detect closed loops of free edges, fill each loop ≤ maxHoleDiameter
+    // with an N-sided patch. Replaces the body with the patched (watertight)
+    // version. Patched faces are tagged `mold.shutOff` and the body
+    // metadata records `{loopCount, patchesAdded, watertight, loops[]}`.
+    'Shut-Off Surfaces': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!body || !body.body) {
+          return { status: 'warn', message: 'Shut-Off Surfaces: select a body first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Shut-Off Surfaces');
+        if (cancelled) return { status: 'warn', message: 'Shut-Off Surfaces: cancelled' };
+        const maxHoleDiameter = Number(values.maxHoleDiameter) > 0 ? Number(values.maxHoleDiameter) : 50;
+        const tolerance = Number(values.tolerance) > 0 ? Number(values.tolerance) : 1e-3;
+
+        const result = await ArchDiscKernel.brep.shutOffSurfaces(body, {
+          maxHoleDiameter, tolerance,
+        });
+
+        // Replace the original body with the result (only if it's a new body).
+        if (result.result && result.result !== body && result.patchesAdded > 0) {
+          // Add patched body to scene; consume the original.
+          if (typeof window !== 'undefined' && typeof window.__archdiscAddBrepShape === 'function') {
+            await window.__archdiscAddBrepShape(scene, viewport, result.result, 0x88c0d0, [body]);
+          }
+        }
+
+        if (typeof window !== 'undefined') {
+          window.__lastShutOffSurfaces = {
+            loopCount: result.loopCount,
+            loopsFilled: result.loopsFilled,
+            loopsSkipped: result.loopsSkipped,
+            patchesAdded: result.patchesAdded,
+            watertight: result.watertight,
+            loops: result.loops,
+          };
+          window.__lastMoldBody = result.result;
+        }
+        return {
+          status: 'success',
+          message: `Shut-Off Surfaces: detected ${result.loopCount} free-edge loop(s), ` +
+            `filled ${result.loopsFilled} (${result.patchesAdded} patch face(s) added), ` +
+            `watertight = ${result.watertight} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Shut-Off Surfaces: ' + (err.message || err) };
+      }
+    },
+
     'Tooling Split': async (scene, viewport) => {
       // Arity 1 — pre-select a moldable body. CONSUMING: the body is
       // replaced by two pieces — the core half + the cavity half. Each
@@ -7468,6 +7582,90 @@ async function applyDraftAnalysisOverlay(scene, viewport, body, report) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('applyDraftAnalysisOverlay: render failed —', err && err.message || err);
+  }
+}
+
+/**
+ * Per-face tinted mesh from an undercutAnalysis result (Tier 9b).
+ * Palette differs from Draft Analysis to disambiguate the two overlays:
+ *
+ *   - good      → 0x4caf50  (green — face releases cleanly along pull)
+ *   - undercut  → 0xd32f2f  (deep red — face would lock in the mold)
+ *   - neutral   → 0xfbc02d  (yellow — vertical / perpendicular face)
+ */
+async function applyUndercutAnalysisOverlay(scene, viewport, body, report) {
+  try {
+    const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || null;
+    if (!reg || !reg.bodies) return;
+    const entry = reg.bodies.find(b =>
+      b.brepShapeRef === body || (b.group && b.group.userData && b.group.userData.brepShapeRef === body));
+    if (!entry || !entry.group) return;
+
+    const tpf = await kernelTessellatePerFace(body, 0.1);
+    const positions = tpf && tpf.positions;
+    const indices = tpf && tpf.indices;
+    const faceIds = tpf && tpf.faceIds;
+    if (!positions || !indices || !faceIds) return;
+
+    const numVerts = positions.length / 3;
+    const colors = new Float32Array(numVerts * 3);
+    const categoryByFace = new Map();
+    for (const f of report.perFace) categoryByFace.set(f.faceIndex, f.category);
+    const colorFor = (cat) => {
+      if (cat === 'good') return [0.30, 0.69, 0.31];     // green
+      if (cat === 'undercut') return [0.83, 0.18, 0.18]; // deep red
+      return [0.98, 0.75, 0.18];                          // yellow (neutral)
+    };
+    for (let i = 0; i < numVerts; i++) {
+      colors[i * 3 + 0] = 0.6;
+      colors[i * 3 + 1] = 0.63;
+      colors[i * 3 + 2] = 0.68;
+    }
+    const triCount = indices.length / 3;
+    for (let t = 0; t < triCount; t++) {
+      const fId = faceIds[t];
+      const cat = categoryByFace.get(fId) || 'neutral';
+      const [r, g, b] = colorFor(cat);
+      for (let k = 0; k < 3; k++) {
+        const vIdx = indices[t * 3 + k];
+        colors[vIdx * 3 + 0] = r;
+        colors[vIdx * 3 + 1] = g;
+        colors[vIdx * 3 + 2] = b;
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true, metalness: 0.15, roughness: 0.75, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.undercutAnalysis = true;
+
+    const oldMeshes = [];
+    entry.group.traverse((obj) => {
+      if (obj && obj.isMesh) oldMeshes.push(obj);
+    });
+    for (const m of oldMeshes) {
+      if (m.parent) m.parent.remove(m);
+      if (m.geometry && typeof m.geometry.dispose === 'function') m.geometry.dispose();
+      if (m.material && typeof m.material.dispose === 'function') m.material.dispose();
+    }
+    entry.group.add(mesh);
+    entry.group.userData.undercutAnalysis = {
+      pullDirection: report.pullDirection,
+      threshold: report.threshold,
+      good: report.good,
+      undercut: report.undercut,
+      neutral: report.neutral,
+    };
+    entry.group.updateMatrixWorld(true);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('applyUndercutAnalysisOverlay: render failed —', err && err.message || err);
   }
 }
 
