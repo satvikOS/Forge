@@ -794,8 +794,8 @@ Assembly Animation.
 | Linear-Coupler (advanced) | (none) | **Missing** |
 | Distance-Limit (advanced) | Distance-Limit Mate | **Done** (Tier-7b) |
 | Angle-Limit (advanced) | (none) | **Missing** |
-| Gear (mechanical) | (none in UI; KinematicsCore has joint types) | **Partial** — kernel has it, no UI exposure |
-| Hinge (mechanical) | (none) | **Missing** as a single combo-mate; user can fake with concentric+coincident |
+| Gear (mechanical) | Gear Mate | **Done** (Tier-7c) |
+| Hinge (mechanical) | Hinge Mate | **Done** (Tier-7c) |
 | Cam (mechanical) | (none) | **Missing** |
 | Rack-and-Pinion (mechanical) | (none) | **Missing** |
 | Screw (mechanical) | (none in UI; KinematicsCore may have it) | **Missing** in UI |
