@@ -353,3 +353,258 @@ the cat 2 / 3 / 6 boolean robustness gap as the first fix-list, with
 the trivial wins (cat 1 cone shim + sub-Confusion validation) as
 warm-up commits. Per §6: this is ONGOING. The corpus grows. The
 report becomes the moving record.
+
+---
+
+## SP-14b fix-pass results — 2026-05-24
+
+**Scope:** the first fix-pass on the report's findings #1–#6 and #10.
+Pure kernel changes; the corpus + spec stayed identical to first-pass.
+Allowlist enforced — `BrepBoolean.js` / `BrepPrimitives.js` /
+`BrepMeasure.js` / brep `index.js` only.
+
+### New tally
+
+```
+Total cases:               28 across 10 categories
+PASS:                      10   (+3 vs first pass)
+CAUGHT (polite reject):    13   (+1)
+UNEXPECTED-EXCEPTION:       2   (unchanged)
+SILENT-BAD-OUTPUT:          3   (-2)
+CRASH:                      0   (-2 — every CRASH cleaned)
+```
+
+Net verdict shifts: 4 (cat1 cone CRASH→PASS; cat5 box-1e-7 CRASH→CAUGHT;
+cat6 thin-strip SBO→PASS; cat8 mixed-tolerance fuse SBO→PASS).
+**Every CRASH-band case is now CAUGHT or PASS** — the WASM-bridge
+instability fixed for both findings #1 and #2.
+
+### Per-category breakdown — fix-pass
+
+| Cat | Theme | Total | PASS | CAUGHT | UEX | SBO | CRASH |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 1 | Degenerate primitives | 7 | 1 | 6 | 0 | 0 | 0 |
+| 2 | Near-tangent booleans | 3 | 0 | 2 | 0 | 1 | 0 |
+| 3 | Self-intersecting inputs | 2 | 1 | 0 | 0 | 1 | 0 |
+| 4 | Zero/extreme parameters | 4 | 1 | 3 | 0 | 0 | 0 |
+| 5 | Hairline geometry | 3 | 2 | 1 | 0 | 0 | 0 |
+| 6 | Sliver faces | 2 | 1 | 1 | 0 | 0 | 0 |
+| 7 | Long op chains | 1 | 0 | 0 | 1 | 0 | 0 |
+| 8 | Tolerance stress | 2 | 2 | 0 | 0 | 0 | 0 |
+| 9 | Massive count | 2 | 1 | 0 | 0 | 1 | 0 |
+| 10 | Round-trip torture | 2 | 1 | 0 | 1 | 0 | 0 |
+| **Total** | | **28** | **10** | **13** | **2** | **3** | **0** |
+
+### Per-finding fix status
+
+**Finding #1 — `makeCone(r1=r2)` crash → FIXED.**
+`BrepPrimitives.js` `makeCone` detects `|r1 - r2| < Precision::Confusion()`
+(1e-7 mm) and delegates to `makeCylinder(r1, height)`. Cylinder result
+gets `meta.diagnostics.shim = { name: 'makeCone-degenerate-to-cylinder',
+reason, originalOp: 'makeCone', originalParams, threshold }` so callers
+can see the auto-shim happened. cat1-cone-equal-radii now PASS (vol ≈
+785.4 = π·25·10 within 1% per the corpus tolerance). Bridge stable.
+
+**Finding #2 — `makeBox(1e-7, …)` crash → FIXED.**
+New `DegeneratePrimitiveError` class exported from
+`BrepPrimitives.js` (and re-exported via the brep `index.js` barrel)
+with fields `dimensionName`, `dimensionValue`, `threshold`, `op`.
+`assertDimensionsAboveConfusion()` helper validates every primitive
+dimension against `PRECISION_CONFUSION` (1e-7) with `<=` rather than
+`<` because OCCT crashes AT the boundary too (verified empirically).
+Applied to `makeBox`, `makeCylinder`, `makeSphere`, `makeCone`,
+`makeTorus`. cat5-box-1e-7-side now CAUGHT with a precise error
+message naming the failed dim. Bridge stable.
+
+**Findings #3, #4, #5 — silent `fuse`/`cut`/`common` `vol=0` → PARTIAL FIX
++ DIAGNOSTIC.** `BrepBoolean.js` `runBoolean` now detects
+`IsDone() === true + result.volume === 0 + inputA.volume > 0 + inputB.volume > 0`
+and auto-retries with `BRepAlgoAPI_BOP::SetFuzzyValue` widening per a
+fixed schedule (`[1e-7, 1e-6, 1e-5, 1e-4, 1e-3]` mm). The first retry
+tolerance that produces `volume > 0` is adopted. The retry skips `common`
+when the result has zero faces (a genuine empty intersection). Every
+attempt is logged on `result.body.diagnostics.boolean`:
+
+```
+{ opName, autoFuzzyResolved, resolvedAtTolerance,
+  attemptedFuzzy: [...], initialVolume, finalVolume,
+  inputVolumes: { a, b }, warning: 'silent-volume-zero' | null, note }
+```
+
+cat6-near-zero-strip-extrude flipped SBO→PASS (the retry recovers
+the merged volume). cat8-fuse-mixed-tolerance flipped SBO→PASS (the
+retry AND the SP-11 tolerance propagation now both report correctly).
+
+cat2-fuse-coincident-faces + cat3-fuse-overlapping-bodies remain SBO —
+the retry engages but the underlying OCCT BOP at the recovered
+tolerance produces a single-box-volume result (1000 / 8000) rather
+than the merged volume (2000 / 15000). Root cause is the
+`BRepBuilderAPI_Transform.Shape()` `copy=true` pathology (next
+finding) — one of the operands is a translated box whose `Mass()`
+reads 0, so the retry condition's `inputVolB > 0` guard fails and the
+default-tolerance pass1 result is kept. **Honest residual gap** —
+fully fixing cat2/cat3 needs the translate-shape Mass orientation
+fix in `BrepTransform.js`, which is outside the SP-14b allowlist.
+
+**Finding #6 — `makeCompound([N solids]).volume === 0` → INFRASTRUCTURE
+FIXED + DIAGNOSTIC.** `BrepMeasure.js` `volume()` now:
+  1. For `TopoDS_Solid` inputs: fast-path direct `Mass()` call (unchanged
+     behaviour for single solids).
+  2. For ANY other shape (`TopoDS_Compound`, `_CompSolid`, sheets,
+     wires): walk `TopExp_Explorer(TopAbs_SOLID)` and sum per-solid
+     `Mass()` — the documented OCCT pattern for compound aggregation.
+     Each solid is cast via `oc.TopoDS.Solid_1(ex.Current())` (the
+     concrete-type cast required by the Mass integrator).
+  3. Fallback to legacy `Mass()` direct when zero solids found.
+
+cat9-fuse-200-bodies stays SBO BUT for an unrelated root cause: every
+translated sphere's `Mass()` returns 0 (the same
+`BRepBuilderAPI_Transform.Shape()` `copy=true` Mass-bug as cat2/cat3).
+The compound aggregator finds all 200 solids correctly — verified via a
+direct debug — but each contributes 0 to the sum. **Honest residual
+gap** — the compound aggregator infrastructure is in place; the
+fix is gated on the translate-Mass fix outside the allowlist.
+
+**Finding #10 — `K.brep.volume` returns 0 silently → DIAGNOSTIC ADDED.**
+`BrepMeasure.js` `volume()` now sanity-probes when `Mass()` returns 0:
+if the shape carries `faceCount > 0` OR has a finite, non-degenerate
+bbox, attach `body.diagnostics.volume = { warning:
+'mass-returned-zero-but-shape-nonempty', path, faceCount, bbox,
+bboxSpan, bboxFinite, note }` on the input SpineBody (or
+`meta.diagnostics.volume` for raw BrepShape inputs). The bbox probe
+tolerates the WASM-binding's null-component case (a translate-derived
+shape often reports `[null,null,null]` for both corners; the diagnostic
+still fires on faceCount alone). Verified via a debug spec that the
+diagnostic IS attached for the cat9 200-sphere compound. The return
+type (a plain `number`) is unchanged — every existing consumer behaves
+identically; only callers that inspect diagnostics learn the result is
+suspect.
+
+### Diagnostic format examples
+
+**`makeCone(5, 5, 10)` — auto-shim diagnostic:**
+```js
+spineBody.meta.diagnostics.shim = {
+  name: 'makeCone-degenerate-to-cylinder',
+  reason: 'r1 ≈ r2 — cone with equal radii is a cylinder; ' +
+          'BRepPrimAPI_MakeCone crashes at this corner case',
+  originalOp: 'makeCone',
+  originalParams: { radius1: 5, radius2: 5, height: 10 },
+  threshold: 1e-7,
+}
+```
+
+**`makeBox(1e-7, …)` — `DegeneratePrimitiveError` exception:**
+```js
+class DegeneratePrimitiveError extends Error {
+  name: 'DegeneratePrimitiveError',
+  dimensionName: 'dx',
+  dimensionValue: 1e-7,
+  threshold: 1e-7,
+  op: 'makeBox',
+  message: 'makeBox: dx (1e-7) is at or below Precision::Confusion()...'
+}
+```
+
+**`fuse(a, b)` auto-fuzzy retry diagnostic (cat6 success case):**
+```js
+spineBody.body.diagnostics.boolean = {
+  opName: 'fuse',
+  autoFuzzyResolved: true,
+  resolvedAtTolerance: 1e-7,
+  attemptedFuzzy: [1e-7],
+  initialVolume: 0,
+  finalVolume: 1000.01,
+  inputVolumes: { a: 1000, b: 0.01 },
+  warning: null,
+  note: 'boolean fuse returned volume=0 at default tolerance; ' +
+        'auto-retried with fuzzy tolerance 1e-7 and recovered to ...'
+}
+```
+
+**`fuse(a, b)` retry-exhausted diagnostic (every tol failed):**
+```js
+spineBody.body.diagnostics.boolean = {
+  opName: 'fuse', autoFuzzyResolved: false, resolvedAtTolerance: null,
+  attemptedFuzzy: [1e-7, 1e-6, 1e-5, 1e-4, 1e-3],
+  initialVolume: 0, finalVolume: 0,
+  inputVolumes: { a: 1000, b: 1000 },
+  warning: 'silent-volume-zero',
+  note: 'boolean fuse returned volume=0 at default tolerance AND ' +
+        'at every fuzzy tolerance in [...] mm. ...'
+}
+```
+
+**`volume(shape)` non-empty-but-Mass-zero diagnostic:**
+```js
+spineBody.body.diagnostics.volume = {
+  warning: 'mass-returned-zero-but-shape-nonempty',
+  path: 'compound-aggregated',
+  faceCount: 200,
+  bbox: { min: [null,null,null], max: [null,null,null] },
+  bboxSpan: null,
+  bboxFinite: false,
+  note: 'OCCT BRepGProp.VolumeProperties_1.Mass() returned 0 ...'
+}
+```
+
+### Honest residual gaps (SP-14c targets)
+
+1. **`BRepBuilderAPI_Transform.Shape()` `copy=true` Mass-bug** is the
+   root cause for cat2/cat3/cat9 staying SBO. A translated solid's
+   `Mass()` reads 0 (and its bbox reads `[null,null,null]`). Fix
+   requires either re-orienting the transform output in
+   `BrepTransform.js` (outside SP-14b allowlist) OR adding a
+   tessellation-based volume fallback inside `BrepMeasure.volume()`
+   (would need a small `tessellate + sum signed tetrahedra` helper).
+2. **cat7-chain-50-fuse-cut + cat10-step-roundtrip-after-boolean-chain
+   UEX** stay unchanged — root cause is cat2/cat3 BOP fragility on
+   the first step's tangent contact (the chain's i=0 cylinder is at
+   z=[95,100], exactly tangent to the box top). The auto-fuzzy retry
+   path doesn't help because `runBooleanOnce` throws on the
+   first-pass `!IsDone()` failure BEFORE the retry condition is
+   evaluated. Future SP-14c can hoist the fuzzy retry above the
+   `IsDone()` check (catch the throw + retry).
+3. **The SP-11 mixed-tolerance fuse contract** (finding #7) now PASSES
+   — `cat8-fuse-mixed-tolerance` reports `bodyTolerance: 0.1`
+   (= MAX(0.05, 0.1)) and the auto-fuzzy retry succeeds.
+
+### Files touched
+
+- `frontend/src/kernel/brep/BrepBoolean.js` — fuzzy retry +
+  silent-volume-zero diagnostic.
+- `frontend/src/kernel/brep/BrepPrimitives.js` —
+  `DegeneratePrimitiveError`, `PRECISION_CONFUSION`,
+  `assertDimensionsAboveConfusion`, `makeCone` auto-shim, sub-confusion
+  validation on every primitive.
+- `frontend/src/kernel/brep/BrepMeasure.js` — compound aggregation
+  via `TopExp_Explorer(TopAbs_SOLID)`, sanity-probe diagnostic on
+  `Mass()=0`.
+- `frontend/src/kernel/brep/index.js` — barrel export adds
+  `DegeneratePrimitiveError` + `PRECISION_CONFUSION`.
+- `docs/superpowers/notes/sp14-progress.md` — this SP-14b section.
+
+### Files NOT touched (allowlist compliance)
+
+Everything else: `BrepTransform.js`, `BrepStep.js`, `BrepFeatures.js`,
+`BrepSheet.js`, all other `frontend/src/kernel/brep/*` modules,
+`frontend/src/kernel/topology/*`, `frontend/src/kernel/history/*`,
+`frontend/src/kernel/sketch/*`, `frontend/src/kernel/export/*`,
+`frontend/src/components/*`, `frontend/src/workbenches/*`,
+`RibbonToolbar.jsx`, `ToolExecutionEngine.js`, `ToolParamSchemas.js`,
+`WorkbenchMechanical.jsx`, `Viewport3D.jsx`. The fuzz corpus + spec
++ classifier were also UNTOUCHED — re-running the same spec produces
+the new tally honestly.
+
+### Bottom line
+
+SP-14b is a clean win on the trivial-fix findings (#1, #2) and a
+solid infrastructure win on the diagnostic findings (#6, #10) with
+honest residuals on the harder root cause (translate-shape Mass bug
+propagating to cat2/cat3/cat9). New tally **10 PASS / 13 CAUGHT / 2 UEX /
+3 SBO / 0 CRASH** vs first-pass **7 / 12 / 2 / 5 / 2**. Two CRASH-band
+cases eliminated, two SBO cases flipped to PASS, one CAUGHT case
+added — and every retry / shim path is observable via diagnostics so
+the AI planner and the UX layer can react. SP-14c targets next: the
+translate-Mass fix outside this allowlist, plus the long-chain fuzzy
+retry hoist above `!IsDone()`.
