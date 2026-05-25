@@ -3021,6 +3021,44 @@ etc.) are queued as Tier 10b.
 - `e2e/ux-tier10-equation-manager-electron.spec.js` (new) — bespoke
   parametric-mounting-plate workflow (described above).
 
-**Honest gaps**: Design Tables, 3D-feature `=expr` param wiring,
-first-class AI-plan variables section (all queued — see table above).
+**Honest gaps**: Design Tables, ~~3D-feature `=expr` param wiring~~
+(now CLOSED — see Tier 10b below), first-class AI-plan variables section
+(all queued — see table above).
+
+## Tier 10b — 3D-feature parametric expressions (1 of 1 shipped)
+
+Tier 10 (focused) closed item #1 (Equation Manager + global variables)
+and item #4-half (sketch dimension `=expr` hook). The original Tier 10
+table flagged item #4-full ("3D-feature `=expr` param wiring — the
+`ToolParamDialog` field evaluator needs the same `=expr` hook the sketch
+dim has") as the queued residual. Tier 10b ships that residual end-to-end.
+
+| Tier-10b # | Convention | Status | Implementation |
+|---|---|---|---|
+| 1 | **`=expr` in every numeric param field** — both the floating `ToolParamDialog` (legacy tools) and the SW-convention `PropertyManagerDock` (migrated tools). Σ badge + "= N" subtitle when the field is expression-driven. Live re-eval on variable change without re-firing the tool. | **DONE** | `ParamValueResolver.js` (new singleton-free helper); `ToolParamDialog.jsx` + `SwUxOverlays.jsx::PropertyManagerDock` consume the resolver; values payload gains a sidecar `__expressions` map carrying source `=...` strings; numeric inputs use `type=text inputMode=decimal` so `=` survives input normalisation. |
+
+**Resolver design** — `ParamValueResolver.resolveParamValue(rawValue, field, equationStore)`:
+
+- Accepts string OR number. Numbers + numeric strings → `{value, source:'literal'}`. Strings starting with `=` → evaluated through `ExpressionEvaluator.evaluateExpression` with `equationStore.get` as the scope resolver → `{value, source:'expression', expression:'=...'}`. Eval failure → schema default + `error` field.
+- Pure function; both the floating dialog + the dock call it on every keystroke + on every `archdisc:equation-store:changed` event. The handler payload preserves the legacy `values.fieldName=Number` shape so every existing handler keeps working unchanged. The new `values.__expressions` sidecar is additive.
+- Live re-eval is dialog-scoped — when `flangeThickness` changes in the Equation Manager while the Extrude dock is open with `height='=flangeThickness'`, the dock's "= N" subtitle reflows automatically; the tool is NOT re-fired (the user must confirm).
+
+**Bespoke e2e** — `ux-tier10b-feature-expressions-electron.spec.js` — parametric flange driven by Equation Manager:
+
+1. Define 4 vars: `flangeOuter=60`, `flangeThickness=8`, `holeRadius='=flangeOuter*0.04'` → cascade → 2.4, `holeCount=6`.
+2. Open Extrude Boss dock → set height = `=flangeThickness`. Assert the Σ badge + "= 8 mm" subtitle appear. Commit. (Frames A1, A2.)
+3. Open Circular Pattern dock → count=`=holeCount`, radius=`=holeRadius`. Both show Σ + "= 6" + "= 2.4 mm" subtitles. Commit. (Frames B1, B2.)
+4. Change `flangeThickness=12` and re-open Extrude with `=flangeThickness` → subtitle now shows "= 12 mm" — the live re-eval picked up the new value. (Frame C1.)
+5. Change `flangeThickness=15` WHILE the dock is open → subtitle reflows to "= 15 mm" without retyping. (Frame C2.) Commit → final body's bbox has a ~15 mm dimension. (Frame D1.)
+
+**Files added/changed for Tier-10b**:
+
+- `frontend/src/foundation/ParamValueResolver.js` (new) — shared resolver + `formatResolvedValue` helper.
+- `frontend/src/components/ToolParamDialog.jsx` — numeric fields now use `type=text inputMode=decimal`; per-field raw + resolved state; Σ badge + "= N" subtitle inline-styled (CSS files NOT touched, per the dispatch allowlist); subscribes to `archdisc:equation-store:changed` for live re-eval; commit emits `values` + sidecar `__expressions`.
+- `frontend/src/components/SwUxOverlays.jsx` — PropertyManagerDock mirrors the same resolver hook; the existing `.sw-pm-dock-row` flex-row layout is overridden via inline style to flex-column when a row carries an expression so the subtitle stacks below the input.
+- `e2e/ux-tier10b-feature-expressions-electron.spec.js` (new) — bespoke parametric flange workflow (above).
+
+**Targeted regression** — `ux-tier10b` (new spec) + `ux-tier10-equation-manager-electron` (Tier 10 still passes) + `ux-tier1-electron` (PropertyManagerDock still works for literal numbers) + `ux-tier1-backlog-electron` (dim-editor unaffected — uses its own path) + `ribbon-test` — all green. Tier 1 was flaky on an unrelated heads-up dropdown timing (passes on retry; the dock work itself shows Width=80 / Depth=50 / Height=18 with literal numerics intact).
+
+**Honest gaps**: only Design Tables + first-class AI-plan `variables` section remain queued from the original Tier-10 table. The `__expressions` sidecar is consumed by the dialog → handler boundary but NOT yet persisted to design history; every re-edit of the same feature has to retype the `=expr`. That's a follow-up.
 
