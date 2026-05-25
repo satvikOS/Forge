@@ -1,0 +1,226 @@
+/**
+ * VectorPicker — universal "Specify Vector" widget styling.
+ *
+ * Visual goals:
+ *   - Looks like the rest of the PropertyManagerDock / ToolParamDialog
+ *     (same dark slate background, SW-ish blue accent on active state).
+ *   - Tight vertical rhythm — every row fits within the dock without
+ *     forcing the dialog to grow.
+ *   - Distinct active-state cue (light blue fill) on the active mode +
+ *     active CSYS axis so the user always sees which vector source is
+ *     currently driving the value.
+ */
+
+.vp-root {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(20, 32, 50, 0.55);
+  border: 1px solid #2c3a52;
+  border-radius: 5px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 12px;
+  color: #d6deec;
+  min-width: 0;
+}
+
+.vp-compact {
+  padding: 6px 8px;
+  gap: 4px;
+}
+
+.vp-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.vp-mode-btn {
+  flex: 1 1 0;
+  min-width: 64px;
+  padding: 4px 8px;
+  background: #1d2a40;
+  border: 1px solid #2f3f5a;
+  color: #9fb1cf;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  transition: background-color 100ms, color 100ms;
+}
+
+.vp-mode-btn:hover {
+  background: #243857;
+  color: #cfe2ff;
+}
+
+.vp-mode-active {
+  background: #3a5a8c !important;
+  border-color: #4d76b3 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.vp-axis-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+}
+
+.vp-axis-btn {
+  padding: 5px 0;
+  background: #1d2a40;
+  border: 1px solid #2f3f5a;
+  color: #9fb1cf;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: 'Consolas', monospace;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 100ms, color 100ms, border-color 100ms;
+}
+
+.vp-axis-btn:hover {
+  background: #243857;
+  color: #cfe2ff;
+}
+
+.vp-axis-active {
+  background: #2f6cb5 !important;
+  border-color: #5ea3e6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(94, 163, 230, 0.45) inset;
+}
+
+.vp-custom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 5px;
+}
+
+.vp-custom-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vp-custom-label {
+  font-size: 10px;
+  color: #8aa9d8;
+  font-family: 'Consolas', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.vp-custom-input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  background: #11192a;
+  border: 1px solid #2f3f5a;
+  color: #e3ecfa;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+}
+
+.vp-custom-input:focus {
+  outline: none;
+  border-color: #5ea3e6;
+  background: #142036;
+}
+
+.vp-pick-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.vp-pick-arm {
+  flex: 1 1 auto;
+  padding: 5px 10px;
+  background: #243857;
+  border: 1px solid #3e547b;
+  color: #cfe2ff;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.vp-pick-arm:hover {
+  background: #2c4366;
+}
+
+.vp-pick-arm:disabled {
+  background: #1d2a40;
+  color: #6a7a93;
+  cursor: not-allowed;
+  border-color: #2f3f5a;
+}
+
+.vp-pick-cancel {
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid #6a3a3a;
+  color: #e09a9a;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.vp-pick-cancel:hover {
+  background: #3a1d1d;
+}
+
+.vp-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: #11192a;
+  border: 1px solid #2c3a52;
+  border-radius: 3px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+}
+
+.vp-readout-label {
+  color: #8aa9d8;
+}
+
+.vp-readout-value {
+  color: #cfe2ff;
+  font-weight: 600;
+}
+
+.vp-readout-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  padding: 0 5px;
+  background: #2f6cb5;
+  border-radius: 2px;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vp-readout-hint {
+  flex: 1 1 100%;
+  font-size: 10px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: #8aa9d8;
+}
+
+.vp-readout-hint-armed {
+  color: #f0c065;
+}
+
+.vp-readout-hint-done {
+  color: #80c89f;
+}
