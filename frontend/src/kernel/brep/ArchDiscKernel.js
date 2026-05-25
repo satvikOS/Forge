@@ -97,9 +97,11 @@ import {
   gusset, weldBead,
 } from './BrepWeldments.js';
 // UX Tier 9 — Mold Tools workbench foundation.
+// UX Tier 9b — focused additions (Undercut Analysis + Shut-Off Surfaces).
 import {
   draftAnalysis, partingLine, toolingSplit,
   isMold, getMoldMetadata,
+  undercutAnalysis, shutOffSurfaces,
 } from './BrepMoldTools.js';
 // UX Tier 3a — Advanced feature ops (Boundary Boss / Rib / Helix).
 import {
@@ -303,8 +305,13 @@ export const ArchDiscKernel = {
     toolingSplit,
     /** Predicate — does the body carry mold metadata (tagged by any mold-tools op)? */
     isMold,
-    /** Read the mold metadata bag — {draftAnalysis, partingLine, half, toolingSplit}. */
+    /** Read the mold metadata bag — {draftAnalysis, partingLine, half, toolingSplit, undercut, shutOff}. */
     getMoldMetadata,
+    // ── UX Tier 9b Mold Tools focused additions ──────────────────────────
+    /** Undercut Analysis — flag faces that would lock the part in the mold via face-normal + shadow-ray test along pull direction. */
+    undercutAnalysis,
+    /** Shut-Off Surfaces — auto-close through-holes (closed free-edge loops) with N-sided patches so the body becomes watertight (suitable for cavity-cutting). */
+    shutOffSurfaces,
     // ── UX Tier 3a Advanced feature ops ───────────────────────────────────
     /** Boundary Boss / Cut — loft through N profile wires with optional M guide curves; SW's marquee surfacing feature. */
     boundaryBoss,

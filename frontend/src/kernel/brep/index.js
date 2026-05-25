@@ -99,9 +99,11 @@ export {
   gusset, weldBead,
 } from './BrepWeldments.js';
 // UX Tier 9 — Mold Tools workbench foundation.
+// UX Tier 9b — focused additions (Undercut Analysis + Shut-Off Surfaces).
 export {
   draftAnalysis, partingLine, toolingSplit,
   isMold, getMoldMetadata,
+  undercutAnalysis, shutOffSurfaces,
 } from './BrepMoldTools.js';
 // UX Tier 3a — Advanced feature ops (Boundary Boss / Rib / Helix).
 export {

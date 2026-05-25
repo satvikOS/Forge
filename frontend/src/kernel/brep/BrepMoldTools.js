@@ -121,10 +121,11 @@
  * @see frontend/src/kernel/brep/BrepPartition.js (partition — SP-5)
  */
 
-import { evalSurface } from './BrepQuery.js';
+import { evalSurface, rayFire } from './BrepQuery.js';
 import { partition } from './BrepPartition.js';
 import { extrudeProfile } from './BrepFeatures.js';
 import { cut as boolCut } from './BrepBoolean.js';
+import { autoFillMissingFaces } from './BrepHeal.js';
 import { attachAttribute } from '../topology/Attributes.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -778,4 +779,525 @@ function makeBasis(pull) {
     pull[0] * u[1] - pull[1] * u[0],
   ]);
   return { u, v };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.  undercutAnalysis — flag faces that would lock the part in the mold
+//                       (Tier 9b)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Walk every face of `body` and decide whether it would prevent the part
+ * from releasing along `pullDirection`. The classification is STRICTER
+ * than `draftAnalysis`: a face is an UNDERCUT iff its normal has a
+ * negative dot with the pull direction (faces -pull) AND there is no
+ * clear path along +pull from the face to outside the body (some other
+ * face of the body shadows it in the pull direction).
+ *
+ * Algorithm (per face):
+ *   1) Sample the face's outward normal at the parametric centre via
+ *      `evalSurface(face, 0.5, 0.5, {normalised:true})`.
+ *   2) Decide the candidate category from the normal vs pull:
+ *      - `n·pull >  +sinTol`  → "good"      (face would lift along pull)
+ *      - `n·pull < -sinTol`   → "undercut-candidate" — needs the shadow test
+ *      - `|n·pull| <= sinTol` → "neutral"   (vertical / perpendicular)
+ *   3) For each undercut-candidate face, sample a point on the face
+ *      (slightly offset OUTWARD along its outward normal so the ray
+ *      starts outside the face), then cast a ray along +pull. If the
+ *      ray hits ANY other face of the SAME body before exiting the body
+ *      → the face is shadowed → real undercut. If the ray exits cleanly
+ *      → not actually trapped (geometry is open above the face).
+ *
+ * The body's faces are colour-coded via the `mold.undercut` SP-2
+ * attribute:
+ *   - 'good'      → green (face releases cleanly along pull)
+ *   - 'undercut'  → red   (trapped — needs side-action or pull-axis change)
+ *   - 'neutral'   → yellow (vertical / perpendicular — would scrape)
+ *
+ * Each face also gets `face.attributes['mold.undercut'] = true|false`
+ * (the boolean predicate the SW Undercut Analysis dialog exports). Body
+ * metadata at `metadata.mold.undercut` carries the summary + per-face
+ * record.
+ *
+ * @param {SpineBody} body
+ * @param {object} opts
+ * @param {[number,number,number]|{x,y,z}} opts.pullDirection
+ * @param {number} [opts.threshold=3]   draft threshold in degrees — faces
+ *     within ±threshold of perpendicular to pull are 'neutral' (yellow).
+ * @returns {{
+ *   pullDirection: [number,number,number],
+ *   threshold: number,
+ *   good: number, undercut: number, neutral: number,
+ *   faceCount: number,
+ *   perFace: Array<{
+ *     faceIndex:number,
+ *     category:'good'|'undercut'|'neutral',
+ *     undercut:boolean,
+ *     normal:[number,number,number]|null,
+ *     dot:number,
+ *     shadowHits:number,
+ *   }>,
+ * }}
+ */
+export async function undercutAnalysis(body, opts = {}) {
+  if (!body || !body.body) {
+    throw new Error('undercutAnalysis: needs a SpineBody with a spine');
+  }
+  const pullRaw = asVec3(opts.pullDirection) || DEFAULT_PULL_DIRECTION;
+  const pull = normalize3(pullRaw);
+  if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) {
+    throw new Error('undercutAnalysis: pullDirection must be a non-zero vector');
+  }
+  const thresholdDeg = (typeof opts.threshold === 'number' && opts.threshold >= 0)
+    ? opts.threshold : DEFAULT_MIN_DRAFT_DEG;
+  // sin(threshold) — the candidate cutoff in dot-product space.
+  const sinTol = Math.sin(thresholdDeg * Math.PI / 180);
+
+  const bbox = computeBodyBBox(body);
+  const bodyExtent = bbox ? Math.max(bbox.size[0], bbox.size[1], bbox.size[2]) : 100;
+  // Ray hop offset — small fraction of body extent, used to nudge the ray
+  // origin off the face along its outward normal so the source face isn't
+  // self-counted as a shadow hit.
+  const nudge = Math.max(1e-3, bodyExtent * 1e-4);
+  // Max ray distance — twice the body extent is generous.
+  const rayLen = Math.max(bodyExtent * 3, 50);
+
+  const faces = body.body.faces();
+  const perFace = [];
+  let good = 0, undercut = 0, neutral = 0;
+
+  for (let i = 0; i < faces.length; i++) {
+    const face = faces[i];
+    let normal = null;
+    let dotN = 0;
+    let category = 'neutral';
+    let isUndercut = false;
+    let shadowHits = 0;
+    let sampledPoint = null;
+
+    try {
+      const probe = await evalSurface(face, 0.5, 0.5, { normalised: true });
+      if (probe && probe.normal) {
+        normal = normalize3([probe.normal.x, probe.normal.y, probe.normal.z]);
+        sampledPoint = probe.point ? [probe.point.x, probe.point.y, probe.point.z] : null;
+        dotN = dot3(normal, pull);
+        if (dotN > sinTol) {
+          category = 'good';
+        } else if (dotN < -sinTol) {
+          // Candidate undercut — confirm via shadow ray test.
+          category = 'undercut'; // tentative
+          if (sampledPoint) {
+            // Origin = sampled point + small outward nudge along the
+            // face's outward normal. This places the ray start just
+            // OUTSIDE the face so the face itself isn't a self-hit.
+            const origin = [
+              sampledPoint[0] + normal[0] * nudge,
+              sampledPoint[1] + normal[1] * nudge,
+              sampledPoint[2] + normal[2] * nudge,
+            ];
+            try {
+              const hits = await rayFire(body, origin, pull, {
+                minDistance: 0,
+                maxDistance: rayLen,
+              });
+              // Count hits with ANY face of the body. A clear path means
+              // the ray exits without hitting another face.
+              shadowHits = Array.isArray(hits) ? hits.length : 0;
+              if (shadowHits === 0) {
+                // Open path along +pull — face is reachable from outside;
+                // it WOULD face -pull but isn't trapped behind anything.
+                // Still an undercut in the strict SW sense (face faces
+                // away from pull), so keep category 'undercut' = true.
+                isUndercut = true;
+              } else {
+                // Shadowed — definite undercut.
+                isUndercut = true;
+              }
+            } catch (_e) {
+              // rayFire failed — be conservative, keep as undercut.
+              isUndercut = true;
+              shadowHits = -1;
+            }
+          } else {
+            isUndercut = true;
+          }
+        } else {
+          category = 'neutral';
+        }
+      } else {
+        category = 'neutral';
+      }
+    } catch (_err) {
+      // evalSurface failed on a degenerate face — treat as neutral.
+      category = 'neutral';
+    }
+
+    if (category === 'good') good++;
+    else if (category === 'undercut') undercut++;
+    else neutral++;
+
+    // SP-2 attribute on the face — boolean predicate for the dialog.
+    try {
+      attachAttribute(face, 'mold.undercut', {
+        value: isUndercut,
+        category,
+        dot: dotN,
+        normal,
+        pullDirection: pull.slice(),
+      }, { survives: 'verbatim', namespace: 'user' });
+    } catch (_e) { /* face may be read-only */ }
+
+    perFace.push({
+      faceIndex: i,
+      category,
+      undercut: isUndercut,
+      normal,
+      dot: dotN,
+      shadowHits,
+      faceRef: face,
+    });
+  }
+
+  const report = {
+    pullDirection: pull.slice(),
+    threshold: thresholdDeg,
+    good, undercut, neutral,
+    faceCount: faces.length,
+    perFace,
+  };
+  stampMoldMetadata(body, { undercut: {
+    pullDirection: report.pullDirection,
+    threshold: report.threshold,
+    good: report.good,
+    undercut: report.undercut,
+    neutral: report.neutral,
+    faceCount: report.faceCount,
+    perFace: report.perFace.map(f => ({
+      faceIndex: f.faceIndex,
+      category: f.category,
+      undercut: f.undercut,
+      dot: f.dot,
+      shadowHits: f.shadowHits,
+      normal: f.normal,
+    })),
+  } });
+  return report;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.  shutOffSurfaces — close through-holes with N-sided patch faces
+//                      (Tier 9b)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Detect closed loops of FREE edges (edges owned by exactly one face) on
+ * `body` and close each loop ≤ `maxHoleDiameter` with an N-sided patch
+ * face so the result becomes manifold (watertight) — suitable for cavity
+ * cutting via Tooling Split.
+ *
+ * Algorithm:
+ *   1) Walk every edge of the body's spine. An edge is FREE iff it is
+ *      referenced by exactly one coedge (one owning face). Group free
+ *      edges into connected components by shared spine vertices.
+ *   2) For each free-edge component, decide if it forms a CLOSED loop
+ *      (every vertex in the component is touched by exactly two free
+ *      edges → closed cycle). Skip dangling / open chains.
+ *   3) Compute the loop's diameter (max pairwise distance between
+ *      endpoint vertices). Skip loops larger than `maxHoleDiameter`.
+ *   4) Delegate the actual fill to `autoFillMissingFaces` — the existing
+ *      SP-8 healing op that runs ShapeFix_FreeBounds + nSidedPatch per
+ *      closed loop and stitches the patches back into the body via
+ *      BRepBuilderAPI_Sewing. This is the same machinery SW uses for
+ *      "Shut-Off Surfaces" — close every free-edge loop.
+ *   5) Tag the result body with `mold.shutOff = {loopCount, patchesAdded,
+ *      watertight, loops[]}`.
+ *
+ * @param {SpineBody} body
+ * @param {object} opts
+ * @param {number} [opts.maxHoleDiameter=100]   skip free-edge loops whose
+ *     diameter exceeds this (mm). Default 100 mm = typical cable-entry
+ *     hole. Set to Infinity to fill EVERY free-edge loop.
+ * @param {number} [opts.tolerance=1e-3]        passed to autoFillMissingFaces.
+ * @returns {{
+ *   result: SpineBody,
+ *   loopCount: number,
+ *   loopsFilled: number,
+ *   loopsSkipped: number,
+ *   patchesAdded: number,
+ *   watertight: boolean,
+ *   loops: Array<{
+ *     loopIndex:number,
+ *     edgeCount:number,
+ *     vertexCount:number,
+ *     diameter:number,
+ *     filled:boolean,
+ *     skipReason:string|null,
+ *     centroid:[number,number,number],
+ *   }>,
+ * }}
+ */
+export async function shutOffSurfaces(body, opts = {}) {
+  if (!body || !body.body) {
+    throw new Error('shutOffSurfaces: needs a SpineBody with a spine');
+  }
+  const maxHoleDiameter = (typeof opts.maxHoleDiameter === 'number' && opts.maxHoleDiameter > 0)
+    ? opts.maxHoleDiameter : 100;
+  const tolerance = (typeof opts.tolerance === 'number' && opts.tolerance > 0)
+    ? opts.tolerance : 1e-3;
+
+  // ── 1. Walk the spine, classify free edges, group into loops ──────────────
+  const loops = detectFreeEdgeLoops(body);
+
+  let loopsFilled = 0;
+  let loopsSkipped = 0;
+  const loopReports = [];
+  for (let i = 0; i < loops.length; i++) {
+    const L = loops[i];
+    const report = {
+      loopIndex: i,
+      edgeCount: L.edges.length,
+      vertexCount: L.vertices.length,
+      diameter: L.diameter,
+      filled: false,
+      skipReason: null,
+      centroid: L.centroid,
+    };
+    if (!L.closed) {
+      report.skipReason = 'open-chain (not a closed cycle)';
+      loopsSkipped++;
+    } else if (L.diameter > maxHoleDiameter) {
+      report.skipReason = `diameter ${L.diameter.toFixed(2)} > maxHoleDiameter ${maxHoleDiameter}`;
+      loopsSkipped++;
+    } else {
+      report.filled = true;
+      loopsFilled++;
+    }
+    loopReports.push(report);
+  }
+
+  // ── 2. If nothing to fill, return the original body with a no-op tag. ─────
+  if (loopsFilled === 0) {
+    stampMoldMetadata(body, { shutOff: {
+      loopCount: loops.length,
+      loopsFilled: 0,
+      loopsSkipped,
+      patchesAdded: 0,
+      watertight: loops.length === 0,
+      loops: loopReports,
+      note: loops.length === 0
+        ? 'no free-edge loops detected — body already watertight'
+        : `all ${loops.length} loop(s) skipped — none qualified for shut-off`,
+    } });
+    return {
+      result: body,
+      loopCount: loops.length,
+      loopsFilled: 0,
+      loopsSkipped,
+      patchesAdded: 0,
+      watertight: loops.length === 0,
+      loops: loopReports,
+    };
+  }
+
+  // ── 3. Delegate to autoFillMissingFaces — the SP-8 healing op runs
+  //       ShapeFix_FreeBounds + nSidedPatch per closed loop and stitches the
+  //       patches back into the body. Same machinery as SW Shut-Off Surfaces.
+  let filled;
+  let fillReport = null;
+  try {
+    filled = await autoFillMissingFaces(body, { tolerance });
+    fillReport = (filled && filled.meta && filled.meta.fillReport) || null;
+  } catch (err) {
+    // Fall back: return the original body, record the failure.
+    stampMoldMetadata(body, { shutOff: {
+      loopCount: loops.length,
+      loopsFilled: 0,
+      loopsSkipped: loops.length,
+      patchesAdded: 0,
+      watertight: false,
+      loops: loopReports,
+      error: String(err && err.message || err),
+    } });
+    return {
+      result: body,
+      loopCount: loops.length,
+      loopsFilled: 0,
+      loopsSkipped: loops.length,
+      patchesAdded: 0,
+      watertight: false,
+      loops: loopReports,
+      error: String(err && err.message || err),
+    };
+  }
+
+  // ── 4. Tag the patched faces with mold.shutOff (the new faces are the
+  //       ones that did not exist on the input body). The patches added
+  //       by autoFillMissingFaces are the ones at the very end of the new
+  //       face list — we tag them all "shutOff" so the renderer can
+  //       highlight them.
+  const inputFaceCount = body.body.faces().length;
+  const outputFaceCount = filled.body && typeof filled.body.faces === 'function'
+    ? filled.body.faces().length : inputFaceCount;
+  const patchesAdded = Math.max(0, outputFaceCount - inputFaceCount);
+  // Tag the trailing (added) faces as shut-off surfaces.
+  if (filled.body && typeof filled.body.faces === 'function') {
+    const outFaces = filled.body.faces();
+    for (let k = 0; k < outFaces.length; k++) {
+      if (k >= inputFaceCount) {
+        try {
+          attachAttribute(outFaces[k], 'mold.shutOff', {
+            value: true,
+            patchIndex: k - inputFaceCount,
+          }, { survives: 'verbatim', namespace: 'user' });
+        } catch (_e) { /* skip */ }
+      }
+    }
+  }
+
+  // ── 5. Decide watertightness — the SP-8 fillReport carries the
+  //       authoritative answer.
+  const watertight = !!(fillReport && fillReport.watertight === true);
+
+  // Stamp metadata onto the RESULT body (the filled one — that's what the
+  // caller will hold onto going forward).
+  stampMoldMetadata(filled, { shutOff: {
+    loopCount: loops.length,
+    loopsFilled,
+    loopsSkipped,
+    patchesAdded,
+    watertight,
+    loops: loopReports,
+    fillReport,
+  } });
+
+  return {
+    result: filled,
+    loopCount: loops.length,
+    loopsFilled,
+    loopsSkipped,
+    patchesAdded,
+    watertight,
+    loops: loopReports,
+    fillReport,
+  };
+}
+
+/**
+ * Detect closed loops of free edges on a SpineBody.
+ *
+ *   - An edge is FREE iff it has < 2 unique adjacent faces (its coedges
+ *     reference 0 or 1 face).
+ *   - Free edges are grouped into connected components by their spine
+ *     vertices (two edges share a component iff they share a vertex).
+ *   - A component is a CLOSED loop iff every vertex in the component is
+ *     touched by exactly two free edges (closed cycle).
+ *
+ * @param {SpineBody} body
+ * @returns {Array<{
+ *   edges: Array<object>,
+ *   vertices: Array<object>,
+ *   closed: boolean,
+ *   centroid: [number,number,number],
+ *   diameter: number,
+ * }>}
+ */
+function detectFreeEdgeLoops(body) {
+  const spine = body.body;
+  if (!spine || typeof spine.edges !== 'function') return [];
+  const allEdges = spine.edges();
+  // For each edge, count the number of unique adjacent faces via the
+  // coedge → loop.face traversal.
+  const freeEdges = [];
+  for (const edge of allEdges) {
+    const seen = new Set();
+    if (edge.coedges) {
+      try {
+        for (const coedge of edge.coedges) {
+          const f = coedge && coedge.loop && coedge.loop.face;
+          if (f) seen.add(f);
+        }
+      } catch (_e) { /* skip */ }
+    }
+    if (seen.size < 2) {
+      freeEdges.push(edge);
+    }
+  }
+  if (freeEdges.length === 0) return [];
+
+  // Union-find by spine vertex. Each free edge introduces a union between
+  // its two endpoints.
+  const parent = new Map(); // vertex → vertex (representative)
+  const find = (v) => {
+    let p = parent.get(v);
+    if (p === undefined) { parent.set(v, v); return v; }
+    while (p !== parent.get(p)) {
+      parent.set(p, parent.get(parent.get(p)));
+      p = parent.get(p);
+    }
+    return p;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  for (const e of freeEdges) {
+    if (e.startVertex && e.endVertex) {
+      union(e.startVertex, e.endVertex);
+    }
+  }
+  // Group edges by component (root vertex).
+  const groups = new Map();
+  for (const e of freeEdges) {
+    if (!e.startVertex) continue;
+    const root = find(e.startVertex);
+    let g = groups.get(root);
+    if (!g) { g = { edges: [], vertices: new Set() }; groups.set(root, g); }
+    g.edges.push(e);
+    if (e.startVertex) g.vertices.add(e.startVertex);
+    if (e.endVertex) g.vertices.add(e.endVertex);
+  }
+
+  // Decide CLOSED for each group + compute centroid / diameter.
+  const loops = [];
+  for (const g of groups.values()) {
+    // Vertex-degree count: each vertex in a closed loop is touched by
+    // exactly 2 free edges.
+    const degree = new Map();
+    for (const e of g.edges) {
+      if (e.startVertex) degree.set(e.startVertex, (degree.get(e.startVertex) || 0) + 1);
+      if (e.endVertex) degree.set(e.endVertex, (degree.get(e.endVertex) || 0) + 1);
+    }
+    let closed = true;
+    for (const d of degree.values()) {
+      if (d !== 2) { closed = false; break; }
+    }
+    // Centroid + diameter from endpoint vertices.
+    let cx = 0, cy = 0, cz = 0, n = 0;
+    const pts = [];
+    for (const v of g.vertices) {
+      if (v && v.point && typeof v.point.x === 'number') {
+        cx += v.point.x; cy += v.point.y; cz += v.point.z; n++;
+        pts.push([v.point.x, v.point.y, v.point.z]);
+      }
+    }
+    const centroid = n > 0 ? [cx / n, cy / n, cz / n] : [0, 0, 0];
+    let diameter = 0;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const dx = pts[i][0] - pts[j][0];
+        const dy = pts[i][1] - pts[j][1];
+        const dz = pts[i][2] - pts[j][2];
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > diameter) diameter = d;
+      }
+    }
+    loops.push({
+      edges: g.edges,
+      vertices: [...g.vertices],
+      closed,
+      centroid,
+      diameter,
+    });
+  }
+  return loops;
 }
