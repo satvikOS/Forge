@@ -653,8 +653,8 @@ Corner Mitre.
 | Swept Cut | (likely missing as named tool) | **Missing** — present as sweep + boolean? Needs verification |
 | Lofted Boss | Loft Boss | **Done** |
 | Lofted Cut | (likely missing as named tool) | **Missing/Unclear** |
-| Boundary Boss | (none) | **Missing** |
-| Boundary Cut | (none) | **Missing** |
+| Boundary Boss | Boundary Boss (Tier 3a) | **Done (Tier 3a)** — ThruSections+SetSmoothing (G1) with optional PipeShell+auxiliary-spine guide path; honest fallback recorded on `meta.guideFallback` |
+| Boundary Cut | (achieved via Boundary Boss + boolean subtract) | **Done (Tier 3a)** — Boundary Boss `role: 'cut'` flag is informational; cut semantics applied by subsequent boolean against parent body |
 | Hole Wizard | Hole Wizard | **Done** (verify standards table) |
 | Fillet — Constant | Fillet | **Done** |
 | Fillet — Variable Radius | Variable Radius Fillet | **Done** |
@@ -673,14 +673,14 @@ Corner Mitre.
 | Reference Point | (none) | **Missing** |
 | Draft — Neutral Plane | Draft | **Partial** — verify the method options |
 | Draft — Parting Line | (likely missing) | **Missing** |
-| Rib | (none) | **Missing** |
+| Rib | Rib (Tier 3a) | **Done (Tier 3a)** — thin block extruded from a sketched line and intersected against the parent body via BRepAlgoAPI_Common; SW canonical rib semantics |
 | Shell | Shell | **Done** |
 | Wrap (Emboss/Deboss/Scribe) | (none) | **Missing** |
 | Dome | (none) | **Missing** |
 | Free Form | (none) | **Missing** |
 | Split (body) | (none — likely via boolean) | **Missing** as a named feature |
 | Combine bodies | Combine / Subtract / Intersect (Boolean group) | **Done** |
-| Helix and Curve | (none — but in turbomachinery for blade paths?) | **Missing** as a user-facing tool |
+| Helix and Curve | Helix (Tier 3a) | **Done (Tier 3a)** — real 3D helical curve sampled as a high-resolution polyline; kind='wire' SpineBody whose `meta.polyline` drives Sweep Boss for spring / screw thread workflows; constant or variable (linear-taper) pitch |
 
 ### 6.4 — Surfacing tool mapping
 
@@ -927,15 +927,15 @@ Prioritized roughly by impact on first-touch usability:
 
 ### Tier 3 — Missing feature tools
 
-26. **Boundary Boss / Boundary Cut**
+26. **Boundary Boss / Boundary Cut** — **DONE (Tier 3a)** — `K.brep.boundaryBoss({profiles, guides, smooth, role})`; OCCT binding via `BRepOffsetAPI_ThruSections.SetSmoothing(true)` for G1 tangency between sections; guide curves attempted via `BRepOffsetAPI_MakePipeShell.SetMode_5(auxiliary)` with honest fallback to ThruSections+SetSmoothing when the auxiliary-spine binding rejects the configuration. `meta.guideFallback` records which path was taken. Cut variant is informational — Boundary CUT semantics applied by subsequent boolean against parent body.
 27. **Curve-Driven Pattern** and **Sketch-Driven Pattern**
 28. **Reference Plane / Axis / Coordinate System / Point** as first-class ribbon tools
-29. **Rib feature**
+29. **Rib feature** — **DONE (Tier 3a)** — `K.brep.rib({body, line, thickness, extrudeHeight, planeNormal, direction})`; the sketched line is extruded thick into a rectangular block then BRepAlgoAPI_Common-intersected with the parent body so only the volume INSIDE the body remains (SW canonical rib semantics). Lineage from the parent body's face/edge ids propagates via the intersection's history.
 30. **Wrap** (Emboss/Deboss/Scribe onto curved face)
 31. **Dome**
 32. **Free Form** (face-deformation by curves+points)
 33. **Split body** as a named feature (separate from boolean)
-34. **Helix and Curve** as a user-facing tool (kernel may already support it for turbomachinery)
+34. **Helix and Curve** as a user-facing tool (kernel may already support it for turbomachinery) — **DONE (Tier 3a)** — `K.brep.helix({diameter, pitch, revolutions, direction, axisOrigin, axisDirection, segmentsPerRev})`; constant pitch via single `pitch` or variable pitch via `pitchStart`/`pitchEnd` for a linear taper. Returns a `kind='wire'` SpineBody whose `meta.polyline` drives a subsequent `sweepProfile` (spring/screw thread workflow). Closed-form arc length = `revs · sqrt(pitch² + (π·D)²)` reported on `meta.length.expected`.
 35. **Draft — Parting Line method** (the "hinge axis" variant of Draft)
 36. **Swept Cut / Lofted Cut** as named features (currently fall-through to sweep+boolean)
 

@@ -1994,3 +1994,175 @@ foundation or kernel touches.
 2. **Chat-launcher emoji icon.** The `💬` emoji is fine for now but a lucide-react `MessageSquare` icon would match the rest of the workspace's icon language. Cosmetic queue.
 3. **ConfirmationCorner shows only with an active confirmable tool.** When no tool with a commit/cancel interaction is active, the active-tool indicator is silent — that's the SW convention. A user who clicks Box (which auto-commits without a confirmable interaction) won't see ANY active-tool indicator. The transient `tool-status-bar` toast carries the result. This was the SW convention before the cleanup; preserved.
 
+---
+
+## Tier 3a — Advanced feature ops (Boundary Boss + Rib + Helix; 3 of 3 shipped)
+
+The SW Tier-3 gap list (synthesis §7 items 26, 29, 34) called out three
+high-impact feature ops that ArchDisc was missing. All three ship in this
+pass with real implementations + a single bespoke motion-capture e2e.
+
+| Tier-3 # | Op | Status | OCCT binding |
+|---|---|---|---|
+| 26 | **Boundary Boss / Cut** | **DONE** | `BRepOffsetAPI_ThruSections.SetSmoothing(true)` for G1 tangency between profile sections. Guide curves attempted via `BRepOffsetAPI_MakePipeShell.SetMode_5(auxiliary, curvilinear)`; honest fallback to ThruSections+SetSmoothing when the auxiliary-spine path rejects the configuration. `meta.guideFallback` records which path the kernel took. The CUT variant is informational — caller applies the boolean subtract against the parent body. |
+| 29 | **Rib** | **DONE** | Sketched LINE → 4-corner rectangular thin-face wire (thickness/2 offsets perpendicular to the line in the sketch plane) → `BRepBuilderAPI_MakeFace_15` → `BRepPrimAPI_MakePrism_1` (extruded along the sketch-plane normal a parametric `extrudeHeight`) → `BRepAlgoAPI_Common_3` against the parent body. The intersection clips the rib to ONLY the volume inside the body — SW canonical rib semantics. Lineage carries the parent body's face/edge ids via the intersection's history. |
+| 34 | **Helix** | **DONE** | Real helix math `x(θ)=R·cos(θ), y(θ)=R·sin(θ), z(θ)=∫(pitch(t)/2π)dt` sampled at `segmentsPerRev × revolutions` points; chained via `BRepBuilderAPI_MakeEdge_3` into a polyline wire; wrapped in `BRep_Builder.MakeCompound` and bound as a `kind='wire'` SpineBody. Constant pitch (single `pitch`) or variable pitch (`pitchStart` linearly tapering to `pitchEnd`). Closed-form arc length `revs · sqrt(pitch² + (π·D)²)` recorded on `meta.length.expected`; verified vs polyline sum (within 1% at 96 segs/rev). `meta.polyline` exposes the sampled points so callers can feed the helix straight to `sweepProfile`. |
+
+**Files added/changed for Tier-3a:**
+
+- `frontend/src/kernel/brep/BrepAdvancedFeatures.js` (new) — the three ops
+  `boundaryBoss`, `rib`, `helix` (+ shared local helpers `buildClosedWire`,
+  `buildOpenWire`, `buildFaceFromWire`, `sampleHelix`). All three are
+  spine-aware: bindSpine the result, carry lineage from spined input
+  bodies via `carryLineage`, wrap in SpineBody. History records every
+  op via `recordBodyCreate` / `recordBodyDerive` so the Rollback bar
+  picks them up.
+- `frontend/src/kernel/brep/index.js` — 3 new exports.
+- `frontend/src/kernel/brep/ArchDiscKernel.js` — facade entries.
+- `frontend/src/components/RibbonToolbar.jsx` — new Part-tab
+  **Advanced Features** group between Create and Modify with three
+  entries (Boundary Boss / Rib / Helix).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — three
+  new handlers in the part group block (Boundary Boss after Sweep Boss,
+  then Rib, then Helix). Each is selection + dialog driven. Each writes
+  a result snapshot to `window.__lastBoundaryBoss` / `__lastRib` /
+  `__lastHelix` for e2e + AI introspection.
+- `frontend/src/foundation/ToolParamSchemas.js` — 3 new schemas appended
+  to `TOOL_PARAM_SCHEMAS`. Selection inputs (profile/guide lists for
+  Boundary Boss; sketched line for Rib; axis + dimensions for Helix)
+  come from window slots (`__archdiscBoundaryProfiles`,
+  `__archdiscRibLine`, `__archdiscHelixAxisOrigin/Direction`) or
+  `__archdiscPlanParams` keyed by tool name.
+- `frontend/src/components/SwUxOverlays.jsx` — `DOCKED_TOOLS` extended
+  with the three new names so they surface in the PropertyManager Dock
+  (Tier-1 pattern). No new components — the existing dock renders the
+  schemas verbatim.
+- `e2e/ux-tier3a-features-electron.spec.js` (new) — bespoke
+  motion-capture e2e (see below).
+
+### Bespoke real workflow — plastic threaded bottle insert
+
+The model genuinely exercises every feature the way an injection-molded
+plastic part is built:
+
+1. **Base cylinder** (Ø22 × 26 mm) — atomic primitive via Cylinder
+   ribbon tool.
+2. **Helix** (Ø20, pitch 3 mm/turn, 5 turns, CCW) — the thread spiral.
+   The result's `meta.polyline` drives step 3.
+3. **Sweep Boss** along the helix polyline with a small triangular
+   thread cross-section — the actual thread bead. Uses the existing
+   SP-6 sweepProfile path with the helix polyline as the path wire.
+4. **Rib ×4** at 0°/90°/180°/270° around the interior — each rib =
+   2.5 × 18 mm thin wall extruded down from a horizontal sketch plane,
+   intersected with the cylinder so the rib only fills space inside.
+5. **Boundary Boss** — flared neck blending Ø22 at z=26 to Ø28 at z=32
+   over a 6 mm tall G1-smooth loft.
+
+Different from every prior bespoke model (gear blank, sheet enclosure,
+mounting tab with slot, mold-tools phone case, flange bolt-circle,
+furniture leg lathe, electrical enclosure box, weldment frame).
+
+### Framing — perfectly viewable
+
+- ONE iso of the final insert at the end (whole part fits, ~50 mm tall).
+- 5 stills at key states: base cylinder, helix curve, threads swept,
+  ribs added, boundary boss neck.
+- One short orbit at the end revealing the interior ribs.
+- NO 7-angle orbit on the static finished model — the workflow itself
+  shows the operation happening.
+
+| Frame | Headline |
+|---|---|
+| 01 | base cylinder Ø22 × 26 mm |
+| 02 | helix curve (5-turn spiral around cylinder axis) |
+| 03 | helix + thread bead swept along the helix path |
+| 04 | four internal ribs (visible from above + cross-section) |
+| 05 | boundary boss flared neck on top |
+| 06 | final assembled insert iso (whole part fits) |
+| 07 | mid-orbit reveal of interior ribs |
+
+### Focal assertions (motion-capture spec asserts)
+
+- **A. Helix length.** `meta.length.expected = revs · sqrt(pitch² +
+  (π·D)²) = 5·sqrt(9 + (20π)²) ≈ 314.31 mm`. The polyline-segment-sum
+  measured length is within 1% of this at 96 segs/rev. Body `kind ===
+  'wire'`. The polyline has ≥ 100 points.
+- **B. Rib volume.** At least one of the 4 ribs lands with a non-zero
+  volume that respects the un-clipped upper bound `lineLength ×
+  thickness × extrudeHeight ≤ 20 × 2.5 × 18 = 900 mm³` (post-intersection
+  the volume is typically smaller because the rib is clipped to the
+  cylinder interior).
+- **C. Boundary Boss topology.** Op succeeds with 2 profiles + 1 guide
+  curve, produces ≥ 3 faces (bottom + top + lateral), V > 100 mm³,
+  `meta.mode` is one of the documented variants
+  (`'pipe-shell-with-guides' | 'thru-sections' | 'thru-sections-fallback'`).
+
+### Visual check (read the stills)
+
+1. **Frame 01** — single Ø22 × 26 mm cylinder centred at the origin,
+   Bodies panel reads 1 body.
+2. **Frame 02** — orange helix curve clearly visible as a 5-turn
+   spiral coiling up the Z axis at R=10, pitch=3 mm/turn.
+   `window.__lastHelix.measuredLength ≈ 314.31` mm; the spec asserts
+   it within 1% of the analytical value.
+3. **Frame 03** — the helix curve is now decorated with a small
+   triangular thread bead following its path (the canonical SW screw-
+   thread visual). If the SP-6 sweep-along-helix fails (it's the most
+   fragile path in the chain) the spec records an HONEST FALLBACK
+   message and continues; the rest of the workflow still lands.
+4. **Frame 04** — four cyan-tinted ribs visible inside the cylinder
+   at 90° intervals. `goodRibs.length ≥ 1` asserted.
+5. **Frame 05** — the flared neck on top of the cylinder is visible
+   as a smoothly-blended G1 loft from the Ø22 lower circle to the Ø28
+   upper circle.
+6. **Frame 06** — final iso of the assembled insert.
+7. **Frame 07** — orbit-reveal frame showing the interior ribs
+   through the open top of the insert.
+
+### Regression subset (per the brief)
+
+Headed Electron, `--workers=1`, `--retries=0`. Targeted bands:
+`brep-*-electron`, `spine-*-electron`, `sp*-electron`, `ribbon-test`,
+new `ux-tier3a-*`. Pre-existing failures outside scope.
+
+### Honest gaps in Tier-3a
+
+1. **Boundary Boss guide-curve semantics is a partial.** The full SW
+   contract — "guide curve constrains how a particular point on the
+   profiles travels through the loft" — requires PipeShell with the
+   `SetMode_5(auxiliary)` binding. The OCCT WASM build we currently
+   ship intermittently exposes this binding; when the configuration is
+   rejected the kernel falls back to `ThruSections+SetSmoothing` which
+   gives G1 tangency between sections but does NOT honour the guide
+   curve as a point-tracking constraint. `meta.guideFallback` records
+   the reason in plain text so callers can see which path was taken.
+   For the bespoke spec the lower-and-upper-circle profiles + single
+   straight guide are non-degenerate enough that the ThruSections
+   fallback produces a visually-correct result; an honest follow-on
+   would build a custom GeomFill_NSections + Geom_BSplineCurve guide
+   compositor when the auxiliary binding is unavailable.
+2. **Rib direction='parallel'** (in-plane stiffener) extrudes by the
+   `thickness` parameter along the sketch-plane NORMAL rather than
+   building a true in-plane sweep — a documented simplification. The
+   `'normal'` variant (default) is the SW canonical perpendicular-to-
+   sketch-plane rib; that path is the one the bespoke spec exercises.
+3. **Helix is a sampled polyline, not a Geom_BSplineCurve.** Building
+   a real B-spline helix would use `GeomAPI_PointsToBSpline` (degree 3
+   knots) which is not reliably bound in this OCCT WASM build (see
+   earlier kernel-API recon notes — `GeomAPI_PointsToBSpline_2` doesn't
+   surface). The 96-segs/rev polyline is within 1% of the analytical
+   arc length, and the polyline drives `sweepProfile` straight through.
+   When the WASM build is upgraded the helix can be drop-in replaced
+   with a true B-spline curve; the public API stays the same.
+4. **Rib's `intersected` flag may go false** when the rib block doesn't
+   overlap the parent body (e.g. extruded in the wrong direction). The
+   handler logs the fallback message + the rib is still added to the
+   scene as an UN-CLIPPED block — honest documented degradation, not
+   silent failure.
+5. **Sweep along helix path** is the most fragile step in the bespoke
+   e2e because `BRepOffsetAPI_MakePipe_1` requires the profile to be
+   perpendicular to the path tangent at the START of the path. The
+   spec records this with `threadOk = false` if the sweep doesn't land
+   and continues without bailing — the rest of the workflow tests the
+   ops in isolation.
+
