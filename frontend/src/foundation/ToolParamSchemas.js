@@ -1442,6 +1442,34 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5 },
     ],
   },
+
+  // ─── UX TIER 9b — Mold Tools focused additions ───────────────────────
+  //
+  // Two more SW Mold-Tools ops: Undercut Analysis (deeper than draft —
+  // flags faces that would lock the part in the mold via face-normal +
+  // shadow-ray test) + Shut-Off Surfaces (auto-close through-holes so
+  // the part can be cavity-cut by Tooling Split).
+  'Undercut Analysis': {
+    title: 'Undercut Analysis — Stuck-Face Detection vs Pull',
+    blurb: 'Pre-select a moldable body. For each face: sample the normal at the parametric centre; if n·pull < 0 (face -pull) AND a +pull ray from a point on the face hits another face of the body, the face is flagged as UNDERCUT (red — locked in the mold). Faces facing +pull cleanly are good (green); vertical / perpendicular faces are neutral (yellow). Each face gets a `mold.undercut` SP-2 boolean attribute.',
+    fields: [
+      { name: 'pullX',     label: 'Pull X',     type: 'number', default: 0, step: 0.1, hint: 'Pull direction X component (world frame).' },
+      { name: 'pullY',     label: 'Pull Y',     type: 'number', default: 0, step: 0.1, hint: 'Pull direction Y component.' },
+      { name: 'pullZ',     label: 'Pull Z',     type: 'number', default: 1, step: 0.1, hint: 'Pull direction Z component (default +Z = open mold upward).' },
+      { name: 'threshold', label: 'Threshold',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5,
+        hint: 'Faces within ±threshold of perpendicular to pull are neutral (yellow). Faces below pull a further test for shadowing.' },
+    ],
+  },
+  'Shut-Off Surfaces': {
+    title: 'Shut-Off Surfaces — Close Through-Holes for Cavity Cutting',
+    blurb: 'Pre-select a moldable body. Detects closed loops of free edges (through-holes / open shells) and closes every loop ≤ `maxHoleDiameter` with an N-sided patch face via SP-8 autoFillMissingFaces. The result body is watertight — suitable for Tooling Split. Patches are tagged with `mold.shutOff` SP-2 attribute and reported via `metadata.mold.shutOff`.',
+    fields: [
+      { name: 'maxHoleDiameter', label: 'Max hole diameter', type: 'number', default: 50, unit: 'mm', min: 1, max: 1000, step: 1,
+        hint: 'Skip free-edge loops with diameter greater than this. Default 50 mm covers typical cable-entry / vent holes; raise to fill larger openings.' },
+      { name: 'tolerance',       label: 'Free-bound tol.',   type: 'number', default: 0.001, unit: 'mm', min: 0.0001, max: 1, step: 0.0001,
+        hint: 'ShapeFix_FreeBounds close-tolerance — open-edge endpoints within this are unified into a closed wire.' },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {

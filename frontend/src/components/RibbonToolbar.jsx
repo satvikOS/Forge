@@ -391,9 +391,14 @@ const TABS = {
     groups: [
       { label: 'Analysis', tools: [
         { name: 'Draft Analysis', icon: '◐', key: 'moldTools', primary: true },
+        // UX Tier 9b — flag stuck faces via face-normal + shadow-ray test.
+        { name: 'Undercut Analysis', icon: '⊘', key: 'moldTools', primary: true },
       ]},
       { label: 'Parting', tools: [
         { name: 'Parting Line', icon: '〰', key: 'moldTools' },
+        // UX Tier 9b — auto-close through-holes (free-edge loops) to make
+        // the part watertight for cavity-cutting.
+        { name: 'Shut-Off Surfaces', icon: '◯', key: 'moldTools' },
       ]},
       { label: 'Mold Block', tools: [
         { name: 'Tooling Split', icon: '⊟', key: 'moldTools', primary: true },

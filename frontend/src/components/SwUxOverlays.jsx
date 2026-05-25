@@ -473,6 +473,9 @@ export const DOCKED_TOOLS = new Set([
   // UX Tier 6b — Weldments additions (Gusset + Weld Bead).
   'Gusset',
   'Weld Bead',
+  // UX Tier 9b — Mold Tools focused additions (Undercut + Shut-Off).
+  'Undercut Analysis',
+  'Shut-Off Surfaces',
 ]);
 
 export function PropertyManagerDock() {
