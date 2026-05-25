@@ -89,10 +89,12 @@ import {
   hem, jog, miterFlange, sketchedBend,
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
+// UX Tier 6b — Weldments additions (Gusset / Weld Bead).
 import {
   structuralMember, trimMembers, endCap,
   isWeldment, getWeldmentMetadata,
   buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
+  gusset, weldBead,
 } from './BrepWeldments.js';
 // UX Tier 9 — Mold Tools workbench foundation.
 import {
@@ -287,6 +289,11 @@ export const ArchDiscKernel = {
     standardProfileSizes,
     /** Raw catalogue of standard profile dimensions (for advanced callers). */
     STANDARD_PROFILES,
+    // ── UX Tier 6b Weldments additions ─────────────────────────────────────
+    /** Gusset — triangular (or polygon) reinforcement plate between two structural members at their shared joint. */
+    gusset,
+    /** Weld Bead — fillet / square / V / bevel weld profile swept along the joint between two members. */
+    weldBead,
     // ── UX Tier 9 Mold Tools workbench foundation ─────────────────────────
     /** Draft Analysis — walk every face, classify by draft angle vs. pull direction (positive / negative / vertical). */
     draftAnalysis,

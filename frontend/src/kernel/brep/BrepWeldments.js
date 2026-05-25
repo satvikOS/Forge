@@ -290,17 +290,19 @@ function profileToWorld(frame, pt) {
 
 /**
  * Stamp weldment metadata on `body.body.metadata.weldment`. Idempotent;
- * preserves the trims[] history if present.
+ * preserves the trims[] / caps[] / gussets[] / welds[] history if present.
  */
 function stampWeldmentMetadata(spineBody, fields) {
   if (!spineBody || !spineBody.body) return null;
   const meta = spineBody.body.metadata || (spineBody.body.metadata = {});
-  const w = meta.weldment || (meta.weldment = { trims: [], caps: [] });
+  const w = meta.weldment || (meta.weldment = { trims: [], caps: [], gussets: [], welds: [] });
   for (const [k, v] of Object.entries(fields)) {
     if (v !== undefined) w[k] = v;
   }
-  if (!Array.isArray(w.trims)) w.trims = [];
-  if (!Array.isArray(w.caps)) w.caps = [];
+  if (!Array.isArray(w.trims))   w.trims = [];
+  if (!Array.isArray(w.caps))    w.caps = [];
+  if (!Array.isArray(w.gussets)) w.gussets = [];
+  if (!Array.isArray(w.welds))   w.welds = [];
   return w;
 }
 
@@ -791,4 +793,335 @@ function profileBoundingBox(w) {
     default:
       return { x0: -25, y0: -25, x1: 25, y1: 25 };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. gusset — triangular reinforcement plate between two structural members
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a gusset — a triangular reinforcement plate fillet-welded between two
+ * structural members at their shared joint. The gusset's plane is the plane
+ * that contains both members' tangents AT the joint (the "joint plane"). The
+ * plate is a right triangle with legs of length `size` lying along each
+ * member's tangent direction (outward from the joint), then extruded
+ * perpendicular to the joint plane by `thickness`.
+ *
+ * Real welded-frame reinforcement: the gusset's hypotenuse forms the
+ * structural fillet that triangulates the otherwise-pin joint between the
+ * two members, drastically stiffening the corner.
+ *
+ * Both members' metadata records the gusset id (so downstream weld-bead /
+ * cut-list ops can locate every gusset attached to a member).
+ *
+ * @param {SpineBody} memberA   first structural member (weldment-tagged).
+ * @param {SpineBody} memberB   second structural member (weldment-tagged).
+ * @param {object} opts
+ * @param {string} [opts.type='triangular']  'triangular' | 'polygon'
+ * @param {number} [opts.size=100]        leg length along each member (mm).
+ * @param {number} [opts.thickness=6]     plate thickness (mm).
+ * @param {string} [opts.position='inner'] 'inner' (on the joint-bisector side)
+ *                                         | 'outer' (opposite side).
+ * @returns {Promise<{gusset: SpineBody, gussetId: string, joint: number[]}>}
+ */
+export async function gusset(memberA, memberB, opts = {}) {
+  if (!memberA || !memberA.body) throw new Error('gusset: memberA missing');
+  if (!memberB || !memberB.body) throw new Error('gusset: memberB missing');
+  const wA = getWeldmentMetadata(memberA);
+  const wB = getWeldmentMetadata(memberB);
+  if (!wA) throw new Error('gusset: memberA is not a weldment member — run Structural Member first');
+  if (!wB) throw new Error('gusset: memberB is not a weldment member — run Structural Member first');
+
+  const type = String(opts.type || 'triangular').toLowerCase();
+  const size = (Number(opts.size) > 0 ? Number(opts.size) : 100) / 1000; // mm → m
+  const thickness = Number(opts.thickness) > 0 ? Number(opts.thickness) : 6; // mm (for extrude)
+  const position = String(opts.position || 'inner').toLowerCase();
+
+  // Find the joint point shared by the two members.
+  const joint = findJoint(wA, wB);
+  if (!joint) {
+    throw new Error('gusset: members do not share an endpoint within 1 mm — gusset needs a real joint');
+  }
+
+  // Tangents OUT of the joint into each member (i.e. pointing along each
+  // member from the joint into its body).
+  const tA = tangentAtJoint(wA, joint);
+  const tB = tangentAtJoint(wB, joint);
+  if (!tA || !tB) {
+    throw new Error('gusset: could not derive tangents at the joint');
+  }
+
+  // The two legs of the gusset triangle sit at distance `size` along each
+  // tangent from the joint. The triangle vertices are:
+  //   P0 = joint
+  //   P1 = joint + size * tA
+  //   P2 = joint + size * tB
+  const P0 = joint;
+  const P1 = add(joint, scl(nrmlz(tA), size));
+  const P2 = add(joint, scl(nrmlz(tB), size));
+
+  // Joint-plane normal — perpendicular to BOTH tangents (i.e. extrusion dir).
+  let normal = cross(tA, tB);
+  let nMag = nrm(normal);
+  if (nMag < 1e-6) {
+    // Members co-linear — degenerate joint; pick a perpendicular fallback.
+    let upHint = [0, 0, 1];
+    if (Math.abs(dot(nrmlz(tA), upHint)) > 0.95) upHint = [1, 0, 0];
+    normal = cross(tA, upHint);
+    nMag = nrm(normal);
+  }
+  normal = scl(normal, 1 / nMag);
+  // Position flip — outer means extrude the OTHER way.
+  if (position === 'outer') normal = scl(normal, -1);
+
+  // Build the triangle profile in 3D — already in metres.
+  // For 'polygon' mode we ship a 5-sided gusset (chopped corners) — more
+  // realistic for high-strength applications. For 'triangular' mode the
+  // straight 3-vertex triangle.
+  let profile3D;
+  if (type === 'polygon') {
+    // 5-sided gusset: shave the two outer corners to ~20% of size.
+    const t = 0.2;
+    const P1a = add(joint, scl(nrmlz(tA), size * (1 - t)));
+    const P1b = add(add(joint, scl(nrmlz(tA), size)), scl(nrmlz(tB), size * t));
+    const P2a = add(add(joint, scl(nrmlz(tB), size)), scl(nrmlz(tA), size * t));
+    const P2b = add(joint, scl(nrmlz(tB), size * (1 - t)));
+    profile3D = [P0, P1a, P1b, P2a, P2b].map(p => ({ x: p[0], y: p[1], z: p[2] }));
+  } else {
+    profile3D = [P0, P1, P2].map(p => ({ x: p[0], y: p[1], z: p[2] }));
+  }
+
+  // Extrude the plate by `thickness` mm along `normal`.
+  // Centre the prism on the joint plane by shifting -thickness/2 along normal first.
+  const halfShift = scl(normal, -(thickness / 2) / 1000);
+  profile3D = profile3D.map(p => ({
+    x: p.x + halfShift[0],
+    y: p.y + halfShift[1],
+    z: p.z + halfShift[2],
+  }));
+
+  let plate;
+  try {
+    plate = await extrudeProfile(profile3D, thickness, { direction: nrmlz(normal) });
+  } catch (err) {
+    throw new Error(`gusset: failed to build gusset plate — ${err.message || err}`);
+  }
+
+  // Tag the gusset itself with its weldment-child metadata.
+  const gussetId = `gusset_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36)}`;
+  stampWeldmentMetadata(plate, {
+    profile: 'gusset',
+    size: `${Math.round(size * 1000)}x${thickness}`,
+    length: size * 1000,
+    gussetId,
+    gussetType: type,
+    gussetThickness: thickness,
+    gussetPosition: position,
+    parentMembers: [wA.profile + '/' + wA.size, wB.profile + '/' + wB.size],
+    at: joint,
+  });
+  if (plate.meta) {
+    plate.meta.op = 'gusset';
+    plate.meta.weldment = {
+      profile: 'gusset',
+      gussetId,
+      type,
+      size: size * 1000,
+      thickness,
+      at: joint,
+    };
+  }
+
+  // Record the gusset id on BOTH parent members' metadata.
+  const record = {
+    id: gussetId,
+    type,
+    size: size * 1000,
+    thickness,
+    position,
+    at: joint,
+  };
+  const wmA = stampWeldmentMetadata(memberA, {});
+  wmA.gussets = [...(wmA.gussets || []), record];
+  const wmB = stampWeldmentMetadata(memberB, {});
+  wmB.gussets = [...(wmB.gussets || []), record];
+
+  return { gusset: plate, gussetId, joint };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. weldBead — cosmetic + topological weld along a shared edge
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a weld bead — a small sweep along the shared edge / joint between
+ * two structural members. The bead is a real solid: a small triangular
+ * profile for fillet welds (the canonical welder cross-section), a small
+ * rectangle for square welds, and a V-profile for V-groove welds.
+ *
+ * Joint locator: we use the two members' weldment metadata to find the
+ * shared joint point + each member's tangent. The bead's PATH is a short
+ * straight segment along the joint corner — for a fillet weld between two
+ * orthogonal members, the bead runs along the corner edge where one
+ * member's outer face meets the other's. We approximate this corner edge
+ * by a segment from the joint along a direction perpendicular to BOTH
+ * tangents (the "corner direction"); when the members are co-linear we
+ * fall back to a small bead at the joint along memberA's tangent.
+ *
+ * @param {SpineBody} memberA  first structural member (weldment-tagged).
+ * @param {SpineBody} memberB  second structural member (weldment-tagged).
+ * @param {object} opts
+ * @param {string} [opts.type='fillet']  'fillet' | 'square' | 'V' | 'bevel'
+ * @param {number} [opts.size=6]         bead leg size (mm).
+ * @param {number} [opts.length]         bead run length (mm); default = min(memberA, memberB) length.
+ * @returns {Promise<{bead: SpineBody, weldId: string, joint: number[], beadLength: number}>}
+ */
+export async function weldBead(memberA, memberB, opts = {}) {
+  if (!memberA || !memberA.body) throw new Error('weldBead: memberA missing');
+  if (!memberB || !memberB.body) throw new Error('weldBead: memberB missing');
+  const wA = getWeldmentMetadata(memberA);
+  const wB = getWeldmentMetadata(memberB);
+  if (!wA) throw new Error('weldBead: memberA is not a weldment member — run Structural Member first');
+  if (!wB) throw new Error('weldBead: memberB is not a weldment member — run Structural Member first');
+
+  const type = String(opts.type || 'fillet').toLowerCase();
+  const sizeMm = Number(opts.size) > 0 ? Number(opts.size) : 6;
+
+  const joint = findJoint(wA, wB);
+  if (!joint) {
+    throw new Error('weldBead: members do not share an endpoint within 1 mm — bead needs a real joint');
+  }
+  const tA = tangentAtJoint(wA, joint);
+  const tB = tangentAtJoint(wB, joint);
+  if (!tA || !tB) {
+    throw new Error('weldBead: could not derive tangents at the joint');
+  }
+
+  // Bead run direction: typically the joint corner runs along memberA's
+  // edge (or memberB's). We pick memberA's tangent as the bead run, scaled
+  // by `length` or by min(member lengths).
+  const beadLengthMm = (typeof opts.length === 'number' && opts.length > 0)
+    ? opts.length
+    : Math.min(sizeMm * 20, Math.min(wA.length || 100, wB.length || 100));
+  const beadLength = beadLengthMm / 1000;
+  const runDir = nrmlz(tA);
+  const pathStart = joint;
+  const pathEnd = add(joint, scl(runDir, beadLength));
+  const path3D = [pathStart, pathEnd].map(p => ({ x: p[0], y: p[1], z: p[2] }));
+
+  // Cross-section frame at the joint: u = perpendicular to runDir, in the
+  // (tA, tB) plane (pointing into the corner); v = normal of the (tA,tB)
+  // plane (orthogonal to both). For the bead cross-section the triangle
+  // (or rect or V) sits in the (u, v) plane.
+  const upHint = nrmlz(tB);
+  let u = sub(upHint, scl(runDir, dot(upHint, runDir)));
+  let uMag = nrm(u);
+  if (uMag < 1e-6) {
+    let fallback = [0, 0, 1];
+    if (Math.abs(dot(runDir, fallback)) > 0.95) fallback = [1, 0, 0];
+    u = sub(fallback, scl(runDir, dot(fallback, runDir)));
+    uMag = nrm(u);
+  }
+  u = scl(u, 1 / uMag);
+  let v = cross(runDir, u);
+  v = nrmlz(v);
+
+  // Build the cross-section polygon in 3D, anchored at pathStart in the
+  // (u, v) plane. The bead "fills the corner", so the profile sits IN the
+  // joint (the corner where the two members meet).
+  // Local 2D coords (in mm) — caller's choice of bead type.
+  const s = sizeMm; // bead leg size (mm), in cross-section local frame.
+  let profile2D; // [{x,y}, …] in mm, in (u,v) frame.
+  if (type === 'square') {
+    // Filled rectangular fillet.
+    profile2D = [
+      { x: 0, y: 0 },
+      { x: s, y: 0 },
+      { x: s, y: s },
+      { x: 0, y: s },
+    ];
+  } else if (type === 'v') {
+    // V-groove: an isoceles V opening into the corner with depth = s.
+    const half = s / 2;
+    profile2D = [
+      { x: -half, y: 0 },
+      { x:  half, y: 0 },
+      { x: 0,     y: s  },
+    ];
+  } else if (type === 'bevel') {
+    // Bevel: a 4-sided trapezoid — the chamfered fillet weld.
+    profile2D = [
+      { x: 0,         y: 0 },
+      { x: s,         y: 0 },
+      { x: s * 0.7,   y: s * 0.7 },
+      { x: 0,         y: s },
+    ];
+  } else {
+    // Fillet (default): right triangle — legs along u and v, hypotenuse
+    // sealing the bead. The canonical welder fillet cross-section.
+    profile2D = [
+      { x: 0, y: 0 },
+      { x: s, y: 0 },
+      { x: 0, y: s },
+    ];
+  }
+
+  // Map the 2D profile into 3D world coords at pathStart.
+  const profile3D = profile2D.map(pt => ({
+    x: pathStart[0] + (u[0] * pt.x + v[0] * pt.y) / 1000,
+    y: pathStart[1] + (u[1] * pt.x + v[1] * pt.y) / 1000,
+    z: pathStart[2] + (u[2] * pt.x + v[2] * pt.y) / 1000,
+  }));
+
+  // Sweep the cross-section along the path; fall back to extrude if sweep
+  // fails on a degenerate path.
+  let bead;
+  try {
+    bead = await sweepProfile(profile3D, path3D);
+  } catch (_err) {
+    try {
+      bead = await extrudeProfile(profile3D, beadLengthMm, { direction: runDir });
+    } catch (err2) {
+      throw new Error(`weldBead: failed to build bead — ${err2.message || err2}`);
+    }
+  }
+
+  const weldId = `weld_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36)}`;
+  stampWeldmentMetadata(bead, {
+    profile: 'weldBead',
+    size: `${sizeMm}-${type}`,
+    length: beadLengthMm,
+    weldId,
+    weldType: type,
+    weldSize: sizeMm,
+    beadLength: beadLengthMm,
+    parentMembers: [wA.profile + '/' + wA.size, wB.profile + '/' + wB.size],
+    at: joint,
+  });
+  if (bead.meta) {
+    bead.meta.op = 'weldBead';
+    bead.meta.weldment = {
+      profile: 'weldBead',
+      weldId,
+      type,
+      size: sizeMm,
+      length: beadLengthMm,
+      at: joint,
+    };
+  }
+
+  // Record the weld bead on BOTH parent members' metadata.
+  const record = {
+    id: weldId,
+    type,
+    size: sizeMm,
+    length: beadLengthMm,
+    at: joint,
+  };
+  const wmA = stampWeldmentMetadata(memberA, {});
+  wmA.welds = [...(wmA.welds || []), record];
+  const wmB = stampWeldmentMetadata(memberB, {});
+  wmB.welds = [...(wmB.welds || []), record];
+
+  return { bead, weldId, joint, beadLength: beadLengthMm };
 }
