@@ -501,6 +501,16 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             overlay.name = '__selection_outline__';
             overlay.userData.pickable = false;
             overlay.userData.isHelper = true;
+            // Overlay shares the underlying mesh's position attribute but only
+            // indexes a SUBSET of the triangles. Three.js computes a bounding
+            // sphere over the WHOLE position attribute, not just the indexed
+            // triangles — for a small face on a large body the bounding sphere
+            // is correct, but the centre is the WHOLE body's centroid and the
+            // overlay would still cull correctly. To be safe against any future
+            // overlay geometry that gets an under-sized bbox (per-face overlays
+            // typically do), turn off frustum culling so the highlight is
+            // always rendered when the parent body is on-screen.
+            overlay.frustumCulled = false;
             overlay.applyMatrix4(hitMesh.matrixWorld);
             scene.add(overlay);
             return id;
@@ -558,6 +568,11 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
             line.userData.pickable = false;
             line.userData.isHelper = true;
             line.renderOrder = 999;
+            // 2-point edge highlight — a degenerate-bounded line; Three.js
+            // computes a tight bounding sphere here, but for short edges off
+            // the screen-centre the sphere can fall outside the frustum even
+            // when the parent body is visible. Always render the edge stripe.
+            line.frustumCulled = false;
             scene.add(line);
         }
 
@@ -1410,6 +1425,15 @@ function focusOnAll(scene, camera, controls) {
     const maxDim = Math.max(size.x, size.y, size.z) || 5;
     const dist = maxDim / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.8;
     camera.position.set(center.x + dist * 0.6, center.y + dist * 0.4, center.z + dist * 0.6);
+    // Match the per-scene framing helpers (focusOnObject /
+    // __archdiscFocusOnFoundationBodies) and auto-fit the clip planes to
+    // the scene diagonal. Without this, focusOnAll on a large assembly
+    // leaves camera.far at its initial 100 m so anything beyond the
+    // frustum gets clipped at certain camera distances — exactly the
+    // "at angles some parts are not rendered" symptom the user reported.
+    camera.near = Math.max(dist * 0.001, 0.0001);
+    camera.far  = Math.max(dist * 100, 100);
+    camera.updateProjectionMatrix();
     controls.target.copy(center);
     controls.update();
 }
