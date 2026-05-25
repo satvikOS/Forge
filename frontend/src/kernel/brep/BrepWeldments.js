@@ -1125,3 +1125,104 @@ export async function weldBead(memberA, memberB, opts = {}) {
 
   return { bead, weldId, joint, beadLength: beadLengthMm };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. cutList — BOM-style aggregation of every weldment member in the scene
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a cut list — the headline Weldments fabrication deliverable. Iterates
+ * the live BodyRegistry, filters bodies that carry weldment metadata stamped
+ * by Structural Member (`profile`, `size`, `length`), and groups them by the
+ * triple `(profile, size, rounded-length)` so the welder gets one line per
+ * "cut N pieces of <profile>/<size> at <length> mm" item.
+ *
+ * Reinforcement bodies (gusset / weldBead) are EXCLUDED — only true structural
+ * members (`profile` ∈ standard families) end up in the cut list. The cut list
+ * is what the fabrication shop orders + cuts; gussets / beads are downstream
+ * weld assembly steps, not stock-bar cuts.
+ *
+ * Rounding: lengths are rounded to the nearest `opts.rounding` mm bucket
+ * (default 1 mm). This matches the welder's saw-stop precision and groups
+ * near-identical cuts (a 750.0 mm leg and a 750.4 mm leg become one line).
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.rounding=1]  group lengths to this mm granularity.
+ * @returns {{
+ *   groups: Array<{itemNo:number, profile:string, size:string, lengthMm:number, quantity:number, totalLengthMm:number}>,
+ *   totalLines: number,
+ *   totalLengthMm: number,
+ * }}
+ */
+export function cutList(opts = {}) {
+  const rounding = Number(opts.rounding) > 0 ? Number(opts.rounding) : 1;
+
+  // Resolve the BodyRegistry. In a browser/Electron context the singleton is
+  // mirrored on window.__archdiscBodies (see BodyRegistry.js). Headless / unit
+  // callers can pass `opts.registry` directly. Falls back to an empty list so
+  // the cut list never throws (returns an empty BOM).
+  const registry = opts.registry
+    || (typeof window !== 'undefined' ? window.__archdiscBodies : null);
+  const bodies = registry && Array.isArray(registry.bodies) ? registry.bodies : [];
+
+  // Recognised structural-profile families (gusset / weldBead are filtered out).
+  const STRUCT_FAMILIES = new Set(Object.keys(STANDARD_PROFILES));
+
+  /** Aggregate: keyed by `profile|size|roundedLength`. */
+  const buckets = new Map();
+
+  for (const entry of bodies) {
+    // The kernel's BrepShape carries `metadata.weldment`; in the scene, the
+    // SpineBody reference is stored on `entry.brepShapeRef` (or on the
+    // group.userData.brepShapeRef as a non-enumerable property). Try both.
+    const spineBody = entry.brepShapeRef
+      || (entry.group && entry.group.userData && entry.group.userData.brepShapeRef)
+      || null;
+    if (!spineBody) continue;
+    const wm = getWeldmentMetadata(spineBody);
+    if (!wm) continue;
+    // Filter out reinforcement children (gusset / weldBead carry their own
+    // profile tag distinct from the STANDARD_PROFILES families).
+    const profile = String(wm.profile || '').toLowerCase();
+    if (!STRUCT_FAMILIES.has(profile)) continue;
+    const lengthMm = Number(wm.length);
+    if (!Number.isFinite(lengthMm) || lengthMm <= 0) continue;
+
+    const bucketLen = Math.max(rounding, Math.round(lengthMm / rounding) * rounding);
+    const size = String(wm.size || '');
+    const key = `${profile}|${size}|${bucketLen}`;
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.quantity += 1;
+      existing.totalLengthMm += bucketLen;
+    } else {
+      buckets.set(key, {
+        profile,
+        size,
+        lengthMm: bucketLen,
+        quantity: 1,
+        totalLengthMm: bucketLen,
+      });
+    }
+  }
+
+  // Sort the groups deterministically: profile family → size → length asc.
+  const sorted = [...buckets.values()].sort((a, b) => {
+    if (a.profile !== b.profile) return a.profile < b.profile ? -1 : 1;
+    if (a.size    !== b.size)    return a.size    < b.size    ? -1 : 1;
+    return a.lengthMm - b.lengthMm;
+  });
+
+  // Stamp itemNo 1..N + sum the grand total.
+  let totalLengthMm = 0;
+  const groups = sorted.map((g, i) => {
+    totalLengthMm += g.totalLengthMm;
+    return { itemNo: i + 1, ...g };
+  });
+
+  return {
+    groups,
+    totalLines: groups.length,
+    totalLengthMm,
+  };
+}

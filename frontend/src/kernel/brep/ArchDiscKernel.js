@@ -90,11 +90,13 @@ import {
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
 // UX Tier 6b — Weldments additions (Gusset / Weld Bead).
+// UX Tier 6c — Weldments Cut List (BOM aggregation of structural members).
 import {
   structuralMember, trimMembers, endCap,
   isWeldment, getWeldmentMetadata,
   buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
   gusset, weldBead,
+  cutList,
 } from './BrepWeldments.js';
 // UX Tier 9 — Mold Tools workbench foundation.
 // UX Tier 9b — focused additions (Undercut Analysis + Shut-Off Surfaces).
@@ -296,6 +298,9 @@ export const ArchDiscKernel = {
     gusset,
     /** Weld Bead — fillet / square / V / bevel weld profile swept along the joint between two members. */
     weldBead,
+    // ── UX Tier 6c Weldments Cut List ──────────────────────────────────────
+    /** Cut List — BOM-style aggregation of every weldment-tagged structural member in the scene. */
+    cutList,
     // ── UX Tier 9 Mold Tools workbench foundation ─────────────────────────
     /** Draft Analysis — walk every face, classify by draft angle vs. pull direction (positive / negative / vertical). */
     draftAnalysis,

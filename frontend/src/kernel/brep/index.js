@@ -92,11 +92,13 @@ export {
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
 // UX Tier 6b — Weldments additions (Gusset / Weld Bead).
+// UX Tier 6c — Weldments Cut List (BOM aggregation of structural members).
 export {
   structuralMember, trimMembers, endCap,
   isWeldment, getWeldmentMetadata,
   buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
   gusset, weldBead,
+  cutList,
 } from './BrepWeldments.js';
 // UX Tier 9 — Mold Tools workbench foundation.
 // UX Tier 9b — focused additions (Undercut Analysis + Shut-Off Surfaces).
