@@ -312,8 +312,8 @@ onward).
 | Structural Member | `05:45:09` | Standard → Profile → Size; group selection — **DONE (Tier 6a)** with 6 standard profile families |
 | Trim/Extend | `06:03:33` | Cope cuts — **DONE (Tier 6a)** butt + mitered modes; cope cut (saddle) queued for Tier-6b |
 | End Cap | (within Weldments section) | **DONE (Tier 6a)** — flat / thick cap prism + fuse |
-| Gusset | (within Weldments section) | Queued Tier-6b |
-| Weld Bead | `06:15:42` | Spot/continuous; all-around; size — queued Tier-6b |
+| Gusset | (within Weldments section) | **DONE (Tier 6b)** — triangular / polygon plate fillet-welded between two members; `body.metadata.weldment.gussets[]` |
+| Weld Bead | `06:15:42` | Spot/continuous; all-around; size — **DONE (Tier 6b)** fillet / square / V / bevel cross-sections swept along the joint; `body.metadata.weldment.welds[]` |
 | Cut List | `06:00:19` | Auto-generated BOM-like list of all members — queued Tier-6b |
 
 ### Assemblies
@@ -759,9 +759,9 @@ bends[]}`, and downstream ops can ASK whether a body is sheet metal via
 | Structural Member (Standard → Profile → Size) | Structural Member | **DONE** (Tier 6a — `K.brep.structuralMember(path, {profile, size})`; standard ISO/ANSI profile library with ≥3 sizes per family) |
 | Trim/Extend (weldment) | Trim/Extend Members | **DONE** (Tier 6a — `K.brep.trimMembers(members, {mode})`; butt + mitered modes; real boolean cut) |
 | End Cap | End Cap | **DONE** (Tier 6a — `K.brep.endCap(member, end, {thickness})`; flat-cap prism + fuse) |
-| Gusset | None | **Missing** — queued Tier-6b |
-| Weld Bead | None | **Missing** — queued Tier-6b |
-| Cut List | None | **Missing** — queued Tier-6b |
+| Gusset | Gusset | **DONE** (Tier 6b — `K.brep.gusset(memberA, memberB, {type, size, thickness, position})`; both members' `metadata.weldment.gussets[]` records the gusset; the gusset body itself is weldment-tagged with `profile:'gusset'`) |
+| Weld Bead | Weld Bead | **DONE** (Tier 6b — `K.brep.weldBead(memberA, memberB, {type, size, length})`; fillet / square / V / bevel cross-sections swept along the joint; both members' `metadata.weldment.welds[]` records the bead) |
+| Cut List | None | **Missing** — queued Tier-6c (BOM-style aggregation of every member + length + cut count) |
 | Standard profile library (ANSI/ISO) | STANDARD_PROFILES (recttube/squaretube/roundtube/angle/channel/ibeam) | **Done — foundation** (3 ISO/ANSI sizes per family; custom profile import queued for Tier-6b) |
 
 The dedicated **Weldments** ribbon tab (between Sheet Metal and Drawing)
@@ -971,10 +971,11 @@ The single largest gap. Needs:
 - ~~Standard profile library (ANSI/ISO/DIN angle-iron, channel, square-tube, pipe, etc.)~~ — **DONE** (Tier 6a; 6 families × 3 sizes minimum: rect/square/round tube + angle + C-channel + I-beam IPE)
 - ~~Trim/Extend Members~~ — **DONE** (Tier 6a; butt + mitered modes via real boolean cut)
 - ~~End Cap~~ — **DONE** (Tier 6a; flat-cap prism + fuse; thickness option)
-- Gusset, Weld Bead — **Missing** (queued Tier-6b)
-- Cut List (auto BOM-like list of all members + lengths) — **Missing** (queued Tier-6b)
-- Cope Cut (cylindrical-tube saddle cut) — **Missing** (queued Tier-6b)
-- Sub-Weldment + Custom Profile Import — **Missing** (queued Tier-6b)
+- ~~Gusset~~ — **DONE** (Tier 6b; triangular / polygon plate fillet-welded between two members; `body.metadata.weldment.gussets[]` recorded on both parents; the gusset body itself is weldment-tagged)
+- ~~Weld Bead~~ — **DONE** (Tier 6b; fillet / square / V / bevel cross-section swept along the joint; `body.metadata.weldment.welds[]` recorded on both parents; the bead body itself is weldment-tagged)
+- Cut List (auto BOM-like list of all members + lengths) — **Missing** (queued Tier-6c)
+- Cope Cut (cylindrical-tube saddle cut) — **Missing** (queued Tier-6c)
+- Sub-Weldment + Custom Profile Import — **Missing** (queued Tier-6c)
 
 ### Tier 7 — Missing assembly capabilities
 

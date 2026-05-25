@@ -858,7 +858,7 @@ accounting in one workflow.
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b shipped (7 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend)** |
-| 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a foundation shipped (3 of ~8 ops)** |
+| 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b shipped (5 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead; Cut List, Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6c)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b shipped (7/12+; standard-mate set complete 8/8 + 3 of 6 advanced)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 foundation shipped (3 of ~8 ops)** |
@@ -1693,6 +1693,113 @@ The new Weldments tab adds a 9th ribbon tab (after Sheet Metal's 8th).
    The spec's contract is "at least one trim recorded OR honest skip
    with the diagnostic slot populated". Mitre + butt both honour this
    contract.
+
+---
+
+## Tier 6b — Weldments additions (Gusset + Weld Bead) — 2026-05-25
+
+Two foundational reinforcement / weld ops on top of the Tier-6a structural
+members. Both ops require TWO weldment-tagged members that share a joint
+endpoint (within 1 mm tolerance) — they then build a NEW weldment-tagged
+child body AND record the gusset / weld id on BOTH parent members.
+
+### What shipped
+
+| Op | Kernel facade entry | Body kind | Metadata recorded |
+|---|---|---|---|
+| **Gusset** | `K.brep.gusset(memberA, memberB, {type, size, thickness, position})` | Solid plate (extruded triangle / 5-sided polygon) | `weldment.gussets[].{id, type, size, thickness, position, at}` on both parents; gusset body itself tagged `profile:'gusset'`, `gussetId`, `gussetType` |
+| **Weld Bead** | `K.brep.weldBead(memberA, memberB, {type, size, length})` | Solid bead (swept cross-section) | `weldment.welds[].{id, type, size, length, at}` on both parents; bead body itself tagged `profile:'weldBead'`, `weldId`, `weldType` |
+
+**Weld cross-sections** (real welder spec):
+
+- `fillet` — right triangle with legs of `size` mm (canonical SMAW / GMAW)
+- `square`  — `size`×`size` rectangle (square fillet weld)
+- `V`       — isoceles V-groove, depth `size`, opening into the corner (butt-weld prep)
+- `bevel`   — 4-sided trapezoidal bevel (chamfered fillet)
+
+**Gusset shapes**:
+
+- `triangular` — 3-vertex right-triangle plate, legs along each member tangent (classic)
+- `polygon`    — 5-sided plate with the two outer corners shaved to 20% of size
+
+### Where the geometry lives
+
+The two ops live in `frontend/src/kernel/brep/BrepWeldments.js` — appended
+after `endCap`. They share the same joint-locator (`findJoint`,
+`tangentAtJoint`) as the Tier-6a `trimMembers`/`endCap`, so the trio is
+self-consistent. The `stampWeldmentMetadata` helper was extended to
+initialise `gussets: []` + `welds: []` arrays alongside the existing
+`trims: []` + `caps: []`.
+
+### Bespoke e2e — welded steel crane jib
+
+`e2e/ux-tier6b-gusset-weldbead-electron.spec.js` builds a fabricated crane
+jib (lifting-equipment fabrication):
+
+1. **Main beam** — rect tube 80×120×5, 2000 mm along +X.
+2. **Angled strut** — square tube 80×80×5, 1400 mm from origin down/back
+   to the mast foot at (-700, 0, -1200).
+3. **Gusset** — triangular plate, 150 mm legs × 8 mm thick, inner position,
+   at the shared joint (0, 0, 0).
+4. **Weld Bead #1** — fillet weld, 8 mm × 120 mm, along the beam-strut
+   joint corner.
+5. **Weld Bead #2** — fillet weld, 6 mm × 100 mm, along the gusset-beam
+   edge.
+
+ONE iso + 5 stills (1: ribbon active, 2: members built, 3: after gusset,
+4: after first bead, 5: final crane jib). Perfectly-viewable framing via
+`frameAll()` (union bbox of every registered body, 1.7× iso fit).
+
+### Ribbon + dock + schemas
+
+- **Ribbon**: Weldments tab grew a 4th group `Reinforcement` with
+  `Gusset` (icon `◣`) + `Weld Bead` (icon `〰`).
+- **Schemas** (`ToolParamSchemas.js`): each op carries a title / blurb /
+  4 fields. Gusset: `type` enum + `size` mm + `thickness` mm + `position`
+  enum. Weld Bead: `type` enum + `size` mm + `length` mm (0 = auto).
+- **Dock** (`SwUxOverlays.jsx` `DOCKED_TOOLS`): both names registered so
+  the params render in the native dock (consistent with other Tier-5b+
+  modal feature tools).
+
+### Honest gaps + queued Tier-6c
+
+- **Spot vs continuous vs all-around** — the Tier-6b weld bead ships a
+  single continuous straight bead along the joint corner. SolidWorks
+  ships three modes: continuous (default — shipped), spot (zero-length
+  dot at a point), and all-around (loops around the member's full
+  cross-section perimeter). Spot + all-around queued for Tier-6c.
+- **Bead path = memberA's tangent direction** — for orthogonal joints
+  this places the bead along the correct corner edge; for non-orthogonal
+  joints the bead path is along memberA's tangent (not the true corner
+  intersection edge). Real corner edge tracing is queued for Tier-6c.
+- **Gusset plate is flat** — no bevelled / radiused / rolled gusset variants.
+  Polygon mode covers the "chopped corner" case; truly curved gussets
+  queued for Tier-6c.
+- **No fuse to parents** — the gusset / weld bead are NEW bodies added to
+  the scene (registry length grows by 1 per op). The parent members are
+  NOT fused with them. Real "weld bead fuse + heal" is queued for
+  Tier-6c so the assembly becomes a single connected body for FEA.
+- **Cut List, Sub-Weldment, Custom Profile Import, Cope Cut** — still
+  queued (the four remaining Tier-6 follow-ups). See synthesis §6.6.
+
+### Files added / modified (Tier 6b)
+
+- `frontend/src/kernel/brep/BrepWeldments.js` (gusset + weldBead appended; stampWeldmentMetadata extended for gussets[] / welds[])
+- `frontend/src/kernel/brep/index.js` (2 exports)
+- `frontend/src/kernel/brep/ArchDiscKernel.js` (2 facade entries)
+- `frontend/src/components/RibbonToolbar.jsx` (Weldments tab Reinforcement group)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` (2 handlers in weldments group)
+- `frontend/src/foundation/ToolParamSchemas.js` (2 schemas)
+- `frontend/src/components/SwUxOverlays.jsx` (DOCKED_TOOLS append 2)
+- `e2e/ux-tier6b-gusset-weldbead-electron.spec.js` (new bespoke e2e)
+
+### E2E + regression subset (Tier 6b)
+
+| Spec | Why |
+|---|---|
+| `ux-tier6b-gusset-weldbead-electron` (new — Tier 6b acceptance) | Bespoke welded crane jib: 2 members + gusset + 2 weld beads |
+| `ux-tier6a-weldments-electron` (regression — Tier 6a base) | Confirms the new Tier-6b additions don't break Tier-6a structural member / trim / end-cap workflow |
+| `ribbon-test` (regression — ribbon tab + tool count) | Confirms the Weldments tab grew from 3 to 5 tools cleanly |
 
 ---
 
