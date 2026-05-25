@@ -78,9 +78,11 @@ import {
   setBodyTolerance, BodyKindError,
 } from './BrepSheet.js';
 // UX Tier 5a — Sheet Metal workbench foundation.
+// UX Tier 5b — Sheet Metal additions (Hem / Jog / Miter Flange / Sketched Bend).
 import {
   baseFlange, edgeFlange, flatPattern,
   isSheetMetal, getSheetMetalMetadata, bendAllowance,
+  hem, jog, miterFlange, sketchedBend,
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
 import {
@@ -250,6 +252,15 @@ export const ArchDiscKernel = {
     getSheetMetalMetadata,
     /** Sheet-metal bend-allowance formula — BA = π(R + K·t)(θ/180°). */
     bendAllowance,
+    // ── UX Tier 5b Sheet Metal additions ───────────────────────────────────
+    /** Hem — fold a sheet edge over itself (closed / open / rolled / teardrop). */
+    hem,
+    /** Jog — Z-step / stepped offset in the sheet via two opposed bends. */
+    jog,
+    /** Miter Flange — multi-edge mitered flange swept along an edge sequence. */
+    miterFlange,
+    /** Sketched Bend — bend the sheet along a user-drawn line by an angle. */
+    sketchedBend,
     // ── UX Tier 6a Weldments workbench foundation ─────────────────────────
     /** Structural Member — sweep a standard ISO/ANSI profile along a 3D path; tags the result with weldment metadata. */
     structuralMember,

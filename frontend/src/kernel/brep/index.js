@@ -78,9 +78,11 @@ export {
   setBodyTolerance, BodyKindError,
 } from './BrepSheet.js';
 // UX Tier 5a — Sheet Metal workbench foundation.
+// UX Tier 5b — Sheet Metal additions (Hem / Jog / Miter Flange / Sketched Bend).
 export {
   baseFlange, edgeFlange, flatPattern,
   isSheetMetal, getSheetMetalMetadata, bendAllowance,
+  hem, jog, miterFlange, sketchedBend,
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
 export {
