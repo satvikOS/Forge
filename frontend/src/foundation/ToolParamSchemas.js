@@ -1274,3 +1274,34 @@ export function defaultsForTool(toolName) {
   for (const f of schema.fields) out[f.name] = f.default;
   return out;
 }
+
+// ─── Tier-11b — Inline-sketch capability hint ──────────────────────────────
+//
+// NX-distinctive "sketch-inside-a-dialog" pattern. Tools listed below
+// support entering an inline sketch session from inside their PropertyManager
+// Dock instead of forcing the user to exit, create a sketch, then re-open
+// the tool. The InlineSketchSession overlay in SwUxOverlays.jsx reads this
+// set (via INLINE_SKETCH_CAPABLE) so it knows which dock headers should
+// render a "Sketch Profile" hook button.
+//
+// This is a hint, not a new schema field type — the existing 'number' /
+// 'enum' types remain unchanged. Adding a 'sketch-profile' synthetic field
+// type would force every consumer (dock + floating dialog + planner) to
+// special-case it, which is unnecessary: the inline session writes its
+// committed profile to `window.__archdiscPlanParams[tool].profile` which
+// the Extrude Boss handler ALREADY consumes (Path A, line 1539 of
+// ToolExecutionEngine.js).
+export const INLINE_SKETCH_CAPABLE = new Set([
+  'Extrude Boss',
+  'Extrude Cut',
+  'Revolve Boss',
+  'Sweep Boss',
+  'Loft Boss',
+]);
+
+/** True iff the tool supports the NX-distinctive dialog-in-dialog sketch
+ *  session. Consumers (the InlineSketchSession overlay) read this to
+ *  decide whether to render a "Sketch Profile" hook button. */
+export function isInlineSketchCapable(toolName) {
+  return INLINE_SKETCH_CAPABLE.has(toolName);
+}

@@ -1509,3 +1509,593 @@ body.sw-dock-suppress-floating .tpd-backdrop {
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Tier-11b — Three NX-distinctive UX patterns
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ *   - MultiPlaneStack       (top-right, below ConfirmationCorner)
+ *   - CsysAnchorPanel       (mid-right, below MultiPlaneStack)
+ *   - InlineSketchSession   (mid-left, attached BELOW the PropertyManager
+ *                            Dock; expands into the dock's gutter, which
+ *                            is already reserved at the workbench level)
+ *
+ * Each panel uses the shared visual token set
+ * (--sw-panel-bg-strong / border / radius / shadow / blur) so the family
+ * reads as a coherent UI layer.
+ */
+
+/* ─── 11. Multi-Plane Stack (Tier-11b) ──────────────────────────────────── */
+.sw-multiplane-stack {
+  position: absolute;
+  /* Pins to the upper-right. Slides BELOW the ConfirmationCorner (top:8 +
+     ~32 px) so the two never overlap. Wider than relations dock — 210 px
+     fits the plane name + axis without truncation. */
+  top: 48px;
+  right: var(--sw-pad-sm);
+  width: 218px;
+  z-index: 27;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border-active);
+  border-top: 3px solid var(--sw-accent-info);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-slide-in-right 0.16s ease-out;
+  overflow: hidden;
+}
+
+.sw-multiplane-stack-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg,
+    rgba(74, 144, 217, 0.20) 0%,
+    rgba(74, 144, 217, 0.05) 100%);
+  color: var(--sw-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.sw-multiplane-stack-title { flex: 1; }
+
+.sw-multiplane-stack-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--sw-text-secondary);
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+}
+.sw-multiplane-stack-close:hover {
+  background: rgba(227, 84, 84, 0.18);
+  color: #fff;
+  border-color: rgba(227, 84, 84, 0.45);
+}
+
+.sw-multiplane-stack-hint {
+  padding: 6px 10px;
+  font-size: 10px;
+  color: var(--sw-text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sw-multiplane-stack-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sw-multiplane-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--sw-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.10s, transform 0.10s;
+  position: relative;
+}
+.sw-multiplane-card:last-child { border-bottom: none; }
+.sw-multiplane-card:hover {
+  background: rgba(74, 144, 217, 0.12);
+  transform: translateX(-1px);
+}
+.sw-multiplane-card-picked {
+  background: rgba(62, 199, 126, 0.18) !important;
+  border-left: 3px solid var(--sw-accent-success);
+  padding-left: 9px;
+}
+
+.sw-multiplane-card-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.20);
+}
+
+.sw-multiplane-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sw-multiplane-card-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.sw-multiplane-card-axis {
+  font-size: 9.5px;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sw-multiplane-card-user .sw-multiplane-card-axis::before {
+  content: 'user · ';
+  color: var(--sw-accent-warn);
+}
+
+.sw-multiplane-card-check {
+  color: var(--sw-accent-success);
+  flex-shrink: 0;
+}
+
+/* ─── 12. CSYS Anchor Panel (Tier-11b) ─────────────────────────────────── */
+.sw-csys-anchor-panel {
+  position: absolute;
+  /* Below the MultiPlaneStack (top:48 + ~170 px height) so the two
+     stack vertically on the right edge without overlap. If the
+     MultiPlaneStack is closed, this still renders cleanly because
+     they share the right gutter. 220px wide for CSYS name + position. */
+  top: 232px;
+  right: var(--sw-pad-sm);
+  width: 230px;
+  z-index: 27;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-top: 3px solid var(--sw-text-muted);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-slide-in-right 0.16s ease-out;
+  overflow: hidden;
+}
+
+.sw-csys-anchor-panel-armed {
+  border-color: var(--sw-panel-border-active);
+  border-top-color: var(--sw-accent-info);
+  box-shadow: 0 0 14px rgba(74, 144, 217, 0.18), var(--sw-panel-shadow);
+}
+
+.sw-csys-anchor-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg,
+    rgba(120, 130, 140, 0.18) 0%,
+    rgba(120, 130, 140, 0.02) 100%);
+  color: var(--sw-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.sw-csys-anchor-panel-armed .sw-csys-anchor-header {
+  background: linear-gradient(180deg,
+    rgba(74, 144, 217, 0.22) 0%,
+    rgba(74, 144, 217, 0.05) 100%);
+}
+
+.sw-csys-anchor-title { flex: 1; }
+
+.sw-csys-anchor-toggle {
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sw-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 9px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+}
+.sw-csys-anchor-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--sw-text-primary);
+}
+.sw-csys-anchor-toggle-on {
+  background: rgba(62, 199, 126, 0.30) !important;
+  color: #fff !important;
+  border-color: rgba(62, 199, 126, 0.62);
+  box-shadow: 0 0 6px rgba(62, 199, 126, 0.45);
+}
+
+.sw-csys-anchor-hint {
+  padding: 6px 10px;
+  font-size: 10px;
+  color: var(--sw-text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sw-csys-anchor-targets {
+  display: flex;
+  flex-direction: column;
+}
+
+.sw-csys-anchor-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--sw-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.10s;
+  position: relative;
+}
+.sw-csys-anchor-target:last-child { border-bottom: none; }
+.sw-csys-anchor-target:hover { background: rgba(74, 144, 217, 0.10); }
+.sw-csys-anchor-target-picked {
+  background: rgba(62, 199, 126, 0.18) !important;
+  border-left: 3px solid var(--sw-accent-success);
+  padding-left: 7px;
+}
+
+.sw-csys-anchor-target svg {
+  color: var(--sw-text-secondary);
+  flex-shrink: 0;
+}
+.sw-csys-anchor-target-picked svg {
+  color: var(--sw-accent-success);
+}
+
+.sw-csys-anchor-target-name {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-csys-anchor-target-pos {
+  font-size: 9.5px;
+  color: var(--sw-text-muted);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.sw-csys-anchor-target-user .sw-csys-anchor-target-name::after {
+  content: ' · user';
+  color: var(--sw-accent-warn);
+  font-weight: 500;
+}
+
+.sw-csys-anchor-target-check { color: var(--sw-accent-success); flex-shrink: 0; }
+
+/* ─── 13. Inline Sketch Session (Tier-11b) ─────────────────────────────── */
+/* Lives at the mid-left, anchored to the bottom edge of the PropertyManager
+   Dock (which is at top:48, width:280). The session is the "dialog inside a
+   dialog" — visually attached to the parent dock with a continuous border. */
+.sw-inline-sketch-session {
+  position: absolute;
+  top: 48px;
+  /* Sit RIGHT next to the PropertyManager Dock so the two read as one
+     contiguous workspace. Dock width is 280 px + 8 px gutter. */
+  left: calc(var(--sw-pad-sm) + 280px + 6px);
+  width: 320px;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border-active);
+  border-left: 3px solid var(--sw-accent-warn);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  overflow: hidden;
+  animation: sw-slide-in-left 0.16s ease-out;
+}
+
+/* TOP PANE — pinned parent dialog summary. */
+.sw-inline-sketch-top {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(180deg,
+    rgba(251, 192, 104, 0.16) 0%,
+    rgba(251, 192, 104, 0.02) 100%);
+}
+
+.sw-inline-sketch-parent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sw-text-primary);
+}
+
+.sw-inline-sketch-parent-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-inline-sketch-parent-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sw-inline-sketch-parent-kv {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  background: rgba(0, 0, 0, 0.30);
+  padding: 1px 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sw-inline-sketch-parent-k {
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.sw-inline-sketch-parent-v {
+  color: var(--sw-text-primary);
+  font-weight: 600;
+}
+
+/* BOTTOM PANE — the inline sketch toolbar + numeric editor + preview. */
+.sw-inline-sketch-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.sw-inline-sketch-primitives {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+}
+
+.sw-inline-sketch-primitive-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--sw-text-secondary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+}
+.sw-inline-sketch-primitive-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sw-text-primary);
+}
+.sw-inline-sketch-primitive-btn-active {
+  background: rgba(74, 144, 217, 0.32) !important;
+  color: #fff !important;
+  border-color: rgba(74, 144, 217, 0.62);
+}
+
+.sw-inline-sketch-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sw-inline-sketch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sw-inline-sketch-field-label {
+  font-size: 9px;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.sw-inline-sketch-field-input {
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--sw-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  outline: none;
+  width: 100%;
+}
+.sw-inline-sketch-field-input:focus {
+  border-color: var(--sw-panel-border-active);
+  box-shadow: 0 0 0 1px rgba(74, 144, 217, 0.30);
+}
+
+.sw-inline-sketch-field-unit {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  font-size: 9px;
+  color: var(--sw-text-muted);
+  pointer-events: none;
+}
+
+.sw-inline-sketch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.sw-inline-sketch-preview-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.sw-inline-sketch-preview-empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sw-inline-sketch-preview-meta {
+  font-size: 9px;
+  color: var(--sw-text-muted);
+  text-align: center;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.sw-inline-sketch-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sw-inline-sketch-action {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--sw-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s, transform 0.08s;
+}
+
+.sw-inline-sketch-action-cancel {
+  background: rgba(227, 84, 84, 0.18);
+  color: #fff;
+  border-color: rgba(227, 84, 84, 0.45);
+}
+.sw-inline-sketch-action-cancel:hover {
+  background: rgba(227, 84, 84, 0.36);
+}
+.sw-inline-sketch-action-cancel:active { transform: scale(0.96); }
+
+.sw-inline-sketch-action-done {
+  background: rgba(62, 199, 126, 0.26);
+  color: #fff;
+  border-color: rgba(62, 199, 126, 0.60);
+}
+.sw-inline-sketch-action-done:hover {
+  background: rgba(62, 199, 126, 0.46);
+}
+.sw-inline-sketch-action-done:active { transform: scale(0.96); }
+
+/* Slide-in keyframes used by the new panels. */
+@keyframes sw-slide-in-right {
+  from { transform: translateX(12px); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+
+/* Tier-11b — Inline Sketch hook inside the PropertyManager Dock. */
+.sw-pm-dock-inline-sketch-hook {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(251, 192, 104, 0.18);
+  background: linear-gradient(180deg,
+    rgba(251, 192, 104, 0.10) 0%,
+    rgba(251, 192, 104, 0.00) 100%);
+}
+
+.sw-pm-dock-inline-sketch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(251, 192, 104, 0.22);
+  color: var(--sw-text-primary);
+  border: 1px solid rgba(251, 192, 104, 0.55);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.10s, transform 0.08s, border-color 0.10s;
+}
+.sw-pm-dock-inline-sketch-btn:hover {
+  background: rgba(251, 192, 104, 0.42);
+  border-color: rgba(251, 192, 104, 0.85);
+  color: #fff;
+}
+.sw-pm-dock-inline-sketch-btn:active { transform: scale(0.97); }
+
+.sw-pm-dock-inline-sketch-hint {
+  font-size: 9.5px;
+  color: var(--sw-text-muted);
+  text-align: center;
+  font-style: italic;
+}
