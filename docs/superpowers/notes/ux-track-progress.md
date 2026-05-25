@@ -2540,6 +2540,107 @@ the Tier-11b additions.
 
 ---
 
+## Tier 11c — NX unified Pattern Feature (1 of 1 shipped)
+
+**Date:** 2026-05-25
+
+NX takeaway #2 from `docs/superpowers/notes/siemens-nx-course-synthesis.md`:
+collapse the separate Linear / Circular pattern tools into a single
+**Pattern Feature** ribbon entry with a *layout* selector at the top of
+the dialog (NX-style "one icon, one dialog, one mental model"). The
+kernel ops themselves are unchanged — Tier-11c is a pure UX
+consolidation that dispatches to `foundation.linearPattern` /
+`foundation.circularPattern` based on the picked layout, plus a new
+`polygon` layout synthesised as N seed copies on a circle of
+`polygonRadius` at equal angular increments.
+
+| Tier-11 # | Pattern | Status | Implementation |
+|---|---|---|---|
+| 103 | **Unified Pattern Feature** | **DONE** | `frontend/src/foundation/ToolParamSchemas.js::Pattern` schema (layout enum: `linear` / `circular` / `polygon` — `sketchDriven` + `reference` queued); `frontend/src/components/RibbonToolbar.jsx` Part-tab Pattern group lists `Pattern` (primary) alongside deprecated `Linear Pattern` + `Circular Pattern` (kept temporarily for backward compat with integration specs / AI plans); `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js::Pattern` handler dispatches per layout — linear → `fLinearPattern` with `dirX/Y/Z + count + spacing`, circular → `fCircularPattern` with `axisX/Y/Z + count + angle + radius`, polygon → in-handler N-copy synthesis on a circle of `polygonRadius` at `startAngle + i·(360/count)°`. `Pattern` added to `SwUxOverlays.jsx::DOCKED_TOOLS` so it uses the PropertyManagerDock + `=expr` integration. |
+
+### Bespoke real workflow — machined bolt-flange (3 instances)
+
+`e2e/ux-tier11c-unified-pattern-electron.spec.js` runs ONE workflow
+exercising the new unified Pattern tool with two different layouts in
+sequence. Motion-capture, `--workers=1`, no `node:*` imports.
+
+| Stage | What happens |
+|---|---|
+| A | Build a base flange disk (Ø80×8 mm) via atomic ops + render. Iso-frame the camera so the disk + future patterns read cleanly. |
+| B | Open the unified Pattern tool. Set `layout=circular`, `count=8`, `radius=30`, `angle=360`. Commit. Verify the resulting body is 8 cylindrical bolt-hole seeds in a 30-mm-radius bolt-circle around +Z (V = 8 × seed volume; bbox is ~square in XY at ~±33 mm). |
+| C | Open the unified Pattern tool again. Set `layout=linear`, `count=3`, `spacing=90`, `dirX=1`, `useCurrentBody=true`. Commit. Verify the resulting body is 3 instances of the bolt-circle in a row along +X (V = 3 × bolt-circle volume; bbox X = ~[0..180]). |
+
+### Framing — perfectly viewable
+
+ONE stable iso framing held through stages A → C. Three stills + a
+session video. The unified `Pattern` dialog opens via the
+PropertyManager Dock; the layout selector reads as the first row of the
+Inputs section. Each stage carries its own commit + iso re-frame.
+
+### Focal assertions (verified live in the spec)
+
+| Stage | Assertion | Value |
+|---|---|---|
+| A | Flange disk built | V ≈ 40212 mm³ |
+| B | Pattern circular → 8 seed copies | V ≈ 8 × seed |
+| B | Pattern circular → bolt-circle radius | XY-bbox ≈ ±33 mm |
+| C | Pattern linear → 3 instances of bolt-circle | V ≈ 3 × bolt-circle |
+| C | Linear axis = +X | bbox X spread ≈ 180 mm |
+
+### Honest gaps queued for follow-up
+
+- **sketchDriven layout** — NX-style pattern-at-each-sketch-point. The
+  enum accepts `sketchDriven` but the handler returns a `warn` with the
+  queued-feature message. Needs a sketch-point picker that exposes the
+  driver sketch's vertex/point list to the schema.
+- **reference layout** — pattern-of-a-pattern propagating another
+  feature's seed instance set. Same enum-warn pattern; needs a feature-
+  reference picker so the user can target the seed feature.
+- **Polygon layout** uses translate-only — not the rotated copies a true
+  "polygon layout" produces when each instance is *oriented* to the
+  polygon vertex. The current implementation matches the "N seeds on a
+  circle at equal angles" intent. If the user needs rotated copies, the
+  `circular` layout already supplies that.
+- **Ribbon cleanup** — the deprecated `Linear Pattern` + `Circular
+  Pattern` entries remain on the ribbon so existing integration specs
+  (`integration-linear-pattern`, `integration-circular-pattern`,
+  `integration-3-view-drawing`, `integration-export-stl-glb`,
+  `integration-export-step`, `integration-mass-properties`,
+  `agent-bridge`) keep clicking them. A follow-up cleanup pass should
+  migrate those specs to click `Pattern` + set the layout, then remove
+  the legacy ribbon entries.
+
+### Files changed (Tier 11c)
+
+- `frontend/src/foundation/ToolParamSchemas.js` — append `'Pattern'`
+  schema with `layout` enum + per-layout fields.
+- `frontend/src/components/RibbonToolbar.jsx` — Part tab Pattern group
+  now leads with `Pattern` (primary); Linear Pattern + Circular Pattern
+  remain as deprecated direct-access buttons.
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` —
+  append `Pattern` handler that dispatches to existing
+  linearPattern/circularPattern kernel ops by layout (+ polygon
+  synthesised in-handler).
+- `frontend/src/components/SwUxOverlays.jsx` — `Pattern` added to
+  `DOCKED_TOOLS` so the unified tool gets the PropertyManagerDock.
+- `e2e/ux-tier11c-unified-pattern-electron.spec.js` (new) — bespoke
+  machined-bolt-flange motion-capture workflow.
+- `docs/superpowers/notes/siemens-nx-course-synthesis.md` — flip
+  takeaway #2 (item #103) to **DONE** with the implementation summary.
+
+### E2E + regression subset (Tier 11c)
+
+Headed Electron, `--workers=1`, `--retries=0`:
+
+| Spec | Result |
+|---|---|
+| `ux-tier11c-unified-pattern-electron` (NEW) | **PASS** |
+| `integration-linear-pattern` (regression — legacy ribbon entry still works) | PASS |
+| `integration-circular-pattern` (regression — legacy ribbon entry still works) | PASS |
+| `ribbon-test` (regression — ribbon tabs still render) | PASS |
+
+---
+
 ## UI cleanup pass — 2026-05-24 (ribbon clipping + overlay dedup)
 
 User feedback verbatim: "the ribbon, the AI options are getting cut. also

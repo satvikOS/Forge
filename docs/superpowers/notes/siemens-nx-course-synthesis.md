@@ -556,6 +556,11 @@ SW list.
 103. **One unified Pattern Feature tool with multiple layouts** (Linear / Circular / Polygon /
    Spiral / Along / General / Reference) rather than separate Linear / Circular / Curve-Driven /
    Sketch-Driven tools. UX win: one icon, one dialog, one mental model.
+   **SHIPPED — Tier-11c (2026-05-25).** New `Pattern` ribbon tool with a layout-enum
+   field at the top of the schema (linear / circular / polygon — sketchDriven +
+   reference queued); dispatch handler in `ToolExecutionEngine.js::Pattern` routes to
+   the existing kernel ops by layout. Old `Linear Pattern` + `Circular Pattern`
+   ribbon entries kept temporarily as deprecated direct-access buttons.
 
 104. **One unified Boolean toggle inside Extrude / Revolve / Sweep** (None / Unite / Subtract /
    Intersect) rather than separate Extrude Boss vs Extrude Cut tools. ArchDisc currently follows
@@ -697,7 +702,7 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 | 100 | Selection-priority filter bar | `frontend/src/components/SwUxOverlays.jsx::SelectionPriorityBar` + filter-aware pick path in `Viewport3D.jsx::handleClick` (analytic-face clustering, mesh-edge picking, mesh-vertex picking for foundation manifolds) | **NX-UX track** (Tier-11a) | **DONE (2026-05-23)** |
 | 101 | MB2 field advancement | `ToolParamDialog.jsx` event handlers; needs viewport MB2 event hookup | NX-UX track | **Missing** |
 | 102 | Dialog-inside-a-dialog sketch | `ToolParamDialog.jsx` + `InteractiveSketch.js` enter-sketch hook | NX-UX track | **Missing** |
-| 103 | Unified Pattern Feature tool | `RibbonToolbar.jsx` Part tab Pattern group — consolidate Linear+Circular | NX-UX track | **Partial** (two separate tools) |
+| 103 | Unified Pattern Feature tool | `RibbonToolbar.jsx::Pattern` group → new `Pattern` tool (PRIMARY) + `Pattern` schema in `ToolParamSchemas.js` (layout enum: linear / circular / polygon) + dispatch handler in `ToolExecutionEngine.js::Pattern` routing to existing kernel ops. Legacy Linear/Circular entries kept temporarily as deprecated direct-access buttons. | NX-UX track (Tier-11c) | **DONE (2026-05-25)** — linear/circular/polygon; sketchDriven + reference queued |
 | 104 | Boolean toggle inside Extrude/Revolve | `ToolParamDialog.jsx` Extrude dialog adds Boolean dropdown | NX-UX track | **Missing** |
 | 105 | Add New Set in feature dialogs | `ToolParamDialog.jsx` Fillet dialog (Edge Blend equivalent) — append-set UX | NX-UX track | **Missing** |
 | 106 | Multi-plane in one shot | Datum Plane tool (when added) with N-planes field | parity-program §3 Datums | **Missing** |
@@ -739,9 +744,24 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 
 2. **Consolidate ArchDisc's Extrude Boss / Extrude Cut into one tool with a Boolean toggle
    (item 104) and consolidate Linear Pattern / Circular Pattern into one Pattern Feature with a
-   Layout selector (item 103).** These two consolidations remove 4 ribbon icons and bring
-   ArchDisc closer to NX's mental model, which is *more discoverable than SW's*, not less.
-   Cost is purely UI — kernel ops stay the same.
+   Layout selector (item 103).**
+   **Pattern-Feature consolidation: SHIPPED — Tier-11c (2026-05-25).** The new
+   `Pattern` ribbon tool (Part tab → Pattern group) opens a single PropertyManagerDock
+   carrying a `layout` enum at the top (linear / circular / polygon — sketchDriven +
+   reference queued) plus all per-layout fields. The dispatch handler in
+   `ToolExecutionEngine.js::Pattern` routes to the existing `foundation.linearPattern`
+   / `foundation.circularPattern` kernel ops based on `layout`, and synthesises the
+   polygon layout as N seed copies on a circle of `polygonRadius` at equal angular
+   increments (`startAngle` offset). The old `Linear Pattern` + `Circular Pattern`
+   ribbon entries remain temporarily as deprecated direct-access buttons so existing
+   integration specs / AI plans keep working through this cycle. Bespoke e2e:
+   `e2e/ux-tier11c-unified-pattern-electron.spec.js` builds a machined bolt-flange —
+   base disk → unified Pattern layout=circular count=8 (bolt-circle of 8 cylindrical
+   holes) → unified Pattern layout=linear count=3 (3 instances of the flange in a
+   row). The Extrude-Boss/Cut Boolean-toggle consolidation (item 104) is queued.
+   These two consolidations remove 4 ribbon icons and bring ArchDisc closer to NX's
+   mental model, which is *more discoverable than SW's*, not less. Cost is purely UI
+   — kernel ops stay the same.
 
 3. **Build a shared `VectorPicker` component (item 117) and use it everywhere a direction input
    is needed (Revolve, Pattern, Move, Offset, Mirror, Draft).** Picker accepts: a CSYS axis, a
