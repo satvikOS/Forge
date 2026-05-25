@@ -861,7 +861,7 @@ accounting in one workflow.
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b shipped (5 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead; Cut List, Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6c)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b shipped (7/12+; standard-mate set complete 8/8 + 3 of 6 advanced)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
-| 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 foundation shipped (3 of ~8 ops)** |
+| 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b shipped (5 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces; Parting Surface ruled / Side Actions / Cooling Channels queued)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
 
 ---
@@ -2150,6 +2150,84 @@ The new Mold Tools tab adds a 10th ribbon tab (after Weldments's 9th).
    `moldTools` ribbon tab activates within the Mechanical CAD
    workbench when the user clicks it. The pattern keeps the viewport /
    scene-graph / ToolExecutionEngine wiring single-sourced.
+
+---
+
+## Tier 9b — Mold Tools focused additions (Undercut + Shut-Off; 2 of 2 shipped)
+
+**Date:** 2026-05-25
+
+Two more SW Mold-Tools ops layered on top of the Tier-9 foundation, in
+the existing `kernel/brep/BrepMoldTools.js` module + appended to the
+same `moldTools` ribbon tab. Both ops share the metadata schema (faces
+tagged with SP-2 attributes; body `metadata.mold.{...}` records the
+summary).
+
+| SW op | ArchDisc | Implementation |
+|---|---|---|
+| Undercut Analysis | `undercutAnalysis(body, {pullDirection, threshold})` | Per face: sample outward normal at parametric centre via SP-4 `evalSurface`; classify by `n·pull` vs `sin(threshold)`. For candidates (`n·pull < 0`): nudge the sampled point along the outward normal, cast a `+pull` ray via SP-4 `rayFire`. Shadow hits → confirmed undercut. Each face tagged with `mold.undercut = {value, category, dot, normal, pullDirection}` SP-2 attribute. Body metadata records `{good, undercut, neutral, faceCount, perFace[]}`. Colour palette: green / red / yellow. |
+| Shut-Off Surfaces | `shutOffSurfaces(body, {maxHoleDiameter, tolerance})` | Detect closed loops of free edges via spine coedge traversal (edges with < 2 unique owning faces) + union-find by spine vertex. Decide CLOSED iff every vertex in the loop is touched by exactly 2 free edges. Compute diameter (max pairwise distance between loop vertices); skip loops > `maxHoleDiameter`. Delegate the actual fill to SP-8 `autoFillMissingFaces` (ShapeFix_FreeBounds + nSidedPatch + BRepBuilderAPI_Sewing). Patched faces tagged with `mold.shutOff` SP-2 attribute. Body metadata records `{loopCount, loopsFilled, loopsSkipped, patchesAdded, watertight, loops[]}`. |
+
+### Visual overlays
+
+Both ops drive the same per-face vertex-colour mesh pattern as Draft
+Analysis. `applyUndercutAnalysisOverlay` (in `ToolExecutionEngine.js`)
+re-tessellates the body via `tessellatePerFace`, writes per-vertex
+colours by the face's category, and swaps the body's render mesh in
+the registry. Palette intentionally distinct from Draft Analysis so the
+two overlays don't read identically:
+
+   - good      → `0x4caf50` green
+   - undercut  → `0xd32f2f` deep red
+   - neutral   → `0xfbc02d` yellow
+
+Shut-Off re-renders the body with the new (patched) shape — patches are
+fused into the result so the viewport simply shows a watertight body.
+Patch faces are highlighted in the colour of the `Shut-Off Surfaces`
+handler's call (`0x88c0d0` cyan-grey).
+
+### Bespoke real workflow — `e2e/ux-tier9b-undercut-shutoff-electron.spec.js`
+
+| Stage | What happens |
+|---|---|
+| A | Build an injection-molded electrical socket housing: base outer box (60 × 40 × 25 mm) cut by hollow cavity (52 × 32 × 22 mm), two cable-entry through-hole cylinders (Ø10 mm) drilled through long side walls, top snap-boss pillar (Ø8 × 8 mm) with overhang cap (Ø14 × 2 mm) creating a downward-facing geometric undercut |
+| B | Click Mold Tools tab → verify the ribbon shows both new tools (Undercut Analysis + Shut-Off Surfaces) alongside Draft Analysis / Parting Line / Tooling Split |
+| C | Pre-select housing → run Undercut Analysis with pull = +Z, threshold 3°. Asserts: every face classified; categories sum to faceCount; `undercut > 0` (snap-overhang face flagged); every face has `mold.undercut` SP-2 attribute |
+| D | Build a parallel open-shell sheet body (extrudedSurface of a 60 × 40 mm rectangle, depth 25 mm) — 4 lateral walls only = top + bottom free-edge loops |
+| E | Select the open shell → run Shut-Off Surfaces with maxHoleDiameter 200 mm. Asserts: `loopCount > 0` (free-edge loops detected); `patchesAdded > 0`; `watertight === true` |
+
+5 stills, 1 iso, 1 short orbit. ONE `test()` block. Imports use BARE
+specifiers (no `node:` prefix) per the playgotcha.
+
+### Targeted regression band
+
+| Spec | Notes |
+|---|---|
+| `ux-tier9b-undercut-shutoff-electron` (NEW) | This pass's acceptance |
+| `ux-tier9-mold-tools-electron` (regression) | Tier 9 foundation still passes |
+| `ribbon-test` (regression — ribbon tab + tool count) | Confirms the Mold Tools tab grew from 3 to 5 tools cleanly |
+
+### Honest gaps + queued Tier-9 follow-ups (still outstanding)
+
+1. **Parting Surface** (proper ruled / swept parting from the actual
+   Parting Line curve) — Tooling Split still uses a planar parting
+   plane. Real free-form parting surface from the silhouette wire
+   queued.
+2. **Side Actions** (side-pull cores for undercuts) — the Undercut
+   Analysis result + per-undercut pull direction now lands on each
+   face, so a side-action generator can read the metadata. Builder is
+   queued.
+3. **Cooling Channels** (drill conformal cooling channels through the
+   core / cavity inserts) — SP-12 fields work + sweep along a path.
+4. **Undercut Analysis samples the parametric midpoint** of each face.
+   Strongly curved faces (fillets, cylinders) may have undercut zones
+   at one parametric location and clean zones elsewhere. A follow-on
+   samples a grid + reports the worst-case point per face.
+5. **Shut-Off ranks holes by diameter only.** SW additionally lets the
+   user reject loops by visual selection (the Shut-Off Surfaces dialog
+   lists every detected free-edge loop with a Contact / No Contact /
+   Tangent classifier — you can override). Today the diameter filter
+   is the only knob; per-loop overrides are queued.
 
 ---
 

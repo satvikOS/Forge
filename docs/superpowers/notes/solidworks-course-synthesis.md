@@ -843,9 +843,9 @@ tab between Weldments and Drawing, kernel ops in `kernel/brep/BrepMoldTools.js`)
 | SolidWorks mold tool | ArchDisc | Status |
 |---|---|---|
 | Draft Analysis | Draft Analysis (Tier 9) | **Done** — per-face draft classification via SP-4 `evalSurface`; faces tagged with `mold.draft` SP-2 attr + body `metadata.mold.draftAnalysis` |
-| Undercut Analysis | (deeper detection) | **Missing** — queued Tier 9b |
+| Undercut Analysis | Undercut Analysis (Tier 9b) | **Done** — per-face face-normal + shadow-ray test (rayFire) along pull direction; faces tagged `mold.undercut = {value: bool, category}` SP-2 attribute (good / undercut / neutral); colour-coded overlay green / red / yellow |
 | Parting Line | Parting Line (Tier 9) | **Done** — silhouette curve: walks every edge, classifies as parting iff its two adjacent faces have opposite draft signs (or one positive + one vertical) |
-| Shut-Off Surfaces | (none) | **Missing** — queued Tier 9b |
+| Shut-Off Surfaces | Shut-Off Surfaces (Tier 9b) | **Done** — detects closed loops of free edges via spine coedge traversal + union-find by vertex; delegates per-loop fill to SP-8 `autoFillMissingFaces` (ShapeFix_FreeBounds + nSidedPatch + BRepBuilderAPI_Sewing); patched faces tagged with `mold.shutOff` attribute; body metadata records `{loopCount, patchesAdded, watertight, loops[]}` |
 | Parting Surface | (planar parting plane via Tooling Split) | **Partial** — planar parting plane shipped via Tooling Split (perpendicular to pull at body centroid); ruled / curved parting surface queued Tier 9b |
 | Tooling Split | Tooling Split (Tier 9) | **Done** — splits body via two complementary half-space cuts (CORE = above parting plane, CAVITY = below); also records SP-5 `partition` attempt for completeness |
 | Core feature | Core piece labelled `mold.half='core'` | **Done** (via Tooling Split) |
@@ -1013,10 +1013,10 @@ The single largest gap. Needs:
 
 - ~~Mold Tools ribbon tab~~ — **DONE** (Tier 9; new TAB between Weldments and Drawing)
 - ~~Draft Analysis (color-coded faces by pull-direction draft)~~ — **DONE** (Tier 9; per-face classification via SP-4 evalSurface; faces tagged `mold.draft` SP-2 attribute; positive=green / negative=red / vertical=yellow)
-- **Undercut Analysis** — queued Tier 9b (deeper "stuck face" detection across multiple pull directions)
+- ~~Undercut Analysis~~ — **DONE** (Tier 9b; per-face face-normal + shadow-ray test via SP-4 `rayFire`; faces tagged `mold.undercut = {value, category}` SP-2 attribute; good=green / undercut=red / neutral=yellow)
 - ~~Parting Line~~ — **DONE** (Tier 9; silhouette curve trace via adjacent-face draft-sign comparison)
-- **Shut-Off Surfaces** — queued Tier 9b (close through-holes for a manifold mold block)
-- **Parting Surface** (proper ruled / swept) — queued Tier 9b (currently shipped as planar parting plane via Tooling Split)
+- ~~Shut-Off Surfaces~~ — **DONE** (Tier 9b; detect closed loops of free edges via spine coedge + union-find by vertex; delegate per-loop fill to SP-8 `autoFillMissingFaces`; patched faces tagged `mold.shutOff`; body metadata records `{loopCount, patchesAdded, watertight, loops[]}`)
+- **Parting Surface** (proper ruled / swept) — still queued (currently shipped as planar parting plane via Tooling Split)
 - ~~Tooling Split~~ — **DONE** (Tier 9; splits body into core + cavity halves via two complementary half-space cuts; uses SP-5 partition path as an additional record)
 - ~~Core / Cavity features~~ — **DONE** (Tier 9; pieces labelled `mold.half = 'core' | 'cavity'` via SP-2 attribute on the spine body)
 
