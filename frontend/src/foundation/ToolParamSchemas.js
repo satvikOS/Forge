@@ -1299,6 +1299,46 @@ export const INLINE_SKETCH_CAPABLE = new Set([
   'Loft Boss',
 ]);
 
+// ─── UX TIER 3A — ADVANCED FEATURES ─────────────────────────────────────────
+// Boundary Boss/Cut, Rib, Helix.
+// All three are selection + dialog driven. The Boundary Boss accepts a list
+// of profile-sketch references (via window.__archdiscBoundaryProfiles +
+// __archdiscBoundaryGuides hooks); the Rib reads window.__archdiscRibLine +
+// window.__archdiscSelectedBodies; the Helix reads explicit axis/dimension
+// inputs from the dialog.
+
+TOOL_PARAM_SCHEMAS['Boundary Boss'] = {
+  title: 'Boundary Boss / Cut',
+  blurb: 'Loft through N profile sketches + 0+ guide curves. Profiles supplied via __archdiscBoundaryProfiles (array of point arrays); guides via __archdiscBoundaryGuides. SetSmoothing(true) gives G1 tangency between sections. The `role` toggle is informational — Boundary CUT is achieved by a subsequent boolean against the parent body.',
+  fields: [
+    { name: 'smooth',      label: 'G1 tangency between sections', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'SetSmoothing(true) — smooth loft' },
+    { name: 'role',        label: 'Role',                          type: 'enum', default: 'boss', options: ['boss', 'cut'], hint: 'Cut variant achieved by boolean subtract against parent body' },
+  ],
+};
+
+TOOL_PARAM_SCHEMAS['Rib'] = {
+  title: 'Rib',
+  blurb: 'Parametric thin wall between a sketched LINE and a parent body. The line is supplied via __archdiscRibLine = [{x,y,z}, {x,y,z}] in mm. The parent body is the currently-selected body. The rib block is built then intersected with the body so the rib only fills space inside the body (SW canonical rib pattern).',
+  fields: [
+    { name: 'thickness',     label: 'Thickness',         type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 100, step: 0.5 },
+    { name: 'extrudeHeight', label: 'Extrude height',    type: 'number', default: 20, unit: 'mm', min: 0.5, max: 1000, step: 1, hint: 'how far the rib extrudes along the sketch-plane normal' },
+    { name: 'direction',     label: 'Direction',         type: 'enum',   default: 'normal', options: ['normal', 'parallel'], hint: 'normal = perpendicular to sketch plane; parallel = in-plane stiffener' },
+  ],
+};
+
+TOOL_PARAM_SCHEMAS['Helix'] = {
+  title: 'Helix',
+  blurb: 'Real 3D helical CURVE (wire body). Constant pitch when pitchStart=pitchEnd; linear taper otherwise. Returns a kind=wire SpineBody whose polyline can drive Sweep Boss. Real helix math: arc length = revs · sqrt(pitch² + (π·D)²).',
+  fields: [
+    { name: 'diameter',     label: 'Diameter',     type: 'number', default: 20, unit: 'mm', min: 0.5,  max: 5000, step: 0.5 },
+    { name: 'pitchStart',   label: 'Start pitch',  type: 'number', default: 4,  unit: 'mm/turn', min: 0.1, max: 1000, step: 0.1 },
+    { name: 'pitchEnd',     label: 'End pitch',    type: 'number', default: 4,  unit: 'mm/turn', min: 0.1, max: 1000, step: 0.1, hint: 'set ≠ start pitch for a linearly-tapered (variable) helix' },
+    { name: 'revolutions',  label: 'Revolutions',  type: 'number', default: 5,  unit: 'turns', min: 0.25, max: 200, step: 0.25 },
+    { name: 'direction',    label: 'Direction',    type: 'enum',   default: 'ccw', options: ['ccw', 'cw'], hint: 'ccw = right-hand helix (standard screw thread); cw = left-hand' },
+    { name: 'segmentsPerRev', label: 'Segments per revolution', type: 'number', default: 64, unit: '', min: 8, max: 512, step: 4, hint: 'polyline resolution; higher = smoother helix' },
+  ],
+};
+
 /** True iff the tool supports the NX-distinctive dialog-in-dialog sketch
  *  session. Consumers (the InlineSketchSession overlay) read this to
  *  decide whether to render a "Sketch Profile" hook button. */

@@ -1774,6 +1774,181 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── UX TIER 3A — ADVANCED FEATURES ────────────────────────────────────
+    // Boundary Boss/Cut, Rib, Helix. Selection + dialog driven. All three
+    // route through the PropertyManager Dock (DOCKED_TOOLS) and write a
+    // result snapshot onto window.__lastTier3a* for e2e + AI introspection.
+
+    'Boundary Boss': async (scene, viewport) => {
+      try {
+        const { values, cancelled } = await requestToolParams('Boundary Boss');
+        if (cancelled) return { status: 'warn', message: 'Boundary Boss: cancelled' };
+        // Profiles + guides land on the window from the selection or the
+        // plan params. Plan params take priority so e2e specs / AI plans
+        // can drive the op programmatically.
+        const params = (typeof window !== 'undefined') ? (window.__archdiscPlanParams || {}) : {};
+        const planValues = params['Boundary Boss'] || {};
+        const profiles = (Array.isArray(planValues.profiles) && planValues.profiles.length >= 2)
+          ? planValues.profiles
+          : (typeof window !== 'undefined' && Array.isArray(window.__archdiscBoundaryProfiles))
+            ? window.__archdiscBoundaryProfiles
+            : null;
+        const guides = (Array.isArray(planValues.guides))
+          ? planValues.guides
+          : (typeof window !== 'undefined' && Array.isArray(window.__archdiscBoundaryGuides))
+            ? window.__archdiscBoundaryGuides
+            : [];
+        if (!profiles || profiles.length < 2) {
+          return {
+            status: 'warn',
+            message: 'Boundary Boss: needs ≥ 2 profiles via __archdiscBoundaryProfiles (each profile = array of {x,y,z} points).',
+          };
+        }
+        const smooth = (values.smooth || 'yes') !== 'no';
+        const role = values.role || 'boss';
+        const result = await ArchDiscKernel.brep.boundaryBoss({
+          profiles, guides, smooth, role,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0x9aa3ad);
+        const m = await ArchDiscKernel.brep.measure(result);
+        if (typeof window !== 'undefined') {
+          window.__lastBoundaryBoss = {
+            ok: true,
+            volume: m.volume,
+            faceCount: m.faceCount,
+            profileCount: profiles.length,
+            guideCount: guides.length,
+            mode: result.meta && result.meta.mode,
+            guideFallback: result.meta && result.meta.guideFallback,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Boundary Boss: V = ${m.volume.toFixed(0)} mm³, ${m.faceCount} faces, ${profiles.length} profiles, ${guides.length} guides — mode=${result.meta?.mode || 'thru-sections'}`,
+        };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastBoundaryBoss = { ok: false, error: err && err.message };
+        }
+        return { status: 'error', message: 'Boundary Boss: ' + (err && err.message || err) };
+      }
+    },
+
+    'Rib': async (scene, viewport) => {
+      try {
+        let body;
+        try { [body] = _pickBodies(1); }
+        catch (e) {
+          // Fall back to the most-recently-added body if there is one.
+          const reg = (typeof window !== 'undefined') ? window.__archdiscRegistry : null;
+          if (reg && reg.bodies && reg.bodies.length > 0) {
+            body = reg.bodies[reg.bodies.length - 1].brepShapeRef;
+          }
+          if (!body) throw e;
+        }
+        const { values, cancelled } = await requestToolParams('Rib');
+        if (cancelled) return { status: 'warn', message: 'Rib: cancelled' };
+        // The rib line comes from __archdiscRibLine or the plan params.
+        const params = (typeof window !== 'undefined') ? (window.__archdiscPlanParams || {}) : {};
+        const planValues = params['Rib'] || {};
+        const line = (Array.isArray(planValues.line) && planValues.line.length >= 2)
+          ? planValues.line
+          : (typeof window !== 'undefined' && Array.isArray(window.__archdiscRibLine))
+            ? window.__archdiscRibLine
+            : null;
+        if (!line) {
+          return {
+            status: 'warn',
+            message: 'Rib: needs a sketched line via __archdiscRibLine = [{x,y,z}, {x,y,z}].',
+          };
+        }
+        const planeNormal = Array.isArray(planValues.planeNormal) ? planValues.planeNormal
+          : (typeof window !== 'undefined' && Array.isArray(window.__archdiscRibPlaneNormal))
+            ? window.__archdiscRibPlaneNormal
+            : [0, 0, 1];
+        const thickness = Number(values.thickness) || 3;
+        const extrudeHeight = Number(values.extrudeHeight) || 20;
+        const direction = values.direction || 'normal';
+        const result = await ArchDiscKernel.brep.rib({
+          body, line, thickness, extrudeHeight, planeNormal, direction,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb59f5f);
+        const m = await ArchDiscKernel.brep.measure(result);
+        if (typeof window !== 'undefined') {
+          window.__lastRib = {
+            ok: true,
+            volume: m.volume,
+            faceCount: m.faceCount,
+            thickness, extrudeHeight, direction,
+            lineLength: result.meta && result.meta.params && result.meta.params.lineLength,
+            intersected: result.meta && result.meta.intersected,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Rib: V = ${m.volume.toFixed(0)} mm³, thickness=${thickness}mm, h=${extrudeHeight}mm, ${result.meta?.intersected ? 'clipped' : 'un-clipped'}`,
+        };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastRib = { ok: false, error: err && err.message };
+        }
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Rib: ' + (err && err.message || err) };
+      }
+    },
+
+    'Helix': async (scene, viewport) => {
+      try {
+        const { values, cancelled } = await requestToolParams('Helix');
+        if (cancelled) return { status: 'warn', message: 'Helix: cancelled' };
+        const params = (typeof window !== 'undefined') ? (window.__archdiscPlanParams || {}) : {};
+        const planValues = params['Helix'] || {};
+        const axisOrigin = Array.isArray(planValues.axisOrigin) ? planValues.axisOrigin
+          : (typeof window !== 'undefined' && Array.isArray(window.__archdiscHelixAxisOrigin))
+            ? window.__archdiscHelixAxisOrigin
+            : [0, 0, 0];
+        const axisDirection = Array.isArray(planValues.axisDirection) ? planValues.axisDirection
+          : (typeof window !== 'undefined' && Array.isArray(window.__archdiscHelixAxisDirection))
+            ? window.__archdiscHelixAxisDirection
+            : [0, 0, 1];
+        const args = {
+          diameter: Number(values.diameter) || 20,
+          pitchStart: Number(values.pitchStart) || 4,
+          pitchEnd: Number(values.pitchEnd) || 4,
+          revolutions: Number(values.revolutions) || 5,
+          direction: values.direction || 'ccw',
+          segmentsPerRev: Number(values.segmentsPerRev) || 64,
+          axisOrigin, axisDirection,
+        };
+        const result = await ArchDiscKernel.brep.helix(args);
+        await addBrepShapeToScene(scene, viewport, result, 0xe07b39);
+        if (typeof window !== 'undefined') {
+          window.__lastHelix = {
+            ok: true,
+            diameter: args.diameter,
+            pitchStart: args.pitchStart,
+            pitchEnd: args.pitchEnd,
+            revolutions: args.revolutions,
+            direction: args.direction,
+            expectedLength: result.meta && result.meta.length && result.meta.length.expected,
+            measuredLength: result.meta && result.meta.length && result.meta.length.measured,
+            pointCount: result.meta && result.meta.pointCount,
+            polyline: result.meta && result.meta.polyline,
+            kind: result.body && result.body.kind,
+          };
+        }
+        const len = result.meta?.length?.expected || 0;
+        return {
+          status: 'success',
+          message: `Helix: D=${args.diameter}mm, pitch=${args.pitchStart}${args.pitchStart !== args.pitchEnd ? '→' + args.pitchEnd : ''}mm/turn, ${args.revolutions} revs, ${args.direction} — L ≈ ${len.toFixed(1)} mm via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastHelix = { ok: false, error: err && err.message };
+        }
+        return { status: 'error', message: 'Helix: ' + (err && err.message || err) };
+      }
+    },
+
     'Fillet': async (scene, viewport) => {
       try {
         const [body] = _pickBodies(1);

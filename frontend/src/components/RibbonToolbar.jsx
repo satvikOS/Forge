@@ -94,6 +94,14 @@ const TABS = {
         { name: 'Blade Row', icon: '✺', key: 'part' },
         { name: 'Import STEP', icon: '📥', key: 'part' },
       ]},
+      // UX Tier 3a — Advanced features (Boundary Boss/Cut + Rib + Helix).
+      // Each is selection-driven + param-dialog-driven via the
+      // PropertyManager Dock (SwUxOverlays DOCKED_TOOLS).
+      { label: 'Advanced Features', tools: [
+        { name: 'Boundary Boss', icon: '⌬', key: 'part' },
+        { name: 'Rib',           icon: '▤', key: 'part' },
+        { name: 'Helix',         icon: '⤴', key: 'part' },
+      ]},
       { label: 'Modify', tools: [
         { name: 'Fillet', icon: '◜', key: 'part' },
         { name: 'Chamfer', icon: '◿', key: 'part' },

@@ -455,6 +455,10 @@ export const DOCKED_TOOLS = new Set([
   'Face-Face Blend',
   'Setback Corner',
   'G3 Blend',
+  // UX Tier 3a — Advanced features (Boundary Boss / Rib / Helix).
+  'Boundary Boss',
+  'Rib',
+  'Helix',
 ]);
 
 export function PropertyManagerDock() {
