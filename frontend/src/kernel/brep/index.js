@@ -85,6 +85,11 @@ export {
   isWeldment, getWeldmentMetadata,
   buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
 } from './BrepWeldments.js';
+// UX Tier 9 — Mold Tools workbench foundation.
+export {
+  draftAnalysis, partingLine, toolingSplit,
+  isMold, getMoldMetadata,
+} from './BrepMoldTools.js';
 // SP-13 — Data exchange completion (Area M, T2) — re-export from kernel/export/.
 export {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,

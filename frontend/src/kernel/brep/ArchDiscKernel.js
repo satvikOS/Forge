@@ -88,6 +88,11 @@ import {
   isWeldment, getWeldmentMetadata,
   buildStandardProfile, standardProfileSizes, STANDARD_PROFILES,
 } from './BrepWeldments.js';
+// UX Tier 9 — Mold Tools workbench foundation.
+import {
+  draftAnalysis, partingLine, toolingSplit,
+  isMold, getMoldMetadata,
+} from './BrepMoldTools.js';
 // SP-13 — Data exchange completion (Area M, T2).
 import {
   exportStepAp242, parseStepAp242Summary, importStepAp242WithAttrs,
@@ -258,6 +263,17 @@ export const ArchDiscKernel = {
     standardProfileSizes,
     /** Raw catalogue of standard profile dimensions (for advanced callers). */
     STANDARD_PROFILES,
+    // ── UX Tier 9 Mold Tools workbench foundation ─────────────────────────
+    /** Draft Analysis — walk every face, classify by draft angle vs. pull direction (positive / negative / vertical). */
+    draftAnalysis,
+    /** Parting Line — trace the silhouette curve on the body (edges between positive- and negative-draft faces). */
+    partingLine,
+    /** Tooling Split — partition the body into CORE (faces +pull) + CAVITY (opposite) halves along a planar parting surface. */
+    toolingSplit,
+    /** Predicate — does the body carry mold metadata (tagged by any mold-tools op)? */
+    isMold,
+    /** Read the mold metadata bag — {draftAnalysis, partingLine, half, toolingSplit}. */
+    getMoldMetadata,
     // ── SP-13 Data exchange completion (Area M, T2) ──────────────────────
     /** Export to STEP AP242 (PMI + colour + property attributes). */
     exportStepAp242,
