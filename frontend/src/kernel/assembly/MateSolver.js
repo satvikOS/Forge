@@ -106,6 +106,14 @@ export default class MateSolver {
       case 'tangent': return 1;
       case 'lock': return 6;
       case 'fixed': return 6;
+      // ── Tier-7b advanced mates ─────────────────────────────────
+      case 'width': return 1;          // 1 translational along gap normal
+      case 'path':  return 2;          // 2 normal-to-tangent components
+      case 'distanceLimit': return 0;  // slack inside [min,max]; the
+                                       //   _satisfyDistanceLimit handler
+                                       //   reports an EFFECTIVE removed=1
+                                       //   when currently clamped (set
+                                       //   via mate.params._clampedDOF).
       default: return 1;
     }
   }
@@ -150,6 +158,12 @@ export default class MateSolver {
       case 'lock':
       case 'fixed':
         return MateSolver._satisfyLock(mate, free, anchor);
+      case 'width':
+        return MateSolver._satisfyWidth(mate, free, anchor);
+      case 'path':
+        return MateSolver._satisfyPath(mate, free, anchor);
+      case 'distanceLimit':
+        return MateSolver._satisfyDistanceLimit(mate, free, anchor);
       default:
         return MateSolver._mateError(mate);
     }
@@ -322,6 +336,133 @@ export default class MateSolver {
     return delta.length();
   }
 
+  /**
+   * Width (Tier-7b): tab anchor on `free` is held equidistant between two
+   * reference anchors on `anchor`. params:
+   *   - `refA1`, `refA2` : Vec3 anchor offsets on the anchor part (mate-A)
+   *   - `tabB`           : Vec3 anchor offset on the free part   (mate-B)
+   * Residual = |d1 − d2|. Correction slides `free` along the gap-normal
+   * direction (`refA2 − refA1` normalised) by half the differential, so
+   * after a step the tab is closer to the midpoint.
+   * Removes 1 translational DOF (along gap normal).
+   */
+  static _satisfyWidth(mate, free, anchor) {
+    const refA1 = mate.params.refA1 || Vec3.zero();
+    const refA2 = mate.params.refA2 || Vec3.zero();
+    const tabB  = mate.params.tabB  || Vec3.zero();
+
+    // World-space anchors.
+    const p1 = (anchor === mate.partA ? mate.partA : mate.partB).position.add(refA1);
+    const p2 = (anchor === mate.partA ? mate.partA : mate.partB).position.add(refA2);
+    const tb = free.position.add(tabB);
+
+    const d1 = tb.sub(p1).length();
+    const d2 = tb.sub(p2).length();
+    const diff = d1 - d2;                        // signed
+    if (Math.abs(diff) < 1e-12) return 0;
+
+    // Gap-normal direction (refA1 → refA2). Slide free along this so
+    // d1 grows / shrinks toward d2.
+    const gap = p2.sub(p1);
+    const gapLen = gap.length();
+    if (gapLen < 1e-9) return Math.abs(diff);
+    const gN = gap.mul(1 / gapLen);
+
+    // Move toward the midpoint of p1, p2: shift = -diff/2 along gN.
+    // (If d1 > d2, tab is closer to p2 → shift back toward p1, i.e. against gN.)
+    const shift = gN.mul(-diff * 0.5 * RELAXATION);
+    free.position = free.position.add(shift);
+    return Math.abs(diff);
+  }
+
+  /**
+   * Path (Tier-7b): a point on `free` is constrained to lie on a path
+   * (sampled polyline) anchored in `anchor`'s local frame. params:
+   *   - `pathLocalA` : Array<Vec3> in anchor-local frame
+   *   - `pointB`     : Vec3 on free part (local frame)
+   * Residual = perpendicular distance from world-space point to the
+   * nearest segment. Correction slides `free` along the closest-point
+   * direction (the perpendicular component to the curve tangent).
+   * Removes 2 translational DOF (the two normal-to-tangent components).
+   */
+  static _satisfyPath(mate, free, anchor) {
+    const path  = Array.isArray(mate.params.pathLocalA) ? mate.params.pathLocalA : [];
+    const pointB = mate.params.pointB || Vec3.zero();
+    if (path.length < 2) return 0;
+
+    const anchorPart = (anchor === mate.partA ? mate.partA : mate.partB);
+    // Transform path samples by anchor's translation (rotation defaults
+    // to identity for the polyline-on-fixed-anchor common case; we don't
+    // rotate per-sample here to keep allocations cheap — callers stamp
+    // a pre-rotated path if needed).
+    const aPos = anchorPart.position;
+    const aB = free.position.add(pointB);
+
+    let bestD = Infinity, bestPt = null;
+    for (let i = 0; i < path.length - 1; i++) {
+      const s0 = path[i];   const s1 = path[i + 1];
+      const p0 = new Vec3(aPos.x + s0.x, aPos.y + s0.y, aPos.z + s0.z);
+      const p1 = new Vec3(aPos.x + s1.x, aPos.y + s1.y, aPos.z + s1.z);
+      const ab = p1.sub(p0);
+      const abLen2 = ab.dot(ab);
+      if (abLen2 < 1e-18) continue;
+      const tRaw = aB.sub(p0).dot(ab) / abLen2;
+      const t = Math.max(0, Math.min(1, tRaw));
+      const closest = new Vec3(p0.x + ab.x * t, p0.y + ab.y * t, p0.z + ab.z * t);
+      const d = aB.sub(closest).length();
+      if (d < bestD) { bestD = d; bestPt = closest; }
+    }
+    if (!bestPt || bestD < 1e-12) return bestD < 1e-12 ? 0 : bestD;
+
+    // Pull free toward the closest point.
+    const correction = bestPt.sub(aB).mul(RELAXATION);
+    free.position = free.position.add(correction);
+    return bestD;
+  }
+
+  /**
+   * Distance-Limit (Tier-7b): distance between anchors held in
+   * `[minDist, maxDist]`. Slack inside → 0 residual, 0 DOF removed.
+   * Clamped at min/max → pulls free toward the boundary, 1 DOF removed.
+   * params:
+   *   - `pointA`, `pointB` : anchor offsets (local frames)
+   *   - `minDist`, `maxDist` : the allowed-distance interval
+   */
+  static _satisfyDistanceLimit(mate, free, anchor) {
+    const offsetA = mate.params.pointA || Vec3.zero();
+    const offsetB = mate.params.pointB || Vec3.zero();
+    const minD = mate.params.minDist || 0;
+    const maxD = mate.params.maxDist || Infinity;
+
+    const pA = anchor.position.add(offsetA);
+    const pB = free.position.add(offsetB);
+    const dir = pB.sub(pA);
+    const dist = dir.length();
+
+    // Slack — record DOF=0 and bail.
+    if (dist >= minD && dist <= maxD) {
+      mate.params._clampedDOF = 0;
+      mate.params._activeLimit = null;
+      return 0;
+    }
+
+    // Clamped at the closest limit.
+    const target = (dist < minD) ? minD : maxD;
+    mate.params._clampedDOF = 1;
+    mate.params._activeLimit = (dist < minD) ? 'min' : 'max';
+
+    if (dist < 1e-9) {
+      // Degenerate — push apart along +X.
+      free.position = free.position.add(new Vec3(target * RELAXATION, 0, 0));
+      return target;
+    }
+    const dirN = dir.mul(1 / dist);
+    const wantPos = pA.add(dirN.mul(target));
+    const correction = wantPos.sub(pB).mul(RELAXATION);
+    free.position = free.position.add(correction);
+    return Math.abs(dist - target);
+  }
+
   /** Helper — rotate a local-frame direction by a part's Euler XYZ. */
   static _rotateLocal(part, v) {
     const rx = part.rotation.x, ry = part.rotation.y, rz = part.rotation.z;
@@ -385,6 +526,49 @@ export default class MateSolver {
         const proj = w.dot(dN);
         const perp = w.sub(dN.mul(proj));
         return Math.abs(perp.length() - radius);
+      }
+      case 'width': {
+        const refA1 = mate.params.refA1 || Vec3.zero();
+        const refA2 = mate.params.refA2 || Vec3.zero();
+        const tabB  = mate.params.tabB  || Vec3.zero();
+        const p1 = mate.partA.position.add(refA1);
+        const p2 = mate.partA.position.add(refA2);
+        const tb = mate.partB.position.add(tabB);
+        return Math.abs(tb.sub(p1).length() - tb.sub(p2).length());
+      }
+      case 'path': {
+        const path = Array.isArray(mate.params.pathLocalA) ? mate.params.pathLocalA : [];
+        const pointB = mate.params.pointB || Vec3.zero();
+        if (path.length < 2) return 0;
+        const aPos = mate.partA.position;
+        const aB = mate.partB.position.add(pointB);
+        let bestD = Infinity;
+        for (let i = 0; i < path.length - 1; i++) {
+          const s0 = path[i], s1 = path[i + 1];
+          const p0 = new Vec3(aPos.x + s0.x, aPos.y + s0.y, aPos.z + s0.z);
+          const p1 = new Vec3(aPos.x + s1.x, aPos.y + s1.y, aPos.z + s1.z);
+          const ab = p1.sub(p0);
+          const abLen2 = ab.dot(ab);
+          if (abLen2 < 1e-18) continue;
+          const tRaw = aB.sub(p0).dot(ab) / abLen2;
+          const t = Math.max(0, Math.min(1, tRaw));
+          const closest = new Vec3(p0.x + ab.x * t, p0.y + ab.y * t, p0.z + ab.z * t);
+          const d = aB.sub(closest).length();
+          if (d < bestD) bestD = d;
+        }
+        return bestD === Infinity ? 0 : bestD;
+      }
+      case 'distanceLimit': {
+        const offsetA = mate.params.pointA || Vec3.zero();
+        const offsetB = mate.params.pointB || Vec3.zero();
+        const pA = mate.partA.position.add(offsetA);
+        const pB = mate.partB.position.add(offsetB);
+        const d = pB.sub(pA).length();
+        const minD = mate.params.minDist || 0;
+        const maxD = mate.params.maxDist || Infinity;
+        if (d < minD) return minD - d;
+        if (d > maxD) return d - maxD;
+        return 0;
       }
       default:
         return 0;
