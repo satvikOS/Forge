@@ -428,6 +428,11 @@ export function HeadsUpViewToolbar() {
  * Extrude Boss, which is the SW canonical first feature).
  */
 export const DOCKED_TOOLS = new Set([
+  // UX Tier 11d — NX-unified Extrude (Boolean toggle replaces Boss/Cut split).
+  // The single 'Extrude' tool docks into the PropertyManagerDock; the legacy
+  // 'Extrude Boss' + 'Extrude Cut' entries remain in this set so direct
+  // ribbon/API callers (existing integration specs, AI plans) keep working.
+  'Extrude',
   'Extrude Boss',
   'Extrude Cut',
   'Revolve Boss',

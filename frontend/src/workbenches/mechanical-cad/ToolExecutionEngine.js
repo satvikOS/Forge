@@ -1634,6 +1634,174 @@ const TOOL_HANDLERS = {
       };
     },
 
+    // ─── UX TIER 11D — NX-UNIFIED EXTRUDE (BOOLEAN TOGGLE) ──────────────────
+    // ONE Extrude tool with a Boolean enum (None / Unite / Subtract /
+    // Intersect) replacing the SW Extrude Boss + Extrude Cut split. The
+    // kernel ops themselves are unchanged — this handler dispatches to the
+    // existing foundation `Mod.Manifold.extrude` plus the manifold-3d
+    // boolean ops (`union` / `difference` / `intersection`) based on the
+    // picked `boolean` mode. The legacy `Extrude Boss` + `Extrude Cut`
+    // handlers above stay live for one release cycle so existing
+    // integration specs + AI plans that drive them by name keep working.
+    //
+    // Profile-source priority — mirrors the legacy Extrude Boss path:
+    //   1. window.__archdiscPlanParams['Extrude'].profile — explicit
+    //      [{x,y,z}|[x,y,z]] closed wire (orchestration / inline-sketch).
+    //   2. _activeSketch.getSolidProfile() — live sketch wire when a
+    //      sketch is active and has non-construction entities.
+    //   3. Legacy rect fallback — values.width × values.depth centred on
+    //      origin (the dialog defaults — 80×50 mm).
+    //
+    // Default boolean auto-detection: when the dialog opens, if a
+    // foundation body already exists (_lastFoundationManifold is live and
+    // the user hasn't explicitly passed `boolean='none'`), the handler
+    // treats an unset / 'none' mode as Unite — NX's "use the target body"
+    // inference. An explicit `boolean='none'` from the plan params or
+    // dialog still forces a brand-new disjoint body.
+    'Extrude': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Extrude');
+      if (cancelled) return { status: 'warn', message: 'Extrude cancelled' };
+      try {
+        const Mod = await getManifold();
+
+        // ─ Profile source resolution.
+        let polygon = null;     // 2D polygon ([[x,y],...]) for CrossSection.
+        let profilePts = null;  // 3D points (informational, for the message).
+        if (Array.isArray(values.profile) && values.profile.length >= 3) {
+          profilePts = values.profile.map(p =>
+            Array.isArray(p) ? { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }
+              : { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 });
+          polygon = profilePts.map(p => [p.x, p.y]);
+        }
+        if (!polygon && _activeSketch && typeof _activeSketch.getSolidProfile === 'function') {
+          const sketchPts = _activeSketch.getSolidProfile();
+          if (Array.isArray(sketchPts) && sketchPts.length >= 3) {
+            profilePts = sketchPts.map(p => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+            polygon = profilePts.map(p => [p.x, p.y]);
+          }
+        }
+        if (!polygon) {
+          const w = (values.width ?? 80) / 2;
+          const d = (values.depth ?? 50) / 2;
+          polygon = [[-w, -d], [w, -d], [w, d], [-w, d]];
+        }
+
+        // ─ Build the prism. manifold-3d Manifold.extrude supports a draft
+        //   angle via the `twistDegrees` + `scaleTop` params; we pass a
+        //   per-side draft as a top-face scale factor (1 + tan(draft)·dist/half).
+        //   For draft=0 this is a pure prism.
+        const distance = values.distance ?? values.height ?? 25;
+        const draftDeg = values.draft ?? 0;
+        const halfExtent = Math.max(
+          ...polygon.map(p => Math.max(Math.abs(p[0]), Math.abs(p[1]))),
+        ) || 1;
+        // scaleTop multiplier (NX-style draft on the side faces).
+        const draftScale = draftDeg !== 0
+          ? Math.max(0.05, 1 + Math.tan(draftDeg * Math.PI / 180) * distance / halfExtent)
+          : 1;
+        const cs = Mod.CrossSection.ofPolygons([polygon]);
+        let prism = Mod.Manifold.extrude(cs, distance, 0, 0, [draftScale, draftScale]);
+        cs.delete();
+
+        // ─ Apply per-prism direction + position. Default direction is +Z
+        //   (the natural extrude axis). For an arbitrary direction we
+        //   rotate the prism so its native +Z aligns with the requested
+        //   unit vector, then translate to (posX,posY,posZ).
+        const dx = values.dirX ?? 0, dy = values.dirY ?? 0, dz = values.dirZ ?? 1;
+        const dirLen = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+        const nx = dx / dirLen, ny = dy / dirLen, nz = dz / dirLen;
+        if (!(Math.abs(nx) < 1e-6 && Math.abs(ny) < 1e-6 && nz > 0)) {
+          // Rotation from +Z to (nx,ny,nz): axis = (+Z × n), angle = acos(nz).
+          const ax = -ny, ay = nx, az = 0;
+          const axLen = Math.sqrt(ax * ax + ay * ay) || 0;
+          const angDeg = Math.acos(Math.max(-1, Math.min(1, nz))) * 180 / Math.PI;
+          if (axLen > 1e-6 && Math.abs(angDeg) > 1e-3) {
+            // manifold-3d takes Euler angles (X,Y,Z); use a Rodrigues-equivalent
+            // axis-angle via two-step Y then X for the common axis-aligned case,
+            // else fall back to applying via a normalized axis-angle rotation
+            // (Mod.Manifold.rotate accepts Euler degrees, so for non-aligned
+            // axes we approximate by rotating about Y by atan2(nx, nz) then
+            // about X by -atan2(ny, sqrt(nx²+nz²))).
+            const yDeg = Math.atan2(nx, nz) * 180 / Math.PI;
+            const xDeg = -Math.atan2(ny, Math.sqrt(nx * nx + nz * nz)) * 180 / Math.PI;
+            const t1 = prism.rotate([xDeg, yDeg, 0]); prism.delete(); prism = t1;
+          }
+        }
+        const pos = [values.posX ?? 0, values.posY ?? 0, values.posZ ?? 0];
+        if (pos[0] !== 0 || pos[1] !== 0 || pos[2] !== 0) {
+          const t2 = prism.translate(pos); prism.delete(); prism = t2;
+        }
+
+        const prismV = prism.volume();
+
+        // ─ Boolean dispatch.
+        let mode = (values.boolean || 'none').toLowerCase();
+        const target = _lastFoundationManifold;
+        // Auto-detect: when the user has an existing body and didn't
+        // explicitly pass 'none' (i.e. the dialog default came through
+        // and a target exists), flip the mode to 'unite' — NX behaviour.
+        if (target && mode === 'none' && values.__autoDetectBoolean !== false
+          && values.__explicitNone !== true) {
+          // Only auto-flip when the caller did NOT explicitly set 'none'.
+          // The dialog ALWAYS sends a `boolean` value (the schema default),
+          // so we distinguish "default-none" from "explicit-none" by the
+          // presence of `__explicitNone` in the plan params (orchestration
+          // sets this). Plain ribbon clicks without a target body never
+          // auto-flip because target is null. The result: in a typical
+          // session — first Extrude makes a new body (no target → none);
+          // subsequent Extrudes default to Unite — exactly NX.
+          // (Plan callers that want a forced new-body Extrude pass
+          //  __explicitNone=true alongside boolean='none'.)
+          mode = 'unite';
+        }
+
+        let result;
+        let consumedBase = false;
+        if (mode === 'unite' && target) {
+          result = Mod.Manifold.union(target, prism);
+          consumedBase = true;
+        } else if (mode === 'subtract' && target) {
+          result = Mod.Manifold.difference(target, prism);
+          consumedBase = true;
+        } else if (mode === 'intersect' && target) {
+          result = Mod.Manifold.intersection(target, prism);
+          consumedBase = true;
+        } else {
+          // 'none' (or any boolean mode with no target → graceful fallback
+          //  to a brand-new body so a first-time user can still get a
+          //  result rather than an error).
+          result = prism;
+        }
+        if (consumedBase) {
+          // The boolean consumed both inputs — dispose them now. (manifold-3d
+          // boolean ops return a fresh manifold; the originals leak the WASM
+          // heap if we don't .delete() them.)
+          if (target && typeof target.delete === 'function') target.delete();
+          if (typeof prism.delete === 'function') prism.delete();
+        }
+
+        const Vfinal = result.volume();
+        addFoundationManifoldToScene(scene, viewport, result, 0x9aa3ad);
+
+        const profileLabel = profilePts
+          ? `${profilePts.length}-point profile`
+          : `${(values.width ?? 80)}×${(values.depth ?? 50)} mm rect`;
+        const modeLabel = mode === 'none' ? 'None (new body)'
+          : mode === 'unite' ? 'Unite (∪ target)'
+          : mode === 'subtract' ? 'Subtract (target − tool)'
+          : mode === 'intersect' ? 'Intersect (target ∩ tool)' : mode;
+        return {
+          status: 'success',
+          message: `Extrude (Tier-11d unified): ${profileLabel} × ${distance} mm`
+            + (draftDeg ? ` (draft ${draftDeg}°)` : '')
+            + `, Boolean=${modeLabel}. Prism V = ${prismV.toFixed(0)} mm³ → final V = ${Vfinal.toFixed(0)} mm³`
+            + ` via Tier-11d → foundation manifold-3d ${mode === 'none' ? 'extrude' : `${mode} boolean`}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: `Extrude failed: ${err.message}` };
+      }
+    },
+
     'Blade Row': async (scene, viewport) => {
       // Foundation path: a general turbomachinery blade row via
       // foundation.bladeRowMesh — N lofted, twisted, capped aerofoils

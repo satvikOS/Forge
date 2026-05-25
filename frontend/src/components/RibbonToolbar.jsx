@@ -90,9 +90,17 @@ const TABS = {
         { name: 'Cone', icon: '△', key: 'part' },
         { name: 'Torus', icon: '◎', key: 'part' },
       ]},
+      // UX Tier 11d — NX-unified Extrude (Boolean toggle = None / Unite /
+      // Subtract / Intersect inside ONE Extrude dialog). The new 'Extrude'
+      // tool is the PRIMARY entry — NX-style single Extrude command. The
+      // legacy 'Extrude Boss' + 'Extrude Cut' entries remain on the ribbon
+      // (no longer marked `primary`) as deprecated direct-access buttons
+      // so existing integration specs + AI plans that drive them by name
+      // keep working unchanged for one release cycle.
       { label: 'Create', tools: [
-        { name: 'Extrude Boss', icon: '⬆', key: 'part', primary: true },
-        { name: 'Extrude Cut', icon: '⬇', key: 'part' },
+        { name: 'Extrude', icon: '⬆', key: 'part', primary: true },
+        { name: 'Extrude Boss', icon: '⬆', key: 'part' },   // deprecated — Tier-11d unified
+        { name: 'Extrude Cut', icon: '⬇', key: 'part' },    // deprecated — Tier-11d unified
         { name: 'Revolve Boss', icon: '↻', key: 'part' },
         { name: 'Revolve Cut', icon: '↺', key: 'part' },
         { name: 'Loft Boss', icon: '⋈', key: 'part' },

@@ -959,6 +959,50 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'height', label: 'Height', type: 'number', default: 25, unit: 'mm', min: 1, max: 5000, step: 1 },
     ],
   },
+
+  // ─── UX TIER 11D — BOOLEAN-INSIDE-EXTRUDE (NX takeaway #104) ──────────────
+  //
+  // NX collapses ArchDisc's previously-separate Extrude Boss + Extrude Cut
+  // ribbon tools into ONE `Extrude` tool with a Boolean toggle at the top of
+  // the dialog (None / Unite / Subtract / Intersect). The default boolean
+  // mode is `'none'` for a brand-new body; when the user has an existing
+  // body in the scene the handler auto-detects and switches the dock
+  // default to `'unite'` (NX's "use the target body" inference).
+  //
+  // The kernel ops themselves are unchanged — Tier-11d is a pure UX
+  // consolidation that dispatches to the existing foundation extrude +
+  // manifold boolean ops based on the picked boolean mode. The legacy
+  // `Extrude Boss` + `Extrude Cut` ribbon entries are kept as
+  // deprecated/hidden direct-access buttons for one release cycle so
+  // existing integration specs + AI plans keep working unchanged.
+  //
+  //   boolean='none'      → extrude + add as a new body (Boss behaviour).
+  //   boolean='unite'     → extrude + fuse with the current target body.
+  //   boolean='subtract'  → extrude + cut from the current target body (Cut).
+  //   boolean='intersect' → extrude + common with the current target body.
+  //
+  // The dialog renders every field; the handler reads only the relevant
+  // subset based on `boolean`. Hints document which mode each field
+  // applies to.
+  'Extrude': {
+    title: 'Extrude — Inputs (NX-unified Boss + Cut)',
+    blurb: 'NX-style unified Extrude. Pick a Boolean mode (None=new body / Unite=fuse / Subtract=cut / Intersect=common); the handler reads the depth + draft fields and dispatches to the existing foundation extrude + manifold boolean ops. Default boolean=none for new bodies; auto-flips to `unite` when an existing target body is selected (NX behaviour). The rectangular profile defaults can be overridden by an orchestration plan via `profile` (closed wire pts) for arbitrary shapes.',
+    fields: [
+      { name: 'boolean',    label: 'Boolean',       type: 'enum',   default: 'none',
+        options: ['none', 'unite', 'subtract', 'intersect'],
+        hint: 'none=add as new body; unite=fuse with target; subtract=cut from target; intersect=common with target. Default auto-flips to unite when a target body is selected.' },
+      { name: 'width',      label: 'Width',         type: 'number', default: 80, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'rect profile X extent (centred on origin); ignored if `profile` param supplies an explicit closed wire' },
+      { name: 'depth',      label: 'Depth (Y)',     type: 'number', default: 50, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'rect profile Y extent (centred on origin); ignored if `profile` param supplies an explicit closed wire' },
+      { name: 'distance',   label: 'Distance (Z)',  type: 'number', default: 25, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'extrude depth along the direction vector — the NX "Distance" field' },
+      { name: 'dirX',       label: 'Direction X',   type: 'number', default: 0,  unit: '',   min: -1,  max: 1,    step: 0.05, hint: 'unit vector; default (0,0,1) = +Z' },
+      { name: 'dirY',       label: 'Direction Y',   type: 'number', default: 0,  unit: '',   min: -1,  max: 1,    step: 0.05 },
+      { name: 'dirZ',       label: 'Direction Z',   type: 'number', default: 1,  unit: '',   min: -1,  max: 1,    step: 0.05 },
+      { name: 'draft',      label: 'Draft angle',   type: 'number', default: 0,  unit: 'deg', min: -30, max: 30,  step: 0.5,  hint: 'per-side taper angle (NX "Draft" field); 0 = straight prism. Positive = outward taper, negative = inward' },
+      { name: 'posX',       label: 'Position X',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1,  hint: 'translates the resulting prism before the boolean (NX positions the Section against the target body via the sketch plane offset)' },
+      { name: 'posY',       label: 'Position Y',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'posZ',       label: 'Position Z',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1 },
+    ],
+  },
   'Revolve Boss': {
     title: 'Revolve Boss — Inputs',
     blurb: 'Revolve a (radius,height) profile 360°. Defaults: stepped shaft.',
@@ -1613,6 +1657,11 @@ export function defaultsForTool(toolName) {
 export const INLINE_SKETCH_CAPABLE = new Set([
   'Extrude Boss',
   'Extrude Cut',
+  // UX Tier 11d — unified Extrude (boolean toggle replaces the Boss/Cut split).
+  // The dock-inline-sketch session writes its committed profile to
+  // window.__archdiscPlanParams['Extrude'].profile which the new handler
+  // consumes the same way as the legacy Boss handler's Path A.
+  'Extrude',
   'Revolve Boss',
   'Sweep Boss',
   'Loft Boss',
