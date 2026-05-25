@@ -33,7 +33,7 @@ import { diffProjects } from '../foundation/ProjectDiff.js';
  * Certification Matrix generator can later produce a compliance
  * report from this one design session.
  */
-export default function AIChatPanel({ open, onClose }) {
+export default function AIChatPanel({ open, onClose, onOpenSettings }) {
   const [messages, setMessages] = useState([
     { role: 'system', text: 'Tell me what you want to design. I will ask a few questions, then propose a plan you can run.' },
   ]);
@@ -684,6 +684,19 @@ export default function AIChatPanel({ open, onClose }) {
             </span>
           )}
           <span className={`chat-phase chat-phase-${phase}`}>{phase}</span>
+          {/* Consolidated AI entry (UX cleanup 2026-05-24): the standalone
+              .ai-settings-launcher floating pill was removed because it
+              duplicated the chat-launcher at the bottom-right. The AI
+              Settings dialog is now reachable from this in-panel link, so
+              there's exactly one floating AI button in the workspace. */}
+          {onOpenSettings && (
+            <button className="chat-header-settings"
+                    onClick={onOpenSettings}
+                    title="AI Provider Settings (BYO-LLM)"
+                    data-action="open-ai-settings">
+              Settings
+            </button>
+          )}
           <button className="chat-close" onClick={onClose}>×</button>
         </div>
         <div className="chat-project-bar" data-project-bar>

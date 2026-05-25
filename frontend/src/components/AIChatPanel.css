@@ -921,7 +921,11 @@
 .chat-launcher {
   position: fixed;
   right: 16px;
-  bottom: 72px;       /* sits above the AI Settings pill */
+  /* UX cleanup 2026-05-24: was `bottom: 72px` to clear the standalone
+     .ai-settings-launcher pill. That pill was removed (its function is
+     now reachable from the chat panel's header "Settings" link), so the
+     chat launcher reclaims the canonical bottom-right corner. */
+  bottom: 16px;
   z-index: 9000;
   background: #5da5ff;
   color: #fff;
@@ -934,3 +938,25 @@
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
 }
 .chat-launcher:hover { background: #4895ff; transform: scale(1.05); }
+
+/* Settings link in the chat panel header — replaces the standalone
+   .ai-settings-launcher floating pill so AI Settings stays reachable
+   without a second floating button cluttering the corner. */
+.chat-header-settings {
+  background: transparent;
+  color: #b8b8b8;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-right: 6px;
+  letter-spacing: 0.3px;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.chat-header-settings:hover {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #3a3a3a;
+}
