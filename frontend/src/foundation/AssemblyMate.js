@@ -144,6 +144,40 @@ export class Assembly {
     return this;
   }
 
+  // ── Tier-7b advanced mates ───────────────────────────────────────
+  /**
+   * Width mate — centre a TAB anchor on partB equidistantly between two
+   * reference anchors (`refA1`, `refA2`) on partA. Removes 1 translational
+   * DOF along the gap normal (the line through refA1↔refA2). Anchors are
+   * `{ type: 'point', xyz: [x,y,z] }` in their respective local frames.
+   */
+  width(partA, refA1, refA2, partB, tabB) {
+    this.mates.push({ kind: 'width', partA, refA1, refA2, partB, tabB });
+    return this;
+  }
+
+  /**
+   * Path mate — constrain a point on partB to lie on a polyline-sampled
+   * path expressed in partA's local frame. `pathLocalA` is an array of
+   * `[x,y,z]` samples; a closed curve repeats the first sample at end.
+   * Removes 2 translational DOF (the two normal components to the
+   * tangent); the remaining 1 along-path DOF is free.
+   */
+  path(partA, pathLocalA, partB, anchorB) {
+    this.mates.push({ kind: 'path', partA, pathLocalA, partB, anchorB });
+    return this;
+  }
+
+  /**
+   * Distance-Limit mate — the distance between two anchors must stay in
+   * `[minDist, maxDist]`. Slack within the range (0 DOF removed); clamps
+   * at either boundary (1 DOF removed at the clamped limit).
+   */
+  distanceLimit(partA, anchorA, partB, anchorB, minDist, maxDist) {
+    this.mates.push({ kind: 'distanceLimit', partA, anchorA, partB, anchorB, minDist, maxDist });
+    return this;
+  }
+
   /**
    * Compute residuals for the current transform state.
    */
@@ -224,6 +258,56 @@ export class Assembly {
           const rB = m.partB.transform.rotation;
           for (let i = 0; i < 3; i++) r.push(tA[i] - tB[i]);
           for (let i = 0; i < 3; i++) r.push(rA[i] - rB[i]);
+          break;
+        }
+        case 'width': {
+          // Tier-7b: tab anchor on partB centred between refA1/refA2 on
+          // partA. Scalar residual = d1 − d2 (signed, so the Jacobian
+          // has gradient in both directions).
+          const r1 = transformPoint(m.partA, m.refA1.xyz);
+          const r2 = transformPoint(m.partA, m.refA2.xyz);
+          const tb = transformPoint(m.partB, m.tabB.xyz);
+          const d1 = vLen(vSub(tb, r1));
+          const d2 = vLen(vSub(tb, r2));
+          r.push(d1 - d2);
+          break;
+        }
+        case 'path': {
+          // Tier-7b: anchor on partB lies on path (sampled polyline) in
+          // partA's local frame. Three scalar residuals = anchor world −
+          // nearest-point-on-path world (vector difference; norm = 0 when
+          // on path). 2 of the 3 are independent because the third is
+          // along the tangent; LM solver handles redundancy via damping.
+          const aB = transformPoint(m.partB, m.anchorB.xyz);
+          // Transform each path sample by partA, find nearest segment.
+          let bestD = Infinity, bestPt = null;
+          for (let k = 0; k < m.pathLocalA.length - 1; k++) {
+            const p0 = transformPoint(m.partA, m.pathLocalA[k]);
+            const p1 = transformPoint(m.partA, m.pathLocalA[k + 1]);
+            const ab = vSub(p1, p0);
+            const abLen2 = vDot(ab, ab);
+            if (abLen2 < 1e-18) continue;
+            const t = Math.max(0, Math.min(1, vDot(vSub(aB, p0), ab) / abLen2));
+            const closest = [p0[0] + ab[0] * t, p0[1] + ab[1] * t, p0[2] + ab[2] * t];
+            const d = vLen(vSub(aB, closest));
+            if (d < bestD) { bestD = d; bestPt = closest; }
+          }
+          if (bestPt) {
+            r.push(aB[0] - bestPt[0], aB[1] - bestPt[1], aB[2] - bestPt[2]);
+          } else {
+            r.push(0, 0, 0);
+          }
+          break;
+        }
+        case 'distanceLimit': {
+          // Tier-7b: distance in [min, max]. Outside → signed clamp delta;
+          // inside → 0. The LM solver sees a one-sided residual.
+          const a = transformPoint(m.partA, m.anchorA.xyz);
+          const b = transformPoint(m.partB, m.anchorB.xyz);
+          const d = vLen(vSub(a, b));
+          if (d < m.minDist)      r.push(d - m.minDist);
+          else if (d > m.maxDist) r.push(d - m.maxDist);
+          else                    r.push(0);
           break;
         }
         default:

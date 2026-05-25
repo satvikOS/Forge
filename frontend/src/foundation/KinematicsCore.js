@@ -40,12 +40,22 @@ const SPATIAL_FREEDOM = { revolute: 1, prismatic: 1, cylindrical: 2, spherical: 
 //   - Each returns a scalar residual (0 = satisfied).
 //   - DOF removed is recorded as a sibling export `ASSEMBLY_MATE_DOF`.
 
-/** DOF count removed by each Tier-7a mate (sum of 6-DOF per body model). */
+/** DOF count removed by each Tier-7a/7b mate (sum of 6-DOF per body model). */
 export const ASSEMBLY_MATE_DOF = Object.freeze({
   parallel: 2,         // 2 rotational DOF (two angles to align)
   perpendicular: 1,    // 1 rotational DOF (one angle = 90°)
   tangent: 1,          // 1 translational DOF (point on cylinder surface)
   lock: 6,             // 3 translational + 3 rotational (rigid attach)
+  // ── Tier-7b advanced mates ───────────────────────────────────────
+  width: 1,            // 1 translational DOF — tab centred between two
+                       //   reference faces (equidistant along gap normal)
+  path: 2,             // 2 translational DOF — point constrained to a
+                       //   1-manifold curve (kills the two perpendicular-
+                       //   to-tangent components of position)
+  distanceLimit: 0,    // 0 DOF in the active range (slack); 1 at either
+                       //   limit (clamp). Reported as worst-case 0 here —
+                       //   the constraint contributes a residual only when
+                       //   the current distance leaves [min, max].
 });
 
 function _len(v) { return Math.hypot(v[0], v[1], v[2]); }
@@ -126,11 +136,109 @@ export function lockResidual(poseA, poseB) {
 }
 
 /**
- * Bundle: compute residuals for every Tier-7a mate kind in one call. Used
- * by AssemblyMate/MateSolver consistency checks + e2e.
+ * Width mate residual (Tier-7b) — a TAB anchor on partB is equidistant
+ * between two reference anchors `pRefA1Pt` and `pRefA2Pt` on partA (world
+ * space). Centred ⇔ `dist(tab, refA1) == dist(tab, refA2)`. Returns the
+ * absolute distance differential (scalar; 0 = centred). Removes 1
+ * translational DOF along the gap normal.
+ */
+export function widthResidual(pTabWorld, pRefA1World, pRefA2World) {
+  const d1 = _len(_sub(pTabWorld, pRefA1World));
+  const d2 = _len(_sub(pTabWorld, pRefA2World));
+  return Math.abs(d1 - d2);
+}
+
+/**
+ * Path mate residual (Tier-7b) — point `pBWorld` on partB lies on a path
+ * curve sampled densely as a world-space polyline `pathPoints`. Returns
+ * the perpendicular distance from the point to its nearest segment of the
+ * polyline. Generalises to spline / circle / polyline because the caller
+ * supplies the sampled points. Removes 2 translational DOF (the two
+ * components of position perpendicular to the local tangent).
  *
- * Each input is `{ kind: 'parallel'|'perpendicular'|'tangent'|'lock', ... }`
- * with the mate-kind-specific world-space inputs already resolved.
+ * pathPoints: Array of [x,y,z]. Closed loops repeat the first point at
+ * the end. At least 2 distinct points required.
+ */
+export function pathResidual(pBWorld, pathPoints) {
+  if (!Array.isArray(pathPoints) || pathPoints.length < 2) return _len(pBWorld);
+  let best = Infinity;
+  for (let i = 0; i < pathPoints.length - 1; i++) {
+    const a = pathPoints[i], b = pathPoints[i + 1];
+    const ab = _sub(b, a);
+    const abLen2 = _dot(ab, ab);
+    if (abLen2 < 1e-18) continue;
+    const t = Math.max(0, Math.min(1, _dot(_sub(pBWorld, a), ab) / abLen2));
+    const closest = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = _len(_sub(pBWorld, closest));
+    if (d < best) best = d;
+  }
+  return best === Infinity ? 0 : best;
+}
+
+/**
+ * Path mate — also returns the nearest-point + along-curve tangent so the
+ * solver can both pull the point onto the curve AND know which direction
+ * is the kept (free-slide) DOF. Used by MateSolver._satisfyPath.
+ */
+export function pathNearest(pBWorld, pathPoints) {
+  if (!Array.isArray(pathPoints) || pathPoints.length < 2) {
+    return { point: pBWorld.slice(), tangent: [1, 0, 0], distance: 0 };
+  }
+  let bestD = Infinity, bestPt = null, bestTan = [1, 0, 0];
+  for (let i = 0; i < pathPoints.length - 1; i++) {
+    const a = pathPoints[i], b = pathPoints[i + 1];
+    const ab = _sub(b, a);
+    const abLen2 = _dot(ab, ab);
+    if (abLen2 < 1e-18) continue;
+    const t = Math.max(0, Math.min(1, _dot(_sub(pBWorld, a), ab) / abLen2));
+    const closest = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = _len(_sub(pBWorld, closest));
+    if (d < bestD) {
+      bestD = d;
+      bestPt = closest;
+      bestTan = _normalize(ab);
+    }
+  }
+  return { point: bestPt ?? pBWorld.slice(), tangent: bestTan, distance: bestD };
+}
+
+/**
+ * Distance-Limit mate residual (Tier-7b) — the distance between two
+ * anchors is held within `[minDist, maxDist]`. Returns 0 inside the
+ * range (slack); returns the signed clamp delta outside the range (free
+ * = move closer if too far; further if too close). Removes 0 DOF in the
+ * slack region; removes 1 DOF when clamped to either limit.
+ *
+ *   d < minDist  →  (d − minDist)   < 0  (need to grow)
+ *   d > maxDist  →  (d − maxDist)   > 0  (need to shrink)
+ *   else         →  0                    (slack)
+ */
+export function distanceLimitResidual(pAWorld, pBWorld, minDist, maxDist) {
+  const d = _len(_sub(pBWorld, pAWorld));
+  if (d < minDist) return Math.abs(d - minDist);
+  if (d > maxDist) return Math.abs(d - maxDist);
+  return 0;
+}
+
+/**
+ * Distance-Limit — signed delta + clamp target for use by the solver.
+ * Returns { clamped, target, delta }. `clamped === false` means in-range
+ * (no correction); when clamped, `target` is the boundary distance
+ * (min or max) the solver pulls toward.
+ */
+export function distanceLimitClamp(pAWorld, pBWorld, minDist, maxDist) {
+  const d = _len(_sub(pBWorld, pAWorld));
+  if (d < minDist) return { clamped: true, target: minDist, delta: d - minDist, current: d };
+  if (d > maxDist) return { clamped: true, target: maxDist, delta: d - maxDist, current: d };
+  return { clamped: false, target: d, delta: 0, current: d };
+}
+
+/**
+ * Bundle: compute residuals for every Tier-7a / Tier-7b mate kind in one
+ * call. Used by AssemblyMate/MateSolver consistency checks + e2e.
+ *
+ * Each input is `{ kind: ..., ... }` with the mate-kind-specific
+ * world-space inputs already resolved.
  */
 export function assemblyMateResiduals(mates) {
   return mates.map((m) => {
@@ -139,6 +247,9 @@ export function assemblyMateResiduals(mates) {
       case 'perpendicular': return { kind: m.kind, r: perpendicularResidual(m.dAWorld, m.dBWorld) };
       case 'tangent':       return { kind: m.kind, r: tangentResidual(m.pBWorld, m.axisOriginWorld, m.axisDirWorld, m.radius) };
       case 'lock':          return { kind: m.kind, r: lockResidual(m.poseA, m.poseB) };
+      case 'width':         return { kind: m.kind, r: widthResidual(m.pTabWorld, m.pRefA1World, m.pRefA2World) };
+      case 'path':          return { kind: m.kind, r: pathResidual(m.pBWorld, m.pathPoints) };
+      case 'distanceLimit': return { kind: m.kind, r: distanceLimitResidual(m.pAWorld, m.pBWorld, m.minDist, m.maxDist) };
       default:              throw new Error(`assemblyMateResiduals: unknown kind '${m.kind}'`);
     }
   });
