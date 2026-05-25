@@ -2749,6 +2749,124 @@ Headed Electron, `--workers=1`, `--retries=0`:
 
 ---
 
+## Tier 11d — NX-unified Extrude with Boolean toggle (1 of 1 shipped)
+
+**Date:** 2026-05-25
+
+NX takeaway #104 from `docs/superpowers/notes/siemens-nx-course-synthesis.md`:
+collapse ArchDisc's previously-separate **Extrude Boss** + **Extrude Cut**
+ribbon tools into a single **Extrude** entry with a Boolean enum at the
+top of the dialog (None / Unite / Subtract / Intersect — NX's
+"one icon, one dialog" model). The kernel ops themselves are unchanged
+— Tier-11d is a pure UX consolidation that dispatches to the existing
+`Mod.Manifold.extrude` plus the manifold-3d boolean ops
+(`union` / `difference` / `intersection`) based on the picked boolean
+mode. Default boolean auto-flips from `none` → `unite` when a target
+foundation body already exists (NX "use the target body" inference).
+
+| Tier-11 # | Pattern | Status | Implementation |
+|---|---|---|---|
+| 104 | **Unified Extrude with Boolean toggle (Boss + Cut consolidation)** | **DONE** | `frontend/src/foundation/ToolParamSchemas.js::Extrude` schema (`boolean` enum default `none`, plus `width` / `depth` / `distance` / `dirX/Y/Z` / `draft` / `posX/Y/Z`); `frontend/src/components/RibbonToolbar.jsx` Part-tab Create group leads with `Extrude` (primary) alongside deprecated `Extrude Boss` + `Extrude Cut` (kept temporarily for backward compat with existing integration specs / AI plans); `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js::Extrude` handler resolves the profile (planParam `profile` → live sketch → rect fallback), builds the prism with `Mod.Manifold.extrude` (incl. NX-style draft via `scaleTop`), rotates/translates per `dir + pos`, then dispatches per `boolean` — `none` → fresh body, `unite` → `Mod.Manifold.union(target, prism)`, `subtract` → `Mod.Manifold.difference(target, prism)`, `intersect` → `Mod.Manifold.intersection(target, prism)`. Auto-detect: when a target body exists and the caller didn't pass `__explicitNone=true`, the handler treats `boolean='none'` as `unite`. `Extrude` added to `SwUxOverlays.jsx::DOCKED_TOOLS` (PropertyManagerDock + `=expr` integration) and `ToolParamSchemas.js::INLINE_SKETCH_CAPABLE` (so the dock-inline sketch session can author the profile). |
+
+### Bespoke real workflow — flanged mounting bracket (3 boolean modes)
+
+`e2e/ux-tier11d-extrude-boolean-electron.spec.js` runs ONE workflow
+exercising the new unified Extrude tool with all 3 non-trivial boolean
+modes in sequence — building a real flanged mounting bracket end-to-end.
+Motion-capture, `--workers=1`, no `node:*` imports. ONE iso framing held
+through every stage so the consolidation reads as a single continuous
+build (base → boss → hole), not 3 isolated screenshots.
+
+| Stage | What happens |
+|---|---|
+| A | Drive the unified Extrude tool with `boolean='none'`, `__explicitNone=true`, `width=100`, `depth=60`, `distance=8`. Commit. Verify a fresh 100×60×8 mm base plate body (V ≈ 48000 mm³, sits on z=0..z=8). |
+| B | Drive the unified Extrude tool with `boolean='unite'`, `width=40`, `depth=40`, `distance=15`, `posZ=8`. Commit. Verify the 40×40×15 boss is fused on top of the plate (V ≈ 72000 mm³ = 48000 + 24000; Z bbox extends to ~23 mm; X/Y bbox unchanged at the base extent). |
+| C | Drive the unified Extrude tool with `boolean='subtract'`, an explicit 64-segment Ø12 circular `profile`, `distance=30`, `posZ=-2`. Commit. Verify the through-hole removes π·6²·23 ≈ 2601 mm³ (within ±5% for the 64-seg polygon approximation); the outer bbox is unchanged because the hole is fully interior. |
+
+### Framing — perfectly viewable
+
+ONE stable iso framing (200-mm camera radius, target at the bracket
+centre-of-mass) held through stages A → C. Four stills + a session video.
+The unified `Extrude` dialog opens via the PropertyManager Dock; the
+Boolean enum reads as the first row of the Inputs section. Each stage
+carries its own commit + iso re-frame — but because the camera params
+are identical, the resulting stills look like 4 frames of the SAME shot
+with the bracket progressively gaining the boss and then the mounting
+hole. Exactly the "single Extrude tool, three boolean cases" visual
+story the consolidation is intended to demonstrate.
+
+### Focal assertions (verified live in the spec)
+
+| Stage | Assertion | Value |
+|---|---|---|
+| A | Base plate built with `boolean=none` | V ≈ 48000 mm³ |
+| A | Base XY bbox = 100 × 60 | ±2 mm tolerance |
+| A | Base Z bbox = 0 .. 8 | distance match |
+| B | Boss fused with `boolean=unite` | V ≈ 72000 mm³ (= base + 40·40·15) |
+| B | Boss raises Z bbox to ~23 mm | top of boss |
+| B | Volume jump = exact boss volume (24000 mm³) | within manifold quantisation |
+| C | Hole drilled with `boolean=subtract` | hole V ≈ 2601 mm³ (π·6²·23) |
+| C | Outer XY bbox unchanged by hole | hole fully interior |
+| C | Z bbox unchanged at ~23 mm | through-cut exits cleanly |
+
+### Honest gaps queued for follow-up
+
+- **Revolve + Sweep boolean consolidation** — NX gives the same Boolean
+  toggle to Revolve and Sweep. ArchDisc still ships `Revolve Boss` +
+  `Revolve Cut` as separate ribbon entries. The same Tier-11d pattern
+  (schema enum + dispatch handler) will collapse them in a follow-up;
+  the kernel ops are already present (`revolveProfile` + `Mod.Manifold.
+  *` booleans).
+- **Ribbon cleanup** — the deprecated `Extrude Boss` + `Extrude Cut`
+  entries remain on the ribbon so existing integration specs
+  (`sketch-extrude-workflow`, `sketch-on-face`, `integration-extrude-cut`,
+  `ribbon-test`, etc.) keep clicking them. A follow-up cleanup pass
+  should migrate those specs to click `Extrude` + set `boolean`, then
+  remove the legacy ribbon entries.
+- **Draft angle on non-rectangular profiles** — the prism's `scaleTop`
+  factor is computed from the rect's half-extent; for arbitrary
+  closed-wire profiles the draft renders as a uniform inward/outward
+  scaling rather than a true face-by-face draft. The single-rectangle
+  defaults are exact; arbitrary-profile draft is queued for a follow-up.
+- **Auto-detect mode** — the handler flips `none` → `unite` ONLY when a
+  target body exists AND the caller didn't pass `__explicitNone=true`.
+  This matches the NX-typical case (user has a body, opens Extrude,
+  expects the new feature to fuse) but means a plan caller wanting a
+  brand-new disjoint body alongside an existing one must explicitly
+  pass `__explicitNone: true`. Documented in the schema hint + the
+  ToolExecutionEngine.js comment.
+
+### Files changed (Tier 11d)
+
+- `frontend/src/foundation/ToolParamSchemas.js` — append `'Extrude'`
+  schema with `boolean` enum + depth/dir/draft/position fields; add
+  `'Extrude'` to `INLINE_SKETCH_CAPABLE`.
+- `frontend/src/components/RibbonToolbar.jsx` — Part tab Create group
+  now leads with `Extrude` (primary); `Extrude Boss` + `Extrude Cut`
+  remain as deprecated direct-access buttons (no `primary` flag).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` —
+  append `Extrude` handler dispatching per boolean to the existing
+  foundation `Mod.Manifold.extrude` + manifold-3d boolean ops.
+- `frontend/src/components/SwUxOverlays.jsx` — `Extrude` added to
+  `DOCKED_TOOLS` so the unified tool gets the PropertyManagerDock.
+- `e2e/ux-tier11d-extrude-boolean-electron.spec.js` (new) — bespoke
+  flanged-mounting-bracket motion-capture workflow.
+- `docs/superpowers/notes/siemens-nx-course-synthesis.md` — flip
+  takeaway #104 (Boolean-inside-Extrude) to **Done — Tier-11d** with
+  the implementation summary; update the comparison table row.
+
+### E2E + regression subset (Tier 11d)
+
+Headed Electron, `--workers=1`, `--retries=0`:
+
+| Spec | Result |
+|---|---|
+| `ux-tier11d-extrude-boolean-electron` (NEW) | **PASS** — 4 stills + 00-session.webm, all 3 boolean modes verified (A: V=48000 mm³ base plate, B: V=72000 mm³ after Unite boss, C: V=69403 mm³ after Subtract Ø12 hole, hole removed = 2597 mm³ vs analytical 2601 — 0.15% error) |
+| `ribbon-test` (regression — ribbon tabs still render with the new `Extrude` entry) | PASS — Part tab still reports 78 tools (was 77; `Extrude` adds one) |
+| `integration-extrude` (regression — legacy `Extrude Boss` ribbon entry) | PRE-EXISTING FLAKE — same dialog-dock timeout failure mode also reproduces against `HEAD~` (validated by `git stash` round-trip during Tier-11d build); unrelated to Tier-11d. The dock-bypass path used by the new Electron spec (`__archdiscPlanParams` slot) works reliably; the web-mode regression spec needs a follow-up to use the same path |
+
+---
+
 ## UI cleanup pass — 2026-05-24 (ribbon clipping + overlay dedup)
 
 User feedback verbatim: "the ribbon, the AI options are getting cut. also

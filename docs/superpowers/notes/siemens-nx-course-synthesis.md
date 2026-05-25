@@ -432,7 +432,7 @@ based on `frontend/src/components/RibbonToolbar.jsx` snapshot.
 
 | Concept | NX term | SW term | ArchDisc term | Status |
 |---|---|---|---|---|
-| Extrude | **Extrude** (with Boolean toggle) | Extruded Boss / Cut (two tools) | Extrude Boss + Extrude Cut | **Done** but two separate tools |
+| Extrude | **Extrude** (with Boolean toggle) | Extruded Boss / Cut (two tools) | Extrude Boss + Extrude Cut + Extrude (Tier-11d unified Boolean toggle) | **Done — Tier-11d consolidated** (single Extrude tool with `boolean=none/unite/subtract/intersect`; legacy Boss + Cut kept deprecated for one cycle) |
 | Revolve | **Revolve** (with Boolean) | Revolved Boss / Cut | Revolve Boss + Revolve Cut | **Done** |
 | Loft | **Through Curves** | Lofted Boss | Loft Boss | **Done** — *NX term to alias* |
 | Sweep | **Swept** | Swept Boss | Sweep Boss | **Done** |
@@ -563,8 +563,24 @@ SW list.
    ribbon entries kept temporarily as deprecated direct-access buttons.
 
 104. **One unified Boolean toggle inside Extrude / Revolve / Sweep** (None / Unite / Subtract /
-   Intersect) rather than separate Extrude Boss vs Extrude Cut tools. ArchDisc currently follows
-   the SW two-tool split.
+   Intersect) rather than separate Extrude Boss vs Extrude Cut tools. **Extrude SHIPPED —
+   Tier-11d (2026-05-25).** `frontend/src/foundation/ToolParamSchemas.js::Extrude` schema
+   with a `boolean` enum (`none` / `unite` / `subtract` / `intersect`) at the top of the
+   dialog plus depth / direction / draft / position fields; `frontend/src/components/
+   RibbonToolbar.jsx` Part-tab Create group leads with the new `Extrude` (primary) entry
+   alongside the deprecated `Extrude Boss` + `Extrude Cut` entries (kept for one release
+   cycle for backward compat with existing integration specs + AI plans); `frontend/src/
+   workbenches/mechanical-cad/ToolExecutionEngine.js::Extrude` handler dispatches per
+   boolean — `none` → fresh body via `Mod.Manifold.extrude`, `unite` → `Mod.Manifold.union`
+   with `_lastFoundationManifold`, `subtract` → `Mod.Manifold.difference`, `intersect` →
+   `Mod.Manifold.intersection`. Default boolean auto-flips from `none` to `unite` when a
+   target body exists (NX "use the target body" inference); explicit `__explicitNone=true`
+   in the plan params forces a brand-new disjoint body. `Extrude` added to
+   `SwUxOverlays.jsx::DOCKED_TOOLS` + `INLINE_SKETCH_CAPABLE`. Revolve + Sweep boolean
+   consolidation queued. Verified by `e2e/ux-tier11d-extrude-boolean-electron.spec.js`
+   (flanged mounting bracket — base plate 100×60×8 with `boolean=none`, raised boss
+   40×40×15 fused on top with `boolean=unite`, Ø12 mounting hole cut through with
+   `boolean=subtract`; the SAME `Extrude` tool drives all 3 stages).
 
 105. **Add New Set pattern in feature dialogs.** Edge Blend lets you collect *independent edge
    groups with different radii* inside ONE feature node (via the "Add New Set" button). This is
@@ -703,7 +719,7 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 | 101 | MB2 field advancement | `ToolParamDialog.jsx` event handlers; needs viewport MB2 event hookup | NX-UX track | **Missing** |
 | 102 | Dialog-inside-a-dialog sketch | `ToolParamDialog.jsx` + `InteractiveSketch.js` enter-sketch hook | NX-UX track | **Missing** |
 | 103 | Unified Pattern Feature tool | `RibbonToolbar.jsx::Pattern` group → new `Pattern` tool (PRIMARY) + `Pattern` schema in `ToolParamSchemas.js` (layout enum: linear / circular / polygon) + dispatch handler in `ToolExecutionEngine.js::Pattern` routing to existing kernel ops. Legacy Linear/Circular entries kept temporarily as deprecated direct-access buttons. | NX-UX track (Tier-11c) | **DONE (2026-05-25)** — linear/circular/polygon; sketchDriven + reference queued |
-| 104 | Boolean toggle inside Extrude/Revolve | `ToolParamDialog.jsx` Extrude dialog adds Boolean dropdown | NX-UX track | **Missing** |
+| 104 | Boolean toggle inside Extrude/Revolve | `ToolParamSchemas.js::Extrude` schema with `boolean` enum + `ToolExecutionEngine.js::Extrude` handler dispatching per boolean | NX-UX track | **Done — Tier-11d (2026-05-25)** for Extrude; Revolve + Sweep queued |
 | 105 | Add New Set in feature dialogs | `ToolParamDialog.jsx` Fillet dialog (Edge Blend equivalent) — append-set UX | NX-UX track | **Missing** |
 | 106 | Multi-plane in one shot | Datum Plane tool (when added) with N-planes field | parity-program §3 Datums | **Missing** |
 | 107 | Through Curves alignment-point control | `kernel/features/Loft.js` + Loft dialog UX | parity-program §6 Loft enhancements | **Missing** |
