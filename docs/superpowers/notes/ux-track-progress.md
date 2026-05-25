@@ -2891,3 +2891,74 @@ items (Extruded Surface + Revolved Surface) — the two NAMED ops that
 the SP-6 solid feature ops were missing distinct user-facing entry
 points for.
 
+## Render bug fix — DoubleSide + frustum-cull-off + clip-plane auto-fit
+
+User reported: *"at angles some parts are not rendered or fully invisible
+you have to move around to look at it"*. Classic FrontSide-only symptom.
+
+**Root cause confirmed:** suspected cause #1 — `side: THREE.FrontSide`
+(default) on the manifold→three.js bridge.
+
+`frontend/src/foundation/ManifoldThreeBridge.js::manifoldToMesh` is the
+bridge that **every** foundation manifold body takes through the scene
+(`addFoundationManifoldToScene` → `manifoldToMesh`, also driven by
+`window.__archdiscAtomic.render` / `renderBody`). It was explicitly
+setting `side: THREE.FrontSide` — so any body with:
+
+- **inverted-normal triangles** (CSG / circularPattern can flip normals
+  on a few faces),
+- **open shells** (post-cut bodies that lost a cap face),
+- **negative-determinant transforms** (mirror, scale -1),
+
+would show fully transparent at certain camera angles. The kernel path
+(`brepToMesh.js`) was already `DoubleSide`, so the bug was localised to
+the foundation/manifold side.
+
+**Per-fix summary**:
+
+1. `frontend/src/foundation/ManifoldThreeBridge.js` — flip the foundation
+   manifold→mesh material to `side: THREE.DoubleSide`. Primary fix —
+   resolves the user-reported invisible-at-angles symptom for every body
+   created via `addFoundationManifoldToScene` (every Part-tab tool,
+   every atomic sculpt, every project-builder body).
+
+2. `frontend/src/foundation/FEMVisualizer.js` — same flip on the FEM
+   tetra-hull visualiser. Was `FrontSide`; the boundary-extraction step
+   can yield inverted windings, so the deformed-mesh viz had the same
+   blind-angle bug.
+
+3. `frontend/src/components/Viewport3D.jsx`:
+
+   - `flagAndHighlightAnalyticFace` overlay mesh — set
+     `frustumCulled = false`. The overlay shares the parent geometry's
+     position attribute but indexes a subset of triangles; the parent's
+     bounding sphere is correct, but defending against future
+     per-face-overlay regressions (small bbox → off-centre culling)
+     is cheap and prevents a subtle highlight-disappears-at-angles bug.
+   - `drawEdgeHighlight` 2-point line — set `frustumCulled = false`.
+     Short edge lines off the screen centre can fall outside the
+     bounding sphere's projection at certain camera angles.
+   - `focusOnAll` — now updates `camera.near` and `camera.far` to the
+     scene diagonal, matching `focusOnObject` and
+     `__archdiscFocusOnFoundationBodies`. The initial camera is
+     `near=0.0001, far=100`; without this update, fitting a large
+     assembly with `focusOnAll` left `far=100` while the camera was
+     pulled back further than that, clipping the back of the model.
+
+**Bespoke e2e**: `e2e/render-doubleside-frustum-fix-electron.spec.js`.
+Builds 4 bodies covering each suspected failure path (foundation
+manifold solid, analytic-face plate, draft-host cylinder, sheet body),
+orbits the camera around each at 4 azimuth angles (0°/90°/180°/270°,
+elevation 20°), and asserts at every angle:
+
+- `>= 200` lit pixels (non-background) in a 360 × 240 sample of the
+  live WebGL canvas — a visible body fills several thousand, a
+  fully-invisible angle (the bug) yields ~0.
+- PNG file size `>= 3 KB` — independent check via the same heuristic
+  `helpers/orbitCapture.js` uses.
+
+**Allowlist**: only modified the three files above + the new spec +
+this note. No kernel/topology/brep ops touched (the bug was in MATERIAL
+creation, not geometry). No RibbonToolbar / handlers / workbench
+wrappers touched.
+
