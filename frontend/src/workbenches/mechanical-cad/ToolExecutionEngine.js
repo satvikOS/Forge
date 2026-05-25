@@ -6556,11 +6556,16 @@ const TOOL_HANDLERS = {
         }
         const { values, cancelled } = await requestToolParams('Draft Analysis');
         if (cancelled) return { status: 'warn', message: 'Draft Analysis: cancelled' };
-        const pull = [
-          Number(values.pullX) || 0,
-          Number(values.pullY) || 0,
-          Number(values.pullZ) || 1,
+        const pullXraw = Number(values.pullX);
+        const pullYraw = Number(values.pullY);
+        const pullZraw = Number(values.pullZ);
+        let pull = [
+          Number.isFinite(pullXraw) ? pullXraw : 0,
+          Number.isFinite(pullYraw) ? pullYraw : 0,
+          Number.isFinite(pullZraw) ? pullZraw : 0,
         ];
+        // Fall back to +Z when the user-supplied vector is the zero vector.
+        if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) pull = [0, 0, 1];
         const minDraftDeg = Number(values.minDraftDeg) >= 0 ? Number(values.minDraftDeg) : 3;
 
         const report = await ArchDiscKernel.brep.draftAnalysis(body, pull, { minDraftDeg });
@@ -6607,11 +6612,16 @@ const TOOL_HANDLERS = {
         }
         const { values, cancelled } = await requestToolParams('Parting Line');
         if (cancelled) return { status: 'warn', message: 'Parting Line: cancelled' };
-        const pull = [
-          Number(values.pullX) || 0,
-          Number(values.pullY) || 0,
-          Number(values.pullZ) || 1,
+        const pullXraw = Number(values.pullX);
+        const pullYraw = Number(values.pullY);
+        const pullZraw = Number(values.pullZ);
+        let pull = [
+          Number.isFinite(pullXraw) ? pullXraw : 0,
+          Number.isFinite(pullYraw) ? pullYraw : 0,
+          Number.isFinite(pullZraw) ? pullZraw : 0,
         ];
+        // Fall back to +Z when the user-supplied vector is the zero vector.
+        if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) pull = [0, 0, 1];
         const minDraftDeg = Number(values.minDraftDeg) >= 0 ? Number(values.minDraftDeg) : 3;
 
         const result = await ArchDiscKernel.brep.partingLine(body, pull, { minDraftDeg });
@@ -6655,11 +6665,16 @@ const TOOL_HANDLERS = {
         }
         const { values, cancelled } = await requestToolParams('Tooling Split');
         if (cancelled) return { status: 'warn', message: 'Tooling Split: cancelled' };
-        const pull = [
-          Number(values.pullX) || 0,
-          Number(values.pullY) || 0,
-          Number(values.pullZ) || 1,
+        const pullXraw = Number(values.pullX);
+        const pullYraw = Number(values.pullY);
+        const pullZraw = Number(values.pullZ);
+        let pull = [
+          Number.isFinite(pullXraw) ? pullXraw : 0,
+          Number.isFinite(pullYraw) ? pullYraw : 0,
+          Number.isFinite(pullZraw) ? pullZraw : 0,
         ];
+        // Fall back to +Z when the user-supplied vector is the zero vector.
+        if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) pull = [0, 0, 1];
         const partingZ = Number(values.partingZ) || 0;
         const minDraftDeg = Number(values.minDraftDeg) >= 0 ? Number(values.minDraftDeg) : 3;
 

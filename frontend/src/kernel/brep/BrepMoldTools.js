@@ -254,12 +254,13 @@ export async function draftAnalysis(body, pullDirection, opts = {}) {
     let category = 'vertical';
 
     try {
-      // Sample the surface at parametric midpoint. Honour reversed.
+      // Sample the surface at parametric midpoint. evalSurface already
+      // honours face.reversed in its returned normal — we do NOT flip
+      // here again (double-flip would cancel out, producing wrong
+      // categories).
       const probe = await evalSurface(face, 0.5, 0.5, { normalised: true });
       if (probe && probe.normal) {
-        let n = [probe.normal.x, probe.normal.y, probe.normal.z];
-        if (face.reversed) n = [-n[0], -n[1], -n[2]];
-        n = normalize3(n);
+        let n = normalize3([probe.normal.x, probe.normal.y, probe.normal.z]);
         normal = n;
         // Signed angle in [-90, +90] degrees. We compute via asin(dot)
         // because dot of unit vectors is in [-1, 1] and asin maps that
