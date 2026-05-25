@@ -38,6 +38,7 @@ import { ChevronDown, ChevronRight, ChevronLeft, Check, X, Maximize2, Crop,
          Edit2, Anchor, Move3D, PencilLine, Plus, Layout } from 'lucide-react';
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import { isInlineSketchCapable } from '../foundation/ToolParamSchemas.js';
+import { EquationManager } from './EquationManager.jsx';
 import './SwUxOverlays.css';
 
 // ─── 1. Confirmation Corner ─────────────────────────────────────────────────
@@ -1238,6 +1239,14 @@ export function SelectionPriorityBar() {
       <MultiPlaneStack />
       <CsysAnchorPanel />
       <InlineSketchSession />
+      {/* UX Tier 10 — Equation Manager modal. Mounted as a sibling of
+       *  the always-on Tier-11b NX overlays so it auto-rides every
+       *  workbench. The component renders nothing until the global
+       *  `archdisc:open-equation-manager` event fires (from the
+       *  Sketch / Part tab ribbon entry, or programmatically from the
+       *  AI orchestration layer). Full-page modal — see
+       *  EquationManager.css for the z-index 50 backdrop. */}
+      <EquationManager />
     </>
   );
 }
