@@ -39,6 +39,8 @@ import { ChevronDown, ChevronRight, ChevronLeft, Check, X, Maximize2, Crop,
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import { isInlineSketchCapable } from '../foundation/ToolParamSchemas.js';
 import { EquationManager } from './EquationManager.jsx';
+import { equationStore } from '../foundation/EquationStore.js';
+import { resolveParamValue, formatResolvedValue } from '../foundation/ParamValueResolver.js';
 import './SwUxOverlays.css';
 
 // ─── 1. Confirmation Corner ─────────────────────────────────────────────────
@@ -480,7 +482,20 @@ export const DOCKED_TOOLS = new Set([
 ]);
 
 export function PropertyManagerDock() {
-  const [state, setState] = useState({ open: false, schema: null, toolName: null, values: {} });
+  // UX Tier 10b: numeric fields now accept `=expr` strings. We track the
+  // RAW user input per field (so the literal `=`/`*`/identifier survives
+  // React's number-input normalisation) AND the resolved {value, source,
+  // expression?, error?} record per numeric field. The `values` slot
+  // remains the canonical numeric payload the executor consumes; on
+  // commit it's rebuilt from `resolved` so handlers see the evaluated
+  // number unchanged. A sidecar `__expressions` slot carries the source
+  // `=...` strings for design-history persistence.
+  const [state, setState] = useState({
+    open: false, schema: null, toolName: null,
+    values: {},     // resolved numeric values (handler payload)
+    rawInputs: {},  // raw per-field input (string when expression, else number)
+    resolved: {},   // {value, source, expression?, error?} per numeric field
+  });
   const [sectionsOpen, setSectionsOpen] = useState({ inputs: true, options: true });
   // Collapsed state — the dock can be folded to a thin sliver so the user
   // can see the full viewport without dismissing the active tool. Persisted
@@ -507,8 +522,17 @@ export function PropertyManagerDock() {
       const docked = DOCKED_TOOLS.has(toolName);
       if (!docked) return;
       const initial = {};
-      for (const f of schema.fields) initial[f.name] = f.default;
-      setState({ open: true, schema, toolName, values: initial });
+      const rawInputs = {};
+      const resolved = {};
+      const store = equationStore();
+      for (const f of schema.fields) {
+        initial[f.name] = f.default;
+        rawInputs[f.name] = f.default;
+        if (f.type === 'number') {
+          resolved[f.name] = resolveParamValue(f.default, f, store);
+        }
+      }
+      setState({ open: true, schema, toolName, values: initial, rawInputs, resolved });
       // Mark confirmation corner active so the green-check / red-X cue
       // mirrors the dialog's commit/cancel buttons SW-style.
       confirmationBus.setActive({
@@ -519,6 +543,39 @@ export function PropertyManagerDock() {
     });
     return unsub;
   }, []);
+
+  // UX Tier 10b: when the equation store changes (a variable was added /
+  // edited / deleted), re-evaluate every expression-driven numeric field
+  // so the displayed "= N" subtitle reflects the new value. The handler
+  // is NOT re-fired — the user must re-confirm.
+  useEffect(() => {
+    if (!state.open) return undefined;
+    const handler = () => {
+      setState((s) => {
+        if (!s.open || !s.schema) return s;
+        const store = equationStore();
+        const nextResolved = { ...s.resolved };
+        const nextValues = { ...s.values };
+        let changed = false;
+        for (const f of s.schema.fields) {
+          if (f.type !== 'number') continue;
+          const raw = s.rawInputs[f.name];
+          if (typeof raw === 'string' && raw.trim().startsWith('=')) {
+            const r = resolveParamValue(raw, f, store);
+            nextResolved[f.name] = r;
+            nextValues[f.name] = r.value;
+            changed = true;
+          }
+        }
+        return changed ? { ...s, resolved: nextResolved, values: nextValues } : s;
+      });
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('archdisc:equation-store:changed', handler);
+      return () => window.removeEventListener('archdisc:equation-store:changed', handler);
+    }
+    return undefined;
+  }, [state.open]);
 
   // Tier-11b — Dialog-in-Dialog: when the InlineSketchSession commits a
   // profile, inject it into the LIVE dock state under the `profile` key so
@@ -558,10 +615,29 @@ export function PropertyManagerDock() {
   const commit = useCallback(() => {
     setState((prev) => {
       if (!prev.open) return prev;
-      // Resolve the underlying ToolParamDialog promise with the dock values.
-      resolveOpen(prev.values);
+      // Build the handler payload — for numeric fields we ALWAYS take the
+      // resolved numeric value (so existing handlers keep working with
+      // `values.height` etc.). Expression sources flow into a sidecar
+      // `__expressions` slot so design-history can persist them.
+      const out = { ...prev.values };
+      const expressions = {};
+      if (prev.schema && Array.isArray(prev.schema.fields)) {
+        for (const f of prev.schema.fields) {
+          if (f.type === 'number') {
+            const r = prev.resolved[f.name];
+            if (r) {
+              out[f.name] = r.value;
+              if (r.source === 'expression' && r.expression) {
+                expressions[f.name] = r.expression;
+              }
+            }
+          }
+        }
+      }
+      if (Object.keys(expressions).length > 0) out.__expressions = expressions;
+      resolveOpen(out);
       confirmationBus.clear();
-      return { open: false, schema: null, toolName: null, values: {} };
+      return { open: false, schema: null, toolName: null, values: {}, rawInputs: {}, resolved: {} };
     });
   }, []);
 
@@ -570,7 +646,7 @@ export function PropertyManagerDock() {
       if (!prev.open) return prev;
       resolveOpen(null);
       confirmationBus.clear();
-      return { open: false, schema: null, toolName: null, values: {} };
+      return { open: false, schema: null, toolName: null, values: {}, rawInputs: {}, resolved: {} };
     });
   }, []);
 
@@ -589,12 +665,17 @@ export function PropertyManagerDock() {
   const setField = (name, raw) => {
     setState((s) => {
       const field = s.schema.fields.find(f => f.name === name);
-      let value = raw;
+      const nextRaw = { ...s.rawInputs, [name]: raw };
+      const nextValues = { ...s.values };
+      const nextResolved = { ...s.resolved };
       if (field?.type === 'number') {
-        const n = parseFloat(raw);
-        value = Number.isFinite(n) ? n : field.default;
+        const r = resolveParamValue(raw, field, equationStore());
+        nextResolved[name] = r;
+        nextValues[name] = r.value;
+      } else {
+        nextValues[name] = raw;
       }
-      return { ...s, values: { ...s.values, [name]: value } };
+      return { ...s, rawInputs: nextRaw, values: nextValues, resolved: nextResolved };
     });
   };
 
@@ -644,37 +725,96 @@ export function PropertyManagerDock() {
         open={sectionsOpen.inputs}
         onToggle={() => setSectionsOpen(s => ({ ...s, inputs: !s.inputs }))}
       >
-        {state.schema.fields.map((f) => (
-          <div key={f.name} className="sw-pm-dock-row">
-            <label className="sw-pm-dock-label" title={f.hint || ''}>{f.label}</label>
-            <div className="sw-pm-dock-input-wrap">
-              {f.type === 'enum' && Array.isArray(f.options) ? (
-                <select
-                  className="sw-pm-dock-input"
-                  value={state.values[f.name]}
-                  onChange={(e) => setField(f.name, e.target.value)}
-                  data-field={f.name}
-                >
-                  {f.options.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="sw-pm-dock-input"
-                  type="number"
-                  step={f.step ?? 'any'}
-                  min={f.min}
-                  max={f.max}
-                  value={state.values[f.name]}
-                  onChange={(e) => setField(f.name, e.target.value)}
-                  data-field={f.name}
-                />
-              )}
-              {f.unit && <span className="sw-pm-dock-unit">{f.unit}</span>}
+        {state.schema.fields.map((f) => {
+          const raw = state.rawInputs[f.name];
+          const isExpr = f.type === 'number'
+            && typeof raw === 'string' && raw.trim().startsWith('=');
+          const resolved = state.resolved[f.name];
+          const displayValue = (raw === undefined || raw === null)
+            ? (state.values[f.name] ?? '')
+            : raw;
+          // UX Tier 10b: when this row carries an expression, stack the
+          // input + the "= N" subtitle vertically via inline style so the
+          // CSS row's flex-row layout doesn't squash the subtitle out of
+          // view. align-items:flex-start so the label sits with the input.
+          return (
+            <div
+              key={f.name}
+              className="sw-pm-dock-row"
+              style={isExpr ? { flexDirection: 'row', alignItems: 'flex-start' } : undefined}
+            >
+              <label className="sw-pm-dock-label" title={f.hint || ''}
+                     style={isExpr ? { marginTop: 5 } : undefined}>{f.label}</label>
+              <div className="sw-pm-dock-input-wrap"
+                   style={isExpr ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 } : undefined}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                {f.type === 'enum' && Array.isArray(f.options) ? (
+                  <select
+                    className="sw-pm-dock-input"
+                    value={state.values[f.name]}
+                    onChange={(e) => setField(f.name, e.target.value)}
+                    data-field={f.name}
+                  >
+                    {f.options.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : f.type === 'number' ? (
+                  // UX Tier 10b: numeric fields use type=text so the user
+                  // can freely type `=expr` parametric strings. Numeric
+                  // literals still parse via parseFloat in the resolver,
+                  // and the input pattern keeps a numeric-input mobile
+                  // keyboard. The Σ badge + "= N" subtitle indicate when
+                  // the input is interpreted as an expression.
+                  <input
+                    className="sw-pm-dock-input"
+                    type="text"
+                    inputMode="decimal"
+                    value={displayValue}
+                    onChange={(e) => setField(f.name, e.target.value)}
+                    data-field={f.name}
+                    data-expr={isExpr ? 'true' : 'false'}
+                    style={isExpr ? { fontStyle: 'italic', color: '#bcd0ee' } : undefined}
+                  />
+                ) : (
+                  <input
+                    className="sw-pm-dock-input"
+                    type="text"
+                    value={displayValue}
+                    onChange={(e) => setField(f.name, e.target.value)}
+                    data-field={f.name}
+                  />
+                )}
+                {isExpr && (
+                  <span
+                    title="Parametric expression"
+                    data-archdisc-expr-badge={f.name}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 18, height: 18, marginLeft: 2, borderRadius: 3,
+                      background: '#3a5a8c', color: '#cfe2ff', fontSize: 11,
+                      fontFamily: 'Consolas, monospace', fontWeight: 700, lineHeight: 1,
+                    }}>Σ</span>
+                )}
+                {f.unit && <span className="sw-pm-dock-unit">{f.unit}</span>}
+                </div>{/* close inner input-row */}
+                {isExpr && (
+                  <div
+                    data-archdisc-expr-eval={f.name}
+                    style={{
+                      marginTop: 0, paddingLeft: 2,
+                      fontSize: 11, fontFamily: 'Consolas, monospace',
+                      color: resolved && resolved.error ? '#e08a8a' : '#8aa9d8',
+                    }}>
+                    {resolved && !resolved.error
+                      ? `= ${formatResolvedValue(resolved.value)}${f.unit ? ' ' + f.unit : ''}`
+                      : (resolved && resolved.error ? `⚠ ${resolved.error}` : '—')}
+                  </div>
+                )}
+              </div>{/* close input-wrap */}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </DockSection>
 
       <DockSection
