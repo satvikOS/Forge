@@ -593,7 +593,7 @@ corresponding ArchDisc capability area is identified along with current status.
 | **Sketch coordinate readout (bottom-left)** | `StatusBar.jsx` + `SwUxOverlays.jsx::SketchCursorReadout` | **Done (Tier-1 #4)** | `InteractiveSketch._publishCursor` fires from `onMouseMove` (u/v metres → x/y mm). `SketchCursorReadout` listens for `archdisc:sketch-cursor` and renders `X _ Y _ mm` pill at bottom-left next to the SketchStateBadge. Hides on sketch deactivate. |
 | **Sketch color states (blue/black/red)** | `SketchSolver.signedDOF()` + `InteractiveSketch.applyDoFColouring()` + `SwUxOverlays.jsx::SketchStateBadge` | **Done (Tier-1 #3)** | The under-defined (blue) / fully-defined (black) / over-defined (red) color convention is wired through the solver. |
 | **Dimension-driven editing (double-click dim to edit)** | `InteractiveSketch.editDimension(id, mm)` + `SwUxOverlays.jsx::DimensionEditorOverlay` | **Done (Tier-1 #6)** | `getDimensions()` returns dim id + value_mm + mid-world; `editDimension` mutates the distance / radius constraint in place + re-solves. `DimensionEditorOverlay` opens on `archdisc:edit-dimension`, anchors to the dim's screen-projected mid-point, commits on Enter, cancels on Esc. |
-| **Equation Manager + Global Variables** | (none) | **Missing** | The course mentions equations as a parametric feature (`00:17:18`). |
+| **Equation Manager + Global Variables** | `EquationStore.js` + `ExpressionEvaluator.js` + `EquationManager.jsx` + `InteractiveSketch.applyDimension(idx, '=expr')` | **Done (UX Tier 10 — focused)** | Pure-JS expression parser (no eval), global variable store with topological cascade + circular-ref rejection + localStorage persistence, full-page modal table (variable / expression / value / comment / delete), ribbon entries on Sketch + Part tabs, `applyDimension(idx, '=width*2')` parametric dimension hook + `refreshParametricDimensions()` for live reflow. e2e: `ux-tier10-equation-manager-electron.spec.js` (parametric mounting plate, width 80→100 mm reflows holeSpacing via cascade). |
 | **Configurations + Design Tables** | Project Library has versions; but not per-feature configurations | **Missing** | |
 | **Standard 3-View drag-and-drop in Drawing** | `DrawingPreviewPanel.jsx` + `kernel/drawing/DrawingEngine.js` | **Partial** | Drawing panel exists. SVG + PDF export shipped per MEMORY. **Gap:** drag-part-to-sheet → auto-generate 3-view layout interaction. |
 | **BOM + Auto-Balloon** | Drawing/Annotation system | **Missing/Unknown** | Per MEMORY, drawings produce SVG+PDF; whether BOM-with-balloons is in there needs verification. |
@@ -1022,10 +1022,35 @@ The single largest gap. Needs:
 
 ### Tier 10 — Parametric infrastructure
 
-- **Equation Manager / Global Variables** — referenced as a dimension control mechanism but
-  no dedicated tool
-- **Design Tables** (Excel connection for parameter sweeps)
-- **Configurations** (already in Tier 7)
+- ~~**Equation Manager / Global Variables**~~ — **DONE (UX Tier 10 focused)**. `EquationStore.js`
+  is a singleton global variable store with a topologically-ordered cascade re-eval, circular-ref
+  rejection (DFS through the reverse-dependent graph), and full localStorage persistence.
+  `ExpressionEvaluator.js` is a real tokeniser + recursive-descent parser (no `eval()`) supporting
+  arithmetic, unary minus, parentheses, exponentiation, identifiers (variables), and
+  sin/cos/tan/sqrt/abs/min/max/pow/floor/ceil/round/ln/log/exp/sign/deg/rad/atan2 plus
+  PI/E/TAU constants. `EquationManager.jsx` + `.css` ships the full-page modal table the
+  user edits (Variable / Expression / Value / Comment / Delete + add-row). Sketch dimensions
+  accept `applyDimension(idx, '=expr')` strings — the expression is stored alongside the
+  numeric value so a later `refreshParametricDimensions()` call picks up variable edits and
+  drives the underlying solver constraint. Ribbon entries on Sketch + Part tabs ("Equation
+  Manager", new "Parameters" group). Single handler in ToolExecutionEngine fires
+  `archdisc:open-equation-manager`. Bespoke e2e: parametric mounting plate (width/height/
+  holeSpacing/holeDiameter) reflows when `width=80→100` cascades through `holeSpacing=width/4`.
+- **Design Tables** (Excel connection for parameter sweeps) — still queued; the equation
+  store already exposes a row-iteration API the future Design Tables tool will swap-and-rebuild
+  across.
+- **Configurations** (already in Tier 7) — orthogonal; equation-store integration with
+  named configurations is a separate follow-up.
+
+Residual honest gaps for Tier 10 (focused):
+- **3D feature parameters** (Extrude depth, Fillet radius, Pattern count, etc.) currently
+  consume static numbers from the param dialog; wiring those to `=expr` strings end-to-end
+  is the natural next step (the EquationStore is ready — only the ToolParamDialog field
+  evaluator needs the same `=expr` hook the sketch dim has).
+- **AI orchestration exposure** — the AI planner/sculptor can read `window.__archdiscEquationStore`
+  but the JSON plan format does not yet have a first-class `variables` section; AI authors
+  must explicitly call `equationStore.set()` ops, which is workable but not idiomatic.
+- **Design Tables** queued (see above).
 
 ---
 

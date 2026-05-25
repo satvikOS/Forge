@@ -974,7 +974,7 @@ accounting in one workflow.
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c shipped (9/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 2 of 6 mechanical)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b shipped (5 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces; Parting Surface ruled / Side Actions / Cooling Channels queued)** |
-| 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
+| 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | **Partial — Tier 10 (focused) shipped (Equation Manager + Global Variables + sketch-dim parametric hook; Design Tables / Configurations / 3D-feature-param wiring queued)** |
 
 ---
 
@@ -2961,4 +2961,66 @@ elevation 20°), and asserts at every angle:
 this note. No kernel/topology/brep ops touched (the bug was in MATERIAL
 creation, not geometry). No RibbonToolbar / handlers / workbench
 wrappers touched.
+
+---
+
+## Tier 10 — Parametric infrastructure (focused — 1 of ~4 shipped)
+
+The SW course flags `Equation Manager / Global Variables`, `Design Tables`,
+`Configurations`, and `3D-feature parametric expression hooks` as the four
+items in Tier 10. UX Tier 10 (focused) ships the FIRST + the sketch-side
+half of the FOURTH: a global equation store, an expression-based modal
+manager, and a `=expr` hook on every sketch dimension. Design Tables and
+expression-driven 3D feature parameters (Extrude depth = `=plateHeight`,
+etc.) are queued as Tier 10b.
+
+| Tier-10 # | Convention | Status | Implementation |
+|---|---|---|---|
+| 1 | **Equation Manager + Global Variables** with cascading re-evaluation, circular-ref rejection, persistence | **DONE** | `EquationStore.js` (singleton, topological Kahn sort, DFS cycle detector, `localStorage` snapshot under `archdisc.equationStore.v1`); `ExpressionEvaluator.js` (real tokeniser + recursive-descent Pratt parser, NO `eval()`); `EquationManager.jsx` + `.css` (full-page modal, variable / expression / value / comment / delete table + add-row); ribbon "Equation Manager" entry on Sketch + Part tabs in a new "Parameters" group; handler in `ToolExecutionEngine` fires `archdisc:open-equation-manager` (1 schema, 1 handler — modal listens for the event). |
+| 2 | **Sketch dimension parametric hook** — `applyDimension(idx, '=expr')` accepts an expression string | **DONE** | `InteractiveSketch.applyDimension` accepts a string starting with `=`; it resolves through `window.__archdiscEquationStore.evaluate()`, converts the mm value to metres, drives the solver, and stores the source expression on the dimension record so `refreshParametricDimensions()` (new) can re-evaluate every parametric dimension after a variable edit. |
+| 3 | **Design Tables** (CSV-driven parametric variants) | **Queued** | The equation store already exposes a row-iteration API a Design Tables tool can swap-and-rebuild across. |
+| 4 | **3D-feature parametric param wiring** (Extrude depth, Fillet radius, Pattern count, etc. via `=expr`) | **Queued** | The `ToolParamDialog` field evaluator needs the same `=expr` hook the sketch dim has; the EquationStore is ready, only the dialog plumbing is missing. |
+| 5 | **AI-orchestration variable exposure** | **Queued** | The AI planner / sculptor can call `window.__archdiscEquationStore.set/get`, but the JSON plan format does not yet have a first-class `variables` section. Workable today, not idiomatic. |
+
+**Bespoke e2e** — `ux-tier10-equation-manager-electron.spec.js`:
+
+1. Click the ribbon "Equation Manager" entry → modal opens (frame 1).
+2. Define `width=80`, `height=50`, `holeSpacing=width/4` (cascade →
+   20), `holeDiameter=height*0.1` (cascade → 5). Reject circular ref
+   (`width = =holeSpacing+1`). Reject unknown variable. (Frame 2.)
+3. Sketch a rectangle on XY with `applyDimension(0, '=width')` and
+   `applyDimension(1, '=height')` — assert the dimension records carry
+   the `expression` field. (Frame 3.)
+4. Build a parametric mounting plate via the atomic API: extrude rect
+   + cut 4 corner holes positioned via `holeSpacing` + bored at
+   `holeDiameter`. (Frame 4.)
+5. Re-open the manager and change `width=100` — cascade includes
+   `holeSpacing` (now 25). (Frame 5.)
+6. Refresh + rebuild the plate; assert the body uses the new params
+   and that localStorage now lists all 4 variable names. (Frame 6.)
+
+**Files added/changed for Tier-10 (focused)**:
+
+- `frontend/src/foundation/EquationStore.js` (new) — singleton store with
+  topological cascade + circular-ref rejection + localStorage persistence.
+- `frontend/src/foundation/ExpressionEvaluator.js` (new) — pure-JS lexer
+  + Pratt parser, math funcs + constants.
+- `frontend/src/components/EquationManager.jsx` (new) — modal table.
+- `frontend/src/components/EquationManager.css` (new) — Tier-1 token-set
+  styling (semi-transparent dark panel, `--sw-panel-*` tokens, z-index 50).
+- `frontend/src/components/SwUxOverlays.jsx` — mount `<EquationManager />`
+  alongside the existing Tier-11b always-on overlays.
+- `frontend/src/kernel/sketch/InteractiveSketch.js` — `applyDimension` now
+  accepts `'=expr'` strings; new `refreshParametricDimensions()` method.
+- `frontend/src/components/RibbonToolbar.jsx` — "Equation Manager" entry
+  in a new "Parameters" group on Sketch + Part tabs.
+- `frontend/src/foundation/ToolParamSchemas.js` — schema for the tool
+  (zero numeric fields; the modal table IS the dialog).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` —
+  handler fires `archdisc:open-equation-manager`.
+- `e2e/ux-tier10-equation-manager-electron.spec.js` (new) — bespoke
+  parametric-mounting-plate workflow (described above).
+
+**Honest gaps**: Design Tables, 3D-feature `=expr` param wiring,
+first-class AI-plan variables section (all queued — see table above).
 
