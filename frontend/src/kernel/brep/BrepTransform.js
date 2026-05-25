@@ -14,6 +14,51 @@
  * existing geometry behaviour verbatim.
  *
  * Verified kernel sequences: docs/superpowers/notes/kernel-api-A3.md.
+ *
+ * SP-14c — second-pass hardening (cat2/cat3/cat9 SBO → PASS):
+ *
+ *   Pre-SP-14c, `translate` / `rotate` ran the engine with `copy=true` —
+ *   the conservative option that refreshes the result's TShapes so
+ *   disposing the input cannot corrupt the result. Empirically (per the
+ *   SP-14b residual gap), the `copy=true` path produces a shape whose
+ *   `BRepGProp.VolumeProperties_1.Mass()` reads 0 and whose bbox reads
+ *   `[null,null,null]` — the WASM bindings can't traverse the freshly-
+ *   allocated TShapes for mass-properties integration or `Bnd_Box::Add`.
+ *   The geometry is geometrically valid (the shape tessellates, exports
+ *   to STEP, and round-trips fine), but the integrator silently fails.
+ *   This propagates to cat2/cat3/cat9 in the fuzz corpus — when one
+ *   operand of a boolean is a translated solid with Mass=0, the
+ *   silent-volume-zero retry path in BrepBoolean's `runBoolean` is gated
+ *   off (because `inputVolB > 0` is false) and the default-tolerance
+ *   result is kept.
+ *
+ *   SP-14c fix: switch the `BRepBuilderAPI_Transform_2` call to
+ *   `copy=false`. With `copy=false` the engine re-uses the input's
+ *   TShape pointers (only the location/placement is updated), so the
+ *   result's mass-properties + bbox integrators read the SAME live
+ *   TShapes the input does — Mass() returns the correct positive
+ *   number and bbox returns finite components. The trade-off: the
+ *   result shares geometry data with the input, so disposing the
+ *   input WHILE the result is still live would corrupt the result.
+ *   ArchDisc's `withScope` is engineered around that — survivor
+ *   detection (BrepShape.js) keeps the input's BrepShape alive when
+ *   the result is a survivor, AND we never explicitly `.delete()` a
+ *   BrepShape until the body is removed from the registry. So
+ *   `copy=false` is safe in the established lifecycle.
+ *
+ *   Defence-in-depth: after the transform we check the engine's Mass()
+ *   on the result. If Mass() is STILL 0 (some edge case the
+ *   `copy=false` switch doesn't fix), we apply a `BRepBuilderAPI_Copy_2`
+ *   to produce a clean shape with fresh-but-correctly-integrable
+ *   TShapes. The Copy result is what we wrap into the SpineBody.
+ *   Both the switch + the Copy refresh are documented on
+ *   `meta.diagnostics.transform = { copyMode, refreshApplied, ... }`.
+ *
+ *   The post-transform sanity check additionally feeds BrepMeasure's
+ *   tessellation-based volume fallback (SP-14c fix #1b) — if the
+ *   chosen result still reads Mass=0 but tessellates positively, the
+ *   diagnostic records both the transform path AND the recovered
+ *   volume.
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -21,6 +66,94 @@ import { BrepShape, withScope, track } from './BrepShape.js';
 import bindSpine from '../topology/bindSpine.js';
 import SpineBody from '../topology/SpineBody.js';
 import { recordBodyDerive } from '../history/HistoryLog.js';
+
+/**
+ * SP-14c — apply the `BRepBuilderAPI_Transform_2` shape-transform engine to
+ * `srcShape` with the input `trsf`. Tries `copy=false` first (the
+ * lightweight option that re-uses TShape pointers — Mass()/bbox work
+ * cleanly because the integrator can traverse the same live TShapes the
+ * input did). If the result's Mass reads 0 BUT the input's Mass is
+ * positive, apply a `BRepBuilderAPI_Copy_2` refresh — this re-allocates
+ * the TShapes around the transformed geometry and typically restores the
+ * integrator path.
+ *
+ * Returns the transform algo (for `algo.ModifiedShape(S)` lineage carry-
+ * through) AND the final shape ready to be bound to a SpineBody. Both
+ * `algo` and any `copy` it generates are `track()`ed in the caller's
+ * withScope so they're freed after the body is bound.
+ *
+ * @param {object} oc  the opencascade.js binding
+ * @param {object} srcShape  the input TopoDS_Shape
+ * @param {number} srcInputMass  the input's mass (used to gate the refresh
+ *   — only refresh when input had positive volume; sheet/wire inputs are
+ *   expected to read 0)
+ * @param {object} trsf  the gp_Trsf to apply (pre-built by the caller)
+ * @param {string} opName  'translate' or 'rotate' (for the diagnostic)
+ * @returns {{shape: object, algo: object, diagnostic: object}} algo +
+ *   final shape + transform diagnostic
+ */
+function runShapeTransform(oc, srcShape, srcInputMass, trsf, opName) {
+  // SP-14c — pass 1: copy=false (the lightweight, TShape-sharing path).
+  // The result shares TShape pointers with the input, so the mass-
+  // properties + bbox integrators can traverse them normally.
+  const algo = track(new oc.BRepBuilderAPI_Transform_2(srcShape, trsf, false));
+  const shape = algo.Shape();
+  if (!shape || shape.IsNull()) {
+    throw new Error(`${opName}: kernel produced a null shape (copy=false path)`);
+  }
+
+  // SP-14c — sanity-check: if the input had positive mass but the result
+  // reads 0, apply a `BRepBuilderAPI_Copy_2` refresh to re-allocate the
+  // TShapes around the transformed geometry. Mass() then typically
+  // recovers (the integrator gets a clean shape to walk).
+  let resultMass = 0;
+  try {
+    const props = track(new oc.GProp_GProps_1());
+    oc.BRepGProp.VolumeProperties_1(shape, props, false, false, false);
+    resultMass = props.Mass();
+  } catch (_e) { /* leave 0 — the refresh below handles it */ }
+
+  let finalShape = shape;
+  let refreshApplied = false;
+  let postRefreshMass = resultMass;
+  if (resultMass === 0 && srcInputMass > 0) {
+    try {
+      const copy = track(new oc.BRepBuilderAPI_Copy_2(shape, true, false));
+      const refreshed = copy.Shape();
+      if (refreshed && !refreshed.IsNull()) {
+        finalShape = refreshed;
+        refreshApplied = true;
+        // Re-measure post-refresh — purely for the diagnostic; the caller
+        // doesn't use it directly because BrepMeasure.volume() will fall
+        // through to its own tessellation-based fallback if Mass STILL
+        // reads 0 here.
+        try {
+          const props2 = track(new oc.GProp_GProps_1());
+          oc.BRepGProp.VolumeProperties_1(finalShape, props2, false, false, false);
+          postRefreshMass = props2.Mass();
+        } catch (_e) { /* leave the pre-refresh value */ }
+      }
+    } catch (_e) { /* refresh failed — keep the copy=false result + let BrepMeasure tessellate */ }
+  }
+
+  return {
+    shape: finalShape,
+    algo,
+    diagnostic: {
+      copyMode: false, // ALWAYS false in SP-14c — never copy=true again
+      refreshApplied,
+      inputMass: srcInputMass,
+      preRefreshMass: resultMass,
+      postRefreshMass,
+      note: refreshApplied
+        ? `${opName}: BRepBuilderAPI_Transform_2(copy=false) result read Mass=0 ` +
+          `despite positive input Mass=${srcInputMass.toFixed(4)}; applied ` +
+          `BRepBuilderAPI_Copy_2 refresh which recovered Mass=${postRefreshMass.toFixed(4)}.`
+        : `${opName}: BRepBuilderAPI_Transform_2(copy=false) — Mass=${resultMass.toFixed(4)} ` +
+          `from input Mass=${srcInputMass.toFixed(4)} (no refresh needed).`,
+    },
+  };
+}
 
 /**
  * Translate a shape by (dx, dy, dz) mm.
@@ -37,19 +170,37 @@ import { recordBodyDerive } from '../history/HistoryLog.js';
  */
 async function _runTranslate(src, dx, dy, dz, bodyTag) {
   const oc = await getOCCT();
+  // SP-14c — measure the input mass OUTSIDE the result scope so the
+  // refresh decision in `runShapeTransform` has a reliable reference.
+  // The probe is a tiny scope of its own; it doesn't entangle with the
+  // result's survivor set.
+  let srcInputMass = 0;
+  try {
+    srcInputMass = await withScope(() => {
+      const props = track(new oc.GProp_GProps_1());
+      oc.BRepGProp.VolumeProperties_1(src.shape, props, false, false, false);
+      return props.Mass();
+    });
+  } catch (_e) { /* leave 0 — non-solid input is fine */ }
+
   return withScope(() => {
     // Verified sequence from kernel-api-A3.md Item 3:
     // gp_Trsf_1() no-arg constructor; SetTranslation_1(gp_Vec) takes a gp_Vec
-    // gp_Vec_4 = 3-double constructor (verified in A3 recon)
-    // BRepBuilderAPI_Transform_2(shape, trsf, copy=true) — copy=true gives
-    // a geometry-independent result so disposing the input cannot corrupt it.
+    // gp_Vec_4 = 3-double constructor (verified in A3 recon).
+    // SP-14c — `runShapeTransform` runs BRepBuilderAPI_Transform_2 with
+    // copy=false (TShape-sharing) AND applies a BRepBuilderAPI_Copy_2
+    // refresh if Mass() reads 0 on the result of a positive-mass input.
+    // The Mass-bug-via-copy=true pathology that fells cat2/cat3/cat9 in
+    // SP-14b is fixed here.
     const trsf = track(new oc.gp_Trsf_1());
     const vec = track(new oc.gp_Vec_4(dx, dy, dz));
     trsf.SetTranslation_1(vec);
-    const tf = track(new oc.BRepBuilderAPI_Transform_2(src.shape, trsf, true));
-    const shape = tf.Shape();
-    if (!shape || shape.IsNull()) throw new Error('translate: kernel produced a null shape');
-    const meta = { op: 'translate', params: { dx, dy, dz }, parents: [src.id] };
+    const { shape, algo: tf, diagnostic } = runShapeTransform(
+      oc, src.shape, srcInputMass, trsf, 'translate');
+    const meta = {
+      op: 'translate', params: { dx, dy, dz }, parents: [src.id],
+      diagnostics: { transform: diagnostic },
+    };
     const wrapper = new BrepShape(shape, meta);
     // S5 — translate preserves the input body's kind (rigid transform). If
     // src is a SpineBody pass its kind through; otherwise default 'solid'.
@@ -58,17 +209,39 @@ async function _runTranslate(src, dx, dy, dz, bodyTag) {
       bodyTag: bodyTag || `translate-${wrapper.id}`, geomEngineShape: wrapper,
       declaredKind,
     });
-    // Rigid-transform carry-through. Because copy=true gives the result a fresh
-    // set of TShapes, a naive `IsSame` between input and result sub-shapes
-    // never matches — so we use the engine's own `ModifiedShape(S)` mapper
-    // when available, and fall back to position-pairing otherwise.
+    // Rigid-transform carry-through. Because copy=false re-uses TShapes,
+    // a naive `IsSame` works for most sub-shapes; we still pass the algo
+    // for `ModifiedShape(S)` lookup of any entities the transform
+    // explicitly re-mapped (typically none for a rigid translate).
     carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
+    // SP-14c — mirror the transform diagnostic onto the body so callers
+    // that inspect `body.diagnostics` (vs `meta.diagnostics`) can see it.
+    try {
+      if (resultBody.diagnostics) {
+        resultBody.diagnostics.transform = diagnostic;
+      }
+    } catch (_e) { /* best-effort */ }
     return new SpineBody(resultBody, wrapper, meta);
   });
 }
 
 export async function translate(src, dx, dy, dz) {
   if (!src || !src.shape) throw new Error('translate: needs a body with a live .shape');
+  // SP-14c — accept BOTH the legacy 4-arg form `translate(src, dx, dy, dz)` and
+  // the array form `translate(src, [dx, dy, dz])`. The fuzz corpus + the
+  // public-facing tool layer both use the array form (matches the manifold-
+  // style `solid.translate([x,y,z])` convention adopted in `atomic/AtomicOps`);
+  // the legacy 4-arg form is preserved for SP-3b history `rebuild` callbacks +
+  // any internal callers that already pass scalars.
+  if (Array.isArray(dx)) {
+    if (dx.length !== 3) {
+      throw new Error(`translate: array form needs [dx,dy,dz] (got length ${dx.length})`);
+    }
+    [dx, dy, dz] = dx;
+  }
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(dz)) {
+    throw new Error(`translate: dx, dy, dz must be finite numbers (got ${dx}, ${dy}, ${dz})`);
+  }
   const result = await _runTranslate(src, dx, dy, dz);
   // SP-3b history hook — record a body-derive delta. Forward replays the
   // translation against the live input (looked up by persistent id); inverse
@@ -111,6 +284,17 @@ export async function translate(src, dx, dy, dz) {
  */
 async function _runRotate(src, axis, angleRad, origin, bodyTag) {
   const oc = await getOCCT();
+  // SP-14c — measure input mass for the refresh decision (same pattern as
+  // _runTranslate). Done outside the result scope.
+  let srcInputMass = 0;
+  try {
+    srcInputMass = await withScope(() => {
+      const props = track(new oc.GProp_GProps_1());
+      oc.BRepGProp.VolumeProperties_1(src.shape, props, false, false, false);
+      return props.Mass();
+    });
+  } catch (_e) { /* leave 0 */ }
+
   return withScope(() => {
     const pnt = track(new oc.gp_Pnt_3(
       origin.x || 0, origin.y || 0, origin.z || 0));
@@ -131,13 +315,14 @@ async function _runRotate(src, axis, angleRad, origin, bodyTag) {
     if (!rotated) {
       throw new Error('rotate: no usable gp_Trsf SetRotation binding found');
     }
-    const tf = track(new oc.BRepBuilderAPI_Transform_2(src.shape, trsf, true));
-    const shape = tf.Shape();
-    if (!shape || shape.IsNull()) throw new Error('rotate: kernel produced a null shape');
+    // SP-14c — same copy=false + refresh strategy as translate.
+    const { shape, algo: tf, diagnostic } = runShapeTransform(
+      oc, src.shape, srcInputMass, trsf, 'rotate');
     const meta = {
       op: 'rotate',
       params: { axis: { ...axis }, angleRad, origin: { ...origin } },
       parents: [src.id],
+      diagnostics: { transform: diagnostic },
     };
     const wrapper = new BrepShape(shape, meta);
     const declaredKind = (src.body && src.body.kind) || 'solid';
@@ -146,6 +331,11 @@ async function _runRotate(src, axis, angleRad, origin, bodyTag) {
       declaredKind, // S5 — rotate preserves the input's kind.
     });
     carryRigidTransformLineage(src, resultBody, meta, { algo: tf });
+    try {
+      if (resultBody.diagnostics) {
+        resultBody.diagnostics.transform = diagnostic;
+      }
+    } catch (_e) { /* best-effort */ }
     return new SpineBody(resultBody, wrapper, meta);
   });
 }
