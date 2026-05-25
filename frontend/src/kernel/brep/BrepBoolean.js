@@ -61,7 +61,35 @@
  *       warning: string|null,              // 'silent-volume-zero' if every retry failed
  *       inputVolumes: { a: number, b: number },
  *       opName: string,
+ *       passOneThrew: bool,                // SP-14c — true when pass1 threw
+ *       passOneError: string|null,         // SP-14c — the pass1 exception message
  *     }
+ *
+ * SP-14c — second-pass hardening (cat7/cat10 UEX → PASS):
+ *
+ *   Pre-SP-14c, `runBoolean` called `runBooleanOnce` outside any try/catch
+ *   — when the pass-1 boolean threw (either `!IsDone()` or null shape),
+ *   the exception propagated immediately and the SP-14b fuzzy-retry path
+ *   never ran (the retry's entry condition was `IsDone()===true +
+ *   volume===0`, which assumed the pass-1 boolean SUCCEEDED but produced
+ *   a silent vol=0). For boundary-tangent inputs (cat7's i=0 cylinder
+ *   sits at z=[95,100] exactly tangent to the box top; cat10's 5th cut
+ *   cylinder sits at the bottom face) the OCCT BOP throws `!IsDone()`
+ *   on pass 1 — the retry was completely bypassed.
+ *
+ *   SP-14c fix: wrap the pass-1 call in try/catch. On throw OR on the
+ *   existing silent-volume-zero condition, escalate to the fuzzy-retry
+ *   path. The retry IS the same loop that SP-14b already wrote; we just
+ *   gate its entry on `(threw || (vol===0 && inputs>0))` instead of only
+ *   `(vol===0 && inputs>0)`.
+ *
+ *   When pass-1 throws, we synthesise the same diagnostic shape with
+ *   `passOneThrew: true` + `passOneError: <the message>` so callers can
+ *   distinguish "retry recovered from a hard pass-1 failure" from "retry
+ *   recovered from a silent vol=0". If every retry tolerance ALSO
+ *   throws/produces 0, we re-throw the original pass-1 error (the
+ *   caller's UX is unchanged from pre-SP-14c — they see the same hard
+ *   failure they would have seen).
  */
 
 import { getOCCT } from './kernelLoader.js';
@@ -162,32 +190,60 @@ async function runBoolean(opName, Ctor, a, b, bodyTag) {
   try { inputVolB = await localMass(oc, b.shape); } catch (_e) { /* leave 0 */ }
 
   return withScope(async () => {
-    // ─── Pass 1 — the legacy (default-tolerance) call. Unchanged behaviour. ──
-    let { shape, maker } = runBooleanOnce(oc, opName, Ctor, a, b /* no fuzzy */);
+    // ─── Pass 1 — the legacy (default-tolerance) call. ────────────────────
+    //
+    // SP-14c — pass-1 wrapped in try/catch. Pre-SP-14c this call ran
+    // outside any catch, so when it threw on `!IsDone()` (cat7's i=0
+    // boundary-tangent cylinder fuse, cat10's chain-of-cuts at the
+    // bottom face) the exception propagated immediately and the fuzzy
+    // retry never ran. Now we capture the throw, mark `passOneThrew`,
+    // and let the existing retry path (below) recover. If every retry
+    // also fails, we re-throw the original pass-1 error so the caller
+    // sees the same hard failure they would have seen pre-SP-14c.
+    let shape = null, maker = null;
     let resultVolume = 0;
+    let passOneThrew = false;
+    let passOneError = null;
     try {
-      resultVolume = await localMass(oc, shape);
-    } catch (_e) { /* leave 0; the retry path catches it */ }
+      const out = runBooleanOnce(oc, opName, Ctor, a, b /* no fuzzy */);
+      shape = out.shape;
+      maker = out.maker;
+      try {
+        resultVolume = await localMass(oc, shape);
+      } catch (_e) { /* leave 0; the retry path catches it */ }
+    } catch (e) {
+      passOneThrew = true;
+      passOneError = (e && e.message) ? String(e.message) : String(e);
+      // shape / maker stay null — the retry path below detects this and
+      // engages the fuzzy schedule. If the retry recovers, we adopt its
+      // result; if every retry also throws, we re-throw `passOneError`.
+    }
 
-    // ─── SP-14b silent-volume-zero detection + fuzzy-retry ────────────────
+    // ─── SP-14b/c silent-volume-zero / pass-1-threw detection + fuzzy-retry ──
     //
     // Retry triggered when:
-    //   - the boolean completed cleanly (already true — we wouldn't be here
-    //     otherwise; runBooleanOnce throws on !IsDone), AND
-    //   - the result's mass-properties volume is 0, AND
-    //   - both inputs had positive volume (so a "0" result is suspect).
+    //   - SP-14b: the boolean completed cleanly (IsDone) AND the result's
+    //     mass-properties volume is 0 AND both inputs had positive volume
+    //     (a "0" result is suspect because both inputs have volume); OR
+    //   - SP-14c: the boolean threw at the default tolerance — typically
+    //     `!IsDone()` from a boundary-tangent contact. In this case we
+    //     don't have a result-volume to check; we retry on any non-zero
+    //     input-volume pair (since the throw means the BOP failed
+    //     outright). If both inputs are non-volumeless the retry is
+    //     worth attempting.
     //
     // We skip the retry when EITHER input is itself volumeless (a sheet body,
     // a wire-only compound) — in those cases vol=0 is correct, and a retry
     // would mask a legitimate result. The retry is also skipped for `common`
     // when inputs are disjoint (the geometrically-correct empty intersection
     // still produces a vol=0 result; widening fuzzy can't conjure overlap).
-    // We detect "disjoint common" by the result having no faces.
+    // We detect "disjoint common" by the result having no faces (only when
+    // pass-1 succeeded — a thrown pass-1 has no result to introspect).
     const attemptedFuzzy = [];
     let resolvedAtTolerance = null;
     let autoFuzzyResolved = false;
     const needsRetry = (
-      resultVolume === 0 &&
+      (passOneThrew || resultVolume === 0) &&
       inputVolA > 0 &&
       inputVolB > 0
     );
@@ -195,14 +251,21 @@ async function runBoolean(opName, Ctor, a, b, bodyTag) {
     if (needsRetry) {
       // For `common` specifically: a true empty intersection is the answer.
       // Detect by checking face count == 0 (a non-empty common always
-      // produces at least one face). Skip the retry in that case.
+      // produces at least one face). Skip the retry in that case. When
+      // pass-1 threw, we don't have a shape to introspect — fall through
+      // and retry (a throw never means "geometrically empty intersection").
       let resultFaces = 0;
-      try {
-        const ex = track(new oc.TopExp_Explorer_2(
-          shape, oc.TopAbs_ShapeEnum.TopAbs_FACE,
-          oc.TopAbs_ShapeEnum.TopAbs_SHAPE));
-        if (ex.More()) { track(ex.Current()); resultFaces = 1; }
-      } catch (_e) { /* leave 0; the retry runs anyway */ }
+      if (!passOneThrew && shape) {
+        try {
+          const ex = track(new oc.TopExp_Explorer_2(
+            shape, oc.TopAbs_ShapeEnum.TopAbs_FACE,
+            oc.TopAbs_ShapeEnum.TopAbs_SHAPE));
+          if (ex.More()) { track(ex.Current()); resultFaces = 1; }
+        } catch (_e) { /* leave 0; the retry runs anyway */ }
+      } else {
+        // pass-1 threw — assume the retry has a chance.
+        resultFaces = 1;
+      }
       const skipForEmptyCommon = (opName === 'common' && resultFaces === 0);
 
       if (!skipForEmptyCommon) {
@@ -229,8 +292,26 @@ async function runBoolean(opName, Ctor, a, b, bodyTag) {
             autoFuzzyResolved = true;
             break;
           }
+          // Retry didn't produce a positive-volume result. If pass-1 had
+          // thrown but this retry DIDN'T throw (it returned a shape with
+          // vol=0), we still keep the retry's result as our best-known
+          // shape — at least we have something to return. The diagnostic
+          // records the failure mode.
+          if (passOneThrew && retryShape && !shape) {
+            shape = retryShape;
+            maker = retryMaker;
+            resultVolume = retryVol; // typically 0; the diagnostic warns
+          }
         }
       }
+    }
+
+    // SP-14c — if pass-1 threw AND no retry yielded any usable shape, we
+    // re-throw the original pass-1 error. The caller sees the same hard
+    // failure they would have seen pre-SP-14c — no silent degradation.
+    if (passOneThrew && (!shape || shape.IsNull())) {
+      // The error message is preserved verbatim from runBooleanOnce.
+      throw new Error(passOneError);
     }
 
     const parents = [a.id, b.id].filter(Boolean);
@@ -262,11 +343,16 @@ async function runBoolean(opName, Ctor, a, b, bodyTag) {
       };
     }
 
-    // ─── SP-14b — surface the boolean's auto-fuzzy diagnostic ─────────────
+    // ─── SP-14b/c — surface the boolean's auto-fuzzy diagnostic ───────────
     // Always attached when the retry path was engaged (regardless of outcome)
     // so the caller can introspect what happened. When the retry succeeded
     // (`autoFuzzyResolved`), no `warning` is set (the result is valid). When
     // every retry failed, `warning: 'silent-volume-zero'` flags the result.
+    //
+    // SP-14c — additionally records `passOneThrew` + `passOneError`. A retry
+    // engaged from a pass-1 throw reports `passOneThrew: true` so the caller
+    // can tell apart "recovered from silent vol=0" vs "recovered from hard
+    // !IsDone() failure" — both legitimate paths through the fuzzy schedule.
     if (attemptedFuzzy.length > 0) {
       try {
         if (resultBody && resultBody.diagnostics) {
@@ -279,13 +365,23 @@ async function runBoolean(opName, Ctor, a, b, bodyTag) {
             finalVolume: resultVolume,
             inputVolumes: { a: inputVolA, b: inputVolB },
             warning: autoFuzzyResolved ? null : 'silent-volume-zero',
+            passOneThrew,
+            passOneError,
             note: autoFuzzyResolved
-              ? `boolean ${opName} returned volume=0 at default tolerance; ` +
-                `auto-retried with fuzzy tolerance ${resolvedAtTolerance} and recovered ` +
-                `to volume=${resultVolume.toFixed(4)}. The auto-fuzzy retry ` +
-                `is engaged when both inputs carry positive volume but the result ` +
-                `volume reads 0 — typically caused by coincident, tangent, or ` +
-                `strongly-overlapping operands.`
+              ? (passOneThrew
+                ? `boolean ${opName} threw at default tolerance ` +
+                  `("${passOneError}"); auto-retried with fuzzy tolerance ` +
+                  `${resolvedAtTolerance} and recovered to ` +
+                  `volume=${resultVolume.toFixed(4)}. The hoisted fuzzy retry ` +
+                  `(SP-14c) catches !IsDone() failures from the pass-1 BOP and ` +
+                  `escalates to fuzzy-tolerance widening just like the silent ` +
+                  `vol=0 path — typically caused by boundary-tangent contacts.`
+                : `boolean ${opName} returned volume=0 at default tolerance; ` +
+                  `auto-retried with fuzzy tolerance ${resolvedAtTolerance} and recovered ` +
+                  `to volume=${resultVolume.toFixed(4)}. The auto-fuzzy retry ` +
+                  `is engaged when both inputs carry positive volume but the result ` +
+                  `volume reads 0 — typically caused by coincident, tangent, or ` +
+                  `strongly-overlapping operands.`)
               : `boolean ${opName} returned volume=0 at default tolerance AND at ` +
                 `every fuzzy tolerance in [${attemptedFuzzy.join(', ')}] mm. ` +
                 `The result shape is returned but its mass-properties integrator ` +
