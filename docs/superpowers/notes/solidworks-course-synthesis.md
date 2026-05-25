@@ -788,11 +788,12 @@ Assembly Animation.
 | Lock | Lock Mate | **Done** (Tier-7a) |
 | Distance | Distance | **Done** |
 | Angle | Angle | **Done** |
-| Width (advanced) | (none) | **Missing** |
+| Width (advanced) | Width Mate | **Done** (Tier-7b) |
 | Symmetric (advanced) | (none) | **Missing** |
-| Path (advanced) | (none) | **Missing** |
+| Path (advanced) | Path Mate | **Done** (Tier-7b) |
 | Linear-Coupler (advanced) | (none) | **Missing** |
-| Distance-Limit / Angle-Limit (advanced) | (none) | **Missing** |
+| Distance-Limit (advanced) | Distance-Limit Mate | **Done** (Tier-7b) |
+| Angle-Limit (advanced) | (none) | **Missing** |
 | Gear (mechanical) | (none in UI; KinematicsCore has joint types) | **Partial** — kernel has it, no UI exposure |
 | Hinge (mechanical) | (none) | **Missing** as a single combo-mate; user can fake with concentric+coincident |
 | Cam (mechanical) | (none) | **Missing** |
@@ -982,7 +983,12 @@ The single largest gap. Needs:
   equations in `kernel/assembly/MateSolver.js` + kernel-free residual helpers in
   `foundation/KinematicsCore.js`; DOF accounting parallel=2, perpendicular=1,
   tangent=1, lock=6)
-- All Advanced mates: Width, Symmetric, Path, Linear-Coupler, Distance-Limit, Angle-Limit
+- ~~**Width / Path / Distance-Limit** advanced mates~~ — **DONE** (Tier-7b;
+  ribbon Assembly→Mates entries + selection-driven param-dialog handlers; real
+  solver equations in `kernel/assembly/MateSolver.js` Tier-7b satisfiers
+  + kernel-free residual helpers in `foundation/KinematicsCore.js`;
+  DOF accounting width=1, path=2, distanceLimit=0-in-slack / 1-when-clamped)
+- Remaining Advanced mates: Symmetric, Linear-Coupler, Angle-Limit
 - All Mechanical mates exposed in UI: Gear, Hinge, Cam, Rack-and-Pinion, Screw, Universal Joint
   (kernel KinematicsCore has joint types; needs UI exposure)
 - **Component Pattern** (Linear/Circular/Mirror of components, not just features)

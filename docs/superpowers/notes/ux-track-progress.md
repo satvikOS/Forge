@@ -734,6 +734,122 @@ preservation + tightened the both-unfixed tie-break).
 
 ---
 
+## Tier 7b — Advanced assembly mates (3 of 6 shipped) — focused dispatch
+
+Tier-7b focused starts the SW Advanced-mate family with the three
+highest-impact additions: **Width**, **Path**, **Distance-Limit**. Each
+contributes a real residual equation + correct DOF reduction, integrated
+end-to-end (kernel `MateSolver` satisfier + kernel-free
+`KinematicsCore` residual helper + ribbon button + `_applyStandardMate`
+handler + param schema + bespoke motion-capture e2e).
+
+| Tier-7 # | Tool | Status | Implementation |
+|---|---|---|---|
+| 69 | **Width Mate** | **DONE** | Real solver in `kernel/assembly/MateSolver.js::_satisfyWidth` — tab anchor on partB centred between two reference anchors on partA. Slides `free` along the gap-normal direction (`refA2 − refA1` normalised) by half the diff per iteration; residual = `\|d1 − d2\|`; removes 1 translational DOF along the gap normal. Foundation `widthResidual(pTabWorld, pRefA1World, pRefA2World)` cross-check. Ribbon "Width Mate" in Assembly→Mates; schema drives `refA1`, `refA2`, `tabB` anchors (mm). |
+| 70 | **Path Mate** | **DONE** | New `_satisfyPath` — anchor on partB constrained to a polyline path in partA's local frame. Walks all segments, finds nearest projection per iteration, pulls `free` toward the closest point. Residual = perpendicular distance to nearest segment; removes 2 translational DOF (the two components normal to the local tangent). Foundation `pathResidual(pBWorld, pathPoints)` + `pathNearest()` cross-checks. Ribbon "Path Mate"; schema drives `start`/`end` + `segments` (defaults a straight line) OR the caller overrides via `window.__archdiscPathMatePath` for arbitrary spline / circle / cam profiles. |
+| 71 | **Distance-Limit Mate** | **DONE** | New `_satisfyDistanceLimit` — distance between anchors held in `[min, max]`. Slack inside the range (residual = 0, 0 DOF removed). Outside the range, pulls `free` toward the active boundary; residual = `\|d − target\|`; the active boundary clamps 1 DOF. The active clamp is reported via `mate.params._clampedDOF` and `_activeLimit` so the snapshot can show the dynamic clamp state. Foundation `distanceLimitResidual(pAWorld, pBWorld, min, max)` + `distanceLimitClamp()` cross-check. Ribbon "Distance-Limit Mate"; schema drives `pointA`, `pointB`, `minDist`, `maxDist`. |
+
+**Files added/changed for Tier-7b:**
+
+- `frontend/src/kernel/assembly/MateSolver.js` — new `_satisfyWidth`, `_satisfyPath`, `_satisfyDistanceLimit`; `_mateDOFRemoved` extended with width=1, path=2, distanceLimit=0 (dynamic-clamp DOF tracked via `mate.params._clampedDOF`); `_mateError` extended with the three residual computations; `_satisfyMate` switch extended for the three new kinds.
+- `frontend/src/foundation/AssemblyMate.js` — `width()`, `path()`, `distanceLimit()` factories on the foundation Assembly class; residual cases in `_residuals()` so the LM solver handles all 9 mate kinds end-to-end (3a coincident/distance/concentric/angle + 4 Tier-7a + 3 Tier-7b).
+- `frontend/src/foundation/KinematicsCore.js` — `ASSEMBLY_MATE_DOF` table extended with width=1, path=2, distanceLimit=0 (slack table value). New kernel-free helpers `widthResidual`, `pathResidual`, `pathNearest`, `distanceLimitResidual`, `distanceLimitClamp`. `assemblyMateResiduals(mates)` bundle extended to dispatch the three new kinds.
+- `frontend/src/components/RibbonToolbar.jsx` — 3 new entries in Assembly→Mates appended after the Tier-7a four: Width Mate (↔), Path Mate (〜), Distance-Limit Mate (⇿).
+- `frontend/src/foundation/ToolParamSchemas.js` — 3 new schemas appended after `'Lock Mate'`: Width Mate (refA1 + refA2 + tabB), Path Mate (start + end + pointB + segments — overridable via `__archdiscPathMatePath`), Distance-Limit Mate (pointA + pointB + minDist + maxDist).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — 3 thin assembly-group handlers (`'Width Mate'`, `'Path Mate'`, `'Distance-Limit Mate'`) delegate to the existing `_applyStandardMate` helper which is extended with the three new kinds (labelMap, params-build, foundation residual cross-check, dynamic-clamp snapshot fields `clampedDOF` + `activeLimit`).
+- `e2e/ux-tier7b-advanced-mates-electron.spec.js` — bespoke motion-capture e2e (5 stills + session video). See section below for the framing.
+
+### Bespoke real workflow — machine-tool slide-carriage assembly
+
+A 5-part machinist linear-stage where a carriage rides between two rails
+on a frame, and a slider-pin tracks a sketched S-curve cam profile.
+ONE perfectly-viewable iso framing throughout. ONE `test()` block,
+`--workers=1`, `slowMo=220`, `recordVideo`, no `node:*` imports.
+
+| Component | Size (mm) | Initial pose |
+|---|---|---|
+| Frame      | 160 × 80 × 10 (mid-grey)   | origin, FIXED (the bedplate) |
+| Rail A     | 160 × 8 × 12 (dark-grey)   | (0, +36, 11) — back rail |
+| Rail B     | 160 × 8 × 12 (dark-grey)   | (0, −36, 11) — front rail |
+| Carriage   | 40 × 50 × 16 (blue)        | (85, +18, 18) — INTENTIONALLY off-centre and at x=85 mm |
+| Slider-Pin | Ø6 × 24 (gold)             | (−40, 30, 40) — INTENTIONALLY off the cam path |
+
+Initial DOF = 5×6 − 6 (Frame fixed) = **24**. The three mates are
+applied in order via real ribbon clicks after seeding `__archdiscSelectedAssemblyParts`.
+
+| Frame | Headline |
+|---|---|
+| 01 — A1 | Slide-carriage initial iso (5 parts visible; Assembly tab active; new advanced-mate ribbon buttons visible) — DOF 24 |
+| 02 — B1 | After **Width** (Carriage↔Frame): carriage snapped to y ≈ 0 (centred); DOF 24→23 (−1); foundation residual ≪ 1 mm |
+| 03 — B2 | After **Path** (Pin↔Frame on S-curve): pin pulled onto the 64-sample cam path; DOF 23→21 (−2); foundation residual < 2 mm (chord error from 64-sample polyline) |
+| 04 — B3 | After **Distance-Limit** (Carriage↔Frame [0, 150] mm): SLACK at x = 85 mm — 0 DOF removed, `clampedDOF = 0`, `activeLimit = null` |
+| 05 — B4 | After manually pushing Carriage to x = 200 mm + re-solve: clamp activates — carriage pulled back to x = 150 mm within 1 mm tolerance; `clampedDOF = 1`, `activeLimit = 'max'` |
+| 06 — C1 | Final state — three Tier-7b mates stacked; all satisfied; book-kept DOF = 21 |
+
+**Focal assertions (verified in the spec):**
+
+| Mate | DOF removed (table) | DOF removed (actual) | Foundation residual |
+|---|---|---|---|
+| Width | 1 | 1 ✓ | < 1e-3 m (sub-mm centreing) |
+| Path | 2 | 2 ✓ | < 2e-3 m (S-curve chord error) |
+| Distance-Limit (slack) | 0 | 0 ✓ | 0 (in-range, residual = 0) |
+| Distance-Limit (clamped post-nudge) | 1 (dynamic via `_clampedDOF`) | — | clamps carriage x to 150 ± 1 mm |
+
+### E2E + regression subset (Tier-7b)
+
+Headed Electron, `--workers=1`, `--retries=0`. Tier-7a remains green; the
+new spec covers Width / Path / Distance-Limit handlers + ribbon dispatch
++ kernel solver + foundation residual helpers + dynamic-clamp DOF
+accounting in one workflow.
+
+| Spec | Result |
+|---|---|
+| `ux-tier7a-standard-mates-electron` (regression) | PASS (unchanged — `_applyStandardMate` extended but the Tier-7a branches are untouched) |
+| `ux-tier7b-advanced-mates-electron` (NEW) | PASS — 5 stills + session video; assertions on DOF book-keeping + foundation cross-check + clamp activation |
+
+### Honest gaps in Tier-7b
+
+1. **Path mate is polyline-sampled, not analytic.** The kernel
+   `_satisfyPath` finds the nearest point by walking polyline segments
+   and projecting. For a 64-sample S-curve the worst-case chord error
+   is ~0.6 mm; denser sampling reduces this linearly. A true NURBS
+   nearest-point projection (using `foundation/NURBSCurve` already in
+   the codebase) is the natural follow-on for class-A applications
+   where sub-micron path accuracy matters. The current implementation
+   matches what SW exposes in its Path Mate dialog (user supplies a
+   sketch curve — internally rasterised).
+2. **Width / Path do not consume rotation on partA.** The satisfiers
+   transform anchors / path samples by partA's translation only — they
+   do not apply partA's local-frame rotation. For our slide-carriage
+   the frame is at rotation (0,0,0) and the rails are world-axis-
+   aligned so this is exact. For a Width mate applied to a rotated
+   anchor (or a Path mate with the anchor part rotated), the caller
+   needs to either fix the anchor part or pre-rotate the anchors /
+   path samples in the world frame. The foundation `AssemblyMate.js`
+   LM solver DOES apply the full transform via `transformPoint`, so
+   that path is correct end-to-end.
+3. **Distance-Limit's DOF is dynamic.** The static
+   `ASSEMBLY_MATE_DOF.distanceLimit = 0` reports the slack-case DOF
+   removed; the runtime clamp is tracked via `mate.params._clampedDOF`
+   (set by `_satisfyDistanceLimit` after each solve step) and surfaced
+   on `__lastMateApplied.clampedDOF` + `.activeLimit`. The kernel
+   `computeDOF` does NOT inspect `_clampedDOF` — it returns the
+   slack-case total. Consumers wanting the active-DOF count should
+   read the per-mate `clampedDOF` and sum.
+4. **Advanced-mate family is 3 of 6.** Remaining: Symmetric (mirror-
+   plane equality), Linear-Coupler (proportional translation between
+   two parts), Angle-Limit (Distance-Limit but for angles). Each
+   slots into the same framework: kernel satisfier + foundation
+   helper + DOF table entry + schema + handler + ribbon button + e2e.
+5. **Mechanical mates queued.** Gear, Hinge, Cam, Rack-and-Pinion,
+   Screw, Universal Joint are kernel-level joint types in
+   `KinematicsCore` but not surfaced as Assembly mates. Surfacing them
+   needs the `_applyStandardMate` framework to call into joint-style
+   constraint code (the constraint shape is different from
+   point/anchor mates), so it's a separate dispatch from Tier-7b.
+
+---
+
 ## Tiers 2 (remaining) – 10 — Outstanding (no work yet)
 
 | Tier | Scope | Status |
@@ -743,7 +859,7 @@ preservation + tightened the both-unfixed tie-break).
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b shipped (7 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend)** |
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a foundation shipped (3 of ~8 ops)** |
-| 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, all Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a shipped (4/12+; standard-mate set complete 8/8)** |
+| 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b shipped (7/12+; standard-mate set complete 8/8 + 3 of 6 advanced)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, Title Block edit) | **Partial — Tier 8a + Tier 8b shipped (6/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 foundation shipped (3 of ~8 ops)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
