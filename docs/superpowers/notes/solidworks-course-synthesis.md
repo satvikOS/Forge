@@ -836,19 +836,19 @@ Export glTF.
 
 ### 6.9 — Mold Tools mapping
 
-**ArchDisc has no dedicated Mold Tools workbench, but several underlying capabilities exist
-under Surface / Direct Edit.**
+**ArchDisc ships a dedicated Mold Tools workbench (UX Tier 9 foundation — Mold Tools ribbon
+tab between Weldments and Drawing, kernel ops in `kernel/brep/BrepMoldTools.js`).**
 
 | SolidWorks mold tool | ArchDisc | Status |
 |---|---|---|
-| Draft Analysis | (none as named tool) | **Missing** |
-| Undercut Analysis | (none) | **Missing** |
-| Parting Line | (none) | **Missing** |
-| Shut-Off Surfaces | (none) | **Missing** |
-| Parting Surface | (none) | **Missing** |
-| Tooling Split | (none) | **Missing** — could be assembled from extrude + boolean + split |
-| Core feature | (none) | **Missing** |
-| Cavity feature | (none — but Subtract is the underlying op) | **Missing** as named workflow |
+| Draft Analysis | Draft Analysis (Tier 9) | **Done** — per-face draft classification via SP-4 `evalSurface`; faces tagged with `mold.draft` SP-2 attr + body `metadata.mold.draftAnalysis` |
+| Undercut Analysis | (deeper detection) | **Missing** — queued Tier 9b |
+| Parting Line | Parting Line (Tier 9) | **Done** — silhouette curve: walks every edge, classifies as parting iff its two adjacent faces have opposite draft signs (or one positive + one vertical) |
+| Shut-Off Surfaces | (none) | **Missing** — queued Tier 9b |
+| Parting Surface | (planar parting plane via Tooling Split) | **Partial** — planar parting plane shipped via Tooling Split (perpendicular to pull at body centroid); ruled / curved parting surface queued Tier 9b |
+| Tooling Split | Tooling Split (Tier 9) | **Done** — splits body via two complementary half-space cuts (CORE = above parting plane, CAVITY = below); also records SP-5 `partition` attempt for completeness |
+| Core feature | Core piece labelled `mold.half='core'` | **Done** (via Tooling Split) |
+| Cavity feature | Cavity piece labelled `mold.half='cavity'` | **Done** (via Tooling Split) |
 
 ---
 
@@ -1002,13 +1002,16 @@ The single largest gap. Needs:
 - **Title Block / Sheet Format** edit
 - **Sheet Size** dialog (A4/A3/A2/A1/Letter/etc., ISO/ANSI standards)
 
-### Tier 9 — Missing workbench: Mold Tools
+### Tier 9 — Mold Tools workbench
 
-- Mold Tools ribbon tab
-- Draft Analysis (color-coded faces by pull-direction draft)
-- Undercut Analysis
-- Parting Line, Shut-Off Surfaces, Parting Surface, Tooling Split
-- Core, Cavity features
+- ~~Mold Tools ribbon tab~~ — **DONE** (Tier 9; new TAB between Weldments and Drawing)
+- ~~Draft Analysis (color-coded faces by pull-direction draft)~~ — **DONE** (Tier 9; per-face classification via SP-4 evalSurface; faces tagged `mold.draft` SP-2 attribute; positive=green / negative=red / vertical=yellow)
+- **Undercut Analysis** — queued Tier 9b (deeper "stuck face" detection across multiple pull directions)
+- ~~Parting Line~~ — **DONE** (Tier 9; silhouette curve trace via adjacent-face draft-sign comparison)
+- **Shut-Off Surfaces** — queued Tier 9b (close through-holes for a manifold mold block)
+- **Parting Surface** (proper ruled / swept) — queued Tier 9b (currently shipped as planar parting plane via Tooling Split)
+- ~~Tooling Split~~ — **DONE** (Tier 9; splits body into core + cavity halves via two complementary half-space cuts; uses SP-5 partition path as an additional record)
+- ~~Core / Cavity features~~ — **DONE** (Tier 9; pieces labelled `mold.half = 'core' | 'cavity'` via SP-2 attribute on the spine body)
 
 ### Tier 10 — Parametric infrastructure
 

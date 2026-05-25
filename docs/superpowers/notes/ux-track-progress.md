@@ -745,7 +745,7 @@ preservation + tightened the both-unfixed tie-break).
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a foundation shipped (3 of ~8 ops)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, all Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a shipped (4/12+; standard-mate set complete 8/8)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, Title Block edit) | **Partial — Tier 8a + Tier 8b shipped (6/8)** |
-| 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | Not started |
+| 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 foundation shipped (3 of ~8 ops)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | Not started |
 
 ---
@@ -1532,3 +1532,208 @@ Motion-capture, ONE `test()`, `--workers=1`. The workflow:
 - The PropertyManager Dock's collapsed state hides INPUT rows but keeps the header visible.
   Re-opening it after collapse via the chevron expands the dock fully (the collapsed state doesn't
   fully tear down the dock subtree).
+
+---
+
+## Tier 9 — Mold Tools workbench foundation (3 of 3 in this pass; ~8 SW mold-tools ops in tier total)
+
+**Date:** 2026-05-24
+
+The Mold Tools workbench foundation — a dedicated **Mold Tools** ribbon
+tab between Weldments and Drawing, with the three FOUNDATIONAL ops every
+SolidWorks-compatible CAD must ship for injection-mold workflows:
+
+1. **Draft Analysis** — Pre-select a moldable body + supply a pull direction.
+   For every face of the body, sample the OUTWARD face normal at the
+   parametric midpoint via SP-4's `evalSurface(face, 0.5, 0.5,
+   {normalised:true})`. Honour `face.reversed`. Compute the signed angle
+   between the face normal and the pull direction (in [-90°, +90°]).
+   Classify by user-supplied threshold (default 3°):
+     - `angleDeg >= +minDraftDeg`  → POSITIVE (green) — faces +pull cleanly.
+     - `angleDeg <= -minDraftDeg`  → NEGATIVE (red)   — faces -pull cleanly.
+     - `|angleDeg|  < minDraftDeg` → VERTICAL (yellow) — undercut.
+   Each face's category lands as a `mold.draft` SP-2 attribute so the
+   analysis survives downstream ops. The result body also carries
+   `metadata.mold.draftAnalysis = { positive, negative, vertical,
+   pullDirection, minDraftDeg, faceCount, perFace[] }`. Renders as a
+   per-face vertex-coloured mesh overlay on the body group (replaces the
+   uniform-colour mesh in the body's scene group).
+
+2. **Parting Line** — Pre-select a moldable body. Walks every edge of the
+   body; for each edge checks its two adjacent faces' `mold.draft`
+   categories. An edge is on the parting line iff its faces have OPPOSITE
+   draft signs (one positive, one negative), OR one is positive/negative
+   and the other is vertical (the canonical SW silhouette + tangent
+   convention). Returns the parting curve as a list of edges
+   (`metadata.mold.partingLine = { edgeCount, edges[] }`). Renders as a
+   bright yellow `THREE.LineSegments` overlay attached to the body group.
+
+3. **Tooling Split** — The marquee Mold-Tools op. Pre-select a moldable
+   body + supply pull direction (+ optional partingZ offset). Builds a
+   PLANAR parting surface perpendicular to the pull at the body centroid
+   (or centroid + partingZ·pull). Materialises two complementary
+   half-space tools (a large prism extending below the parting plane and
+   another extending above). Cuts the body with each tool via SP-5's
+   booleans:
+     - `body − belowTool` ⇒ **CORE** half (the +pull side).
+     - `body − aboveTool` ⇒ **CAVITY** half (the -pull side).
+   Each piece is classified by computing its centroid's signed distance
+   along pull from the parting plane: `signedDist ≥ 0` → core; `< 0` →
+   cavity. Tagged via `attachAttribute(piece.body, 'mold.half',
+   'core'|'cavity')` AND `metadata.mold.half`. Also attempts SP-5's
+   `partition` op with a thin slab as the tool and records the result on
+   `partitionReport.partitionAttempted` for completeness. The two halves
+   are visibly separated in the viewport: core offset +25 mm along pull,
+   cavity -25 mm — so the e2e screenshots show the two pieces side-by-side.
+
+### Files added/changed
+
+- `frontend/src/kernel/brep/BrepMoldTools.js` (new — 3 mold-tools kernel
+  ops + metadata helpers + plane-basis maths)
+- `frontend/src/kernel/brep/index.js` (modified — re-export the new ops)
+- `frontend/src/kernel/brep/ArchDiscKernel.js` (modified — facade entries
+  `K.brep.draftAnalysis / partingLine / toolingSplit / isMold /
+  getMoldMetadata`)
+- `frontend/src/components/RibbonToolbar.jsx` (modified — NEW `moldTools`
+  tab between Weldments and Drawing with 3 groups: Analysis | Parting |
+  Mold Block)
+- `frontend/src/foundation/ToolParamSchemas.js` (modified — 3 schemas
+  appended at end: Draft Analysis (pullX/Y/Z + minDraftDeg), Parting Line
+  (same 4 params), Tooling Split (pullX/Y/Z + partingZ + minDraftDeg))
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js`
+  (modified — new `moldTools:` handler group with 3 handlers +
+  `applyDraftAnalysisOverlay` + `renderPartingLineOverlay` helpers; the
+  rest of the TOOL_HANDLERS object untouched per allowlist; one extra
+  import `tessellatePerFace` from `kernel/brep/BrepTessellate.js`)
+- `frontend/src/workbenches/mold-tools/WorkbenchMoldTools.jsx` (new —
+  ride-along workbench wrapper hinting the ribbon to default to the
+  moldTools tab)
+- `frontend/src/workbenches/mold-tools/index.js` (new — barrel re-export
+  of the kernel ops + `MOLD_TOOLS` list)
+- `e2e/ux-tier9-mold-tools-electron.spec.js` (new — motion-capture e2e
+  on a real plastic bottle cap; 6 stills + session video)
+
+### Bespoke real workflow — plastic bottle cap with hollow interior
+
+A real injection-mouldable workflow that exercises every op shipped this
+pass — different from every prior bespoke model:
+
+| Stage | Op | Geometry |
+|---|---|---|
+| 1 | Build bottle cap (kernel ops) | Ø34 mm skirt × 12 mm + Ø34 puck × 4 mm fused on top, Ø28 × 10 mm bore subtracted from the bottom |
+| 2 | Mold Tools ribbon tab | Ribbon tab "Mold Tools" highlighted; Analysis / Parting / Mold Block groups visible |
+| 3 | Draft Analysis (pull = +Z, θ_min=3°) | Per-face classification: top puck face → positive (+90°), bottom rim → negative (-90°), outer/inner cylinder walls → vertical (0°). Per-face vertex-coloured overlay |
+| 4 | Parting Line (pull = +Z) | Silhouette wire: edges between the top-puck top-face (positive) and outer-cylinder side (vertical), and between the bottom-rim (negative) and outer-cylinder side (vertical). Rendered as a bright yellow polyline overlay |
+| 5 | Tooling Split (pull = +Z, partingZ=0) | Split body into CORE (top half — puck + upper skirt) + CAVITY (bottom half — lower skirt + bore rim). Each piece labelled `mold.half`; the two halves visibly separated by 50 mm along the pull axis |
+
+After step 5 the part is a real mold-tool starting point — core insert +
+cavity insert ready for parting-line refinement and shut-off surfaces.
+
+### Framing — perfectly viewable
+
+| Frame | Headline |
+|---|---|
+| 01 | Original bottle cap iso — Ø34 × 16 mm closed-top hollow cap |
+| 02 | Mold Tools ribbon tab active — Analysis / Parting / Mold Block groups + 3 tools visible |
+| 03 | Draft Analysis colour-coded overlay — top puck green, bottom rim red, side walls yellow |
+| 04 | Parting Line traced — bright yellow polyline overlay along the silhouette |
+| 05 | Tooling Split — CORE (blue-grey upper half) + CAVITY (warm-grey lower half) visibly separated |
+| 06 | Final short orbit revealing the core / cavity from another side |
+
+ONE iso of the bottle cap; whole part fits. 4-5 stills at key states.
+NO 7-angle orbit. One short orbit at the end revealing the split halves.
+
+### Focal assertions (verified live in the spec)
+
+| Op | Assertion | Value |
+|---|---|---|
+| Kernel facade | `K.brep.draftAnalysis` / `partingLine` / `toolingSplit` exposed | all 3 ok |
+| Mold Tools tab | ribbon shows `Draft Analysis` / `Parting Line` / `Tooling Split` | 3/3 visible |
+| Bottle cap | face count > 2 (real multi-face body) | ≥3 ok |
+| Draft Analysis | `categories.length === faceCount` | every face classified ok |
+| Draft Analysis | `positive + negative + vertical === faceCount` | mutual exclusivity ok |
+| Draft Analysis | `positive > 0` AND `negative > 0` | cap has BOTH draft signs ok |
+| Parting Line | `edgeCount > 0` | non-empty silhouette ok |
+| Parting Line | every edge has `leftDraft` ≠ `rightDraft` (when both non-vertical) | parting condition ok |
+| Tooling Split | `pieceCount === 2` | exactly 2 pieces ok |
+| Tooling Split | `corePresent === true` AND `cavityPresent === true` | both halves present ok |
+| Tooling Split | `core` body labelled `mold.half === 'core'` | core tagged ok |
+| Tooling Split | `cavity` body labelled `mold.half === 'cavity'` | cavity tagged ok |
+
+### E2E + regression subset (Tier 9)
+
+Headed Electron, `--workers=1`, `--retries=0`. The targeted regression
+band:
+
+| Spec | Notes |
+|---|---|
+| `ux-tier9-mold-tools-electron` (NEW) | This pass's acceptance |
+| `ux-tier5a-sheet-metal-electron` (regression) | Same workbench-wrapper pattern |
+| `ux-tier6a-weldments-electron` (regression) | Same workbench-wrapper pattern |
+| `sp11-sheet-tolerant-electron` (regression — sheet-body foundation) | Mold tools rely on the same body model |
+| `ribbon-test` (regression — ribbon tabs + tool counts) | Confirms the new 10th tab renders cleanly |
+
+The new Mold Tools tab adds a 10th ribbon tab (after Weldments's 9th).
+
+### Honest gaps + queued Tier-9 follow-ups
+
+1. **Foundation only — 3 of ~8 SW mold-tools ops shipped.** Queued for
+   follow-on Tier-9b dispatches:
+   - **Undercut Analysis** (deeper than draft analysis — detect "stuck"
+     faces across multiple pull directions; flag side-action candidates).
+   - **Shut-Off Surfaces** (close through-holes in the part so the
+     mold block can be partitioned without leaks).
+   - **Parting Surface** (proper ruled / swept parting — not just a
+     planar plane; SW supports a free-form parting surface from the
+     parting curve).
+   - **Core / Cavity feature** (proper named features in the design
+     tree rather than just attribute tags on the partition pieces).
+   - **Side Actions** (side-pull cores for undercuts — requires the
+     Undercut Analysis result + a per-undercut pull direction).
+   - **Cooling Channels** (drill conformal cooling channels through
+     the core / cavity inserts — SP-12 fields work).
+
+2. **Draft Analysis samples the parametric midpoint of each face.** For
+   strongly curved faces (cylinder, sphere, fillet) the midpoint normal
+   is representative but not the worst-case point. A follow-on samples a
+   grid and reports the WORST category per face — important for fillets
+   that may be locally undercut at one parametric location and clean
+   elsewhere.
+
+3. **Parting Line requires manifold adjacency.** For each edge, the op
+   walks `edge.coedges → loop.face` to find exactly two unique adjacent
+   faces. If the adjacency yields ≠2 unique faces (non-manifold edge,
+   free edge on a sheet body), the edge is skipped. Documented gap; SW
+   handles non-manifold by special-casing the topology.
+
+4. **Tooling Split uses a planar parting plane at the body centroid.**
+   This is the SW Mold Tools DEFAULT but the user can override via the
+   `partingZ` field (signed offset along pull from centroid). A proper
+   ruled / curved parting surface from the actual Parting Line curve is
+   queued Tier-9b — current pass ships the planar approximation, which
+   is correct for most "open and close" injection-molded geometries
+   (caps, lids, simple housings).
+
+5. **The two halves are separated by 25 mm along pull in the viewport
+   for visual clarity.** This is purely a presentation choice in the
+   handler — the kernel geometry is at the correct world position. A
+   future "exploded view toggle" overlay would let the user collapse
+   the halves back together to verify the fit.
+
+6. **Tooling Split via cut+cut is the working path; the SP-5 `partition`
+   attempt is recorded but not used.** Partition with a thin slab tool
+   yields 3 pieces (above-slab, slab-volume, below-slab) which is not
+   the user's intent. The two complementary half-space cuts produce
+   exactly 2 pieces, which is the correct SW semantics. A future
+   improvement: use `makeLamina` from SP-11 to wrap a single planar
+   face as a SHEET tool — partition with a sheet tool produces 2
+   pieces cleanly. Foundation pass uses cut for simplicity.
+
+7. **Mold-tools tab is wired into the ribbon TAB strip but not into the
+   workbench switcher.** Same pattern as Sheet Metal (Tier 5a) and
+   Weldments (Tier 6a): the `WorkbenchMoldTools` wrapper exists for
+   parity but is not mounted in `Workbench.jsx`'s switcher — the
+   `moldTools` ribbon tab activates within the Mechanical CAD
+   workbench when the user clicks it. The pattern keeps the viewport /
+   scene-graph / ToolExecutionEngine wiring single-sourced.
+
