@@ -16,7 +16,18 @@
    viewport. This is the "fixed viewport, dynamic chrome" model: the user's
    view of the 3D model never shifts as panels toggle. */
 :root {
-    --ribbon-height: 124px;
+    /* UX cleanup (2026-05-24): bumped from 124 → 168 px. The 124 px setting
+       was clipping the second row of tools on dense tabs like Part (Solid
+       Primitives + Create + Modify + Blends + Surface + Faceting + Boolean
+       + Partition + Direct Modeling + Pattern + Heal/Repair → two rows of
+       ~36 px tool buttons + group labels). 168 px fits two full rows
+       (24 tabs + 2×(36 button + 12 label + 4 pad) + 6 padding) cleanly.
+       The viewport contract is preserved: each absolute overlay (toolbar,
+       properties, rollback) uses `top: var(--ribbon-height)` so growing
+       the ribbon shifts the viewport-row top edge down by 44 px — the
+       viewport CANVAS still occupies a stable rectangle for the rest of
+       the session. */
+    --ribbon-height: 168px;
     /* The toolbar / rollback / properties gutters reserve fixed pixel real
        estate inside the stage. The viewport sits between the toolbar gutter
        on the left and the (rollback + properties) gutter on the right. */
@@ -124,9 +135,10 @@
     grid-area: ribbon;
     background: var(--bg-secondary, #16162a);
     border-bottom: 1px solid var(--border-color, #2a2a3e);
-    height: var(--ribbon-height, 124px);
-    min-height: var(--ribbon-height, 124px);
-    max-height: var(--ribbon-height, 124px);
+    /* Fallback values must match the :root --ribbon-height (168 px). */
+    height: var(--ribbon-height, 168px);
+    min-height: var(--ribbon-height, 168px);
+    max-height: var(--ribbon-height, 168px);
     display: flex;
     flex-direction: column;
 }

@@ -1,4 +1,12 @@
-/* ArchDisc Ribbon Toolbar — Professional CAD UI */
+/* ArchDisc Ribbon Toolbar — Professional CAD UI
+ *
+ * The container height is owned by workbench.css (var(--ribbon-height),
+ * currently 168 px). The internal layout below is sized so:
+ *   24 px tab strip + 4 px content padding-top
+ *   + 2 × (40 px tool button + 12 px group label + 2 px row gap)
+ *   + 4 px content padding-bottom
+ *   = ~ 134 px content fits inside 168 px chrome with headroom.
+ */
 
 .ribbon-container {
   grid-area: ribbon;
@@ -44,7 +52,15 @@
   background: rgba(74, 144, 217, 0.08);
 }
 
-/* Content area */
+/* Content area
+ *
+ * The content is a horizontally-scrollable flex row of groups. Each group
+ * occupies its NATURAL width — no flex-grow so wider groups don't crowd
+ * shorter groups, and overflow-x lets the user reach groups that exceed
+ * the container width. The CONTAINER height is fixed via --ribbon-height
+ * (workbench.css); the content stretches to that height with `flex: 1` so
+ * groups can be cleanly clipped at top/bottom by the container.
+ */
 .ribbon-content {
   display: flex;
   gap: 0;
@@ -56,26 +72,56 @@
   align-items: stretch;
 }
 
-/* Tool group */
+/* Tool group — fixed (natural) width column. Each group is a vertical
+ * stack of: tools wrap-area on top, group label at the bottom. */
 .ribbon-group {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border-color, #1a1a2e);
   padding: 0 6px;
+  /* Don't shrink below natural; don't grow beyond it. The whole row scrolls
+     horizontally via .ribbon-content's overflow-x. */
+  flex: 0 0 auto;
   min-width: 0;
+  /* The group's vertical extent must NOT exceed the container row, so the
+     wrap-area below clips its content at the bottom of the row instead of
+     pushing a label / extra tool row below the ribbon's bottom edge. */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ribbon-group:last-child {
   border-right: none;
 }
 
+/* Wrap area: lays tools out in TWO rows max. With a 168 px ribbon row, the
+ * row above tabs (24 px) leaves ~ 134 px of content height. Two tool-button
+ * rows (~ 40 px each) + a 12 px label + 4 px padding ≈ 96 px, comfortably
+ * inside the 134 px budget. We pin the wrap-area to that 2-row budget so a
+ * group with many tools (e.g. Surface = 18 tools) stays at 2 rows tall and
+ * grows in WIDTH instead — the ribbon scrolls horizontally to reveal them
+ * (SolidWorks / Fusion 360 convention).
+ *
+ * Implementation: `flex-direction: column; flex-wrap: wrap;` so tools flow
+ * down-then-right, and `max-height` clamps the column count to 2 (each
+ * tool button is ~ 40 px so a 92 px max-height fits exactly 2 stacked
+ * tools per column before wrapping to a new column). The visible row count
+ * is therefore deterministic: every group shows exactly 2 rows of tools. */
 .ribbon-group-tools {
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
   gap: 2px;
-  flex: 1;
   align-content: flex-start;
   padding-bottom: 2px;
+  /* Hard cap: 2 tool buttons high (each ~ 44 px including padding and the
+     1 px transparent border on .ribbon-tool). Any additional tools wrap
+     into a new column to the right within the same group, which itself is
+     part of a horizontally-scrollable ribbon. */
+  max-height: 92px;
+  /* Let the group widen horizontally to fit overflow tools (don't clip
+     in the X direction — the container's overflow-x handles scrolling). */
+  overflow: visible;
 }
 
 .ribbon-group-label {
