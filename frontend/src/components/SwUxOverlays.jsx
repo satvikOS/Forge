@@ -459,6 +459,11 @@ export const DOCKED_TOOLS = new Set([
   'Boundary Boss',
   'Rib',
   'Helix',
+  // UX Tier 5b — Sheet Metal additions (Hem / Jog / Miter Flange / Sketched Bend).
+  'Hem',
+  'Jog',
+  'Miter Flange',
+  'Sketched Bend',
 ]);
 
 export function PropertyManagerDock() {

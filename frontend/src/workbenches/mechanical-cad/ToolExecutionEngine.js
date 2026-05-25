@@ -6542,6 +6542,180 @@ const TOOL_HANDLERS = {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Flat Pattern: ' + (err.message || err) };
       }
     },
+
+    // ── UX Tier 5b — Sheet Metal additions ─────────────────────────────────
+    //
+    // Hem / Jog / Miter Flange / Sketched Bend. Each handler is selection-
+    // driven (pre-select the sheet-metal body) + dialog-driven (param dialog
+    // supplies the edge / variant / size). Each one appends bend records to
+    // body.metadata.sheetMetal.bends[] so Flat Pattern unfolds them with no
+    // additional work.
+
+    'Hem': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Hem: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Hem');
+        if (cancelled) return { status: 'warn', message: 'Hem: cancelled' };
+        const edgeIndex = Math.max(1, Math.floor(Number(values.edgeIndex) || 1));
+        const hemType = String(values.hemType || 'closed').toLowerCase();
+        const hemLength = Number(values.hemLength) > 0 ? Number(values.hemLength) : null;
+        const opts = { hemType };
+        if (hemLength) opts.hemLength = hemLength;
+        const result = await ArchDiscKernel.brep.hem(body, edgeIndex, opts);
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const lastBend = sm && sm.bends && sm.bends[sm.bends.length - 1];
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+          window.__lastHemBody = result;
+        }
+        return {
+          status: 'success',
+          message: `Hem (${hemType}): edge #${edgeIndex}, L = ${(lastBend?.hemLength ?? '?').toFixed?.(1) ?? lastBend?.hemLength} mm → ` +
+            `${m.faceCount} faces, BA = ${(lastBend?.bendAllowance ?? 0).toFixed(2)} mm, ` +
+            `bends now ${sm?.bends?.length ?? '?'} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Hem: ' + (err.message || err) };
+      }
+    },
+
+    'Jog': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Jog: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Jog');
+        if (cancelled) return { status: 'warn', message: 'Jog: cancelled' };
+        const edgeIndex = Math.max(1, Math.floor(Number(values.edgeIndex) || 1));
+        const jogOffset = Number(values.jogOffset) > 0 ? Number(values.jogOffset) : 10;
+        const angleDeg = Number.isFinite(Number(values.angleDeg)) ? Number(values.angleDeg) : 90;
+        const flangeLength = Number(values.flangeLength) > 0 ? Number(values.flangeLength) : 20;
+        const prevBendCount = (() => {
+          const psm = ArchDiscKernel.brep.getSheetMetalMetadata(body);
+          return psm && psm.bends ? psm.bends.length : 0;
+        })();
+        const result = await ArchDiscKernel.brep.jog(body, edgeIndex, {
+          jogOffset, angleDeg, flangeLength,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const newBendCount = sm && sm.bends ? sm.bends.length : 0;
+        const bendsAdded = newBendCount - prevBendCount;
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+          window.__lastJogBody = result;
+        }
+        return {
+          status: 'success',
+          message: `Jog: offset = ${jogOffset} mm, θ = ${angleDeg}°, top L = ${flangeLength} mm → ` +
+            `${m.faceCount} faces, ${bendsAdded} new bend(s), total = ${newBendCount} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Jog: ' + (err.message || err) };
+      }
+    },
+
+    'Miter Flange': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Miter Flange: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Miter Flange');
+        if (cancelled) return { status: 'warn', message: 'Miter Flange: cancelled' };
+        // Build the ordered edge ref list — pull up to 4 edges; 0 = skip.
+        const edges = [];
+        for (const key of ['edge1', 'edge2', 'edge3', 'edge4']) {
+          const v = Math.floor(Number(values[key]) || 0);
+          if (v > 0) edges.push(v);
+        }
+        // ALSO accept a multi-edge override via window.__archdiscMiterEdges
+        // (used by e2e + AI plans for arbitrary-length sequences).
+        if (typeof window !== 'undefined' && Array.isArray(window.__archdiscMiterEdges) && window.__archdiscMiterEdges.length > 0) {
+          edges.length = 0;
+          for (const v of window.__archdiscMiterEdges) {
+            const i = Math.floor(Number(v) || 0);
+            if (i > 0) edges.push(i);
+          }
+          window.__archdiscMiterEdges = null;
+        }
+        if (edges.length === 0) {
+          return { status: 'warn', message: 'Miter Flange: no edges supplied — set at least one edge index > 0.' };
+        }
+        const length = Number(values.length) > 0 ? Number(values.length) : 20;
+        const angleDeg = Number.isFinite(Number(values.angleDeg)) ? Number(values.angleDeg) : 90;
+        const position = String(values.position || 'outside').toLowerCase();
+        const prevBendCount = (() => {
+          const psm = ArchDiscKernel.brep.getSheetMetalMetadata(body);
+          return psm && psm.bends ? psm.bends.length : 0;
+        })();
+        const result = await ArchDiscKernel.brep.miterFlange(body, edges, {
+          length, angleDeg, position,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const newBendCount = sm && sm.bends ? sm.bends.length : 0;
+        const segments = newBendCount - prevBendCount;
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+          window.__lastMiterBody = result;
+        }
+        return {
+          status: 'success',
+          message: `Miter Flange: ${edges.length} edge(s), ${segments} segment(s) placed, ` +
+            `L = ${length} mm, θ = ${angleDeg}°, position=${position} → ` +
+            `${m.faceCount} faces, total bends = ${newBendCount} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Miter Flange: ' + (err.message || err) };
+      }
+    },
+
+    'Sketched Bend': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Sketched Bend: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Sketched Bend');
+        if (cancelled) return { status: 'warn', message: 'Sketched Bend: cancelled' };
+        const edgeIndex = Math.max(1, Math.floor(Number(values.edgeIndex) || 1));
+        const angleDeg = Number.isFinite(Number(values.angleDeg)) ? Number(values.angleDeg) : 45;
+        const flangeLength = Number(values.flangeLength) > 0 ? Number(values.flangeLength) : 30;
+        const bendPosition = String(values.bendPosition || 'centered').toLowerCase();
+        const result = await ArchDiscKernel.brep.sketchedBend(body, edgeIndex, {
+          angleDeg, flangeLength, bendPosition,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const lastBend = sm && sm.bends && sm.bends[sm.bends.length - 1];
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+          window.__lastSketchedBendBody = result;
+        }
+        return {
+          status: 'success',
+          message: `Sketched Bend: edge #${edgeIndex}, θ = ${angleDeg}°, L = ${flangeLength} mm, pos=${bendPosition} → ` +
+            `${m.faceCount} faces, BA = ${(lastBend?.bendAllowance ?? 0).toFixed(2)} mm, ` +
+            `bends now ${sm?.bends?.length ?? '?'} via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Sketched Bend: ' + (err.message || err) };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -333,6 +333,14 @@ const TABS = {
       ]},
       { label: 'Bend', tools: [
         { name: 'Edge Flange', icon: '⌐', key: 'sheetMetal' },
+        // UX Tier 5b — additions extending the same Bend group.
+        { name: 'Sketched Bend', icon: '∠', key: 'sheetMetal' },
+        { name: 'Jog', icon: 'Z', key: 'sheetMetal' },
+      ]},
+      { label: 'Edge Features', tools: [
+        // UX Tier 5b — hems + mitered flanges sit alongside Edge Flange.
+        { name: 'Hem', icon: '⌒', key: 'sheetMetal' },
+        { name: 'Miter Flange', icon: '◢', key: 'sheetMetal' },
       ]},
       { label: 'Manufacturing', tools: [
         { name: 'Flat Pattern', icon: '⊞', key: 'sheetMetal', primary: true },

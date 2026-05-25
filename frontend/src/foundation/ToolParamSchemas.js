@@ -1172,6 +1172,62 @@ export const TOOL_PARAM_SCHEMAS = {
     fields: [],
   },
 
+  // ─── UX TIER 5b — Sheet Metal additions ───────────────────────────────
+  //
+  // Four sheet-metal ops that extend the Tier-5a foundation: Hem (fold an
+  // edge over itself), Jog (Z-step offset in the sheet), Miter Flange
+  // (multi-edge flange with mitered corners), Sketched Bend (bend along a
+  // user-drawn line). Each one records its bend(s) on
+  // body.metadata.sheetMetal.bends[] so Flat Pattern unfolds them too.
+  'Hem': {
+    title: 'Hem — Fold an Edge Over Itself',
+    blurb: 'Pick a sheet-metal edge and fold it BACK onto the body. Closed = 180° flush; Open = ~165° leaving a small gap; Rolled = smooth curl; Teardrop = rolled with a pointed end. Used in fabrication to remove sharp edges (finger safety) and stiffen the part.',
+    fields: [
+      { name: 'edgeIndex', label: 'Edge index (1-based)', type: 'number', default: 1, min: 1, max: 1000, step: 1, hint: 'Visible-edge order; defaults walk spine order.' },
+      { name: 'hemType', label: 'Hem type', type: 'enum',
+        options: ['closed', 'open', 'rolled', 'teardrop'],
+        default: 'closed', hint: 'closed=180° flush; open=~165°; rolled=270° curl; teardrop=225° pointed.' },
+      { name: 'hemLength', label: 'Hem length', type: 'number', default: 6, unit: 'mm', min: 1, max: 200, step: 0.5, hint: 'How far the hem extends — typically 4× thickness.' },
+    ],
+  },
+  'Jog': {
+    title: 'Jog — Stepped Z-Fold in the Sheet',
+    blurb: 'Create a stepped offset in the sheet (a Z-fold). The first bend lifts the sheet perpendicular by the jog offset; the second bend flattens it back parallel to the original. Two bends recorded — both with type=jog. Used for connector clearance / standoff between two parallel sheet sections.',
+    fields: [
+      { name: 'edgeIndex', label: 'Jog-line edge index', type: 'number', default: 1, min: 1, max: 1000, step: 1, hint: 'The edge along which the jog folds.' },
+      { name: 'jogOffset', label: 'Jog offset', type: 'number', default: 10, unit: 'mm', min: 0.5, max: 500, step: 0.5, hint: 'Perpendicular step size between the two parallel sheet sections.' },
+      { name: 'angleDeg', label: 'Jog angle', type: 'number', default: 90, unit: '°', min: 1, max: 179, step: 1, hint: '90 = perpendicular Z-step; smaller = shallower jog.' },
+      { name: 'flangeLength', label: 'Top flange length', type: 'number', default: 20, unit: 'mm', min: 1, max: 500, step: 1, hint: 'Length of the offset top section.' },
+    ],
+  },
+  'Miter Flange': {
+    title: 'Miter Flange — Multi-Edge Flange with Mitered Corners',
+    blurb: 'Sweep a flange along a sequence of connected edges. Adjacent flange segments meet at MITERED corners (45° bisector trim recorded in metadata for clean joints). The killer feature: a single op grows all four perimeter flanges of a tray / lid / pan in one move. Pick the edge sequence by index; the op walks them in order.',
+    fields: [
+      { name: 'edge1', label: 'Edge 1 (index)', type: 'number', default: 1,  min: 0, max: 1000, step: 1 },
+      { name: 'edge2', label: 'Edge 2 (index)', type: 'number', default: 0,  min: 0, max: 1000, step: 1, hint: '0 = skip; otherwise visible-edge index.' },
+      { name: 'edge3', label: 'Edge 3 (index)', type: 'number', default: 0,  min: 0, max: 1000, step: 1, hint: '0 = skip.' },
+      { name: 'edge4', label: 'Edge 4 (index)', type: 'number', default: 0,  min: 0, max: 1000, step: 1, hint: '0 = skip.' },
+      { name: 'length',   label: 'Flange length', type: 'number', default: 20, unit: 'mm', min: 1, max: 1000, step: 1 },
+      { name: 'angleDeg', label: 'Bend angle',    type: 'number', default: 90, unit: '°',  min: 0, max: 180,  step: 1 },
+      { name: 'position', label: 'Material position', type: 'enum',
+        options: ['outside', 'inside'], default: 'outside',
+        hint: 'outside = flange grows outward; inside = flange contained within material.' },
+    ],
+  },
+  'Sketched Bend': {
+    title: 'Sketched Bend — Bend Along a User-Drawn Line',
+    blurb: 'The most general sheet-metal bend: pick an edge (the bend line) on a flat face and supply the bend angle. The sheet folds along the line by the angle. Position controls whether the bend allowance is laid above, below, or centered on the line (recorded for Flat Pattern).',
+    fields: [
+      { name: 'edgeIndex', label: 'Bend-line edge index', type: 'number', default: 1, min: 1, max: 1000, step: 1 },
+      { name: 'angleDeg',  label: 'Bend angle',           type: 'number', default: 45, unit: '°', min: 0, max: 179, step: 1, hint: '0 = no bend; 90 = perpendicular fold.' },
+      { name: 'flangeLength', label: 'Free-side length',  type: 'number', default: 30, unit: 'mm', min: 1, max: 1000, step: 1, hint: 'Length of the bent (free) side.' },
+      { name: 'bendPosition', label: 'Bend position', type: 'enum',
+        options: ['centered', 'above', 'below'], default: 'centered',
+        hint: 'Where the bend allowance is laid relative to the bend line.' },
+    ],
+  },
+
   // ─── UX TIER 6a — Weldments workbench foundation ──────────────────────
   //
   // Three foundational weldments ops with their param schemas. Structural
