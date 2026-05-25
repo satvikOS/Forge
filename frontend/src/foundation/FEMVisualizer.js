@@ -94,7 +94,9 @@ export function buildTetSurfaceColoredMesh(tetMesh, nodalField, opts = {}) {
     flatShading: opts.flatShading ?? false,
     roughness:   opts.roughness ?? 0.55,
     metalness:   opts.metalness ?? 0.10,
-    side:        THREE.FrontSide,
+    // DoubleSide so the FEM hull is visible from every camera angle even
+    // when the surface-extraction step yields inverted boundary windings.
+    side:        THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);
   return { mesh, stats: { min: fmin, max: fmax, boundaryFaces: boundary.length } };

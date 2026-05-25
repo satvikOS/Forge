@@ -57,7 +57,19 @@ export function manifoldToMesh(manifold, opts = {}) {
     roughness:    opts.roughness ?? 0.55,
     metalness:    opts.metalness ?? 0.30,
     flatShading:  opts.flatShading ?? false,
-    side:         THREE.FrontSide,
+    // DoubleSide is required so the body renders from every camera angle.
+    // Foundation manifolds can be:
+    //   - solids (closed) — DoubleSide is harmless, and protects against
+    //     inverted normals from CSG / circularPattern / manifold-3d quirks
+    //     that would otherwise produce fully-invisible angles.
+    //   - sheets / open shells — DoubleSide is REQUIRED, otherwise the back
+    //     of the sheet shows nothing.
+    //   - bodies placed under a mirror / negative-determinant transform —
+    //     winding flips, so DoubleSide keeps them visible after the flip.
+    // The user reported "at angles some parts are not rendered or fully
+    // invisible you have to move around to look at it" — that is the
+    // classic FrontSide-only symptom.
+    side:         THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
