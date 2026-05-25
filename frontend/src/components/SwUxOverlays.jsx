@@ -467,6 +467,9 @@ export const DOCKED_TOOLS = new Set([
   // UX Tier 4 (focused) — Extruded / Revolved Surface (sheet-body feature ops).
   'Extruded Surface',
   'Revolved Surface',
+  // UX Tier 8c — Drawing sheet header (Title Block + Sheet Format).
+  'Title Block',
+  'Sheet Format',
 ]);
 
 export function PropertyManagerDock() {

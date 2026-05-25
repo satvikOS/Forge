@@ -1200,6 +1200,34 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 8c — Title Block + Sheet Format ──────────────────────────
+  'Title Block': {
+    title: 'Title Block — Engineering Drawing Header',
+    blurb: 'Stamp a real ASME / ISO engineering title block in the bottom-right corner of the active sheet. 3-row grid: Title (part number + description), Properties (drawn-by / date / material / scale / sheet / standard / units / tolerance), Approval. The block becomes part of the drawing SVG and prints with it.',
+    fields: [
+      { name: 'partNumber',  label: 'Part Number',   type: 'string', default: 'PN-0001',              hint: 'Top-line identifier (e.g. CR-2104-A).' },
+      { name: 'description', label: 'Description',   type: 'string', default: 'Untitled Part',        hint: 'One-line part description.' },
+      { name: 'drawnBy',     label: 'Drawn By',      type: 'string', default: 'A.Eng',                hint: 'Initials or name of the drafter.' },
+      { name: 'date',        label: 'Date',          type: 'string', default: new Date().toISOString().slice(0, 10) },
+      { name: 'material',    label: 'Material',      type: 'string', default: 'AISI 1020 Steel',      hint: 'Per BOM or as-shown.' },
+      { name: 'scale',       label: 'Scale',         type: 'string', default: '1:1',                  hint: 'Print scale (1:1, 1:2, 2:1, etc.).' },
+      { name: 'sheetN',      label: 'Sheet number',  type: 'number', default: 1, min: 1, max: 99, step: 1 },
+      { name: 'sheetTotal',  label: 'Sheets total',  type: 'number', default: 1, min: 1, max: 99, step: 1 },
+      { name: 'approval',    label: 'Approved',      type: 'string', default: 'PENDING' },
+      { name: 'size',        label: 'Sheet size',    type: 'enum',   default: 'A3', options: ['A0', 'A1', 'A2', 'A3', 'A4', 'ANSI-A', 'ANSI-B', 'ANSI-C', 'ANSI-D', 'ANSI-E'] },
+      { name: 'orientation', label: 'Orientation',   type: 'enum',   default: 'landscape', options: ['landscape', 'portrait'] },
+    ],
+  },
+  'Sheet Format': {
+    title: 'Sheet Format — Change Drawing Sheet Size',
+    blurb: 'Re-render the drawing sheet at a different ISO / ANSI size + orientation. Updates the viewBox, redraws the double-line ASME border, and fits a mini title block into the new corner. Real-world mm: A0=841×1189, A1=594×841, A2=420×594, A3=297×420, A4=210×297, ANSI-A=216×279, ANSI-B=279×432, ANSI-C=432×559, ANSI-D=559×864, ANSI-E=864×1118.',
+    fields: [
+      { name: 'size',        label: 'Sheet size',    type: 'enum',   default: 'A3', options: ['A0', 'A1', 'A2', 'A3', 'A4', 'ANSI-A', 'ANSI-B', 'ANSI-C', 'ANSI-D', 'ANSI-E'] },
+      { name: 'orientation', label: 'Orientation',   type: 'enum',   default: 'landscape', options: ['landscape', 'portrait'] },
+      { name: 'partName',    label: 'Sheet title',   type: 'string', default: 'Sheet', hint: 'Shown in the mini corner block.' },
+    ],
+  },
+
   // ─── UX TIER 5a — Sheet Metal workbench foundation ────────────────────
   //
   // Three foundational sheet-metal ops with their param schemas. Base
