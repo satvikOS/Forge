@@ -1707,7 +1707,19 @@ const TOOL_HANDLERS = {
         //   (the natural extrude axis). For an arbitrary direction we
         //   rotate the prism so its native +Z aligns with the requested
         //   unit vector, then translate to (posX,posY,posZ).
-        const dx = values.dirX ?? 0, dy = values.dirY ?? 0, dz = values.dirZ ?? 1;
+        // UX Tier-12a — prefer the universal VectorPicker shape
+        // (`values.direction = {x,y,z}`) when present; fall back to the
+        // legacy dirX/dirY/dirZ trio for AI plans / pre-12a callers.
+        const _dv = values.direction;
+        const dx = (_dv && typeof _dv === 'object' && _dv.x !== undefined)
+          ? Number(_dv.x) || 0
+          : (values.dirX ?? 0);
+        const dy = (_dv && typeof _dv === 'object' && _dv.y !== undefined)
+          ? Number(_dv.y) || 0
+          : (values.dirY ?? 0);
+        const dz = (_dv && typeof _dv === 'object' && _dv.z !== undefined)
+          ? Number(_dv.z) || 0
+          : (values.dirZ ?? 1);
         const dirLen = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
         const nx = dx / dirLen, ny = dy / dirLen, nz = dz / dirLen;
         if (!(Math.abs(nx) < 1e-6 && Math.abs(ny) < 1e-6 && nz > 0)) {
@@ -2344,7 +2356,24 @@ const TOOL_HANDLERS = {
         const Mod = await getManifold();
         const count = values.count ?? 4;
         const spacing = values.spacing ?? 20;
-        const axis = values.axis ?? [1, 0, 0];
+        // UX Tier-12a — direction now arrives as the universal vector
+        // picker shape `values.direction = {x,y,z}`. Fall back to the
+        // legacy dirX/dirY/dirZ trio (written by the picker via legacyKeys)
+        // and finally to `values.axis` array for AI-plan callers.
+        const _dv = values.direction;
+        let axis;
+        if (_dv && typeof _dv === 'object' && _dv.x !== undefined) {
+          axis = [Number(_dv.x) || 0, Number(_dv.y) || 0, Number(_dv.z) || 0];
+        } else if (values.dirX !== undefined || values.dirY !== undefined || values.dirZ !== undefined) {
+          axis = [Number(values.dirX) || 0, Number(values.dirY) || 0, Number(values.dirZ) || 0];
+        } else if (Array.isArray(values.axis)) {
+          axis = values.axis;
+        } else {
+          axis = [1, 0, 0];
+        }
+        // Guard against a zero axis (would collapse the pattern onto a point).
+        const _axMag = Math.hypot(axis[0], axis[1], axis[2]);
+        if (_axMag < 1e-9) axis = [1, 0, 0];
         const usedExisting = !!_lastFoundationManifold && values.useCurrentBody === true;
         const seedR = values.seedRadius ?? 3;
         const seed = usedExisting
@@ -2562,11 +2591,13 @@ const TOOL_HANDLERS = {
         const [body] = _pickBodies(1);
         const { values, cancelled } = await requestToolParams('Move Face');
         if (cancelled) return { status: 'warn', message: 'Move Face: cancelled' };
-        const translation = [
-          Number(values.tx) || 0,
-          Number(values.ty) || 0,
-          Number(values.tz) || 0,
-        ];
+        // UX Tier-12a — prefer the universal vector picker shape
+        // (`values.translation = {x,y,z}`) when present; fall back to
+        // the legacy tx/ty/tz trio (the picker writes both via legacyKeys).
+        const _tv = values.translation;
+        const translation = (_tv && typeof _tv === 'object' && _tv.x !== undefined)
+          ? [Number(_tv.x) || 0, Number(_tv.y) || 0, Number(_tv.z) || 0]
+          : [Number(values.tx) || 0, Number(values.ty) || 0, Number(values.tz) || 0];
         const result = await ArchDiscKernel.brep.moveFace(
           body, Number(values.faceIndex) || 1, translation,
         );

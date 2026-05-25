@@ -17,7 +17,7 @@
  * tests use this so they don't have to UI-drive the modal.
  */
 
-import { getSchemaForTool, defaultsForTool } from './ToolParamSchemas.js';
+import { getSchemaForTool, defaultsForTool, TOOL_PARAM_SCHEMAS } from './ToolParamSchemas.js';
 
 const listeners = new Set();
 let pendingResolver = null;
@@ -34,6 +34,35 @@ export function requestToolParams(toolName) {
     if (slot && typeof slot === 'object') {
       delete window.__archdiscPlanParams[toolName];
       const merged = { ...defaultsForTool(toolName), ...slot };
+      // UX Tier-12a — when the plan carries legacy <name>X/<name>Y/<name>Z
+      // keys for a tool whose schema declares a `vector` field with
+      // matching `legacyKeys`, fold them into the vector value so the
+      // handler's `values.<vector>.x/y/z` reads stay consistent. AI plans
+      // / pre-12a callers wrote dirX/dirY/dirZ directly; the merge above
+      // would otherwise leave the vector at its default (e.g. +Z) and the
+      // handler would silently pick the default. We do this lazily here
+      // because the schema lives in a separate module — importing it for
+      // every dispatch would re-trigger the schema-init cycle.
+      try {
+        const sch = TOOL_PARAM_SCHEMAS?.[toolName];
+        if (sch && Array.isArray(sch.fields)) {
+          for (const f of sch.fields) {
+            if (f.type !== 'vector' || !f.legacyKeys) continue;
+            const lx = f.legacyKeys.x, ly = f.legacyKeys.y, lz = f.legacyKeys.z;
+            if (slot[lx] !== undefined || slot[ly] !== undefined || slot[lz] !== undefined) {
+              const cur = merged[f.name] && typeof merged[f.name] === 'object'
+                ? merged[f.name] : { mode: 'custom', x: 0, y: 0, z: 0 };
+              merged[f.name] = {
+                ...cur,
+                mode: 'custom',
+                x: slot[lx] !== undefined ? Number(slot[lx]) || 0 : cur.x ?? 0,
+                y: slot[ly] !== undefined ? Number(slot[ly]) || 0 : cur.y ?? 0,
+                z: slot[lz] !== undefined ? Number(slot[lz]) || 0 : cur.z ?? 0,
+              };
+            }
+          }
+        }
+      } catch { /* schema lookup failed — fall through, handler legacy-key fallback covers it */ }
       return Promise.resolve({ values: merged, cancelled: false });
     }
   }

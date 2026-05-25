@@ -3,6 +3,7 @@ import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import { DOCKED_TOOLS } from './SwUxOverlays';
 import { equationStore } from '../foundation/EquationStore.js';
 import { resolveParamValue, formatResolvedValue } from '../foundation/ParamValueResolver.js';
+import VectorPicker, { buildVectorValue } from './VectorPicker.jsx';
 
 /**
  * Generic modal that renders fields from a ToolParamSchema and
@@ -35,9 +36,22 @@ export default function ToolParamDialog() {
       const resolved = {};
       const store = equationStore();
       for (const f of schema.fields) {
-        rawInputs[f.name] = f.default;
-        if (f.type === 'number') {
-          resolved[f.name] = resolveParamValue(f.default, f, store);
+        if (f.type === 'vector') {
+          // VectorPicker initial — accept a {mode,x,y,z,csysAxis?} default,
+          // else fall back to +Z. Stored as the live picker value.
+          const d = f.default && typeof f.default === 'object'
+            ? f.default
+            : { mode: 'csys', x: 0, y: 0, z: 1, csysAxis: '+Z' };
+          rawInputs[f.name] = buildVectorValue(
+            d.mode || 'csys',
+            d.x ?? 0, d.y ?? 0, d.z ?? 1,
+            { csysAxis: d.csysAxis || '+Z' },
+          );
+        } else {
+          rawInputs[f.name] = f.default;
+          if (f.type === 'number') {
+            resolved[f.name] = resolveParamValue(f.default, f, store);
+          }
         }
       }
       setState({ open: true, schema, toolName, rawInputs, resolved });
@@ -99,6 +113,18 @@ export default function ToolParamDialog() {
         if (r && r.source === 'expression' && r.expression) {
           expressions[f.name] = r.expression;
         }
+      } else if (f.type === 'vector') {
+        // Emit the full vector object AND the legacy <fieldName>X/Y/Z trio
+        // so existing handlers reading dirX/dirY/dirZ keep working.
+        const v = state.rawInputs[f.name]
+          || buildVectorValue('csys', 0, 0, 1, { csysAxis: '+Z' });
+        values[f.name] = v;
+        const legacyX = (f.legacyKeys && f.legacyKeys.x) || `${f.name}X`;
+        const legacyY = (f.legacyKeys && f.legacyKeys.y) || `${f.name}Y`;
+        const legacyZ = (f.legacyKeys && f.legacyKeys.z) || `${f.name}Z`;
+        values[legacyX] = v.x;
+        values[legacyY] = v.y;
+        values[legacyZ] = v.z;
       } else {
         values[f.name] = state.rawInputs[f.name];
       }
@@ -128,18 +154,31 @@ export default function ToolParamDialog() {
             const raw = state.rawInputs[f.name];
             const isExpr = f.type === 'number'
               && typeof raw === 'string' && raw.trim().startsWith('=');
+            const isVector = f.type === 'vector';
             const resolved = state.resolved[f.name];
             return (
               <div key={f.name} className="tpd-row"
-                   style={isExpr ? { alignItems: 'flex-start' } : undefined}>
+                   style={isExpr ? { alignItems: 'flex-start' }
+                                 : (isVector ? { alignItems: 'flex-start' } : undefined)}>
                 <label className="tpd-label">
                   {f.label}
                   {f.hint && <span className="tpd-hint">{f.hint}</span>}
                 </label>
                 <div className="tpd-input-wrap"
-                     style={isExpr ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 } : undefined}>
+                     style={isExpr
+                       ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 }
+                       : (isVector ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 } : undefined)}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
-                  {f.type === 'enum' && Array.isArray(f.options) ? (
+                  {f.type === 'vector' ? (
+                    // UX Tier-12a — universal Specify Vector picker.
+                    <VectorPicker
+                      value={raw}
+                      onChange={(v) => handleChange(f.name, v)}
+                      defaultMode={(f.default && f.default.mode) || 'csys'}
+                      defaultAxis={(f.default && f.default.csysAxis) || '+Z'}
+                      fieldName={f.name}
+                    />
+                  ) : f.type === 'enum' && Array.isArray(f.options) ? (
                     <select
                       className="tpd-input"
                       value={raw}

@@ -680,9 +680,15 @@ export const TOOL_PARAM_SCHEMAS = {
     blurb: 'Translate a planar / cylindrical face by a 3-vector. The normal-aligned component moves the face along its outward normal; the tangential component is a documented residual gap (face-slide). Selection: pick the body first; faceIndex picks which face.',
     fields: [
       { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to move' },
-      { name: 'tx',        label: 'Translate X', type: 'number', default: 0, unit: 'mm', min: -500, max: 500, step: 0.5 },
-      { name: 'ty',        label: 'Translate Y', type: 'number', default: 0, unit: 'mm', min: -500, max: 500, step: 0.5 },
-      { name: 'tz',        label: 'Translate Z', type: 'number', default: 2, unit: 'mm', min: -500, max: 500, step: 0.5 },
+      // UX Tier-12a — translation is now the universal Specify Vector
+      // picker. legacyKeys map the picker's x/y/z to tx/ty/tz so the
+      // existing handler (`Number(values.tx) || 0`, etc.) keeps working.
+      // Default = (0,0,2) custom — face-normal-default is the most common
+      // Move-Face intent (push the face out by 2 mm).
+      { name: 'translation', label: 'Translation', type: 'vector',
+        default: { mode: 'custom', x: 0, y: 0, z: 2 },
+        legacyKeys: { x: 'tx', y: 'ty', z: 'tz' },
+        hint: 'Delta vector — CSYS axis / custom dx/dy/dz / sketch line / face normal.' },
     ],
   },
 
@@ -994,9 +1000,15 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'width',      label: 'Width',         type: 'number', default: 80, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'rect profile X extent (centred on origin); ignored if `profile` param supplies an explicit closed wire' },
       { name: 'depth',      label: 'Depth (Y)',     type: 'number', default: 50, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'rect profile Y extent (centred on origin); ignored if `profile` param supplies an explicit closed wire' },
       { name: 'distance',   label: 'Distance (Z)',  type: 'number', default: 25, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'extrude depth along the direction vector — the NX "Distance" field' },
-      { name: 'dirX',       label: 'Direction X',   type: 'number', default: 0,  unit: '',   min: -1,  max: 1,    step: 0.05, hint: 'unit vector; default (0,0,1) = +Z' },
-      { name: 'dirY',       label: 'Direction Y',   type: 'number', default: 0,  unit: '',   min: -1,  max: 1,    step: 0.05 },
-      { name: 'dirZ',       label: 'Direction Z',   type: 'number', default: 1,  unit: '',   min: -1,  max: 1,    step: 0.05 },
+      // UX Tier-12a — direction is now the universal Specify Vector picker
+      // (NX takeaway #117). Backward compat: the dialog commit path also
+      // emits dirX / dirY / dirZ from the picker's x/y/z so the existing
+      // foundation Extrude handler (which reads `values.dirX/dirY/dirZ`)
+      // keeps working unchanged.
+      { name: 'direction',  label: 'Direction',     type: 'vector',
+        default: { mode: 'csys', x: 0, y: 0, z: 1, csysAxis: '+Z' },
+        legacyKeys: { x: 'dirX', y: 'dirY', z: 'dirZ' },
+        hint: 'CSYS axis / custom vector / sketch line / face normal. Default +Z.' },
       { name: 'draft',      label: 'Draft angle',   type: 'number', default: 0,  unit: 'deg', min: -30, max: 30,  step: 0.5,  hint: 'per-side taper angle (NX "Draft" field); 0 = straight prism. Positive = outward taper, negative = inward' },
       { name: 'posX',       label: 'Position X',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1,  hint: 'translates the resulting prism before the boolean (NX positions the Section against the target body via the sketch plane offset)' },
       { name: 'posY',       label: 'Position Y',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1 },
@@ -1012,10 +1024,19 @@ export const TOOL_PARAM_SCHEMAS = {
   },
   'Linear Pattern': {
     title: 'Linear Pattern — Inputs',
-    blurb: 'N copies of a seed body along an axis. Defaults: 4× Ø6×15 mm @ 20 mm.',
+    blurb: 'N copies of a seed body along an axis. Defaults: 4× Ø6×15 mm @ 20 mm along +X.',
     fields: [
       { name: 'count',      label: 'Count',       type: 'number', default: 4,  unit: '',  min: 1, max: 200, step: 1 },
       { name: 'spacing',    label: 'Spacing',     type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+      // UX Tier-12a — direction is now the universal Specify Vector picker.
+      // legacyKeys writes the picker's x/y/z into dirX/dirY/dirZ for any
+      // caller that still reads the individual components; the handler
+      // itself prefers `values.direction.x/y/z` (or falls back to
+      // legacy `values.axis` array shape for AI-plan callers).
+      { name: 'direction',  label: 'Direction',   type: 'vector',
+        default: { mode: 'csys', x: 1, y: 0, z: 0, csysAxis: '+X' },
+        legacyKeys: { x: 'dirX', y: 'dirY', z: 'dirZ' },
+        hint: 'Axis the N copies sit along — CSYS axis / custom vector / sketch line / face normal. Default +X.' },
       { name: 'seedRadius', label: 'Seed radius', type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 1000, step: 0.5 },
       { name: 'seedHeight', label: 'Seed height', type: 'number', default: 15, unit: 'mm', min: 0.1, max: 5000, step: 1 },
     ],

@@ -42,6 +42,7 @@ import { EquationManager } from './EquationManager.jsx';
 import { CutListPanel } from './CutListPanel.jsx';
 import { equationStore } from '../foundation/EquationStore.js';
 import { resolveParamValue, formatResolvedValue } from '../foundation/ParamValueResolver.js';
+import VectorPicker, { buildVectorValue } from './VectorPicker.jsx';
 import './SwUxOverlays.css';
 
 // ─── 1. Confirmation Corner ─────────────────────────────────────────────────
@@ -536,10 +537,24 @@ export function PropertyManagerDock() {
       const resolved = {};
       const store = equationStore();
       for (const f of schema.fields) {
-        initial[f.name] = f.default;
-        rawInputs[f.name] = f.default;
-        if (f.type === 'number') {
-          resolved[f.name] = resolveParamValue(f.default, f, store);
+        if (f.type === 'vector') {
+          // UX Tier-12a — initialise the universal VectorPicker value.
+          const d = f.default && typeof f.default === 'object'
+            ? f.default
+            : { mode: 'csys', x: 0, y: 0, z: 1, csysAxis: '+Z' };
+          const v = buildVectorValue(
+            d.mode || 'csys',
+            d.x ?? 0, d.y ?? 0, d.z ?? 1,
+            { csysAxis: d.csysAxis || '+Z' },
+          );
+          initial[f.name] = v;
+          rawInputs[f.name] = v;
+        } else {
+          initial[f.name] = f.default;
+          rawInputs[f.name] = f.default;
+          if (f.type === 'number') {
+            resolved[f.name] = resolveParamValue(f.default, f, store);
+          }
         }
       }
       setState({ open: true, schema, toolName, values: initial, rawInputs, resolved });
@@ -641,6 +656,19 @@ export function PropertyManagerDock() {
                 expressions[f.name] = r.expression;
               }
             }
+          } else if (f.type === 'vector') {
+            // UX Tier-12a — emit the vector object AND the legacy
+            // <fieldName>X/Y/Z trio so existing handlers (Extrude reads
+            // dirX/dirY/dirZ; Move Face reads tx/ty/tz) keep working.
+            const v = prev.values[f.name] || prev.rawInputs[f.name]
+              || buildVectorValue('csys', 0, 0, 1, { csysAxis: '+Z' });
+            out[f.name] = v;
+            const legacyX = (f.legacyKeys && f.legacyKeys.x) || `${f.name}X`;
+            const legacyY = (f.legacyKeys && f.legacyKeys.y) || `${f.name}Y`;
+            const legacyZ = (f.legacyKeys && f.legacyKeys.z) || `${f.name}Z`;
+            out[legacyX] = v.x;
+            out[legacyY] = v.y;
+            out[legacyZ] = v.z;
           }
         }
       }
@@ -682,6 +710,19 @@ export function PropertyManagerDock() {
         const r = resolveParamValue(raw, field, equationStore());
         nextResolved[name] = r;
         nextValues[name] = r.value;
+      } else if (field?.type === 'vector') {
+        // UX Tier-12a — VectorPicker hands us the full normalised value
+        // object {mode, x, y, z, magnitude, csysAxis?, pickedAt?}. Store
+        // it on both rawInputs and values so the commit path can read
+        // either; setField also publishes the legacy <name>X/Y/Z trio so
+        // any code watching `state.values.dirX` stays consistent live.
+        nextValues[name] = raw;
+        const legacyX = (field.legacyKeys && field.legacyKeys.x) || `${name}X`;
+        const legacyY = (field.legacyKeys && field.legacyKeys.y) || `${name}Y`;
+        const legacyZ = (field.legacyKeys && field.legacyKeys.z) || `${name}Z`;
+        nextValues[legacyX] = raw?.x ?? 0;
+        nextValues[legacyY] = raw?.y ?? 0;
+        nextValues[legacyZ] = raw?.z ?? 0;
       } else {
         nextValues[name] = raw;
       }
@@ -747,18 +788,36 @@ export function PropertyManagerDock() {
           // input + the "= N" subtitle vertically via inline style so the
           // CSS row's flex-row layout doesn't squash the subtitle out of
           // view. align-items:flex-start so the label sits with the input.
+          // UX Tier-12a — vector rows stack the label above a full-width
+          // picker so the 6-axis CSYS button row and the dx/dy/dz custom
+          // row aren't squashed by the SW-narrow label column.
+          const isVector = f.type === 'vector';
           return (
             <div
               key={f.name}
               className="sw-pm-dock-row"
-              style={isExpr ? { flexDirection: 'row', alignItems: 'flex-start' } : undefined}
+              style={isExpr
+                ? { flexDirection: 'row', alignItems: 'flex-start' }
+                : (isVector ? { flexDirection: 'column', alignItems: 'stretch', gap: 4 } : undefined)}
             >
               <label className="sw-pm-dock-label" title={f.hint || ''}
-                     style={isExpr ? { marginTop: 5 } : undefined}>{f.label}</label>
+                     style={isExpr ? { marginTop: 5 } : (isVector ? { width: 'auto', marginBottom: 2 } : undefined)}>{f.label}</label>
               <div className="sw-pm-dock-input-wrap"
-                   style={isExpr ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 } : undefined}>
+                   style={isExpr
+                     ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 }
+                     : (isVector ? { flexDirection: 'column', alignItems: 'stretch', gap: 2 } : undefined)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
-                {f.type === 'enum' && Array.isArray(f.options) ? (
+                {f.type === 'vector' ? (
+                  // UX Tier-12a — universal Specify Vector picker docked.
+                  <VectorPicker
+                    value={state.values[f.name] || state.rawInputs[f.name]}
+                    onChange={(v) => setField(f.name, v)}
+                    defaultMode={(f.default && f.default.mode) || 'csys'}
+                    defaultAxis={(f.default && f.default.csysAxis) || '+Z'}
+                    fieldName={f.name}
+                    compact
+                  />
+                ) : f.type === 'enum' && Array.isArray(f.options) ? (
                   <select
                     className="sw-pm-dock-input"
                     value={state.values[f.name]}
