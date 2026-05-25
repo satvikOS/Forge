@@ -1107,26 +1107,29 @@ function WorkbenchMechanical() {
 
                     <div className="tool-separator" />
 
-                    {/* All tool groups - buttons only, NO dropdown inside */}
-                    {Object.entries(TOOL_GROUPS).map(([key, group]) => {
-                        const Icon = group.icon;
-                        return (
-                            <button
-                                key={key}
-                                ref={el => buttonRefs.current[key] = el}
-                                className={`tool-icon-button ${activeDropdown === key ? 'active' : ''}`}
-                                title={group.label}
-                                onClick={(e) => { e.stopPropagation(); toggleDropdown(key); }}
-                            >
-                                <Icon size={18} />
-                                <ChevronRight size={8} className="tool-expand-indicator" />
-                            </button>
-                        );
-                    })}
+                    {/* UX cleanup (2026-05-24): the 11 category-dropdown
+                        launchers that used to live here (Sketch / Part /
+                        Reference / Direct Edit / Surface / Assembly /
+                        Sheet Metal / Weldments / Piping / Simulate /
+                        Manufacture) were REMOVED. Nine of them duplicated
+                        the top-ribbon tabs verbatim, so opening the same
+                        production tool gave the user two equally-valid
+                        paths through different chrome. The left palette
+                        is now scoped to viewport-interaction tools only,
+                        per the user feedback "old UI behind the newer
+                        ones you can see behind the one in viewport".
 
-                    <div className="tool-separator" />
+                        TOOL_GROUPS itself is kept in the file (used by
+                        renderDropdown) because two of the eleven groups
+                        (Reference geometry + Piping/Routing) do NOT yet
+                        have a ribbon home. They're a queued promotion to
+                        ribbon-level tabs in a future dispatch; until
+                        then they live ONLY in the AI Console / Command
+                        Palette / direct-API paths and don't need a
+                        palette button. Resurrecting any of them is one
+                        button-render line away. */}
 
-                    {/* Settings */}
+                    {/* Settings — viewport interaction (workspace toggles). */}
                     <button className="tool-icon-button" title="Settings" onClick={handleSettings}>
                         <Settings size={18} />
                     </button>
@@ -1176,13 +1179,13 @@ function WorkbenchMechanical() {
                     </div>
                 )}
 
-                {/* Active Tool Indicator */}
-                {activeTool && (
-                    <div className="active-tool-indicator">
-                        <span className="active-tool-dot" />
-                        <span>{activeTool}</span>
-                    </div>
-                )}
+                {/* Active-tool indicator removed (UX cleanup 2026-05-24).
+                    The canonical SW location for the active-tool name is
+                    the green-check ConfirmationCorner at top-right, which
+                    already shows `active.tool` (see SwUxOverlays.jsx). The
+                    earlier `active-tool-indicator` pill at top-centre
+                    duplicated that label and crowded the viewport corner
+                    with two overlays of the same data. */}
 
                 {/* Thought Bubble — component info on selection (temporarily disabled, see SHOW_THOUGHT_BUBBLE) */}
                 {selection && SHOW_THOUGHT_BUBBLE && <ThoughtBubble selection={selection} viewport={viewport} onClose={() => setSelection(null)} />}
@@ -1296,22 +1299,29 @@ function WorkbenchMechanical() {
             {/* Tool parameter dialog — listens for handler requestToolParams() calls */}
             <ToolParamDialog />
 
-            {/* BYO-LLM Settings — toggled via the floating "AI" pill */}
-            <button className="ai-settings-launcher"
-                    onClick={() => setAISettingsOpen(true)}
-                    title="AI Provider Settings (BYO-LLM)">
-              AI
-            </button>
+            {/* AI dialogs — both still mountable but the second floating
+                launcher was removed (UX cleanup 2026-05-24). The chat
+                panel's header now carries a "Settings" link that opens
+                AISettingsPanel, so there's exactly ONE canonical AI button
+                in the workspace (the chat-launcher at the bottom-right).
+                The standalone .ai-settings-launcher "AI" pill that used
+                to sit just below it has been deleted. */}
             <AISettingsPanel open={aiSettingsOpen} onClose={() => setAISettingsOpen(false)} />
 
-            {/* AI Chat front-door — Clarifier + Planner + Executor in one panel */}
+            {/* AI Chat front-door — Clarifier + Planner + Executor in one panel.
+                This is the SINGLE canonical AI entry point in the workspace. */}
             <button className="chat-launcher"
                     onClick={() => setAIChatOpen(true)}
-                    title="AI Chat (Clarifier + Planner + Run)"
-                    data-action="open-chat">
+                    title="AI Chat (Clarifier + Planner + Run) — Settings reachable from the chat panel header"
+                    data-action="open-chat"
+                    data-ai-launcher="canonical">
               💬
             </button>
-            <AIChatPanel open={aiChatOpen} onClose={() => setAIChatOpen(false)} />
+            <AIChatPanel
+              open={aiChatOpen}
+              onClose={() => setAIChatOpen(false)}
+              onOpenSettings={() => setAISettingsOpen(true)}
+            />
 
             {/* Drawing preview overlay — pops when Standard 3 View runs */}
             <DrawingPreviewPanel />
