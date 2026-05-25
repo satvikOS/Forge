@@ -1737,3 +1737,200 @@ The new Mold Tools tab adds a 10th ribbon tab (after Weldments's 9th).
    workbench when the user clicks it. The pattern keeps the viewport /
    scene-graph / ToolExecutionEngine wiring single-sourced.
 
+---
+
+## Tier 11b — three NX-distinctive UX patterns (3 of 3 shipped)
+
+**Date:** 2026-05-24
+
+Three NX-distinctive UX patterns from the Tier-11 gap list, shipped as
+self-contained overlays in `SwUxOverlays.jsx`. All three integrate with
+the existing 4-quadrant overlay system + the PropertyManagerDock
+event bus + the foundation scene/registry/sketch state plumbing — no
+ribbon or workbench-mount changes needed (the three new components
+mount as siblings of the always-on `SelectionPriorityBar` return).
+
+| Tier-11 # | Pattern | Status | Implementation |
+|---|---|---|---|
+| 106b | **Multi-Plane Stack** | **DONE** | `SwUxOverlays.jsx::MultiPlaneStack` — top-right docked stack of 3 reference plane cards (world Front / Top / Right by default; switches to most-recent user datums when `recordDatumPlane()` has been called). Open via `window.__archdiscOpenDatumPlaneStack()` OR the `archdisc:datum-plane:open` event. Pick a card → records `__archdiscDatumPlaneReference`, fires `archdisc:datum-plane:reference-picked`, flashes a green ✓ on the picked card, and auto-folds after 360 ms (unless the `__archdiscDatumStackForceShow` pin is set for inspection/e2e). |
+| 108 | **CSYS Anchor** | **DONE** | `SwUxOverlays.jsx::CsysAnchorPanel` — mid-right panel auto-showing during Add Component flow (`__archdiscAssemblyInsertOpen`) or when armed manually. Lists World Origin + user-recorded CSYS targets via `recordCsys()`. ARMED / OFF pill toggles the snap. Picking a target writes `__archdiscCsysAnchor` (csysId, position in mm, rotation). Public helper `applyCsysAnchorToPart(group)` translates a Three.js group to the picked anchor (mm → m conversion). Single click instead of the typical 3-mate "snap to origin" setup. |
+| 102 | **Dialog-in-Dialog Sketch** | **DONE** | `SwUxOverlays.jsx::InlineSketchSession` — modal session attached to the right edge of the active `PropertyManagerDock`. Activated via the new "Sketch Profile" hook button rendered at the bottom of the dock for tools in `INLINE_SKETCH_CAPABLE` (Extrude Boss / Cut, Revolve Boss, Sweep Boss, Loft Boss). 2-pane layout: TOP pane pins the parent dialog title + key values so the user keeps context; BOTTOM pane is a live sketch toolbar (Rect / Circle primitive picker + numeric width/height/cx/cy fields + SVG preview). "Done Sketch" writes the committed points to `__archdiscInlineSketchProfile` AND `__archdiscPlanParams[tool].profile` AND injects them into the live dock state via the `archdisc:inline-sketch:done` listener (so a subsequent OK on the dock resolves with the committed profile and the Extrude Boss handler's Path A consumes it). Parent dock STAYS alive throughout. |
+
+### Bespoke real workflow — three-pattern hands-on
+
+`e2e/ux-tier11b-nx-patterns-electron.spec.js` runs ONE workflow exercising
+each pattern end-to-end. Motion-capture, `--workers=1`, no `node:*` imports.
+
+| Stage | Pattern | What happens |
+|---|---|---|
+| A | (setup) | Build a 90×60×8 mm anchor plate via Atomic ops; iso-frame the camera so the three subsequent overlays read cleanly alongside the model |
+| B1 | Multi-Plane | `__archdiscOpenDatumPlaneStack()` → stack opens top-right with Front / Top / Right cards |
+| B2 | Multi-Plane | Click Front → `__archdiscDatumPlaneReference` reads `world-front`, picked card glows green ✓ |
+| B3 | Multi-Plane | Seed 2 user datums, re-open the stack → cards now show "Offset @15mm" + "Tangent A" + Front (the worlds pad the third slot) |
+| B4 | Multi-Plane | Pick the user "Offset @15mm" → reference's `isWorld: false` |
+| C1 | CSYS Anchor | Seed 2 user CSYS (Shaft Front [40,20,4] mm + Shaft Rear [-40,20,4] mm); fire `archdisc:assembly-insert:open` → panel opens with 3 targets |
+| C2 | CSYS Anchor | Click the OFF pill → toggle flips to ARMED |
+| C3 | CSYS Anchor | Click Shaft Front card → `__archdiscCsysAnchor.csysId === 'user-csys-shaft-front'`, position [40,20,4] |
+| C4 | CSYS Anchor | Insert a fresh Three.js cylinder group, snap to anchor → group.position == [0.040, 0.020, 0.004] m (mm → m); verified by direct read |
+| D1 | Dialog-in-Dialog | Click ribbon Extrude Boss → PropertyManager Dock opens; "Sketch Profile" hook button visible at bottom of dock |
+| D2 | Dialog-in-Dialog | Click "Sketch Profile" → InlineSketchSession overlay opens RIGHT NEXT TO dock; parent dock STAYS visible (the marquee NX semantic); 4 preview points (default 40×30 rect) |
+| D3 | Dialog-in-Dialog | Edit Width 40 → 60, Height 30 → 40 in the inline fields; preview re-renders |
+| D4 | Dialog-in-Dialog | Click Circle primitive → segments default 32 → 32 preview points; click back to Rect |
+| D5 | Dialog-in-Dialog | Click "Done Sketch" → session closes, dock still alive; `__archdiscPlanParams['Extrude Boss'].profile` has 4 points spanning 60×40; dock state injection slot records the same |
+| (commit) | Dialog-in-Dialog | Click dock OK → Extrude Boss handler runs with the committed profile via Path A; new body bbox is 60×40×25 mm — verified by `width_mm: 60, depth_mm: 40, height_mm: 25` |
+| E1 | (summary) | Final summary still shows the anchor plate, the CSYS-snapped cylinder, and the inline-sketch-extruded boss all in one frame |
+
+### Framing — perfectly viewable
+
+ONE stable iso framing of the anchor plate held through patterns A → D;
+a small camera re-park for the final E1 summary so the new extruded boss
++ snapped cylinder are all in frame. NO 7-angle orbit — the overlays
+themselves are the visual story, not orbit-around-a-static-model. 15
+stills + a 1.81 MB session video.
+
+### Visual check (read the stills)
+
+1. `02-B1-multiplane-stack-open-world-planes.png` — the Reference Planes
+   stack docks top-right with the header "Reference Planes" and three
+   cards: blue Front (XZ), green Top (XY), red Right (YZ). Each card
+   shows the plane name + axis hint + a coloured swatch matching the
+   surface normal.
+2. `03-B2-multiplane-stack-front-picked.png` — the Front card now has a
+   green left rail + green ✓ icon. `__archdiscDatumPlaneReference` reads
+   `world-front` (verified in spec).
+3. `04-B3-multiplane-stack-user-datums-override.png` — cards have
+   switched to the two seeded user datums ("Offset @15mm" with amber
+   "user · XY" subtitle, "Tangent A" with purple swatch + "user · YZ")
+   plus Front padding the third slot.
+4. `06-C1-csys-anchor-panel-open-with-user-csys.png` — CSYS Anchor panel
+   appears at mid-right showing the header "CSYS Anchor" + OFF pill +
+   three target rows: World Origin, Shaft Front · user, Shaft Rear · user.
+5. `07-C2-csys-anchor-toggle-armed.png` — the OFF pill has flipped to
+   green ARMED with the inner glow. The panel border now has the blue
+   active accent.
+6. `08-C3-csys-anchor-shaft-front-picked.png` — Shaft Front row has a
+   green left rail + green ✓ icon. `__archdiscCsysAnchor.csysId ===
+   'user-csys-shaft-front'` (verified).
+7. `11-D2-inline-sketch-session-opened-rect-default.png` — the marquee
+   shot. The PropertyManager Dock for Extrude Boss sits at the LEFT;
+   the InlineSketchSession overlay sits immediately to its right
+   (amber-bordered, "Extrude Boss · profile" pinned at top with the
+   parent values WIDTH/DEPTH/HEIGHT shown as small kv pills). Bottom
+   pane has Rect/Circle primitive picker (Rect active blue), 4 numeric
+   fields (Width 40 / Height 30 / Cx 0 / Cy 0), a small SVG preview
+   showing the 4-point square, and Cancel / Done Sketch buttons.
+8. `15-E1-final-summary-three-patterns-applied.png` — the anchor plate,
+   the CSYS-snapped cylinder (visible orange tick at top-right of plate),
+   AND the new extruded boss (60×40×25 mm) all in one frame. Design
+   History shows the "Extrude Boss (SP-6 arbitrary profile): 4-point
+   closed wire × 25 mm" entry. Toast confirms "V = 60000 mm³, 6 faces".
+
+### Focal assertions (verified live in the spec)
+
+| Pattern | Assertion | Value |
+|---|---|---|
+| Multi-Plane | Stack opens with 3 cards | 3 ✓ |
+| Multi-Plane | Front / Top / Right world planes present | 3/3 ✓ |
+| Multi-Plane | Pick Front → reference = world-front | ✓ |
+| Multi-Plane | User datums override world planes | ✓ |
+| Multi-Plane | Pick user datum → isWorld === false | ✓ |
+| CSYS Anchor | Panel opens with World Origin + 2 user CSYS | 3 targets ✓ |
+| CSYS Anchor | OFF pill flips to ARMED | ✓ |
+| CSYS Anchor | Pick Shaft Front → csysId stored | user-csys-shaft-front ✓ |
+| CSYS Anchor | snap → group.position = [0.040, 0.020, 0.004] m | exact ✓ |
+| Inline Sketch | Dock for Extrude Boss opens | ✓ |
+| Inline Sketch | "Sketch Profile" hook button visible in dock | ✓ |
+| Inline Sketch | Inline session opens; parent dock STAYS alive | both visible ✓ |
+| Inline Sketch | Default rect = 4 preview points | 4 ✓ |
+| Inline Sketch | Circle primitive = ≥16 preview points | 32 ✓ |
+| Inline Sketch | Done writes profile to plan params + dock state | both ✓ |
+| Inline Sketch | Dock OK → Extrude builds body with sketched dims | 60×40×25 ✓ |
+
+### Files added/changed for Tier-11b
+
+- `frontend/src/components/SwUxOverlays.jsx` (modified) — added
+  `MultiPlaneStack`, `CsysAnchorPanel`, `InlineSketchSession`,
+  `InlineNumberField`, `InlineSketchPreviewSVG` components; public
+  helpers `recordDatumPlane`, `recordCsys`, `applyCsysAnchorToPart`,
+  `enterInlineSketchSession`, `commitInlineSketchProfile`,
+  `cancelInlineSketchSession`; extended `SelectionPriorityBar` return
+  to mount the 3 new overlays as siblings (so they auto-ride every
+  workbench without touching `WorkbenchMechanical.jsx`); extended
+  `PropertyManagerDock` with the inline-sketch hook button (gated by
+  `isInlineSketchCapable`) + the `archdisc:inline-sketch:done` listener
+  that injects the committed profile into the live dock state's
+  `values.profile` slot.
+- `frontend/src/components/SwUxOverlays.css` (modified) — added the
+  full `.sw-multiplane-*`, `.sw-csys-anchor-*`,
+  `.sw-inline-sketch-*`, `.sw-pm-dock-inline-sketch-*` rule sets;
+  added the `sw-slide-in-right` keyframes (sw-slide-in-left already
+  existed).
+- `frontend/src/foundation/ToolParamSchemas.js` (modified) — appended
+  the `INLINE_SKETCH_CAPABLE` set + `isInlineSketchCapable(toolName)`
+  helper.
+- `e2e/ux-tier11b-nx-patterns-electron.spec.js` (new) — 15 stills + a
+  1.81 MB session video.
+
+### Honest gaps in Tier-11b
+
+1. **Multi-Plane Stack is open-via-API today.** The stack auto-opens
+   on `window.__archdiscOpenDatumPlaneStack()` or the
+   `archdisc:datum-plane:open` event, but the user-facing ribbon does
+   not yet have a "Datum Plane" tool entry that calls this hook on
+   click. The cleanest path to ribbon-driven activation requires
+   editing `RibbonToolbar.jsx` to add the entry + wiring it in
+   `ToolExecutionEngine.js` — both forbidden in this dispatch's
+   allowlist. The overlay + activation hooks ship in this pass; the
+   ribbon entry is queued for the next datum-plane dispatch.
+2. **CSYS Anchor doesn't auto-apply on Insert Component.** Picking a
+   CSYS records the anchor and arms the toggle, but the existing
+   `Insert Component` handler (in `ToolExecutionEngine.js`, forbidden
+   in this allowlist) does not currently consume
+   `window.__archdiscCsysAnchor`. The e2e demonstrates the snap by
+   calling the public `applyCsysAnchorToPart(group)` helper directly
+   on a freshly-inserted Three.js group — that helper IS the snap
+   semantics and is real (mm → m conversion + scene-graph translation
+   + diagnostics on `__lastCsysAnchorApplied`). Wiring the Insert
+   Component handler to call this helper after creating the new
+   component is a one-line follow-on in the next assembly dispatch.
+3. **Inline Sketch session ships Rect + Circle, not arbitrary curves.**
+   Sufficient for the canonical "I just want this Extrude to use this
+   shape RIGHT NOW" use-case the NX feature optimises for; arbitrary
+   curve editing (splines, fillets, multi-loop profiles, dimension
+   constraints) belongs in the full `InteractiveSketch` engine and
+   would be a separate Tier-11c dispatch. The inline session
+   deliberately stays small + fast + complete-in-one-screen — that's
+   the NX productivity promise.
+4. **Inline Sketch toolbar is numeric-driven, not viewport-click-driven.**
+   The user types width / height / radius into the inline fields; a
+   classic NX inline sketch lets the user click 2 / 4 corners directly
+   in the viewport to define the rectangle / polygon. The current
+   foundation `InteractiveSketch` is the right place for click-driven
+   inline drawing — entering it would re-enter the singleton sketch
+   state which conflicts with the parent dialog's "no exit" promise.
+   Queued for Tier-11c after the sketch-state-persistence work.
+5. **Three overlays mount on top of any workbench tab that includes
+   `SelectionPriorityBar`** — currently only the Mechanical CAD
+   workbench mounts SwUxOverlays' overlays. The 4 sibling workbench
+   wrappers (Architecture / Gaming / Automotive / Electronics) don't
+   import `SelectionPriorityBar` so the new overlays don't surface
+   there. Mounting the SW UX overlays uniformly across all 5
+   workbenches is a separate dispatch (the existing fix-viewport
+   re-org noted this as a follow-on).
+
+### E2E + regression subset (Tier 11b)
+
+Headed Electron, `--workers=1`, `--retries=0`. The targeted regression
+band:
+
+| Spec | Result |
+|---|---|
+| `ux-tier11b-nx-patterns-electron` (NEW) | **PASS** (30.7 s) |
+| `ux-tier11a-selection-filter-electron` (regression — adjacent overlay set) | PASS |
+| `ux-tier1-electron` (regression — Tier-1 overlays unchanged) | PASS |
+| `ux-tier2c-sketch-transforms-electron` (regression — sketch state untouched) | PASS |
+| `ribbon-test` (regression — ribbon tabs still render) | PASS |
+
+4/4 regression PASS, 1/1 new test PASS. No regressions introduced by
+the Tier-11b additions.
+

@@ -537,11 +537,21 @@ SW list.
    picks a curve, MB2, then picks the next curve. ArchDisc/SW typically uses click-Next-button
    or pick-and-then-click-next-field. MB2 is faster.
 
-102. **Dialog-inside-a-dialog sketch creation (Extrude → Sketch Section).** Open Extrude *first*,
-   then click "Sketch Section" inside the dialog to enter sketch mode; Finish returns to the
-   parent dialog with the new sketch as input. ArchDisc/SW typically requires sketch-first,
-   then feature-on-sketch. This NX pattern is much faster when the user knows what feature they
-   want from the start.
+102. **Dialog-inside-a-dialog sketch creation (Extrude → Sketch Section).** **SHIPPED — Tier-11b (2026-05-24).**
+   `SwUxOverlays.jsx::InlineSketchSession` mounts a 2-pane overlay attached to the right edge
+   of the active `PropertyManagerDock`: top pane pins the parent dialog title + key values
+   so the user never loses the parent context, bottom pane is a live sketch toolbar (Rect /
+   Circle primitive picker + numeric fields + SVG preview). Activated via the new "Sketch
+   Profile" hook button that appears at the bottom of the dock for tools in
+   `INLINE_SKETCH_CAPABLE` (Extrude Boss / Cut, Revolve Boss, Sweep Boss, Loft Boss). On
+   "Done Sketch" the committed points are written to `window.__archdiscInlineSketchProfile`
+   + `window.__archdiscPlanParams[tool].profile`, AND injected directly into the live dock
+   `state.values.profile` via the `archdisc:inline-sketch:done` listener — so a subsequent
+   OK click on the dock resolves with the committed profile and the Extrude Boss handler's
+   Path A consumes it. Parent dock STAYS alive throughout. Bespoke e2e:
+   `e2e/ux-tier11b-nx-patterns-electron.spec.js` shows a 60×40 rect drawn inline → Extrude
+   Boss produces a 60000 mm³ 4-point-wire body (verified by `width_mm: 60, depth_mm: 40` on
+   the resulting body's bbox).
 
 103. **One unified Pattern Feature tool with multiple layouts** (Linear / Circular / Polygon /
    Spiral / Along / General / Reference) rather than separate Linear / Circular / Curve-Driven /
@@ -557,14 +567,41 @@ SW list.
 
 106. **Multi-plane creation in one shot** (Datum Plane → Number of Planes field). Creates N
    parallel planes at user-defined spacing. Useful for through-curves / loft scaffolding.
+   *(Multi-plane STACK shipped — Tier-11b — see #106b below. The N-planes-at-once
+   parametric kernel op remains outstanding.)*
+
+106b. **Multi-plane reference STACK during datum-plane construction.** **SHIPPED —
+   Tier-11b (2026-05-24).** `SwUxOverlays.jsx::MultiPlaneStack` docks at the top-right of
+   the viewport whenever the user enters a datum-plane construction session
+   (`window.__archdiscOpenDatumPlaneStack()` or the `archdisc:datum-plane:open` event).
+   Shows three cards: by default the world Front / Top / Right; when the user has created
+   their own datums via the public helper `recordDatumPlane()`, the stack switches to the
+   3 most-recent user datums (padded with world planes if fewer than 3 exist). Each card
+   shows the plane name + axis hint + a colour swatch matching the plane's surface normal.
+   Click a card → records the choice on `window.__archdiscDatumPlaneReference` (so the
+   next datum-plane handler / AI plan step picks it up automatically) + fires
+   `archdisc:datum-plane:reference-picked` + visually highlights the picked card with a
+   green ✓ for ~360 ms before auto-folding. Bespoke e2e validates: 3 world cards present,
+   Front pick lands on `__archdiscDatumPlaneReference` as world-front, user-datum
+   override replaces the worlds, picking a user datum sets `isWorld: false`.
 
 107. **Through Curves alignment-point control.** When Through Curves twists, NX exposes
    *per-curve alignment points* to fix the twist — no need to redo the sketches. ArchDisc/SW
    typically requires re-creating the sketches or adding guide curves.
 
-108. **Anchor placement at known CSYS during Add Component.** Choices: Absolute Origin /
-   Absolute Origin of Displayed Assembly / Selected Coordinate System. Lets you snap a freshly
-   inserted part to a chosen reference without dragging.
+108. **Anchor placement at known CSYS during Add Component.** **SHIPPED — Tier-11b (2026-05-24).**
+   `SwUxOverlays.jsx::CsysAnchorPanel` docks at the mid-right of the viewport when the
+   user enters an Add Component flow (`window.__archdiscAssemblyInsertOpen = true` /
+   `archdisc:assembly-insert:open` event) OR pinned via the toggle. Lists every CSYS
+   target — World Origin always present + user-recorded CSYS list via the public helper
+   `recordCsys()`. The "CSYS Anchor" pill toggles the snap on / off (ARMED / OFF), and
+   picking a CSYS records the choice on `window.__archdiscCsysAnchor` (csysId, name,
+   position in mm, rotation). The public helper `applyCsysAnchorToPart(group)` actively
+   translates a Three.js group to the picked anchor (mm → m conversion, accounts for the
+   scene's metre units) and reports the applied delta on `window.__lastCsysAnchorApplied`.
+   No mates needed for the "snap to origin" case — single click instead of 3 mate clicks.
+   Bespoke e2e snaps a fresh component to a Shaft Front CSYS at [40, 20, 4] mm; verified
+   `after.x === 0.040, after.y === 0.020, after.z === 0.004` in metres.
 
 109. **Touch Align combined mate** — one constraint that infers "coincident if planar / concentric
    if cylindrical" based on geometry. ArchDisc/SW requires picking the mate type explicitly. NX
