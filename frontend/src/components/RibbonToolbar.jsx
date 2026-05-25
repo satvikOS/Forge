@@ -148,6 +148,11 @@ const TABS = {
         { name: 'G2 Blend',                     icon: '⌒', key: 'surface' },
         { name: 'Class-A Analyze',              icon: '◐', key: 'surface' },
         { name: 'Zebra Stripes',                icon: '☰', key: 'surface' },
+        // UX Tier 4 (focused) — SW Extruded / Revolved Surface (sheet-body
+        // variants of SP-6 Extrude/Revolve Boss; prism/revolve the wire,
+        // not the face → no caps; result kind='sheet').
+        { name: 'Extruded Surface',             icon: '⇧', key: 'part' },
+        { name: 'Revolved Surface',             icon: '⟲', key: 'part' },
       ]},
       { label: 'Faceting', tools: [
         { name: 'Faceter Controls',          icon: '▦', key: 'surface', primary: true },

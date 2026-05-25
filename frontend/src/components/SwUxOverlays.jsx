@@ -464,6 +464,9 @@ export const DOCKED_TOOLS = new Set([
   'Jog',
   'Miter Flange',
   'Sketched Bend',
+  // UX Tier 4 (focused) — Extruded / Revolved Surface (sheet-body feature ops).
+  'Extruded Surface',
+  'Revolved Surface',
 ]);
 
 export function PropertyManagerDock() {

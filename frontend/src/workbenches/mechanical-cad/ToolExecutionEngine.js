@@ -2612,6 +2612,117 @@ const TOOL_HANDLERS = {
           + `(V = ${totalV.toFixed(0)} mm³ = ${count} × ${seedV.toFixed(0)} via foundation.circularPattern)`,
       };
     },
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // UX Tier 4 (focused) — Extruded Surface + Revolved Surface.
+    // Sheet-body variants of SP-6 Extrude/Revolve Boss. Prism/revolve the
+    // WIRE (not a face) → shell of lateral / SOR faces with NO end caps.
+    // Result kind='sheet'. Real production use: HVAC/ductwork transition
+    // pieces (the bespoke), boat-hull lofting precursors, sheet-metal
+    // flange-precursor surfaces — every workflow that builds a future
+    // solid's boundary via surface ops + stitchFaces.
+    //
+    // Profile sources (in priority order, mirrors Extrude/Revolve Boss):
+    //   1. orchestration plan `values.profile` ([{x,y,z}, …] or [[x,y,z], …])
+    //   2. live interactive sketch `_activeSketch.getSolidProfile()`
+    //   3. default rectangle / arc fallback (dialog dimensions)
+    // ═══════════════════════════════════════════════════════════════════════
+    'Extruded Surface': async (scene, viewport) => {
+      try {
+        const { values, cancelled } = await requestToolParams('Extruded Surface');
+        if (cancelled) return { status: 'warn', message: 'Extruded Surface: cancelled' };
+        const depth = Number(values.depth) || 40;
+        // Build direction vector; fall back to +Z if zero.
+        const dx = Number(values.dirX) || 0;
+        const dy = Number(values.dirY) || 0;
+        const dz = Number(values.dirZ) || 0;
+        const dmag = Math.hypot(dx, dy, dz);
+        const direction = dmag > 1e-9 ? [dx, dy, dz] : [0, 0, 1];
+        // Resolve profile points.
+        let pts = null;
+        if (Array.isArray(values.profile) && values.profile.length >= 2) {
+          pts = values.profile.map(p =>
+            Array.isArray(p) ? { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }
+              : { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 });
+        }
+        if (!pts && _activeSketch && typeof _activeSketch.getSolidProfile === 'function') {
+          const sketchPts = _activeSketch.getSolidProfile();
+          if (Array.isArray(sketchPts) && sketchPts.length >= 2) {
+            pts = sketchPts.map(p => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+          }
+        }
+        if (!pts) {
+          // Default — a closed 60×30 mm rectangle in the XY plane (CCW).
+          const w = 60, h = 30;
+          pts = [
+            { x: -w / 2, y: -h / 2, z: 0 },
+            { x:  w / 2, y: -h / 2, z: 0 },
+            { x:  w / 2, y:  h / 2, z: 0 },
+            { x: -w / 2, y:  h / 2, z: 0 },
+            { x: -w / 2, y: -h / 2, z: 0 },  // close
+          ];
+        }
+        const result = await ArchDiscKernel.brep.extrudedSurface(pts, depth, { direction });
+        await addBrepShapeToScene(scene, viewport, result, 0x7eb6d6);
+        const m = await ArchDiscKernel.brep.measure(result);
+        if (typeof window !== 'undefined') window.__lastSurfaceBody = result;
+        return {
+          status: 'success',
+          message: `Extruded Surface: ${pts.length}-pt wire × ${depth} mm along [${direction.map(v => v.toFixed(2)).join(',')}]. kind=${result.body && result.body.kind}, ${m.faceCount} lateral faces, no caps — ArchDisc exact B-rep kernel (BRepPrimAPI_MakePrism on wire)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Extruded Surface: ' + err.message };
+      }
+    },
+
+    'Revolved Surface': async (scene, viewport) => {
+      try {
+        const { values, cancelled } = await requestToolParams('Revolved Surface');
+        if (cancelled) return { status: 'warn', message: 'Revolved Surface: cancelled' };
+        const angle = Number(values.angle) || 360;
+        const axis = {
+          origin:    [Number(values.axisOriginX) || 0, Number(values.axisOriginY) || 0, Number(values.axisOriginZ) || 0],
+          direction: [Number(values.axisDirX) || 0, Number(values.axisDirY) || 0, Number(values.axisDirZ) || 1],
+        };
+        // Fall back to +Z if direction is zero.
+        const dmag = Math.hypot(...axis.direction);
+        if (dmag < 1e-9) axis.direction = [0, 0, 1];
+        // Resolve profile points.
+        let pts = null;
+        if (Array.isArray(values.profile) && values.profile.length >= 2) {
+          pts = values.profile.map(p =>
+            Array.isArray(p) ? { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }
+              : { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 });
+        }
+        if (!pts && _activeSketch && typeof _activeSketch.getSolidProfile === 'function') {
+          const sketchPts = _activeSketch.getSolidProfile();
+          if (Array.isArray(sketchPts) && sketchPts.length >= 2) {
+            pts = sketchPts.map(p => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+          }
+        }
+        if (!pts) {
+          // Default — open profile sweeping a meridian arc in the XZ
+          // half-plane (offset from the Z axis so the revolve sweeps a
+          // recognisable surface-of-revolution sheet). 4-point polyline.
+          pts = [
+            { x: 25, y: 0, z:  0 },
+            { x: 25, y: 0, z: 20 },
+            { x: 30, y: 0, z: 35 },
+            { x: 30, y: 0, z: 50 },
+          ];
+        }
+        const result = await ArchDiscKernel.brep.revolvedSurface(pts, axis, angle);
+        await addBrepShapeToScene(scene, viewport, result, 0xd6a87e);
+        const m = await ArchDiscKernel.brep.measure(result);
+        if (typeof window !== 'undefined') window.__lastSurfaceBody = result;
+        return {
+          status: 'success',
+          message: `Revolved Surface: ${pts.length}-pt wire × ${angle}° around axis@[${axis.origin.map(v => v.toFixed(0)).join(',')}] dir[${axis.direction.map(v => v.toFixed(2)).join(',')}]. kind=${result.body && result.body.kind}, ${m.faceCount} SOR faces, no caps — ArchDisc exact B-rep kernel (BRepPrimAPI_MakeRevol on wire)`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Revolved Surface: ' + err.message };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

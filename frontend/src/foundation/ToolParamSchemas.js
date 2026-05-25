@@ -1456,6 +1456,39 @@ TOOL_PARAM_SCHEMAS['Helix'] = {
   ],
 };
 
+// ─── UX TIER 4 (focused) — EXTRUDED / REVOLVED SURFACE ──────────────────────
+// SW "Extruded Surface" + "Revolved Surface" — sheet-body variants of the
+// SP-6 Extrude/Revolve Boss ops. Prism/revolve the WIRE (not a face); no
+// caps; result kind='sheet'. Profile points are supplied either via the
+// orchestration plan's `profile` param, the live sketch's getSolidProfile
+// (auto-built from the active interactive sketch), or the dialog's depth/
+// angle defaults (which fall back to a simple rectangle / arc profile).
+
+TOOL_PARAM_SCHEMAS['Extruded Surface'] = {
+  title: 'Extruded Surface',
+  blurb: 'Sheet-body extrude — sweep the input wire\'s EDGES along a direction (no caps). Result kind=sheet. The profile may be open or closed; supply via active sketch, the orchestration plan\'s `profile` param, or rely on the rectangle-default fallback.',
+  fields: [
+    { name: 'depth',     label: 'Depth',     type: 'number', default: 40, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+    { name: 'dirX',      label: 'Direction X', type: 'number', default: 0,  unit: '',  min: -1, max: 1, step: 0.05, hint: 'unit vector; default (0,0,1) = +Z' },
+    { name: 'dirY',      label: 'Direction Y', type: 'number', default: 0,  unit: '',  min: -1, max: 1, step: 0.05 },
+    { name: 'dirZ',      label: 'Direction Z', type: 'number', default: 1,  unit: '',  min: -1, max: 1, step: 0.05 },
+  ],
+};
+
+TOOL_PARAM_SCHEMAS['Revolved Surface'] = {
+  title: 'Revolved Surface',
+  blurb: 'Sheet-body revolve — sweep the input wire\'s EDGES around an axis (no caps). Result kind=sheet. Profile may be open or closed; axis is supplied as { origin: [x,y,z], direction: [dx,dy,dz] } via the dialog defaults below.',
+  fields: [
+    { name: 'angle',     label: 'Revolution angle', type: 'number', default: 360, unit: 'deg', min: 1, max: 360, step: 1 },
+    { name: 'axisOriginX', label: 'Axis origin X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+    { name: 'axisOriginY', label: 'Axis origin Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+    { name: 'axisOriginZ', label: 'Axis origin Z', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+    { name: 'axisDirX',  label: 'Axis direction X', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.05, hint: 'default (0,0,1) = +Z' },
+    { name: 'axisDirY',  label: 'Axis direction Y', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.05 },
+    { name: 'axisDirZ',  label: 'Axis direction Z', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.05 },
+  ],
+};
+
 /** True iff the tool supports the NX-distinctive dialog-in-dialog sketch
  *  session. Consumers (the InlineSketchSession overlay) read this to
  *  decide whether to render a "Sketch Profile" hook button. */
