@@ -39,6 +39,7 @@ import { ChevronDown, ChevronRight, ChevronLeft, Check, X, Maximize2, Crop,
 import { onParamRequest, resolveOpen } from '../foundation/ToolParamDialog.js';
 import { isInlineSketchCapable } from '../foundation/ToolParamSchemas.js';
 import { EquationManager } from './EquationManager.jsx';
+import { CutListPanel } from './CutListPanel.jsx';
 import { equationStore } from '../foundation/EquationStore.js';
 import { resolveParamValue, formatResolvedValue } from '../foundation/ParamValueResolver.js';
 import './SwUxOverlays.css';
@@ -1391,6 +1392,12 @@ export function SelectionPriorityBar() {
        *  AI orchestration layer). Full-page modal — see
        *  EquationManager.css for the z-index 50 backdrop. */}
       <EquationManager />
+      {/* UX Tier 6c — Weldments Cut List modal. Mounted as a sibling of the
+       *  Equation Manager so it rides every workbench. Renders nothing
+       *  until the global `archdisc:open-cut-list` event fires (from the
+       *  Weldments tab ribbon entry or programmatically from the AI
+       *  orchestration layer). Same z-index-50 modal tier as Tier-10. */}
+      <CutListPanel />
     </>
   );
 }

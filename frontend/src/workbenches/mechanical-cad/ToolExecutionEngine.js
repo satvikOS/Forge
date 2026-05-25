@@ -7306,6 +7306,33 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ── UX Tier 6c — Weldments Cut List ───────────────────────────────────
+    //
+    // Headline Weldments-fabrication deliverable. Aggregates every weldment-
+    // tagged structural member in the scene by (profile, size, length) and
+    // opens the CutListPanel modal so the welder reads a BOM-style table.
+    // The handler itself just FIRES the open event — the modal owns the
+    // rendering + the Copy CSV / Copy TSV clipboard actions.
+    'Cut List': async (_scene, _viewport) => {
+      try {
+        const report = ArchDiscKernel.brep.cutList({ rounding: 1 });
+        if (typeof window !== 'undefined') {
+          window.__lastCutList = report;
+          try {
+            window.dispatchEvent(new CustomEvent('archdisc:open-cut-list', { detail: report }));
+          } catch (_) {}
+        }
+        const memberCount = report.groups.reduce((s, g) => s + g.quantity, 0);
+        return {
+          status: 'success',
+          message: `Cut List: ${report.totalLines} line item(s), ${memberCount} member(s), ` +
+            `total ${report.totalLengthMm.toFixed(0)} mm of stock via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Cut List: ' + (err.message || err) };
+      }
+    },
+
     'Weld Bead': async (scene, viewport) => {
       // Arity 2 — pre-select 2 weldment members sharing a joint.
       try {

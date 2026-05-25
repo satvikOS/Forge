@@ -406,6 +406,10 @@ const TABS = {
         { name: 'Gusset', icon: '◣', key: 'weldments' },
         { name: 'Weld Bead', icon: '〰', key: 'weldments' },
       ]},
+      // UX Tier 6c — Weldments Cut List (BOM aggregation of every member).
+      { label: 'BOM', tools: [
+        { name: 'Cut List', icon: '☷', key: 'weldments' },
+      ]},
     ],
   },
   // UX Tier 9 — Mold Tools workbench. A dedicated CommandManager tab alongside

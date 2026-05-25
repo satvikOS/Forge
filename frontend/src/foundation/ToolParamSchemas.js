@@ -1498,6 +1498,17 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 6c — Weldments Cut List ─────────────────────────────────────
+  //
+  // No-input schema — the Cut List op opens a modal that scans the registry
+  // and renders the BOM. Carried here for introspection symmetry (every
+  // ribbon tool has a schema row even when the field set is empty).
+  'Cut List': {
+    title: 'Cut List — Weldments BOM',
+    blurb: 'Aggregate every weldment-tagged structural member in the scene by (profile, size, length). Opens the Cut List modal with one row per "cut N pieces of <profile>/<size> at <length> mm" item and Copy CSV / Copy TSV actions for the welder.',
+    fields: [],
+  },
+
   // ─── UX TIER 9 — Mold Tools workbench foundation ──────────────────────
   //
   // Three foundational mold-tools ops with their param schemas. Draft
