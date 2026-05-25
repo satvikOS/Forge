@@ -257,33 +257,83 @@ test('UX Tier 9b — electrical socket housing: Undercut Analysis + Shut-Off Sur
     await win.waitForTimeout(280);
     await story.frame('03-undercut-analysis-coloured');
 
-    // ── Step 4 — Build an OPEN-SHELL version for Shut-Off testing.
+    // ── Step 4 — Build an OPEN-SHELL housing for Shut-Off testing.
     //
     // The closed solid housing has no free edges (manifold). To test the
-    // shut-off op meaningfully we need free-edge loops. We construct a
-    // separate sheet-body shell with the cable holes via extrudedSurface
-    // — that yields a body with multiple free-edge loops (top + bottom
-    // rectangles + cable-hole inner perimeters where they intersect the
-    // side walls).
-    console.log('  building open-shell version for Shut-Off …');
+    // shut-off op meaningfully we need a body with a real OCCT free-edge
+    // boundary loop that ShapeFix_FreeBounds can identify. We build it
+    // the same way the SP-8 healing spec does: take a closed box, drop
+    // its top face, sew the remaining 5 faces — exactly the canonical
+    // "missing-face open shell". The 4 top-edge loop is the cable-entry
+    // / open-top boundary the shut-off op must close.
+    console.log('  building open-shell housing for Shut-Off …');
     const openShellId = await win.evaluate(async () => {
       const K = window.__archdiscKernel.kernel;
-      // Build a sheet body from a rectangular profile via extrudedSurface
-      // — the wire is extruded, no top/bottom caps → 4 side walls only.
-      const profile = [
-        { x: -30, y: -20, z: 0 },
-        { x:  30, y: -20, z: 0 },
-        { x:  30, y:  20, z: 0 },
-        { x: -30, y:  20, z: 0 },
-      ];
-      // extrudedSurface(wire, distance, opts) → sheet body of lateral
-      // walls. Distance in mm along +Z by default.
-      const walls = await K.brep.extrudedSurface(profile, 25);
-      // Register and return id.
+      const oc = await K.init();
+      // 1. Build the closed reference housing — same outer dimensions as
+      //    the previous test body (60 x 40 x 25 mm).
+      const closedHousing = await K.brep.makeBox(60, 40, 25);
+
+      // 2. Construct an OPEN shell by sewing 5 of the 6 box faces (drop
+      //    the TOP face — highest average Z). The 4 top edges remain as
+      //    a closed free-edge loop = the open-top boundary the
+      //    Shut-Off Surfaces op must close.
+      const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE;
+      const ANY = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;
+      const facesByZ = [];
+      const ex = new oc.TopExp_Explorer_2(closedHousing.shape, FACE, ANY);
+      for (; ex.More(); ex.Next()) {
+        const f = oc.TopoDS.Face_1(ex.Current());
+        const props = new oc.GProp_GProps_1();
+        oc.BRepGProp.SurfaceProperties_1(f, props, false, false);
+        const com = props.CentreOfMass();
+        facesByZ.push({ face: f, avgZ: com.Z() });
+      }
+      facesByZ.sort((a, b) => a.avgZ - b.avgZ);
+      const kept = facesByZ.slice(0, facesByZ.length - 1).map(x => x.face);
+
+      const sewing = new oc.BRepBuilderAPI_Sewing(
+        1e-2,   // tolerance
+        true,   // optionFaceMode
+        true,   // optionBorderMode
+        true,   // optionFreeEdges
+        false,  // optionNonManifold
+      );
+      for (const f of kept) sewing.Add(f);
+      const pr = new oc.Message_ProgressRange_1();
+      sewing.Perform(pr);
+      const sewed = sewing.SewedShape();
+      if (!sewed || sewed.IsNull()) throw new Error('sewed shape null');
+      const cp = new oc.BRepBuilderAPI_Copy_2(sewed, true, false);
+      const openShape = cp.Shape();
+
+      // 3. Build a duck-typed wrapper — the SP-8 / shutOff path only
+      //    needs `.shape`, `.id`, and `.body`. Build a spine body via
+      //    the kernel's existing makeSheetBody for safety.
+      let openShellBody = null;
+      try {
+        openShellBody = await K.brep.makeSheetBody(openShape);
+      } catch (_e) {
+        // Fall back to a minimal duck-typed wrapper; autoFillMissingFaces
+        // tolerates a missing spine for the first hop.
+        openShellBody = { shape: openShape, id: 'open-shell-sp8', body: null, occtWrapper: null, meta: {} };
+      }
+
+      // 4. Register to the scene next to the housing.
       const scene = window.__archdiscViewport && window.__archdiscViewport.scene;
       const viewport = window.__archdiscViewport;
       if (typeof window.__archdiscAddBrepShape === 'function') {
-        await window.__archdiscAddBrepShape(scene, viewport, walls, 0xffd180, []);
+        await window.__archdiscAddBrepShape(scene, viewport, openShellBody, 0xffd180, []);
+        // Translate the open-shell group to the side so it's visible
+        // alongside the housing.
+        const reg = window.__archdiscRegistry;
+        if (reg && reg.bodies.length > 0) {
+          const last = reg.bodies[reg.bodies.length - 1];
+          if (last && last.group) {
+            last.group.position.set(0.08, 0, 0); // 80 mm in scene-space (m)
+            last.group.updateMatrixWorld(true);
+          }
+        }
       }
       const reg = window.__archdiscRegistry;
       const lastBody = reg && reg.bodies && reg.bodies[reg.bodies.length - 1];

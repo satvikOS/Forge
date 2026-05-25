@@ -7386,6 +7386,7 @@ const TOOL_HANDLERS = {
             loopsFilled: result.loopsFilled,
             loopsSkipped: result.loopsSkipped,
             patchesAdded: result.patchesAdded,
+            patchFaceCount: result.patchFaceCount,
             watertight: result.watertight,
             loops: result.loops,
           };
@@ -7394,7 +7395,8 @@ const TOOL_HANDLERS = {
         return {
           status: 'success',
           message: `Shut-Off Surfaces: detected ${result.loopCount} free-edge loop(s), ` +
-            `filled ${result.loopsFilled} (${result.patchesAdded} patch face(s) added), ` +
+            `filled ${result.loopsFilled} (${result.patchesAdded} loop(s) closed, ` +
+            `${result.patchFaceCount} spine face(s) added), ` +
             `watertight = ${result.watertight} via ArchDisc Kernel`,
         };
       } catch (err) {

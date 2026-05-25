@@ -1131,15 +1131,22 @@ export async function shutOffSurfaces(body, opts = {}) {
   }
 
   // ── 4. Tag the patched faces with mold.shutOff (the new faces are the
-  //       ones that did not exist on the input body). The patches added
-  //       by autoFillMissingFaces are the ones at the very end of the new
-  //       face list — we tag them all "shutOff" so the renderer can
-  //       highlight them.
+  //       ones that did not exist on the input body). Two counts are
+  //       recorded:
+  //         - `patchesAdded`        — number of LOOPS closed (the SW
+  //                                    "shut-off surface" count; from
+  //                                    SP-8 fillReport).
+  //         - `patchFaceCount`      — number of spine FACES added
+  //                                    (each loop's n-sided patch yields
+  //                                    multiple triangulated spine faces).
   const inputFaceCount = body.body.faces().length;
   const outputFaceCount = filled.body && typeof filled.body.faces === 'function'
     ? filled.body.faces().length : inputFaceCount;
-  const patchesAdded = Math.max(0, outputFaceCount - inputFaceCount);
-  // Tag the trailing (added) faces as shut-off surfaces.
+  const patchFaceCount = Math.max(0, outputFaceCount - inputFaceCount);
+  // Prefer the SP-8 fillReport count (loop count) when available.
+  const patchesAdded = fillReport && typeof fillReport.patchesAdded === 'number'
+    ? fillReport.patchesAdded : patchFaceCount;
+  // Tag the trailing (added) spine faces as shut-off surfaces.
   if (filled.body && typeof filled.body.faces === 'function') {
     const outFaces = filled.body.faces();
     for (let k = 0; k < outFaces.length; k++) {
@@ -1165,6 +1172,7 @@ export async function shutOffSurfaces(body, opts = {}) {
     loopsFilled,
     loopsSkipped,
     patchesAdded,
+    patchFaceCount,
     watertight,
     loops: loopReports,
     fillReport,
@@ -1176,6 +1184,7 @@ export async function shutOffSurfaces(body, opts = {}) {
     loopsFilled,
     loopsSkipped,
     patchesAdded,
+    patchFaceCount,
     watertight,
     loops: loopReports,
     fillReport,
