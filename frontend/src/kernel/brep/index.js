@@ -14,6 +14,12 @@ export {
   // trimmed-wire profile sweep / extrude / revolve.
   extrudeProfile, revolveProfile, sweepProfile,
 } from './BrepFeatures.js';
+// UX Tier 4 (focused) — Surface feature ops: sheet-body variants of SP-6's
+// extrudeProfile / revolveProfile. Prism/revolve the WIRE (not a face) →
+// shell of lateral / SOR faces with no end caps. SW Extruded/Revolved Surface.
+export {
+  extrudedSurface, revolvedSurface,
+} from './BrepSurfaceFeatures.js';
 export { exportStep, importStep } from './BrepStep.js';
 export { tessellate } from './BrepTessellate.js';
 export { brepToMesh } from './brepToMesh.js';

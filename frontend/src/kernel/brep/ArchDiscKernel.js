@@ -15,6 +15,10 @@ import {
   // SP-6 — arbitrary trimmed-wire profile features (Area B, T1).
   extrudeProfile, revolveProfile, sweepProfile,
 } from './BrepFeatures.js';
+// UX Tier 4 (focused) — sheet-body variants of SP-6's extrude/revolveProfile.
+import {
+  extrudedSurface, revolvedSurface,
+} from './BrepSurfaceFeatures.js';
 import { exportStep, importStep } from './BrepStep.js';
 import { shell, thicken, offsetShape, draft } from './BrepLocalOps.js';
 import { sweep, loft } from './BrepSurfacing.js';
@@ -126,6 +130,11 @@ export const ArchDiscKernel = {
     revolveProfile,
     /** Sweep an arbitrary closed planar profile wire along a path wire. */
     sweepProfile,
+    // ── UX Tier 4 (focused) — Surface feature ops ─────────────────────────
+    /** Extruded Surface — prism the WIRE (not a face) → sheet body of lateral faces, no caps. SW Extruded Surface. */
+    extrudedSurface,
+    /** Revolved Surface — revolve the WIRE (not a face) → sheet body of SOR faces, no caps. SW Revolved Surface. */
+    revolvedSurface,
     shell, thicken, offsetShape, draft,
     sweep, loft,
     checkSelfIntersection, checkClash, selfIntersect,
