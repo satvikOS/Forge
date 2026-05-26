@@ -85,10 +85,12 @@ export {
 } from './BrepSheet.js';
 // UX Tier 5a — Sheet Metal workbench foundation.
 // UX Tier 5b — Sheet Metal additions (Hem / Jog / Miter Flange / Sketched Bend).
+// UX Tier 5c — Sheet Metal corner + sweep extensions (Closed Corner / Sweep Flange).
 export {
   baseFlange, edgeFlange, flatPattern,
   isSheetMetal, getSheetMetalMetadata, bendAllowance,
   hem, jog, miterFlange, sketchedBend,
+  closedCorner, sweepFlange,
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
 // UX Tier 6b — Weldments additions (Gusset / Weld Bead).

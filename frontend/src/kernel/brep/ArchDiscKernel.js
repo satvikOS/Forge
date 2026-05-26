@@ -83,10 +83,12 @@ import {
 } from './BrepSheet.js';
 // UX Tier 5a — Sheet Metal workbench foundation.
 // UX Tier 5b — Sheet Metal additions (Hem / Jog / Miter Flange / Sketched Bend).
+// UX Tier 5c — Sheet Metal corner + sweep extensions (Closed Corner / Sweep Flange).
 import {
   baseFlange, edgeFlange, flatPattern,
   isSheetMetal, getSheetMetalMetadata, bendAllowance,
   hem, jog, miterFlange, sketchedBend,
+  closedCorner, sweepFlange,
 } from './BrepSheetMetal.js';
 // UX Tier 6a — Weldments workbench foundation.
 // UX Tier 6b — Weldments additions (Gusset / Weld Bead).
@@ -276,6 +278,11 @@ export const ArchDiscKernel = {
     miterFlange,
     /** Sketched Bend — bend the sheet along a user-drawn line by an angle. */
     sketchedBend,
+    // ── UX Tier 5c Sheet Metal corner + sweep extensions ───────────────────
+    /** Closed Corner — close the gap at a corner between two adjacent edge-flanges (overlap | butt | underlap). */
+    closedCorner,
+    /** Sweep Flange — sweep a flange profile along a path (curved / multi-segment), unlike per-edge Edge Flange. */
+    sweepFlange,
     // ── UX Tier 6a Weldments workbench foundation ─────────────────────────
     /** Structural Member — sweep a standard ISO/ANSI profile along a 3D path; tags the result with weldment metadata. */
     structuralMember,

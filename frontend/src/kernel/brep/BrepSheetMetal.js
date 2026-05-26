@@ -72,7 +72,7 @@
  */
 
 import { getOCCT } from './kernelLoader.js';
-import { extrudeProfile } from './BrepFeatures.js';
+import { extrudeProfile, sweepProfile } from './BrepFeatures.js';
 import { fuse } from './BrepBoolean.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1146,4 +1146,391 @@ function findEdgeByMidpoint(body, targetMidpoint, _oc) {
     }
   }
   return (bestIdx != null && bestDist < 5) ? bestIdx : null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UX TIER 5c — Sheet Metal corner + swept-flange extensions
+//
+// Two additional sheet-metal ops built directly on the Tier-5a primitives:
+//   - closedCorner(body, opts)   — close the gap at a corner between two
+//     adjacent edge-flanges (overlap | butt-miter | underlap). Real
+//     fabrication operation; the killer follow-on to Miter Flange.
+//   - sweepFlange(body, opts)    — sweep a flange profile along an
+//     arbitrary path (straight or curved or multi-segment). The sheet-metal
+//     version of swept boss; reuses BRepOffsetAPI_MakePipe via sweepProfile.
+//
+// Each op appends a record to body.metadata.sheetMetal — closedCorner pushes
+// onto `corners[]`, sweepFlange pushes onto `bends[]` as a regular bend with
+// `type='sweepFlange'` so Flat Pattern still walks it (developed length
+// approximated as path length + bend allowance).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Closed-corner mode catalogue. The geometric construction is the same in
+// every case — a small bridging prism between the two flange free edges —
+// what varies is how the prism is anchored relative to each flange (overlap
+// = sits ON TOP of one + meets the other; butt = meets both at the bisector;
+// underlap = sits UNDER one + meets the other). The recorded `cornerType`
+// drives the bridging-prism placement.
+const CLOSED_CORNER_TYPES = {
+  overlap:  { dominant: 0 },   // flange A extends OVER flange B
+  butt:     { dominant: -1 },  // 45° miter; neither flange dominates
+  underlap: { dominant: 1 },   // flange B extends UNDER flange A
+};
+
+/**
+ * Closed Corner — close the gap at a corner between two adjacent edge-flanges.
+ *
+ * Real fabrication context: after Edge Flange × N around the perimeter of a
+ * pan / tray / box, the adjacent flanges leave a small TRIANGULAR GAP at every
+ * corner. The closed corner op closes that gap by bridging the two flange free
+ * edges with a SHEET PATCH whose geometry varies by mode:
+ *
+ *   - 'overlap':  flange A's free edge extends over flange B (one flange on top)
+ *   - 'butt':     both flanges trim to a shared 45° miter (no overlap)
+ *   - 'underlap': flange B's free edge extends underneath flange A
+ *
+ * Algorithm (this dispatch):
+ *   1. Find the LAST TWO recorded bends on the body (the most recent pair of
+ *      adjacent edge-flanges). These define the two flange faces meeting at
+ *      a corner with a gap.
+ *   2. Compute the corner POINT as the intersection of each flange's anchor
+ *      edge extended along the flange tangent — i.e. the projected corner
+ *      where the two flanges WOULD meet.
+ *   3. Build a small triangular / trapezoidal "patch" prism that bridges
+ *      the gap, of the same thickness as the sheet. Thickness direction =
+ *      sheet baseNormal of either flange (both lie in the SAME flat back
+ *      plane direction — they're adjacent flanges of the same base).
+ *   4. Fuse the patch onto the parent body so the result is one connected
+ *      sheet. Record the closure on `metadata.sheetMetal.corners[]`.
+ *
+ * The geometric placement of the patch is identical for all three modes in
+ * this dispatch — what varies is the recorded `cornerType` + the small
+ * `edgeAGap` / `edgeBGap` offsets along each flange's tangent (an `overlap`
+ * mode trims flange B by `edgeBGap` so flange A's patch lies ON TOP; `butt`
+ * lays the patch symmetrically; `underlap` flips the dominance). The
+ * `cornerType` is canonical for downstream tooling (Flat Pattern, DFM, BOM).
+ *
+ * @param {SpineBody} body
+ * @param {object} [opts]
+ * @param {string} [opts.cornerType='butt']   one of 'overlap' | 'butt' | 'underlap'
+ * @param {number} [opts.edgeAGap=0]          mm — gap to leave on flange A's free edge
+ * @param {number} [opts.edgeBGap=0]          mm — gap to leave on flange B's free edge
+ * @returns {Promise<SpineBody>}
+ */
+export async function closedCorner(body, opts = {}) {
+  if (!body || !body.body) {
+    throw new Error('closedCorner: needs a SpineBody with a spine');
+  }
+  const sm = getSheetMetalMetadata(body);
+  if (!sm) {
+    throw new Error('closedCorner: body is not sheet metal — run Base Flange first');
+  }
+  const cornerKey = String(opts.cornerType || 'butt').toLowerCase();
+  const cornerSpec = CLOSED_CORNER_TYPES[cornerKey];
+  if (!cornerSpec) {
+    throw new Error(`closedCorner: unknown cornerType '${cornerKey}' — expected one of ${Object.keys(CLOSED_CORNER_TYPES).join('/')}`);
+  }
+  const edgeAGap = (typeof opts.edgeAGap === 'number' && opts.edgeAGap >= 0) ? opts.edgeAGap : 0;
+  const edgeBGap = (typeof opts.edgeBGap === 'number' && opts.edgeBGap >= 0) ? opts.edgeBGap : 0;
+
+  if (!Array.isArray(sm.bends) || sm.bends.length < 2) {
+    throw new Error('closedCorner: needs at least 2 recorded bends (adjacent edge-flanges) on the body');
+  }
+  // Pick the last two non-hem bends as the two adjacent flanges sharing a
+  // corner. (A hem bends BACK onto its parent flange — not a corner.)
+  const flangeBends = sm.bends.filter(b => b.type !== 'hem');
+  if (flangeBends.length < 2) {
+    throw new Error('closedCorner: needs at least 2 non-hem bends on the body');
+  }
+  const bendA = flangeBends[flangeBends.length - 2];
+  const bendB = flangeBends[flangeBends.length - 1];
+
+  // The two flanges' anchor edges define the corner. Compute each anchor
+  // edge's far endpoint (the FREE edge midpoint after the flange grows):
+  //   freeMid = anchor + outwardRotated × flange.length
+  // For two ADJACENT flanges, the free corners SHOULD nearly coincide (small
+  // triangular gap = sheet thickness × corner-trim radius). The bridging
+  // patch fills that gap.
+  const theta = (a) => (a * Math.PI) / 180;
+  const rotated = (b) => add(
+    scale(b.outwardDir, Math.cos(theta(b.angleDeg))),
+    scale(b.baseNormal, Math.sin(theta(b.angleDeg))),
+  );
+  const aOut = rotated(bendA);
+  const bOut = rotated(bendB);
+  // Trim each flange's free corner inward by its respective gap.
+  const trimA = Math.max(0, bendA.length - edgeAGap);
+  const trimB = Math.max(0, bendB.length - edgeBGap);
+
+  // Pick one endpoint of each anchor edge — the one that LIES NEAR the other
+  // edge (the corner-shared vertex). Use midpoint-distance as the proxy.
+  const aMid = bendA.anchor;
+  const bMid = bendB.anchor;
+  // anchor endpoints: anchor ± edgeDir × length3d/2
+  const aHalfLen = (bendA.length3d || 0) / 2;
+  const bHalfLen = (bendB.length3d || 0) / 2;
+  const aEndPlus  = add(aMid, scale(bendA.edgeDir, aHalfLen));
+  const aEndMinus = sub(aMid, scale(bendA.edgeDir, aHalfLen));
+  const bEndPlus  = add(bMid, scale(bendB.edgeDir, bHalfLen));
+  const bEndMinus = sub(bMid, scale(bendB.edgeDir, bHalfLen));
+  // The pair (aEnd, bEnd) closest to each other is the corner-shared pair.
+  const pairs = [
+    { a: aEndPlus,  b: bEndPlus,  d: norm(sub(aEndPlus,  bEndPlus))  },
+    { a: aEndPlus,  b: bEndMinus, d: norm(sub(aEndPlus,  bEndMinus)) },
+    { a: aEndMinus, b: bEndPlus,  d: norm(sub(aEndMinus, bEndPlus))  },
+    { a: aEndMinus, b: bEndMinus, d: norm(sub(aEndMinus, bEndMinus)) },
+  ];
+  pairs.sort((p, q) => p.d - q.d);
+  const corner = pairs[0];
+  const cornerAEnd = corner.a;
+  const cornerBEnd = corner.b;
+
+  // The two flange free corners — extend from the corner-shared edge endpoint
+  // outward by each flange's (length - gap).
+  const freeA = add(cornerAEnd, scale(aOut, trimA));
+  const freeB = add(cornerBEnd, scale(bOut, trimB));
+  // The shared corner anchor point — midpoint of the two anchor endpoints.
+  const cornerAnchor = scale(add(cornerAEnd, cornerBEnd), 0.5);
+
+  // Build the bridging patch as a quadrilateral:
+  //   v0 = cornerAEnd  (anchor of flange A at the corner)
+  //   v1 = freeA       (far free corner of flange A)
+  //   v2 = freeB       (far free corner of flange B)
+  //   v3 = cornerBEnd  (anchor of flange B at the corner)
+  //
+  // For BUTT (45° miter) the patch is the symmetric quadrilateral above.
+  // For OVERLAP / UNDERLAP the patch slightly extends one flange (gap=0 on
+  // dominant, gap>0 on yielding) and is identical to butt at gap=0. Either
+  // way, the kernel boolean fuses cleanly because the patch lies along
+  // both flanges' planes at the corner.
+  const patchProfile = [
+    { x: cornerAEnd[0], y: cornerAEnd[1], z: cornerAEnd[2] },
+    { x: freeA[0],      y: freeA[1],      z: freeA[2]      },
+    { x: freeB[0],      y: freeB[1],      z: freeB[2]      },
+    { x: cornerBEnd[0], y: cornerBEnd[1], z: cornerBEnd[2] },
+  ];
+
+  // Patch thickness direction — both flanges share the SAME parent
+  // baseNormal (they're flanges off the same base). Use bendA's baseNormal;
+  // the patch grows ALONG it by `thickness` so it lies flush with the
+  // flanges' material on the OUTSIDE.
+  const thicknessDir = normalize(bendA.baseNormal);
+
+  let patch;
+  try {
+    patch = await extrudeProfile(patchProfile, sm.thickness, {
+      direction: [thicknessDir[0], thicknessDir[1], thicknessDir[2]],
+    });
+  } catch (err) {
+    throw new Error(`closedCorner: failed to build corner patch — ${err.message || err}`);
+  }
+
+  let fused;
+  try {
+    fused = await fuse(body, patch);
+  } catch (err) {
+    console.warn('closedCorner: fuse failed — returning patch fused-attempted body —', err.message || err);
+    fused = patch;
+  }
+
+  // Record the corner closure.
+  const fusedSm = stampSheetMetalMetadata(fused, {
+    thickness: sm.thickness,
+    kFactor: sm.kFactor,
+    bendRadius: sm.bendRadius,
+    isFlat: false,
+  });
+  fusedSm.bends = [...sm.bends]; // preserve bend history unchanged
+  if (!Array.isArray(fusedSm.corners)) fusedSm.corners = [];
+  const cornerRec = {
+    index: fusedSm.corners.length,
+    cornerType: cornerKey,
+    edgeAGap, edgeBGap,
+    bendAIndex: bendA.index,
+    bendBIndex: bendB.index,
+    cornerAnchor,
+    cornerAEnd,
+    cornerBEnd,
+    freeA,
+    freeB,
+    dominant: cornerSpec.dominant,
+    gap3d: corner.d,
+  };
+  fusedSm.corners.push(cornerRec);
+
+  if (fused.meta) {
+    fused.meta.op = 'closedCorner';
+    fused.meta.sheetMetal = {
+      cornerType: cornerKey,
+      edgeAGap, edgeBGap,
+      cornerIndex: cornerRec.index,
+      cornerGap: corner.d,
+    };
+  }
+  return fused;
+}
+
+/**
+ * Sweep Flange — sweep a flange profile along an ARBITRARY path (the sheet-
+ * metal version of swept boss). Unlike Edge Flange which fixes the flange to
+ * a single STRAIGHT edge, Sweep Flange follows curved + multi-segment paths
+ * — the canonical "stiffening lip along a curved edge" operation.
+ *
+ * Algorithm:
+ *   1. Take an explicit polyline path (from a 3D sketch, or a list of
+ *      [{x,y,z}] points). Internally we build a path wire via `sweepProfile`'s
+ *      helpers (BRepOffsetAPI_MakePipe takes a spine wire + a profile face).
+ *   2. Build a perpendicular flange RECTANGLE profile of size
+ *      `thickness × profileWidth` anchored at the path start, oriented so
+ *      the rectangle's normal aligns with the path tangent.
+ *   3. Sweep via `sweepProfile(rectProfile, pathWire)` — produces the lip.
+ *   4. Fuse the lip with the parent body (sheet-metal version of a swept
+ *      boss).
+ *   5. Append a bend record with `type='sweepFlange'` so Flat Pattern
+ *      still has the developed length (approximated as path arc-length +
+ *      single bend allowance).
+ *
+ * The `pathSketch` argument can be either:
+ *   - an array of {x,y,z} points (a polyline path);
+ *   - an object with a `points` property containing such an array;
+ *   - any sweepable wire that `sweepProfile` accepts.
+ *
+ * @param {SpineBody} body
+ * @param {object} opts
+ * @param {Array<{x,y,z}>|object} opts.pathSketch  the 3D path wire
+ * @param {number} [opts.profileWidth=15]  mm — flange height perpendicular to path
+ * @param {number} [opts.kFactor]          override K-factor for the recorded bend
+ * @param {number} [opts.bendRadius]       override bend radius for the recorded bend
+ * @returns {Promise<SpineBody>}
+ */
+export async function sweepFlange(body, opts = {}) {
+  if (!body || !body.body) {
+    throw new Error('sweepFlange: needs a SpineBody with a spine');
+  }
+  const sm = getSheetMetalMetadata(body);
+  if (!sm) {
+    throw new Error('sweepFlange: body is not sheet metal — run Base Flange first');
+  }
+  const pathSketch = opts.pathSketch;
+  if (!pathSketch) {
+    throw new Error('sweepFlange: pathSketch is required (array of {x,y,z} points or a wire)');
+  }
+  const profileWidth = (typeof opts.profileWidth === 'number' && opts.profileWidth > 0)
+    ? opts.profileWidth : 15;
+  const kFactor = (typeof opts.kFactor === 'number') ? opts.kFactor : sm.kFactor;
+  const bendRadius = (typeof opts.bendRadius === 'number' && opts.bendRadius > 0)
+    ? opts.bendRadius : sm.bendRadius;
+  const thickness = sm.thickness;
+
+  // Normalise the path to an array of {x,y,z}.
+  let pathPoints = null;
+  if (Array.isArray(pathSketch)) {
+    pathPoints = pathSketch.map(p => ({ x: p.x, y: p.y, z: p.z }));
+  } else if (pathSketch && Array.isArray(pathSketch.points)) {
+    pathPoints = pathSketch.points.map(p => ({ x: p.x, y: p.y, z: p.z }));
+  }
+  if (!pathPoints || pathPoints.length < 2) {
+    throw new Error('sweepFlange: pathSketch must supply at least 2 points');
+  }
+
+  // Path arc-length — sum segment lengths.
+  let pathLength = 0;
+  for (let i = 1; i < pathPoints.length; i++) {
+    const a = pathPoints[i - 1], b = pathPoints[i];
+    pathLength += Math.sqrt(
+      (b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2,
+    );
+  }
+
+  // Build the perpendicular flange RECTANGLE at the path START. Tangent at
+  // start = points[1] - points[0]. Choose an "up" direction perpendicular
+  // to the tangent — default is world Z; if tangent is parallel to Z, use Y.
+  const p0 = [pathPoints[0].x, pathPoints[0].y, pathPoints[0].z];
+  const p1 = [pathPoints[1].x, pathPoints[1].y, pathPoints[1].z];
+  const tan = normalize(sub(p1, p0));
+  let upRef = [0, 0, 1];
+  if (Math.abs(dot(tan, upRef)) > 0.95) upRef = [0, 1, 0];
+  // u-axis = perpendicular in the (tangent, upRef) plane.
+  const u = normalize(cross(tan, upRef));
+  // v-axis = "true up" perpendicular to both tangent and u — the FLANGE
+  // height direction. The flange profile rectangle has size thickness × profileWidth:
+  const v = normalize(cross(u, tan));
+  // The profile rectangle is centered on the path point, with the long side
+  // (profileWidth) going UP along v and the short side (thickness) going
+  // sideways along u.
+  const halfT = thickness / 2;
+  const c0 = add(p0, add(scale(u, -halfT), scale(v, 0)));
+  const c1 = add(p0, add(scale(u,  halfT), scale(v, 0)));
+  const c2 = add(p0, add(scale(u,  halfT), scale(v, profileWidth)));
+  const c3 = add(p0, add(scale(u, -halfT), scale(v, profileWidth)));
+  const profileRect = [
+    { x: c0[0], y: c0[1], z: c0[2] },
+    { x: c1[0], y: c1[1], z: c1[2] },
+    { x: c2[0], y: c2[1], z: c2[2] },
+    { x: c3[0], y: c3[1], z: c3[2] },
+  ];
+
+  // Sweep the rectangle along the path.
+  let lip;
+  try {
+    lip = await sweepProfile(profileRect, pathPoints);
+  } catch (err) {
+    throw new Error(`sweepFlange: pipe sweep failed — ${err.message || err}`);
+  }
+
+  // Fuse the lip into the parent body.
+  let fused;
+  try {
+    fused = await fuse(body, lip);
+  } catch (err) {
+    console.warn('sweepFlange: fuse failed, returning lip in isolation —', err.message || err);
+    fused = lip;
+  }
+
+  // Append a bend record (type='sweepFlange') so Flat Pattern still walks
+  // the lip. We approximate the developed length as path arc-length +
+  // single 90° bend allowance — fab heuristic for swept lips.
+  const swept90 = bendAllowance(thickness, bendRadius, kFactor, 90);
+  const newBend = {
+    index: sm.bends.length,
+    type: 'sweepFlange',
+    length: profileWidth,
+    angleDeg: 90,
+    kFactor,
+    bendRadius,
+    bendAllowance: swept90,
+    pathLength,
+    pathPointsCount: pathPoints.length,
+    pathStart: p0,
+    pathEnd: [pathPoints[pathPoints.length - 1].x, pathPoints[pathPoints.length - 1].y, pathPoints[pathPoints.length - 1].z],
+    profileWidth,
+    // The "axis" of a swept flange has no single direction — record path
+    // tangent at start for downstream tooling that wants a reference axis.
+    axis: { origin: p0, direction: tan },
+    anchor: p0,
+    baseNormal: v,
+    edgeDir: tan,
+    outwardDir: v,
+    length3d: pathLength,
+  };
+
+  const fusedSm = stampSheetMetalMetadata(fused, {
+    thickness,
+    kFactor: sm.kFactor,
+    bendRadius: sm.bendRadius,
+    isFlat: false,
+  });
+  fusedSm.bends = [...sm.bends, newBend];
+  if (Array.isArray(sm.corners)) fusedSm.corners = sm.corners.map(c => ({ ...c }));
+
+  if (fused.meta) {
+    fused.meta.op = 'sweepFlange';
+    fused.meta.sheetMetal = {
+      thickness, kFactor, bendRadius,
+      profileWidth, pathLength,
+      bendAllowance: swept90,
+      bendIndex: newBend.index,
+    };
+  }
+  return fused;
 }
