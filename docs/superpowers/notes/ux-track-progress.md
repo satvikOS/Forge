@@ -1072,7 +1072,7 @@ workflow.
 | 2 (rest) | Slot tool (4 variants), Circle variants, Arc variants, Parabola, Text along curve, Linear/Circular Sketch Pattern, 3D Sketch — 3 items remain (named relations + Display-Delete shipped in Tier-2b; Move/Rotate/Copy/Scale/Stretch shipped in Tier-2c) | Not started |
 | 3 | Missing feature tools (Boundary, Curve-driven/Sketch-driven Pattern, Rib, Wrap, Dome, Free Form) | Not started |
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
-| 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b shipped (7 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend)** |
+| 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b + 5c shipped (9 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend + Closed Corner / Sweep Flange)** |
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b + 6c shipped (6 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead + Cut List; Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6d)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, ~~Screw/Rack-Pinion~~ done in Tier 7c-rest, remaining Advanced + Cam + Universal-Joint, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c + 7c-rest shipped (11/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 4 of 6 mechanical)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
@@ -1701,6 +1701,117 @@ Tier-5b additions on the Tier-5a foundation, on the SP-11 sheet-body
 foundation, or on the ribbon tab layout (the new Edge Features group +
 Jog + Sketched Bend entries do not break `ribbon-test`'s tab + tool
 inventory check).
+
+---
+
+## Tier 5c — Sheet Metal corner + sweep extensions (2 of 2 in this pass; 9 of ~18 SW sheet-metal ops cumulative)
+
+**Date:** 2026-05-25
+
+Tier 5c lands the TWO highest-impact follow-ons to the Tier-5b additions —
+the canonical real-fabrication ops that distinguish a CAD prototype from
+a production-ready sheet-metal part:
+
+1. **Closed Corner** — `K.brep.closedCorner(body, {cornerType, edgeAGap,
+   edgeBGap})`. After two adjacent Edge Flanges, a small triangular gap
+   remains at the shared corner; Closed Corner closes it. Three modes:
+   - `overlap`: flange A's free edge extends OVER flange B
+   - `butt`:    both flanges trim to a shared 45° miter (default)
+   - `underlap`: flange B's free edge extends UNDER flange A
+   Algorithm — walk the body's last two non-hem bends, compute each
+   flange's free corner endpoint, build a quadrilateral patch bridging
+   them, extrude it by `thickness` along the shared baseNormal, fuse
+   into parent. Record on `metadata.sheetMetal.corners[]`.
+
+2. **Sweep Flange** — `K.brep.sweepFlange(body, {pathSketch, profileWidth,
+   kFactor, bendRadius})`. The sheet-metal version of swept boss — sweep
+   a flange profile along an ARBITRARY 3D path (straight, curved, multi-
+   segment), unlike Edge Flange which is per-straight-edge. Algorithm —
+   normalise pathSketch into a polyline, build a perpendicular
+   `thickness × profileWidth` rectangle profile at path start, sweep via
+   `K.brep.sweepProfile` (BRepOffsetAPI_MakePipe), fuse with parent.
+   Records a bend with `type='sweepFlange'` so Flat Pattern walks it.
+
+### Files added / modified
+
+- `frontend/src/kernel/brep/BrepSheetMetal.js` (extended — 2 new exports
+  `closedCorner` + `sweepFlange`, fully documented; reuses Tier-5a
+  primitives — bend records, baseNormal sampling, extrudeProfile, fuse)
+- `frontend/src/kernel/brep/index.js` (+2 exports under the Tier-5c
+  comment band)
+- `frontend/src/kernel/brep/ArchDiscKernel.js` (+2 facade entries on
+  `K.brep` — `closedCorner` + `sweepFlange`)
+- `frontend/src/components/RibbonToolbar.jsx` (Sheet Metal → Edge
+  Features gains `Closed Corner` + `Sweep Flange` buttons)
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js`
+  (sheetMetal group +2 handlers — selection-driven body pick,
+  dialog-driven params, multi-segment path override via
+  `window.__archdiscSweepFlangePath`)
+- `frontend/src/foundation/ToolParamSchemas.js` (+2 schemas —
+  `Closed Corner` with cornerType enum + edgeAGap + edgeBGap;
+  `Sweep Flange` with profileWidth + path start/end XYZ + kFactor)
+- `frontend/src/components/SwUxOverlays.jsx` (`DOCKED_TOOLS` +2 entries
+  so both pop into the PropertyManager dock with the Tier-1 pattern)
+- `e2e/ux-tier5c-closedcorner-sweepflange-electron.spec.js` (new —
+  stamped automotive bracket bespoke, ONE iso + 5 stills, no orbit)
+
+### Focused bespoke — stamped automotive bracket (Closed Corner + Sweep Flange)
+
+`e2e/ux-tier5c-closedcorner-sweepflange-electron.spec.js` builds a real
+stamped automotive bracket workflow that exercises BOTH Tier-5c ops on
+the same body:
+
+| Step | Op | Outcome |
+|---|---|---|
+| 1 | Base Flange (120 × 80 mm, t = 1.5 mm, K = 0.4, R = 1.5) | mounting plate |
+| 2 | Edge Flange (long edge, 25 mm @ 90°) | first side wall |
+| 3 | Edge Flange (perpendicular edge, 25 mm @ 90°) | second side wall — leaves a triangular gap at the shared corner |
+| 4 | **Closed Corner (butt 45° miter)** | closes the gap; records on `corners[]` with `cornerType='butt'` |
+| 5 | **Sweep Flange (curved 4-point path, profileWidth = 8 mm)** | stiffening lip along a curved path on the side wall; records a bend with `type='sweepFlange'` |
+| 6 | Flat Pattern | unfolds all 3 bends + the swept lip developed length |
+
+The bespoke is a real automotive stamping workflow: base + 2 sides +
+closed corner + stiffening lip. ONE iso, 5 stills total, perfectly-
+viewable framing — no 7-angle orbit.
+
+### Honest residual gaps (Tier 5c)
+
+- **Closed Corner patch is a single rectangular bridge.** The dispatch
+  reads the two recorded flanges' anchor + outward + length and builds a
+  quadrilateral patch bridging the two free corners; this is correct for
+  90° flange-flange corners (the canonical case). Non-90° flange pairs
+  produce a non-coplanar quadrilateral patch — the kernel still extrudes
+  + fuses it, but the patch sits slightly off-plane relative to one
+  flange's outer surface. Future work — replace the prism with a real
+  ruled surface between the two flange tangent planes.
+- **Sweep Flange profile is a thickness × profileWidth rectangle.** SW
+  also supports arbitrary user-drawn sketch profiles; we ship the
+  rectangle because it covers the headline stiffening-lip use case
+  cleanly. Generalising to user-supplied 2D profiles is one more
+  dispatch (the engine path is already `sweepProfile`).
+- **The path arc-length is the developed length we record on the
+  bend** — Flat Pattern can lay the lip flat using the arc-length plus
+  the single bend allowance, but the unfolded shape will be a straight
+  rectangle (path arc-length × profileWidth), not the curved lip. A
+  curved swept lip's true flat development is a follow-on Tier-5d
+  geometric problem (developable surface unrolling).
+
+### Queued Tier-5d follow-on ops (deferred from this pass)
+
+- **Cross Break** — display-only fold line for stiffening (appears on
+  flat pattern but no geometry change).
+- **Forming Tool** — library tools (louver, embossed rib, bridge) +
+  configurations.
+- **Lofted Bend** — lofted sheet between two profile sketches.
+
+### Tier-5c regression subset
+
+| Spec | Result |
+|---|---|
+| `ux-tier5c-closedcorner-sweepflange-electron` (NEW) | shipped |
+| `ux-tier5b-hem-sketchbend-electron` | unchanged — re-runs PASS |
+| `ux-tier5a-sheet-metal-electron` | unchanged — re-runs PASS |
+| `ribbon-test` | extended with 2 new Sheet Metal tools in Edge Features |
 
 ---
 

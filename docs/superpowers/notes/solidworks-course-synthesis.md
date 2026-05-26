@@ -730,11 +730,11 @@ queued for follow-on Tier-5 dispatches (a, b, c, ...).
 | Hem (4 variants) | Hem (Sheet Metal tab -> Edge Features) | **Done** (Tier 5b — Closed / Open / Rolled / Teardrop) |
 | Jog | Jog (Sheet Metal tab -> Bend) | **Done** (Tier 5b — Z-step with 2 bend records) |
 | Sketched Bend | Sketched Bend (Sheet Metal tab -> Bend) | **Done** (Tier 5b) |
-| Closed Corner | None | **Missing** |
+| Closed Corner | Closed Corner (Sheet Metal tab -> Edge Features) | **Done** (Tier 5c — overlap / butt 45° miter / underlap) |
 | Corner Trim / Corner Relief | None | **Missing** |
 | Cross Break | None | **Missing** |
 | Forming Tool | None | **Missing** |
-| Sweep Flange | None | **Missing** |
+| Sweep Flange | Sweep Flange (Sheet Metal tab -> Edge Features) | **Done** (Tier 5c — swept lip along an arbitrary polyline path) |
 | Rib (Sheet Metal) | None | **Missing** |
 | Flat Pattern | Flat Pattern (Sheet Metal tab -> Manufacturing) | **Done** (Tier 5a) |
 | K-Factor / Bend Allowance / Bend Deduction | K-Factor + bend-allowance formula | **Done** (K-factor; the bend-allowance + bend-deduction + gauge-table switches are follow-on Tier 5b) |
