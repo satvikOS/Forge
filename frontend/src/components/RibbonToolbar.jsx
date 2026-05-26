@@ -445,6 +445,9 @@ const TABS = {
         // UX Tier 9b — auto-close through-holes (free-edge loops) to make
         // the part watertight for cavity-cutting.
         { name: 'Shut-Off Surfaces', icon: '◯', key: 'moldTools' },
+        // UX Tier 9c — proper ruled parting SURFACE from the parting-line
+        // edges (extends Tooling Split beyond the planar default).
+        { name: 'Parting Surface', icon: '⊡', key: 'moldTools' },
       ]},
       { label: 'Mold Block', tools: [
         { name: 'Tooling Split', icon: '⊟', key: 'moldTools', primary: true },

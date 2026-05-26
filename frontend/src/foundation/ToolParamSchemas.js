@@ -1719,6 +1719,24 @@ export const TOOL_PARAM_SCHEMAS = {
         hint: 'ShapeFix_FreeBounds close-tolerance — open-edge endpoints within this are unified into a closed wire.' },
     ],
   },
+
+  // UX Tier 9c — proper ruled Parting Surface op. Extends the parting line
+  // outward as a SHEET body that can drive Tooling Split's curved-partition
+  // path (replacing the planar default).
+  'Parting Surface': {
+    title: 'Parting Surface — Ruled Sheet from Parting-Line Edges',
+    blurb: 'Pre-select a moldable body (auto-runs Parting Line first if missing). For each parting-line edge, extrudes the edge perpendicular to the pull direction by `margin` mm on BOTH sides (total span = 2 × margin) — producing a ruled SHEET body of lateral strips. Set `extensionMode` to `planar` (default — flat extrusion), `tangent` (extend along surface tangent at the parting line), or `ruled` (single ruled strip between body outline and a bounding ring at margin distance). Result is a sheet body suitable as the `partingSurface` input to Tooling Split.',
+    fields: [
+      { name: 'pullX',         label: 'Pull X',          type: 'number', default: 0, step: 0.1, hint: 'Pull direction X component (world frame).' },
+      { name: 'pullY',         label: 'Pull Y',          type: 'number', default: 0, step: 0.1, hint: 'Pull direction Y component.' },
+      { name: 'pullZ',         label: 'Pull Z',          type: 'number', default: 1, step: 0.1, hint: 'Pull direction Z component (default +Z = open mold upward).' },
+      { name: 'margin',        label: 'Margin',          type: 'number', default: 20, unit: 'mm', min: 1, max: 500, step: 1,
+        hint: 'Half-width of the parting surface — the strip extends `margin` mm on each side of the parting line, totalling 2 × margin across.' },
+      { name: 'extensionMode', label: 'Extension mode',  type: 'enum', default: 'planar',
+        options: ['planar', 'tangent', 'ruled'],
+        hint: 'planar = flat extrusion perpendicular to pull (SW default). tangent = along surface tangent at parting line. ruled = ruled surface between body outline and a planar bounding ring at margin distance.' },
+    ],
+  },
 };
 
 export function getSchemaForTool(toolName) {

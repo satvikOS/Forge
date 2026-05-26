@@ -8016,6 +8016,80 @@ const TOOL_HANDLERS = {
           message: 'Tooling Split: ' + (err.message || err) };
       }
     },
+
+    // ── UX Tier 9c — Parting Surface ──────────────────────────────────────
+    //
+    // Build a real ruled parting SHEET body from the parting-line edges of
+    // the selected moldable body. The result is a `SpineBody{kind:'sheet'}`
+    // composed of lateral strips extruded perpendicular to pull by `margin`
+    // mm on both sides of each parting edge. Non-consuming for the source
+    // body — the parting surface is registered as a new sheet body in the
+    // scene alongside it. Use the resulting surface as Tooling Split's
+    // `partingSurface` input (replacing the planar default).
+    'Parting Surface': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!body || !body.body) {
+          return { status: 'warn', message: 'Parting Surface: select a body first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Parting Surface');
+        if (cancelled) return { status: 'warn', message: 'Parting Surface: cancelled' };
+        const pullXraw = Number(values.pullX);
+        const pullYraw = Number(values.pullY);
+        const pullZraw = Number(values.pullZ);
+        let pull = [
+          Number.isFinite(pullXraw) ? pullXraw : 0,
+          Number.isFinite(pullYraw) ? pullYraw : 0,
+          Number.isFinite(pullZraw) ? pullZraw : 0,
+        ];
+        if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) pull = [0, 0, 1];
+        const margin = Number(values.margin) > 0 ? Number(values.margin) : 20;
+        const extensionMode = (values.extensionMode === 'tangent' || values.extensionMode === 'ruled')
+          ? values.extensionMode : 'planar';
+
+        const surface = await ArchDiscKernel.brep.partingSurface(body, {
+          pullDirection: pull,
+          margin,
+          extensionMode,
+        });
+
+        // Register the head strip + every additional strip as separate
+        // sheet bodies (non-consuming for the source). The viewport's
+        // canonical __archdiscAddBrepShape helper handles the sheet kind.
+        const strips = (surface && surface.meta && Array.isArray(surface.meta.partingSurfaceStrips))
+          ? surface.meta.partingSurfaceStrips : [surface];
+        if (typeof window !== 'undefined' && typeof window.__archdiscAddBrepShape === 'function') {
+          for (const strip of strips) {
+            await window.__archdiscAddBrepShape(scene, viewport, strip, 0xffca28, []);
+          }
+        }
+
+        if (typeof window !== 'undefined') {
+          const psMeta = (surface.body && surface.body.metadata && surface.body.metadata.mold && surface.body.metadata.mold.partingSurface) || {};
+          window.__lastPartingSurface = {
+            pullDirection: pull,
+            margin,
+            extensionMode,
+            stripCount: psMeta.stripCount || strips.length,
+            edgeCount: psMeta.edgeCount || 0,
+            stripErrors: psMeta.stripErrors || 0,
+            stripBodyIds: psMeta.stripBodyIds || strips.map(s => s && s.id),
+            headBodyId: surface && surface.id,
+          };
+          window.__lastMoldPartingSurface = surface;
+          window.__lastMoldBody = body;
+        }
+
+        return {
+          status: 'success',
+          message: `Parting Surface: pull = (${pull.map(v => v.toFixed(2)).join(', ')}), margin = ${margin}mm, mode = ${extensionMode} → ` +
+            `${strips.length} ruled strip(s) (${(surface.body && surface.body.metadata && surface.body.metadata.mold && surface.body.metadata.mold.partingSurface && surface.body.metadata.mold.partingSurface.edgeCount) || '?'} parting edge(s)) via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error',
+          message: 'Parting Surface: ' + (err.message || err) };
+      }
+    },
   },
 };
 
