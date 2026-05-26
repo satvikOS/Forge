@@ -1462,4 +1462,445 @@ export function sheetFormat(manifold, opts = {}) {
   };
 }
 
-export default { auxiliaryView, cropView, brokenView, modelItems, bom, autoBalloon, titleBlock, sheetFormat, resolveSheet, SHEET_SIZES };
+// ───────────────────────────────────────────────────────────────────────────
+// UX Tier 12 — Stepped Section Line + Tabular Note (NX-distinctive drawing ops)
+//
+// Siemens-NX synthesis (`siemens-nx-course-synthesis.md` §6 items 112 + 114)
+// identifies two Drafting capabilities that ArchDisc previously lacked:
+//
+//   #112  Stepped Section Line — multi-segment section cut path with
+//         right-angle jogs. The result is a composite cross-section that
+//         hops between parallel planes — the canonical "stepped section
+//         view". NX exposes this as Section Line → Stand Alone; SolidWorks
+//         has only single-plane Section View + the (clunkier) Aligned
+//         Section.
+//
+//   #114  Tabular Note — generic editable N×M annotation table that is
+//         NOT linked to a BOM. Useful for hole charts, revision blocks,
+//         tolerance tables, inspection sheets, dimension lists.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Slice a body with a single cutting plane defined by an origin + normal,
+ * returning the projected 2D polylines of every edge of the resulting cut
+ * surface in a chosen "screen" frame. Internally uses the same mesh-plane
+ * intersection scheme as foundation/Slicer.js but inlined so we don't
+ * pull the kernel into a pure-2D op.
+ *
+ * Args:
+ *   manifold — foundation Manifold body
+ *   origin   — point on the plane in WORLD coords ([x,y,z] mm)
+ *   normal   — plane normal (must be roughly unit; normalised internally)
+ *   screenX  — paper-X axis (mm-space, lies in the plane)
+ *   screenY  — paper-Y axis (mm-space, lies in the plane)
+ *
+ * Returns:
+ *   { segments: [{x1,y1,x2,y2}], bbox: {minX, minY, maxX, maxY} }
+ */
+function sliceManifoldByPlane(manifold, origin, normal, screenX, screenY) {
+  const mesh = manifold.getMesh();
+  const nL = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+  const n = [normal[0] / nL, normal[1] / nL, normal[2] / nL];
+  const sxL = Math.hypot(screenX[0], screenX[1], screenX[2]) || 1;
+  const sx = [screenX[0] / sxL, screenX[1] / sxL, screenX[2] / sxL];
+  const syL = Math.hypot(screenY[0], screenY[1], screenY[2]) || 1;
+  const sy = [screenY[0] / syL, screenY[1] / syL, screenY[2] / syL];
+
+  const numTri = mesh.triVerts.length / 3;
+  const segments = [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  // For each triangle: compute signed distance of each vertex to the plane;
+  // edges with sign-change contribute one intersection point. A triangle
+  // crossing the plane contributes a SEGMENT between its two intersection
+  // points (drawn as the cut-edge outline of that face on the plane).
+  for (let t = 0; t < numTri; t++) {
+    const i0 = mesh.triVerts[t * 3];
+    const i1 = mesh.triVerts[t * 3 + 1];
+    const i2 = mesh.triVerts[t * 3 + 2];
+    const p0 = getVert(mesh, i0);
+    const p1 = getVert(mesh, i1);
+    const p2 = getVert(mesh, i2);
+    const d0 = (p0[0] - origin[0]) * n[0] + (p0[1] - origin[1]) * n[1] + (p0[2] - origin[2]) * n[2];
+    const d1 = (p1[0] - origin[0]) * n[0] + (p1[1] - origin[1]) * n[1] + (p1[2] - origin[2]) * n[2];
+    const d2 = (p2[0] - origin[0]) * n[0] + (p2[1] - origin[1]) * n[1] + (p2[2] - origin[2]) * n[2];
+
+    const pts = [];
+    const addCross = (pa, da, pb, db) => {
+      if ((da > 0 && db <= 0) || (da <= 0 && db > 0)) {
+        const t01 = da / (da - db);
+        pts.push([
+          pa[0] + (pb[0] - pa[0]) * t01,
+          pa[1] + (pb[1] - pa[1]) * t01,
+          pa[2] + (pb[2] - pa[2]) * t01,
+        ]);
+      }
+    };
+    addCross(p0, d0, p1, d1);
+    addCross(p1, d1, p2, d2);
+    addCross(p2, d2, p0, d0);
+
+    if (pts.length === 2) {
+      const a = pts[0], b = pts[1];
+      // Project into the screen-frame (origin = plane-origin).
+      const rax = a[0] - origin[0], ray = a[1] - origin[1], raz = a[2] - origin[2];
+      const rbx = b[0] - origin[0], rby = b[1] - origin[1], rbz = b[2] - origin[2];
+      const ax = rax * sx[0] + ray * sx[1] + raz * sx[2];
+      const ay = rax * sy[0] + ray * sy[1] + raz * sy[2];
+      const bx = rbx * sx[0] + rby * sx[1] + rbz * sx[2];
+      const by = rbx * sy[0] + rby * sy[1] + rbz * sy[2];
+      segments.push({ x1: ax, y1: -ay, x2: bx, y2: -by });  // SVG y-flip
+      if (ax < minX) minX = ax;  if (bx < minX) minX = bx;
+      if (ax > maxX) maxX = ax;  if (bx > maxX) maxX = bx;
+      if (-ay < minY) minY = -ay; if (-by < minY) minY = -by;
+      if (-ay > maxY) maxY = -ay; if (-by > maxY) maxY = -by;
+    }
+  }
+
+  if (!Number.isFinite(minX)) { minX = minY = 0; maxX = maxY = 0; }
+  return { segments, bbox: { minX, minY, maxX, maxY } };
+}
+
+/**
+ * Stepped Section Line — multi-segment section cut path with right-angle
+ * jogs (NX "Section Line → Stand Alone"). The user supplies a polyline of
+ * points in PAPER-mm of the FRONT view's paper space; each segment of the
+ * polyline defines a cutting plane perpendicular to the FRONT view (the
+ * plane contains the world-Y axis — "into the page" — and the segment's
+ * direction in paper-space). The op:
+ *
+ *   - Draws the SECTION LINE itself on the FRONT view (a thick chain-dot
+ *     polyline ending with arrow heads labelled `A`–`A` (or caller label);
+ *     each jog gets a small marker so the reader can see the steps.
+ *   - For each segment: slices the body with the corresponding plane and
+ *     PROJECTS the intersection into the section sheet, concatenated
+ *     side-by-side. The result is a composite cross-section that hops
+ *     between parallel planes — the canonical stepped-section view.
+ *
+ * Args:
+ *   manifold — foundation Manifold body
+ *   opts:
+ *     points : [{x, y}]   polyline points in PAPER-mm of the FRONT view
+ *                         (must have ≥2 points; right-angle jogs expected)
+ *     view   : 'front'    (parent view name — only 'front' wired today)
+ *     label  : 'A'        section label (rendered as `A`–`A` on the arrows)
+ *     name   : 'Untitled Part'
+ *
+ * Returns:
+ *   { svg, info: { label, segments: [{plane, sliceSegmentCount, width}],
+ *                  segmentCount, jogCount, totalCutEdges, frontBBox,
+ *                  paperScale, view } }
+ */
+export function steppedSectionLine(manifold, opts = {}) {
+  const partName = opts.name || 'Untitled Part';
+  const date = opts.date || new Date().toISOString().slice(0, 10);
+  const label = opts.label || 'A';
+  const view = opts.view || 'front';
+  const rawPts = Array.isArray(opts.points) ? opts.points.filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y)) : [];
+  const points = rawPts.length >= 2 ? rawPts : [{ x: -30, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 20 }, { x: 30, y: 20 }];
+
+  // FRONT projection (eye=-Y, up=+Z) → paper-X = world-X, paper-Y = world-Z.
+  // So a point in paper-mm at (px, py) corresponds (in world) to a plane
+  // passing through (px/scale, *, -py/scale) — Y is "into the page".
+  const bb = manifold.boundingBox();
+  const partOrigin = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2];
+  const partExtent = Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) || 1;
+
+  const SVG_W = 297, SVG_H = 210;
+  // Top half: FRONT view + section line annotation
+  // Bottom half: stepped section composite
+  const frontBoxW = 160, frontBoxH = 80;
+  const sectBoxW = 280, sectBoxH = 80;
+  const paperScale = Math.min(0.85 * frontBoxW / (partExtent * 1.4), 0.85 * frontBoxH / (partExtent * 1.4), 1);
+
+  const front = projectEdges(manifold, [0, -1, 0], [0, 0, 1], partOrigin, paperScale);
+  const frontOriginX = 25 + frontBoxW / 2 - (front.bbox.minX + front.bbox.maxX) / 2;
+  const frontOriginY = 25 + frontBoxH / 2 - (front.bbox.minY + front.bbox.maxY) / 2;
+
+  // For each segment of the polyline build a world-space cutting plane.
+  // FRONT view: paper-X = world-X, paper-Y = -world-Z (SVG y-flip already
+  // applied to projected edges). To convert a paper-mm point (px,py) back
+  // to world: wx = px/scale + partOrigin.x, wz = -py/scale + partOrigin.z,
+  // wy = partOrigin.y (Y axis is "into the page" — the cutting plane spans
+  // it).
+  //
+  // For a segment from (p0 → p1) in paper-mm:
+  //   midpoint in paper-mm:  (mx, my)
+  //   segment direction (paper):  (dx, dy)
+  //   In world: the IN-PLANE direction is (dx/scale, 0, -dy/scale)
+  //                                       (paper-X, 0, paper-Y back to world-Z)
+  //   The plane CONTAINS the world-Y axis (it goes "into the page")
+  //   So plane normal = direction × Y = (-dy/scale * (-1), 0, dx/scale * (-1))? No —
+  //   Easier: pick TWO in-plane vectors → cross = normal.
+  //     in-plane v1 = (dx/scale, 0, -dy/scale)  (along segment)
+  //     in-plane v2 = (0, 1, 0)                  (into the page)
+  //     normal = v1 × v2 = (0 * 0 - (-dy/scale) * 1, (-dy/scale) * 0 - dx/scale * 0, dx/scale * 1 - 0 * 0)
+  //            = (dy/scale, 0, dx/scale)  → perpendicular to the segment in paper-XZ
+  //   The screen frame for the cross-section: paper-X = world-Y (into the
+  //   page; reveals "depth"), paper-Y = world-Z (up, same as FRONT).
+  const segments = [];
+  let cumX = 0;   // running offset across the composite section sheet
+  let totalCutEdges = 0;
+  const sectionSlices = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const segLen = Math.hypot(dx, dy);
+    if (segLen < 1e-6) continue;
+
+    const planeOrigin = [
+      mx / paperScale + partOrigin[0],
+      partOrigin[1],
+      -my / paperScale + partOrigin[2],
+    ];
+    const planeNormal = [dy, 0, dx];   // unnormalised (sliceManifoldByPlane normalises)
+    const screenX = [0, 1, 0];          // world-Y "into the page" → paper-X
+    const screenY = [0, 0, 1];          // world-Z up → paper-Y
+
+    const slice = sliceManifoldByPlane(manifold, planeOrigin, planeNormal, screenX, screenY);
+    sectionSlices.push({ slice, paperX0: cumX });
+    const wWorld = (slice.bbox.maxX - slice.bbox.minX);
+    cumX += wWorld * paperScale + 12;   // 12 mm gutter between hops
+    totalCutEdges += slice.segments.length;
+
+    segments.push({
+      from: a,
+      to: b,
+      midPaper: { x: mx, y: my },
+      planeOrigin,
+      planeNormal,
+      sliceSegmentCount: slice.segments.length,
+      width_mm: wWorld,
+    });
+  }
+
+  // Render: FRONT view + the section-line polyline + arrow heads at each
+  // end + jog markers; then the composite section sheet below.
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="stepped-section" data-section-label="${esc(label)}" data-segment-count="${segments.length}" data-jog-count="${Math.max(0, points.length - 2)}">`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="white" stroke="black" stroke-width="0.4"/>`);
+
+  // FRONT view backdrop.
+  out.push(`<g class="view view-front" data-view-name="front" transform="translate(${frontOriginX.toFixed(3)},${frontOriginY.toFixed(3)})">`);
+  for (const e of front.edges) {
+    out.push(`<line x1="${e.x1.toFixed(3)}" y1="${e.y1.toFixed(3)}" x2="${e.x2.toFixed(3)}" y2="${e.y2.toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+  }
+  out.push(`<text x="${(front.bbox.minX).toFixed(3)}" y="${(front.bbox.minY - 3).toFixed(3)}" font-family="monospace" font-size="4" fill="#222">FRONT</text>`);
+  out.push('</g>');
+
+  // The stepped section LINE itself — chain-dot polyline + jog markers +
+  // labelled arrow heads at each end.
+  out.push(`<g class="section-line" data-archdisc-stepped-section-line="${esc(label)}" transform="translate(${frontOriginX.toFixed(3)},${frontOriginY.toFixed(3)})">`);
+  // Chain-dot polyline.
+  const polyPts = points.map(p => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(' ');
+  out.push(`<polyline data-stepped-section-polyline="1" points="${polyPts}" fill="none" stroke="#b54214" stroke-width="0.6" stroke-dasharray="6,1.5,0.5,1.5"/>`);
+  // Jog markers — small filled squares at each interior vertex.
+  for (let i = 1; i < points.length - 1; i++) {
+    const jp = points[i];
+    out.push(`<rect data-stepped-section-jog="${i}" x="${(jp.x - 0.9).toFixed(3)}" y="${(jp.y - 0.9).toFixed(3)}" width="1.8" height="1.8" fill="#b54214"/>`);
+  }
+  // Arrow heads at each end.
+  const drawArrow = (atPt, fromPt, endLabel) => {
+    const dxA = atPt.x - fromPt.x;
+    const dyA = atPt.y - fromPt.y;
+    const lA = Math.hypot(dxA, dyA) || 1;
+    const uxA = dxA / lA, uyA = dyA / lA;
+    const perpX = -uyA, perpY = uxA;
+    const HEAD = 4.5, SPREAD = 1.8;
+    const hx1 = atPt.x - uxA * HEAD + perpX * SPREAD;
+    const hy1 = atPt.y - uyA * HEAD + perpY * SPREAD;
+    const hx2 = atPt.x - uxA * HEAD - perpX * SPREAD;
+    const hy2 = atPt.y - uyA * HEAD - perpY * SPREAD;
+    out.push(`<line data-stepped-section-arrow="${endLabel}" x1="${atPt.x.toFixed(3)}" y1="${atPt.y.toFixed(3)}" x2="${hx1.toFixed(3)}" y2="${hy1.toFixed(3)}" stroke="#b54214" stroke-width="0.7"/>`);
+    out.push(`<line x1="${atPt.x.toFixed(3)}" y1="${atPt.y.toFixed(3)}" x2="${hx2.toFixed(3)}" y2="${hy2.toFixed(3)}" stroke="#b54214" stroke-width="0.7"/>`);
+    out.push(`<text x="${(atPt.x + uxA * 4 + perpX * 2).toFixed(3)}" y="${(atPt.y + uyA * 4 + perpY * 2 + 1.4).toFixed(3)}" font-family="monospace" font-size="5" font-weight="bold" fill="#b54214">${esc(endLabel)}</text>`);
+  };
+  drawArrow(points[0], points[1], label);
+  drawArrow(points[points.length - 1], points[points.length - 2], label);
+  out.push('</g>');
+
+  // Composite section sheet (bottom half) — each slice rendered in its own
+  // hop, separated by gutters. Add a labelled banner.
+  const sectOriginX = 12 + sectBoxW / 2 - cumX / 2;
+  const sectOriginY = 120;
+  out.push(`<g class="section-composite" data-archdisc-stepped-section-composite="${segments.length}" transform="translate(${sectOriginX.toFixed(3)},${sectOriginY.toFixed(3)})">`);
+  out.push(`<text x="0" y="-6" font-family="monospace" font-size="5" font-weight="bold" fill="#222">SECTION ${esc(label)}–${esc(label)}  (STEPPED)</text>`);
+  for (let i = 0; i < sectionSlices.length; i++) {
+    const { slice, paperX0 } = sectionSlices[i];
+    // Centre the slice within its hop box (the slice's bbox.minX/Y are
+    // already in paper-mm relative to the plane-origin).
+    const dx_g = paperX0 - slice.bbox.minX * paperScale;
+    const dy_g = -slice.bbox.minY * paperScale + 5;
+    out.push(`<g data-hop="${i + 1}" transform="translate(${(dx_g).toFixed(3)},${(dy_g).toFixed(3)})">`);
+    for (const s of slice.segments) {
+      out.push(`<line x1="${(s.x1 * paperScale).toFixed(3)}" y1="${(s.y1 * paperScale).toFixed(3)}" x2="${(s.x2 * paperScale).toFixed(3)}" y2="${(s.y2 * paperScale).toFixed(3)}" stroke="black" stroke-width="${VISIBLE_LINE_WIDTH}"/>`);
+    }
+    // Hop label below.
+    out.push(`<text x="${((slice.bbox.minX + slice.bbox.maxX) / 2 * paperScale).toFixed(3)}" y="${(slice.bbox.maxY * paperScale + 9).toFixed(3)}" font-family="monospace" font-size="3" fill="#1c5fa1" text-anchor="middle">hop ${i + 1} • ${slice.segments.length} edges</text>`);
+    out.push('</g>');
+  }
+  out.push('</g>');
+
+  // Title block.
+  out.push(`<g class="title-block">`);
+  out.push(`<rect x="${SVG_W - 105}" y="${SVG_H - 35}" width="100" height="30" fill="white" stroke="black" stroke-width="0.4"/>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 26}" font-family="monospace" font-size="3.6" font-weight="bold">${esc(partName)}</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 18}" font-family="monospace" font-size="2.7">Stepped Section ${esc(label)}–${esc(label)}  ${segments.length} segment(s), ${Math.max(0, points.length - 2)} jog(s)</text>`);
+  out.push(`<text x="${SVG_W - 102}" y="${SVG_H - 10}" font-family="monospace" font-size="2.7">Date ${date}  Scale ${paperScale.toFixed(3)}:1  A4 ISO</text>`);
+  out.push(`</g>`);
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      label,
+      view,
+      points,
+      segments,
+      segmentCount: segments.length,
+      jogCount: Math.max(0, points.length - 2),
+      totalCutEdges,
+      frontBBox: front.bbox,
+      paperScale,
+    },
+  };
+}
+
+/**
+ * Tabular Note — generic editable N×M annotation table on a drawing sheet
+ * (NX "Annotation → Table"). NOT BOM-specific. Used for hole charts,
+ * revision blocks, tolerance tables, dimension lists, inspection sheets.
+ *
+ * Args:
+ *   opts:
+ *     title    : 'HOLE CHART'   table title
+ *     columns  : [{label, width}]  header column defs (width in mm; falls back
+ *                                  to 30 mm per column if missing)
+ *     rows     : [[cell, cell, ...]]   row data; cells string-coerced
+ *     position : {x, y}        top-left of table in paper-mm; defaults to
+ *                              (40, 40) on an A3 landscape sheet
+ *     size     : 'A3'          sheet size (default A3 landscape)
+ *     orientation : 'landscape'
+ *     name     : 'Untitled Part'
+ *
+ * Returns:
+ *   { svg, info: { title, columnCount, rowCount, position, tableBBox,
+ *                  cells: [[{col, row, value, x, y, w, h}]] } }
+ */
+export function tabularNote(opts = {}) {
+  const partName = opts.name || 'Untitled Part';
+  const date = opts.date || new Date().toISOString().slice(0, 10);
+  const title = opts.title || 'TABULAR NOTE';
+  const sheet = resolveSheet({ size: opts.size || 'A3', orientation: opts.orientation || 'landscape' });
+  const SVG_W = sheet.w, SVG_H = sheet.h;
+
+  const columnsIn = Array.isArray(opts.columns) ? opts.columns : [];
+  const rowsIn = Array.isArray(opts.rows) ? opts.rows : [];
+
+  // Normalise column defs.
+  const columns = columnsIn.length > 0
+    ? columnsIn.map((c, i) => ({
+        label: String(c && c.label !== undefined ? c.label : `Col${i + 1}`),
+        width: Number.isFinite(c && c.width) ? c.width : 30,
+      }))
+    : [{ label: 'Col1', width: 30 }];
+
+  // Default rows: empty placeholder so the user still sees a table.
+  const rows = rowsIn.length > 0
+    ? rowsIn.map(r => Array.isArray(r) ? r.map(v => v == null ? '' : String(v)) : [String(r ?? '')])
+    : [columns.map(() => '')];
+
+  // Geometry.
+  const tableX = Number.isFinite(opts.position?.x) ? opts.position.x : 40;
+  const tableY = Number.isFinite(opts.position?.y) ? opts.position.y : 40;
+  const titleH = 9;
+  const headerH = 8;
+  const rowH = 7;
+  const tableW = columns.reduce((s, c) => s + c.width, 0);
+  const tableH = titleH + headerH + rows.length * rowH;
+
+  // Cell records for introspection.
+  const cells = [];
+
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W}mm" height="${SVG_H}mm" preserveAspectRatio="xMidYMid meet" data-archdisc-view="tabular-note" data-tn-title="${esc(title)}" data-tn-cols="${columns.length}" data-tn-rows="${rows.length}">`);
+
+  // Sheet frame (double-line ASME convention to match Title Block).
+  out.push(`<rect x="2.5" y="2.5" width="${SVG_W - 5}" height="${SVG_H - 5}" fill="white" stroke="black" stroke-width="0.3"/>`);
+  out.push(`<rect x="5" y="5" width="${SVG_W - 10}" height="${SVG_H - 10}" fill="none" stroke="black" stroke-width="0.5"/>`);
+
+  // Tabular note container.
+  out.push(`<g class="tabular-note" data-archdisc-tabular-note="1" data-tn-x="${tableX}" data-tn-y="${tableY}" data-tn-w="${tableW}" data-tn-h="${tableH}">`);
+  // Outer frame.
+  out.push(`<rect x="${tableX}" y="${tableY}" width="${tableW}" height="${tableH}" fill="white" stroke="black" stroke-width="0.6"/>`);
+
+  // Title row.
+  out.push(`<rect data-tn-cell="title" x="${tableX}" y="${tableY}" width="${tableW}" height="${titleH}" fill="#eef2f7" stroke="black" stroke-width="0.5"/>`);
+  out.push(`<text x="${(tableX + tableW / 2).toFixed(3)}" y="${(tableY + titleH * 0.65).toFixed(3)}" font-family="monospace" font-size="4.2" font-weight="bold" fill="#111" text-anchor="middle">${esc(title)}</text>`);
+
+  // Header row.
+  let cx = tableX;
+  const headerY = tableY + titleH;
+  for (let i = 0; i < columns.length; i++) {
+    const col = columns[i];
+    out.push(`<rect data-tn-cell="header" data-tn-col="${i}" x="${cx}" y="${headerY}" width="${col.width}" height="${headerH}" fill="#fafbfc" stroke="black" stroke-width="0.4"/>`);
+    out.push(`<text x="${(cx + col.width / 2).toFixed(3)}" y="${(headerY + headerH * 0.65).toFixed(3)}" font-family="monospace" font-size="3.2" font-weight="bold" fill="#222" text-anchor="middle">${esc(col.label)}</text>`);
+    cx += col.width;
+  }
+
+  // Data rows.
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const ry = headerY + headerH + r * rowH;
+    let dx = tableX;
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i];
+      const value = i < row.length ? String(row[i]) : '';
+      const maxChars = Math.floor((col.width - 2) / 1.55);
+      const txt = value.length > maxChars ? value.slice(0, Math.max(1, maxChars - 1)) + '…' : value;
+      out.push(`<rect data-tn-cell="data" data-tn-row="${r}" data-tn-col="${i}" x="${dx}" y="${ry}" width="${col.width}" height="${rowH}" fill="white" stroke="black" stroke-width="0.3"/>`);
+      out.push(`<text x="${(dx + col.width / 2).toFixed(3)}" y="${(ry + rowH * 0.65).toFixed(3)}" font-family="monospace" font-size="2.9" fill="#111" text-anchor="middle">${esc(txt)}</text>`);
+      cells.push({ row: r, col: i, value, x: dx, y: ry, w: col.width, h: rowH });
+      dx += col.width;
+    }
+  }
+  out.push('</g>');
+
+  // Mini corner block (so the sheet matches the Title Block / Sheet Format
+  // visual language).
+  const MTB_W = 100, MTB_H = 22;
+  const MTB_X = SVG_W - 5 - MTB_W;
+  const MTB_Y = SVG_H - 5 - MTB_H;
+  out.push(`<g class="title-block" data-archdisc-title-block="mini">`);
+  out.push(`<rect x="${MTB_X}" y="${MTB_Y}" width="${MTB_W}" height="${MTB_H}" fill="white" stroke="black" stroke-width="0.5"/>`);
+  out.push(`<text x="${MTB_X + 3}" y="${MTB_Y + 8}" font-family="monospace" font-size="4" font-weight="bold" fill="#111">${esc(partName)}</text>`);
+  out.push(`<text x="${MTB_X + 3}" y="${MTB_Y + 14}" font-family="monospace" font-size="2.8" fill="#333">Tabular Note  ${columns.length}×${rows.length}  ${title}</text>`);
+  out.push(`<text x="${MTB_X + 3}" y="${MTB_Y + 19}" font-family="monospace" font-size="2.8" fill="#333">Date ${esc(date)}  Sheet ${esc(sheet.size)} ${esc(sheet.orientation)}</text>`);
+  out.push(`</g>`);
+
+  out.push('</svg>');
+
+  return {
+    svg: out.join('\n'),
+    info: {
+      title,
+      sheet,
+      columns,
+      columnCount: columns.length,
+      rowCount: rows.length,
+      position: { x: tableX, y: tableY },
+      tableBBox: { x: tableX, y: tableY, w: tableW, h: tableH },
+      cells,
+      rowsRendered: rows.length,
+    },
+  };
+}
+
+export default { auxiliaryView, cropView, brokenView, modelItems, bom, autoBalloon, titleBlock, sheetFormat, steppedSectionLine, tabularNote, resolveSheet, SHEET_SIZES };
