@@ -141,6 +141,27 @@ export default class MateSolver {
                                        //   plus along-axis phase coupling);
                                        //   1 rotational + 3 translational
                                        //   DOFs remain free.
+      // ── Tier-7b-rest advanced mates (6/6) ────────────────────────────
+      case 'symmetric': return 3;       // 3 DOF — the two entities mirror
+                                       //   about a symmetry plane. Mirrors
+                                       //   3 components of position relative
+                                       //   to the plane (the midpoint must
+                                       //   lie in the plane + the line
+                                       //   through the two entities must be
+                                       //   perpendicular to the plane).
+      case 'linearCoupler': return 1;  // 1 DOF — translation of A along its
+                                       //   axis coupled to translation of B
+                                       //   along its axis by `ratio`.
+                                       //   Residual = tA · ratio − tB.
+                                       //   Pure translational analogue of
+                                       //   Gear.
+      case 'angleLimit': return 0;     // 0 DOF in active range (slack); 1
+                                       //   when clamped at min/max. The
+                                       //   _satisfyAngleLimit handler reports
+                                       //   an EFFECTIVE removed=1 via
+                                       //   mate.params._clampedDOF when
+                                       //   currently clamped. Pure rotational
+                                       //   analogue of Distance-Limit.
       default: return 1;
     }
   }
@@ -203,6 +224,12 @@ export default class MateSolver {
         return MateSolver._satisfyCam(mate, free, anchor);
       case 'universalJoint':
         return MateSolver._satisfyUniversalJoint(mate, free, anchor);
+      case 'symmetric':
+        return MateSolver._satisfySymmetric(mate, free, anchor);
+      case 'linearCoupler':
+        return MateSolver._satisfyLinearCoupler(mate, free, anchor);
+      case 'angleLimit':
+        return MateSolver._satisfyAngleLimit(mate, free, anchor);
       default:
         return MateSolver._mateError(mate);
     }
@@ -908,6 +935,189 @@ export default class MateSolver {
     return phaseErr + angleErr;
   }
 
+  /**
+   * Symmetric (Tier-7b-rest): two entities mirror about a symmetry plane.
+   * The symmetry plane is anchored on the ANCHOR part — it's a plane in
+   * world space defined by `planeOriginA` (point on plane, anchor-local) +
+   * `planeNormalA` (plane normal, anchor-local; auto-normalised). Two entity
+   * points `pointA` (on `anchor`, anchor-local) and `pointB` (on `free`,
+   * free-local) must mirror about the plane:
+   *   1. midpoint(pAW, pBW) lies in the plane:
+   *      ((pAW + pBW)/2 − planeOriginW) · planeNormalW = 0
+   *   2. the line from pAW to pBW is parallel to planeNormalW (so the
+   *      reflection of pAW across the plane equals pBW):
+   *      cross(pBW − pAW, planeNormalW) = 0
+   *
+   * Residual = |midpoint deviation along normal| + |perpendicular component
+   * of the AB line|. Per-iteration correction reflects `free`'s point across
+   * the plane and translates `free` to put pBW at the reflected pAW image.
+   * Removes 3 DOF (the 3 components of position relative to the plane).
+   */
+  static _satisfySymmetric(mate, free, anchor) {
+    const planeOriginLocal = mate.params.planeOriginA || Vec3.zero();
+    const planeNormalLocal = mate.params.planeNormalA || new Vec3(1, 0, 0);
+    const pointALocal = mate.params.pointA || Vec3.zero();
+    const pointBLocal = mate.params.pointB || Vec3.zero();
+
+    // The symmetry plane is ALWAYS anchored on whichever part is the anchor
+    // here (anchor convention picked by the fixed-flag rule in _satisfyMate).
+    // Resolve which entity point belongs to which side.
+    const anchorEntityLocal = anchor === mate.partA ? pointALocal : pointBLocal;
+    const freeEntityLocal   = anchor === mate.partA ? pointBLocal : pointALocal;
+
+    // World-space plane (rotated normal + translated origin on anchor part).
+    const nW = MateSolver._rotateLocal(anchor, planeNormalLocal);
+    const nLen = nW.length() || 1;
+    const nN = new Vec3(nW.x / nLen, nW.y / nLen, nW.z / nLen);
+    const oW = anchor.position.add(planeOriginLocal);
+
+    // World-space entity points on each part.
+    const pAW = anchor.position.add(anchorEntityLocal);
+    const pBW = free.position.add(freeEntityLocal);
+
+    // Reflect pAW across the plane → target world-space position for pBW.
+    // Reflection: p − 2·((p − o)·n̂)·n̂
+    const wA = pAW.sub(oW);
+    const projA = wA.x * nN.x + wA.y * nN.y + wA.z * nN.z;
+    const reflectedAW = new Vec3(
+      pAW.x - 2 * projA * nN.x,
+      pAW.y - 2 * projA * nN.y,
+      pAW.z - 2 * projA * nN.z,
+    );
+    // Required shift of `free` to put pBW onto the reflected pAW.
+    const delta = reflectedAW.sub(pBW);
+    free.position = free.position.add(delta.mul(RELAXATION));
+
+    // Residual = mid-plane deviation + AB-parallel-to-normal mismatch.
+    const mid = new Vec3(
+      0.5 * (pAW.x + pBW.x),
+      0.5 * (pAW.y + pBW.y),
+      0.5 * (pAW.z + pBW.z),
+    );
+    const wMid = mid.sub(oW);
+    const midErr = Math.abs(wMid.x * nN.x + wMid.y * nN.y + wMid.z * nN.z);
+    const ab = pBW.sub(pAW);
+    const perpErr = ab.cross(nN).length();
+    return midErr + perpErr;
+  }
+
+  /**
+   * Linear-Coupler (Tier-7b-rest): translation of anchor along `axisA`
+   * is coupled to translation of free along `axisB` by `ratio`:
+   *   `tA · ratio − tB  →  0`.
+   * Pure translational analogue of Gear. Removes 1 DOF.
+   *
+   * params:
+   *   - `axisA`        : Vec3 (local-frame translation axis of partA)
+   *   - `axisB`        : Vec3 (local-frame translation axis of partB)
+   *   - `axisOriginA`  : Vec3 (FIXED world-space reference point from which
+   *                            both tA and tB are measured. NOT anchored on
+   *                            either part — typical CAD usage anchors the
+   *                            reference at the assembly origin or the
+   *                            initial pose of partA.)
+   *   - `ratio`        : number (default 1 — 1:1 coupling; negative reverses)
+   *
+   * Per-iteration correction: read tA by projecting (partA.position − oW)
+   * onto partA's world axis; read tB similarly for partB; slide free along
+   * its world axis by (tA·ratio − tB) · RELAXATION.
+   */
+  static _satisfyLinearCoupler(mate, free, anchor) {
+    const axisAnchorLocal = mate.params.axisA || new Vec3(0, 0, 1);
+    const axisFreeLocal   = mate.params.axisB || new Vec3(0, 0, 1);
+    const originWorld = mate.params.axisOriginA || Vec3.zero();
+    const ratio = mate.params.ratio ?? 1;
+    // Which local axis belongs to which part.
+    const localAnchor = anchor === mate.partA ? axisAnchorLocal : axisFreeLocal;
+    const localFree   = anchor === mate.partA ? axisFreeLocal   : axisAnchorLocal;
+    // World-space axis directions.
+    const dA = MateSolver._rotateLocal(anchor, localAnchor);
+    const dB = MateSolver._rotateLocal(free,   localFree);
+    const dAlen = dA.length() || 1;
+    const dBlen = dB.length() || 1;
+    const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+    const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+    // Reference origin is interpreted as a FIXED world-space point (not
+    // anchored on either part). This is the natural CAD interpretation:
+    // tA and tB are along-axis displacements of A and B from a fixed world
+    // anchor. If the user supplies it in mm in the handler, the handler
+    // converts to metres before passing to the kernel.
+    // tA: along-axis component of anchor's position relative to the world
+    // reference, projected onto anchor's world-space axis direction.
+    const relA = anchor.position.sub(originWorld);
+    const tA = relA.x * dAn.x + relA.y * dAn.y + relA.z * dAn.z;
+    const relB = free.position.sub(originWorld);
+    const tB = relB.x * dBn.x + relB.y * dBn.y + relB.z * dBn.z;
+    // Effective ratio for anchor/free convention. If anchor is partA we use
+    // ratio as-given; if anchor is partB, invert (the coupling direction
+    // flips, same convention as Gear).
+    const eff = (anchor === mate.partA) ? ratio : (ratio === 0 ? 0 : 1 / ratio);
+    const target = tA * eff;
+    const delta = target - tB;
+    if (Math.abs(delta) < 1e-12) return 0;
+    const step = delta * RELAXATION;
+    free.position = free.position.add(new Vec3(dBn.x * step, dBn.y * step, dBn.z * step));
+    return Math.abs(delta);
+  }
+
+  /**
+   * Angle-Limit (Tier-7b-rest): the relative rotation of `free` versus
+   * `anchor` about a shared axis must stay in `[angleMin, angleMax]` rad.
+   * Pure rotational analogue of Distance-Limit. Slack inside → 0 residual,
+   * 0 DOF removed. Clamped at min/max → pulls free's rotation back to the
+   * limit, 1 DOF removed (recorded via mate.params._clampedDOF).
+   *
+   * params:
+   *   - `axisA`     : Vec3 (local-frame rotation axis on partA)
+   *   - `axisB`     : Vec3 (local-frame rotation axis on partB)
+   *   - `angleMin`  : rad (default -π)
+   *   - `angleMax`  : rad (default +π)
+   *
+   * The relative angle is the projection-onto-axis difference of the parts'
+   * Euler rotation vectors — same Euler-projection trick used by Gear /
+   * Hinge clamps. (Rigid co-rotation contributes 0 because both parts'
+   * projections shift together.)
+   */
+  static _satisfyAngleLimit(mate, free, anchor) {
+    const axisAnchorLocal = mate.params.axisA || new Vec3(0, 0, 1);
+    const axisFreeLocal   = mate.params.axisB || new Vec3(0, 0, 1);
+    const angleMin = mate.params.angleMin ?? -Math.PI;
+    const angleMax = mate.params.angleMax ?? +Math.PI;
+    // Which local axis belongs to which part.
+    const localAnchor = anchor === mate.partA ? axisAnchorLocal : axisFreeLocal;
+    const localFree   = anchor === mate.partA ? axisFreeLocal   : axisAnchorLocal;
+    // World-space axes.
+    const dA = MateSolver._rotateLocal(anchor, localAnchor);
+    const dB = MateSolver._rotateLocal(free,   localFree);
+    const dAlen = dA.length() || 1;
+    const dBlen = dB.length() || 1;
+    const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+    const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+    // Project each part's Euler rotation onto its world-space axis.
+    const thetaA = anchor.rotation.x * dAn.x + anchor.rotation.y * dAn.y + anchor.rotation.z * dAn.z;
+    const thetaB = free.rotation.x   * dBn.x + free.rotation.y   * dBn.y + free.rotation.z   * dBn.z;
+    const relAngle = thetaB - thetaA;
+    // Slack — record DOF=0 and bail.
+    if (relAngle >= angleMin && relAngle <= angleMax) {
+      mate.params._clampedDOF = 0;
+      mate.params._activeLimit = null;
+      return 0;
+    }
+    // Clamped at the closest limit.
+    const target = (relAngle < angleMin) ? angleMin : angleMax;
+    mate.params._clampedDOF = 1;
+    mate.params._activeLimit = (relAngle < angleMin) ? 'min' : 'max';
+    const delta = target - relAngle;
+    const step = delta * RELAXATION;
+    // Distribute the correction across free's Euler XYZ weighted by dBn
+    // (same approximation used by Hinge / Gear satisfiers).
+    free.rotation = new Vec3(
+      free.rotation.x + dBn.x * step,
+      free.rotation.y + dBn.y * step,
+      free.rotation.z + dBn.z * step,
+    );
+    return Math.abs(delta);
+  }
+
   /** Helper — rotate a local-frame direction by a part's Euler XYZ. */
   static _rotateLocal(part, v) {
     const rx = part.rotation.x, ry = part.rotation.y, rz = part.rotation.z;
@@ -1141,6 +1351,64 @@ export default class MateSolver {
           else if (Number.isFinite(angleMax) && hingeAngle > angleMax) clampErr = hingeAngle - angleMax;
         }
         return anchorErr + axisErr + clampErr;
+      }
+      case 'symmetric': {
+        const planeOriginLocal = mate.params.planeOriginA || Vec3.zero();
+        const planeNormalLocal = mate.params.planeNormalA || new Vec3(1, 0, 0);
+        const pointALocal = mate.params.pointA || Vec3.zero();
+        const pointBLocal = mate.params.pointB || Vec3.zero();
+        const nW = MateSolver._rotateLocal(mate.partA, planeNormalLocal);
+        const nLen = nW.length() || 1;
+        const nN = new Vec3(nW.x / nLen, nW.y / nLen, nW.z / nLen);
+        const oW = mate.partA.position.add(planeOriginLocal);
+        const pAW = mate.partA.position.add(pointALocal);
+        const pBW = mate.partB.position.add(pointBLocal);
+        const mid = new Vec3(
+          0.5 * (pAW.x + pBW.x),
+          0.5 * (pAW.y + pBW.y),
+          0.5 * (pAW.z + pBW.z),
+        );
+        const wMid = mid.sub(oW);
+        const midErr = Math.abs(wMid.x * nN.x + wMid.y * nN.y + wMid.z * nN.z);
+        const ab = pBW.sub(pAW);
+        const perpErr = ab.cross(nN).length();
+        return midErr + perpErr;
+      }
+      case 'linearCoupler': {
+        const axisA = mate.params.axisA || new Vec3(0, 0, 1);
+        const axisB = mate.params.axisB || new Vec3(0, 0, 1);
+        const oW = mate.params.axisOriginA || Vec3.zero();
+        const ratio = mate.params.ratio ?? 1;
+        const dA = MateSolver._rotateLocal(mate.partA, axisA);
+        const dB = MateSolver._rotateLocal(mate.partB, axisB);
+        const dAlen = dA.length() || 1;
+        const dBlen = dB.length() || 1;
+        const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+        const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+        const relA = mate.partA.position.sub(oW);
+        const tA = relA.x * dAn.x + relA.y * dAn.y + relA.z * dAn.z;
+        const relB = mate.partB.position.sub(oW);
+        const tB = relB.x * dBn.x + relB.y * dBn.y + relB.z * dBn.z;
+        const target = tA * ratio;
+        return Math.abs(target - tB);
+      }
+      case 'angleLimit': {
+        const axisA = mate.params.axisA || new Vec3(0, 0, 1);
+        const axisB = mate.params.axisB || new Vec3(0, 0, 1);
+        const angleMin = mate.params.angleMin ?? -Math.PI;
+        const angleMax = mate.params.angleMax ?? +Math.PI;
+        const dA = MateSolver._rotateLocal(mate.partA, axisA);
+        const dB = MateSolver._rotateLocal(mate.partB, axisB);
+        const dAlen = dA.length() || 1;
+        const dBlen = dB.length() || 1;
+        const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+        const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+        const thetaA = mate.partA.rotation.x * dAn.x + mate.partA.rotation.y * dAn.y + mate.partA.rotation.z * dAn.z;
+        const thetaB = mate.partB.rotation.x * dBn.x + mate.partB.rotation.y * dBn.y + mate.partB.rotation.z * dBn.z;
+        const rel = thetaB - thetaA;
+        if (rel < angleMin) return angleMin - rel;
+        if (rel > angleMax) return rel - angleMax;
+        return 0;
       }
       default:
         return 0;

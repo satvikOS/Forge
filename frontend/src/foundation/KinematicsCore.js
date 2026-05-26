@@ -91,6 +91,22 @@ export const ASSEMBLY_MATE_DOF = Object.freeze({
                        //   couples the two axes' along-axis rotations; the
                        //   third (anchor coincidence) component is the axis-
                        //   alignment-up-to-crossAngle constraint.
+  // ── Tier-7b-rest advanced mates (6/6 advanced family) ────────────────
+  symmetric: 3,        // 3 DOF — two entities mirror about a symmetry plane.
+                       //   The midpoint of the two entities lies in the plane
+                       //   (1 DOF — along-normal component) + the line joining
+                       //   them is parallel to the plane normal (2 DOF — the
+                       //   two perpendicular-to-normal components).
+                       //   Residual = |midpoint·n̂| + |AB × n̂|.
+  linearCoupler: 1,    // 1 DOF — translation of partA along axisA coupled to
+                       //   translation of partB along axisB by `ratio`.
+                       //   Residual = |tA · ratio − tB|. Pure translational
+                       //   analogue of Gear.
+  angleLimit: 0,       // 0 DOF in active range (slack); 1 DOF when clamped at
+                       //   either limit. Residual = (angle − target) at clamp,
+                       //   0 in-range. Pure rotational analogue of Distance-
+                       //   Limit. The kernel _satisfyAngleLimit handler reports
+                       //   the EFFECTIVE clamped DOF via mate.params._clampedDOF.
 });
 
 function _len(v) { return Math.hypot(v[0], v[1], v[2]); }
@@ -544,6 +560,118 @@ export function universalJointCorrection(thetaA, thetaB, crossAngle = Math.PI / 
 }
 
 /**
+ * Symmetric mate residual (Tier-7b-rest) — two entity points (`pAWorld`,
+ * `pBWorld`) mirror about a symmetry plane (origin `planeOriginWorld`,
+ * unit normal `planeNormalWorld`). Sum of two scalar errors:
+ *   1. midpoint deviation along the normal: |midpoint·n̂ − planeOrigin·n̂|
+ *   2. AB-line non-parallel-to-normal: |AB × n̂|
+ * Zero residual ⇔ pB is the reflection of pA across the plane. Removes
+ * 3 DOF (along-normal midpoint + 2 perpendicular AB components).
+ */
+export function symmetricResidual(pAWorld, pBWorld, planeOriginWorld, planeNormalWorld) {
+  const nN = _normalize(planeNormalWorld);
+  const mid = [
+    0.5 * (pAWorld[0] + pBWorld[0]),
+    0.5 * (pAWorld[1] + pBWorld[1]),
+    0.5 * (pAWorld[2] + pBWorld[2]),
+  ];
+  const wMid = _sub(mid, planeOriginWorld);
+  const midErr = Math.abs(_dot(wMid, nN));
+  const ab = _sub(pBWorld, pAWorld);
+  const perpErr = _len(_cross(ab, nN));
+  return midErr + perpErr;
+}
+
+/**
+ * Symmetric mate — also returns the reflection of pAWorld across the plane,
+ * so the solver knows where to SHIFT pBWorld to satisfy the constraint.
+ * Returns { reflectedA, delta, midErr, perpErr } where delta = reflectedA −
+ * pBWorld (the world-space correction to apply).
+ */
+export function symmetricReflection(pAWorld, pBWorld, planeOriginWorld, planeNormalWorld) {
+  const nN = _normalize(planeNormalWorld);
+  const wA = _sub(pAWorld, planeOriginWorld);
+  const projA = _dot(wA, nN);
+  const reflectedA = [
+    pAWorld[0] - 2 * projA * nN[0],
+    pAWorld[1] - 2 * projA * nN[1],
+    pAWorld[2] - 2 * projA * nN[2],
+  ];
+  const delta = _sub(reflectedA, pBWorld);
+  const mid = [
+    0.5 * (pAWorld[0] + pBWorld[0]),
+    0.5 * (pAWorld[1] + pBWorld[1]),
+    0.5 * (pAWorld[2] + pBWorld[2]),
+  ];
+  const wMid = _sub(mid, planeOriginWorld);
+  const midErr = Math.abs(_dot(wMid, nN));
+  const ab = _sub(pBWorld, pAWorld);
+  const perpErr = _len(_cross(ab, nN));
+  return { reflectedA, delta, midErr, perpErr };
+}
+
+/**
+ * Linear-Coupler mate residual (Tier-7b-rest) — translation of partA along
+ * its axis (`tA`, m) coupled to translation of partB along its axis (`tB`,
+ * m) by `ratio`:
+ *   `tA · ratio − tB  →  0`.
+ * Returns `|tA · ratio − tB|`. Removes 1 DOF. Pure translational analogue
+ * of Gear (which couples θ_A · ratio − θ_B in rotation space).
+ *
+ * Real CAD coupling: two carriages on parallel rails coupled by a cable
+ * + pulley pair (ratio = pulley_R_out / pulley_R_in), or a gear-rack
+ * driving a slave rack via an intermediate pinion (ratio = -R_in/R_out).
+ */
+export function linearCouplerResidual(tA, tB, ratio) {
+  const target = tA * ratio;
+  return Math.abs(target - tB);
+}
+
+/**
+ * Linear-Coupler mate — signed delta + correction the kernel solver
+ * applies to partB's along-axis translation. Returns `{ delta, correction }`
+ * where `delta = signed (tA · ratio − tB)` and correction = the signed
+ * translation to ADD to tB at this iteration.
+ */
+export function linearCouplerCorrection(tA, tB, ratio) {
+  const target = tA * ratio;
+  const delta = target - tB;
+  return { delta, correction: delta };
+}
+
+/**
+ * Angle-Limit mate residual (Tier-7b-rest) — the relative rotation of
+ * partB versus partA about a shared axis must stay in `[angleMin,
+ * angleMax]` (rad). Slack inside (0); clamped at min/max returns the
+ * positive deviation. Pure rotational analogue of Distance-Limit.
+ *
+ * Removes 0 DOF in the slack region; removes 1 DOF when clamped (the
+ * along-axis relative-rotation coordinate is pinned to the boundary).
+ *
+ *   angle < angleMin  →  angleMin − angle  > 0  (need to grow)
+ *   angle > angleMax  →  angle − angleMax  > 0  (need to shrink)
+ *   else              →  0                       (slack)
+ */
+export function angleLimitResidual(angle, angleMin, angleMax) {
+  if (angle < angleMin) return angleMin - angle;
+  if (angle > angleMax) return angle - angleMax;
+  return 0;
+}
+
+/**
+ * Angle-Limit — signed clamp delta + target for use by the kernel solver.
+ * Returns { clamped, target, delta }. `clamped === false` means in-range
+ * (no correction); when clamped, `target` is the boundary angle (min or
+ * max) and `delta = current − target` (the signed angle to SUBTRACT from
+ * the current value to satisfy).
+ */
+export function angleLimitClamp(angle, angleMin, angleMax) {
+  if (angle < angleMin) return { clamped: true, target: angleMin, delta: angle - angleMin, current: angle };
+  if (angle > angleMax) return { clamped: true, target: angleMax, delta: angle - angleMax, current: angle };
+  return { clamped: false, target: angle, delta: 0, current: angle };
+}
+
+/**
  * Bundle: compute residuals for every Tier-7a / Tier-7b / Tier-7c mate
  * kind in one call. Used by AssemblyMate/MateSolver consistency checks +
  * e2e.
@@ -567,6 +695,9 @@ export function assemblyMateResiduals(mates) {
       case 'rackPinion':    return { kind: m.kind, r: rackPinionResidual(m.thetaA, m.translationB, m.pinionRadius) };
       case 'cam':           return { kind: m.kind, r: camResidual(m.pFollowerWorld, m.camProfilePoints) };
       case 'universalJoint':return { kind: m.kind, r: universalJointResidual(m.thetaA, m.thetaB, m.crossAngle ?? Math.PI / 2) };
+      case 'symmetric':     return { kind: m.kind, r: symmetricResidual(m.pAWorld, m.pBWorld, m.planeOriginWorld, m.planeNormalWorld) };
+      case 'linearCoupler': return { kind: m.kind, r: linearCouplerResidual(m.tA, m.tB, m.ratio) };
+      case 'angleLimit':    return { kind: m.kind, r: angleLimitResidual(m.angle, m.angleMin, m.angleMax) };
       default:              throw new Error(`assemblyMateResiduals: unknown kind '${m.kind}'`);
     }
   });

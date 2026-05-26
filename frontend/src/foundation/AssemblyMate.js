@@ -309,6 +309,61 @@ export class Assembly {
     return this;
   }
 
+  // ── Tier-7b-rest advanced mates (6/6 advanced family) ───────────────
+  /**
+   * Symmetric mate (Tier-7b-rest) — two entity points (`pointA` on partA,
+   * `pointB` on partB) mirror about a symmetry plane anchored on partA:
+   *   plane: origin `planeOriginA`, normal `planeNormalA` (both A-local).
+   * Removes 3 DOF (midpoint along normal + 2 perpendicular AB components).
+   * Anchors are `{ type: 'point', xyz: [x,y,z] }` in their local frames.
+   * `planeOriginA`, `planeNormalA` are plain `[x,y,z]` arrays.
+   */
+  symmetric(partA, planeOriginA, planeNormalA, pointA, partB, pointB) {
+    this.mates.push({ kind: 'symmetric', partA, planeOriginA, planeNormalA, pointA, partB, pointB });
+    return this;
+  }
+
+  /**
+   * Linear-Coupler mate (Tier-7b-rest) — translation of partA along
+   * `axisA` coupled to translation of partB along `axisB` by `ratio`:
+   *   `tA · ratio − tB  →  0`
+   * Pure translational analogue of Gear. Removes 1 DOF.
+   *
+   *   axisA, axisB : `{ origin:[x,y,z], dir:[x,y,z] }`. `dir` is the local-
+   *                  frame direction; `axisA.origin` is interpreted as a
+   *                  FIXED WORLD-SPACE reference point (not anchored on
+   *                  either part — matches the kernel convention). `axisB.origin`
+   *                  is ignored; only the world-space `axisA.origin` is used
+   *                  as the shared reference point from which tA + tB are
+   *                  measured along each part's world-space axis direction.
+   *   ratio        : number (default 1 — 1:1 coupling; negative reverses).
+   *
+   * Real CAD coupling: two carriages on parallel rails coupled by a cable
+   * + pulley pair (ratio = pulley_R_out / pulley_R_in).
+   */
+  linearCoupler(partA, axisA, partB, axisB, ratio = 1) {
+    this.mates.push({ kind: 'linearCoupler', partA, axisA, partB, axisB, ratio });
+    return this;
+  }
+
+  /**
+   * Angle-Limit mate (Tier-7b-rest) — the relative rotation of partB
+   * versus partA about a shared axis must stay in `[angleMin, angleMax]`
+   * (rad). Slack within the range (0 DOF removed); clamps at either
+   * boundary (1 DOF removed at the clamped limit). Pure rotational
+   * analogue of Distance-Limit.
+   *
+   *   axisA, axisB : `{ dir:[x,y,z] }` in each local frame (just the
+   *                  direction — the relative rotation is the projection
+   *                  difference of the parts' Euler rotations onto the
+   *                  world-space axes).
+   *   angleMin, angleMax : rad bounds.
+   */
+  angleLimit(partA, axisA, partB, axisB, angleMin = -Math.PI, angleMax = +Math.PI) {
+    this.mates.push({ kind: 'angleLimit', partA, axisA, partB, axisB, angleMin, angleMax });
+    return this;
+  }
+
   /**
    * Compute residuals for the current transform state.
    */
@@ -585,6 +640,57 @@ export class Assembly {
           const cosCurrent = Math.max(-1, Math.min(1, vDot(dA, dB)));
           const angleCurrent = Math.acos(cosCurrent);
           r.push(angleCurrent - (m.crossAngle ?? Math.PI / 2));
+          break;
+        }
+        case 'symmetric': {
+          // Tier-7b-rest: two entity points mirror about a symmetry plane
+          // anchored on partA. Emit 4 scalar residuals: (1) midpoint·n̂
+          // distance from plane origin·n̂; (2-4) AB cross-product with the
+          // normal (3 components — zero when AB ∥ n̂).
+          const nW = vNorm(transformDir(m.partA, m.planeNormalA));
+          const oW = transformPoint(m.partA, m.planeOriginA);
+          const pAW = transformPoint(m.partA, m.pointA.xyz);
+          const pBW = transformPoint(m.partB, m.pointB.xyz);
+          const mid = [
+            0.5 * (pAW[0] + pBW[0]),
+            0.5 * (pAW[1] + pBW[1]),
+            0.5 * (pAW[2] + pBW[2]),
+          ];
+          const wMid = vSub(mid, oW);
+          r.push(vDot(wMid, nW));   // midpoint along normal
+          const ab = vSub(pBW, pAW);
+          const cross = vCross(ab, nW);
+          r.push(cross[0], cross[1], cross[2]);  // AB-perpendicular to normal
+          break;
+        }
+        case 'linearCoupler': {
+          // Tier-7b-rest: tA · ratio − tB = 0. Project each part's position
+          // relative to a FIXED world-space reference origin (axisA.origin
+          // is interpreted as a world-space anchor, NOT a local-frame point
+          // on partA — matches the kernel convention).
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          const oW = m.axisA.origin;
+          const relA = vSub(m.partA.transform.translation, oW);
+          const relB = vSub(m.partB.transform.translation, oW);
+          const tA = vDot(relA, dA);
+          const tB = vDot(relB, dB);
+          r.push(tA * (m.ratio ?? 1) - tB);
+          break;
+        }
+        case 'angleLimit': {
+          // Tier-7b-rest: relative rotation about a shared axis must stay
+          // in [min, max]. Outside → signed clamp delta; inside → 0. The
+          // relative angle is the projection-onto-axis difference of the
+          // parts' Euler rotations (rad after D2R).
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          const rotA = m.partA.transform.rotation.map(v => v * D2R);
+          const rotB = m.partB.transform.rotation.map(v => v * D2R);
+          const ang = vDot(rotB, dB) - vDot(rotA, dA);
+          if (ang < m.angleMin)      r.push(ang - m.angleMin);
+          else if (ang > m.angleMax) r.push(ang - m.angleMax);
+          else                       r.push(0);
           break;
         }
         default:
