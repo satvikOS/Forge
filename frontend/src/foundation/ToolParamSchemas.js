@@ -1333,6 +1333,47 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'angleMax',     label: 'Angle max',            type: 'number', default: 180,  unit: 'deg', min: -3600, max: 3600, step: 1, hint: 'Upper angle clamp (deg). Set +3600 for free spin in the positive direction.' },
     ],
   },
+  // ─── UX TIER 7c-rest — Screw + Rack-Pinion mechanical mates ──────────
+  //
+  // Both couple a rotational coordinate to a translational coordinate by a
+  // single scalar parameter — Screw uses `pitch` (mm/rev) and divides by
+  // 2π so one full turn advances by `pitch`; Rack-Pinion uses
+  // `pinionRadius` (mm) directly so θ rad of pinion rotation moves the
+  // rack by R·θ mm (rolling-without-slipping). Each removes 1 DOF.
+  //
+  'Screw Mate': {
+    title: 'Screw — Mechanical Assembly Mate',
+    blurb: 'Couple a rotation of part A about its axis to a translation of part B along the same axis by `pitch` (mm/rev). Real leadscrew / CNC linear-stage kinematics — one full revolution advances the carriage by `pitch` mm. Pre-select TWO components, then click. Removes 1 DOF. Handedness toggle: Right-hand (default) vs Left-hand reverses the coupling sign.',
+    fields: [
+      { name: 'axisAx',         label: 'Axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',         label: 'Axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',         label: 'Axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',         label: 'Axis B — X (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',         label: 'Axis B — Y (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',         label: 'Axis B — Z (B-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginAx',   label: 'Axis origin A — X',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy',   label: 'Axis origin A — Y',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz',   label: 'Axis origin A — Z',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pitch',          label: 'Pitch',                 type: 'number', default: 2, unit: 'mm/rev', min: -50, max: 50, step: 0.01, hint: 'Lead per revolution. One full turn of A advances B by `pitch` mm.' },
+      { name: 'handedness',     label: 'Handedness',            type: 'enum',   default: 'right', options: ['right', 'left'], hint: 'Right-hand thread (default) vs left-hand reverses the rotation-to-translation direction.' },
+    ],
+  },
+  'Rack-Pinion Mate': {
+    title: 'Rack-Pinion — Mechanical Assembly Mate',
+    blurb: 'Couple a rotation of pinion (part A) about its axis to a translation of rack (part B) along the tangent line by `pinionRadius`. Rolling-without-slipping kinematics: θ rad of pinion rotation advances the rack by R·θ mm. Pre-select pinion then rack, then click. Removes 1 DOF.',
+    fields: [
+      { name: 'axisAx',         label: 'Pinion axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',         label: 'Pinion axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',         label: 'Pinion axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',         label: 'Rack tangent B — X (B-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',         label: 'Rack tangent B — Y (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',         label: 'Rack tangent B — Z (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginAx',   label: 'Pinion axis origin — X',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy',   label: 'Pinion axis origin — Y',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz',   label: 'Pinion axis origin — Z',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pinionRadius',   label: 'Pinion pitch radius',          type: 'number', default: 10, unit: 'mm', min: -500, max: 500, step: 0.1, hint: 'Pitch radius of the pinion. θ rad of rotation moves the rack by R·θ mm. Negative = rack on the opposite side (reverses direction).' },
+    ],
+  },
 
   // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
   //

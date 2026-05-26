@@ -30,6 +30,8 @@ import {
   distanceLimitResidual as fDistanceLimitResidual,
   gearResidual as fGearResidual,
   hingeResidual as fHingeResidual,
+  screwResidual as fScrewResidual,
+  rackPinionResidual as fRackPinionResidual,
   ASSEMBLY_MATE_DOF as F_MATE_DOF,
 } from '../../foundation/KinematicsCore.js';
 
@@ -4694,6 +4696,15 @@ const TOOL_HANDLERS = {
       const r = await _applyStandardMate('hinge', scene, viewport);
       return r;
     },
+    // Tier-7c-rest — mechanical mates (Screw / Rack-Pinion)
+    'Screw Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('screw', scene, viewport);
+      return r;
+    },
+    'Rack-Pinion Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('rackPinion', scene, viewport);
+      return r;
+    },
 
     'Exploded View': (scene) => {
       if (_currentAssembly && _currentAssemblyRoot) {
@@ -9136,6 +9147,8 @@ async function _applyStandardMate(kind, scene, viewport) {
     width: 'Width', path: 'Path', distanceLimit: 'Distance-Limit',
     // Tier-7c — mechanical mates
     gear: 'Gear', hinge: 'Hinge',
+    // Tier-7c-rest — mechanical mates
+    screw: 'Screw', rackPinion: 'Rack-Pinion',
   };
   const toolName = `${labelMap[kind]} Mate`;
   if (!_currentAssembly || _currentAssembly.parts.length < 2) {
@@ -9298,6 +9311,33 @@ async function _applyStandardMate(kind, scene, viewport) {
     const aMax = values.angleMax ?? 180;
     params.angleMin = (aMin <= -3600) ? -Infinity : aMin * D2R;
     params.angleMax = (aMax >= +3600) ? +Infinity : aMax * D2R;
+  } else if (kind === 'screw') {
+    // Tier-7c-rest — local-frame rotation axis (A) + translation axis (B)
+    // + origin (mm→m) + pitch (mm/rev → m/rev, signed by handedness).
+    const M = 0.001;
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
+    params.axisOriginA = new Vec3(
+      (values.axisOriginAx ?? 0) * M,
+      (values.axisOriginAy ?? 0) * M,
+      (values.axisOriginAz ?? 0) * M,
+    );
+    const pitchMM = values.pitch ?? 2;
+    const sign = (values.handedness === 'left') ? -1 : 1;
+    params.pitch = pitchMM * M * sign;
+    params.handedness = values.handedness ?? 'right';
+  } else if (kind === 'rackPinion') {
+    // Tier-7c-rest — local-frame pinion-rotation axis (A) + rack-tangent
+    // axis (B) + origin (mm→m) + pinion pitch radius (mm → m, signed).
+    const M = 0.001;
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 1, values.axisBy ?? 0, values.axisBz ?? 0);
+    params.axisOriginA = new Vec3(
+      (values.axisOriginAx ?? 0) * M,
+      (values.axisOriginAy ?? 0) * M,
+      (values.axisOriginAz ?? 0) * M,
+    );
+    params.pinionRadius = (values.pinionRadius ?? 10) * M;
   }
 
   // 4. Add mate + solve.
@@ -9393,6 +9433,35 @@ async function _applyStandardMate(kind, scene, viewport) {
         [dAW.x, dAW.y, dAW.z], [dBW.x, dBW.y, dBW.z],
         hingeAngle, params.angleMin ?? -Infinity, params.angleMax ?? +Infinity,
       );
+    } else if (kind === 'screw') {
+      // Tier-7c-rest: θ_A · pitch / (2π) − t_B = 0. Project A's Euler
+      // rotation onto its world axis to read θ_A, project B's position
+      // (relative to the axis origin on A in world space) onto B's world
+      // axis to read t_B, then call the foundation residual helper.
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      const dAlen = Math.hypot(dA.x, dA.y, dA.z) || 1;
+      const dBlen = Math.hypot(dB.x, dB.y, dB.z) || 1;
+      const dAn = [dA.x / dAlen, dA.y / dAlen, dA.z / dAlen];
+      const dBn = [dB.x / dBlen, dB.y / dBlen, dB.z / dBlen];
+      const oW = partA.position.add(params.axisOriginA);
+      const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
+      const rel = partB.position.sub(oW);
+      const tB = rel.x * dBn[0] + rel.y * dBn[1] + rel.z * dBn[2];
+      foundationResidual = fScrewResidual(thetaA, tB, params.pitch ?? 0);
+    } else if (kind === 'rackPinion') {
+      // Tier-7c-rest: θ_A · pinionRadius − t_B = 0.
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      const dAlen = Math.hypot(dA.x, dA.y, dA.z) || 1;
+      const dBlen = Math.hypot(dB.x, dB.y, dB.z) || 1;
+      const dAn = [dA.x / dAlen, dA.y / dAlen, dA.z / dAlen];
+      const dBn = [dB.x / dBlen, dB.y / dBlen, dB.z / dBlen];
+      const oW = partA.position.add(params.axisOriginA);
+      const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
+      const rel = partB.position.sub(oW);
+      const tB = rel.x * dBn[0] + rel.y * dBn[1] + rel.z * dBn[2];
+      foundationResidual = fRackPinionResidual(thetaA, tB, params.pinionRadius ?? 0);
     }
   } catch (e) {
     foundationResidual = null;
