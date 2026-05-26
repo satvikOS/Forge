@@ -3926,3 +3926,77 @@ specifiers (no `node:` prefix) per the playgotcha.
 5. **Cooling Channels** (drill conformal cooling channels through the
    core / cavity inserts) — SP-12 fields work + sweep along a path.
 
+---
+
+## Render fix #3 — Assembly-tab components: FrontSide → DoubleSide on the
+##                AssemblyBridge instanced + non-instanced paths (2026-05-25)
+
+### What the user reported
+
+Screenshot of the Assembly tab — 6 components loaded (under the "GEN"
+category of the Components panel) — viewport rendered ONLY edges /
+outlines, no filled face geometry. User: "the model is not at all fully
+visible at same angle. have to move around to the other side."
+
+Distinct from Render fix #1 (`c300ff6a`, which fixed
+`ManifoldThreeBridge.manifoldToMesh`) — assembly components never go
+through the manifold bridge; they go through `AssemblyBridge` instead.
+
+### Root cause
+
+`AssemblyBridge.renderAssembly` has two paths:
+
+1. **Instanced** (≥ 5 parts sharing one solid identity) — builds a
+   `THREE.InstancedMesh` with a material from
+   `EngineMaterials.makeMaterial`. That helper constructs a
+   `MeshPhysicalMaterial` WITHOUT setting `side`, so it inherits the
+   Three.js default of `FrontSide`. With 6 inserts of the same active
+   solid, all 6 land on this path → from any camera angle where the
+   triangles' winding faces away from the camera, the mesh disappears.
+   No edge-overlay exists on the instanced path either, so the body
+   doesn't even have an outline at those angles.
+
+2. **Non-instanced** (< 5 parts per solid identity) — goes through
+   `ThreeJSBridge.solidToGroup` which sets `MeshStandardMaterial({ side:
+   DoubleSide })`. `EngineMaterials.applyToMaterial` then post-applies
+   PBR parameters but does NOT touch `side`, so DoubleSide is preserved.
+   This path was technically OK but unprotected against future material
+   swaps.
+
+### The fix (single file, single commit)
+
+`frontend/src/kernel/bridge/AssemblyBridge.js`:
+
+- `_buildInstancedGroup`: after `EngineMaterials.makeMaterial(...)`, set
+  `material.side = THREE.DoubleSide` explicitly, and
+  `inst.frustumCulled = false` defensively (off-centre instances on
+  big assemblies can fall outside the InstancedMesh bounding-sphere
+  projection at certain orbit angles).
+- `_addPartAsGroup`: re-assert `m.side = THREE.DoubleSide` + `obj
+  .frustumCulled = false` for every mesh in the part group after the
+  `applyToMaterial` PBR overlay — protects against any future preset
+  row that wants FrontSide for transparency (assembly bodies are
+  solids and must stay DoubleSide).
+- `renderAssemblyLegacy`: same re-assertion as `_addPartAsGroup`, for
+  any caller still on the legacy path.
+
+### Verification
+
+`e2e/render-assembly-components-visible-electron.spec.js` (new):
+
+| Stage | What happens |
+|---|---|
+| A | Build one active solid (30 mm box) on the feature tree via `__archdiscAtomic`. |
+| B | Switch to Assembly tab via the ribbon. |
+| C | Click "Insert Component" 6× → 6 parts share the solid identity → InstancedMesh path. |
+| D | Orbit the camera in a 4× longest-dim ring at 4 azimuths (0°/90°/180°/270°), each at +20° elevation. Screenshot the canvas at each angle. |
+| E | Assert every canvas-PNG > 15 KB (filled geometry compresses to tens of KB; edges-only or empty compresses to under 8 KB on a near-#000 background). |
+
+### Targeted regression band
+
+| Spec | Notes |
+|---|---|
+| `render-assembly-components-visible-electron` (NEW) | This pass's acceptance |
+| `render-doubleside-frustum-fix-electron` (regression) | Manifold-bridge + Viewport3D fixes still pass |
+| `ribbon-test` (regression) | Ribbon tab/tool count unchanged |
+

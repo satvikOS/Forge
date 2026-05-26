@@ -93,10 +93,28 @@ export default class AssemblyBridge {
     const material = EngineMaterials.makeMaterial(THREE, first.material, {
       color: first.color,
     });
+    // DoubleSide is REQUIRED here for the same reason it is on the foundation
+    // manifold bridge (Render fix #1, commit c300ff6a). `EngineMaterials
+    // .makeMaterial` builds a `MeshPhysicalMaterial` without touching `side`,
+    // so it inherits the Three.js default of `FrontSide`. A user-reported bug
+    // in the Assembly tab showed 6 instanced components rendering only their
+    // edges/outlines at one camera angle ("have to move around to the other
+    // side") — the classic FrontSide-only symptom on a body whose normals
+    // happen to face away from the camera (e.g. cylinders / boxes inserted
+    // with a rotation, parts whose tessellated triangles came out with
+    // inverted winding from a particular CSG path). Flipping to DoubleSide
+    // is harmless on closed solids and rescues every other case.
+    material.side = THREE.DoubleSide;
 
     const inst = new THREE.InstancedMesh(geometry, material, parts.length);
     inst.castShadow = true;
     inst.receiveShadow = true;
+    // Off-centre instances on a large airframe can place the instance-mesh
+    // bounding sphere outside the camera frustum at certain orbit angles
+    // (matches the Render fix #2 rationale on Viewport3D overlays). Turn
+    // frustum culling off so the InstancedMesh is always drawn — the
+    // overhead is one extra draw call, negligible at the 5+ part threshold.
+    inst.frustumCulled = false;
     inst.name = `Instanced_${first.solid.name || first.solid.id}_x${parts.length}`;
     inst.userData.pickable = true;
     inst.userData.generatedModel = true;
@@ -158,12 +176,33 @@ export default class AssemblyBridge {
       group.userData.pickable = true;
       group.userData.kernelSolid = part.solid;
 
-      // Apply real material PBR — replaces ThreeJSBridge's default
+      // Apply real material PBR — replaces ThreeJSBridge's default.
+      // We also re-assert DoubleSide and frustum-cull-off defensively:
+      // `ThreeJSBridge.solidToGroup` already builds the mesh material with
+      // `side: DoubleSide`, but any future material swap or
+      // applyToMaterial-style override could regress it back to FrontSide
+      // (a MeshPhysicalMaterial built without `side` defaults to FrontSide).
+      // The user-reported Assembly-tab visibility bug — only edges visible
+      // at one angle, body fills in after orbiting — is the classic
+      // FrontSide-only symptom; reasserting DoubleSide on every mesh in
+      // the part group guarantees the body renders from every angle even
+      // if the kernel-side default ever changes.
       group.traverse(obj => {
         if (obj.isMesh && obj.material) {
           EngineMaterials.applyToMaterial(obj.material, part.material, {
             color: part.color,
           });
+          // Re-assert side after the PBR overlay, in case a future
+          // applyToMaterial variant decides to copy `side` from the
+          // material library (some preset rows could legitimately want
+          // FrontSide for transparency, but assembly bodies are solids
+          // and must remain DoubleSide).
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            m.side = THREE.DoubleSide;
+            m.needsUpdate = true;
+          }
+          obj.frustumCulled = false;
         }
       });
 
@@ -207,6 +246,20 @@ export default class AssemblyBridge {
         group.userData.material = part.material;
         group.userData.pickable = true;
         group.userData.kernelSolid = part.solid;
+
+        // Re-assert DoubleSide + frustum-cull-off for the same reasons
+        // as the primary _addPartAsGroup path. See that method for the
+        // full rationale tied to the Assembly-tab visibility report.
+        group.traverse(obj => {
+          if (obj.isMesh && obj.material) {
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            for (const m of mats) {
+              m.side = THREE.DoubleSide;
+              m.needsUpdate = true;
+            }
+            obj.frustumCulled = false;
+          }
+        });
 
         // Apply transform
         group.position.set(part.position.x, part.position.y, part.position.z);
