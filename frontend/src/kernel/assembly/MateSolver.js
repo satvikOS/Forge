@@ -124,6 +124,14 @@ export default class MateSolver {
                                        //   1 rotational DOF (hinge angle)
                                        //   left, optionally clamped via
                                        //   mate.params._clampedDOF.
+      // ── Tier-7c-rest mechanical mates ─────────────────────────────────
+      case 'screw': return 1;          // 1 DOF — A's along-axis rotation
+                                       //   coupled to B's along-axis
+                                       //   translation by `pitch`.
+      case 'rackPinion': return 1;     // 1 DOF — pinion's along-axis
+                                       //   rotation coupled to rack's
+                                       //   along-axis translation by
+                                       //   `pinionRadius`.
       default: return 1;
     }
   }
@@ -178,6 +186,10 @@ export default class MateSolver {
         return MateSolver._satisfyGear(mate, free, anchor);
       case 'hinge':
         return MateSolver._satisfyHinge(mate, free, anchor);
+      case 'screw':
+        return MateSolver._satisfyScrew(mate, free, anchor);
+      case 'rackPinion':
+        return MateSolver._satisfyRackPinion(mate, free, anchor);
       default:
         return MateSolver._mateError(mate);
     }
@@ -636,6 +648,113 @@ export default class MateSolver {
     return dPos.length() + axisErr;
   }
 
+  /**
+   * Screw (Tier-7c-rest): partA's along-axis rotation θ_A drives partB's
+   * along-axis translation t_B via `pitch` (m per revolution, signed for
+   * handedness — positive = right-hand, negative = left-hand):
+   *   `θ_A · pitch / (2π) − t_B  →  0`.
+   * params:
+   *   - `axisA`        : Vec3 (local-frame rotation axis of partA)
+   *   - `axisB`        : Vec3 (local-frame translation axis of partB)
+   *   - `axisOriginA`  : Vec3 (local-frame point on the screw axis on partA;
+   *                            sets the world reference point from which the
+   *                            along-axis component of B's position is
+   *                            measured. Defaults to (0,0,0).)
+   *   - `pitch`        : number (m per revolution; sign = handedness)
+   *
+   * Per-iteration correction: project partB's position onto the world-space
+   * screw axis (anchored at `axisOriginA` on partA) to read off t_B, project
+   * partA's Euler rotation onto its axis to read off θ_A, compute the
+   * signed delta, and slide partB along the axis by `delta · RELAXATION`.
+   * Removes 1 DOF (the coupling reduces a translation + rotation pair to
+   * a single independent scalar).
+   */
+  static _satisfyScrew(mate, free, anchor) {
+    const axisAnchorLocal = mate.params.axisA  || new Vec3(0, 0, 1);
+    const axisFreeLocal   = mate.params.axisB  || new Vec3(0, 0, 1);
+    const originAnchorLocal = mate.params.axisOriginA || Vec3.zero();
+    const pitch = mate.params.pitch ?? 0;
+    // Which local axis belongs to which part (anchor / free decided by fixed flag).
+    const localAnchor = anchor === mate.partA ? axisAnchorLocal : axisFreeLocal;
+    const localFree   = anchor === mate.partA ? axisFreeLocal   : axisAnchorLocal;
+    const originLocal = anchor === mate.partA ? originAnchorLocal : originAnchorLocal;
+    // World-space rotation axis on anchor + world-space translation axis on free
+    // (same physical axis once concentric — but the kernel treats them per-part
+    // for symmetry).
+    const dA = MateSolver._rotateLocal(anchor, localAnchor);
+    const dB = MateSolver._rotateLocal(free,   localFree);
+    const dAlen = dA.length() || 1;
+    const dBlen = dB.length() || 1;
+    const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+    const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+    // Anchor world-space origin of the screw axis (on the anchor part).
+    const oW = anchor.position.add(originLocal);
+    // θ_A: projection of anchor's Euler rotation onto its world-space axis.
+    const thetaA = anchor.rotation.x * dAn.x + anchor.rotation.y * dAn.y + anchor.rotation.z * dAn.z;
+    // t_B: along-axis component of free's position (relative to oW), measured
+    // along dBn (the free part's axis — anchored to dA when concentric).
+    const rel = free.position.sub(oW);
+    const tB  = rel.x * dBn.x + rel.y * dBn.y + rel.z * dBn.z;
+    // Effective pitch sign for anchor/free convention. If anchor is partA we
+    // use pitch as-given; if anchor is partB (less common — fixed B + free A)
+    // we invert because the coupling direction flips.
+    const effPitch = (anchor === mate.partA) ? pitch : -pitch;
+    const target = thetaA * effPitch / (Math.PI * 2);
+    const delta  = target - tB;
+    if (Math.abs(delta) < 1e-12) return 0;
+    // Slide free along dBn by delta · RELAXATION.
+    const step = delta * RELAXATION;
+    free.position = free.position.add(new Vec3(dBn.x * step, dBn.y * step, dBn.z * step));
+    return Math.abs(delta);
+  }
+
+  /**
+   * Rack-and-Pinion (Tier-7c-rest): rotation of pinion (partA) about its
+   * axis is coupled to translation of rack (partB) along the rack tangent
+   * line by `pinionRadius`:
+   *   `θ_A · pinionRadius − t_B  →  0`.
+   * params:
+   *   - `axisA`        : Vec3 (local-frame rotation axis of pinion partA)
+   *   - `axisB`        : Vec3 (local-frame tangent translation axis of rack partB)
+   *   - `axisOriginA`  : Vec3 (local-frame point on pinion's axis;
+   *                            world reference from which t_B is measured)
+   *   - `pinionRadius` : number (m; positive = standard, negative = reverse)
+   *
+   * Per-iteration correction: read off θ_A by projecting pinion's Euler
+   * rotation onto its world-space axis; read off t_B by projecting rack's
+   * position-relative-to-reference onto its tangent axis; slide rack along
+   * the tangent so t_B → θ_A · pinionRadius. Removes 1 DOF.
+   */
+  static _satisfyRackPinion(mate, free, anchor) {
+    const axisAnchorLocal = mate.params.axisA  || new Vec3(0, 0, 1);
+    const axisFreeLocal   = mate.params.axisB  || new Vec3(1, 0, 0);
+    const originAnchorLocal = mate.params.axisOriginA || Vec3.zero();
+    const radius = mate.params.pinionRadius ?? 0;
+    // Anchor is the pinion (rotating), free is the rack (translating). Same
+    // convention as Gear: if the user mated A=pinion, B=rack the partA is
+    // the anchor; if the user mated A=rack, B=pinion the kernel auto-flips.
+    const localAnchor = anchor === mate.partA ? axisAnchorLocal : axisFreeLocal;
+    const localFree   = anchor === mate.partA ? axisFreeLocal   : axisAnchorLocal;
+    const dA = MateSolver._rotateLocal(anchor, localAnchor);
+    const dB = MateSolver._rotateLocal(free,   localFree);
+    const dAlen = dA.length() || 1;
+    const dBlen = dB.length() || 1;
+    const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+    const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+    const oW = anchor.position.add(originAnchorLocal);
+    const thetaA = anchor.rotation.x * dAn.x + anchor.rotation.y * dAn.y + anchor.rotation.z * dAn.z;
+    const rel = free.position.sub(oW);
+    const tB  = rel.x * dBn.x + rel.y * dBn.y + rel.z * dBn.z;
+    // If anchor is partB (the rack) instead of partA, flip radius sign.
+    const effR = (anchor === mate.partA) ? radius : -radius;
+    const target = thetaA * effR;
+    const delta  = target - tB;
+    if (Math.abs(delta) < 1e-12) return 0;
+    const step = delta * RELAXATION;
+    free.position = free.position.add(new Vec3(dBn.x * step, dBn.y * step, dBn.z * step));
+    return Math.abs(delta);
+  }
+
   /** Helper — rotate a local-frame direction by a part's Euler XYZ. */
   static _rotateLocal(part, v) {
     const rx = part.rotation.x, ry = part.rotation.y, rz = part.rotation.z;
@@ -761,6 +880,42 @@ export default class MateSolver {
         d = ((d % TAU) + TAU) % TAU;
         if (d > Math.PI) d -= TAU;
         return Math.abs(d);
+      }
+      case 'screw': {
+        const axisA = mate.params.axisA || new Vec3(0, 0, 1);
+        const axisB = mate.params.axisB || new Vec3(0, 0, 1);
+        const originA = mate.params.axisOriginA || Vec3.zero();
+        const pitch = mate.params.pitch ?? 0;
+        const dA = MateSolver._rotateLocal(mate.partA, axisA);
+        const dB = MateSolver._rotateLocal(mate.partB, axisB);
+        const dAlen = dA.length() || 1;
+        const dBlen = dB.length() || 1;
+        const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+        const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+        const oW = mate.partA.position.add(originA);
+        const thetaA = mate.partA.rotation.x * dAn.x + mate.partA.rotation.y * dAn.y + mate.partA.rotation.z * dAn.z;
+        const rel = mate.partB.position.sub(oW);
+        const tB = rel.x * dBn.x + rel.y * dBn.y + rel.z * dBn.z;
+        const target = thetaA * pitch / (Math.PI * 2);
+        return Math.abs(target - tB);
+      }
+      case 'rackPinion': {
+        const axisA = mate.params.axisA || new Vec3(0, 0, 1);
+        const axisB = mate.params.axisB || new Vec3(1, 0, 0);
+        const originA = mate.params.axisOriginA || Vec3.zero();
+        const radius = mate.params.pinionRadius ?? 0;
+        const dA = MateSolver._rotateLocal(mate.partA, axisA);
+        const dB = MateSolver._rotateLocal(mate.partB, axisB);
+        const dAlen = dA.length() || 1;
+        const dBlen = dB.length() || 1;
+        const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+        const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+        const oW = mate.partA.position.add(originA);
+        const thetaA = mate.partA.rotation.x * dAn.x + mate.partA.rotation.y * dAn.y + mate.partA.rotation.z * dAn.z;
+        const rel = mate.partB.position.sub(oW);
+        const tB = rel.x * dBn.x + rel.y * dBn.y + rel.z * dBn.z;
+        const target = thetaA * radius;
+        return Math.abs(target - tB);
       }
       case 'hinge': {
         const aOrigA = mate.params.axisOriginA || Vec3.zero();

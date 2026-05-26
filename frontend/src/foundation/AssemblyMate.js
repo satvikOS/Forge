@@ -214,6 +214,47 @@ export class Assembly {
   }
 
   /**
+   * Screw mate (Tier-7c-rest) — couples a rotation of partA about its axis
+   * to a translation of partB along the same axis by `pitch` (m per
+   * revolution; positive = right-hand thread, negative = left-hand):
+   *   `theta_A · pitch / (2π) − t_B  →  0`
+   * Removes 1 DOF. Real leadscrew / CNC linear-stage kinematics.
+   *
+   *   axisA : `{ origin:[x,y,z], dir:[x,y,z] }` (partA's rotation axis)
+   *   axisB : `{ origin:[x,y,z], dir:[x,y,z] }` (partB's translation axis;
+   *           must be parallel to axisA in world space — coincident screw
+   *           thread + carriage)
+   *   pitch : metres per revolution (signed for handedness)
+   *
+   * The LM-solver residual reads off θ_A via Euler-projection on the world
+   * axis direction (exact for axis-aligned shafts; the kernel iterative
+   * solver handles arbitrary axes via the same projection — first-order
+   * approximation, see Tier-7c notes for the quaternion follow-on).
+   */
+  screw(partA, axisA, partB, axisB, pitch) {
+    this.mates.push({ kind: 'screw', partA, axisA, partB, axisB, pitch });
+    return this;
+  }
+
+  /**
+   * Rack-and-Pinion mate (Tier-7c-rest) — couples a rotation of pinion
+   * (partA) about its axis to a translation of rack (partB) along the
+   * tangent line by `pinionRadius` (m; positive = standard, negative =
+   * rack-on-opposite-side reverse):
+   *   `theta_A · pinionRadius − t_B  →  0`
+   * Removes 1 DOF. Real rolling-without-slipping rack-and-pinion kinematics.
+   *
+   *   axisA        : `{ origin:[x,y,z], dir:[x,y,z] }` (pinion rotation axis)
+   *   axisB        : `{ origin:[x,y,z], dir:[x,y,z] }` (rack tangent translation axis;
+   *                  must be perpendicular to axisA in world space)
+   *   pinionRadius : m (signed)
+   */
+  rackPinion(partA, axisA, partB, axisB, pinionRadius) {
+    this.mates.push({ kind: 'rackPinion', partA, axisA, partB, axisB, pinionRadius });
+    return this;
+  }
+
+  /**
    * Compute residuals for the current transform state.
    */
   _residuals() {
@@ -401,6 +442,39 @@ export class Assembly {
               r.push(0);
             }
           }
+          break;
+        }
+        case 'screw': {
+          // Tier-7c-rest: θ_A · pitch / (2π) − t_B = 0.
+          // θ_A: projection of partA's Euler rotation (rad, after D2R) onto
+          //      world-space partA axis direction.
+          // t_B: projection of partB position relative to axis origin (on A,
+          //      in world space) onto partB's world-space axis direction.
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          const oA = transformPoint(m.partA, m.axisA.origin);
+          const rotA = m.partA.transform.rotation.map(v => v * D2R);
+          const thetaA = vDot(rotA, dA);
+          const rel = vSub(m.partB.transform.translation, oA);
+          const tB = vDot(rel, dB);
+          const target = thetaA * (m.pitch ?? 0) / (Math.PI * 2);
+          r.push(target - tB);
+          break;
+        }
+        case 'rackPinion': {
+          // Tier-7c-rest: θ_A · pinionRadius − t_B = 0.
+          // Same projection trick as `screw` but coupling is linear in θ
+          // rather than divided by 2π. The pinion (A) rotates, the rack (B)
+          // translates along its world-space tangent axis.
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          const oA = transformPoint(m.partA, m.axisA.origin);
+          const rotA = m.partA.transform.rotation.map(v => v * D2R);
+          const thetaA = vDot(rotA, dA);
+          const rel = vSub(m.partB.transform.translation, oA);
+          const tB = vDot(rel, dB);
+          const target = thetaA * (m.pinionRadius ?? 0);
+          r.push(target - tB);
           break;
         }
         default:

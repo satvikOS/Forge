@@ -67,6 +67,18 @@ export const ASSEMBLY_MATE_DOF = Object.freeze({
                        //   rotational DOF about the hinge axis. Optional
                        //   angle limits clamp that remaining DOF dynamically
                        //   (reported via `mate.params._clampedDOF`).
+  // ── Tier-7c-rest mechanical mates ─────────────────────────────────
+  screw: 1,            // 1 DOF — couples a rotation of partA about its
+                       //   along-axis angle to a translation of partB along
+                       //   the same axis, by `pitch` (mm per revolution).
+                       //   Residual = theta_A * pitch / (2π) − translation_B.
+                       //   Right-hand (default) vs left-hand handedness flips
+                       //   the sign of the coupling.
+  rackPinion: 1,       // 1 DOF — couples a rotation of pinion (partA) about
+                       //   its axis to a translation of rack (partB) along
+                       //   the tangent line, by pinion `pinionRadius`.
+                       //   Residual = theta_A * pinionRadius − translation_B
+                       //   (positive radius = standard, negative = reverse).
 });
 
 function _len(v) { return Math.hypot(v[0], v[1], v[2]); }
@@ -341,6 +353,70 @@ export function hingeBreakdown(
 }
 
 /**
+ * Screw mate residual (Tier-7c-rest) — couples a rotation of partA about
+ * its axis (`thetaA`, rad) to a translation of partB along the same axis
+ * (`translationB`, metres), by `pitch` (metres per revolution; positive for
+ * right-hand thread, negative for left-hand):
+ *   `theta_A · pitch / (2π) − translation_B  →  0`
+ * Removes 1 DOF (the rotation-translation coupling is now scalar). The
+ * residual is the absolute value of the LHS; sign-aware variants live in
+ * `screwCorrection` for use by the kernel solver.
+ *
+ * Real CNC linear-stage / leadscrew kinematics: one full revolution of the
+ * shaft advances the carriage by `pitch` mm (e.g. pitch = 2 mm/rev → after
+ * 5 revs the carriage moves 10 mm along the screw axis).
+ */
+export function screwResidual(thetaA, translationB, pitch) {
+  const targetTranslation = thetaA * pitch / (Math.PI * 2);
+  return Math.abs(targetTranslation - translationB);
+}
+
+/**
+ * Screw mate — signed delta + correction the kernel solver applies to
+ * partB's along-axis translation. Returns `{ delta, correction }` where
+ *   delta      = signed (thetaA · pitch / (2π) − translationB)
+ *   correction = the signed translation to ADD to translationB to satisfy
+ *                the coupling at this iteration.
+ */
+export function screwCorrection(thetaA, translationB, pitch) {
+  const targetTranslation = thetaA * pitch / (Math.PI * 2);
+  const delta = targetTranslation - translationB;
+  return { delta, correction: delta };
+}
+
+/**
+ * Rack-and-Pinion mate residual (Tier-7c-rest) — couples a rotation of the
+ * pinion (partA) about its axis (`thetaA`, rad) to a translation of the
+ * rack (partB) along the tangent line of contact (`translationB`, metres),
+ * by `pinionRadius` (metres, the pitch radius of the pinion):
+ *   `theta_A · pinionRadius − translation_B  →  0`
+ * Removes 1 DOF (one rotational coordinate of A is now equal to one
+ * translational coordinate of B up to the constant pinionRadius).
+ *
+ * Real kinematic constraint: a pinion of radius R rolling without slipping
+ * on a rack advances the rack by `R · theta` for each `theta` rad of pinion
+ * rotation. Negative `pinionRadius` reverses the coupling direction (mirror
+ * the rack on the opposite side of the pinion).
+ */
+export function rackPinionResidual(thetaA, translationB, pinionRadius) {
+  const targetTranslation = thetaA * pinionRadius;
+  return Math.abs(targetTranslation - translationB);
+}
+
+/**
+ * Rack-and-Pinion mate — signed delta + correction. Returns `{ delta,
+ * correction }` where
+ *   delta      = signed (thetaA · pinionRadius − translationB)
+ *   correction = the signed translation to ADD to translationB to satisfy
+ *                the coupling.
+ */
+export function rackPinionCorrection(thetaA, translationB, pinionRadius) {
+  const targetTranslation = thetaA * pinionRadius;
+  const delta = targetTranslation - translationB;
+  return { delta, correction: delta };
+}
+
+/**
  * Bundle: compute residuals for every Tier-7a / Tier-7b / Tier-7c mate
  * kind in one call. Used by AssemblyMate/MateSolver consistency checks +
  * e2e.
@@ -360,6 +436,8 @@ export function assemblyMateResiduals(mates) {
       case 'distanceLimit': return { kind: m.kind, r: distanceLimitResidual(m.pAWorld, m.pBWorld, m.minDist, m.maxDist) };
       case 'gear':          return { kind: m.kind, r: gearResidual(m.thetaA, m.thetaB, m.gearRatio, m.phase ?? 0) };
       case 'hinge':         return { kind: m.kind, r: hingeResidual(m.pAnchorAWorld, m.pAnchorBWorld, m.axisAWorld, m.axisBWorld, m.hingeAngle ?? 0, m.angleMin ?? -Infinity, m.angleMax ?? Infinity) };
+      case 'screw':         return { kind: m.kind, r: screwResidual(m.thetaA, m.translationB, m.pitch) };
+      case 'rackPinion':    return { kind: m.kind, r: rackPinionResidual(m.thetaA, m.translationB, m.pinionRadius) };
       default:              throw new Error(`assemblyMateResiduals: unknown kind '${m.kind}'`);
     }
   });
