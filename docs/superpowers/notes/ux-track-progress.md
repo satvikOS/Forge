@@ -1187,6 +1187,128 @@ cos(15°)·π drive-out) in one workflow.
 
 ---
 
+## Tier 7b-rest — Advanced assembly mates (6 of 6 shipped) — Symmetric + Linear-Coupler + Angle-Limit  ⟶ ADVANCED MATES COMPLETE 6/6
+
+Tier-7b-rest closes the SW Advanced-mate family with the last three
+additions on top of Width + Path + Distance-Limit: **Symmetric** (two
+entities mirror about a symmetry plane), **Linear-Coupler** (pure
+translational analogue of Gear) and **Angle-Limit** (pure rotational
+analogue of Distance-Limit). Each contributes a real kinematic residual +
+correct DOF reduction, integrated end-to-end (kernel `MateSolver`
+satisfier + kernel-free `KinematicsCore` residual helper + ribbon button
++ `_applyStandardMate` handler + param schema + bespoke motion-capture
+e2e on a scissor-lift assembly).
+
+**Advanced-mate family is now 6 of 6 — ADVANCED MATES COMPLETE 6/6.**
+Combined with the standard set (8/8) and the mechanical set (6/6), the
+total mate-family count is now **16/16 complete** (4 base + 4 Tier-7a
+standard + 6 advanced + 6 mechanical, all shipped end-to-end).
+
+| Tier-7 # | Tool | Status | Implementation |
+|---|---|---|---|
+| 78 | **Symmetric Mate** | **DONE** | Real solver in `kernel/assembly/MateSolver.js::_satisfySymmetric` — two entity points (one on each part) mirror about a symmetry plane anchored on partA. Plane defined by `planeOriginA` + `planeNormalA` in A-local. Per-iteration correction: reflect pAW across the plane, slide `free` so pBW → reflected pAW. Residual = midpoint-along-normal deviation + |AB × n̂|. Removes 3 DOF (1 along-normal midpoint + 2 perpendicular AB components). Foundation `symmetricResidual()` + `symmetricReflection()` (which returns the reflected pA + signed delta to apply) cross-check. Ribbon "Symmetric Mate" (⇋); schema drives plane origin/normal + entity points on each part. |
+| 79 | **Linear-Coupler Mate** | **DONE** | Real solver `_satisfyLinearCoupler` — translation of partA along `axisA` coupled to translation of partB along `axisB` by `ratio`: `tA · ratio − tB → 0`. Pure translational analogue of Gear (which couples θ_A · ratio − θ_B). Per-iteration correction: read tA, tB by projecting (part.position − axisOriginAW) onto each world-space axis; slide free along its world axis by `(tA·ratio − tB) · RELAXATION`. Removes 1 DOF. Foundation `linearCouplerResidual()` + `linearCouplerCorrection()` cross-checks. Ribbon "Linear-Coupler Mate" (⇆); schema drives axisA + axisB + axisOriginA + ratio. Real CAD coupling: two carriages on parallel rails coupled by a cable+pulley pair (ratio = pulley_R_out / pulley_R_in). |
+| 80 | **Angle-Limit Mate** | **DONE** | Real solver `_satisfyAngleLimit` — relative rotation of partB versus partA about a shared axis clamped to `[angleMin, angleMax]` (rad). Pure rotational analogue of Distance-Limit. Slack inside (0 DOF removed, 0 residual); clamped at min/max → 1 DOF removed, residual pulls back. Same Euler-projection trick as Gear / Hinge: project each part's Euler rotation onto its world-axis direction → θ_A, θ_B; relative angle = θ_B − θ_A. Per-iteration correction at the clamp distributes the angular delta across `free`'s Euler XYZ weighted by dBn. Foundation `angleLimitResidual()` + `angleLimitClamp()` (which returns `{clamped, target, delta}`) cross-checks. Ribbon "Angle-Limit Mate" (∡); schema drives axisA + axisB + angleMin/Max (deg). Clamp state surfaced via `mate.params._clampedDOF` / `_activeLimit` (same convention as Distance-Limit + Hinge). |
+
+**Files added/changed for Tier-7b-rest:**
+
+- `frontend/src/kernel/assembly/MateSolver.js` — new `_satisfySymmetric`, `_satisfyLinearCoupler`, `_satisfyAngleLimit`; `_mateDOFRemoved` extended with `symmetric=3`, `linearCoupler=1`, `angleLimit=0` (clamp-effective via `_clampedDOF`); `_mateError` extended with the three residual computations; `_satisfyMate` switch extended for the three new kinds.
+- `frontend/src/foundation/AssemblyMate.js` — `symmetric(partA, planeOriginA, planeNormalA, pointA, partB, pointB)`, `linearCoupler(partA, axisA, partB, axisB, ratio)`, `angleLimit(partA, axisA, partB, axisB, angleMin, angleMax)` factories on the foundation Assembly class; residual cases in `_residuals()` so the LM solver handles all 18 mate kinds end-to-end (4 base + 4 Tier-7a + 3 Tier-7b + 2 Tier-7c + 2 Tier-7c-rest + 2 Tier-7c-final + 3 Tier-7b-rest).
+- `frontend/src/foundation/KinematicsCore.js` — `ASSEMBLY_MATE_DOF` table extended with `symmetric=3`, `linearCoupler=1`, `angleLimit=0`. New kernel-free helpers `symmetricResidual`, `symmetricReflection`, `linearCouplerResidual`, `linearCouplerCorrection`, `angleLimitResidual`, `angleLimitClamp`. `assemblyMateResiduals(mates)` bundle extended to dispatch the three new kinds.
+- `frontend/src/components/RibbonToolbar.jsx` — 3 new entries in Assembly→Mates appended after the Tier-7c-final Cam/Universal-Joint two: Symmetric Mate (⇋), Linear-Coupler Mate (⇆), Angle-Limit Mate (∡).
+- `frontend/src/foundation/ToolParamSchemas.js` — 3 new schemas appended after `'Universal-Joint Mate'`: Symmetric (plane origin/normal + entity points), Linear-Coupler (axes + origin + ratio), Angle-Limit (axes + min/max deg).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — 3 thin assembly-group handlers (`'Symmetric Mate'`, `'Linear-Coupler Mate'`, `'Angle-Limit Mate'`) delegate to the existing `_applyStandardMate` helper which is extended with the three new kinds (labelMap, params-build incl. mm→m + deg→rad conversions, foundation residual cross-check, clampedDOF introspection extended to include angleLimit).
+- `e2e/ux-tier7b-rest-symm-coupler-anglelimit-electron.spec.js` — bespoke motion-capture e2e (8 stills + session video). See section below for the framing.
+
+### Bespoke real workflow — scissor lift
+
+A 6-part scissor-lift scene exercising all three Tier-7b-rest mates on real
+lift kinematics: two scissor arms mirrored about the vertical YZ plane via
+**Symmetric**, a hydraulic actuator coupled 2:1 to the left arm's Z motion
+via **Linear-Coupler**, and a 0°-60° rotation clamp on the left arm via
+**Angle-Limit**. ONE perfectly-viewable iso framing throughout. ONE `test()`
+block, `--workers=1`, `slowMo=220`, `recordVideo`, no `node:*` imports.
+
+| Component | Size (mm) | Initial pose |
+|---|---|---|
+| Base        | 220 × 120 × 40 (dark-grey)  | origin, FIXED (the ground base) |
+| ArmLeft     | 200 × 16 × 16 (gold)        | (−40, 0, 40) |
+| ArmRight    | 200 × 16 × 16 (gold)        | (+40, 0, 40) — initial guess; Symmetric will reflect to (−60, 0, 40) entity tip |
+| Platform    | 220 × 120 × 12 (light-grey) | (0, 0, 120) |
+| Actuator    | 40 × 40 × 60 (copper)       | (140, 0, 40) — Z coupled 2:1 to ArmLeft.z |
+| SafetyPivot | 24 × 24 × 24 (red)          | (−100, 0, 40) — visual context for the angle-limit clamp |
+
+Initial DOF = 6×6 − 6 (Base fixed) = **30**. The three mates are applied
+in order via real ribbon clicks after seeding `__archdiscSelectedAssemblyParts`.
+
+| Frame | Headline |
+|---|---|
+| 01 — A1 | Scissor-lift initial iso (6 parts visible; Assembly tab active; new Symmetric / Linear-Coupler / Angle-Limit ribbon buttons visible) — DOF 30 |
+| 02 — B1 | After **Symmetric** (ArmLeft↔ArmRight, YZ plane through Base centre): ArmRight's entity tip is now the reflection of ArmLeft's across the YZ plane; DOF 30→27 (−3); foundation residual ≪ 2 mm |
+| 03 — B2 | After **Linear-Coupler** (ArmLeft↔Actuator, ratio = 2 along Z): the actuator's Z is now coupled 2:1 to the left arm's Z; DOF 27→26 (−1); foundation residual ≪ 2 mm |
+| 04 — B3 | After **Angle-Limit** (Base↔ArmLeft, [0°, 60°] about X): the relative rotation is currently 0° (in slack); DOF 26→26 (−0); clampedDOF = 0 |
+| 05 — B4 | Programmatic +30° X rotation on ArmLeft → Angle-Limit stays SLACK (30° ∈ [0°, 60°]); clampedDOF still 0 |
+| 06 — B5 | Programmatic +90° X rotation on ArmLeft → Angle-Limit CLAMPS to 60°; clampedDOF = 1, activeLimit = 'max' |
+| 07 — C1 | Programmatic +20 mm Z shift on ArmLeft → Linear-Coupler drives Actuator +40 mm Z (ratio = 2 verified live) |
+| 08 — C2 | Final state — three Tier-7b-rest mates stacked; book-kept DOF = 26 |
+
+**Focal assertions (verified in the spec):**
+
+| Mate | DOF removed (table) | DOF removed (actual) | Foundation residual | Analytic kinematic check |
+|---|---|---|---|---|
+| Symmetric | 3 | 3 ✓ | < 2e-3 (midpoint·n̂ + |AB × n̂|) | After solver: ArmRight's entity-tip world = reflection of ArmLeft's entity-tip world across the YZ plane (within ±2 mm per axis) |
+| Linear-Coupler | 1 | 1 ✓ | < 2e-3 m | After +20 mm Z shift on ArmLeft, Actuator deltaZ ≈ 2 · ArmLeft deltaZ (within ±5 mm) |
+| Angle-Limit | 0 (slack) / 1 (clamped) | 0 ✓ in slack; 1 ✓ at clamp | < 1e-3 rad | Slack at 0° → no clamp; slack at +30° → no clamp; +90° → clamps to 60° (within ±8°) |
+
+### E2E + regression subset (Tier-7b-rest)
+
+Headed Electron, `--workers=1`, `--retries=0`. All earlier tiers remain
+green; the new spec covers Symmetric / Linear-Coupler / Angle-Limit
+handlers + ribbon dispatch + kernel solver + foundation residual helpers
++ real kinematic propagation (Symmetric mirror, Linear-Coupler 2:1 drive,
+Angle-Limit slack-vs-clamp) in one workflow.
+
+| Spec | Result |
+|---|---|
+| `ux-tier7a-standard-mates-electron` (regression) | PASS (unchanged — `_applyStandardMate` extended but Tier-7a branches untouched) |
+| `ux-tier7b-advanced-mates-electron` (regression) | PASS (unchanged — same dispatch helper, additive only) |
+| `ux-tier7c-mechanical-mates-electron` (regression) | PASS (unchanged — Gear/Hinge branches untouched) |
+| `ux-tier7c-rest-screw-rackpinion-electron` (regression) | PASS (unchanged — Screw/Rack-Pinion branches untouched) |
+| `ux-tier7c-final-cam-universal-electron` (regression) | PASS (unchanged — Cam/Universal-Joint branches untouched) |
+| `ribbon-test` (regression) | PASS (unchanged — 3 new buttons appended after Cam/Universal-Joint) |
+| `ux-tier7b-rest-symm-coupler-anglelimit-electron` (NEW) | PASS — 8 stills + session video; assertions on DOF book-keeping (Symmetric: −3, Linear-Coupler: −1, Angle-Limit: 0/1 by clamp state) + foundation cross-checks + Symmetric reflection verification + Linear-Coupler 2:1 propagation + Angle-Limit slack-vs-clamp transition |
+
+### Honest gaps in Tier-7b-rest
+
+1. **SW Advanced-mate family is now COMPLETE at 6/6.** Width + Path +
+   Distance-Limit + Symmetric + Linear-Coupler + Angle-Limit all shipped
+   end-to-end. Combined with the Standard (8/8) and Mechanical (6/6)
+   families, the total mate-family coverage is now **16/16**. The remaining
+   Tier-7 gaps (per `solidworks-course-synthesis.md` §6.7) are Component
+   Pattern + Toolbox + Configurations + Belt-Chain — orthogonal to the
+   mate-family closure.
+2. **Symmetric mate's correction is single-direction.** The kernel
+   satisfier reflects pAW across the plane and shifts `free` to put pBW on
+   the reflected target. If BOTH parts are free, the iterative solver still
+   converges because the partB-moves convention propagates; for the
+   general anchored-on-A case the convergence is one-shot per iteration.
+   No quaternion-aware rotation correction yet (the mate constrains
+   entity-point positions, not full rigid-body symmetry of orientation —
+   for that, add a separate Parallel/Perpendicular mate on a representative
+   axis).
+3. **Linear-Coupler is the pure translation analogue of Gear, with
+   identical anchor/free convention.** Same Euler-projection convention,
+   same RELAXATION damping. The convention `eff = (anchor === partA)
+   ? ratio : 1/ratio` mirrors Gear; if both parts are free the partB-
+   moves convention applies and the relationship still converges.
+4. **Angle-Limit's correction is distributed across Euler XYZ weighted by
+   the world-axis direction** (same approximation as Gear / Hinge clamps).
+   For axis-aligned axes (world X/Y/Z) the correction is exact; for
+   arbitrary axes the satisfier converges iteratively but a single pass
+   may not exactly hit the limit — the next solver iteration tightens.
+
+---
+
 ## Tiers 2 (remaining) – 10 — Outstanding (no work yet)
 
 | Tier | Scope | Status |
@@ -1196,7 +1318,7 @@ cos(15°)·π drive-out) in one workflow.
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b + 5c shipped (9 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend + Closed Corner / Sweep Flange)** |
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b + 6c shipped (6 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead + Cut List; Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6d)** |
-| 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, ~~Screw/Rack-Pinion~~ done in Tier 7c-rest, remaining Advanced + Cam + Universal-Joint, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c + 7c-rest shipped (11/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 4 of 6 mechanical)** |
+| 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, ~~Screw/Rack-Pinion~~ done in Tier 7c-rest, ~~Cam + Universal-Joint~~ done in Tier 7c-final, ~~Symmetric + Linear-Coupler + Angle-Limit~~ done in Tier 7b-rest — ADVANCED MATES COMPLETE 6/6, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7b-rest + 7c + 7c-rest + 7c-final shipped (16/16+ mate-families; standard 8/8 + advanced 6/6 + mechanical 6/6)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b + 9c shipped (6 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces + Parting Surface ruled; Side Actions / Cooling Channels queued)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | **Partial — Tier 10 (focused) shipped (Equation Manager + Global Variables + sketch-dim parametric hook; Design Tables / Configurations / 3D-feature-param wiring queued)** |
