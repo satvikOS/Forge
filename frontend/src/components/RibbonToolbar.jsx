@@ -263,6 +263,9 @@ const TABS = {
         // Tier-7c-rest — mechanical mates (Screw / Rack-Pinion)
         { name: 'Screw Mate', icon: '⌬', key: 'assembly' },
         { name: 'Rack-Pinion Mate', icon: '⥯', key: 'assembly' },
+        // Tier-7c-final — mechanical mates (Cam / Universal-Joint) — 6/6
+        { name: 'Cam Mate', icon: '◐', key: 'assembly' },
+        { name: 'Universal-Joint Mate', icon: '✕', key: 'assembly' },
       ]},
       { label: 'Analyze', tools: [
         { name: 'Exploded View', icon: '💥', key: 'assembly' },

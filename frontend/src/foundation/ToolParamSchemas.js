@@ -1375,6 +1375,59 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 7c-final — Cam + Universal-Joint mechanical mates (6/6) ───
+  //
+  // Cam — point-on-cam-surface contact. The follower's contact point stays
+  // on the cam profile (the cam's perimeter polyline in its rotating frame).
+  // As the cam rotates, the follower translates radially. Schema drives:
+  //   - cam rotation axis (local-frame direction)
+  //   - cam profile shape (enum: ellipse / circle / heart; semi-axes in mm)
+  //   - profile-sample count (resolution of the polyline)
+  //   - follower contact point (B-local, mm)
+  //   - follower translation axis (local-frame direction)
+  // Profile polyline is generated procedurally from the shape parameters in
+  // the ToolExecutionEngine handler so the schema stays user-friendly.
+  //
+  // Universal-Joint — velocity-coupling between two non-collinear shafts
+  // through a cross-pin at angle `crossAngle` (the misalignment angle
+  // between the input and output shafts; default 90° for a standard Cardan
+  // joint but most automotive drivelines run 10°–30°). Static residual:
+  //   cos(crossAngle) · θ_A − θ_B  →  0.
+  // Schema drives the two axis directions + the cross-angle in degrees.
+  //
+  'Cam Mate': {
+    title: 'Cam — Mechanical Assembly Mate',
+    blurb: 'Point-on-cam-surface contact. The follower\'s contact point stays on the cam profile as the cam rotates. Removes 1 DOF. Profile polyline is generated from the chosen shape (ellipse / circle / heart) + semi-axis dimensions; the handler transforms it into the cam\'s rotating frame so it spins with the cam. Pre-select cam, then follower.',
+    fields: [
+      { name: 'axisDirAx',   label: 'Cam axis A — X (A-local)', type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAy',   label: 'Cam axis A — Y (A-local)', type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAz',   label: 'Cam axis A — Z (A-local)', type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'profileShape',label: 'Profile shape',            type: 'enum',   default: 'ellipse', options: ['ellipse', 'circle', 'heart'], hint: 'Ellipse = standard automotive cam lobe; Circle = round (no lift, sanity check); Heart = symmetric dual-lobe.' },
+      { name: 'profileA',    label: 'Semi-major axis (a)',      type: 'number', default: 20, unit: 'mm', min: 0.1, max: 500, step: 0.1, hint: 'Cam max radius (the far point of the lobe).' },
+      { name: 'profileB',    label: 'Semi-minor axis (b)',      type: 'number', default: 12, unit: 'mm', min: 0.1, max: 500, step: 0.1, hint: 'Cam min radius (the near point of the lobe). Lift = a − b.' },
+      { name: 'profileSamples', label: 'Profile sample count',  type: 'number', default: 64, min: 8, max: 512, step: 1, hint: 'Polyline resolution. 64 samples is plenty for smooth contact.' },
+      { name: 'followerPtBx',label: 'Follower point B — X',     type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'followerPtBy',label: 'Follower point B — Y',     type: 'number', default: -25, unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Contact point on the follower in B-local. Should sit ON the cam profile in world space at the initial pose.' },
+      { name: 'followerPtBz',label: 'Follower point B — Z',     type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'followerAxisDirBx', label: 'Follower axis B — X', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'followerAxisDirBy', label: 'Follower axis B — Y', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001, hint: 'Direction the follower can slide. Typically the radial direction from the cam centre.' },
+      { name: 'followerAxisDirBz', label: 'Follower axis B — Z', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+    ],
+  },
+  'Universal-Joint Mate': {
+    title: 'Universal-Joint — Mechanical Assembly Mate',
+    blurb: 'Velocity-coupling between two non-collinear shafts through a cross-pin at angle `crossAngle` (the misalignment angle between input and output shafts). Static residual: cos(crossAngle) · θ_A − θ_B → 0. Real Cardan-joint kinematics. Removes 2 DOF (axis-alignment-up-to-cross + along-axis phase coupling); 1 rotational + 3 translational DOFs remain. Pre-select input shaft, then output shaft.',
+    fields: [
+      { name: 'axisAx',     label: 'Input axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',     label: 'Input axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',     label: 'Input axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',     label: 'Output axis B — X (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',     label: 'Output axis B — Y (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',     label: 'Output axis B — Z (B-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'crossAngle', label: 'Cross-angle',                 type: 'number', default: 15, unit: 'deg', min: 0, max: 90, step: 0.1, hint: 'Misalignment angle between input and output shafts. Real automotive drivelines run 10°–30°. 0 = in-line rigid coupling; 90° = Cardan singularity (decouples).' },
+    ],
+  },
+
   // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
   //
   // Three drafting-tab tools that turn a 3D part / assembly into a

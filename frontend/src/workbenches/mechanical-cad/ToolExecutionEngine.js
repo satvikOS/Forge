@@ -32,6 +32,8 @@ import {
   hingeResidual as fHingeResidual,
   screwResidual as fScrewResidual,
   rackPinionResidual as fRackPinionResidual,
+  camResidual as fCamResidual,
+  universalJointResidual as fUniversalJointResidual,
   ASSEMBLY_MATE_DOF as F_MATE_DOF,
 } from '../../foundation/KinematicsCore.js';
 
@@ -4705,6 +4707,15 @@ const TOOL_HANDLERS = {
       const r = await _applyStandardMate('rackPinion', scene, viewport);
       return r;
     },
+    // Tier-7c-final — mechanical mates (Cam / Universal-Joint) — 6/6
+    'Cam Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('cam', scene, viewport);
+      return r;
+    },
+    'Universal-Joint Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('universalJoint', scene, viewport);
+      return r;
+    },
 
     'Exploded View': (scene) => {
       if (_currentAssembly && _currentAssemblyRoot) {
@@ -9326,6 +9337,8 @@ async function _applyStandardMate(kind, scene, viewport) {
     gear: 'Gear', hinge: 'Hinge',
     // Tier-7c-rest — mechanical mates
     screw: 'Screw', rackPinion: 'Rack-Pinion',
+    // Tier-7c-final — mechanical mates (6/6)
+    cam: 'Cam', universalJoint: 'Universal-Joint',
   };
   const toolName = `${labelMap[kind]} Mate`;
   if (!_currentAssembly || _currentAssembly.parts.length < 2) {
@@ -9515,6 +9528,74 @@ async function _applyStandardMate(kind, scene, viewport) {
       (values.axisOriginAz ?? 0) * M,
     );
     params.pinionRadius = (values.pinionRadius ?? 10) * M;
+  } else if (kind === 'cam') {
+    // Tier-7c-final — cam axis on A (local direction), procedurally-generated
+    // profile polyline in A-local (ellipse / circle / heart in the cam's
+    // rotating frame; converted mm → m), follower contact point on B
+    // (mm → m), follower translation axis on B (local direction).
+    //
+    // The profile polyline is the cam's perimeter curve in its OWN rotating
+    // frame — as the cam rotates, the kernel solver transforms each sample
+    // through the cam's pose so the polyline spins with the cam (real
+    // cam-follower kinematics).
+    //
+    // Caller can override the polyline directly via
+    //   `window.__archdiscCamMateProfile = [[xMM, yMM, zMM], ...]`
+    // (samples in cam-local frame). Otherwise we synthesise from the
+    // `profileShape` + (a, b) semi-axes + `profileSamples` count.
+    const M = 0.001;
+    params.axisOriginA = Vec3.zero();   // cam rotates about its own origin
+    params.axisDirA = new Vec3(values.axisDirAx ?? 0, values.axisDirAy ?? 1, values.axisDirAz ?? 0);
+    const a = (values.profileA ?? 20) * M;       // semi-major (max radius)
+    const b = (values.profileB ?? 12) * M;       // semi-minor (min radius)
+    const N = Math.max(8, Math.round(values.profileSamples ?? 64));
+    const shape = values.profileShape ?? 'ellipse';
+    const userProfile = (typeof window !== 'undefined') ? window.__archdiscCamMateProfile : null;
+    if (Array.isArray(userProfile) && userProfile.length >= 4) {
+      params.camProfileLocalA = userProfile.map(p => new Vec3(p[0] * M, p[1] * M, p[2] * M));
+    } else {
+      // Cam profile in the plane PERPENDICULAR to the cam axis. We choose
+      // the (X, Z) plane when axisDirA ~ (0, 1, 0) — the default — so the
+      // cam lies flat. For other axes the polyline still lives in the
+      // cam-local frame; the solver rotates it by the cam's pose.
+      const samples = [];
+      for (let i = 0; i <= N; i++) {
+        const t = (i % N) / N;
+        const theta = t * 2 * Math.PI;
+        let r;
+        if (shape === 'circle') {
+          r = (a + b) * 0.5;
+        } else if (shape === 'heart') {
+          // Cardioid-ish: r(θ) = b + (a − b) · (1 − cos(θ)) / 2  · 2
+          r = b + (a - b) * (1 - Math.cos(theta));
+        } else {
+          // Ellipse polar (cam in the X–Z plane spinning about Y).
+          const ct = Math.cos(theta), st = Math.sin(theta);
+          r = (a * b) / Math.hypot(b * ct, a * st);
+        }
+        const x = r * Math.cos(theta);
+        const z = r * Math.sin(theta);
+        samples.push(new Vec3(x, 0, z));
+      }
+      params.camProfileLocalA = samples;
+    }
+    params.followerPtB = new Vec3(
+      (values.followerPtBx ?? 0)  * M,
+      (values.followerPtBy ?? -25) * M,
+      (values.followerPtBz ?? 0)  * M,
+    );
+    params.followerAxisDirB = new Vec3(
+      values.followerAxisDirBx ?? 0,
+      values.followerAxisDirBy ?? 1,
+      values.followerAxisDirBz ?? 0,
+    );
+  } else if (kind === 'universalJoint') {
+    // Tier-7c-final — input/output shaft axes (local directions) + cross-
+    // angle (deg → rad). Real Cardan-joint kinematics: cos(α)·θ_A − θ_B = 0.
+    const D2R = Math.PI / 180;
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
+    params.crossAngle = (values.crossAngle ?? 15) * D2R;
   }
 
   // 4. Add mate + solve.
@@ -9639,6 +9720,28 @@ async function _applyStandardMate(kind, scene, viewport) {
       const rel = partB.position.sub(oW);
       const tB = rel.x * dBn[0] + rel.y * dBn[1] + rel.z * dBn[2];
       foundationResidual = fRackPinionResidual(thetaA, tB, params.pinionRadius ?? 0);
+    } else if (kind === 'cam') {
+      // Tier-7c-final: perpendicular distance from world follower point to
+      // the cam-profile polyline (each cam-local sample transformed by
+      // partA's pose so the polyline spins with the cam).
+      const samplesW = params.camProfileLocalA.map((s) => {
+        const r = MateSolver._rotateLocal(partA, s);
+        const pw = partA.position.add(r);
+        return [pw.x, pw.y, pw.z];
+      });
+      const fw = partB.position.add(params.followerPtB);
+      foundationResidual = fCamResidual([fw.x, fw.y, fw.z], samplesW);
+    } else if (kind === 'universalJoint') {
+      // Tier-7c-final: cos(crossAngle)·θ_A − θ_B = 0 (linearised Cardan).
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      const dAlen = Math.hypot(dA.x, dA.y, dA.z) || 1;
+      const dBlen = Math.hypot(dB.x, dB.y, dB.z) || 1;
+      const dAn = [dA.x / dAlen, dA.y / dAlen, dA.z / dAlen];
+      const dBn = [dB.x / dBlen, dB.y / dBlen, dB.z / dBlen];
+      const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
+      const thetaB = partB.rotation.x * dBn[0] + partB.rotation.y * dBn[1] + partB.rotation.z * dBn[2];
+      foundationResidual = fUniversalJointResidual(thetaA, thetaB, params.crossAngle ?? (Math.PI / 2));
     }
   } catch (e) {
     foundationResidual = null;
