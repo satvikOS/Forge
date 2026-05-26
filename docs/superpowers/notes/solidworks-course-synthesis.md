@@ -796,10 +796,10 @@ Assembly Animation.
 | Angle-Limit (advanced) | (none) | **Missing** |
 | Gear (mechanical) | Gear Mate | **Done** (Tier-7c) |
 | Hinge (mechanical) | Hinge Mate | **Done** (Tier-7c) |
-| Cam (mechanical) | (none) | **Missing** |
+| Cam (mechanical) | Cam Mate | **Done** (Tier-7c-final) |
 | Rack-and-Pinion (mechanical) | Rack-Pinion Mate | **Done** (Tier-7c-rest) |
 | Screw (mechanical) | Screw Mate | **Done** (Tier-7c-rest) |
-| Universal Joint (mechanical) | (none) | **Missing** |
+| Universal Joint (mechanical) | Universal-Joint Mate | **Done** (Tier-7c-final) |
 | **Fixed-component convention (`(f)` prefix on first inserted)** | Unknown | **Missing/Unverified** |
 | Move Component | Move Component | **Done** |
 | Component Pattern | (none — Linear/Circular Pattern of components specifically) | **Missing** |

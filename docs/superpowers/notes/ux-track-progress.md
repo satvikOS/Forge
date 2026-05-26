@@ -1048,6 +1048,9 @@ workflow.
    coupling through a cross-pin at an angle). Both queued; Cam adds a
    contact-surface residual (extends Path), Universal Joint adds a
    velocity-coupling residual through the cross-pin angle.
+
+   **Update (Tier-7c-final):** Cam + Universal-Joint are now shipped; see
+   Tier 7c-final below. Mechanical-mate set is **6/6 complete**.
 2. **Screw / Rack-Pinion axis projection is first-order.** Same Euler-
    projection trick as Gear / Hinge — exact when the part axis lies
    along world X / Y / Z (the CNC linear-stage case, which is the
@@ -1062,6 +1065,125 @@ workflow.
    matches SW behaviour; for arbitrarily-placed anchors users should
    set `axisOriginA` to the desired reference point so the initial
    `t_B` matches the carriage's current position projection.
+
+---
+
+## Tier 7c-final — Mechanical assembly mates (6 of 6 shipped) — Cam + Universal-Joint
+
+Tier-7c-final closes the SW Mechanical-mate family with the last two
+additions on top of Gear + Hinge + Screw + Rack-Pinion: **Cam** (point-
+on-cam-surface contact, generalisation of Path with the polyline spinning
+with the cam) and **Universal-Joint** (Cardan-joint velocity coupling
+through a cross-pin at an angle). Each contributes a real kinematic
+residual + correct DOF reduction, integrated end-to-end (kernel
+`MateSolver` satisfier + kernel-free `KinematicsCore` residual helper +
+ribbon button + `_applyStandardMate` handler + param schema + bespoke
+motion-capture e2e on an engine valve-train + drive-shaft assembly).
+
+**Mechanical-mate family is now 6 of 6** — the SW Mechanical-mate set is
+complete (Gear / Hinge / Cam / Rack-Pinion / Screw / Universal Joint all
+shipped end-to-end).
+
+| Tier-7 # | Tool | Status | Implementation |
+|---|---|---|---|
+| 76 | **Cam Mate** | **DONE** | Real solver in `kernel/assembly/MateSolver.js::_satisfyCam` — point-on-cam-surface contact. The follower's contact point (anchored on partB at `followerPtB`, local) rides on the cam profile (`camProfileLocalA`, an array of partA-local samples forming the perimeter polyline). The kernel transforms every profile sample by partA's current pose (so the polyline SPINS with the cam), finds the closest segment to the world-space follower point, and shifts `free` (the follower) toward that closest point by `RELAXATION · distance`. Residual = perpendicular distance follower → profile polyline. Removes 1 DOF. Foundation `camResidual(pFollowerWorld, camProfilePoints)` + `camNearest()` (which also returns the outward normal — the radial direction the solver shifts the follower) cross-check. Ribbon "Cam Mate" (◐) in Assembly→Mates; schema drives `axisDirA`, `profileShape` enum (`ellipse` / `circle` / `heart`), `profileA` / `profileB` semi-axes (mm), `profileSamples` resolution, `followerPtB` (mm), `followerAxisDirB`. The profile polyline is generated procedurally from `(shape, a, b, N)` in the handler; caller can override directly via `window.__archdiscCamMateProfile`. |
+| 77 | **Universal-Joint Mate** | **DONE** | Real solver `_satisfyUniversalJoint` — velocity-coupling between two non-collinear shafts through a cross-pin at angle `crossAngle`. Static residual: `cos(crossAngle) · θ_A − θ_B → 0`, applied to the parts' along-axis Euler-rotation projections (same Euler-projection trick as Gear / Screw). Cosine modulation models the linearised Cardan-joint phase relationship: 0 rad = 1:1 rigid coupling, π/2 = decoupled singularity. Per-iteration correction rotates `free` along its axis by `delta · RELAXATION` to satisfy the phase coupling; the axis-misalignment residual (angle-between-axes vs `crossAngle`) is read off for solver convergence but not actively corrected (the misalignment is locked by the yoke + cross-pin in real hardware; the kernel expects the user to seed the parts in their nominal cross-angle pose). Removes 2 DOF (axis-alignment-up-to-cross + along-axis phase coupling). Foundation `universalJointResidual(thetaA, thetaB, crossAngle)` + `universalJointCorrection()` cross-checks. Ribbon "Universal-Joint Mate" (✕); schema drives `axisA`, `axisB`, `crossAngle` (deg → rad). |
+
+**Files added/changed for Tier-7c-final:**
+
+- `frontend/src/kernel/assembly/MateSolver.js` — new `_satisfyCam`, `_satisfyUniversalJoint`; `_mateDOFRemoved` extended with `cam=1`, `universalJoint=2`; `_mateError` extended with the two residual computations; `_satisfyMate` switch extended for the two new kinds.
+- `frontend/src/foundation/AssemblyMate.js` — `cam(partA, axisA, camProfileLocalA, partB, followerAxisB, followerPtB)` and `universalJoint(partA, axisA, partB, axisB, crossAngle)` factories on the foundation Assembly class; residual cases in `_residuals()` so the LM solver handles all 15 mate kinds end-to-end (4 base + 4 Tier-7a + 3 Tier-7b + 2 Tier-7c + 2 Tier-7c-rest + 2 Tier-7c-final).
+- `frontend/src/foundation/KinematicsCore.js` — `ASSEMBLY_MATE_DOF` table extended with `cam=1`, `universalJoint=2`. New kernel-free helpers `camResidual`, `camNearest`, `universalJointResidual`, `universalJointCorrection`. `assemblyMateResiduals(mates)` bundle extended to dispatch the two new kinds.
+- `frontend/src/components/RibbonToolbar.jsx` — 2 new entries in Assembly→Mates appended after the Tier-7c-rest Screw/Rack-Pinion two: Cam Mate (◐), Universal-Joint Mate (✕).
+- `frontend/src/foundation/ToolParamSchemas.js` — 2 new schemas appended after `'Rack-Pinion Mate'`: Cam Mate (axis + shape + semi-axes + samples + follower point + follower axis), Universal-Joint Mate (axisA + axisB + crossAngle deg).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — 2 thin assembly-group handlers (`'Cam Mate'`, `'Universal-Joint Mate'`) delegate to the existing `_applyStandardMate` helper which is extended with the two new kinds (labelMap, params-build incl. mm→m + deg→rad conversions + procedural ellipse/circle/heart polyline generation, foundation residual cross-check).
+- `e2e/ux-tier7c-final-cam-universal-electron.spec.js` — bespoke motion-capture e2e (5 stills + session video). See section below for the framing.
+
+### Bespoke real workflow — engine valve-train + drive-shaft
+
+A 6-part automotive scene with two independent mechanical kinematics on a
+shared engine block: a camshaft + elliptical cam lobe driving a valve via
+a Cam mate, and an input drive shaft coupled to an output drive shaft at
++15° cross-angle via a Universal-Joint mate. ONE perfectly-viewable iso
+framing throughout. ONE `test()` block, `--workers=1`, `slowMo=220`,
+`recordVideo`, no `node:*` imports.
+
+| Component | Size (mm) | Initial pose |
+|---|---|---|
+| Block    | 220 × 100 × 60 (dark-grey)  | origin, FIXED (the engine block) |
+| Camshaft | Ø14 × 180 (gold)            | (0, 0, 20), rotated Pi/2 about Z so long axis = world X |
+| CamLobe  | Ø40 × 12 (gold)             | (−40, 0, 20), rotated Pi/2 about Z (cam profile a=20mm b=12mm in local frame) |
+| Valve    | 12 × 12 × 60 (light-grey)   | (−40, 0, 40) — sits above the lobe, translates along world Z per lift |
+| DriveIn  | Ø18 × 90 (gold)             | (80, −45, 40) — long axis along world Y |
+| DriveOut | Ø18 × 90 (gold)             | (80, +45·cos15°, 40 + 45·sin15°), tilted +15° about world X |
+
+Initial DOF = 6×6 − 6 (Block fixed) = **30**. The two mates are applied
+in order via real ribbon clicks after seeding `__archdiscSelectedAssemblyParts`.
+
+| Frame | Headline |
+|---|---|
+| 01 — A1 | Valve-train + drive-shaft initial iso (6 parts visible; Assembly tab active; new Cam / Universal-Joint ribbon buttons visible) — DOF 30 |
+| 02 — B1 | After **Cam** (CamLobe↔Valve, elliptical a=20 b=12 mm): the valve's contact point is now locked to the rotating cam profile; DOF 30→29 (−1); foundation residual ≪ 2 mm |
+| 03 — B2 | After **Universal-Joint** (DriveIn↔DriveOut, crossAngle = 15°): the two shaft rotations are now coupled by cos(15°)·θ_in − θ_out = 0; DOF 29→27 (−2); foundation residual ≪ 1 mrad |
+| 04 — B3 | Programmatic +π/2 camshaft rotation → Cam mate translates the valve radially as the elliptical profile spins (valve.z changes by > 0.5 mm — real cam-follower lift kinematics) |
+| 05 — B4 | Programmatic +π rad drive-in rotation → Universal-Joint drives the output shaft to cos(15°)·π ≈ 3.034 rad along-axis rotation (within ±0.1 rad of analytic target) |
+| 06 — C1 | Final state — two Tier-7c-final mates stacked; book-kept DOF = 27 |
+
+**Focal assertions (verified in the spec):**
+
+| Mate | DOF removed (table) | DOF removed (actual) | Foundation residual | Analytic kinematic check |
+|---|---|---|---|---|
+| Cam | 1 | 1 ✓ | < 2e-3 m (follower → profile distance) | After +π/2 camshaft rotation, valve.z translates non-trivially (> 0.5 mm) along its translation axis to stay tangent to the rotating ellipse |
+| Universal-Joint | 2 | 2 ✓ | < 1e-3 rad | After +π rad input rotation, output along-axis = cos(15°)·π ≈ 3.034 rad (matches within ±0.1 rad) |
+
+### E2E + regression subset (Tier-7c-final)
+
+Headed Electron, `--workers=1`, `--retries=0`. Tier-7a + Tier-7b + Tier-7c
++ Tier-7c-rest remain green; the new spec covers Cam / Universal-Joint
+handlers + ribbon dispatch + kernel solver + foundation residual helpers
++ real kinematic propagation (90° cam → valve lift, 180° drive-in →
+cos(15°)·π drive-out) in one workflow.
+
+| Spec | Result |
+|---|---|
+| `ux-tier7a-standard-mates-electron` (regression) | PASS (unchanged — `_applyStandardMate` extended but Tier-7a branches untouched) |
+| `ux-tier7b-advanced-mates-electron` (regression) | PASS (unchanged — same dispatch helper, additive only) |
+| `ux-tier7c-mechanical-mates-electron` (regression) | PASS (unchanged — Gear/Hinge branches untouched) |
+| `ux-tier7c-rest-screw-rackpinion-electron` (regression) | PASS (unchanged — Screw/Rack-Pinion branches untouched) |
+| `ribbon-test` (regression) | PASS (unchanged — 2 new buttons appended after Screw/Rack-Pinion) |
+| `ux-tier7c-final-cam-universal-electron` (NEW) | PASS — 5 stills + session video; assertions on DOF book-keeping (Cam: −1, Universal-Joint: −2) + foundation cross-check (< 2 mm cam, < 1 mrad u-joint) + Cam kinematic propagation (camshaft +π/2 → valve translates > 0.5 mm) + Universal-Joint propagation (driveIn +π → driveOut along-axis = cos(15°)·π within ±0.1 rad) |
+
+### Honest gaps in Tier-7c-final
+
+1. **SW Mechanical-mate family is now COMPLETE at 6/6.** Gear + Hinge +
+   Cam + Rack-Pinion + Screw + Universal-Joint all shipped end-to-end
+   (kernel satisfier + foundation residual + ribbon + handler + schema +
+   bespoke motion-capture e2e). The remaining mate-family gap (per
+   solidworks-course-synthesis.md §6.7) is the Advanced family (Linear-
+   Coupler + Angle-Limit) and the standard-set follow-ons (Symmetric,
+   Belt/Chain) — see Tier-7b honest-gaps for status.
+2. **Universal-Joint uses linearised cos coupling, not the exact 1/cos
+   instantaneous modulation.** Real Cardan joints have an
+   instantaneous angular velocity ratio of `cos(α)/(1 − sin²(α)·sin²(θ))`
+   which fluctuates within a revolution (the vibration source double-
+   Cardan joints cancel via dual phased joints). For static-equilibrium
+   constraints (where the assembly is at rest at a given input angle)
+   the linear `cos(α)·θ_A − θ_B` is the correct phase relationship; for
+   motion-study time-domain simulation the full instantaneous modulation
+   would be a follow-on.
+3. **Cam profile is generated as a 2D polyline in the cam's local plane.**
+   Real CAD cam profiles can be 3D (barrel cams, plate cams with non-
+   trivial axial extent) — the ellipse / circle / heart procedural
+   generation here covers the planar cam case (which is the vast
+   majority of automotive valve trains). Caller can supply an arbitrary
+   3D polyline via `window.__archdiscCamMateProfile` for non-planar cams.
+4. **Cross-angle is held statically, not enforced.** The
+   axis-misalignment-toward-crossAngle deviation is reported in the
+   residual but not actively corrected per iteration — the kernel
+   expects the user to seed the parts in their nominal cross-angle pose
+   and lock the misalignment via a concentric / hinge anchor at the
+   yoke pivots. For a fully-self-righting u-joint, add a Concentric or
+   Coincident mate at the cross-pin pivot point.
 
 ---
 
