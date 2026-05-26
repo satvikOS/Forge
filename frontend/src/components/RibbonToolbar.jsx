@@ -389,6 +389,9 @@ const TABS = {
         // UX Tier 5b — hems + mitered flanges sit alongside Edge Flange.
         { name: 'Hem', icon: '⌒', key: 'sheetMetal' },
         { name: 'Miter Flange', icon: '◢', key: 'sheetMetal' },
+        // UX Tier 5c — corner closure + sweep-flange extensions.
+        { name: 'Closed Corner', icon: '⊿', key: 'sheetMetal' },
+        { name: 'Sweep Flange', icon: '〰', key: 'sheetMetal' },
       ]},
       { label: 'Manufacturing', tools: [
         { name: 'Flat Pattern', icon: '⊞', key: 'sheetMetal', primary: true },

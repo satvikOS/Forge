@@ -478,6 +478,9 @@ export const DOCKED_TOOLS = new Set([
   'Jog',
   'Miter Flange',
   'Sketched Bend',
+  // UX Tier 5c — Sheet Metal corner + sweep extensions (Closed Corner / Sweep Flange).
+  'Closed Corner',
+  'Sweep Flange',
   // UX Tier 4 (focused) — Extruded / Revolved Surface (sheet-body feature ops).
   'Extruded Surface',
   'Revolved Surface',

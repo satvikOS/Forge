@@ -7295,6 +7295,109 @@ const TOOL_HANDLERS = {
         return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Sketched Bend: ' + (err.message || err) };
       }
     },
+
+    // ── UX Tier 5c — Sheet Metal corner + sweep extensions ────────────────
+    //
+    // Closed Corner closes the gap between the last two recorded edge-
+    // flanges (overlap | butt | underlap); Sweep Flange sweeps a flange
+    // profile along a polyline path (the sheet-metal version of swept boss).
+
+    'Closed Corner': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Closed Corner: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Closed Corner');
+        if (cancelled) return { status: 'warn', message: 'Closed Corner: cancelled' };
+        const cornerType = String(values.cornerType || 'butt').toLowerCase();
+        const edgeAGap = Number(values.edgeAGap) >= 0 ? Number(values.edgeAGap) : 0;
+        const edgeBGap = Number(values.edgeBGap) >= 0 ? Number(values.edgeBGap) : 0;
+        const prevCornerCount = (() => {
+          const psm = ArchDiscKernel.brep.getSheetMetalMetadata(body);
+          return psm && Array.isArray(psm.corners) ? psm.corners.length : 0;
+        })();
+        const result = await ArchDiscKernel.brep.closedCorner(body, {
+          cornerType, edgeAGap, edgeBGap,
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const newCornerCount = sm && Array.isArray(sm.corners) ? sm.corners.length : 0;
+        const lastCorner = sm && Array.isArray(sm.corners) && sm.corners.length > 0
+          ? sm.corners[sm.corners.length - 1] : null;
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+          window.__lastClosedCornerBody = result;
+        }
+        return {
+          status: 'success',
+          message: `Closed Corner (${cornerType}): gapA=${edgeAGap} mm, gapB=${edgeBGap} mm → ` +
+            `${m.faceCount} faces, corners ${prevCornerCount} → ${newCornerCount}, ` +
+            `closed gap = ${(lastCorner?.gap3d ?? 0).toFixed(2)} mm via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Closed Corner: ' + (err.message || err) };
+      }
+    },
+
+    'Sweep Flange': async (scene, viewport) => {
+      try {
+        const [body] = _pickBodies(1);
+        if (!ArchDiscKernel.brep.isSheetMetal(body)) {
+          return { status: 'warn', message: 'Sweep Flange: selected body is not sheet metal — run Base Flange first.' };
+        }
+        const { values, cancelled } = await requestToolParams('Sweep Flange');
+        if (cancelled) return { status: 'warn', message: 'Sweep Flange: cancelled' };
+        const profileWidth = Number(values.profileWidth) > 0 ? Number(values.profileWidth) : 15;
+        // Build the polyline path from the start/end points. If the global
+        // window.__archdiscSweepFlangePath carries a multi-point polyline,
+        // prefer that — used by e2e + AI plans for curved / multi-segment
+        // paths (the headline use case for Sweep Flange).
+        let pathSketch = null;
+        if (typeof window !== 'undefined'
+            && Array.isArray(window.__archdiscSweepFlangePath)
+            && window.__archdiscSweepFlangePath.length >= 2) {
+          pathSketch = window.__archdiscSweepFlangePath.map(p => ({
+            x: Number(p.x) || 0, y: Number(p.y) || 0, z: Number(p.z) || 0,
+          }));
+          window.__archdiscSweepFlangePath = null;
+        } else {
+          pathSketch = [
+            { x: Number(values.pathX1) || 0, y: Number(values.pathY1) || 0, z: Number(values.pathZ1) || 0 },
+            { x: Number(values.pathX2) || 0, y: Number(values.pathY2) || 0, z: Number(values.pathZ2) || 0 },
+          ];
+        }
+        const kFactor = Number(values.kFactor) > 0 ? Number(values.kFactor) : undefined;
+        const prevBendCount = (() => {
+          const psm = ArchDiscKernel.brep.getSheetMetalMetadata(body);
+          return psm && psm.bends ? psm.bends.length : 0;
+        })();
+        const result = await ArchDiscKernel.brep.sweepFlange(body, {
+          pathSketch, profileWidth, ...(kFactor !== undefined ? { kFactor } : {}),
+        });
+        await addBrepShapeToScene(scene, viewport, result, 0xb0bec5, [body]);
+        const m = await ArchDiscKernel.brep.measure(result);
+        const sm = ArchDiscKernel.brep.getSheetMetalMetadata(result);
+        const newBendCount = sm && sm.bends ? sm.bends.length : 0;
+        const lastBend = sm && sm.bends && sm.bends[sm.bends.length - 1];
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalBody = result;
+          window.__lastSheetMetalMeta = sm;
+          window.__lastSweepFlangeBody = result;
+        }
+        return {
+          status: 'success',
+          message: `Sweep Flange: width = ${profileWidth} mm, path = ${pathSketch.length} pt(s), ` +
+            `pathLength = ${(lastBend?.pathLength ?? 0).toFixed(1)} mm → ` +
+            `${m.faceCount} faces, bends ${prevBendCount} → ${newBendCount}, ` +
+            `BA(90°) = ${(lastBend?.bendAllowance ?? 0).toFixed(2)} mm via ArchDisc Kernel`,
+        };
+      } catch (err) {
+        return { status: err.message && err.message.startsWith('select') ? 'warn' : 'error', message: 'Sweep Flange: ' + (err.message || err) };
+      }
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

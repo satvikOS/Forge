@@ -1521,6 +1521,40 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 5c — Sheet Metal corner + sweep extensions ───────────────
+  //
+  // Two extension ops: Closed Corner closes the gap between two adjacent
+  // edge-flanges (overlap | butt 45° miter | underlap); Sweep Flange sweeps
+  // a flange profile along an arbitrary (curved / multi-segment) path —
+  // the sheet-metal version of swept boss. Each one records to
+  // body.metadata.sheetMetal — Closed Corner pushes onto corners[], Sweep
+  // Flange pushes onto bends[] with type='sweepFlange'.
+  'Closed Corner': {
+    title: 'Closed Corner — Close the Gap at a Flange Corner',
+    blurb: 'After two adjacent Edge Flanges, a small triangular gap remains at the shared corner. Closed Corner closes it. Overlap = flange A extends over flange B; Butt = both trim to a shared 45° miter; Underlap = flange B extends underneath flange A. Real fabrication operation — the killer follow-on to Edge Flange / Miter Flange.',
+    fields: [
+      { name: 'cornerType', label: 'Corner type', type: 'enum',
+        options: ['overlap', 'butt', 'underlap'], default: 'butt',
+        hint: 'overlap = A over B; butt = symmetric 45° miter; underlap = B under A.' },
+      { name: 'edgeAGap', label: 'Edge A gap', type: 'number', default: 0, unit: 'mm', min: 0, max: 50, step: 0.1, hint: 'Gap along flange A\'s free edge before the patch begins (0 = flush).' },
+      { name: 'edgeBGap', label: 'Edge B gap', type: 'number', default: 0, unit: 'mm', min: 0, max: 50, step: 0.1, hint: 'Gap along flange B\'s free edge before the patch begins (0 = flush).' },
+    ],
+  },
+  'Sweep Flange': {
+    title: 'Sweep Flange — Swept Flange Along a Path',
+    blurb: 'Sweep a flange profile (thickness × profileWidth rectangle) along an arbitrary 3D path — straight, curved, or multi-segment. Unlike Edge Flange (one straight edge per call), Sweep Flange follows the whole path in one move. Records the flange as a bend with type=\'sweepFlange\' so Flat Pattern still walks it.',
+    fields: [
+      { name: 'profileWidth', label: 'Flange height', type: 'number', default: 15, unit: 'mm', min: 0.5, max: 500, step: 0.5, hint: 'How tall the swept lip is (perpendicular to the path).' },
+      { name: 'pathX1', label: 'Path start X', type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathY1', label: 'Path start Y', type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathZ1', label: 'Path start Z', type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathX2', label: 'Path end X',   type: 'number', default: 50, unit: 'mm', step: 0.5 },
+      { name: 'pathY2', label: 'Path end Y',   type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathZ2', label: 'Path end Z',   type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'kFactor', label: 'K-factor (override)', type: 'number', default: 0, min: 0, max: 1, step: 0.05, hint: '0 = use body\'s recorded K-factor.' },
+    ],
+  },
+
   // ─── UX TIER 6a — Weldments workbench foundation ──────────────────────
   //
   // Three foundational weldments ops with their param schemas. Structural
