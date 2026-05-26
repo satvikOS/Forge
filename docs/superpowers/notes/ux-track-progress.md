@@ -1076,7 +1076,7 @@ workflow.
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b + 6c shipped (6 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead + Cut List; Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6d)** |
 | 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, ~~Screw/Rack-Pinion~~ done in Tier 7c-rest, remaining Advanced + Cam + Universal-Joint, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c + 7c-rest shipped (11/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 4 of 6 mechanical)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
-| 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b shipped (5 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces; Parting Surface ruled / Side Actions / Cooling Channels queued)** |
+| 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b + 9c shipped (6 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces + Parting Surface ruled; Side Actions / Cooling Channels queued)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | **Partial — Tier 10 (focused) shipped (Equation Manager + Global Variables + sketch-dim parametric hook; Design Tables / Configurations / 3D-feature-param wiring queued)** |
 
 ---
@@ -3743,4 +3743,64 @@ dim has") as the queued residual. Tier 10b ships that residual end-to-end.
 **Targeted regression** — `ux-tier10b` (new spec) + `ux-tier10-equation-manager-electron` (Tier 10 still passes) + `ux-tier1-electron` (PropertyManagerDock still works for literal numbers) + `ux-tier1-backlog-electron` (dim-editor unaffected — uses its own path) + `ribbon-test` — all green. Tier 1 was flaky on an unrelated heads-up dropdown timing (passes on retry; the dock work itself shows Width=80 / Depth=50 / Height=18 with literal numerics intact).
 
 **Honest gaps**: only Design Tables + first-class AI-plan `variables` section remain queued from the original Tier-10 table. The `__expressions` sidecar is consumed by the dialog → handler boundary but NOT yet persisted to design history; every re-edit of the same feature has to retype the `=expr`. That's a follow-up.
+
+---
+
+## Tier 9c — Mold Tools: proper Parting Surface (1 of 1 shipped)
+
+**Date:** 2026-05-25
+
+The missing real **Parting Surface** op — closes the last gap in the
+mold-tools original spec besides Side Actions + Cooling Channels. Tier 9
++ 9b shipped Draft Analysis / Parting Line / Tooling Split (with a
+planar parting plane default) + Undercut Analysis / Shut-Off Surfaces;
+the planar parting plane was honest-gapped in both prior passes as
+"queued for proper ruled / swept Parting Surface". This pass ships it.
+
+| SW op | ArchDisc | Implementation |
+|---|---|---|
+| Parting Surface | `partingSurface(body, {pullDirection, margin, extensionMode})` | Auto-runs `partingLine` if `metadata.mold.partingLine` is not present. For each parting-line edge, computes `edgeDir = end - start`, then `ruleDir = normalise(edgeDir × pull)` (the in-plane perpendicular to the edge, perpendicular to pull). Builds the open 2-vertex polyline `[start, end]` for the edge and calls `BrepSurfaceFeatures.extrudedSurface(polyline, margin, {direction: ±ruleDir})` to produce a ruled-surface STRIP on each side of the edge — two strips per edge, totalling `2 × edgeCount` strips. `extensionMode` ∈ {`planar` (default), `tangent`, `ruled`} — currently uses the same in-plane perpendicular for all three (tangent / ruled queued for richer per-mode geometry; planar covers the SW Mold-Tools default and is the most common production choice). Result is a `SpineBody{kind:'sheet'}` (the head strip, with `meta.partingSurfaceStrips` carrying the remaining strips) whose `metadata.mold.partingSurface` records `{pullDirection, margin, extensionMode, stripCount, edgeCount, stripErrors, strips[], stripBodyIds[]}`. |
+| Tooling Split (extended) | `toolingSplit(body, pull, {partingSurface?})` | Backward-compatible — when `opts.partingSurface` is omitted, the planar-half-space split machinery is unchanged. When supplied, the explicit parting-surface body is preserved on the result (`result.partingSurface`) and recorded on each piece's metadata (`piece.body.metadata.mold.toolingSplit.partingSurface = {bodyId, kind}`) so downstream consumers (cooling-channel routers, side-action builders) can retrieve the surface even if it was generated in a separate step. |
+
+### Bespoke real workflow — `e2e/ux-tier9c-parting-surface-electron.spec.js`
+
+| Stage | What happens |
+|---|---|
+| A | Build a plastic snap-fit clip via direct kernel ops: base plate 40 × 20 × 4 mm, snap arm 15 × 6 × 12 mm fused on top, curved snap hook (Ø6 × 3 mm cylinder rotated to align +X) fused at the arm tip. The curved hook gives the silhouette a NON-PLANAR character — exactly the case where the proper Parting Surface is required (planar parting plane mis-clips the snap lip). |
+| B | Click Mold Tools tab → verify the ribbon shows the new "Parting Surface" tool alongside Parting Line / Tooling Split / Draft / Undercut / Shut-Off. |
+| C | Pre-select clip → run Draft Analysis (warm-up) → run Parting Line (warm-up; auto-run inside Parting Surface would do the same). |
+| D | Run Parting Surface with pull = +Z, margin = 20 mm, extensionMode = `planar`. Asserts: result body kind === `sheet`; metadata records `{margin: 20, extensionMode: 'planar', edgeCount > 0, stripCount > 0}`; `stripCount === 2 × edgeCount` (one strip per side). |
+| E | Run Tooling Split with that explicit `opts.partingSurface`. Asserts: pieceCount === 2; CORE + CAVITY both present; `result.partingSurface` preserved; both pieces' `metadata.mold.toolingSplit.partingSurface` populated with the supplied body id. |
+
+5 stills, 1 iso, 1 short orbit. ONE `test()` block. Imports use BARE
+specifiers (no `node:` prefix) per the playgotcha.
+
+### Targeted regression band
+
+| Spec | Notes |
+|---|---|
+| `ux-tier9c-parting-surface-electron` (NEW) | This pass's acceptance |
+| `ux-tier9-mold-tools-electron` (regression) | Tier 9 foundation still passes (planar default unchanged) |
+| `ux-tier9b-undercut-shutoff-electron` (regression) | Tier 9b still passes |
+| `ribbon-test` (regression — ribbon tab + tool count) | Confirms the Mold Tools tab grew from 5 to 6 tools cleanly |
+
+### Honest gaps + queued Tier-9 follow-ups (still outstanding)
+
+1. **`extensionMode='tangent'`** — currently uses the planar in-plane
+   perpendicular. A richer tangent direction would average the adjacent
+   face normals at the edge midpoint and project into the plane perpendicular
+   to pull. Queued.
+2. **`extensionMode='ruled'`** — currently uses the planar perpendicular
+   too. A true ruled-surface variant would build a single double-wide
+   strip between the body outline and a planar bounding ring at margin
+   distance. Queued.
+3. **Tooling Split with curved partition** — `opts.partingSurface` is
+   recorded on the result + pieces but the cut itself still uses two
+   complementary half-space cuts (the planar default). A curved cut
+   (partition along the actual sheet faces) is queued.
+4. **Side Actions** (side-pull cores for undercuts) — Undercut Analysis
+   per-undercut pull direction lands on each face, so a side-action
+   generator can read the metadata. Builder is queued.
+5. **Cooling Channels** (drill conformal cooling channels through the
+   core / cavity inserts) — SP-12 fields work + sweep along a path.
 
