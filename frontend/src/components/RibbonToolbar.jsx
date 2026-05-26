@@ -266,6 +266,10 @@ const TABS = {
         // Tier-7c-final — mechanical mates (Cam / Universal-Joint) — 6/6
         { name: 'Cam Mate', icon: '◐', key: 'assembly' },
         { name: 'Universal-Joint Mate', icon: '✕', key: 'assembly' },
+        // Tier-7b-rest — advanced mates closure (Symmetric / Linear-Coupler / Angle-Limit) — advanced 6/6
+        { name: 'Symmetric Mate', icon: '⇋', key: 'assembly' },
+        { name: 'Linear-Coupler Mate', icon: '⇆', key: 'assembly' },
+        { name: 'Angle-Limit Mate', icon: '∡', key: 'assembly' },
       ]},
       { label: 'Analyze', tools: [
         { name: 'Exploded View', icon: '💥', key: 'assembly' },

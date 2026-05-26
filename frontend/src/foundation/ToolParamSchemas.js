@@ -1428,6 +1428,66 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 7b-rest — Symmetric + Linear-Coupler + Angle-Limit (advanced 6/6) ─
+  //
+  // Symmetric  — two entity points mirror about a symmetry plane anchored on A.
+  //              Removes 3 DOF (midpoint along normal + 2 perpendicular AB).
+  // Linear-Coupler — translation of A along its axis ↔ translation of B along
+  //                  its axis, coupled by `ratio`. Pure translational analogue
+  //                  of Gear. Removes 1 DOF.
+  // Angle-Limit  — relative rotation of B vs A about a shared axis clamped to
+  //                [angleMin, angleMax]. Pure rotational analogue of Distance-
+  //                Limit (slack in-range; 1 DOF when clamped).
+  //
+  'Symmetric Mate': {
+    title: 'Symmetric — Advanced Assembly Mate',
+    blurb: 'Two entity points (one on A, one on B) mirror about a symmetry plane anchored on A. Pre-select TWO components, then click. Removes 3 DOF (midpoint lies in the plane + AB-line is perpendicular to the plane). Real CAD symmetry — two bolts at mirrored holes, two arms scissor-mounted symmetrically about a centreline.',
+    fields: [
+      { name: 'planeOriginAx', label: 'Plane origin A — X (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'planeOriginAy', label: 'Plane origin A — Y (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'planeOriginAz', label: 'Plane origin A — Z (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'planeNormalAx', label: 'Plane normal A — X',           type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001, hint: 'Symmetry-plane normal. (1,0,0) = YZ plane, (0,1,0) = XZ plane, (0,0,1) = XY plane.' },
+      { name: 'planeNormalAy', label: 'Plane normal A — Y',           type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'planeNormalAz', label: 'Plane normal A — Z',           type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'pointAx',       label: 'Entity A — X (A-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAy',       label: 'Entity A — Y (A-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAz',       label: 'Entity A — Z (A-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBx',       label: 'Entity B — X (B-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBy',       label: 'Entity B — Y (B-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBz',       label: 'Entity B — Z (B-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+    ],
+  },
+  'Linear-Coupler Mate': {
+    title: 'Linear-Coupler — Advanced Assembly Mate',
+    blurb: 'Translation of part A along its axis coupled to translation of part B along its axis by `ratio`. Pure translational analogue of Gear. Residual: tA · ratio − tB → 0. Pre-select TWO components, then click. Removes 1 DOF. Real CAD coupling: two carriages on parallel rails coupled by a cable+pulley pair (ratio = pulley_R_out / pulley_R_in).',
+    fields: [
+      { name: 'axisAx',         label: 'Axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',         label: 'Axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',         label: 'Axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',         label: 'Axis B — X (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',         label: 'Axis B — Y (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',         label: 'Axis B — Z (B-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginAx',   label: 'Axis origin A — X',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy',   label: 'Axis origin A — Y',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz',   label: 'Axis origin A — Z',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'ratio',          label: 'Coupling ratio',        type: 'number', default: 1, unit: '',   min: -20, max: 20, step: 0.01, hint: 'tA · ratio − tB → 0. 1 = 1:1 coupling; -1 = opposite-direction; 2 = B moves twice as fast as A; 0.5 = B at half-speed.' },
+    ],
+  },
+  'Angle-Limit Mate': {
+    title: 'Angle-Limit — Advanced Assembly Mate',
+    blurb: 'Relative rotation of part B versus part A about a shared axis clamped to [angleMin, angleMax]. Pure rotational analogue of Distance-Limit: 0 DOF removed inside the range (slack), 1 DOF removed when clamped at a limit. Pre-select TWO components, then click. Real CAD: a safety pivot limiting a scissor-arm angle to 0°–60°.',
+    fields: [
+      { name: 'axisAx',     label: 'Axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',     label: 'Axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',     label: 'Axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',     label: 'Axis B — X (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',     label: 'Axis B — Y (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',     label: 'Axis B — Z (B-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'angleMin',   label: 'Angle min',             type: 'number', default: -90, unit: 'deg', min: -3600, max: 3600, step: 0.5, hint: 'Lower angle clamp (deg).' },
+      { name: 'angleMax',   label: 'Angle max',             type: 'number', default: +90, unit: 'deg', min: -3600, max: 3600, step: 0.5, hint: 'Upper angle clamp (deg).' },
+    ],
+  },
+
   // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
   //
   // Three drafting-tab tools that turn a 3D part / assembly into a

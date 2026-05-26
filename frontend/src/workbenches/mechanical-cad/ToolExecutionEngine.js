@@ -34,6 +34,9 @@ import {
   rackPinionResidual as fRackPinionResidual,
   camResidual as fCamResidual,
   universalJointResidual as fUniversalJointResidual,
+  symmetricResidual as fSymmetricResidual,
+  linearCouplerResidual as fLinearCouplerResidual,
+  angleLimitResidual as fAngleLimitResidual,
   ASSEMBLY_MATE_DOF as F_MATE_DOF,
 } from '../../foundation/KinematicsCore.js';
 
@@ -4712,6 +4715,18 @@ const TOOL_HANDLERS = {
       const r = await _applyStandardMate('cam', scene, viewport);
       return r;
     },
+    'Symmetric Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('symmetric', scene, viewport);
+      return r;
+    },
+    'Linear-Coupler Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('linearCoupler', scene, viewport);
+      return r;
+    },
+    'Angle-Limit Mate': async (scene, viewport) => {
+      const r = await _applyStandardMate('angleLimit', scene, viewport);
+      return r;
+    },
     'Universal-Joint Mate': async (scene, viewport) => {
       const r = await _applyStandardMate('universalJoint', scene, viewport);
       return r;
@@ -9339,6 +9354,8 @@ async function _applyStandardMate(kind, scene, viewport) {
     screw: 'Screw', rackPinion: 'Rack-Pinion',
     // Tier-7c-final — mechanical mates (6/6)
     cam: 'Cam', universalJoint: 'Universal-Joint',
+    // Tier-7b-rest — advanced mates (6/6 advanced family)
+    symmetric: 'Symmetric', linearCoupler: 'Linear-Coupler', angleLimit: 'Angle-Limit',
   };
   const toolName = `${labelMap[kind]} Mate`;
   if (!_currentAssembly || _currentAssembly.parts.length < 2) {
@@ -9596,6 +9613,52 @@ async function _applyStandardMate(kind, scene, viewport) {
     params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
     params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
     params.crossAngle = (values.crossAngle ?? 15) * D2R;
+  } else if (kind === 'symmetric') {
+    // Tier-7b-rest — symmetry plane on partA + entity points on each part.
+    // Plane origin / entity points are mm (kernel uses metres), normal is
+    // a unit direction (no conversion).
+    const M = 0.001;
+    params.planeOriginA = new Vec3(
+      (values.planeOriginAx ?? 0) * M,
+      (values.planeOriginAy ?? 0) * M,
+      (values.planeOriginAz ?? 0) * M,
+    );
+    params.planeNormalA = new Vec3(
+      values.planeNormalAx ?? 1,
+      values.planeNormalAy ?? 0,
+      values.planeNormalAz ?? 0,
+    );
+    params.pointA = new Vec3(
+      (values.pointAx ?? 0) * M,
+      (values.pointAy ?? 0) * M,
+      (values.pointAz ?? 0) * M,
+    );
+    params.pointB = new Vec3(
+      (values.pointBx ?? 0) * M,
+      (values.pointBy ?? 0) * M,
+      (values.pointBz ?? 0) * M,
+    );
+  } else if (kind === 'linearCoupler') {
+    // Tier-7b-rest — translation axis on each part + axis origin (mm → m)
+    // + coupling ratio (unitless).
+    const M = 0.001;
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
+    params.axisOriginA = new Vec3(
+      (values.axisOriginAx ?? 0) * M,
+      (values.axisOriginAy ?? 0) * M,
+      (values.axisOriginAz ?? 0) * M,
+    );
+    params.ratio = values.ratio ?? 1;
+  } else if (kind === 'angleLimit') {
+    // Tier-7b-rest — rotation axis on each part + angle limits (deg → rad).
+    const D2R = Math.PI / 180;
+    params.axisA = new Vec3(values.axisAx ?? 0, values.axisAy ?? 0, values.axisAz ?? 1);
+    params.axisB = new Vec3(values.axisBx ?? 0, values.axisBy ?? 0, values.axisBz ?? 1);
+    const aMin = values.angleMin ?? -90;
+    const aMax = values.angleMax ?? +90;
+    params.angleMin = (aMin <= -3600) ? -Infinity : aMin * D2R;
+    params.angleMax = (aMax >= +3600) ? +Infinity : aMax * D2R;
   }
 
   // 4. Add mate + solve.
@@ -9742,6 +9805,46 @@ async function _applyStandardMate(kind, scene, viewport) {
       const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
       const thetaB = partB.rotation.x * dBn[0] + partB.rotation.y * dBn[1] + partB.rotation.z * dBn[2];
       foundationResidual = fUniversalJointResidual(thetaA, thetaB, params.crossAngle ?? (Math.PI / 2));
+    } else if (kind === 'symmetric') {
+      // Tier-7b-rest: two entity points mirror about a plane anchored on partA.
+      const nW = MateSolver._rotateLocal(partA, params.planeNormalA);
+      const oW = partA.position.add(params.planeOriginA);
+      const pAW = partA.position.add(params.pointA);
+      const pBW = partB.position.add(params.pointB);
+      foundationResidual = fSymmetricResidual(
+        [pAW.x, pAW.y, pAW.z], [pBW.x, pBW.y, pBW.z],
+        [oW.x, oW.y, oW.z], [nW.x, nW.y, nW.z],
+      );
+    } else if (kind === 'linearCoupler') {
+      // Tier-7b-rest: tA · ratio − tB = 0. Project each part's position
+      // relative to a FIXED world-space reference origin onto each axis
+      // (no per-part anchoring — the world ref point is supplied directly).
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      const dAlen = Math.hypot(dA.x, dA.y, dA.z) || 1;
+      const dBlen = Math.hypot(dB.x, dB.y, dB.z) || 1;
+      const dAn = [dA.x / dAlen, dA.y / dAlen, dA.z / dAlen];
+      const dBn = [dB.x / dBlen, dB.y / dBlen, dB.z / dBlen];
+      const oW = params.axisOriginA;
+      const relA = partA.position.sub(oW);
+      const tA = relA.x * dAn[0] + relA.y * dAn[1] + relA.z * dAn[2];
+      const relB = partB.position.sub(oW);
+      const tB = relB.x * dBn[0] + relB.y * dBn[1] + relB.z * dBn[2];
+      foundationResidual = fLinearCouplerResidual(tA, tB, params.ratio ?? 1);
+    } else if (kind === 'angleLimit') {
+      // Tier-7b-rest: relative rotation about axis clamped to [min, max].
+      const dA = MateSolver._rotateLocal(partA, params.axisA);
+      const dB = MateSolver._rotateLocal(partB, params.axisB);
+      const dAlen = Math.hypot(dA.x, dA.y, dA.z) || 1;
+      const dBlen = Math.hypot(dB.x, dB.y, dB.z) || 1;
+      const dAn = [dA.x / dAlen, dA.y / dAlen, dA.z / dAlen];
+      const dBn = [dB.x / dBlen, dB.y / dBlen, dB.z / dBlen];
+      const thetaA = partA.rotation.x * dAn[0] + partA.rotation.y * dAn[1] + partA.rotation.z * dAn[2];
+      const thetaB = partB.rotation.x * dBn[0] + partB.rotation.y * dBn[1] + partB.rotation.z * dBn[2];
+      const relAngle = thetaB - thetaA;
+      foundationResidual = fAngleLimitResidual(
+        relAngle, params.angleMin ?? -Math.PI, params.angleMax ?? +Math.PI,
+      );
     }
   } catch (e) {
     foundationResidual = null;
@@ -9753,10 +9856,10 @@ async function _applyStandardMate(kind, scene, viewport) {
     // when clamped at a limit) via mate.params._clampedDOF (set by the
     // kernel _satisfyDistanceLimit handler).
     // Tier-7c: hinge reports the same when angle limits are active.
-    const clampedDOF = (kind === 'distanceLimit' || kind === 'hinge')
+    const clampedDOF = (kind === 'distanceLimit' || kind === 'hinge' || kind === 'angleLimit')
       ? (mate.params._clampedDOF ?? 0)
       : null;
-    const activeLimit = (kind === 'distanceLimit' || kind === 'hinge')
+    const activeLimit = (kind === 'distanceLimit' || kind === 'hinge' || kind === 'angleLimit')
       ? (mate.params._activeLimit ?? null)
       : null;
     window.__lastMateApplied = {
