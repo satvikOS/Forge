@@ -79,6 +79,18 @@ export const ASSEMBLY_MATE_DOF = Object.freeze({
                        //   the tangent line, by pinion `pinionRadius`.
                        //   Residual = theta_A * pinionRadius − translation_B
                        //   (positive radius = standard, negative = reverse).
+  // ── Tier-7c-final mechanical mates ────────────────────────────────
+  cam: 1,              // 1 DOF — point-on-cam-surface contact. The follower's
+                       //   contact point stays on the cam profile (perimeter
+                       //   curve in the cam's rotating frame). As the cam
+                       //   rotates, the follower translates radially.
+                       //   Residual = distance(followerPointWorld, camProfileSampled).
+  universalJoint: 2,   // 2 DOF — velocity coupling between two non-collinear
+                       //   shafts through a cross-pin at angle `crossAngle`.
+                       //   For a static residual:  cos(crossAngle)·θA − θB → 0
+                       //   couples the two axes' along-axis rotations; the
+                       //   third (anchor coincidence) component is the axis-
+                       //   alignment-up-to-crossAngle constraint.
 });
 
 function _len(v) { return Math.hypot(v[0], v[1], v[2]); }
@@ -417,6 +429,121 @@ export function rackPinionCorrection(thetaA, translationB, pinionRadius) {
 }
 
 /**
+ * Cam mate residual (Tier-7c-final) — point-on-cam-surface contact. The
+ * follower's contact point (`pFollowerWorld`, world-space) stays on the cam
+ * profile, which is the perimeter curve of the cam expressed as a sampled
+ * polyline (`camProfilePoints`, world-space — the caller transforms each
+ * cam-local sample by the cam's current rotation + translation so the
+ * profile spins with the cam).
+ *
+ * Residual = perpendicular distance from `pFollowerWorld` to its nearest
+ * segment of the polyline = `pathResidual(pFollowerWorld, camProfilePoints)`.
+ * Removes 1 DOF (the follower's radial translation is now coupled to the
+ * cam's angular position).
+ *
+ * Real cam-follower kinematics: as the cam rotates one revolution, the
+ * follower traces the cam profile's lift function (max radius − min radius =
+ * peak-to-peak lift). For an elliptical cam with semi-axes (a, b) the
+ * follower lift is (a − b) over half a turn — exactly the analytic
+ * relation the e2e validates.
+ */
+export function camResidual(pFollowerWorld, camProfilePoints) {
+  if (!Array.isArray(camProfilePoints) || camProfilePoints.length < 2) return 0;
+  let best = Infinity;
+  for (let i = 0; i < camProfilePoints.length - 1; i++) {
+    const a = camProfilePoints[i], b = camProfilePoints[i + 1];
+    const ab = _sub(b, a);
+    const abLen2 = _dot(ab, ab);
+    if (abLen2 < 1e-18) continue;
+    const t = Math.max(0, Math.min(1, _dot(_sub(pFollowerWorld, a), ab) / abLen2));
+    const closest = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = _len(_sub(pFollowerWorld, closest));
+    if (d < best) best = d;
+  }
+  return best === Infinity ? 0 : best;
+}
+
+/**
+ * Cam mate — nearest-point + outward-normal so the kernel solver can both
+ * pull the follower onto the cam profile AND know which direction is the
+ * along-profile (free) tangent. Returns `{ point, normal, distance }`
+ * where `point` is the world-space closest point on the polyline, `normal`
+ * is the unit vector from `point` to `pFollowerWorld` (outward — points
+ * along the radial direction the solver must SHIFT the follower to satisfy
+ * the contact), and `distance` is the signed perpendicular distance.
+ */
+export function camNearest(pFollowerWorld, camProfilePoints) {
+  if (!Array.isArray(camProfilePoints) || camProfilePoints.length < 2) {
+    return { point: pFollowerWorld.slice(), normal: [1, 0, 0], distance: 0 };
+  }
+  let bestD = Infinity, bestPt = null;
+  for (let i = 0; i < camProfilePoints.length - 1; i++) {
+    const a = camProfilePoints[i], b = camProfilePoints[i + 1];
+    const ab = _sub(b, a);
+    const abLen2 = _dot(ab, ab);
+    if (abLen2 < 1e-18) continue;
+    const t = Math.max(0, Math.min(1, _dot(_sub(pFollowerWorld, a), ab) / abLen2));
+    const closest = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = _len(_sub(pFollowerWorld, closest));
+    if (d < bestD) { bestD = d; bestPt = closest; }
+  }
+  if (!bestPt) return { point: pFollowerWorld.slice(), normal: [1, 0, 0], distance: 0 };
+  const diff = _sub(pFollowerWorld, bestPt);
+  const dl = _len(diff) || 1;
+  return { point: bestPt, normal: [diff[0] / dl, diff[1] / dl, diff[2] / dl], distance: bestD };
+}
+
+/**
+ * Universal-Joint mate residual (Tier-7c-final) — couples two non-collinear
+ * shafts through a cross-pin at angle `crossAngle` (rad; default π/2 = 90°
+ * for a standard Cardan joint, but real driveline angles are typically
+ * 10°–30° — this is the misalignment angle between input and output shafts,
+ * NOT the cross-pin's own angle).
+ *
+ * Real Cardan-joint kinematics: a universal joint transfers rotational
+ * velocity between two shafts that meet at an angle through a cross-pin
+ * (gimbal). The instantaneous coupling has a `1/cos` modulation that varies
+ * with input rotation — but the average (and the static-equilibrium phase
+ * relationship for symmetric joints with anti-vibration coupling) is the
+ * `cos(crossAngle)` linear coupling:
+ *   `cos(crossAngle) · θ_A − θ_B  →  0`.
+ * Two shafts in line (crossAngle = 0) reduce to a rigid 1:1 coupling.
+ * Two shafts at 90° (crossAngle = π/2) decouple entirely (cos = 0), which
+ * is the geometric singularity Cardan joints can't drive past.
+ *
+ * Returns a scalar — the absolute wrapped phase deviation. Removes 2 DOF
+ * (couples 2 of the 3 rotational axes between the parts; 1 rotational
+ * coupling remains free for the actual spin transmission via cosθ
+ * modulation, plus the 3 translational DOF and 1 of the rotational stay
+ * free unless the user adds a concentric or hinge to anchor the pivots).
+ */
+export function universalJointResidual(thetaA, thetaB, crossAngle = Math.PI / 2) {
+  const c = Math.cos(crossAngle);
+  let d = c * thetaA - thetaB;
+  const TAU = Math.PI * 2;
+  // Wrap into (−π, π].
+  d = ((d % TAU) + TAU) % TAU;
+  if (d > Math.PI) d -= TAU;
+  return Math.abs(d);
+}
+
+/**
+ * Universal-Joint mate — signed phase delta + correction the kernel solver
+ * applies to partB's along-axis rotation. Returns `{ delta, correction }`
+ * where `delta = signed wrapped (cos(crossAngle)·thetaA − thetaB)` and
+ * `correction` is the signed angle to ADD to thetaB to satisfy the
+ * coupling at this iteration.
+ */
+export function universalJointCorrection(thetaA, thetaB, crossAngle = Math.PI / 2) {
+  const c = Math.cos(crossAngle);
+  let d = c * thetaA - thetaB;
+  const TAU = Math.PI * 2;
+  d = ((d % TAU) + TAU) % TAU;
+  if (d > Math.PI) d -= TAU;
+  return { delta: d, correction: d };
+}
+
+/**
  * Bundle: compute residuals for every Tier-7a / Tier-7b / Tier-7c mate
  * kind in one call. Used by AssemblyMate/MateSolver consistency checks +
  * e2e.
@@ -438,6 +565,8 @@ export function assemblyMateResiduals(mates) {
       case 'hinge':         return { kind: m.kind, r: hingeResidual(m.pAnchorAWorld, m.pAnchorBWorld, m.axisAWorld, m.axisBWorld, m.hingeAngle ?? 0, m.angleMin ?? -Infinity, m.angleMax ?? Infinity) };
       case 'screw':         return { kind: m.kind, r: screwResidual(m.thetaA, m.translationB, m.pitch) };
       case 'rackPinion':    return { kind: m.kind, r: rackPinionResidual(m.thetaA, m.translationB, m.pinionRadius) };
+      case 'cam':           return { kind: m.kind, r: camResidual(m.pFollowerWorld, m.camProfilePoints) };
+      case 'universalJoint':return { kind: m.kind, r: universalJointResidual(m.thetaA, m.thetaB, m.crossAngle ?? Math.PI / 2) };
       default:              throw new Error(`assemblyMateResiduals: unknown kind '${m.kind}'`);
     }
   });

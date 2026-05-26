@@ -254,6 +254,61 @@ export class Assembly {
     return this;
   }
 
+  // ── Tier-7c-final mechanical mates ─────────────────────────────────
+  /**
+   * Cam mate (Tier-7c-final) — point-on-cam-surface contact. The follower's
+   * contact point (`followerPt`, partB-local) rides on the cam profile
+   * (`camProfileLocalA`, partA-local — an array of `[x,y,z]` samples forming
+   * a closed polyline of the perimeter curve in the cam's rotating frame).
+   * As the cam rotates, every sample on the profile spins with it; the
+   * follower's contact point translates radially to stay tangent.
+   *
+   * Residual = perpendicular distance from world-space follower point to its
+   * nearest segment of the cam-profile polyline (the polyline samples are
+   * transformed by partA's current pose, so the profile spins with the cam).
+   * Removes 1 DOF.
+   *
+   *   axisA           : `{ origin:[x,y,z], dir:[x,y,z] }` (cam rotation axis on partA)
+   *   camProfileLocalA: `Array<[x,y,z]>` (cam profile samples in partA-local)
+   *   followerAxisB   : `{ origin:[x,y,z], dir:[x,y,z] }` (follower translation axis on partB)
+   *   followerPtB     : `[x,y,z]` (contact point on the follower, partB-local)
+   */
+  cam(partA, axisA, camProfileLocalA, partB, followerAxisB, followerPtB) {
+    this.mates.push({
+      kind: 'cam', partA, axisA, camProfileLocalA,
+      partB, followerAxisB, followerPtB,
+    });
+    return this;
+  }
+
+  /**
+   * Universal-Joint mate (Tier-7c-final) — velocity coupling between two
+   * non-collinear shafts through a cross-pin at angle `crossAngle`
+   * (rad; the misalignment angle between input and output shafts —
+   * 0 for in-line, π/2 = 90° for the Cardan singularity). For a static
+   * residual:  `cos(crossAngle) · θ_A − θ_B  →  0`.
+   *
+   * Real Cardan-joint kinematics: rotational velocity is transferred with a
+   * `cos(crossAngle)` average modulation (instantaneous is `1/cos` modulated
+   * but the average and the static phase relationship is the linear cos
+   * coupling). Two shafts in line (crossAngle = 0) ≡ 1:1 rigid coupling;
+   * two at 90° ≡ geometric singularity (cos = 0, decouples).
+   *
+   * Removes 2 DOF — couples 2 of 3 rotational axes (the alignment-up-to-
+   * crossAngle direction relation between the two shaft axes plus the
+   * along-axis spin coupling). 1 rotational DOF (the cos-modulated spin
+   * transmission) remains free, plus the 3 translational DOF unless the
+   * caller adds a concentric / hinge to anchor the pivots.
+   *
+   *   axisA      : `{ origin:[x,y,z], dir:[x,y,z] }` (input-shaft axis on partA)
+   *   axisB      : `{ origin:[x,y,z], dir:[x,y,z] }` (output-shaft axis on partB)
+   *   crossAngle : rad (default π/2). Misalignment between the two shafts.
+   */
+  universalJoint(partA, axisA, partB, axisB, crossAngle = Math.PI / 2) {
+    this.mates.push({ kind: 'universalJoint', partA, axisA, partB, axisB, crossAngle });
+    return this;
+  }
+
   /**
    * Compute residuals for the current transform state.
    */
@@ -475,6 +530,61 @@ export class Assembly {
           const tB = vDot(rel, dB);
           const target = thetaA * (m.pinionRadius ?? 0);
           r.push(target - tB);
+          break;
+        }
+        case 'cam': {
+          // Tier-7c-final: point-on-cam-surface contact. Transform each cam
+          // profile sample by partA's pose so the polyline spins with the
+          // cam; transform the follower's contact point by partB; emit the
+          // signed (follower − nearest-sample-on-profile) 3-vector. The LM
+          // solver sees a 3-component residual that drives the follower
+          // radially to stay on the profile.
+          const followerWorld = transformPoint(m.partB, m.followerPtB);
+          let bestD = Infinity, bestPt = null;
+          for (let k = 0; k < m.camProfileLocalA.length - 1; k++) {
+            const p0 = transformPoint(m.partA, m.camProfileLocalA[k]);
+            const p1 = transformPoint(m.partA, m.camProfileLocalA[k + 1]);
+            const ab = vSub(p1, p0);
+            const abLen2 = vDot(ab, ab);
+            if (abLen2 < 1e-18) continue;
+            const t = Math.max(0, Math.min(1, vDot(vSub(followerWorld, p0), ab) / abLen2));
+            const closest = [p0[0] + ab[0] * t, p0[1] + ab[1] * t, p0[2] + ab[2] * t];
+            const d = vLen(vSub(followerWorld, closest));
+            if (d < bestD) { bestD = d; bestPt = closest; }
+          }
+          if (bestPt) {
+            r.push(followerWorld[0] - bestPt[0], followerWorld[1] - bestPt[1], followerWorld[2] - bestPt[2]);
+          } else {
+            r.push(0, 0, 0);
+          }
+          break;
+        }
+        case 'universalJoint': {
+          // Tier-7c-final: cos(crossAngle)·θA − θB → 0 plus axis-alignment-
+          // up-to-crossAngle constraint. We emit 2 scalar residuals:
+          //   (1) the linearised velocity-coupling phase residual on the
+          //       parts' Euler rotations projected onto their world axes
+          //       (same projection trick as gear/screw).
+          //   (2) the angle-between-axes deviation from `crossAngle`
+          //       (so the two shafts maintain their misalignment angle —
+          //       removes the second DOF). The LM solver damps these so the
+          //       coupling stabilises without over-constraining.
+          const dA = vNorm(transformDir(m.partA, m.axisA.dir));
+          const dB = vNorm(transformDir(m.partB, m.axisB.dir));
+          const rotA = m.partA.transform.rotation.map(v => v * D2R);
+          const rotB = m.partB.transform.rotation.map(v => v * D2R);
+          const thetaA = vDot(rotA, dA);
+          const thetaB = vDot(rotB, dB);
+          const c = Math.cos(m.crossAngle ?? Math.PI / 2);
+          let dPhase = c * thetaA - thetaB;
+          const TAU = Math.PI * 2;
+          dPhase = ((dPhase % TAU) + TAU) % TAU;
+          if (dPhase > Math.PI) dPhase -= TAU;
+          r.push(dPhase);
+          // Axis-misalignment angle relative to target.
+          const cosCurrent = Math.max(-1, Math.min(1, vDot(dA, dB)));
+          const angleCurrent = Math.acos(cosCurrent);
+          r.push(angleCurrent - (m.crossAngle ?? Math.PI / 2));
           break;
         }
         default:

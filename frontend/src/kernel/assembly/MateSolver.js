@@ -132,6 +132,15 @@ export default class MateSolver {
                                        //   rotation coupled to rack's
                                        //   along-axis translation by
                                        //   `pinionRadius`.
+      // ── Tier-7c-final mechanical mates ────────────────────────────────
+      case 'cam': return 1;            // 1 DOF — follower contact point
+                                       //   stays on the cam profile
+                                       //   (rotating perimeter curve).
+      case 'universalJoint': return 2; // 2 DOF — couples 2 of 3 rotational
+                                       //   axes (axis-alignment-up-to-cross
+                                       //   plus along-axis phase coupling);
+                                       //   1 rotational + 3 translational
+                                       //   DOFs remain free.
       default: return 1;
     }
   }
@@ -190,6 +199,10 @@ export default class MateSolver {
         return MateSolver._satisfyScrew(mate, free, anchor);
       case 'rackPinion':
         return MateSolver._satisfyRackPinion(mate, free, anchor);
+      case 'cam':
+        return MateSolver._satisfyCam(mate, free, anchor);
+      case 'universalJoint':
+        return MateSolver._satisfyUniversalJoint(mate, free, anchor);
       default:
         return MateSolver._mateError(mate);
     }
@@ -755,6 +768,146 @@ export default class MateSolver {
     return Math.abs(delta);
   }
 
+  /**
+   * Cam (Tier-7c-final): point-on-cam-surface contact. The follower's
+   * contact point (anchored on partB at `followerPtB`, local frame) stays
+   * tangent to the cam profile — the perimeter curve in partA's rotating
+   * frame, supplied as `camProfileLocalA` (Array<Vec3>). As partA (the cam)
+   * rotates, every profile sample spins with it; the follower must
+   * translate to stay on the resulting world-space polyline.
+   *
+   * params:
+   *   - `axisOriginA`     : Vec3 (cam rotation axis origin on partA, local)
+   *   - `axisDirA`        : Vec3 (cam rotation axis direction on partA, local)
+   *   - `camProfileLocalA`: Array<Vec3> (cam profile samples in partA-local;
+   *                         the perimeter polyline that spins with the cam)
+   *   - `followerAxisDirB`: Vec3 (follower translation axis on partB, local —
+   *                         the direction the follower can slide along)
+   *   - `followerPtB`     : Vec3 (contact point on the follower, partB-local)
+   *
+   * Per-iteration correction: transform every profile sample by partA's
+   * pose; find the closest segment to the world-space follower point; shift
+   * `free` (the follower part) toward that closest point by RELAXATION ×
+   * distance. Residual = perpendicular distance follower → profile polyline.
+   * Removes 1 DOF.
+   */
+  static _satisfyCam(mate, free, anchor) {
+    const profile = Array.isArray(mate.params.camProfileLocalA) ? mate.params.camProfileLocalA : [];
+    const followerPt = mate.params.followerPtB || Vec3.zero();
+    if (profile.length < 2) return 0;
+
+    // The cam is always partA's role conceptually, but the solver picks
+    // anchor/free by fixed-flag. Resolve which part's local frame carries
+    // the cam profile (anchorPart) vs which carries the follower point.
+    const camPart = (anchor === mate.partA) ? mate.partA : mate.partB;
+    const followerPart = free;
+
+    // Transform every profile sample into world space via the cam part's
+    // current pose. We rotate each sample by the cam's Euler XYZ then
+    // translate by the cam's position so the polyline spins with the cam.
+    const samplesW = [];
+    for (const s of profile) {
+      const rotated = MateSolver._rotateLocal(camPart, s);
+      samplesW.push(camPart.position.add(rotated));
+    }
+    const followerW = followerPart.position.add(followerPt);
+
+    // Find the closest point on the polyline.
+    let bestD = Infinity, bestPt = null;
+    for (let i = 0; i < samplesW.length - 1; i++) {
+      const p0 = samplesW[i];
+      const p1 = samplesW[i + 1];
+      const ab = p1.sub(p0);
+      const abLen2 = ab.dot(ab);
+      if (abLen2 < 1e-18) continue;
+      const tRaw = followerW.sub(p0).dot(ab) / abLen2;
+      const t = Math.max(0, Math.min(1, tRaw));
+      const closest = new Vec3(p0.x + ab.x * t, p0.y + ab.y * t, p0.z + ab.z * t);
+      const d = followerW.sub(closest).length();
+      if (d < bestD) { bestD = d; bestPt = closest; }
+    }
+    if (!bestPt || bestD < 1e-12) return bestD < 1e-12 ? 0 : bestD;
+
+    // Pull the follower toward the closest point on the cam profile.
+    const correction = bestPt.sub(followerW).mul(RELAXATION);
+    free.position = free.position.add(correction);
+    return bestD;
+  }
+
+  /**
+   * Universal Joint (Tier-7c-final): velocity-coupling between two non-
+   * collinear shafts through a cross-pin at angle `crossAngle` (rad). The
+   * static residual is the linear-cos coupling
+   *   `cos(crossAngle) · θ_A − θ_B  →  0`
+   * applied to the parts' along-axis Euler-rotation projections — same
+   * projection trick as Gear / Screw. Plus an axis-misalignment-toward-
+   * crossAngle correction so the two shafts maintain their misalignment.
+   *
+   * params:
+   *   - `axisA`      : Vec3 (input shaft axis on partA, local)
+   *   - `axisB`      : Vec3 (output shaft axis on partB, local)
+   *   - `crossAngle` : rad (default π/2). Misalignment between shafts.
+   *
+   * Per-iteration correction:
+   *   1. Project the parts' Euler rotations onto their world-space axes
+   *      → θ_A, θ_B; compute `delta = cos(crossAngle)·θ_A − θ_B`; rotate
+   *      `free` along its axis by `delta · RELAXATION` to satisfy the
+   *      phase coupling.
+   *   2. (Cross-pin angle held — the misalignment-toward-crossAngle
+   *      correction is left to the caller's concentric/hinge anchor; this
+   *      satisfier focuses on the velocity coupling. The misalignment
+   *      residual is read off by `_mateError` for solver convergence.)
+   *
+   * Removes 2 DOF (the alignment-up-to-crossAngle direction relation plus
+   * the along-axis phase coupling). 1 rotational + 3 translational DOFs
+   * remain free unless the caller adds a concentric / hinge anchor.
+   */
+  static _satisfyUniversalJoint(mate, free, anchor) {
+    const axisAnchorLocal = mate.params.axisA || new Vec3(0, 0, 1);
+    const axisFreeLocal   = mate.params.axisB || new Vec3(0, 0, 1);
+    const crossAngle = mate.params.crossAngle ?? (Math.PI / 2);
+    const localAnchor = anchor === mate.partA ? axisAnchorLocal : axisFreeLocal;
+    const localFree   = anchor === mate.partA ? axisFreeLocal   : axisAnchorLocal;
+    const dA = MateSolver._rotateLocal(anchor, localAnchor);
+    const dB = MateSolver._rotateLocal(free,   localFree);
+    const dAlen = dA.length() || 1;
+    const dBlen = dB.length() || 1;
+    const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+    const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+    // θ_A, θ_B from Euler-projection onto each world-space axis.
+    const thetaA = anchor.rotation.x * dAn.x + anchor.rotation.y * dAn.y + anchor.rotation.z * dAn.z;
+    const thetaB = free.rotation.x   * dBn.x + free.rotation.y   * dBn.y + free.rotation.z   * dBn.z;
+    const c = Math.cos(crossAngle);
+    // Anchor / free convention: if the user mated A as the input shaft and
+    // B as the output, anchor = partA and the coupling is cos(α)·θA − θB = 0.
+    // If anchor ends up as partB (less common — fixed B + free A), the
+    // coupling inverts:  cos(α)·θB − θA = 0  →  θA = cos(α)·θB. We need to
+    // drive `free`'s along-axis rotation to satisfy this; the natural way
+    // is to compute `delta` from anchor's perspective and add to free.
+    const eff = (anchor === mate.partA) ? c : (c === 0 ? 0 : 1 / c);
+    let delta = thetaA * eff - thetaB;
+    const TAU = Math.PI * 2;
+    delta = ((delta % TAU) + TAU) % TAU;
+    if (delta > Math.PI) delta -= TAU;
+    let phaseErr = Math.abs(delta);
+    if (Math.abs(delta) > 1e-12) {
+      const step = delta * RELAXATION;
+      free.rotation = new Vec3(
+        free.rotation.x + dBn.x * step,
+        free.rotation.y + dBn.y * step,
+        free.rotation.z + dBn.z * step,
+      );
+    }
+    // Axis-misalignment residual — angle between the two axes vs crossAngle.
+    // We report it but do NOT actively correct it here (the caller is
+    // expected to seed the parts in their nominal cross-angle pose; a real
+    // u-joint geometry locks the misalignment via the yoke + cross-pin).
+    const cosAngle = Math.max(-1, Math.min(1, dAn.dot(dBn)));
+    const angleNow = Math.acos(cosAngle);
+    const angleErr = Math.abs(angleNow - crossAngle);
+    return phaseErr + angleErr;
+  }
+
   /** Helper — rotate a local-frame direction by a part's Euler XYZ. */
   static _rotateLocal(part, v) {
     const rx = part.rotation.x, ry = part.rotation.y, rz = part.rotation.z;
@@ -916,6 +1069,51 @@ export default class MateSolver {
         const tB = rel.x * dBn.x + rel.y * dBn.y + rel.z * dBn.z;
         const target = thetaA * radius;
         return Math.abs(target - tB);
+      }
+      case 'cam': {
+        const profile = Array.isArray(mate.params.camProfileLocalA) ? mate.params.camProfileLocalA : [];
+        const followerPt = mate.params.followerPtB || Vec3.zero();
+        if (profile.length < 2) return 0;
+        const samplesW = [];
+        for (const s of profile) {
+          const rotated = MateSolver._rotateLocal(mate.partA, s);
+          samplesW.push(mate.partA.position.add(rotated));
+        }
+        const followerW = mate.partB.position.add(followerPt);
+        let bestD = Infinity;
+        for (let i = 0; i < samplesW.length - 1; i++) {
+          const p0 = samplesW[i], p1 = samplesW[i + 1];
+          const ab = p1.sub(p0);
+          const abLen2 = ab.dot(ab);
+          if (abLen2 < 1e-18) continue;
+          const t = Math.max(0, Math.min(1, followerW.sub(p0).dot(ab) / abLen2));
+          const closest = new Vec3(p0.x + ab.x * t, p0.y + ab.y * t, p0.z + ab.z * t);
+          const d = followerW.sub(closest).length();
+          if (d < bestD) bestD = d;
+        }
+        return bestD === Infinity ? 0 : bestD;
+      }
+      case 'universalJoint': {
+        const axisA = mate.params.axisA || new Vec3(0, 0, 1);
+        const axisB = mate.params.axisB || new Vec3(0, 0, 1);
+        const crossAngle = mate.params.crossAngle ?? (Math.PI / 2);
+        const dA = MateSolver._rotateLocal(mate.partA, axisA);
+        const dB = MateSolver._rotateLocal(mate.partB, axisB);
+        const dAlen = dA.length() || 1;
+        const dBlen = dB.length() || 1;
+        const dAn = new Vec3(dA.x / dAlen, dA.y / dAlen, dA.z / dAlen);
+        const dBn = new Vec3(dB.x / dBlen, dB.y / dBlen, dB.z / dBlen);
+        const thetaA = mate.partA.rotation.x * dAn.x + mate.partA.rotation.y * dAn.y + mate.partA.rotation.z * dAn.z;
+        const thetaB = mate.partB.rotation.x * dBn.x + mate.partB.rotation.y * dBn.y + mate.partB.rotation.z * dBn.z;
+        const c = Math.cos(crossAngle);
+        let d = c * thetaA - thetaB;
+        const TAU = Math.PI * 2;
+        d = ((d % TAU) + TAU) % TAU;
+        if (d > Math.PI) d -= TAU;
+        const phaseErr = Math.abs(d);
+        const cosAngle = Math.max(-1, Math.min(1, dAn.dot(dBn)));
+        const angleErr = Math.abs(Math.acos(cosAngle) - crossAngle);
+        return phaseErr + angleErr;
       }
       case 'hinge': {
         const aOrigA = mate.params.axisOriginA || Vec3.zero();
