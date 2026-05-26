@@ -108,6 +108,7 @@ export {
   draftAnalysis, partingLine, toolingSplit,
   isMold, getMoldMetadata,
   undercutAnalysis, shutOffSurfaces,
+  partingSurface,
 } from './BrepMoldTools.js';
 // UX Tier 3a — Advanced feature ops (Boundary Boss / Rib / Helix).
 export {

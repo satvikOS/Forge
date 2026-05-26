@@ -106,6 +106,7 @@ import {
   draftAnalysis, partingLine, toolingSplit,
   isMold, getMoldMetadata,
   undercutAnalysis, shutOffSurfaces,
+  partingSurface,
 } from './BrepMoldTools.js';
 // UX Tier 3a — Advanced feature ops (Boundary Boss / Rib / Helix).
 import {
@@ -324,6 +325,9 @@ export const ArchDiscKernel = {
     undercutAnalysis,
     /** Shut-Off Surfaces — auto-close through-holes (closed free-edge loops) with N-sided patches so the body becomes watertight (suitable for cavity-cutting). */
     shutOffSurfaces,
+    // ── UX Tier 9c Mold Tools — proper Parting Surface ───────────────────
+    /** Parting Surface — ruled SHEET body extruded perpendicular to pull from each parting-line edge by `margin` on both sides. Extends Tooling Split beyond the planar default. */
+    partingSurface,
     // ── UX Tier 3a Advanced feature ops ───────────────────────────────────
     /** Boundary Boss / Cut — loft through N profile wires with optional M guide curves; SW's marquee surfacing feature. */
     boundaryBoss,

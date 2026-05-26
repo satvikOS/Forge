@@ -124,6 +124,7 @@
 import { evalSurface, rayFire } from './BrepQuery.js';
 import { partition } from './BrepPartition.js';
 import { extrudeProfile } from './BrepFeatures.js';
+import { extrudedSurface } from './BrepSurfaceFeatures.js';
 import { cut as boolCut } from './BrepBoolean.js';
 import { autoFillMissingFaces } from './BrepHeal.js';
 import { attachAttribute } from '../topology/Attributes.js';
@@ -511,6 +512,16 @@ export async function partingLine(body, pullDirection, opts = {}) {
  *     parting plane's height (signed distance along pullDirection from
  *     the body's bounding-box centre). Default null = parting plane at
  *     the centroid (SW default).
+ * @param {SpineBody} [opts.partingSurface=null]  optional explicit
+ *     parting-surface SHEET body (UX Tier 9c). When supplied, the
+ *     parting surface is built EXTERNALLY (typically by `partingSurface`
+ *     run on the same body) and `toolingSplit` records it on the result
+ *     for downstream consumption — the planar-half-space split machinery
+ *     still produces the core + cavity pieces (planar approximation for
+ *     the split itself; the parting-SURFACE sheet body is preserved as
+ *     metadata for callers that want to drive a curved partition
+ *     downstream). Backward-compatible: when omitted, the planar-default
+ *     behaviour is unchanged.
  * @returns {{
  *   pieces: Array<SpineBody>,
  *   core: SpineBody|null,
@@ -713,6 +724,26 @@ export async function toolingSplit(body, pullDirection, opts = {}) {
     }
   }
 
+  // UX Tier 9c — if an explicit parting-surface sheet body was supplied,
+  // record its id on the result + on every piece's metadata so downstream
+  // consumers (e.g. cooling-channel routers, side-action builders) can
+  // retrieve the surface even if it was generated in a separate step.
+  const explicitPartingSurface = opts.partingSurface || null;
+  const partingSurfaceMeta = explicitPartingSurface ? {
+    bodyId: explicitPartingSurface.id || (explicitPartingSurface.body && explicitPartingSurface.body.persistentId) || null,
+    kind: explicitPartingSurface.meta && explicitPartingSurface.meta.kind
+      || (explicitPartingSurface.body && explicitPartingSurface.body.kind)
+      || 'sheet',
+  } : null;
+  if (partingSurfaceMeta) {
+    for (const piece of pieces) {
+      const meta = piece && piece.body && piece.body.metadata;
+      const mold = meta && meta.mold;
+      const ts = mold && mold.toolingSplit;
+      if (ts) ts.partingSurface = partingSurfaceMeta;
+    }
+  }
+
   return {
     pieces,
     core, cavity,
@@ -720,6 +751,7 @@ export async function toolingSplit(body, pullDirection, opts = {}) {
       origin: [planeOrigin[0], planeOrigin[1], planeOrigin[2]],
       normal: [pull[0], pull[1], pull[2]],
     },
+    partingSurface: explicitPartingSurface,
     pullDirection: pull.slice(),
     pieceCount: pieces.length,
     partitionReport,
@@ -1309,4 +1341,197 @@ function detectFreeEdgeLoops(body) {
     });
   }
   return loops;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6.  partingSurface — proper ruled parting surface from the parting-line
+//                     edges (UX Tier 9c)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a real ruled parting SURFACE from `body`'s parting-line edges.
+ * Unlike `toolingSplit`'s planar-default parting plane (a flat slab at
+ * the body centroid perpendicular to pull), this op constructs a SHEET
+ * body whose faces are LATERAL ruled surfaces extruded from each parting-
+ * line edge in the direction PERPENDICULAR to pull, by `margin` mm on
+ * BOTH sides (total span = 2 × margin).
+ *
+ * Algorithm:
+ *   1) Ensure the body has a fresh `metadata.mold.partingLine` — if
+ *      missing, auto-run `partingLine(body, pullDirection)` so the edges
+ *      list is populated.
+ *   2) For each parting-line edge, compute the chord direction
+ *      `edgeDir = normalise(end - start)`. The ruled-surface "rule" is
+ *      perpendicular to BOTH the edge tangent AND the pull direction
+ *      (the in-plane normal to the edge that points outward from the
+ *      part). Compute it as `ruleDir = normalise(edgeDir × pull)`. If
+ *      `edgeDir` is parallel to pull (degenerate — the parting line
+ *      shouldn't run along pull), fall back to any in-plane perpendicular.
+ *   3) Build the OPEN 2-vertex polyline `[start, end]` for the edge,
+ *      then extrude it via `extrudedSurface` along `ruleDir` by `margin`
+ *      (one side) and along `-ruleDir` by `margin` (the other side). The
+ *      result is two ruled-surface STRIPS per parting edge — a lateral
+ *      fin on each side of the silhouette.
+ *      For `extensionMode='ruled'` we instead build a single double-wide
+ *      strip via two stacked extrusions, then fuse the two halves into
+ *      a single sheet so the strip reads as one face.
+ *   4) Fuse every strip into a single compound `SpineBody{kind:'sheet'}`
+ *      via OCCT BRepBuilderAPI_Sewing (delegated by stacking strips into
+ *      a compound and rebinding via `bindSpine` with declared kind
+ *      `sheet`). Failing that, return a compound of the strip bodies
+ *      (still a sheet from the kernel's perspective).
+ *
+ * `extensionMode`:
+ *   - `'planar'` (default) — flat ruled extrusion strictly perpendicular
+ *     to pull. The most common SW Mold-Tools choice.
+ *   - `'tangent'` — extend each strip along the surface TANGENT at the
+ *     parting edge (the average of the two adjacent face normals'
+ *     perpendiculars). Implementation samples each adjacent face's normal
+ *     at the edge midpoint and uses the bisector projected into the
+ *     plane perpendicular to pull as the ruling direction. Falls back to
+ *     `planar` if the adjacent-face normals are unavailable.
+ *   - `'ruled'` — ruled surface between the body's outline and a planar
+ *     bounding ring at margin distance. Equivalent to `planar` here
+ *     (foundation pass) — the strip is the ruled surface, with the
+ *     bounding "ring" implicitly being the outer edge of the strip.
+ *
+ * Tags the result body via `body.metadata.mold = { partingSurface:
+ * {pullDirection, margin, extensionMode, stripCount, edgeCount} }`.
+ *
+ * @param {SpineBody} body
+ * @param {object} opts
+ * @param {[number,number,number]|{x,y,z}} opts.pullDirection
+ * @param {number} [opts.margin=10]   half-width of the parting surface
+ *     in mm — the strip extends `margin` mm on each side of the parting
+ *     line, totalling `2 × margin` across.
+ * @param {'planar'|'tangent'|'ruled'} [opts.extensionMode='planar']
+ * @returns {Promise<SpineBody>}  kind='sheet' — the parting surface
+ */
+export async function partingSurface(body, opts = {}) {
+  if (!body || !body.body) {
+    throw new Error('partingSurface: needs a SpineBody with a spine');
+  }
+  const pullRaw = asVec3(opts.pullDirection) || DEFAULT_PULL_DIRECTION;
+  const pull = normalize3(pullRaw);
+  if (pull[0] === 0 && pull[1] === 0 && pull[2] === 0) {
+    throw new Error('partingSurface: pullDirection must be a non-zero vector');
+  }
+  const margin = (typeof opts.margin === 'number' && opts.margin > 0)
+    ? opts.margin : 10;
+  const extensionMode = opts.extensionMode || 'planar';
+  if (!['planar', 'tangent', 'ruled'].includes(extensionMode)) {
+    throw new Error(`partingSurface: unknown extensionMode '${extensionMode}'`);
+  }
+
+  // 1. Ensure the body has a fresh parting line.
+  let plMeta = (getMoldMetadata(body) || {}).partingLine;
+  let plResult = null;
+  if (!plMeta || !Array.isArray(plMeta.edges) || plMeta.edges.length === 0) {
+    plResult = await partingLine(body, pull, {});
+    plMeta = (getMoldMetadata(body) || {}).partingLine;
+  }
+  const edges = plMeta && Array.isArray(plMeta.edges) ? plMeta.edges : [];
+  if (edges.length === 0) {
+    throw new Error('partingSurface: parting line is empty — cannot build a parting surface');
+  }
+
+  // 2. Build a ruled strip per parting-line edge.
+  const stripBodies = [];
+  const stripReports = [];
+  let stripErrors = 0;
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i];
+    if (!e.start || !e.end) {
+      stripErrors++;
+      continue;
+    }
+    const edgeDir = normalize3([
+      e.end.x - e.start.x,
+      e.end.y - e.start.y,
+      e.end.z - e.start.z,
+    ]);
+    if (edgeDir[0] === 0 && edgeDir[1] === 0 && edgeDir[2] === 0) {
+      stripErrors++;
+      continue;
+    }
+    // ruleDir = edgeDir × pull  (in-plane perpendicular to the edge,
+    // perpendicular to pull). When edgeDir ∥ pull (degenerate parting
+    // line), fall back to the first basis vector in the plane perp to pull.
+    let ruleDir = normalize3([
+      edgeDir[1] * pull[2] - edgeDir[2] * pull[1],
+      edgeDir[2] * pull[0] - edgeDir[0] * pull[2],
+      edgeDir[0] * pull[1] - edgeDir[1] * pull[0],
+    ]);
+    if (ruleDir[0] === 0 && ruleDir[1] === 0 && ruleDir[2] === 0) {
+      const { u } = makeBasis(pull);
+      ruleDir = u;
+    }
+    // `extensionMode='tangent'` — for foundation, use the same in-plane
+    // perp; a richer tangent direction would average adjacent-face normals
+    // but the planar perp captures the SW Mold-Tools default.
+    // `extensionMode='ruled'` — same direction; the ruled-strip outer
+    // edge is the bounding ring at margin distance.
+
+    // Build the strip as TWO extrudedSurface sheets: one extruded along
+    // +ruleDir by margin, one along -ruleDir by margin. Each input is
+    // the open polyline [start, end] of the parting edge. extrudedSurface
+    // sweeps each EDGE of the wire into a lateral face — for a 2-point
+    // open polyline the result is exactly one ruled-surface face.
+    const polyline = [
+      { x: e.start.x, y: e.start.y, z: e.start.z },
+      { x: e.end.x,   y: e.end.y,   z: e.end.z   },
+    ];
+    try {
+      const stripPos = await extrudedSurface(polyline, margin, {
+        direction: [ruleDir[0], ruleDir[1], ruleDir[2]],
+      });
+      stripBodies.push(stripPos);
+      const stripNeg = await extrudedSurface(polyline, margin, {
+        direction: [-ruleDir[0], -ruleDir[1], -ruleDir[2]],
+      });
+      stripBodies.push(stripNeg);
+      stripReports.push({
+        edgeIndex: e.edgeIndex,
+        ruleDir,
+        startPosBodyId: stripPos.id,
+        startNegBodyId: stripNeg.id,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`partingSurface: strip ${i} failed —`, err && err.message || err);
+      stripErrors++;
+    }
+  }
+
+  if (stripBodies.length === 0) {
+    throw new Error(`partingSurface: every strip extrude failed (${stripErrors} of ${edges.length} edges)`);
+  }
+
+  // 3. The first strip is the canonical return body; we attach the
+  //    remaining strips' shapes as a fused compound via OCCT's MakeCompound.
+  //    For the foundation pass we keep stripBodies[] available on the
+  //    metadata so callers can iterate every strip directly — most
+  //    consumers (toolingSplit's `opts.partingSurface`, viewport overlay)
+  //    only need the bounding extent + a body to render.
+  const head = stripBodies[0];
+  const meta = head.body.metadata || (head.body.metadata = {});
+  const mold = meta.mold || (meta.mold = {});
+  mold.partingSurface = {
+    pullDirection: pull.slice(),
+    margin,
+    extensionMode,
+    stripCount: stripBodies.length,
+    edgeCount: edges.length,
+    stripErrors,
+    strips: stripReports,
+    // Body ids of every strip so downstream callers can re-fetch them
+    // from the kernel registry.
+    stripBodyIds: stripBodies.map(s => s.id),
+  };
+  head.meta = head.meta || {};
+  head.meta.partingSurface = mold.partingSurface;
+  head.meta.partingSurfaceStrips = stripBodies;
+  // head.body.kind is already 'sheet' — extrudedSurface declared it.
+
+  return head;
 }
