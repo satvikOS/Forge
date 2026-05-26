@@ -797,8 +797,8 @@ Assembly Animation.
 | Gear (mechanical) | Gear Mate | **Done** (Tier-7c) |
 | Hinge (mechanical) | Hinge Mate | **Done** (Tier-7c) |
 | Cam (mechanical) | (none) | **Missing** |
-| Rack-and-Pinion (mechanical) | (none) | **Missing** |
-| Screw (mechanical) | (none in UI; KinematicsCore may have it) | **Missing** in UI |
+| Rack-and-Pinion (mechanical) | Rack-Pinion Mate | **Done** (Tier-7c-rest) |
+| Screw (mechanical) | Screw Mate | **Done** (Tier-7c-rest) |
 | Universal Joint (mechanical) | (none) | **Missing** |
 | **Fixed-component convention (`(f)` prefix on first inserted)** | Unknown | **Missing/Unverified** |
 | Move Component | Move Component | **Done** |

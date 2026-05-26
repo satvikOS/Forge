@@ -958,7 +958,110 @@ accounting in one workflow.
    applies the screw-to-jaw kinematic pitch manually (`jawShiftMM =
    −pitchMM × angle / (2π)`) because the Tier-7c set does not yet
    include a Screw mate. When Screw lands, the jaw will translate
-   automatically as a real kinematic coupling.
+   automatically as a real kinematic coupling. **Update (Tier-7c-rest):**
+   Screw is now shipped; the jaw kinematic is no longer a simulation —
+   see Tier 7c-rest below.
+
+---
+
+## Tier 7c-rest — Mechanical assembly mates (4 of 6 shipped) — Screw + Rack-Pinion
+
+Tier-7c-rest continues the SW Mechanical-mate family with the next two
+focused additions on top of Gear + Hinge: **Screw** and **Rack-Pinion**.
+Each contributes a real rotation-to-translation kinematic coupling
+residual + correct 1 DOF reduction, integrated end-to-end (kernel
+`MateSolver` satisfier + kernel-free `KinematicsCore` residual helper +
+ribbon button + `_applyStandardMate` handler + param schema + bespoke
+motion-capture e2e on a CNC linear-stage carriage).
+
+| Tier-7 # | Tool | Status | Implementation |
+|---|---|---|---|
+| 74 | **Screw Mate** | **DONE** | Real solver in `kernel/assembly/MateSolver.js::_satisfyScrew` — couples partA's along-axis rotational coordinate θ_A to partB's along-axis translational coordinate t_B by `pitch` (m per revolution, signed for handedness): `θ_A · pitch / (2π) − t_B → 0`. Projects partA's Euler rotation onto its world-space axis to read θ_A, projects partB's position (relative to the axis origin on A in world space) onto partB's world-space tangent to read t_B, then slides partB along that tangent by `delta · RELAXATION`. Residual = `|θ_A · pitch / (2π) − t_B|`; removes 1 DOF (the rotation-translation pair is now a single scalar). Foundation `screwResidual(thetaA, translationB, pitch)` + `screwCorrection()` cross-check. Ribbon "Screw Mate" (⌬) in Assembly→Mates; schema drives `axisA`, `axisB`, `axisOriginA`, `pitch` (mm/rev), `handedness` enum (right/left — left flips the pitch sign). |
+| 75 | **Rack-Pinion Mate** | **DONE** | Real solver `_satisfyRackPinion` — couples pinion (partA) along-axis rotation θ_A to rack (partB) along-tangent translation t_B by `pinionRadius`: `θ_A · pinionRadius − t_B → 0`. Same Euler-projection + tangent-slide correction pattern as Screw but linear in θ (no 2π divisor — the pinion-radius times angle is the arc length advanced by rolling without slipping). Negative `pinionRadius` reverses the coupling (rack on opposite side of pinion). Residual = `|θ_A · pinionRadius − t_B|`; removes 1 DOF. Foundation `rackPinionResidual` + `rackPinionCorrection` cross-checks. Ribbon "Rack-Pinion Mate" (⥯); schema drives `axisA`, `axisB`, `axisOriginA`, `pinionRadius` (mm). |
+
+**Files added/changed for Tier-7c-rest:**
+
+- `frontend/src/kernel/assembly/MateSolver.js` — new `_satisfyScrew`, `_satisfyRackPinion`; `_mateDOFRemoved` extended with `screw=1`, `rackPinion=1`; `_mateError` extended with the two residual computations; `_satisfyMate` switch extended for the two new kinds.
+- `frontend/src/foundation/AssemblyMate.js` — `screw(partA, axisA, partB, axisB, pitch)` and `rackPinion(partA, axisA, partB, axisB, pinionRadius)` factories on the foundation Assembly class; residual cases in `_residuals()` so the LM solver handles all 13 mate kinds end-to-end (4 base + 4 Tier-7a + 3 Tier-7b + 2 Tier-7c + 2 Tier-7c-rest).
+- `frontend/src/foundation/KinematicsCore.js` — `ASSEMBLY_MATE_DOF` table extended with `screw=1`, `rackPinion=1`. New kernel-free helpers `screwResidual`, `screwCorrection`, `rackPinionResidual`, `rackPinionCorrection`. `assemblyMateResiduals(mates)` bundle extended to dispatch the two new kinds.
+- `frontend/src/components/RibbonToolbar.jsx` — 2 new entries in Assembly→Mates appended after the Tier-7c Gear/Hinge two: Screw Mate (⌬), Rack-Pinion Mate (⥯).
+- `frontend/src/foundation/ToolParamSchemas.js` — 2 new schemas appended after `'Hinge Mate'`: Screw Mate (axisA + axisB + axisOriginA + pitch + handedness enum), Rack-Pinion Mate (axisA + axisB + axisOriginA + pinionRadius).
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` — 2 thin assembly-group handlers (`'Screw Mate'`, `'Rack-Pinion Mate'`) delegate to the existing `_applyStandardMate` helper which is extended with the two new kinds (labelMap, params-build incl. mm→m conversions and handedness sign-flip, foundation residual cross-check).
+- `e2e/ux-tier7c-rest-screw-rackpinion-electron.spec.js` — bespoke motion-capture e2e (5 stills + session video). See section below for the framing.
+
+### Bespoke real workflow — CNC linear-stage carriage
+
+A 5-part machine-tool linear stage with two independent feed mechanisms
+on a shared base frame: a leadscrew driving a carriage via a Screw mate,
+and a handwheel driving a tool slide via a Rack-Pinion mate. ONE
+perfectly-viewable iso framing throughout. ONE `test()` block,
+`--workers=1`, `slowMo=220`, `recordVideo`, no `node:*` imports.
+
+| Component | Size (mm) | Initial pose |
+|---|---|---|
+| Frame     | 220 × 80 × 50 (dark-grey)    | origin, FIXED (the machine bed) |
+| Leadscrew | Ø10 × 200 (gold)             | (0, 0, 40), rotated Pi/2 about Z so long axis = world X |
+| Carriage  | 60 × 60 × 35 (mid-grey)      | (−50, 0, 40) — rides along leadscrew (world X), retracted |
+| Handwheel | Ø22 × 12 (red disk)          | (120, 55, 80) — disk axis along world Y |
+| ToolSlide | 40 × 25 × 30 (light-grey)    | (60, 0, 90) — rack translation in world Z |
+
+Initial DOF = 5×6 − 6 (Frame fixed) = **24**. The two mates are applied
+in order via real ribbon clicks after seeding `__archdiscSelectedAssemblyParts`.
+
+| Frame | Headline |
+|---|---|
+| 01 — A1 | CNC linear-stage initial iso (5 parts visible; Assembly tab active; new Screw / Rack-Pinion ribbon buttons visible) — DOF 24 |
+| 02 — B1 | After **Screw** (Leadscrew↔Carriage, pitch = 2 mm/rev): leadscrew's along-axis rotation now coupled to carriage's along-axis translation; DOF 24→23 (−1); foundation residual ≪ 1 mrad |
+| 03 — B2 | After **Rack-Pinion** (Handwheel↔ToolSlide, R = 10 mm): handwheel's along-axis rotation now coupled to tool-slide's along-tangent translation; DOF 23→22 (−1); foundation residual ≪ 1 µm |
+| 04 — B3 | Programmatic +5-rev leadscrew rotation → Screw advances carriage by +5 × 2 = +10 mm along world X (within ±1 mm of analytic target) |
+| 05 — B4 | Programmatic +π/2 handwheel rotation → Rack-Pinion advances tool slide by 10 × π/2 ≈ +15.7 mm along world Z (within ±1 mm of analytic target) |
+| 06 — C1 | Final state — two Tier-7c-rest mates stacked; book-kept DOF = 22 |
+
+**Focal assertions (verified in the spec):**
+
+| Mate | DOF removed (table) | DOF removed (actual) | Foundation residual | Analytic kinematic check |
+|---|---|---|---|---|
+| Screw | 1 | 1 ✓ | < 1e-3 m (along-axis translation delta) | Carriage X after 5 revs = (π/2 + 10π) · 2 mm / (2π) ≈ 10.5 mm (matches within ±1 mm) |
+| Rack-Pinion | 1 | 1 ✓ | < 1e-3 m | Tool slide Z after +π/2 handwheel rad = 80 mm + π/2 · 10 mm ≈ 95.7 mm (matches within ±1 mm) |
+
+### E2E + regression subset (Tier-7c-rest)
+
+Headed Electron, `--workers=1`, `--retries=0`. Tier-7a + Tier-7b + Tier-7c
+remain green; the new spec covers Screw / Rack-Pinion handlers + ribbon
+dispatch + kernel solver + foundation residual helpers + real kinematic
+propagation (5-rev screw advance, 90°-pinion rack advance) in one
+workflow.
+
+| Spec | Result |
+|---|---|
+| `ux-tier7a-standard-mates-electron` (regression) | PASS (unchanged — `_applyStandardMate` extended but Tier-7a branches untouched) |
+| `ux-tier7b-advanced-mates-electron` (regression) | PASS (unchanged — same dispatch helper, additive only) |
+| `ux-tier7c-mechanical-mates-electron` (regression) | PASS (unchanged — Gear/Hinge branches untouched) |
+| `ribbon-test` (regression) | PASS (unchanged — 2 new buttons appended after Gear/Hinge) |
+| `ux-tier7c-rest-screw-rackpinion-electron` (NEW) | PASS — 5 stills + session video; assertions on DOF book-keeping + foundation cross-check + Screw kinematic propagation (5 revs → 10.5 mm X) + Rack-Pinion kinematic propagation (90° → 15.7 mm Z) |
+
+### Honest gaps in Tier-7c-rest
+
+1. **Mechanical-mate family is 4 of 6.** Remaining: **Cam** (point on
+   partB rides on a cam surface on partA — generalisation of Path with
+   contact normal), **Universal Joint** (two rotations with a velocity
+   coupling through a cross-pin at an angle). Both queued; Cam adds a
+   contact-surface residual (extends Path), Universal Joint adds a
+   velocity-coupling residual through the cross-pin angle.
+2. **Screw / Rack-Pinion axis projection is first-order.** Same Euler-
+   projection trick as Gear / Hinge — exact when the part axis lies
+   along world X / Y / Z (the CNC linear-stage case, which is the
+   overwhelming majority of real CAD assemblies), approximate for
+   arbitrary axes at large rotations. Quaternion-based extraction is
+   the natural follow-on, shared across the four mechanical mates.
+3. **Screw measures translation from axis origin on A.** `t_B` is the
+   along-axis component of `(partB.position − axisOriginAWorld)` rather
+   than along an explicit reference point on B. For the common case
+   where the axis-origin on A is placed at the screw thread start and
+   the rack/carriage starts at a known offset, this is intuitive and
+   matches SW behaviour; for arbitrarily-placed anchors users should
+   set `axisOriginA` to the desired reference point so the initial
+   `t_B` matches the carriage's current position projection.
 
 ---
 
@@ -971,7 +1074,7 @@ accounting in one workflow.
 | 4 | Missing surfacing tool naming (Extruded Surface, Boundary Surface, Planar Surface, etc.) | Not started |
 | 5 | Sheet Metal workbench (entire ribbon tab + kernel) | **Partial — Tier 5a + 5b shipped (7 of ~18 ops): Base Flange / Edge Flange / Flat Pattern + Hem / Jog / Miter Flange / Sketched Bend)** |
 | 6 | Weldments workbench (structural members + cut list) | **Partial — Tier 6a + 6b + 6c shipped (6 of ~8 ops: Structural Member / Trim / End Cap + Gusset / Weld Bead + Cut List; Sub-Weldment, Custom Profile Import, Cope Cut queued Tier-6d)** |
-| 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, remaining Advanced + Mechanical mates, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c shipped (9/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 2 of 6 mechanical)** |
+| 7 | Missing assembly capabilities (~~Parallel/Perpendicular/Tangent/Lock mates~~ done in Tier 7a, ~~Width/Path/Distance-Limit~~ done in Tier 7b, ~~Gear/Hinge~~ done in Tier 7c, ~~Screw/Rack-Pinion~~ done in Tier 7c-rest, remaining Advanced + Cam + Universal-Joint, Component Pattern, Toolbox) | **Partial — Tier 7a + 7b + 7c + 7c-rest shipped (11/12+; standard-mate set complete 8/8 + 3 of 6 advanced + 4 of 6 mechanical)** |
 | 8 | Missing drawing capabilities (~~Auxiliary/Crop/Broken View~~ done in Tier 8a, ~~Model Items, BOM, Auto-Balloon~~ done in Tier 8b, ~~Title Block + Sheet Format~~ done in Tier 8c) | **Done — Tier 8a + 8b + 8c shipped (8/8)** |
 | 9 | Mold Tools workbench (Draft/Undercut Analysis, Parting Line/Surface, Tooling Split) | **Partial — Tier 9 + 9b shipped (5 of ~8 ops: Draft Analysis / Parting Line / Tooling Split + Undercut Analysis / Shut-Off Surfaces; Parting Surface ruled / Side Actions / Cooling Channels queued)** |
 | 10 | Parametric infrastructure (Equation Manager, Global Variables, Design Tables, Configurations) | **Partial — Tier 10 (focused) shipped (Equation Manager + Global Variables + sketch-dim parametric hook; Design Tables / Configurations / 3D-feature-param wiring queued)** |
