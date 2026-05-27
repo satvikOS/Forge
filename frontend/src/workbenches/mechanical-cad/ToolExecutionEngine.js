@@ -47,6 +47,7 @@ import {
 import { getManifold } from '../../foundation/manifoldKernel.js';
 import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
 import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
+import { export3MF } from '../../foundation/MeshThreeMF.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6394,6 +6395,21 @@ const TOOL_HANDLERS = {
     // honest gap I flagged in the assessment: "per-component CAD file
     // export was not an automated tool yet". Iterates BodyRegistry,
     // calls kernel exportStep on each body, packages a project bundle.
+    // WF-13 — 3MF export (3D Manufacturing Format) for slicer / 3D-print
+    // workflows. Mirrors the result on window.__last3MF for e2e
+    // introspection of the produced bytes.
+    'Export 3MF': () => {
+      const result = export3MF({});
+      if (typeof window !== 'undefined') window.__last3MF = result;
+      if (!result.ok) {
+        return { status: 'error', message: `Export 3MF: ${result.reason || 'unknown'}` };
+      }
+      return {
+        status: 'ok',
+        message: `Exported ${result.filename}: ${result.objects} object${result.objects === 1 ? '' : 's'}, ${result.bytes.toLocaleString()} bytes`,
+        result,
+      };
+    },
     'Export Project Bundle': async () => {
       const result = await exportProjectBundle({});
       // Mirror to window.__lastBundle so headed e2e specs can introspect

@@ -512,6 +512,7 @@ export const TABS = {
         { name: 'Save Snapshot', icon: '💾', key: 'documentation', shortcut: 'Ctrl+S' },
         { name: 'Load Snapshot', icon: '📂', key: 'documentation' },
         { name: 'Export Project Bundle', icon: '🗜', key: 'documentation' },
+        { name: 'Export 3MF',             icon: '🧊', key: 'documentation' },
       ]},
     ]
   },
