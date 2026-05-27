@@ -971,15 +971,20 @@ function WorkbenchMechanical() {
             }
             // Ctrl/Cmd + 1..9 = Switch ribbon tab (1=Sketch, 2=Part,
             // 3=Assembly, 4=Simulate, 5=Manufacture, 6=Direct Edit,
-            // 7=Sheet Metal, 8=Weldments, 9=Mold Tools / Drawing tail).
-            // The TAB_ORDER mirrors RibbonToolbar.TABS insertion order.
-            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key >= '1' && e.key <= '9') {
+            // 7=Sheet Metal, 8=Weldments, 9=Mold Tools). Ctrl/Cmd + 0
+            // = the 10th + last tab (Drawing) — IDE convention where
+            // '0' wraps to the tail. TAB_ORDER mirrors RibbonToolbar
+            // TABS insertion order verified at line 16/83/238/285/
+            // 337/359/383/413/442/464.
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key >= '0' && e.key <= '9') {
                 e.preventDefault();
                 const TAB_ORDER = [
                     'sketch', 'part', 'assembly', 'simulate', 'manufacture',
                     'directEdit', 'sheetMetal', 'weldments', 'moldTools',
+                    'drawing',
                 ];
-                const idx = parseInt(e.key, 10) - 1;
+                // '1'..'9' → index 0..8, '0' → index 9 (the tail).
+                const idx = e.key === '0' ? 9 : parseInt(e.key, 10) - 1;
                 const tabKey = TAB_ORDER[idx];
                 if (tabKey) setRibbonTab(tabKey);
                 return;
@@ -1552,7 +1557,8 @@ function WorkbenchMechanical() {
                                     ['Ctrl + S', 'Save Snapshot (.archdisc.json)'],
                                     ['Ctrl + Z', 'Undo (kernel HistoryLog)'],
                                     ['Ctrl + Y', 'Redo (or Ctrl+Shift+Z)'],
-                                    ['Ctrl + 1‥9', 'Switch ribbon tab (Sketch/Part/Assembly/…)'],
+                                    ['Ctrl + 1‥9', 'Switch ribbon tab (Sketch/Part/Assembly/…/Mold Tools)'],
+                                    ['Ctrl + 0', 'Switch to Drawing tab (last)'],
                                     ['?', 'Toggle this help'],
                                     ['Esc', 'Cancel active tool / close menus'],
                                 ].map(([k, label]) => (
