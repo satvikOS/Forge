@@ -269,6 +269,35 @@ export function executeTool(groupKey, toolName, scene, viewport) {
 let _activeToolName = null;
 
 /**
+ * Apply position + rotation from a primitive's dialog values to a Three.js
+ * group (the wrapper around the BrepShape / Manifold mesh). Dialog values
+ * are in millimetres / degrees; the group is scaled by 0.001 mm→m, so we
+ * convert positions to metres but rotations stay in radians.
+ *
+ * Per feedback_one_to_one_parity_loop: every primitive ribbon dialog now
+ * exposes optional x/y/z + rx/ry/rz fields so a single dialog interaction
+ * places + orients the body. This is the concurrent UI integration that
+ * unblocks the Falcon 9 octaweb rebuild (struts pointing radially, engine
+ * cones at engine positions, etc.).
+ */
+function applyDialogPose(group, values) {
+  if (!group) return;
+  const x = Number(values?.x) || 0;
+  const y = Number(values?.y) || 0;
+  const z = Number(values?.z) || 0;
+  const rx = ((Number(values?.rx) || 0) * Math.PI) / 180;
+  const ry = ((Number(values?.ry) || 0) * Math.PI) / 180;
+  const rz = ((Number(values?.rz) || 0) * Math.PI) / 180;
+  if (x !== 0 || y !== 0 || z !== 0) {
+    group.position.set(x * 0.001, y * 0.001, z * 0.001);
+  }
+  if (rx !== 0 || ry !== 0 || rz !== 0) {
+    group.rotation.set(rx, ry, rz);
+  }
+  if (x || y || z || rx || ry || rz) group.updateMatrixWorld(true);
+}
+
+/**
  * After a handler runs, push a DesignHistory entry so the user can
  * see what just happened in the right-side timeline. Looks up the
  * canonical state slot in ToolRegistry, falls back to the handler's
@@ -1424,6 +1453,29 @@ const TOOL_HANDLERS = {
   // PART DESIGN — Real kernel operations
   // ═══════════════════════════════════════════════════════════════════════════
   'part-design': {
+    // ─── SP-1 — Standards Library + Pattern Standards ────────────────────
+    // Event-dispatch handlers (same pattern as Equation Manager). The
+    // StandardsLibraryDialog (mounted at WorkbenchMechanical root) listens
+    // for `archdisc:standards-library:open` and self-renders. On Place it
+    // fires `archdisc:standards-library:place` which the workbench-level
+    // handler picks up to create the atomic-CAD Part(s) + register the
+    // body / bodies in BodyRegistry + add to the live viewport.
+    'Standards Library': async () => {
+      if (typeof window === 'undefined') {
+        return { status: 'warn', message: 'Standards Library requires a browser environment.' };
+      }
+      window.dispatchEvent(new CustomEvent('archdisc:standards-library:open', { detail: { mode: 'single' } }));
+      return { status: 'success', message: 'Standards Library: catalog browser opened (single placement).' };
+    },
+
+    'Pattern Standards': async () => {
+      if (typeof window === 'undefined') {
+        return { status: 'warn', message: 'Pattern Standards requires a browser environment.' };
+      }
+      window.dispatchEvent(new CustomEvent('archdisc:standards-library:open', { detail: { mode: 'pattern' } }));
+      return { status: 'success', message: 'Pattern Standards: catalog browser opened (pattern placement).' };
+    },
+
     'Import STEP': async (scene, viewport) => {
       // Foundation path: read a STEP (ISO 10303-21) faceted B-rep
       // via foundation.parseStep, rebuild the mesh as a manifold,
@@ -2745,9 +2797,9 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Box');
         if (cancelled) return { status: 'warn', message: 'Box: cancelled' };
         let result = await ArchDiscKernel.brep.makeBox(values.dx, values.dy, values.dz);
-        // Optional placement — honor tx/ty/tz when supplied (parametric per the
-        // plan-params convention). makeBox builds at the origin; a non-zero
-        // offset positions the body so e.g. two boxes can partially overlap.
+        // Honour tx/ty/tz legacy plan-params if present; otherwise use the
+        // new dialog x/y/z fields (applied at the group level via
+        // applyDialogPose below for visual placement).
         const tx = Number(values.tx) || 0;
         const ty = Number(values.ty) || 0;
         const tz = Number(values.tz) || 0;
@@ -2756,7 +2808,8 @@ const TOOL_HANDLERS = {
           result.dispose();
           result = placed;
         }
-        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const group = await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        applyDialogPose(group, values);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Box: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -2769,7 +2822,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Cylinder');
         if (cancelled) return { status: 'warn', message: 'Cylinder: cancelled' };
         const result = await ArchDiscKernel.brep.makeCylinder(values.radius, values.height);
-        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const group = await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        applyDialogPose(group, values);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Cylinder: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -2782,7 +2836,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Sphere');
         if (cancelled) return { status: 'warn', message: 'Sphere: cancelled' };
         const result = await ArchDiscKernel.brep.makeSphere(values.radius);
-        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const group = await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        applyDialogPose(group, values);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Sphere: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {
@@ -2795,7 +2850,8 @@ const TOOL_HANDLERS = {
         const { values, cancelled } = await requestToolParams('Cone');
         if (cancelled) return { status: 'warn', message: 'Cone: cancelled' };
         const result = await ArchDiscKernel.brep.makeCone(values.radius1, values.radius2, values.height);
-        await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        const group = await addBrepShapeToScene(scene, viewport, result, 0x4a90d9);
+        applyDialogPose(group, values);
         const m = await ArchDiscKernel.brep.measure(result);
         return { status: 'success', message: `Cone: V = ${m.volume.toFixed(0)} mm³ via ArchDisc exact B-rep kernel` };
       } catch (err) {

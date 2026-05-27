@@ -40,38 +40,59 @@ export const TOOL_PARAM_SCHEMAS = {
   // ─── SOLID PRIMITIVES ────────────────────────────────────────────────────
   'Box': {
     title: 'Box — Solid Primitive',
-    blurb: 'Create an axis-aligned box. Defaults: 40×40×40 mm.',
+    blurb: 'Create an axis-aligned box. Defaults: 40×40×40 mm. Use position / rotation to place + orient.',
     fields: [
-      { name: 'dx', label: 'Width (X)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
-      { name: 'dy', label: 'Depth (Y)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
-      { name: 'dz', label: 'Height (Z)', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'dx', label: 'Width (X)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'dy', label: 'Depth (Y)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'dz', label: 'Height (Z)', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°',  step: 1 },
     ],
   },
 
   'Cylinder': {
     title: 'Cylinder — Solid Primitive',
-    blurb: 'Create a cylinder along +Z. Defaults: r=20 mm, h=40 mm.',
+    blurb: 'Create a cylinder along +Z. Defaults: r=20 mm, h=40 mm. Position / rotation place + orient the body.',
     fields: [
-      { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 1000, step: 1 },
-      { name: 'height', label: 'Height', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°',  step: 1 },
     ],
   },
 
   'Sphere': {
     title: 'Sphere — Solid Primitive',
-    blurb: 'Create a sphere centred at the origin. Default: r=25 mm.',
+    blurb: 'Create a sphere. Default: r=25 mm.',
     fields: [
-      { name: 'radius', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'radius', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
     ],
   },
 
   'Cone': {
     title: 'Cone — Solid Primitive',
-    blurb: 'Create a truncated cone along +Z. Defaults: r1=25 mm, r2=8 mm, h=45 mm.',
+    blurb: 'Create a truncated cone along +Z (r1 = base, r2 = top). Position / rotation place + orient the body.',
     fields: [
-      { name: 'radius1', label: 'Base radius (r1)', type: 'number', default: 25, unit: 'mm', min: 0,   max: 1000, step: 1 },
-      { name: 'radius2', label: 'Top radius (r2)',  type: 'number', default: 8,  unit: 'mm', min: 0,   max: 1000, step: 1, hint: '0 = sharp apex' },
-      { name: 'height',  label: 'Height',           type: 'number', default: 45, unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'radius1', label: 'Base radius (r1)', type: 'number', default: 25, unit: 'mm', min: 0,   max: 100000, step: 1 },
+      { name: 'radius2', label: 'Top radius (r2)',  type: 'number', default: 8,  unit: 'mm', min: 0,   max: 100000, step: 1, hint: '0 = sharp apex' },
+      { name: 'height',  label: 'Height',           type: 'number', default: 45, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°',  step: 1 },
     ],
   },
 

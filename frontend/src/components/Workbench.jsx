@@ -77,14 +77,19 @@ function WorkbenchContainer() {
         };
     }, []);
 
-    // Toast helper
+    // Toast helper — single top-right slot, replacing on new toast.
+    // Each new toast REPLACES the previous one rather than stacking.
+    // Per feedback_one_to_one_parity_loop: production CAD apps don't pile
+    // a column of toasts down the side of the viewport.
     const addToast = (message, type = 'info', duration = 3000) => {
-        const id = Date.now() + Math.random();   // dedupe rapid back-to-back fires
-        setToasts(prev => [...prev, { id, message, type, duration }]);
+        const id = Date.now();
+        setToasts([{ id, message, type, duration }]);
     };
 
     const removeToast = (id) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
+        // Always clear the slot (single-toast model). The `id` argument is
+        // kept for callsite compatibility but unused now.
+        setToasts([]);
     };
 
     // WF-28 — surface tool execution results as toasts. The Workbench-

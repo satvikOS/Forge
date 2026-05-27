@@ -1,14 +1,18 @@
-/* Toast Notification System - Unified tokens */
+/* Toast Notification System — single top-right slot, replacing.
+   Per feedback_one_to_one_parity_loop, toasts must not stack down the
+   viewport — they occupy one slot in the top-right corner and replace
+   on each new tool result. */
 
 .toast-container {
     position: fixed;
-    bottom: 60px;
+    top: 64px;                /* below ribbon */
     right: 16px;
     z-index: 10002;
     display: flex;
-    flex-direction: column-reverse;
-    gap: 8px;
+    flex-direction: column;
+    gap: 0;
     pointer-events: none;
+    max-width: 380px;
 }
 
 .toast {

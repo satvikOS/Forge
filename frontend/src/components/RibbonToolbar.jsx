@@ -239,6 +239,15 @@ export const TABS = {
       { label: 'Parameters', tools: [
         { name: 'Equation Manager', icon: 'Σ', key: 'part' },
       ]},
+      // SP-1 — Standards Libraries (atomic-CAD catalog).
+      // 'Standards Library' opens the catalog browser for single
+      // placement; 'Pattern Standards' opens the same dialog in
+      // pattern-placement mode (linear / circular). Each placement
+      // runs real atomic CAD ops on a new Part — replayable history.
+      { label: 'Standards', tools: [
+        { name: 'Standards Library', icon: '🔩', key: 'part' },
+        { name: 'Pattern Standards', icon: '▦', key: 'part' },
+      ]},
     ]
   },
   assembly: {

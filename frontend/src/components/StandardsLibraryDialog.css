@@ -1,0 +1,222 @@
+/* StandardsLibraryDialog — modal browser for SP-1 catalog placement. */
+
+.standards-library-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.standards-library-dialog {
+  width: 760px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 64px);
+  background: #1a1c20;
+  border: 1px solid #2c3036;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  color: #d6dade;
+  font: 13px / 1.4 system-ui, -apple-system, Segoe UI, sans-serif;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.55);
+}
+
+.standards-library-dialog header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2c3036;
+}
+
+.standards-library-dialog header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.standards-library-dialog .mode-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #2a3340;
+  color: #9ec5ff;
+  border: 1px solid #38445a;
+}
+
+.standards-library-dialog .close-btn {
+  margin-left: auto;
+  background: transparent;
+  color: #9aa3ad;
+  border: 0;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.standards-library-dialog .close-btn:hover { color: #fff; }
+
+.standards-library-dialog .body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 360px;
+  max-height: calc(100vh - 200px);
+  overflow: hidden;
+}
+
+.standards-library-dialog .category-tree {
+  width: 270px;
+  flex-shrink: 0;
+  border-right: 1px solid #2c3036;
+  padding: 6px 0;
+  overflow-y: auto;
+}
+
+.standards-library-dialog .category-tree .cat > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: #cfd3d8;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.standards-library-dialog .category-tree .cat.active > button {
+  background: #232830;
+  color: #ffd170;
+}
+
+.standards-library-dialog .category-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px 0;
+}
+
+.standards-library-dialog .category-tree li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: #aeb4bc;
+  padding: 4px 12px 4px 24px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.standards-library-dialog .category-tree li.active button {
+  background: #2c343f;
+  color: #fff;
+}
+
+.standards-library-dialog .picker {
+  flex: 1 1 auto;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.standards-library-dialog .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.standards-library-dialog .row label {
+  min-width: 120px;
+  color: #9aa3ad;
+  font-size: 12px;
+}
+
+.standards-library-dialog .row .value {
+  color: #fff;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.standards-library-dialog .row select,
+.standards-library-dialog .row input[type="number"] {
+  background: #11141a;
+  color: #fff;
+  border: 1px solid #2c3036;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  min-width: 110px;
+}
+
+.standards-library-dialog .row select:focus,
+.standards-library-dialog .row input:focus {
+  border-color: #6097ff;
+  outline: 0;
+}
+
+.standards-library-dialog .position-row input { min-width: 80px; }
+
+.standards-library-dialog .length-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.standards-library-dialog .length-chips .chip {
+  background: #11141a;
+  color: #9aa3ad;
+  border: 1px solid #2c3036;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.standards-library-dialog .length-chips .chip.active {
+  background: #2a3a52;
+  color: #fff;
+  border-color: #4a6ea0;
+}
+
+.standards-library-dialog .pattern-block {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed #2c3036;
+}
+
+.standards-library-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #2c3036;
+}
+
+.standards-library-dialog footer button {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.standards-library-dialog footer .cancel {
+  background: #232830;
+  color: #9aa3ad;
+  border: 1px solid #2c3036;
+}
+
+.standards-library-dialog footer .place {
+  background: #2a6dff;
+  color: #fff;
+  border: 1px solid #4480ff;
+  font-weight: 600;
+}
+
+.standards-library-dialog footer .place:hover { background: #3b7eff; }

@@ -93,6 +93,57 @@ export function sketchCircle(part, cx, cy, r, segments = 64) {
 }
 
 /**
+ * Add an arbitrary closed polyline to the open sketch. Each point is [x,y].
+ * Used for structural-section profiles (I-beam, L-angle), hex-head outer
+ * contours, and any non-regular custom shape. Caller is responsible for
+ * coherent geometry — no self-intersections.
+ * @param {Part} part
+ * @param {Array<[number,number]>} points  >= 3 [x,y] points in any winding
+ * @returns {Array<[number,number]>} the CCW polyline loop
+ */
+export function sketchPolyline(part, points) {
+  if (!part.activeSketch) throw new Error('sketchPolyline: no open sketch — call startSketch first');
+  if (!Array.isArray(points) || points.length < 3) throw new Error('sketchPolyline: need >= 3 points');
+  for (const p of points) {
+    if (!Array.isArray(p) || p.length !== 2 || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
+      throw new Error('sketchPolyline: each point must be [x, y] finite numbers');
+    }
+  }
+  const loop = orient(points.map(p => [p[0], p[1]]), true);
+  part.activeSketch.loops.push(loop);
+  part.addFeature('sketchPolyline', { count: points.length });
+  return loop;
+}
+
+/**
+ * Add a regular n-gon to the open sketch (centred at cx,cy, circumscribed
+ * radius r). `rotation` lets the polygon spin around its centre (radians);
+ * 0 puts a vertex on the +X axis. Used for hex heads, hex sockets, hex
+ * nuts, n-sided structural section profiles.
+ * @param {Part} part
+ * @param {number} cx        centre x (mm)
+ * @param {number} cy        centre y (mm)
+ * @param {number} r         circumscribed radius (mm, > 0)
+ * @param {number} n         number of sides (>= 3)
+ * @param {number} [rotation]  rotation in radians
+ * @returns {Array<[number,number]>} the CCW polygon loop
+ */
+export function sketchPolygon(part, cx, cy, r, n, rotation = 0) {
+  if (!part.activeSketch) throw new Error('sketchPolygon: no open sketch — call startSketch first');
+  if (!(r > 0)) throw new Error('sketchPolygon: r must be > 0');
+  if (!(n >= 3)) throw new Error('sketchPolygon: n must be >= 3');
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = rotation + (i * 2 * Math.PI) / n;
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  const loop = orient(pts, true);
+  part.activeSketch.loops.push(loop);
+  part.addFeature('sketchPolygon', { cx, cy, r, n, rotation });
+  return loop;
+}
+
+/**
  * Close the open sketch. Its loops + base Z become the pending profile for
  * the next feature operation.
  * @param {Part} part
@@ -363,6 +414,29 @@ export async function linearPattern(part, mode, count, distance, dx, dy) {
   part.pendingBaseZ = 0;
   part.addFeature('linearPattern', { mode, count, distance, dx, dy }, result);
   return result;
+}
+
+/**
+ * Rotate: rotate the part's whole current solid by the given Euler angles
+ * (degrees) around the world X, Y, Z axes in that order. Records a
+ * 'rotate' feature so the construction history is replayable.
+ *
+ * @param {Part} part
+ * @param {number} rx  X-axis rotation (degrees)
+ * @param {number} ry  Y-axis rotation (degrees)
+ * @param {number} rz  Z-axis rotation (degrees)
+ * @returns {object} the rotated manifold-3d solid
+ */
+export function rotate(part, rx, ry, rz) {
+  if (!part.solid) throw new Error('rotate: nothing to rotate — build a solid first');
+  if (!Number.isFinite(rx) || !Number.isFinite(ry) || !Number.isFinite(rz)) {
+    throw new Error('rotate: rx, ry, rz must be finite numbers');
+  }
+  const rotated = part.solid.rotate([rx, ry, rz]);
+  part.solid.delete();
+  part.solid = rotated;
+  part.addFeature('rotate', { rx, ry, rz }, rotated);
+  return rotated;
 }
 
 /**

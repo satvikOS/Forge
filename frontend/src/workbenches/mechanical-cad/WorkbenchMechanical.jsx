@@ -12,7 +12,7 @@ import { getKernel } from '../../kernel/brep/kernelLoader.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import * as THREE from 'three';
 import { getBodyRegistry } from '../../foundation/BodyRegistry';
-import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, fillet } from '../../kernel/atomic/AtomicOps.js';
+import { createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, rotate, fillet } from '../../kernel/atomic/AtomicOps.js';
 import { sculptPart, requestSculptPlan, executeSculptPlan } from '../../ai/sculptor/PartSculptor.js';
 import { sculptAssembly } from '../../ai/sculptor/AssemblyBuilder.js';
 import { requestManifest } from '../../ai/sculptor/ComponentManifest.js';
@@ -32,6 +32,8 @@ import TopologyInspector from '../../components/TopologyInspector';
 import '../../components/TopologyInspector.css';
 import ToolParamDialog from '../../components/ToolParamDialog';
 import '../../components/ToolParamDialog.css';
+import StandardsLibraryDialog from '../../components/StandardsLibraryDialog';
+import { placeStandard } from '../../kernel/atomic/standards/index.js';
 import AISettingsPanel from '../../components/AISettingsPanel';
 import '../../components/AISettingsPanel.css';
 import AIChatPanel from '../../components/AIChatPanel';
@@ -553,7 +555,7 @@ function WorkbenchMechanical() {
         if (!scene) return undefined;
         let lastAtomicGroup = null;
         window.__archdiscAtomic = {
-            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, fillet,
+            createPart, startSketch, sketchRectangle, sketchCircle, finishSketch, extrude, cut, revolve, circularPattern, linearPattern, translate, rotate, fillet,
             render: (part, color) => {
                 if (lastAtomicGroup) {
                     // Unregister from the body registry (also removes from scene)
@@ -914,6 +916,142 @@ function WorkbenchMechanical() {
             delete window.__archdiscRunTool;
         };
     }, [handleToolExecute, ribbonTab]);
+
+    // ─── SP-1 — Standards Library place handler ─────────────────────────
+    // The StandardsLibraryDialog fires `archdisc:standards-library:place`
+    // with a placement spec; we create a fresh atomic-CAD `Part` per
+    // instance, run the builder (which records the full sketch + extrude
+    // + cut feature sequence on the Part), translate to position, and
+    // register the body via addFoundationManifoldToScene. Pattern mode
+    // iterates `count` times; each instance is its own Part with its own
+    // replayable history in the FeatureTreePanel.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const colorFor = (spec) => {
+            // SP-1 session 3 — per-part material coloring driven by the
+            // catalog leaf so the rendered scene reads as a real Falcon
+            // 9 photo: charcoal bells, aluminum dome, dark steel
+            // fasteners, titanium-gray heat shield, etc.
+            if (spec.category === 'Spacecraft') {
+                const leaf = spec.leafName || '';
+                // Sea-level Merlin bells are nearly black after a single
+                // burn — charred regen-cooling channels + soot deposit.
+                // Pre-launch they're a darker charcoal; reflight bells
+                // are visibly black. Pick the post-burn look.
+                if (leaf.includes('Bell Nozzle'))          return 0x141618;  // near-black charred bell
+                if (leaf.includes('Combustion Chamber'))   return 0x9f9c8f;  // brushed Inconel (warm-grey)
+                if (leaf.includes('Turbopump'))            return 0x7e7e84;  // weathered steel
+                if (leaf.includes('Plumbing'))             return 0xb9bcc1;  // bright stainless feed line
+                // Polished Al-Li dome reads bright — needed for contrast
+                // against the dark bells in adversarial visual review.
+                if (leaf.includes('Thrust Dome'))          return 0xe2e5e8;
+                if (leaf.includes('Engine Mount Frustum')) return 0x7e8189;  // shadowed mount
+                if (leaf.includes('Heat Shield'))          return 0x8a8d92;  // titanium-aluminide
+                if (leaf.includes('Thrust Takeout'))       return 0x3a3d44;  // dark stress-treated steel
+                return 0xa8abae;
+            }
+            if (spec.category === 'Bearings')                return 0xcfd2d6;
+            if (spec.category === 'Steel Sections')          return 0x6e7480;
+            // Fastener coloring by grade — high-strength bolts are darker
+            // (black-oxide / phosphate finish on grade 12.9 + 10.9).
+            if (spec.grade === '12.9')                       return 0x2c2e33;
+            if (spec.grade === '10.9')                       return 0x3c3f45;
+            if (spec.category === 'Fasteners') {
+                const leaf = spec.leafName || '';
+                if (leaf.includes('Nut'))                    return 0x55585d;
+                if (leaf.includes('Lock Washer'))            return 0x6a6d72;
+                if (leaf.includes('Washer'))                 return 0x9ba0a5;
+                return 0x40424a;
+            }
+            return 0x9aa3ad;
+        };
+        const placeAt = async (spec, pos, rotation) => {
+            const lenLabel = spec.length_mm ? `×${spec.length_mm}` : spec.length_in ? `×${spec.length_in}in` : '';
+            const partName = `${spec.standard} ${spec.size}${lenLabel} @ ${pos[0].toFixed(0)},${pos[1].toFixed(0)},${pos[2].toFixed(0)}`;
+            const part = createPart(partName);
+            const builderOpts = {
+                size: spec.size,
+                sizeKey: spec.sizeKey,
+                designation: spec.designation,
+                length_mm: spec.length_mm,
+                length_in: spec.length_in,
+            };
+            await placeStandard(spec.builderKey, part, builderOpts);
+            // Rotation BEFORE translate — rotates the part around its own
+            // origin, then the translate puts the rotated body at `pos`.
+            if (rotation && (rotation[0] !== 0 || rotation[1] !== 0 || rotation[2] !== 0)) {
+                rotate(part, rotation[0], rotation[1], rotation[2]);
+            }
+            if (pos[0] !== 0 || pos[1] !== 0 || pos[2] !== 0) {
+                translate(part, pos[0], pos[1], pos[2]);
+            }
+            const scene = viewport?.scene;
+            if (scene && part.solid) {
+                addFoundationManifoldToScene(scene, viewport, part.solid, colorFor(spec));
+            }
+            return part;
+        };
+        const handler = async (ev) => {
+            const spec = ev?.detail;
+            if (!spec || !spec.builderKey) return;
+            const placedParts = [];
+            const baseRot = spec.rotation || [0, 0, 0];
+            try {
+                if (spec.mode === 'pattern') {
+                    const p = spec.pattern || {};
+                    const count = Math.max(1, Math.floor(p.count || 1));
+                    const base = spec.position || [0, 0, 0];
+                    const z = base[2];
+                    for (let i = 0; i < count; i++) {
+                        let pos;
+                        let rot = [...baseRot];
+                        if (p.type === 'linear') {
+                            pos = [base[0] + (p.dx || 0) * i, base[1] + (p.dy || 0) * i, z];
+                        } else {
+                            const sweep = p.sweep == null ? 360 : p.sweep;
+                            const start = p.startAngle || 0;
+                            const angDeg = start + (sweep * i) / count;
+                            const angRad = (angDeg * Math.PI) / 180;
+                            const r = p.radius || 0;
+                            pos = [base[0] + r * Math.cos(angRad), base[1] + r * Math.sin(angRad), z];
+                            // Auto-orient-radial: each instance is rotated
+                            // about Z so its local +X axis points outward
+                            // from the pattern centre — critical for
+                            // radial struts, plumbing pipes, etc.
+                            if (p.orientRadial) {
+                                rot = [baseRot[0], baseRot[1], baseRot[2] + angDeg];
+                            }
+                        }
+                        placedParts.push(await placeAt(spec, pos, rot));
+                    }
+                } else {
+                    placedParts.push(await placeAt(spec, spec.position || [0, 0, 0], baseRot));
+                }
+                window.__lastStandardsPlacement = {
+                    builderKey: spec.builderKey,
+                    size: spec.size,
+                    length_mm: spec.length_mm,
+                    length_in: spec.length_in,
+                    count: placedParts.length,
+                    bodyCountAfter: getBodyRegistry().list().length,
+                };
+                setToolStatus({
+                    message: `Standards Library: placed ${placedParts.length} × ${spec.standard} ${spec.size}`,
+                    type: 'success',
+                    tool: spec.mode === 'pattern' ? 'Pattern Standards' : 'Standards Library',
+                });
+            } catch (err) {
+                console.error('Standards Library place failed', err);
+                setToolStatus({
+                    message: `Standards Library: ${err.message || 'place failed'}`,
+                    type: 'error',
+                    tool: spec.mode === 'pattern' ? 'Pattern Standards' : 'Standards Library',
+                });
+            }
+        };
+        window.addEventListener('archdisc:standards-library:place', handler);
+        return () => window.removeEventListener('archdisc:standards-library:place', handler);
+    }, [viewport]);
 
     // ─── Select / Move / Settings handlers ─────────────────────────────────────
     const [interactionMode, setInteractionMode] = useState('select'); // 'select' | 'move'
@@ -1640,6 +1778,12 @@ function WorkbenchMechanical() {
 
             {/* Tool parameter dialog — listens for handler requestToolParams() calls */}
             <ToolParamDialog />
+
+            {/* SP-1 — Standards Library catalog browser. Self-renders on
+                'archdisc:standards-library:open'; fires
+                'archdisc:standards-library:place' on submit, which the
+                place-handler useEffect above turns into atomic-CAD Parts. */}
+            <StandardsLibraryDialog />
 
             {/* Empty-state hint — shown when scene has no bodies AND no design
                 history entries. Auto-dismisses the moment either is non-empty.
