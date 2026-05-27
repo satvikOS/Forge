@@ -155,16 +155,21 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
       if (typeof window.__archdiscSetOrbitBase === 'function') window.__archdiscSetOrbitBase();
     });
     await win.waitForTimeout(200);
+    // v4 — every angle uses zoom>=1.6 so the full tractor-trailer fits.
+    // The v3 angles at zoom=1.0 had the camera too close, showing only
+    // a fragment of one side (per the previous-version audit).
     const angles = [
-      { name: 'iso-front',   az:  35, el:  18, zoom: 1.0 },
-      { name: 'iso-rear',    az: 145, el:  18, zoom: 1.0 },
-      { name: 'front',       az:   0, el:   2, zoom: 1.0 },
-      { name: 'rear',        az: 180, el:   2, zoom: 1.0 },
-      { name: 'side-right',  az:  90, el:   5, zoom: 1.0 },
-      { name: 'side-left',   az: -90, el:   5, zoom: 1.0 },
-      { name: 'top-down',    az:   0, el:  85, zoom: 1.0 },
-      { name: 'low-iso',     az:  35, el: -10, zoom: 1.0 },
-      { name: 'wide',        az:  35, el:  18, zoom: 2.2 },
+      { name: 'iso-front',   az:  35, el:  18, zoom: 1.9 },
+      { name: 'iso-rear',    az: 145, el:  18, zoom: 1.9 },
+      { name: 'front',       az:   0, el:   2, zoom: 1.6 },
+      { name: 'rear',        az: 180, el:   2, zoom: 1.6 },
+      { name: 'side-right',  az:  90, el:   5, zoom: 2.0 },
+      { name: 'side-left',   az: -90, el:   5, zoom: 2.0 },
+      { name: 'top-down',    az:   0, el:  85, zoom: 2.0 },
+      { name: 'low-iso',     az:  35, el: -10, zoom: 1.9 },
+      { name: 'wide',        az:  35, el:  18, zoom: 2.8 },
+      { name: 'front-quarter', az: 25, el:  10, zoom: 1.7 },
+      { name: 'rear-quarter',  az: 155, el: 10, zoom: 1.7 },
     ];
     for (const a of angles) {
       await win.evaluate((c) => window.__archdiscOrbitView?.(c.az, c.el, c.zoom), a);
@@ -437,28 +442,25 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   await place('Automotive', 'Fifth Wheel Plate', 0, T.frameY + 50, -3400);
   await captureAllAngles('08b-hood-sleeper-fenders');
 
-  // ═════════ PHASE 8c: TRAILER (long box behind tractor) ═══════════════
-  // Trailer king-pin plate sits ON TOP of the fifth wheel.
+  // ═════════ PHASE 8c: TRAILER (REDUCED — v4 fix) ═══════════════════════
+  // v3 audit: 10 m trailer DOMINATED the frame, hid the cab in every
+  // angle, top-down showed only trailer roof. v4 trims trailer to 5 m
+  // and narrows it to x=±1150 so the cab edges (x=±1250) read separately.
+  // Per [[feedback_check_previous_before_iterating]]: no NEW parts in
+  // v4 — only the trailer scale fix that addresses the v3 regression.
   await place('Automotive', 'Trailer King-Pin Plate', -450, T.frameY + 80, -3400);
-  // Trailer floor + roof + 2 side panels + rear door form a box behind
-  // the tractor extending z=−3400 (kingpin) back to z=−13400 (rear).
-  // Floor: width 2500, depth 10000, thickness 12. Native sketch in XY
-  // (2500×10000) extruded in +Z by 12. To place horizontally at
-  // y=trailerFloorY we rotate rx=90 so +Y → +Z and the depth-10000
-  // axis (Y in builder) becomes Z in world.
   const TLR_FLOOR_Y = T.frameY + 200;
-  const TLR_ROOF_Y  = TLR_FLOOR_Y + 2500;
+  const TLR_ROOF_Y  = TLR_FLOOR_Y + 2200;     // shorter roof (was 2500)
   const TLR_FRONT_Z = -3400;
-  const TLR_REAR_Z  = -13400;
-  await place('Automotive', 'Trailer Floor', -1250, TLR_FLOOR_Y, TLR_REAR_Z, 90, 0, 0);
-  await place('Automotive', 'Trailer Roof',  -1250, TLR_ROOF_Y,  TLR_REAR_Z, 90, 0, 0);
-  // Side panels: width 10000, height 2500, thickness 10. Native sketch
-  // in XY (10000×2500) extruded +Z by 10. To make vertical wall in YZ
-  // plane (normal +X), rotate ry=90 (X→−Z, Z→+X).
-  await place('Automotive', 'Trailer Side Panel', -1250, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
-  await place('Automotive', 'Trailer Side Panel',  1240, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
-  // Rear door (XY plane, normal +Z by default — face the back of trailer)
-  await place('Automotive', 'Trailer Rear Door', -1250, TLR_FLOOR_Y, TLR_REAR_Z, 0, 180, 0);
+  const TLR_REAR_Z  = -8400;                  // 5 m trailer (was 10 m)
+  // Trailer Floor / Roof scaled — we still pass the catalog leaf (10m)
+  // but PLACE further forward so the visible 5m segment overlaps the
+  // tractor end with the trailer rear visible.
+  await place('Automotive', 'Trailer Floor', -1150, TLR_FLOOR_Y, TLR_REAR_Z + 5000, 90, 0, 0);
+  await place('Automotive', 'Trailer Roof',  -1150, TLR_ROOF_Y,  TLR_REAR_Z + 5000, 90, 0, 0);
+  await place('Automotive', 'Trailer Side Panel', -1150, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
+  await place('Automotive', 'Trailer Side Panel',  1140, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
+  await place('Automotive', 'Trailer Rear Door', -1150, TLR_FLOOR_Y, TLR_REAR_Z, 0, 180, 0);
   await captureAllAngles('08c-trailer');
 
   // ═════════ PHASE 9: FASTENERS (high-density patterns) ════════════════
