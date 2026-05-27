@@ -25,16 +25,19 @@ import './BodyPropertiesInspector.css';
  * not from the kernel — same approach SW uses for the cached value.
  */
 
+// WF-33 — swatch hex per material so the Inspector + the Material
+// dropdown carry a visible colour cue. Mirrors the WF-22 OBJ/MTL +
+// WF-24 viewport material-colour tables.
 const MATERIALS = [
-  { key: 'none',       label: 'No material',         density_g_cm3: 0 },
-  { key: 'steel-1045', label: 'Steel · AISI 1045',   density_g_cm3: 7.85 },
-  { key: 'steel-4140', label: 'Steel · AISI 4140',   density_g_cm3: 7.85 },
-  { key: 'stainless',  label: 'Stainless · 316L',    density_g_cm3: 7.96 },
-  { key: 'aluminum',   label: 'Aluminum · 6061-T6',  density_g_cm3: 2.70 },
-  { key: 'brass',      label: 'Brass · C36000',      density_g_cm3: 8.49 },
-  { key: 'cast-iron',  label: 'Cast iron · A48 Cl40',density_g_cm3: 7.20 },
-  { key: 'titanium',   label: 'Titanium · Ti-6Al-4V',density_g_cm3: 4.43 },
-  { key: 'pu',         label: 'Polyurethane',        density_g_cm3: 1.20 },
+  { key: 'none',       label: 'No material',         density_g_cm3: 0,    swatch: '#a6a8a9' },
+  { key: 'steel-1045', label: 'Steel · AISI 1045',   density_g_cm3: 7.85, swatch: '#9e9ea3' },
+  { key: 'steel-4140', label: 'Steel · AISI 4140',   density_g_cm3: 7.85, swatch: '#94959e' },
+  { key: 'stainless',  label: 'Stainless · 316L',    density_g_cm3: 7.96, swatch: '#c7ccd1' },
+  { key: 'aluminum',   label: 'Aluminum · 6061-T6',  density_g_cm3: 2.70, swatch: '#d4d6db' },
+  { key: 'brass',      label: 'Brass · C36000',      density_g_cm3: 8.49, swatch: '#d9a533' },
+  { key: 'cast-iron',  label: 'Cast iron · A48 Cl40',density_g_cm3: 7.20, swatch: '#5c5c61' },
+  { key: 'titanium',   label: 'Titanium · Ti-6Al-4V',density_g_cm3: 4.43, swatch: '#aea8a6' },
+  { key: 'pu',         label: 'Polyurethane',        density_g_cm3: 1.20, swatch: '#d98b34' },
 ];
 
 const MAT_STORAGE_KEY = 'archdisc:body-materials:v1';
@@ -278,14 +281,23 @@ export default function BodyPropertiesInspector() {
 
       <div className="body-props-row">
         <label className="body-props-label">Material</label>
-        <select
-          className="body-props-select"
-          value={matKey}
-          onChange={onMaterialChange}
-          data-archdisc-body-material-select="true"
-        >
-          {MATERIALS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-        </select>
+        <div className="body-props-material-row">
+          {/* WF-33 — swatch shows the selected material's diffuse hue */}
+          <span
+            className="body-props-material-swatch"
+            data-archdisc-body-material-swatch
+            style={{ background: matDef.swatch || '#a6a8a9' }}
+            title={matDef.label}
+          />
+          <select
+            className="body-props-select"
+            value={matKey}
+            onChange={onMaterialChange}
+            data-archdisc-body-material-select="true"
+          >
+            {MATERIALS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="body-props-section">Mass &amp; volume</div>
