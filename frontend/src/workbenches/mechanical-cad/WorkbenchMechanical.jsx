@@ -65,6 +65,7 @@ import {
 import '../../components/SwUxOverlays.css';
 import MiniToolbar from '../../components/MiniToolbar';
 import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
+import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -483,6 +484,13 @@ function WorkbenchMechanical() {
         if (typeof window === 'undefined') return undefined;
         window.__archdiscRegistry = getBodyRegistry();
         return () => { delete window.__archdiscRegistry; };
+    }, []);
+
+    // WF-18 — attach the selection-highlight emissive driver. Fires once
+    // on mount; subscribes to BodyRegistry.onChange and paints selected
+    // bodies with a cool-blue emissive rim. Detached on unmount.
+    useEffect(() => {
+        attachSelectionHighlight();
     }, []);
 
     const [aiSettingsOpen, setAISettingsOpen] = useState(false);
