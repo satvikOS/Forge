@@ -161,6 +161,32 @@ function WorkbenchContainer() {
                 e.preventDefault();
                 handleSave();
             }
+            // WF-34 — Quick-export hotkeys for the most-used hand-off
+            // formats. Tied to the WF-13 / WF-30 / WF-02 dispatchers via
+            // the run-tool event bridge so a single keystroke pushes
+            // through the same code path the ribbon click does.
+            //
+            //   Ctrl+Shift+E   Export Project Bundle (ZIP per-component STEP)
+            //   Ctrl+Shift+P   Export Snapshot (PNG, 2x viewport)
+            //   Ctrl+Shift+M   Export 3MF (slicer hand-off)
+            //   Ctrl+Shift+B   Export BOM (CSV)
+            //
+            // Skip input/textarea so the user can type uppercase letters
+            // inside a name field without firing exports.
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey
+                && (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA')) {
+                const k = (e.key || '').toLowerCase();
+                let tool = null;
+                if (k === 'e') tool = 'Export Project Bundle';
+                else if (k === 'p') tool = 'Export Snapshot (PNG)';
+                else if (k === 'm') tool = 'Export 3MF';
+                else if (k === 'b') tool = 'Export BOM (CSV)';
+                if (tool) {
+                    e.preventDefault();
+                    window.dispatchEvent(new CustomEvent('archdisc:run-tool',
+                        { detail: { tab: 'documentation', tool } }));
+                }
+            }
         };
 
         window.addEventListener('keydown', handleKeyDown);
