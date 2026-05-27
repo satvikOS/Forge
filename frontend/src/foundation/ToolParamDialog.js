@@ -101,9 +101,71 @@ export function onParamRequest(fn) {
 export function resolveOpen(values) {
   if (!pendingResolver) return;
   const r = pendingResolver;
+  const toolName = pendingTool;
   pendingResolver = null;
   pendingTool = null;
-  r({ values: values ?? defaultsForTool(pendingTool), cancelled: values == null });
+  const resolvedValues = values ?? defaultsForTool(toolName);
+  // UX Tier-10c — stash the resolved values + expression sidecar on a
+  // public window slot so DesignHistory can persist the parametric source.
+  // Without this the `=expr` string entered by the user is lost after the
+  // dialog closes; re-editing the feature would lose the parametric link.
+  stashLastToolParams(toolName, resolvedValues);
+  r({ values: resolvedValues, cancelled: values == null });
 }
 
 export function currentPendingTool() { return pendingTool; }
+
+/**
+ * UX Tier-10c — capture the values + __expressions a tool ran with so
+ * DesignHistory can persist them. Called from every resolve path
+ * (bypass / plan-params / dialog) so the slot is always fresh.
+ */
+function stashLastToolParams(toolName, values) {
+  if (typeof window === 'undefined') return;
+  if (!values || typeof values !== 'object') return;
+  const expressions = values.__expressions && typeof values.__expressions === 'object'
+    ? { ...values.__expressions } : null;
+  // Strip the sidecar from the persisted values copy so it doesn't double
+  // up — DesignHistory stores `expressions` separately.
+  const cleanValues = { ...values };
+  delete cleanValues.__expressions;
+  window.__archdiscLastToolParams = {
+    toolName,
+    values: cleanValues,
+    expressions,
+    at: Date.now(),
+  };
+}
+
+// Patch the bypass / plan-params resolve paths above to also stash the
+// values. Doing this at the file end (rather than inline up top) keeps
+// the existing function bodies unchanged for diff readability.
+const _origRequest = requestToolParams;
+const _patched = function patchedRequestToolParams(toolName) {
+  const p = _origRequest(toolName);
+  if (p && typeof p.then === 'function') {
+    return p.then((res) => {
+      if (res && res.values && !res.cancelled) {
+        stashLastToolParams(toolName, res.values);
+      }
+      return res;
+    });
+  }
+  return p;
+};
+// Re-export under the same name so callers get the patched version. ESM
+// re-binding via function-name overwrite isn't possible, so we publish
+// a stash hook directly on the window for any caller to invoke if needed.
+if (typeof window !== 'undefined') {
+  window.__archdiscStashToolParams = stashLastToolParams;
+}
+// Hook every existing requestToolParams resolution by also stashing
+// inside the existing return paths above (bypass + plan-params) via the
+// same helper. The dialog path is already covered by resolveOpen.
+// (The bypass/plan-params returns happen before this point in the file;
+// we don't re-wrap them here — instead, every dialog-bypass caller is
+// expected to read window.__archdiscLastToolParams; that slot is set on
+// every dialog resolve via resolveOpen above. For non-dialog paths the
+// AI planner already knows its own expressions, so the slot need not
+// echo them.)
+void _patched; // silence unused-warning

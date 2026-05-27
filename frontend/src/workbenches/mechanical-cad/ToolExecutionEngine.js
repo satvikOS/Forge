@@ -276,6 +276,18 @@ function logHistoryAfterRun(groupKey, toolName, result) {
   if (!headline && typeof result.message === 'string') {
     headline = result.message.split('|')[0].split(' via foundation')[0].slice(0, 80);
   }
+  // UX Tier-10c — pluck the resolved values + __expressions captured by
+  // ToolParamDialog.resolveOpen so DesignHistory can re-populate the
+  // dialog on re-edit. The slot is set every time a dialog resolves; it
+  // may be null for non-dialog tool runs.
+  let stashedValues = null, stashedExpressions = null;
+  try {
+    const slot = typeof window !== 'undefined' ? window.__archdiscLastToolParams : null;
+    if (slot && slot.toolName === toolName) {
+      stashedValues = slot.values ?? null;
+      stashedExpressions = slot.expressions ?? null;
+    }
+  } catch { /* slot unreadable — record without */ }
   try {
     recordToolRun({
       tool: toolName,
@@ -283,6 +295,8 @@ function logHistoryAfterRun(groupKey, toolName, result) {
       category: meta?.category ?? null,
       headline,
       payloadKey,
+      values: stashedValues,
+      expressions: stashedExpressions,
     });
   } catch (err) {
     console.warn('history record failed', err);

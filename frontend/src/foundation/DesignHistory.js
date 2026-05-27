@@ -42,6 +42,13 @@ class DesignHistory {
       // never changes; `name` is what the panel renders.
       name: e.tool,
       suppressed: false,
+      // UX Tier-10c — persist the values + __expressions the tool ran
+      // with so re-editing a parametric feature (double-click, Edit
+      // Feature) re-populates the dialog with the ORIGINAL `=expr`
+      // strings rather than the literal numbers they evaluated to.
+      // null when no dialog ran (e.g. AI plan, headless API call).
+      values: e.values ?? null,
+      expressions: e.expressions ?? null,
     };
     this.entries.push(entry);
     this._notify();
