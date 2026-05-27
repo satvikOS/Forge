@@ -67,6 +67,7 @@ import MiniToolbar from '../../components/MiniToolbar';
 import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
 import SectionPlaneOverlay from '../../components/SectionPlaneOverlay';
 import QuickMeasureOverlay from '../../components/QuickMeasureOverlay';
+import BodyContextMenu from '../../components/BodyContextMenu';
 import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
 import { attachBodyHover } from '../../foundation/BodyHoverDriver.js';
 import { attachBodyMaterialColor } from '../../foundation/BodyMaterialColor.js';
@@ -1531,6 +1532,10 @@ function WorkbenchMechanical() {
                     are selected; reports centroid distance + bbox
                     overlap %. */}
                 <QuickMeasureOverlay />
+                {/* WF-26 — Right-click context menu on bodies in the
+                    viewport: Properties / Hide / Isolate / Delete +
+                    Fillet / Pattern / Mirror shortcuts. */}
+                <BodyContextMenu />
             </main>
 
             {/* RIGHT PROPERTIES PANEL — collapse toggle on the inner edge.
