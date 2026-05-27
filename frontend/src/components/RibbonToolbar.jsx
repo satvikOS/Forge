@@ -21,7 +21,7 @@ const TABS = {
         { name: 'Center Line', icon: '⋮', key: 'sketch' },
         { name: 'Circle', icon: 'O', key: 'sketch' },
         { name: 'Arc', icon: ')', key: 'sketch' },
-        { name: 'Rectangle', icon: '□', key: 'sketch', shortcut: 'B' },
+        { name: 'Rectangle', icon: '□', key: 'sketch', shortcut: 'R' },
         { name: 'Center Rectangle', icon: '⊞', key: 'sketch' },
         { name: 'Polygon', icon: '⬡', key: 'sketch' },
         { name: 'Spline', icon: '~', key: 'sketch' },
@@ -98,7 +98,7 @@ const TABS = {
       // so existing integration specs + AI plans that drive them by name
       // keep working unchanged for one release cycle.
       { label: 'Create', tools: [
-        { name: 'Extrude', icon: '⬆', key: 'part', primary: true },
+        { name: 'Extrude', icon: '⬆', key: 'part', primary: true, shortcut: 'E' },
         { name: 'Extrude Boss', icon: '⬆', key: 'part' },   // deprecated — Tier-11d unified
         { name: 'Extrude Cut', icon: '⬇', key: 'part' },    // deprecated — Tier-11d unified
         { name: 'Revolve Boss', icon: '↻', key: 'part' },
@@ -117,8 +117,8 @@ const TABS = {
         { name: 'Helix',         icon: '⤴', key: 'part' },
       ]},
       { label: 'Modify', tools: [
-        { name: 'Fillet', icon: '◜', key: 'part' },
-        { name: 'Chamfer', icon: '◿', key: 'part' },
+        { name: 'Fillet', icon: '◜', key: 'part', shortcut: 'F' },
+        { name: 'Chamfer', icon: '◿', key: 'part', shortcut: 'C' },
         { name: 'Variable Radius Fillet', icon: '◟', key: 'part' },
         { name: 'Shell', icon: '▢', key: 'part' },
         { name: 'Hole Wizard', icon: '◉', key: 'part' },
@@ -245,7 +245,7 @@ const TABS = {
       ]},
       { label: 'Mates', tools: [
         { name: 'Coincident', icon: '⊙', key: 'assembly' },
-        { name: 'Distance', icon: '↔', key: 'assembly' },
+        { name: 'Distance', icon: '↔', key: 'assembly', shortcut: 'M' },
         { name: 'Concentric', icon: '◎', key: 'assembly' },
         { name: 'Angle', icon: '∠', key: 'assembly' },
         // Tier-7a — standard mates (SW set completion)
@@ -476,7 +476,7 @@ const TABS = {
         { name: 'Stepped Section Line', icon: '↯', key: 'documentation' },
       ]},
       { label: 'Annotate', tools: [
-        { name: 'Smart Dimension', icon: '↔', key: 'documentation' },
+        { name: 'Smart Dimension', icon: '↔', key: 'documentation', shortcut: 'D' },
         { name: 'Note', icon: 'A', key: 'documentation' },
         { name: 'Balloon', icon: '①', key: 'documentation' },
         { name: 'GD&T Frame', icon: '⊕', key: 'documentation' },
