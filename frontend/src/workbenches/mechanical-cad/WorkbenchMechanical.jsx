@@ -66,6 +66,7 @@ import '../../components/SwUxOverlays.css';
 import MiniToolbar from '../../components/MiniToolbar';
 import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
 import SectionPlaneOverlay from '../../components/SectionPlaneOverlay';
+import QuickMeasureOverlay from '../../components/QuickMeasureOverlay';
 import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
 import { attachBodyHover } from '../../foundation/BodyHoverDriver.js';
 import { attachBodyMaterialColor } from '../../foundation/BodyMaterialColor.js';
@@ -1526,6 +1527,10 @@ function WorkbenchMechanical() {
                 {/* WF-23 — Section / clipping-plane scrubber. Top-right
                     overlay with axis buttons + position slider. */}
                 <SectionPlaneOverlay />
+                {/* WF-25 — Quick-measure HUD: auto-shows when 2+ bodies
+                    are selected; reports centroid distance + bbox
+                    overlap %. */}
+                <QuickMeasureOverlay />
             </main>
 
             {/* RIGHT PROPERTIES PANEL — collapse toggle on the inner edge.
