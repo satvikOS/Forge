@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Move, RotateCcw, Maximize, MousePointer, Box, Hexagon, Eye, Grid3x3, Layers } from 'lucide-react';
 import { useViewport } from '../contexts/ViewportContext';
 import { ThreeJSBridge, PixelManager, InteractiveSketch, SketchTools, Vec3, ExtrudeFeature, BVH } from '../kernel/index.js';
@@ -82,8 +83,32 @@ function Viewport3D({ canvasId = 'render-canvas', domain = 'mechanical', onReady
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.2;
+        renderer.toneMappingExposure = 1.15;
+        // WF-07 — Linear/sRGB pipeline so PBR materials read correctly
+        // against the procedural environment + tonemap. Without this
+        // metalness/roughness samples read into a non-linear space and
+        // the env reflections look muddy.
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
         container.appendChild(renderer.domElement);
+
+        // WF-07 — PBR environment lighting. RoomEnvironment + PMREMGenerator
+        // produces a soft studio-room cube map that gives every
+        // MeshStandardMaterial body realistic Fresnel reflections without
+        // having to ship a binary HDRI. Keeps `scene.background` at OLED-
+        // black (the env is reflection-only, not visible directly). Marks
+        // the scene with `__archdiscPbrEnvActive` so e2e can introspect.
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        const roomEnv = new RoomEnvironment();
+        const envRT = pmremGenerator.fromScene(roomEnv, 0.04);
+        scene.environment = envRT.texture;
+        roomEnv.traverse((o) => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) o.material.dispose();
+        });
+        pmremGenerator.dispose();
+        scene.userData.archdiscPbrEnvActive = true;
+        scene.userData.archdiscPbrEnvIntensity = 0.85;
 
         // --- Axes triad only (no infinite floor grid) ---
         // Industry CAD apps don't draw a perpetual ground plane —
