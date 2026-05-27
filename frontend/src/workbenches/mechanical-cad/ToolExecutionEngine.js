@@ -48,6 +48,7 @@ import { getManifold } from '../../foundation/manifoldKernel.js';
 import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
 import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
 import { export3MF } from '../../foundation/MeshThreeMF.js';
+import { exportBomCsv } from '../../foundation/MeshBomCsv.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6395,6 +6396,22 @@ const TOOL_HANDLERS = {
     // honest gap I flagged in the assessment: "per-component CAD file
     // export was not an automated tool yet". Iterates BodyRegistry,
     // calls kernel exportStep on each body, packages a project bundle.
+    // WF-14 — Bill of Materials CSV. Fabrication shops + procurement
+    // teams need a flat per-body manifest with volume/mass/material —
+    // this is the "Send the BOM" deliverable. Mirrors on window.
+    // __lastBom for e2e introspection.
+    'Export BOM (CSV)': () => {
+      const result = exportBomCsv({});
+      if (typeof window !== 'undefined') window.__lastBom = result;
+      if (!result.ok) {
+        return { status: 'error', message: `Export BOM: ${result.reason || 'unknown'}` };
+      }
+      return {
+        status: 'ok',
+        message: `BOM exported: ${result.rows} rows, ΣVolume ${result.totalVolume.toFixed(1)} mm³, ΣMass ${result.totalMass.toFixed(2)} g`,
+        result,
+      };
+    },
     // WF-13 — 3MF export (3D Manufacturing Format) for slicer / 3D-print
     // workflows. Mirrors the result on window.__last3MF for e2e
     // introspection of the produced bytes.

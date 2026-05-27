@@ -513,6 +513,7 @@ export const TABS = {
         { name: 'Load Snapshot', icon: '📂', key: 'documentation' },
         { name: 'Export Project Bundle', icon: '🗜', key: 'documentation' },
         { name: 'Export 3MF',             icon: '🧊', key: 'documentation' },
+        { name: 'Export BOM (CSV)',       icon: '🧾', key: 'documentation' },
       ]},
     ]
   },
