@@ -932,6 +932,90 @@ function WorkbenchMechanical() {
             // catalog leaf so the rendered scene reads as a real Falcon
             // 9 photo: charcoal bells, aluminum dome, dark steel
             // fasteners, titanium-gray heat shield, etc.
+            if (spec.category === 'Automotive') {
+                const leaf = spec.leafName || '';
+                // Round-2 expanded palette — high contrast so each
+                // subsystem visually pops in the front view.
+                if (leaf.includes('Radiator Grille'))   return 0x14202c;  // very dark mesh
+                if (leaf.includes('Cab Front Panel'))   return 0x3a8a86;  // header dark cyan
+                if (leaf.includes('Cab Side Pillar'))   return 0x4a5d6d;  // pillar dark grey
+                if (leaf.includes('Bumper Main'))       return 0x252b34;  // bumper black
+                if (leaf.includes('Bumper Lower'))      return 0xe18a2e;  // amber accent
+                if (leaf.includes('Bumper Side Cap'))   return 0x37553f;  // dark green
+                if (leaf.includes('Headlight Cluster')) return 0xe8edf2;  // bright lens
+                if (leaf.includes('Fog Light'))         return 0xfff4cc;  // yellow lens
+                if (leaf.includes('Wing Mirror'))       return 0x2b3138;  // matte plastic black
+                if (leaf.includes('Roof Sun Visor'))    return 0x256480;  // saturated dark blue
+                if (leaf.includes('Roof Beacon'))       return 0xff8e1a;  // safety orange
+                if (leaf.includes('Mud Flap'))          return 0x101113;  // rubber black
+                if (leaf.includes('Lower Side Skirt'))  return 0x2c3036;
+                if (leaf.includes('Door Handle'))       return 0x9da3aa;  // chrome
+                if (leaf.includes('Orange Accent'))     return 0xff7a1a;  // bright orange trim
+                if (leaf.includes('License Plate Frame')) return 0x4a4d54;
+                if (leaf.includes('License Plate Panel')) return 0xf6f4ea;  // white plate
+                if (leaf.includes('VOLVO Logo'))        return 0xf2f4f6;  // chrome relief
+                if (leaf.includes('L Badge'))           return 0xc8d0d8;  // brushed silver
+                if (leaf.includes('Step Plate'))        return 0x5e646c;  // diamond tread
+                if (leaf.includes('Louver'))            return 0x1c1f23;  // dark chrome
+                if (leaf.includes('Step Tread'))        return 0x52575e;
+                if (leaf.includes('Tow Hook'))          return 0x1a1c20;
+                if (leaf.includes('Intake Slat'))       return 0x1f262e;
+                // SP-3 cab body colours — match Video-21 Volvo FH viewer
+                if (leaf.includes('Cab Side Panel'))     return 0xb84a3a;  // cab red-orange
+                if (leaf.includes('Cab Rear Panel'))     return 0xc55a4a;  // slightly brighter red
+                if (leaf.includes('Cab Roof Panel'))     return 0x4ebec0;  // cab cyan
+                if (leaf.includes('Cab Floor Panel'))    return 0x46555c;  // dark floor
+                if (leaf.includes('Windshield'))         return 0xb6dde8;  // pale blue glass
+                if (leaf.includes('Side Window'))        return 0xa7d5e2;  // pale blue glass
+                if (leaf.includes('Cab Door'))           return 0xb84a3a;  // body red
+                if (leaf.includes('Air Deflector'))      return 0x4ebec0;  // cyan
+                if (leaf.includes('A Pillar'))           return 0x2a3036;
+                if (leaf.includes('B Pillar'))           return 0x2a3036;
+                if (leaf.includes('Wheel Arch'))         return 0x3a4048;
+                if (leaf.includes('Roof Marker'))        return 0xffd060;  // amber marker
+                if (leaf.includes('Exhaust Stack'))      return 0x8a8c90;
+                // SP-4 chassis + powertrain
+                if (leaf.includes('Frame Rail'))         return 0xeaece8;  // bright Al frame
+                if (leaf.includes('Frame Cross Member')) return 0xc8c8c0;
+                if (leaf.includes('Fuel Tank'))          return 0xe0e0d8;  // polished alu tank
+                if (leaf.includes('Axle Beam'))          return 0x5a5a5e;
+                if (leaf.includes('Wheel Rim'))          return 0xffc842;  // bright Volvo-yellow rim
+                if (leaf.includes('Tire'))               return 0x171717;  // black rubber
+                if (leaf.includes('Brake Drum'))         return 0x3a3a3e;
+                if (leaf.includes('Drive Shaft'))        return 0x5e6066;
+                if (leaf.includes('Differential'))       return 0x474a52;
+                if (leaf.includes('Leaf Spring'))        return 0x3a3a3e;
+                if (leaf.includes('Shock'))              return 0x707074;
+                if (leaf.includes('Suspension Bellows')) return 0x252628;
+                if (leaf.includes('Battery'))            return 0x141416;
+                if (leaf.includes('Compressor Tank'))    return 0xc8c8d0;
+                if (leaf.includes('Engine Block'))       return 0x4a4f55;
+                if (leaf.includes('Cylinder Head'))      return 0x5dc8c4;  // bright cyan head
+                if (leaf.includes('Turbocharger'))       return 0xb8a050;  // bronze housing
+                if (leaf.includes('Intake Manifold'))    return 0x4ec6c2;  // cyan
+                if (leaf.includes('Exhaust Manifold'))   return 0xe2a040;  // amber
+                if (leaf.includes('Radiator Module'))    return 0xeaf2f4;  // white-ish radiator
+                if (leaf.includes('Cooling Fan'))        return 0x2e2f32;
+                // SP-5 cab interior
+                if (leaf.includes('Driver Seat'))        return 0xb04555;  // burgundy upholstery
+                if (leaf.includes('Seat Headrest'))      return 0xa84048;
+                if (leaf.includes('Steering Wheel Rim')) return 0x2c2e34;  // dark leather
+                if (leaf.includes('Steering Wheel Boss'))return 0x9aa0aa;  // alloy boss
+                if (leaf.includes('Steering Wheel Spoke')) return 0x9aa0aa;
+                if (leaf.includes('Steering Column'))    return 0x3a3d44;
+                if (leaf.includes('Dashboard'))          return 0x3a3034;  // dark plastic
+                if (leaf.includes('Instrument Cluster')) return 0x0e1014;  // black bezel
+                if (leaf.includes('Gear Shifter'))       return 0xf2c544;  // yellow gear knob
+                if (leaf.includes('Foot Pedal'))         return 0x2c2e32;
+                if (leaf.includes('AC Vent'))            return 0xeac240;  // yellow grille
+                if (leaf.includes('Door Card'))          return 0xc05050;  // door card
+                if (leaf.includes('Sun Visor Interior')) return 0x7d818a;
+                if (leaf.includes('Centre Console'))     return 0x484a52;
+                if (leaf.includes('Cup Holder'))         return 0x282a30;
+                if (leaf.includes('Sleeper Bunk'))       return 0x8a4844;  // mattress red
+                if (leaf.includes('Headliner'))          return 0xb8bcc0;  // grey ceiling
+                return 0x3a8a86;
+            }
             if (spec.category === 'Spacecraft') {
                 const leaf = spec.leafName || '';
                 // Sea-level Merlin bells are nearly black after a single

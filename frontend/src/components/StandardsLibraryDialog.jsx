@@ -146,6 +146,10 @@ export default function StandardsLibraryDialog() {
   const lengthSeries = leaf?.lengthSeries || [];
   const hasLength = leaf && (leaf.defaultLength_mm != null || leaf.defaultLength_in != null);
 
+  // Side-dock — no modal backdrop so the viewport remains visible.
+  // The wrapper div is kept (with the same data-testid for the e2e)
+  // but is now `pointer-events: none` so clicks pass through to the
+  // viewport everywhere except inside the panel itself.
   return (
     <div className="standards-library-dialog-backdrop" data-testid="standards-library-dialog">
       <div className="standards-library-dialog">

@@ -1,19 +1,26 @@
-/* StandardsLibraryDialog — modal browser for SP-1 catalog placement. */
+/* StandardsLibraryDialog — side-dock panel for SP-1 catalog placement.
+   Per feedback_one_to_one_parity_loop rule 5b: dialogs MUST NOT cover
+   the viewport. This panel docks to the right edge of the screen so
+   the user can keep watching the 3D scene while filling the form. */
 
 .standards-library-dialog-backdrop {
+  /* No backdrop — viewport remains fully visible. The backdrop is now
+     a transparent click-trap that ONLY catches clicks outside the
+     panel rectangle. */
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 14, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: transparent;
+  pointer-events: none;
   z-index: 1200;
 }
 
 .standards-library-dialog {
-  width: 760px;
-  max-width: calc(100vw - 64px);
-  max-height: calc(100vh - 64px);
+  position: fixed;
+  top: 120px;                 /* below ribbon + topbar */
+  right: 16px;
+  bottom: 80px;               /* above status bar */
+  width: 420px;
+  max-width: calc(100vw - 32px);
   background: #1a1c20;
   border: 1px solid #2c3036;
   border-radius: 8px;
@@ -22,6 +29,7 @@
   color: #d6dade;
   font: 13px / 1.4 system-ui, -apple-system, Segoe UI, sans-serif;
   box-shadow: 0 24px 56px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;       /* re-enable clicks inside the panel */
 }
 
 .standards-library-dialog header {
@@ -64,15 +72,16 @@
 .standards-library-dialog .body {
   display: flex;
   flex: 1 1 auto;
-  min-height: 360px;
-  max-height: calc(100vh - 200px);
+  min-height: 0;
   overflow: hidden;
+  flex-direction: column;       /* side-dock is narrow — stack vertically */
 }
 
 .standards-library-dialog .category-tree {
-  width: 270px;
+  width: 100%;
+  max-height: 40%;
   flex-shrink: 0;
-  border-right: 1px solid #2c3036;
+  border-bottom: 1px solid #2c3036;
   padding: 6px 0;
   overflow-y: auto;
 }

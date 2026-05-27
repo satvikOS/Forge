@@ -1,26 +1,30 @@
+/* Side-dock per feedback_one_to_one_parity_loop rule 5b — no backdrop
+   over the viewport. Dialog occupies the right edge; viewport stays
+   visible across the rest of the workspace so the user can assess
+   side-by-side as bodies appear. */
 .tpd-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: transparent;
+  pointer-events: none;   /* clicks pass through to viewport */
   z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(2px);
 }
 
 .tpd-dialog {
+  position: fixed;
+  top: 120px;
+  right: 16px;
+  bottom: 80px;
+  width: 420px;
   background: #181818;
   color: #e8e8e8;
   border: 1px solid #3a3a3a;
   border-radius: 6px;
-  min-width: 480px;
-  max-width: 640px;
-  max-height: 80vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 14px 60px rgba(0, 0, 0, 0.8);
   font-family: 'Segoe UI', sans-serif;
+  pointer-events: auto;   /* re-enable inside the panel */
 }
 
 .tpd-header {
