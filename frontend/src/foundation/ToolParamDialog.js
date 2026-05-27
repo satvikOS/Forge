@@ -161,35 +161,21 @@ function stashLastToolParams(toolName, values) {
   };
 }
 
-// Patch the bypass / plan-params resolve paths above to also stash the
-// values. Doing this at the file end (rather than inline up top) keeps
-// the existing function bodies unchanged for diff readability.
-const _origRequest = requestToolParams;
-const _patched = function patchedRequestToolParams(toolName) {
-  const p = _origRequest(toolName);
-  if (p && typeof p.then === 'function') {
-    return p.then((res) => {
-      if (res && res.values && !res.cancelled) {
-        stashLastToolParams(toolName, res.values);
-      }
-      return res;
-    });
-  }
-  return p;
-};
-// Re-export under the same name so callers get the patched version. ESM
-// re-binding via function-name overwrite isn't possible, so we publish
-// a stash hook directly on the window for any caller to invoke if needed.
+// UX Tier-10c: publish the stash helper on the window so any non-dialog
+// caller (AI planner, headless test) can record values + __expressions
+// against the DesignHistory layer. The dialog path itself is covered by
+// resolveOpen above which calls stashLastToolParams directly.
+//
+// (An earlier version of this file declared `const _origRequest =
+//  requestToolParams; const _patched = function …` then ended with
+//  `void _patched;`. That triggered a Rollup-minifier TDZ error
+//  ("Uncaught ReferenceError: Cannot access 'ne' before initialization")
+//  on the production bundle — the minifier reorders top-level const
+//  initialisers in ways that can break function-declaration hoisting
+//  through a const reference, especially when the const value is dead
+//  code marked with `void`. The wrapper was also a no-op semantically:
+//  ESM can't re-bind the exported `requestToolParams` to point at the
+//  wrapper, so the IIFE never actually intercepted anything. Removed.)
 if (typeof window !== 'undefined') {
   window.__archdiscStashToolParams = stashLastToolParams;
 }
-// Hook every existing requestToolParams resolution by also stashing
-// inside the existing return paths above (bypass + plan-params) via the
-// same helper. The dialog path is already covered by resolveOpen.
-// (The bypass/plan-params returns happen before this point in the file;
-// we don't re-wrap them here — instead, every dialog-bypass caller is
-// expected to read window.__archdiscLastToolParams; that slot is set on
-// every dialog resolve via resolveOpen above. For non-dialog paths the
-// AI planner already knows its own expressions, so the slot need not
-// echo them.)
-void _patched; // silence unused-warning
