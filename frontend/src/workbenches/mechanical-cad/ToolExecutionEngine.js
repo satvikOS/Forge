@@ -51,6 +51,7 @@ import { export3MF } from '../../foundation/MeshThreeMF.js';
 import { exportBomCsv } from '../../foundation/MeshBomCsv.js';
 import { exportDxf } from '../../foundation/MeshDxfExport.js';
 import { exportMultiBodyObj } from '../../foundation/MeshObjMultiExport.js';
+import { exportMarkdownReport } from '../../foundation/MarkdownReportExport.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6398,6 +6399,19 @@ const TOOL_HANDLERS = {
     // honest gap I flagged in the assessment: "per-component CAD file
     // export was not an automated tool yet". Iterates BodyRegistry,
     // calls kernel exportStep on each body, packages a project bundle.
+    // WF-29 — Engineering Review markdown report. Emits a `.md` file
+    // with the body table + materials + Sigma totals + companion-
+    // export pointers + a sign-off block. Universal review format.
+    'Export Review (MD)': () => {
+      const result = exportMarkdownReport({});
+      if (typeof window !== 'undefined') window.__lastReview = result;
+      if (!result.ok) return { status: 'error', message: `Export Review: ${result.reason || 'unknown'}` };
+      return {
+        status: 'ok',
+        message: `Review exported: ${result.filename}, ${result.bodies} bodies, ${result.bytes.toLocaleString()} bytes`,
+        result,
+      };
+    },
     // WF-22 — Multi-body OBJ + MTL ZIP. Universal mesh format for
     // every DCC tool (Blender, 3ds Max, Cinema 4D, Maya, KeyShot,
     // Unity, Unreal); MTL preserves per-body engineering material
