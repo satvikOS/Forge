@@ -912,10 +912,13 @@ function WorkbenchMechanical() {
                     handleToolExecute('part', 'Chamfer');
                     return;
                 }
-                // S = Sketch (start new sketch)
+                // S = Sketch (start new sketch). Handler name is 'New Sketch'
+                // (verified in ToolExecutionEngine.js sketch group); 3671329c
+                // mistakenly used 'Start Sketch' which only matched the smart
+                // fallback. Now hits the real SketchSolver init.
                 if (k === 's' || k === 'S') {
                     e.preventDefault();
-                    handleToolExecute('sketch', 'Start Sketch');
+                    handleToolExecute('sketch', 'New Sketch');
                     return;
                 }
                 // L = Line (in sketch mode)
@@ -1531,7 +1534,7 @@ function WorkbenchMechanical() {
                         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                             <tbody>
                                 {[
-                                    ['S', 'Start Sketch'],
+                                    ['S', 'New Sketch'],
                                     ['L', 'Line (in sketch)'],
                                     ['R', 'Rectangle (in sketch)'],
                                     ['D', 'Smart Dimension'],
