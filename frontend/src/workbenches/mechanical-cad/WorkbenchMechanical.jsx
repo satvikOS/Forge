@@ -1508,6 +1508,9 @@ function WorkbenchMechanical() {
                                     ['Space', 'Zoom-to-Fit'],
                                     ['V', 'Select mode'],
                                     ['G', 'Move mode'],
+                                    ['Ctrl + S', 'Save Snapshot (.archdisc.json)'],
+                                    ['Ctrl + Z', 'Undo (kernel HistoryLog)'],
+                                    ['Ctrl + Y', 'Redo (or Ctrl+Shift+Z)'],
                                     ['?', 'Toggle this help'],
                                     ['Esc', 'Cancel active tool / close menus'],
                                 ].map(([k, label]) => (
