@@ -29,6 +29,16 @@ export default function ToolParamDialog() {
     resolved: {},
   });
 
+  // Publish open-state on a window flag so the keyboard-shortcut handler
+  // in WorkbenchMechanical can short-circuit (so pressing 'E' in the
+  // open Extrude dialog doesn't re-fire the Extrude shortcut). Cleared
+  // on unmount/close.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.__archdiscDialogOpen = state.open;
+    return () => { window.__archdiscDialogOpen = false; };
+  }, [state.open]);
+
   useEffect(() => {
     const unsub = onParamRequest(({ toolName, schema }) => {
       if (DOCKED_TOOLS.has(toolName)) return;
