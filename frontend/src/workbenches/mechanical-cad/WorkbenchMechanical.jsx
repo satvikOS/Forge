@@ -64,6 +64,7 @@ import {
 } from '../../components/SwUxOverlays';
 import '../../components/SwUxOverlays.css';
 import MiniToolbar from '../../components/MiniToolbar';
+import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -1503,6 +1504,13 @@ function WorkbenchMechanical() {
 
                 {/* Part browser — every foundation body in the scene */}
                 <PartBrowserPanel />
+
+                {/* WF-08 — Body Properties Inspector. Tracks the
+                    BodyRegistry single-selection and surfaces every
+                    engineering datum (name, source tool, volume, mass,
+                    bounding box, centroid, surface area) plus a
+                    material dropdown for mass calculation. */}
+                <BodyPropertiesInspector />
 
                 {/* SP-1 S7 Topology Inspector — surfaces the unified spine
                     Body→Lump→Shell→Face→Loop→Coedge→Edge→Vertex for the

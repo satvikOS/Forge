@@ -1,0 +1,66 @@
+/* Body Properties Inspector — docked into the right properties aside.
+   Compact two-column rows tuned for narrow gutter widths. */
+
+.body-props {
+  border-top: 1px solid #2c333c;
+  padding: 8px 10px 10px;
+  background: #1a1f25;
+  font-size: 11px;
+  color: #d4dbe4;
+}
+.body-props-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa3ad;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  margin-bottom: 6px;
+}
+.body-props-section {
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: #7c8693;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.body-props-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  min-height: 22px;
+}
+.body-props-label {
+  flex: 0 0 64px;
+  color: #7c8693;
+  font-size: 11px;
+}
+.body-props-value {
+  flex: 1;
+  font-size: 11px;
+  color: #d4dbe4;
+}
+.body-props-value.mono { font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 10px; }
+.body-props-input,
+.body-props-select {
+  flex: 1;
+  background: #232a32;
+  border: 1px solid #38414c;
+  border-radius: 3px;
+  color: #d4dbe4;
+  padding: 2px 6px;
+  font-size: 11px;
+  height: 22px;
+  outline: none;
+}
+.body-props-input:focus,
+.body-props-select:focus {
+  border-color: #5a8bd9;
+}
+.body-props-empty {
+  padding: 8px 0;
+  color: #6e7884;
+  font-size: 11px;
+  font-style: italic;
+}
