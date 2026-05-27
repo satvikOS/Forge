@@ -499,6 +499,13 @@ const TABS = {
         { name: 'Export PDF', icon: '📄', key: 'documentation' },
         { name: 'Export glTF', icon: '🌐', key: 'documentation' },
       ]},
+      // Project snapshot — full session save/load (DesignHistory + Equations
+      // + bodies). Pairs with the localStorage persistence; the file is the
+      // shareable hand-off / backup format.
+      { label: 'Project', tools: [
+        { name: 'Save Snapshot', icon: '💾', key: 'documentation', shortcut: 'Ctrl+S' },
+        { name: 'Load Snapshot', icon: '📂', key: 'documentation' },
+      ]},
     ]
   },
 };

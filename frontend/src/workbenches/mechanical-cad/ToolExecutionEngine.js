@@ -45,6 +45,7 @@ import {
 // Mirror Feature, Sweep, Loft, Quad-tet FEA, Frame FEA, etc.) so
 // clicks in the ribbon exercise the validated foundation code paths.
 import { getManifold } from '../../foundation/manifoldKernel.js';
+import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6380,6 +6381,54 @@ const TOOL_HANDLERS = {
   // DOCUMENT
   // ═══════════════════════════════════════════════════════════════════════════
   document: {
+    // Project Snapshot — comprehensive .archdisc.json download capturing
+    // DesignHistory (with Tier-10c =expr persistence) + EquationStore
+    // variables + BodyRegistry summary. Restore is best-effort
+    // (re-running tools to rebuild geometry is a Phase-2 follow-on; the
+    // parametric/design-intent layer round-trips today). Pairs with
+    // localStorage persistence — the .archdisc.json is the shareable
+    // hand-off / backup format.
+    'Save Snapshot': () => {
+      const result = downloadProjectSnapshot({});
+      if (!result.ok) {
+        return { status: 'error', message: `Save Snapshot failed: ${result.reason || 'unknown'}` };
+      }
+      return {
+        status: 'ok',
+        message: `Saved ${result.filename} — ${result.entries} history entries, ${result.variables} variables, ${result.bodies} bodies (${result.bytes.toLocaleString()} bytes)`,
+        snapshot: result,
+      };
+    },
+    'Load Snapshot': () => {
+      // Trigger file picker; parse JSON; restore parametric layer.
+      if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return { status: 'error', message: 'Load Snapshot: DOM not available' };
+      }
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,.archdisc,.archdisc.json,application/json';
+        input.onchange = async () => {
+          const f = input.files?.[0];
+          if (!f) { resolve({ status: 'warn', message: 'Load Snapshot: cancelled' }); return; }
+          try {
+            const text = await f.text();
+            const snap = JSON.parse(text);
+            const r = restoreProjectSnapshot(snap);
+            if (!r.ok) { resolve({ status: 'error', message: `Load failed: ${r.reason}` }); return; }
+            resolve({
+              status: 'ok',
+              message: `Loaded ${f.name} — ${r.designEntries} history entries, ${r.equationCount} variables restored. Geometry replay queued (run history forward to rebuild bodies).`,
+            });
+          } catch (err) {
+            resolve({ status: 'error', message: `Load Snapshot failed: ${err.message}` });
+          }
+        };
+        document.body.appendChild(input);
+        input.click();
+        setTimeout(() => { try { document.body.removeChild(input); } catch {} }, 50);
+      });
+    },
     'New Drawing': () => {
       const ft = getFeatureTree();
       const solid = ft.getSolid();

@@ -955,6 +955,12 @@ function WorkbenchMechanical() {
                     return;
                 }
             }
+            // Ctrl/Cmd + S = Save Snapshot (overrides browser's Save Page)
+            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                handleToolExecute('document', 'Save Snapshot');
+                return;
+            }
             if (e.key === 'Escape') {
                 if (helpOverlayOpen) { setHelpOverlayOpen(false); return; }
                 setActiveDropdown(null); setActiveTool(null); setToolStatus(null); setSelection(null);
