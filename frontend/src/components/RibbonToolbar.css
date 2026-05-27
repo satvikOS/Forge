@@ -189,3 +189,36 @@
   text-align: center;
   line-height: 1.1;
 }
+
+/* WF-16 — tab-aware accent. Each ribbon tab carries its own engineering
+   colour cue so the user always knows which CAD context they're in.
+   2-px accent strip under the active tab + a thin matching strip on
+   the ribbon top edge. Pure CSS — no JS recolouring path. */
+
+.ribbon-container[data-archdisc-tab="sketch"]    { --archdisc-tab-accent: #5a8bd9; }
+.ribbon-container[data-archdisc-tab="part"]      { --archdisc-tab-accent: #7ed957; }
+.ribbon-container[data-archdisc-tab="surface"]   { --archdisc-tab-accent: #6dd3c4; }
+.ribbon-container[data-archdisc-tab="assembly"]  { --archdisc-tab-accent: #ffb84d; }
+.ribbon-container[data-archdisc-tab="drawing"]   { --archdisc-tab-accent: #e84a82; }
+.ribbon-container[data-archdisc-tab="simulate"]  { --archdisc-tab-accent: #c69cff; }
+.ribbon-container[data-archdisc-tab="moldTools"] { --archdisc-tab-accent: #ffa07a; }
+.ribbon-container[data-archdisc-tab="weldments"] { --archdisc-tab-accent: #f6b86a; }
+.ribbon-container[data-archdisc-tab="sheetMetal"]{ --archdisc-tab-accent: #67d3ff; }
+
+.ribbon-container[data-archdisc-tab] {
+  border-top: 2px solid var(--archdisc-tab-accent, transparent);
+}
+
+.ribbon-container[data-archdisc-tab] .ribbon-tab.active {
+  position: relative;
+}
+.ribbon-container[data-archdisc-tab] .ribbon-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: var(--archdisc-tab-accent, #5a8bd9);
+  border-radius: 1px;
+}

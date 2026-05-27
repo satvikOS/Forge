@@ -529,14 +529,20 @@ export default function RibbonToolbar({ activeTab = 'part', onToolClick, onTabCh
   const tabData = TABS[activeTab];
   if (!tabData) return null;
 
+  // WF-16 — tab-aware accent. Each ribbon tab has its own color cue
+  // (sketch=blue / part=green / assembly=orange / drawing=violet …).
+  // Apply via a data-attribute so CSS in RibbonToolbar.css can drive
+  // the active-tab underline, the ribbon top border, and any future
+  // tab-themed surface without needing inline styles.
   return (
-    <div className="ribbon-container">
+    <div className="ribbon-container" data-archdisc-tab={activeTab}>
       {/* Tab strip */}
       <div className="ribbon-tabs">
         {Object.entries(TABS).map(([key, tab]) => (
           <button
             key={key}
             className={`ribbon-tab ${activeTab === key ? 'active' : ''}`}
+            data-ribbon-tab-key={key}
             onClick={() => onTabChange?.(key)}
           >
             {tab.label}
