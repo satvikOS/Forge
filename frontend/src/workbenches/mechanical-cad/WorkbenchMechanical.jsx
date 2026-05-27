@@ -68,6 +68,7 @@ import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
 import SectionPlaneOverlay from '../../components/SectionPlaneOverlay';
 import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
 import { attachBodyHover } from '../../foundation/BodyHoverDriver.js';
+import { attachBodyMaterialColor } from '../../foundation/BodyMaterialColor.js';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -493,6 +494,13 @@ function WorkbenchMechanical() {
     // bodies with a cool-blue emissive rim. Detached on unmount.
     useEffect(() => {
         attachSelectionHighlight();
+    }, []);
+
+    // WF-24 — paint body diffuse colour by assigned engineering material.
+    // Mirrors the WF-22 MTL colours so the viewport, the Inspector, and
+    // the OBJ export all agree.
+    useEffect(() => {
+        attachBodyMaterialColor();
     }, []);
 
     // WF-21 — attach the body-hover raycaster. Pointermove over the
