@@ -472,6 +472,8 @@ const TABS = {
         { name: 'Auxiliary View', icon: '⇗', key: 'documentation' },
         { name: 'Crop View', icon: '▭', key: 'documentation' },
         { name: 'Broken View', icon: '⌇', key: 'documentation' },
+        // UX Tier 12 — NX-distinctive stepped (zigzag) section line.
+        { name: 'Stepped Section Line', icon: '↯', key: 'documentation' },
       ]},
       { label: 'Annotate', tools: [
         { name: 'Smart Dimension', icon: '↔', key: 'documentation' },
@@ -480,6 +482,8 @@ const TABS = {
         { name: 'GD&T Frame', icon: '⊕', key: 'documentation' },
         { name: 'Surface Finish', icon: '▽', key: 'documentation' },
         { name: 'Model Items', icon: '⤓', key: 'documentation', primary: true },
+        // UX Tier 12 — NX generic N×M annotation table (not BOM-linked).
+        { name: 'Tabular Note', icon: '⊞', key: 'documentation' },
       ]},
       { label: 'BOM', tools: [
         { name: 'BOM', icon: '☷', key: 'documentation', primary: true },

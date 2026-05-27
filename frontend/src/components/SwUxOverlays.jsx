@@ -487,6 +487,9 @@ export const DOCKED_TOOLS = new Set([
   // UX Tier 8c — Drawing sheet header (Title Block + Sheet Format).
   'Title Block',
   'Sheet Format',
+  // UX Tier 12 — Stepped Section Line + Tabular Note (NX-distinctive).
+  'Stepped Section Line',
+  'Tabular Note',
   // UX Tier 6b — Weldments additions (Gusset + Weld Bead).
   'Gusset',
   'Weld Bead',

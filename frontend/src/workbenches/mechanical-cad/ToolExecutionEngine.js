@@ -124,7 +124,8 @@ import { tessellatePerFace as kernelTessellatePerFace } from '../../kernel/brep/
 import InteractiveSketch, { TOOLS as SK_TOOLS } from '../../kernel/sketch/InteractiveSketch.js';
 import { auxiliaryView as drawAuxiliaryView, cropView as drawCropView, brokenView as drawBrokenView,
          modelItems as drawModelItems, bom as drawBOM, autoBalloon as drawAutoBalloon,
-         titleBlock as drawTitleBlock, sheetFormat as drawSheetFormat } from '../drawing/DrawingViews.js';
+         titleBlock as drawTitleBlock, sheetFormat as drawSheetFormat,
+         steppedSectionLine as drawSteppedSectionLine, tabularNote as drawTabularNote } from '../drawing/DrawingViews.js';
 
 // Shared feature tree instance — single source of truth
 let _featureTree = null;
@@ -6858,6 +6859,99 @@ const TOOL_HANDLERS = {
       return {
         status: 'success',
         message: `Sheet Format: ${info.sheet.size} ${info.sheet.orientation} → ${info.sheet.w}×${info.sheet.h} mm; ${info.edgeCount} view edges; scale ${info.paperScale.toFixed(3)}:1 via workbench.drawing.sheetFormat`,
+      };
+    },
+
+    // ─── UX TIER 12 — Stepped Section Line + Tabular Note ──────────────────
+    // NX-distinctive Drafting ops the SW course missed. Stepped Section
+    // Line builds a multi-plane composite cross-section that hops between
+    // parallel planes (right-angle jogs on the FRONT view define the cuts).
+    // Tabular Note places a generic N×M editable annotation table on the
+    // sheet — used for hole charts, revision blocks, tolerance tables.
+    // Both publish a full SVG via __lastDrawingSVG and surface tool-
+    // specific introspection slots for e2e assertions.
+    'Stepped Section Line': async () => {
+      const m = _lastFoundationManifold;
+      if (!m) {
+        return { status: 'warn', message: 'Stepped Section Line: build a body in the Part tab first.' };
+      }
+      const { values, cancelled } = await requestToolParams('Stepped Section Line');
+      if (cancelled) return { status: 'warn', message: 'Stepped Section Line: cancelled' };
+
+      // Build polyline from the 4 schema points (right-angle jog by default).
+      let points = [
+        { x: Number(values.p0x) || 0, y: Number(values.p0y) || 0 },
+        { x: Number(values.p1x) || 0, y: Number(values.p1y) || 0 },
+        { x: Number(values.p2x) || 0, y: Number(values.p2y) || 0 },
+        { x: Number(values.p3x) || 0, y: Number(values.p3y) || 0 },
+      ];
+      // Caller can override with a real N-point polyline.
+      if (typeof window !== 'undefined' && Array.isArray(window.__archdiscSteppedSectionPoints)) {
+        const overridePts = window.__archdiscSteppedSectionPoints
+          .filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y))
+          .map(p => ({ x: p.x, y: p.y }));
+        if (overridePts.length >= 2) points = overridePts;
+        delete window.__archdiscSteppedSectionPoints;
+      }
+
+      const { svg, info } = drawSteppedSectionLine(m, {
+        points,
+        label: values.label || 'A',
+        view: 'front',
+        name: 'Stepped Section',
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastSteppedSectionLine = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Stepped Section Line ${info.label}–${info.label}: ${info.segmentCount} segment(s), ${info.jogCount} jog(s), ${info.totalCutEdges} cut edge(s) across composite section; scale ${info.paperScale.toFixed(3)}:1 via workbench.drawing.steppedSectionLine`,
+      };
+    },
+
+    'Tabular Note': async () => {
+      const { values, cancelled } = await requestToolParams('Tabular Note');
+      if (cancelled) return { status: 'warn', message: 'Tabular Note: cancelled' };
+
+      // Build default columns + rows from the schema's N×M grid.
+      const nCols = Math.max(1, Math.floor(Number(values.cols) || 4));
+      const nRows = Math.max(1, Math.floor(Number(values.rows) || 3));
+      const colW = Math.max(6, Number(values.colWidth) || 30);
+      let columns = Array.from({ length: nCols }, (_, i) => ({ label: `Col${i + 1}`, width: colW }));
+      let rows = Array.from({ length: nRows }, () => Array.from({ length: nCols }, () => ''));
+
+      // Caller can stash real data (column labels + row contents).
+      if (typeof window !== 'undefined' && window.__archdiscTabularNoteData) {
+        const data = window.__archdiscTabularNoteData;
+        if (Array.isArray(data.columns) && data.columns.length > 0) {
+          columns = data.columns.map((c, i) => ({
+            label: String((c && c.label !== undefined) ? c.label : `Col${i + 1}`),
+            width: Number.isFinite(c && c.width) ? c.width : colW,
+          }));
+        }
+        if (Array.isArray(data.rows) && data.rows.length > 0) {
+          rows = data.rows.map(r => Array.isArray(r) ? r.slice() : [r]);
+        }
+        delete window.__archdiscTabularNoteData;
+      }
+
+      const { svg, info } = drawTabularNote({
+        title: values.title || 'TABULAR NOTE',
+        columns,
+        rows,
+        position: { x: Number(values.x) || 30, y: Number(values.y) || 30 },
+        size: values.size || 'A3',
+        orientation: values.orientation || 'landscape',
+        name: 'Tabular Note Sheet',
+      });
+      if (typeof window !== 'undefined') {
+        window.__lastDrawingSVG = svg;
+        window.__lastTabularNote = { ...info, svgBytes: svg.length };
+      }
+      return {
+        status: 'success',
+        message: `Tabular Note: "${info.title}" — ${info.columnCount}×${info.rowCount} cells at (${info.position.x}, ${info.position.y}) mm; table ${info.tableBBox.w.toFixed(1)}×${info.tableBBox.h.toFixed(1)} mm via workbench.drawing.tabularNote`,
       };
     },
 

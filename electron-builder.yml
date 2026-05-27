@@ -23,7 +23,7 @@ extraMetadata:
 publish:
   provider: github
   owner: satvikOS
-  repo: archdiscv1
+  repo: archdisc-Mech
   releaseType: release
 
 # ---------------------------------------------------------------- Windows

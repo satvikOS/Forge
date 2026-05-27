@@ -640,6 +640,16 @@ SW list.
 112. **Section Line — Stand Alone (stepped section).** NX explicitly supports a zigzag /
    stepped section line in Drafting that the standard SW Section View does not (SW has Aligned
    Section but it's clunkier). ArchDisc currently has only a single-plane Section View.
+   **SHIPPED — Tier-12 (2026-05-26).** `frontend/src/workbenches/drawing/DrawingViews.js`
+   adds `steppedSectionLine(manifold, {points, view, label, name})` — multi-segment cut path
+   with right-angle jogs. Each segment of the polyline defines a cutting plane (containing
+   world-Y, "into the page" for FRONT view); the body is sliced by every plane, and the
+   intersection edges are composited side-by-side as the canonical stepped-section view.
+   The section LINE renders on the FRONT view as a chain-dot polyline with arrow heads at
+   each end and jog markers at every interior vertex. Drawing-tab ribbon entry under Views.
+   E2e: `e2e/ux-tier12-steppedsection-tabularnote-electron.spec.js` exercises a 7-point
+   polyline (6 segments, 5 jogs) on an HVAC manifold valve body — 1,648 cut edges across
+   the composite section.
 
 113. **Conic fillet (Edge Blend → Conic).** Rho-parameterized conic-section profile for stylized
    fillets (used in automotive / consumer goods). SW has "Stylized Fillet" but the SW course
@@ -648,6 +658,13 @@ SW list.
 114. **Tabular Note (generic table) in drawings.** NX lets you place an N×M editable table on a
    drawing sheet that is NOT tied to a BOM. Useful for revision tables, machining schedules,
    inspection sheets. ArchDisc has no table primitive in Drawing.
+   **SHIPPED — Tier-12 (2026-05-26).** `frontend/src/workbenches/drawing/DrawingViews.js`
+   adds `tabularNote({title, columns, rows, position, size, orientation})` — generic
+   editable N×M table on the sheet, NOT BOM-linked. Columns are `{label, width}` (paper-mm
+   widths); rows are arrays of cell values; position is paper-mm `{x, y}`. Renders with
+   title row, header row, data rows, double-line ASME sheet border, and a mini corner
+   block. Drawing-tab ribbon entry under Annotate. E2e exercises a 4-column × 3-row hole
+   chart (Hole | Diameter | Depth | Tolerance) on the HVAC manifold valve body.
 
 115. **Surface Finish — Waviness sub-spec.** The NX Surface Finish dialog has a Waviness field
    (upper-text + lower-text + waviness). SW has it via tooltips but the NX course flags it
@@ -736,9 +753,9 @@ feature. **Missing** = no analog. Sub-project = the tracker label or directory m
 | 109 | Touch Align combined mate | `kernel/assembly/Mate.js` + Mates ribbon group | parity-program §7 Assembly | **Missing** |
 | 110 | Auto Align constraint | `kernel/assembly/Mate.js` heuristic + Mates ribbon | parity-program §7 Assembly | **Missing** |
 | 111 | Per-object color override | View tab → Edit Object Display dialog | NX-UX track | **Unverified — may exist** |
-| 112 | Stepped section line | `kernel/drawing/DrawingEngine.js` + Section View dialog | parity-program §8 Drawing | **Missing** |
+| 112 | Stepped section line | `frontend/src/workbenches/drawing/DrawingViews.js::steppedSectionLine` + Drawing-tab Views ribbon entry; e2e on HVAC manifold valve body | NX-UX track Tier-12 | **DONE (2026-05-26)** |
 | 113 | Conic fillet | `kernel/features/Fillet.js` conic profile + Edge Blend dialog | NX-UX kernel | **Missing** |
-| 114 | Tabular Note | `kernel/drawing/DrawingEngine.js` + Drawing tab Annotate group | parity-program §8 Drawing | **Missing** |
+| 114 | Tabular Note | `frontend/src/workbenches/drawing/DrawingViews.js::tabularNote` + Drawing-tab Annotate ribbon entry; e2e places a 4×3 hole chart | NX-UX track Tier-12 | **DONE (2026-05-26)** |
 | 115 | Surface Finish — Waviness | Existing Surface Finish dialog — add Waviness field | parity-program §8 Drawing | **Partial / Unverified** |
 | 116 | Datums grouped in Part Navigator | `DesignHistoryPanel.jsx` / `FeatureTreePanel.jsx` rendering | NX-UX track | **Missing** |
 | 117 | Specify Vector universal picker | `frontend/src/components/VectorPicker.jsx` + `.css` (shared component, 4 modes); new `'vector'` schema field type in `ToolParamSchemas.js`; rendered by both `ToolParamDialog.jsx` + `SwUxOverlays.jsx::PropertyManagerDock`; first 3 migrations: Extrude / Linear Pattern / Move Face | NX-UX track Tier-12a (high leverage) | **DONE (2026-05-25)** |

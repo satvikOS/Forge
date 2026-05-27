@@ -4122,3 +4122,144 @@ through the manifold bridge; they go through `AssemblyBridge` instead.
 | `render-doubleside-frustum-fix-electron` (regression) | Manifold-bridge + Viewport3D fixes still pass |
 | `ribbon-test` (regression) | Ribbon tab/tool count unchanged |
 
+---
+
+## Tier 12 — NX-distinctive Drafting ops (Stepped Section + Tabular Note)
+
+The Siemens-NX synthesis (`siemens-nx-course-synthesis.md` §6 items 112 +
+114) flagged two NX Drafting capabilities that the earlier SolidWorks gap
+list missed:
+
+- **#112 Stepped Section Line.** NX exposes a multi-segment cut path with
+  right-angle jogs ("Section Line → Stand Alone") that gives a single
+  composite cross-section hopping between parallel planes. SW has Aligned
+  Section but it's clunkier; ArchDisc previously had only single-plane
+  Section View.
+- **#114 Tabular Note.** Generic editable N×M annotation table that is
+  NOT BOM-linked. Used for hole charts, revision blocks, tolerance
+  tables, inspection sheets. ArchDisc had no table primitive in Drawing
+  outside the BOM-specific path.
+
+Tier-12 ships both ops as additions to the existing drawing-workbench
+module + ribbon, without touching the Section View handler or BOM path
+(both stay as-is).
+
+### `steppedSectionLine(manifold, opts)`
+
+`frontend/src/workbenches/drawing/DrawingViews.js`. Takes a polyline of
+points in PAPER-mm of the FRONT view's paper space; each segment defines
+a cutting plane that contains world-Y ("into the page"). The op:
+
+1. Renders the FRONT view backdrop.
+2. Draws the section line itself on the FRONT view: a chain-dot polyline
+   plus small filled jog markers at every interior vertex plus labelled
+   arrow heads at each end (`A`–`A` by default).
+3. For each segment: slices the body with the segment's cutting plane
+   (inline mesh-plane intersection on the manifold mesh), projects the
+   intersection edges into a screen frame (paper-X = world-Y depth,
+   paper-Y = world-Z up), and emits a per-hop group in a composite
+   section panel below the FRONT view. Hops are separated by 12-mm
+   gutters with hop-N labels showing the edge count.
+4. Returns `{svg, info: {label, points, segments[], segmentCount,
+   jogCount, totalCutEdges, frontBBox, paperScale}}`.
+
+### `tabularNote(opts)`
+
+Same module. Generic N×M editable table:
+
+- `columns: [{label, width}]` — column header labels + paper-mm widths.
+- `rows: [[cell, cell, ...]]` — row-major data, cells string-coerced.
+- `position: {x, y}` — paper-mm position of the top-left corner.
+- `size`/`orientation` — sheet format (defaults A3 landscape).
+
+Renders title row + header row + data rows on a full sheet with the
+ASME double-line border + a mini corner block. Every cell carries
+`data-tn-row="r" data-tn-col="c"` for e2e introspection. Returns
+`{svg, info: {title, sheet, columns, columnCount, rowCount, position,
+tableBBox, cells, rowsRendered}}`.
+
+### Ribbon + execution + dock
+
+- `frontend/src/components/RibbonToolbar.jsx` — `'Stepped Section Line'`
+  appended to the Drawing-tab `Views` group; `'Tabular Note'` appended
+  to the `Annotate` group.
+- `frontend/src/workbenches/mechanical-cad/ToolExecutionEngine.js` —
+  two handlers in the `document:` group. Stepped Section Line builds a
+  4-point polyline from the schema fields (P0..P3 paper-mm), or honours
+  a real N-point polyline at `window.__archdiscSteppedSectionPoints`.
+  Tabular Note builds an empty N×M grid from the schema, or honours
+  real column + row data at `window.__archdiscTabularNoteData =
+  {columns, rows}`. Both set `__lastDrawingSVG` + a tool-specific
+  introspection slot (`__lastSteppedSectionLine` / `__lastTabularNote`).
+- `frontend/src/foundation/ToolParamSchemas.js` — two schemas appended
+  with sane defaults for a generic 100-mm-class part.
+- `frontend/src/components/SwUxOverlays.jsx::DOCKED_TOOLS` — both
+  registered so the PropertyManagerDock handles them.
+
+### Bespoke e2e — HVAC manifold valve body
+
+`e2e/ux-tier12-steppedsection-tabularnote-electron.spec.js`. DIFFERENT
+bespoke from prior drawing-tier specs (Tier-8a long shaft, Tier-8b
+conveyor roller assembly, Tier-8c connecting rod). The valve body is a
+single 120 × 60 × 40 mm block with THREE through-bores along Z:
+
+| Bore | X (mm) | Diameter | Tolerance |
+|---|---|---|---|
+| A | -40 | Ø10 | H7 |
+| B |   0 | Ø14 | H7 |
+| C | +40 | Ø10 | H8 |
+
+The spec exercises a 7-point polyline through all 3 bore centrelines
+(6 segments, 5 right-angle jogs) and a 4-column × 3-row hole chart at
+paper-mm (40, 40) on A3 landscape.
+
+| Frame | Headline |
+|---|---|
+| 01 | Manifold built + Drawing tab open + both Tier-12 ribbon tools visible (`Stepped Section Line` in Views, `Tabular Note` in Annotate) |
+| 02 | Stepped Section Line A–A — polyline + 5 jog markers + arrow heads + composite section panel with 6 hop groups (1,648 total cut edges) |
+| 03 | Tabular Note "HOLE CHART" — 4×3 grid placed at (40, 40) on A3, every cell value present in the SVG |
+| 04 | Final sheet — tabular note still visible (the DrawingPreviewPanel keeps the last SVG) |
+
+### Regression (Tier-12)
+
+Headed Electron, `--workers=1`, `--retries=0`:
+
+| Spec | Result |
+|---|---|
+| `ux-tier12-steppedsection-tabularnote-electron` (NEW) | **PASS** — 4 stills + session video; 6 segments, 5 jogs, 1,648 cut edges across composite section; 4×3 hole chart with every cell present |
+| `ux-tier8a-drawing-views-electron` (regression — drawing-view sibling ops) | **PASS** |
+| `ux-tier8b-drawing-bom-electron` (regression) | **PASS** |
+| `ux-tier8c-titleblock-sheetformat-electron` (regression) | **PASS** |
+| `ribbon-test` (regression — ribbon tab/tool count) | **PASS** — Drawing tab now reports 23 tools (was 21; Stepped Section Line + Tabular Note add two) |
+
+### Honest gaps in Tier-12
+
+1. **Waviness sub-spec on Surface Finish (NX item 115) — queued.** The
+   synthesis flags a Waviness field (upper-text + lower-text +
+   waviness) that the ArchDisc Surface Finish dialog doesn't carry yet.
+   Schema diff is ~3 fields + a few lines of SVG annotation.
+2. **Conic fillet (NX item 113) — queued.** Rho-parameterized conic
+   profile for stylized fillets (Edge Blend → Conic). Needs a new
+   foundation op (`SmoothImplicit.js` already does circular smooth-min;
+   a conic blend would parameterise the bias).
+3. **No Preview / Show Result buttons on the new dialogs.** NX item 119
+   flags a universal Preview toggle + Show Result button as a pattern;
+   the new Tier-12 dialogs follow the existing ArchDisc convention
+   (commit-on-OK only). A universal Preview migration is queued.
+4. **Resource Bar dock (NX item 121) — queued.** Left vertical icon
+   strip combining Part Browser / Design History / Reuse Library /
+   Web Help. The components exist but aren't docked as one strip.
+5. **Stepped Section Line view = 'front' only.** The handler accepts a
+   `view` arg but only the FRONT-view paper-space conversion is wired.
+   TOP / RIGHT / ISO would each need their own paper-axis → world-axis
+   mapping (and the cutting plane's "into-the-page" direction). Each
+   extra view is a ~10-line addition.
+6. **Tabular Note has no live cell-edit UI.** The op accepts pre-built
+   `{columns, rows}` data via the dialog schema + `__archdiscTabular
+   NoteData` slot; an in-place text-edit-the-cell workflow (NX behaviour
+   when the user double-clicks a cell) is queued as a follow-on.
+7. **Stepped Section Line in-viewport rubber-band picker.** The op
+   takes a polyline as input but there's no canvas tool to click out
+   the polyline visually — the user/AI plan supplies the points.
+   Wiring the canvas picker is queued.
+

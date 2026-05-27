@@ -1545,6 +1545,51 @@ export const TOOL_PARAM_SCHEMAS = {
     ],
   },
 
+  // ─── UX TIER 12 — Stepped Section Line + Tabular Note (NX-distinctive) ──
+  //
+  // Two Drafting ops the SW gap list missed but the Siemens NX synthesis
+  // flagged (`siemens-nx-course-synthesis.md` §6 items 112 + 114).
+  //
+  //   Stepped Section Line — multi-segment cut path with right-angle jogs;
+  //   composite cross-section hops between parallel planes.
+  //
+  //   Tabular Note         — generic editable N×M table (NOT BOM-linked).
+  //   Used for hole charts, revision blocks, tolerance tables.
+  //
+  // Both schemas carry sane defaults for a generic 100-mm-class part; e2e
+  // / AI plans bypass the dialog by stashing real polyline / column /
+  // row data at `window.__archdiscSteppedSectionPoints` and
+  // `window.__archdiscTabularNoteData` respectively.
+  'Stepped Section Line': {
+    title: 'Stepped Section Line — Multi-Plane Cut with Jogs',
+    blurb: 'Build a multi-segment section line on the FRONT view (right-angle jogs allowed). Each segment defines a cutting plane; the result is a composite cross-section that hops between parallel planes (NX "Section Line → Stand Alone"). Stash a real polyline at __archdiscSteppedSectionPoints = [{x,y}, ...] to override the dialog defaults.',
+    fields: [
+      { name: 'label',  label: 'Section label', type: 'enum',   default: 'A', options: ['A', 'B', 'C', 'D', 'E', 'F'] },
+      { name: 'p0x',    label: 'P0 — X (paper mm)', type: 'number', default: -30, unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p0y',    label: 'P0 — Y (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p1x',    label: 'P1 — X (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p1y',    label: 'P1 — Y (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p2x',    label: 'P2 — X (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1, hint: 'Right-angle jog: keep px constant from previous point.' },
+      { name: 'p2y',    label: 'P2 — Y (paper mm)', type: 'number', default: 20,  unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p3x',    label: 'P3 — X (paper mm)', type: 'number', default: 30,  unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p3y',    label: 'P3 — Y (paper mm)', type: 'number', default: 20,  unit: 'mm', min: -300, max: 300, step: 1 },
+    ],
+  },
+  'Tabular Note': {
+    title: 'Tabular Note — Generic N×M Annotation Table',
+    blurb: 'Place an editable annotation table anywhere on the sheet (NOT BOM-linked). Used for hole charts, revision blocks, tolerance tables, inspection sheets. Stash real columns + rows at __archdiscTabularNoteData = {columns: [{label, width}], rows: [[...], ...]} to fill the cells.',
+    fields: [
+      { name: 'title',    label: 'Table title',  type: 'string', default: 'HOLE CHART' },
+      { name: 'x',        label: 'X (paper mm)', type: 'number', default: 30,  unit: 'mm', min: 0,   max: 1500, step: 1 },
+      { name: 'y',        label: 'Y (paper mm)', type: 'number', default: 30,  unit: 'mm', min: 0,   max: 1500, step: 1 },
+      { name: 'cols',     label: 'Columns',      type: 'number', default: 4,   min: 1, max: 10, step: 1 },
+      { name: 'rows',     label: 'Rows',         type: 'number', default: 3,   min: 1, max: 30, step: 1 },
+      { name: 'colWidth', label: 'Default col width', type: 'number', default: 30, unit: 'mm', min: 6, max: 120, step: 1 },
+      { name: 'size',        label: 'Sheet size',   type: 'enum',   default: 'A3', options: ['A0', 'A1', 'A2', 'A3', 'A4', 'ANSI-A', 'ANSI-B', 'ANSI-C', 'ANSI-D', 'ANSI-E'] },
+      { name: 'orientation', label: 'Orientation',  type: 'enum',   default: 'landscape', options: ['landscape', 'portrait'] },
+    ],
+  },
+
   // ─── UX TIER 5a — Sheet Metal workbench foundation ────────────────────
   //
   // Three foundational sheet-metal ops with their param schemas. Base
