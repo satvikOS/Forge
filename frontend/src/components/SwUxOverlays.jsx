@@ -535,6 +535,20 @@ export function PropertyManagerDock() {
     });
   }, []);
 
+  // Publish open-state on window so the keyboard-shortcut handler in
+  // WorkbenchMechanical short-circuits while the dock is open (so 'E'
+  // inside an open Extrude dock doesn't re-fire Extrude). Mirrors the
+  // floating ToolParamDialog flag wiring.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (state.open) window.__archdiscDialogOpen = true;
+    return () => {
+      // Only clear if we set it — don't fight ToolParamDialog when
+      // both happen to mount simultaneously.
+      if (typeof window !== 'undefined' && state.open) window.__archdiscDialogOpen = false;
+    };
+  }, [state.open]);
+
   useEffect(() => {
     const unsub = onParamRequest(({ toolName, schema }) => {
       // Only intercept tools we've migrated. Floating dialog handles the rest.
