@@ -961,6 +961,21 @@ function WorkbenchMechanical() {
                 handleToolExecute('document', 'Save Snapshot');
                 return;
             }
+            // Ctrl/Cmd + 1..9 = Switch ribbon tab (1=Sketch, 2=Part,
+            // 3=Assembly, 4=Simulate, 5=Manufacture, 6=Direct Edit,
+            // 7=Sheet Metal, 8=Weldments, 9=Mold Tools / Drawing tail).
+            // The TAB_ORDER mirrors RibbonToolbar.TABS insertion order.
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key >= '1' && e.key <= '9') {
+                e.preventDefault();
+                const TAB_ORDER = [
+                    'sketch', 'part', 'assembly', 'simulate', 'manufacture',
+                    'directEdit', 'sheetMetal', 'weldments', 'moldTools',
+                ];
+                const idx = parseInt(e.key, 10) - 1;
+                const tabKey = TAB_ORDER[idx];
+                if (tabKey) setRibbonTab(tabKey);
+                return;
+            }
             // Ctrl/Cmd + Z = Undo (one step back through the kernel
             // HistoryLog from SP-3a). Ctrl/Cmd + Y or Ctrl+Shift+Z = Redo.
             // The kernel HistoryLog tracks geometric ops; the rollback
@@ -1511,6 +1526,7 @@ function WorkbenchMechanical() {
                                     ['Ctrl + S', 'Save Snapshot (.archdisc.json)'],
                                     ['Ctrl + Z', 'Undo (kernel HistoryLog)'],
                                     ['Ctrl + Y', 'Redo (or Ctrl+Shift+Z)'],
+                                    ['Ctrl + 1‥9', 'Switch ribbon tab (Sketch/Part/Assembly/…)'],
                                     ['?', 'Toggle this help'],
                                     ['Esc', 'Cancel active tool / close menus'],
                                 ].map(([k, label]) => (
