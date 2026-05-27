@@ -52,6 +52,7 @@ import { exportBomCsv } from '../../foundation/MeshBomCsv.js';
 import { exportDxf } from '../../foundation/MeshDxfExport.js';
 import { exportMultiBodyObj } from '../../foundation/MeshObjMultiExport.js';
 import { exportMarkdownReport } from '../../foundation/MarkdownReportExport.js';
+import { captureSnapshot } from '../../foundation/SnapshotPng.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6399,6 +6400,19 @@ const TOOL_HANDLERS = {
     // honest gap I flagged in the assessment: "per-component CAD file
     // export was not an automated tool yet". Iterates BodyRegistry,
     // calls kernel exportStep on each body, packages a project bundle.
+    // WF-30 — High-resolution viewport snapshot to PNG. Engineers paste
+    // these into review decks, vendor RFQs, project trackers; 2x the
+    // canvas size keeps the image crisp at typical slide scaling.
+    'Export Snapshot (PNG)': () => {
+      const result = captureSnapshot({});
+      if (typeof window !== 'undefined') window.__lastSnapshot = result;
+      if (!result.ok) return { status: 'error', message: `Export Snapshot: ${result.reason || 'unknown'}` };
+      return {
+        status: 'ok',
+        message: `Snapshot saved: ${result.filename} (${result.width}×${result.height}, ${result.bytes.toLocaleString()} bytes)`,
+        result,
+      };
+    },
     // WF-29 — Engineering Review markdown report. Emits a `.md` file
     // with the body table + materials + Sigma totals + companion-
     // export pointers + a sign-off block. Universal review format.
