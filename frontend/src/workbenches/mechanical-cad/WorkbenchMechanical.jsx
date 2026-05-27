@@ -65,6 +65,7 @@ import {
 import '../../components/SwUxOverlays.css';
 import MiniToolbar from '../../components/MiniToolbar';
 import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
+import SectionPlaneOverlay from '../../components/SectionPlaneOverlay';
 import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
 import { attachBodyHover } from '../../foundation/BodyHoverDriver.js';
 import '../../components/FeatureTreePanel.css';
@@ -1514,6 +1515,9 @@ function WorkbenchMechanical() {
                     surfaces the seven most-used selection-driven ops at
                     the body's current screen position. */}
                 <MiniToolbar />
+                {/* WF-23 — Section / clipping-plane scrubber. Top-right
+                    overlay with axis buttons + position slider. */}
+                <SectionPlaneOverlay />
             </main>
 
             {/* RIGHT PROPERTIES PANEL — collapse toggle on the inner edge.

@@ -1,0 +1,84 @@
+/* SectionPlaneOverlay — top-right viewport widget. Tight, low-profile,
+   matches the rest of the SwUxOverlays chrome. */
+
+.section-overlay {
+  position: absolute;
+  top: 8px;
+  right: 320px;            /* clears the existing top-right overlays */
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  background: rgba(28, 34, 42, 0.78);
+  border: 1px solid #38414c;
+  border-radius: 4px;
+  padding: 4px 6px;
+  user-select: none;
+}
+
+.section-axes {
+  display: flex;
+  gap: 2px;
+}
+.section-axis-btn {
+  width: 24px;
+  height: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  background: transparent;
+  color: #c9d3df;
+  border: 1px solid #3a414b;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.section-axis-btn:hover { background: #2a313a; color: #fff; }
+.section-axis-btn.active {
+  background: #5a8bd9;
+  color: #fff;
+  border-color: #5a8bd9;
+}
+.section-clear-btn {
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  line-height: 1;
+  background: transparent;
+  color: #9aa3ad;
+  border: 1px solid #3a414b;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.section-clear-btn:hover { color: #ff8b6e; border-color: #884040; }
+
+.section-slider {
+  width: 180px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #232a32;
+  border-radius: 2px;
+  outline: none;
+}
+.section-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #5a8bd9;
+  cursor: pointer;
+}
+.section-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #5a8bd9;
+  cursor: pointer;
+  border: none;
+}
+.section-readout {
+  font-size: 10px;
+  color: #9aa3ad;
+  font-variant-numeric: tabular-nums;
+}
