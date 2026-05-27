@@ -43,56 +43,92 @@ export default function Topbar() {
   // ─── Menu Definitions ─────────────────────────────────────────────────────────
   // Application-level menus only. Tool creation (Insert, Sketch, etc.) lives in
   // the left sidebar to avoid duplication.
+  //
+  // WF-17 — File menu wired to real dispatchers. Each action either:
+  //   - Dispatches an `archdisc:run-tool` event (groupKey routes through
+  //     ToolExecutionEngine.GROUP_ALIASES, then the registered handler);
+  //   - Calls a workbench-level handler directly (clearScene, undo, redo);
+  //   - Re-opens the WF-09 Welcome modal (New Project → templates);
+  //   - Fires the WF-09 recent-projects array for the Recent submenu.
+  const runTool = (tab, tool) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('archdisc:run-tool', { detail: { tab, tool } }));
+  };
+  const clearScene = () => {
+    if (typeof window === 'undefined') return;
+    const reg = window.__archdiscBodies;
+    if (!reg) return;
+    const list = (typeof reg.list === 'function' ? reg.list() : reg.bodies).slice();
+    for (const b of list) reg.remove(b.id);
+    const h = window.__archdiscHistory;
+    if (h && typeof h.clear === 'function') h.clear();
+  };
+  const recentProjects = (() => {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    try {
+      const raw = window.localStorage.getItem('archdisc:recent-projects:v1');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
+    } catch { return []; }
+  })();
+  const recentSubmenu = recentProjects.length > 0
+    ? recentProjects.map((r, i) => ({
+        label: r.filename ? `${i + 1}. ${r.filename}` : `${i + 1}. (unnamed)`,
+        action: () => {
+          showFeedback(`Reopen ${r.filename || 'project'}…`);
+          // Re-loading a snapshot from localStorage metadata needs the
+          // user to re-select the file (the snapshot body isn't stored
+          // in localStorage, only the filename + timestamps). Dispatch
+          // Load Snapshot which opens the file picker.
+          runTool('documentation', 'Load Snapshot');
+        },
+      }))
+    : [{ label: '(no recent projects)', disabled: true }];
+
   const menus = {
     file: {
       label: 'File',
       items: [
-        { label: 'New Project', shortcut: 'Ctrl+N', action: () => console.log('New') },
-        { label: 'New Part', action: () => console.log('New Part') },
-        { label: 'New Assembly', action: () => console.log('New Assembly') },
-        { label: 'New Drawing', action: () => console.log('New Drawing') },
+        { label: 'New Project', shortcut: 'Ctrl+N', action: () => {
+          showFeedback('New Project');
+          clearScene();
+          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('archdisc:open-welcome'));
+        }},
         { type: 'separator' },
-        { label: 'Open', shortcut: 'Ctrl+O', action: () => console.log('Open') },
-        { label: 'Save', shortcut: 'Ctrl+S', action: () => console.log('Save') },
-        { label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: () => console.log('Save As') },
-        { label: 'Save All', action: () => console.log('Save All') },
+        { label: 'Open Snapshot…', shortcut: 'Ctrl+O', action: () => {
+          showFeedback('Open Snapshot');
+          runTool('documentation', 'Load Snapshot');
+        }},
+        { label: 'Recent', submenu: recentSubmenu },
         { type: 'separator' },
-        { label: 'Import', submenu: [
-          { label: 'STEP (.stp, .step)', action: () => console.log('Import STEP') },
-          { label: 'IGES (.igs, .iges)', action: () => console.log('Import IGES') },
-          { label: 'Parasolid (.x_t, .x_b)', action: () => console.log('Import Parasolid') },
-          { label: 'STL (.stl)', action: () => console.log('Import STL') },
-          { label: 'OBJ (.obj)', action: () => console.log('Import OBJ') },
-          { label: 'FBX (.fbx)', action: () => console.log('Import FBX') },
-          { label: 'glTF / GLB', action: () => console.log('Import glTF') },
-          { label: 'DXF / DWG', action: () => console.log('Import DXF') },
-          { label: 'JT (.jt)', action: () => console.log('Import JT') },
-          { label: 'CATIA V5 (.CATpart)', action: () => console.log('Import CATIA') },
-          { label: 'NX (.prt)', action: () => console.log('Import NX') },
-          { label: 'Creo / Pro-E (.prt)', action: () => console.log('Import Creo') },
-          { label: 'Inventor (.ipt)', action: () => console.log('Import Inventor') },
-        ]},
+        { label: 'Save Snapshot', shortcut: 'Ctrl+S', action: () => {
+          showFeedback('Save Snapshot');
+          runTool('documentation', 'Save Snapshot');
+        }},
+        { type: 'separator' },
         { label: 'Export', submenu: [
-          { label: 'STEP (.step)', action: () => console.log('Export STEP') },
-          { label: 'IGES (.iges)', action: () => console.log('Export IGES') },
-          { label: 'Parasolid (.x_t)', action: () => console.log('Export Parasolid') },
-          { label: 'STL (.stl)', action: () => console.log('Export STL') },
-          { label: '3MF (.3mf)', action: () => console.log('Export 3MF') },
-          { label: 'OBJ (.obj)', action: () => console.log('Export OBJ') },
-          { label: 'FBX (.fbx)', action: () => console.log('Export FBX') },
-          { label: 'glTF / GLB', action: () => console.log('Export glTF') },
-          { label: 'DXF (.dxf)', action: () => console.log('Export DXF') },
-          { label: 'DWG (.dwg)', action: () => console.log('Export DWG') },
-          { label: 'PDF Drawing', action: () => console.log('Export PDF') },
-          { label: '3D PDF', action: () => console.log('Export 3D PDF') },
-          { label: 'JT (.jt)', action: () => console.log('Export JT') },
+          { label: 'STEP (.step)', action: () => { showFeedback('Export STEP'); runTool('documentation', 'Export STEP'); }},
+          { label: 'STL (.stl)',   action: () => { showFeedback('Export STL');  runTool('manufacturing', 'Export STL'); }},
+          { label: '3MF (.3mf)',   action: () => { showFeedback('Export 3MF');  runTool('documentation', 'Export 3MF'); }},
+          { label: 'glTF / GLB',   action: () => { showFeedback('Export glTF'); runTool('documentation', 'Export glTF'); }},
+          { label: 'OBJ (.obj)',   action: () => { showFeedback('Export OBJ');  runTool('documentation', 'Export OBJ'); }},
+          { type: 'separator' },
+          { label: 'Project Bundle (.zip)', action: () => { showFeedback('Export Bundle'); runTool('documentation', 'Export Project Bundle'); }},
+          { label: 'BOM (.csv)',            action: () => { showFeedback('Export BOM');    runTool('documentation', 'Export BOM (CSV)'); }},
+          { label: 'PDF Drawing',           action: () => { showFeedback('Export PDF');    runTool('documentation', 'Export PDF'); }},
         ]},
         { type: 'separator' },
-        { label: 'Pack and Go', action: () => console.log('Pack and Go') },
-        { label: 'Recent Files', disabled: true },
+        { label: 'Welcome…', action: () => {
+          showFeedback('Welcome');
+          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('archdisc:open-welcome'));
+        }},
         { type: 'separator' },
-        { label: 'Properties', action: () => console.log('Properties') },
-        { label: 'Exit', shortcut: 'Alt+F4', action: () => console.log('Exit') },
+        { label: 'Exit', shortcut: 'Alt+F4', action: () => {
+          showFeedback('Exit');
+          if (typeof window !== 'undefined' && window.electronAPI?.quit) window.electronAPI.quit();
+          else if (typeof window !== 'undefined') window.close();
+        }},
       ],
     },
     edit: {
@@ -337,6 +373,8 @@ export default function Topbar() {
         <div
           key={index}
           className={`topbar-item has-submenu ${openSubmenu === subKey ? 'submenu-active' : ''}`}
+          data-topbar-item={item.label}
+          data-topbar-has-submenu="true"
           onMouseEnter={(e) => handleSubmenuEnter(subKey, item.submenu, e)}
           onMouseLeave={handleSubmenuLeave}
         >
@@ -353,6 +391,8 @@ export default function Topbar() {
       <div
         key={index}
         className={`topbar-item ${item.disabled ? 'disabled' : ''}`}
+        data-topbar-item={item.label}
+        data-topbar-disabled={item.disabled ? 'true' : 'false'}
         onClick={() => handleItemClick(item)}
       >
         <div className="topbar-item-left">
@@ -376,6 +416,7 @@ export default function Topbar() {
           key={key}
           ref={(el) => (triggerRefs.current[key] = el)}
           className={`topbar-menu-trigger ${openMenu === key ? 'active' : ''}`}
+          data-topbar-menu={key}
           onClick={() => handleMenuClick(key)}
           onMouseEnter={() => handleMenuHover(key)}
         >
@@ -406,6 +447,8 @@ export default function Topbar() {
               <div
                 key={si}
                 className={`topbar-item ${subItem.disabled ? 'disabled' : ''}`}
+                data-topbar-item={subItem.label}
+                data-topbar-disabled={subItem.disabled ? 'true' : 'false'}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleItemClick(subItem);
