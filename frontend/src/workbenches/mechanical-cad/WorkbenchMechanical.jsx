@@ -71,6 +71,7 @@ import BodyContextMenu from '../../components/BodyContextMenu';
 import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
 import { attachBodyHover } from '../../foundation/BodyHoverDriver.js';
 import { attachBodyMaterialColor } from '../../foundation/BodyMaterialColor.js';
+import { attachSelectionEdges } from '../../foundation/SelectionEdges.js';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -503,6 +504,13 @@ function WorkbenchMechanical() {
     // the OBJ export all agree.
     useEffect(() => {
         attachBodyMaterialColor();
+    }, []);
+
+    // WF-27 — selection-edge wireframe overlay. Adds white feature-edge
+    // lines (EdgesGeometry, 30° threshold) on selected bodies so the
+    // user can read the silhouette through the emissive + material paint.
+    useEffect(() => {
+        attachSelectionEdges();
     }, []);
 
     // WF-21 — attach the body-hover raycaster. Pointermove over the
