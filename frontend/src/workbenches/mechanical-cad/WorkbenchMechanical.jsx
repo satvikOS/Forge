@@ -863,17 +863,96 @@ function WorkbenchMechanical() {
         }
     }, [viewport, selectedModel]);
 
-    // Keyboard shortcuts for toolbar
+    // Keyboard shortcuts — SW/NX-style accelerators for the most-used
+    // tools. Each entry: { key, ctrl?, alt?, shift?, action, tool, group }.
+    // CAD users live by these — every real CAD app ships them.
+    //
+    // Rules:
+    //  - Skip when typing in an INPUT/TEXTAREA (existing guard below).
+    //  - Skip when a dialog is open (we check window.__archdiscDialogOpen
+    //    which the ToolParamDialog sets when it's mounted).
+    //  - Skip when contenteditable element is focused (Equation Manager).
+    //  - Bare letters → tool launch. Modifier combos reserved for the
+    //    browser / Electron menu (Ctrl+S etc).
     useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
         const handleKey = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (e.key === 'v' || e.key === 'V') { handleSelectMode(); }
-            if (e.key === 'g' || e.key === 'G') { handleMoveMode(); }
-            if (e.key === 'Escape') { setActiveDropdown(null); setActiveTool(null); setToolStatus(null); setSelection(null); }
+            const tag = e.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (e.target?.isContentEditable) return;
+            // Dialog open? skip (so dialog inputs handle their own keys).
+            if (window.__archdiscDialogOpen) return;
+            // Existing select/move/escape stays.
+            if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+                if (e.key === 'v' || e.key === 'V') { handleSelectMode(); return; }
+                if (e.key === 'g' || e.key === 'G') { handleMoveMode(); return; }
+                // SW-style tool shortcuts. Lower-case test only (so
+                // upper-case via shift is consumed by selection naming
+                // wherever the host needs it).
+                const k = e.key;
+                // E = Extrude (the Tier-11d unified Extrude tool)
+                if (k === 'e' || k === 'E') {
+                    e.preventDefault();
+                    handleToolExecute('part', 'Extrude');
+                    return;
+                }
+                // F = Fillet
+                if (k === 'f' || k === 'F') {
+                    e.preventDefault();
+                    handleToolExecute('part', 'Fillet');
+                    return;
+                }
+                // C = Chamfer
+                if (k === 'c' || k === 'C') {
+                    e.preventDefault();
+                    handleToolExecute('part', 'Chamfer');
+                    return;
+                }
+                // S = Sketch (start new sketch)
+                if (k === 's' || k === 'S') {
+                    e.preventDefault();
+                    handleToolExecute('sketch', 'Start Sketch');
+                    return;
+                }
+                // L = Line (in sketch mode)
+                if (k === 'l' || k === 'L') {
+                    e.preventDefault();
+                    handleToolExecute('sketch', 'Line');
+                    return;
+                }
+                // R = Rectangle (in sketch mode)
+                if (k === 'r' || k === 'R') {
+                    e.preventDefault();
+                    handleToolExecute('sketch', 'Rectangle');
+                    return;
+                }
+                // D = Smart Dimension
+                if (k === 'd' || k === 'D') {
+                    e.preventDefault();
+                    handleToolExecute('sketch', 'Smart Dimension');
+                    return;
+                }
+                // M = Measure
+                if (k === 'm' || k === 'M') {
+                    e.preventDefault();
+                    handleToolExecute('measure', 'Distance');
+                    return;
+                }
+                // Space = Zoom-to-Fit (canonical CAD view-fit shortcut)
+                if (k === ' ' || k === 'Spacebar') {
+                    e.preventDefault();
+                    if (viewport?.focusOnAll) viewport.focusOnAll();
+                    else if (typeof window.__archdiscFocusOnAll === 'function') window.__archdiscFocusOnAll();
+                    return;
+                }
+            }
+            if (e.key === 'Escape') {
+                setActiveDropdown(null); setActiveTool(null); setToolStatus(null); setSelection(null);
+            }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [handleSelectMode, handleMoveMode]);
+    }, [handleSelectMode, handleMoveMode, handleToolExecute, viewport]);
 
     // Smart dropdown positioning - viewport-aware fixed overlay
     const calculateDropdownPosition = useCallback((buttonElement) => {
