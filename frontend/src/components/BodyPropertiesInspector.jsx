@@ -106,6 +106,7 @@ function computeBox(group) {
 
 export default function BodyPropertiesInspector() {
   const [body, setBody] = useState(null);
+  const [multiBodies, setMultiBodies] = useState([]);  // WF-11 aggregation
   const [matMap, setMatMap] = useState(() => loadMaterials());
   const [nameDraft, setNameDraft] = useState('');
 
@@ -116,14 +117,26 @@ export default function BodyPropertiesInspector() {
     if (!reg) return undefined;
     const sync = () => {
       const ids = typeof reg.selectedIds === 'function' ? reg.selectedIds() : (reg.selectedId ? [reg.selectedId] : []);
+      const list = typeof reg.list === 'function' ? reg.list() : reg.bodies;
       if (ids.length === 1) {
-        const list = typeof reg.list === 'function' ? reg.list() : reg.bodies;
         const b = list.find(x => x.id === ids[0]) || null;
         setBody(b);
+        setMultiBodies([]);
         setNameDraft(b?.name || '');
         return;
       }
+      if (ids.length > 1) {
+        // WF-11 — multi-select aggregation. Inspector shows summed volume,
+        // summed mass (per-body material × per-body volume), and combined
+        // bounding box. Single-body fields are hidden.
+        const bs = list.filter(b => ids.includes(b.id));
+        setBody(null);
+        setMultiBodies(bs);
+        setNameDraft('');
+        return;
+      }
       setBody(null);
+      setMultiBodies([]);
       setNameDraft('');
     };
     sync();
@@ -138,11 +151,79 @@ export default function BodyPropertiesInspector() {
     };
   }, [body]);
 
-  if (!body) {
+  if (!body && multiBodies.length === 0) {
     return (
       <div className="body-props" data-archdisc-properties-inspector="empty">
         <div className="body-props-head">Body Properties</div>
         <div className="body-props-empty">Select a body to see its properties.</div>
+      </div>
+    );
+  }
+
+  // WF-11 — multi-select aggregate readout.
+  if (!body && multiBodies.length > 0) {
+    let totalVolume = 0;
+    let totalMass = 0;
+    let unitySumValid = true;
+    const aggBox = new THREE.Box3();
+    for (const b of multiBodies) {
+      const v = b.volume_mm3 ?? null;
+      if (v != null) totalVolume += v; else unitySumValid = false;
+      const matKey = matMap[b.id];
+      const def = MATERIALS.find(m => m.key === matKey);
+      if (def && def.density_g_cm3 > 0 && v != null) {
+        totalMass += (v / 1000) * def.density_g_cm3;
+      }
+      if (b.group) {
+        const bx = new THREE.Box3().setFromObject(b.group);
+        if (!bx.isEmpty()) aggBox.union(bx);
+      }
+    }
+    const fmt = (v, digits = 3) => (v == null ? '—' : v.toFixed(digits));
+    const aggSize = aggBox.isEmpty() ? null : aggBox.getSize(new THREE.Vector3());
+    const aggCenter = aggBox.isEmpty() ? null : aggBox.getCenter(new THREE.Vector3());
+
+    return (
+      <div className="body-props" data-archdisc-properties-inspector="multi" data-body-count={multiBodies.length}>
+        <div className="body-props-head">Selection · {multiBodies.length} bodies</div>
+
+        <div className="body-props-section">Aggregate</div>
+        <div className="body-props-row">
+          <label className="body-props-label">ΣVolume</label>
+          <span className="body-props-value" data-archdisc-multi-volume-mm3>
+            {unitySumValid ? `${fmt(totalVolume, 1)} mm³` : '—'}
+          </span>
+        </div>
+        <div className="body-props-row">
+          <label className="body-props-label">ΣMass</label>
+          <span className="body-props-value" data-archdisc-multi-mass-g>
+            {totalMass > 0 ? `${fmt(totalMass, 2)} g` : '— (assign materials)'}
+          </span>
+        </div>
+        <div className="body-props-row">
+          <label className="body-props-label">Bbox Lx · Ly · Lz</label>
+          <span className="body-props-value mono">
+            {aggSize ? `${fmt(aggSize.x * 1000)} · ${fmt(aggSize.y * 1000)} · ${fmt(aggSize.z * 1000)} mm` : '—'}
+          </span>
+        </div>
+        <div className="body-props-row">
+          <label className="body-props-label">Centroid</label>
+          <span className="body-props-value mono">
+            {aggCenter ? `${fmt(aggCenter.x * 1000)} · ${fmt(aggCenter.y * 1000)} · ${fmt(aggCenter.z * 1000)} mm` : '—'}
+          </span>
+        </div>
+
+        <div className="body-props-section">Bodies</div>
+        <ul className="body-props-multi-list">
+          {multiBodies.map(b => (
+            <li key={b.id} className="body-props-multi-item" data-archdisc-multi-body-id={b.id}>
+              <span className="body-props-multi-name">{b.name}</span>
+              <span className="body-props-multi-vol">
+                {b.volume_mm3 != null ? `${fmt(b.volume_mm3, 0)} mm³` : '—'}
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }

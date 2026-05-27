@@ -64,3 +64,34 @@
   font-size: 11px;
   font-style: italic;
 }
+
+/* WF-11 — multi-select aggregate readout */
+.body-props-multi-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+  max-height: 140px;
+  overflow-y: auto;
+  border-top: 1px solid #2c333c;
+}
+.body-props-multi-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 11px;
+  border-bottom: 1px solid #232a32;
+}
+.body-props-multi-name {
+  color: #d4dbe4;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.body-props-multi-vol {
+  color: #7c8693;
+  font-variant-numeric: tabular-nums;
+  padding-left: 8px;
+  font-size: 10px;
+}
