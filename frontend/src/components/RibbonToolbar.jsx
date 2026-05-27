@@ -12,7 +12,12 @@ import './RibbonToolbar.css';
  * Active tab changes based on current operation (Sketch/Part/Assembly/etc).
  */
 
-const TABS = {
+// Exported so the Command Palette (Ctrl+K) can index every ribbon tool
+// without duplicating the registry. Callers iterate
+// `Object.entries(TABS)` → `tab.groups` → `group.tools` and dispatch
+// the same `(groupKey, toolName)` pair the ribbon click would. Kept as
+// a plain object so e2e specs can `JSON.stringify` it cheaply.
+export const TABS = {
   sketch: {
     label: 'Sketch',
     groups: [

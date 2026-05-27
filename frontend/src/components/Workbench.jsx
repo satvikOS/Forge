@@ -13,6 +13,7 @@ import AIConsole from './AIConsole';
 import ProjectLibrary from './ProjectLibrary';
 import ComponentInfoPanel from './ComponentInfoPanel';
 import CommandPalette from './CommandPalette';
+import { TABS as RIBBON_TABS } from './RibbonToolbar';
 import ToastContainer from './ToastContainer';
 import { RollbackBar } from './SwUxOverlays';
 import './SwUxOverlays.css';
@@ -165,21 +166,50 @@ function WorkbenchContainer() {
         }
     };
 
-    // Command palette actions
-    const getCommandActions = () => [
-        { id: 'switch-mechanical', label: 'Switch to Mechanical CAD', category: 'Workbench', action: () => setActiveWorkbench('mechanical-cad') },
-        { id: 'switch-architecture', label: 'Switch to Architecture & BIM', category: 'Workbench', action: () => setActiveWorkbench('architecture-bim') },
-        { id: 'switch-gaming', label: 'Switch to Gaming & VFX', category: 'Workbench', action: () => setActiveWorkbench('gaming-vfx') },
-        { id: 'switch-automotive', label: 'Switch to Automotive', category: 'Workbench', action: () => setActiveWorkbench('automotive') },
-        { id: 'switch-electronics', label: 'Switch to Electronics', category: 'Workbench', action: () => setActiveWorkbench('electronics') },
-        { id: 'save', label: 'Save Project', category: 'File', shortcut: 'Ctrl+S', action: handleSave },
-        { id: 'undo', label: 'Undo', category: 'Edit', shortcut: 'Ctrl+Z', action: handleUndo },
-        { id: 'redo', label: 'Redo', category: 'Edit', shortcut: 'Ctrl+Shift+Z', action: handleRedo },
-        { id: 'export-step', label: 'Export as STEP', category: 'Export', action: () => addToast('Exporting STEP...', 'info') },
-        { id: 'export-stl', label: 'Export as STL', category: 'Export', action: () => addToast('Exporting STL...', 'info') },
-        { id: 'export-gltf', label: 'Export as glTF', category: 'Export', action: () => addToast('Exporting glTF...', 'info') },
-        { id: 'export-obj', label: 'Export as OBJ', category: 'Export', action: () => addToast('Exporting OBJ...', 'info') },
-    ];
+    // WF-03 — Command Palette action set. Indexes EVERY ribbon tool
+    // (246 entries across 9 tabs) so Ctrl+K can launch any CAD op
+    // without hunting through tabs. Each ribbon-tool action dispatches
+    // `archdisc:run-tool {tab, tool}`, which WorkbenchMechanical
+    // listens to and forwards to `handleToolExecute` — the exact same
+    // code path a real ribbon click takes.
+    //
+    // App-level actions (workbench switch / undo / redo / save) are
+    // kept in their own categories at the top so they remain a single
+    // keystroke away.
+    const getCommandActions = () => {
+        const dispatchTool = (tab, tool) => {
+            if (typeof window === 'undefined') return;
+            window.dispatchEvent(new CustomEvent('archdisc:run-tool', { detail: { tab, tool } }));
+        };
+        const ribbonActions = [];
+        for (const [tabKey, tabDef] of Object.entries(RIBBON_TABS || {})) {
+            const tabLabel = tabDef?.label || tabKey;
+            for (const group of (tabDef?.groups || [])) {
+                const groupLabel = group?.label || '';
+                for (const tool of (group?.tools || [])) {
+                    if (!tool?.name) continue;
+                    ribbonActions.push({
+                        id: `tool-${tabKey}-${tool.name.replace(/\s+/g, '-').toLowerCase()}`,
+                        label: tool.name,
+                        category: `${tabLabel} › ${groupLabel}`,
+                        shortcut: tool.shortcut || undefined,
+                        action: () => dispatchTool(tabKey, tool.name),
+                    });
+                }
+            }
+        }
+        const appActions = [
+            { id: 'switch-mechanical', label: 'Switch to Mechanical CAD', category: 'Workbench', action: () => setActiveWorkbench('mechanical-cad') },
+            { id: 'switch-architecture', label: 'Switch to Architecture & BIM', category: 'Workbench', action: () => setActiveWorkbench('architecture-bim') },
+            { id: 'switch-gaming', label: 'Switch to Gaming & VFX', category: 'Workbench', action: () => setActiveWorkbench('gaming-vfx') },
+            { id: 'switch-automotive', label: 'Switch to Automotive', category: 'Workbench', action: () => setActiveWorkbench('automotive') },
+            { id: 'switch-electronics', label: 'Switch to Electronics', category: 'Workbench', action: () => setActiveWorkbench('electronics') },
+            { id: 'save', label: 'Save Project', category: 'File', shortcut: 'Ctrl+S', action: handleSave },
+            { id: 'undo', label: 'Undo', category: 'Edit', shortcut: 'Ctrl+Z', action: handleUndo },
+            { id: 'redo', label: 'Redo', category: 'Edit', shortcut: 'Ctrl+Shift+Z', action: handleRedo },
+        ];
+        return [...appActions, ...ribbonActions];
+    };
 
     return (
         <ViewportProvider>

@@ -803,6 +803,35 @@ function WorkbenchMechanical() {
         return () => window.removeEventListener('archdisc:dh-edit-feature', onEditFeature);
     }, [handleToolExecute]);
 
+    // WF-03 — wire the Command Palette (Ctrl+K). The palette lives in
+    // WorkbenchContainer (one level above this workbench) so we expose
+    // both a function and a CustomEvent listener: the palette dispatches
+    // `archdisc:run-tool {detail: {tab, tool}}` and we forward it to
+    // `handleToolExecute`. The function form (`__archdiscRunTool`) is
+    // exposed for direct e2e use. MUST live AFTER `handleToolExecute`
+    // for the same TDZ reason as the dh-edit-feature listener above.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const runTool = async (tabKey, toolName) => {
+            try {
+                if (tabKey && tabKey !== ribbonTab) setRibbonTab(tabKey);
+            } catch { /* tab switch is best-effort */ }
+            return handleToolExecute(tabKey, toolName);
+        };
+        window.__archdiscRunTool = runTool;
+        const onRunTool = (ev) => {
+            const { tab, tool } = ev?.detail || {};
+            if (!tool) return;
+            runTool(tab, tool).catch(err =>
+                console.warn('[archdisc] run-tool dispatch failed', err));
+        };
+        window.addEventListener('archdisc:run-tool', onRunTool);
+        return () => {
+            window.removeEventListener('archdisc:run-tool', onRunTool);
+            delete window.__archdiscRunTool;
+        };
+    }, [handleToolExecute, ribbonTab]);
+
     // ─── Select / Move / Settings handlers ─────────────────────────────────────
     const [interactionMode, setInteractionMode] = useState('select'); // 'select' | 'move'
 
