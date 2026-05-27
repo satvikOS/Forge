@@ -982,20 +982,31 @@ function WorkbenchMechanical() {
             // The kernel HistoryLog tracks geometric ops; the rollback
             // bar (UX Tier-1 #10) drives the same API on click/drag —
             // these shortcuts just give the user keyboard parity.
+            //
+            // FIXES vs 3ad17af9:
+            //   1. rollBackTo / rollForwardTo are ASYNC — await them
+            //      so concurrent presses don't race the inverse delta.
+            //   2. `cursor === 0` MUST be allowed to undo → '__baseline'
+            //      (the previous guard `cursor <= 0` blocked this).
+            //   3. Wrap in an immediately-invoked async fn so the
+            //      synchronous keydown handler returns promptly while
+            //      the roll proceeds.
             if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
                 e.preventDefault();
-                try {
-                    const h = window.__archdiscKernelHistory;
-                    if (!h) return;
-                    if (h.cursor <= 0) {
-                        // Already at baseline (no entries yet) — no-op.
-                        return;
+                (async () => {
+                    try {
+                        const h = window.__archdiscKernelHistory;
+                        if (!h || !Array.isArray(h.entries)) return;
+                        // Cursor < 0 → already at baseline (nothing recorded yet).
+                        if (h.cursor < 0) return;
+                        // Cursor === 0 → walk back to baseline.
+                        // Cursor  >  0 → walk back to the entry one step earlier.
+                        const target = h.cursor === 0 ? '__baseline' : h.entries[h.cursor - 1];
+                        await h.rollBackTo(target);
+                    } catch (err) {
+                        console.warn('[archdisc] undo failed', err);
                     }
-                    const prev = h.cursor === 0 ? '__baseline' : h.entries[h.cursor - 1];
-                    h.rollBackTo(prev);
-                } catch (err) {
-                    console.warn('[archdisc] undo failed', err);
-                }
+                })();
                 return;
             }
             if (
@@ -1005,14 +1016,16 @@ function WorkbenchMechanical() {
                 )
             ) {
                 e.preventDefault();
-                try {
-                    const h = window.__archdiscKernelHistory;
-                    if (!h) return;
-                    if (h.cursor >= h.entries.length - 1) return;  // at tail
-                    h.rollForwardTo(h.entries[h.cursor + 1]);
-                } catch (err) {
-                    console.warn('[archdisc] redo failed', err);
-                }
+                (async () => {
+                    try {
+                        const h = window.__archdiscKernelHistory;
+                        if (!h || !Array.isArray(h.entries)) return;
+                        if (h.cursor >= h.entries.length - 1) return;  // at tail
+                        await h.rollForwardTo(h.entries[h.cursor + 1]);
+                    } catch (err) {
+                        console.warn('[archdisc] redo failed', err);
+                    }
+                })();
                 return;
             }
             if (e.key === 'Escape') {
