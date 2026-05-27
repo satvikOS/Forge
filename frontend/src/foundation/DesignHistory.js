@@ -11,14 +11,49 @@
  * Fusion 360's Browser / SolidWorks' FeatureManager / Onshape's
  * Parts list, but for analysis ops rather than geometry features.
  *
- * Storage: in-memory only (the SessionMemory module persists to
- * disk when needed). On a hard reload, the history starts empty.
+ * Storage: in-memory + localStorage. The full timeline persists across
+ * hard reloads under `archdisc.designHistory.v1` (UX Tier 10c follow-on).
+ * The SessionMemory module still handles per-project save/load when the
+ * user explicitly opens a project; this is the implicit "where was I"
+ * preservation that every CAD user expects.
  */
+
+const STORAGE_KEY = 'archdisc.designHistory.v1';
+const STORAGE_CAP = 500;  // never serialise more than this many entries
 
 class DesignHistory {
   constructor() {
     this.entries = [];
     this._listeners = new Set();
+    this._hydrate();
+  }
+
+  _hydrate() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        this.entries = parsed.slice(-STORAGE_CAP);
+      }
+    } catch (err) {
+      console.warn('DesignHistory hydrate failed', err);
+    }
+  }
+
+  _persist() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const tail = this.entries.slice(-STORAGE_CAP);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tail));
+    } catch (err) {
+      // Quota exceeded or other storage error — log once but don't crash.
+      if (!this._persistWarned) {
+        console.warn('DesignHistory persist failed', err);
+        this._persistWarned = true;
+      }
+    }
   }
 
   /**
@@ -135,6 +170,10 @@ class DesignHistory {
   }
 
   _notify() {
+    // UX Tier-10c follow-on — persist on every mutation. localStorage is
+    // synchronous + tiny, so this is cheap; quota errors are swallowed
+    // once via _persistWarned in _persist().
+    this._persist();
     for (const fn of this._listeners) {
       try { fn(this.entries); } catch (err) { console.warn('history listener', err); }
     }
