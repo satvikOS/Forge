@@ -50,6 +50,7 @@ import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
 import { export3MF } from '../../foundation/MeshThreeMF.js';
 import { exportBomCsv } from '../../foundation/MeshBomCsv.js';
 import { exportDxf } from '../../foundation/MeshDxfExport.js';
+import { exportMultiBodyObj } from '../../foundation/MeshObjMultiExport.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6397,6 +6398,20 @@ const TOOL_HANDLERS = {
     // honest gap I flagged in the assessment: "per-component CAD file
     // export was not an automated tool yet". Iterates BodyRegistry,
     // calls kernel exportStep on each body, packages a project bundle.
+    // WF-22 — Multi-body OBJ + MTL ZIP. Universal mesh format for
+    // every DCC tool (Blender, 3ds Max, Cinema 4D, Maya, KeyShot,
+    // Unity, Unreal); MTL preserves per-body engineering material
+    // colours so the hand-off retains visual identity.
+    'Export OBJ (multi-body)': () => {
+      const result = exportMultiBodyObj({});
+      if (typeof window !== 'undefined') window.__lastObjMulti = result;
+      if (!result.ok) return { status: 'error', message: `Export OBJ: ${result.reason || 'unknown'}` };
+      return {
+        status: 'ok',
+        message: `Exported ${result.filename}: ${result.bodies} bodies, ${result.materials} materials, OBJ ${result.objBytes.toLocaleString()} B + MTL ${result.mtlBytes.toLocaleString()} B → ZIP ${result.bytes.toLocaleString()} B`,
+        result,
+      };
+    },
     // WF-20 — DXF (AutoCAD R12) export. Universal fabrication-shop
     // format -- waterjet / laser / CNC / AutoCAD seats consume it
     // directly. Each body lives on its own DXF layer.

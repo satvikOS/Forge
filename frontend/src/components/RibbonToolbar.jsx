@@ -515,6 +515,7 @@ export const TABS = {
         { name: 'Export 3MF',             icon: '🧊', key: 'documentation' },
         { name: 'Export BOM (CSV)',       icon: '🧾', key: 'documentation' },
         { name: 'Export DXF',             icon: '📐', key: 'documentation' },
+        { name: 'Export OBJ (multi-body)', icon: '🧩', key: 'documentation' },
       ]},
     ]
   },
