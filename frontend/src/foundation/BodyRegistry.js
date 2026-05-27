@@ -142,6 +142,11 @@ class BodyRegistry {
       volume_mm3,
       createdAt: new Date().toISOString(),
       visible: true,
+      // WF-31 — locked bodies cannot be deleted or modified through
+      // the standard selection-driven ops (Delete, Fillet, Pattern,
+      // Material reassignment, etc.). Visible + selectable + measurable
+      // still work. Default false.
+      locked: false,
     };
     group.userData.bodyId = id;
     // Also store on group.userData so selectedBrepShapes can access it
@@ -169,6 +174,8 @@ class BodyRegistry {
   remove(id) {
     const i = this.bodies.findIndex(b => b.id === id);
     if (i < 0) return false;
+    // WF-31 — locked bodies refuse remove(). Caller must unlock first.
+    if (this.bodies[i].locked) return false;
     const [removed] = this.bodies.splice(i, 1);
     // Remove from scene as well
     if (removed.group?.parent) removed.group.parent.remove(removed.group);
@@ -186,6 +193,31 @@ class BodyRegistry {
     if (b.group) b.group.visible = b.visible;
     this._notify();
     return true;
+  }
+
+  /**
+   * WF-31 — Lock / unlock a body.
+   *
+   * Locked bodies stay visible + selectable + measurable but the
+   * standard destructive ops (Delete, Fillet, Pattern, etc.) refuse
+   * to run on them. The UI (Mini-Toolbar, Body Context Menu, Part
+   * Browser) renders a lock indicator + greys out the destructive
+   * actions when the active body is locked.
+   *
+   * @returns {boolean} true if the lock state was changed
+   */
+  setLocked(id, locked) {
+    const b = this.bodies.find(x => x.id === id);
+    if (!b) return false;
+    b.locked = !!locked;
+    this._notify();
+    return true;
+  }
+
+  /** Convenience: is the body with this id locked? */
+  isLocked(id) {
+    const b = this.bodies.find(x => x.id === id);
+    return !!(b && b.locked);
   }
 
   rename(id, newName) {

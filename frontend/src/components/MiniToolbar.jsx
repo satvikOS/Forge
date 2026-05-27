@@ -132,6 +132,15 @@ export default function MiniToolbar() {
   // Hidden bodies show different "Hide" label.
   const hideLabel = body.visible === false ? 'Show' : 'Hide';
 
+  // WF-31 — lock state. Locked bodies disable destructive actions
+  // (Delete / Fillet / Pattern / Mirror); the lock pill stays
+  // clickable so the user can unlock without leaving the toolbar.
+  const isLocked = !!body.locked;
+  const onToggleLock = () => {
+    const reg = window.__archdiscBodies;
+    if (reg?.setLocked) reg.setLocked(body.id, !isLocked);
+  };
+
   return (
     <div
       className="mini-toolbar"
@@ -140,16 +149,30 @@ export default function MiniToolbar() {
       style={{ left: pos.x, top: pos.y }}
       data-archdisc-mini-toolbar="active"
       data-archdisc-mini-toolbar-body={body.id}
+      data-archdisc-mini-toolbar-locked={isLocked ? 'true' : 'false'}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <button className="mt-btn mt-btn-danger" onClick={onDelete}            title="Delete (Del)"                data-mt-action="delete">✕</button>
+      <button
+        className="mt-btn mt-btn-danger"
+        onClick={onDelete}
+        disabled={isLocked}
+        title={isLocked ? 'Body is locked' : 'Delete (Del)'}
+        data-mt-action="delete"
+      >✕</button>
       <button className="mt-btn"                 onClick={onHide}              title={`${hideLabel} body`}         data-mt-action="hide">{body.visible === false ? '◐' : '◑'}</button>
       <button className="mt-btn"                 onClick={onIsolate}           title="Isolate body"                data-mt-action="isolate">⊡</button>
       <button className="mt-btn"                 onClick={onProperties}        title="Properties"                  data-mt-action="properties">ⓘ</button>
       <span className="mt-sep" aria-hidden />
-      <button className="mt-btn" onClick={() => runTool('part', 'Fillet')}         title="Fillet"          data-mt-action="fillet">⌒</button>
-      <button className="mt-btn" onClick={() => runTool('part', 'Linear Pattern')} title="Linear Pattern"  data-mt-action="pattern">⋮⋮</button>
-      <button className="mt-btn" onClick={() => runTool('part', 'Mirror Feature')} title="Mirror Feature"  data-mt-action="mirror">⟷</button>
+      <button
+        className={`mt-btn${isLocked ? ' mt-btn-locked' : ''}`}
+        onClick={onToggleLock}
+        title={isLocked ? 'Unlock body' : 'Lock body'}
+        data-mt-action="lock"
+      >{isLocked ? '🔒' : '🔓'}</button>
+      <span className="mt-sep" aria-hidden />
+      <button className="mt-btn" onClick={() => runTool('part', 'Fillet')}         disabled={isLocked} title={isLocked ? 'Locked' : 'Fillet'}          data-mt-action="fillet">⌒</button>
+      <button className="mt-btn" onClick={() => runTool('part', 'Linear Pattern')} disabled={isLocked} title={isLocked ? 'Locked' : 'Linear Pattern'}  data-mt-action="pattern">⋮⋮</button>
+      <button className="mt-btn" onClick={() => runTool('part', 'Mirror Feature')} disabled={isLocked} title={isLocked ? 'Locked' : 'Mirror Feature'}  data-mt-action="mirror">⟷</button>
     </div>
   );
 }
