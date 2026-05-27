@@ -4,6 +4,7 @@ import {
   GitBranch, Pipette, BarChart3, Wrench, FileText, Ruler,
   ChevronDown
 } from 'lucide-react';
+import { TOOL_ICONS } from './toolIcons.jsx';
 import './RibbonToolbar.css';
 
 /**
@@ -546,19 +547,29 @@ export default function RibbonToolbar({ activeTab = 'part', onToolClick, onTabCh
         {tabData.groups.map((group, gi) => (
           <div key={gi} className="ribbon-group">
             <div className="ribbon-group-tools">
-              {group.tools.map((tool, ti) => (
-                <button
-                  key={ti}
-                  className={`ribbon-tool ${tool.primary ? 'primary' : ''}`}
-                  onClick={() => handleToolClick(tool)}
-                  onMouseEnter={() => setHoveredTool(tool)}
-                  onMouseLeave={() => setHoveredTool(null)}
-                  title={`${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
-                >
-                  <span className="ribbon-tool-icon">{tool.icon}</span>
-                  <span className="ribbon-tool-label">{tool.name}</span>
-                </button>
-              ))}
+              {group.tools.map((tool, ti) => {
+                // WF-10 — if a hand-designed SVG icon exists for this
+                // tool (top ~30 most-used ops covered), render it
+                // instead of the unicode glyph. Additive: tools without
+                // an entry continue to use their `icon` field.
+                const SvgIcon = TOOL_ICONS[tool.name] || null;
+                return (
+                  <button
+                    key={ti}
+                    className={`ribbon-tool ${tool.primary ? 'primary' : ''}${SvgIcon ? ' has-svg-icon' : ''}`}
+                    onClick={() => handleToolClick(tool)}
+                    onMouseEnter={() => setHoveredTool(tool)}
+                    onMouseLeave={() => setHoveredTool(null)}
+                    title={`${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
+                    data-ribbon-tool-name={tool.name}
+                  >
+                    <span className="ribbon-tool-icon" data-tool-icon-kind={SvgIcon ? 'svg' : 'glyph'}>
+                      {SvgIcon ? <SvgIcon /> : tool.icon}
+                    </span>
+                    <span className="ribbon-tool-label">{tool.name}</span>
+                  </button>
+                );
+              })}
             </div>
             <div className="ribbon-group-label">{group.label}</div>
           </div>
