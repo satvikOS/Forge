@@ -728,6 +728,39 @@ function WorkbenchMechanical() {
     // Get selected model from context
     const selectedModel = viewport?.models?.find(m => m.id === viewport?.selectedModelId) || null;
 
+    // UX Tier-10c re-edit loop — when the user picks "Edit Feature" in
+    // the Design History context menu, DesignHistoryPanel fires
+    // `archdisc:dh-edit-feature` with the entry. We seed the planParams
+    // slot from the entry's stored values + __expressions, then re-run
+    // the original tool — which makes ToolParamDialog re-open with the
+    // ORIGINAL `=expr` strings (Tier 10c persisted them on the entry).
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onEditFeature = async (ev) => {
+            const entry = ev?.detail?.entry;
+            if (!entry || !entry.tool) return;
+            // Build a planParams slot equivalent — values literal + the
+            // expression sidecar. ToolParamDialog's plan-params branch
+            // (Tier 10c re-edit overlay) folds the expressions back as
+            // `=expr` strings so the dialog re-renders the parametric
+            // source the user originally typed.
+            window.__archdiscPlanParams = window.__archdiscPlanParams || {};
+            window.__archdiscPlanParams[entry.tool] = {
+                ...(entry.values || {}),
+                ...(entry.expressions ? { __expressions: { ...entry.expressions } } : {}),
+            };
+            // Re-dispatch the tool through the standard handler so every
+            // side-effect (selection, scene update, DH log) runs again.
+            try {
+                await handleToolExecute(entry.tab || 'part', entry.tool);
+            } catch (err) {
+                console.warn('[archdisc] dh-edit-feature re-dispatch failed', err);
+            }
+        };
+        window.addEventListener('archdisc:dh-edit-feature', onEditFeature);
+        return () => window.removeEventListener('archdisc:dh-edit-feature', onEditFeature);
+    }, [handleToolExecute]);
+
     // ─── Tool Execution Handler ────────────────────────────────────────────────
     const handleToolExecute = useCallback(async (groupKey, toolName) => {
         setActiveDropdown(null);

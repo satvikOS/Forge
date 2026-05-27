@@ -33,7 +33,31 @@ export function requestToolParams(toolName) {
     const slot = window.__archdiscPlanParams?.[toolName];
     if (slot && typeof slot === 'object') {
       delete window.__archdiscPlanParams[toolName];
-      const merged = { ...defaultsForTool(toolName), ...slot };
+      // UX Tier-10c re-edit follow-on — when the plan carries
+      // __expressions (set by the DesignHistory Edit Feature flow),
+      // overlay each field with its `=expr` source so the dialog
+      // re-opens with the ORIGINAL parametric string, not the literal
+      // value it evaluated to last time. The dialog's resolver
+      // (Tier 10b) re-evaluates on close so the new literal is fresh.
+      const expressions = slot.__expressions && typeof slot.__expressions === 'object'
+        ? slot.__expressions : null;
+      const slotClean = { ...slot };
+      delete slotClean.__expressions;
+      const merged = { ...defaultsForTool(toolName), ...slotClean };
+      if (expressions) {
+        for (const [field, exprSrc] of Object.entries(expressions)) {
+          if (typeof exprSrc === 'string' && exprSrc.length > 0) {
+            // Stamp the literal-value AND the =expr source — the dialog
+            // reads strings that start with '=' through the expression
+            // evaluator (Tier 10b), so we present the source verbatim.
+            merged[field] = exprSrc.startsWith('=') ? exprSrc : `=${exprSrc}`;
+          }
+        }
+        // Carry the sidecar through so resolveOpen stashes it again
+        // on commit. Without this round-trip the expression is lost
+        // after one re-edit + commit cycle.
+        merged.__expressions = { ...expressions };
+      }
       // UX Tier-12a — when the plan carries legacy <name>X/<name>Y/<name>Z
       // keys for a tool whose schema declares a `vector` field with
       // matching `legacyKeys`, fold them into the vector value so the
