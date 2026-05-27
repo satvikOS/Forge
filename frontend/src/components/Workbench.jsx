@@ -16,6 +16,7 @@ import CommandPalette from './CommandPalette';
 import { TABS as RIBBON_TABS } from './RibbonToolbar';
 import QuickAccessToolbar from './QuickAccessToolbar';
 import WelcomeScreen from './WelcomeScreen';
+import SplashScreen from './SplashScreen';
 import ToastContainer from './ToastContainer';
 import { RollbackBar } from './SwUxOverlays';
 import './SwUxOverlays.css';
@@ -355,6 +356,11 @@ function WorkbenchContainer() {
                     Re-open via `archdisc:open-welcome` event (future
                     File menu / Welcome button). */}
                 <WelcomeScreen />
+
+                {/* WF-12 — Initial-load splash. Sits above everything,
+                    dismisses once the kernel + scene are ready. Mounted
+                    last so it paints over every other layer. */}
+                <SplashScreen />
             </div>
         </ViewportProvider>
     );
