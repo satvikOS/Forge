@@ -262,8 +262,12 @@ export default function DesignHistoryPanel() {
               data-archdisc-dh-suppressed={e.suppressed ? 'true' : 'false'}
               onClick={() => handleRowClick(e)}
               onContextMenu={(ev) => handleContextMenu(ev, e)}
-              onDoubleClick={() => startRename(e)}
-              title="Right-click for context menu"
+              // SW convention: double-click row = Edit Feature (NOT rename).
+              // Rename stays on right-click → Rename. This wires into the
+              // Tier-10c-edit loop so the dialog re-opens with the
+              // original =expr strings.
+              onDoubleClick={(ev) => { ev.stopPropagation(); doMenuAction('edit-feature', e); }}
+              title="Right-click for context menu · Double-click to Edit Feature"
             >
               <div className="dh-row-head">
                 {renameId === e.id ? (
