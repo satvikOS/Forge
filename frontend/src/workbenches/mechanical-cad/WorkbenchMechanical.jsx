@@ -66,6 +66,7 @@ import '../../components/SwUxOverlays.css';
 import MiniToolbar from '../../components/MiniToolbar';
 import BodyPropertiesInspector from '../../components/BodyPropertiesInspector';
 import { attachSelectionHighlight } from '../../foundation/SelectionHighlight.js';
+import { attachBodyHover } from '../../foundation/BodyHoverDriver.js';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -491,6 +492,28 @@ function WorkbenchMechanical() {
     // bodies with a cool-blue emissive rim. Detached on unmount.
     useEffect(() => {
         attachSelectionHighlight();
+    }, []);
+
+    // WF-21 — attach the body-hover raycaster. Pointermove over the
+    // viewport finds the body under the cursor and paints it green;
+    // unselected bodies get the hover emissive, selected bodies keep
+    // their blue selection. Needs the viewport renderer to be mounted
+    // so we run this after the canvas + scene are wired up.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const tryAttach = () => {
+            if (window.__archdiscViewport?.renderer?.domElement) {
+                attachBodyHover();
+                return true;
+            }
+            return false;
+        };
+        if (!tryAttach()) {
+            // Viewport may mount slightly after this effect runs; retry on a tick.
+            const t = setInterval(() => { if (tryAttach()) clearInterval(t); }, 250);
+            return () => clearInterval(t);
+        }
+        return undefined;
     }, []);
 
     const [aiSettingsOpen, setAISettingsOpen] = useState(false);

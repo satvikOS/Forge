@@ -24,10 +24,18 @@ import * as THREE from 'three';
 
 const SELECTED_EMISSIVE = new THREE.Color(0x3b7be0);  // cool industrial blue
 const SELECTED_EMISSIVE_INTENSITY = 0.42;
+// WF-21 — hover state. Dimmer green so it's clearly distinct from
+// selection blue. Selection takes priority over hover.
+const HOVER_EMISSIVE = new THREE.Color(0x5ec97a);     // engineering green
+const HOVER_EMISSIVE_INTENSITY = 0.22;
 
 // Per-material remembered defaults: WeakMap so we never leak when
 // materials are disposed.
 const ORIGINAL_STATE = new WeakMap();
+
+// Shared hover/selection tracking so SelectionHighlight + the WF-21
+// hover loop both repaint into a single coherent model.
+let _hoveredBodyId = null;
 
 function rememberOriginal(mat) {
   if (ORIGINAL_STATE.has(mat)) return;
@@ -42,6 +50,14 @@ function applySelected(mat) {
   rememberOriginal(mat);
   if (mat.emissive) mat.emissive.copy(SELECTED_EMISSIVE);
   if ('emissiveIntensity' in mat) mat.emissiveIntensity = SELECTED_EMISSIVE_INTENSITY;
+  mat.needsUpdate = true;
+}
+
+function applyHovered(mat) {
+  if (!mat || !mat.isMaterial) return;
+  rememberOriginal(mat);
+  if (mat.emissive) mat.emissive.copy(HOVER_EMISSIVE);
+  if ('emissiveIntensity' in mat) mat.emissiveIntensity = HOVER_EMISSIVE_INTENSITY;
   mat.needsUpdate = true;
 }
 
@@ -62,16 +78,32 @@ function syncSelectionToMeshes(reg) {
     : (reg.selectedId ? [reg.selectedId] : []));
   for (const body of list) {
     const isSelected = selectedSet.has(body.id);
+    const isHovered = !isSelected && body.id === _hoveredBodyId;
     if (!body.group) continue;
     body.group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       for (const mat of mats) {
         if (isSelected) applySelected(mat);
+        else if (isHovered) applyHovered(mat);
         else applyDeselected(mat);
       }
     });
   }
+}
+
+/**
+ * WF-21 — set the currently-hovered body id and repaint. Pass `null`
+ * to clear. Hover is suppressed when the body is also in the selection
+ * set (selection blue wins).
+ */
+export function setHoveredBodyId(id) {
+  if (_hoveredBodyId === id) return;
+  _hoveredBodyId = id;
+  if (typeof window === 'undefined') return;
+  const reg = window.__archdiscBodies;
+  if (reg) syncSelectionToMeshes(reg);
+  window.__archdiscHoveredBodyId = id;
 }
 
 let _attached = false;
