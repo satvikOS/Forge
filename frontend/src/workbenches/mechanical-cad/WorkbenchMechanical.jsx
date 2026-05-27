@@ -76,6 +76,7 @@ import {
     Crosshair, Zap, X, CheckCircle, AlertTriangle, Info
 } from 'lucide-react';
 import './WorkbenchMechanical.css';
+import EmptyStateHint from '../../components/EmptyStateHint.jsx';
 
 /**
  * Mechanical CAD Workbench - Professional Layout
@@ -1479,6 +1480,11 @@ function WorkbenchMechanical() {
 
             {/* Tool parameter dialog — listens for handler requestToolParams() calls */}
             <ToolParamDialog />
+
+            {/* Empty-state hint — shown when scene has no bodies AND no design
+                history entries. Auto-dismisses the moment either is non-empty.
+                Reads counters from the StatusBar's window-slot poll convention. */}
+            <EmptyStateHint />
 
             {/* Keyboard shortcuts help overlay — press '?' to toggle. */}
             {helpOverlayOpen && (
