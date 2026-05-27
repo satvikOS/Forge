@@ -1,0 +1,133 @@
+/* Welcome Screen — first-run modal + Templates picker.
+   Dark, restrained card design tuned to the rest of the workbench
+   chrome (#1a1f25 surfaces, single-pixel borders, no shadow stack). */
+
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 11, 15, 0.78);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+}
+.welcome-modal {
+  width: min(820px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #1a1f25;
+  border: 1px solid #38414c;
+  border-radius: 8px;
+  padding: 22px 26px 24px;
+  color: #d4dbe4;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+}
+.welcome-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.welcome-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.welcome-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+.welcome-logo {
+  font-size: 22px;
+  color: #5a8bd9;
+}
+.welcome-close {
+  background: transparent;
+  border: none;
+  color: #9aa3ad;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.welcome-close:hover { color: #fff; }
+.welcome-sub {
+  margin: 6px 0 16px;
+  color: #9aa3ad;
+  font-size: 12px;
+}
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.welcome-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 12px;
+  background: #232a32;
+  border: 1px solid #38414c;
+  border-top: 3px solid #5a8bd9;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  transition: background-color 100ms, border-color 100ms;
+}
+.welcome-card:hover {
+  background: #2b333d;
+  border-color: #4a5460;
+}
+.welcome-card-disabled { opacity: 0.45; cursor: progress; }
+.welcome-glyph {
+  font-size: 26px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.welcome-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f0f4f8;
+}
+.welcome-card-blurb {
+  font-size: 11px;
+  color: #9aa3ad;
+  line-height: 1.4;
+}
+
+.welcome-recent {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #2c333c;
+}
+.welcome-recent-head {
+  font-size: 10px;
+  color: #7c8693;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.welcome-recent-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.welcome-recent-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid #232a32;
+  font-size: 11px;
+}
+.welcome-recent-name { color: #d4dbe4; }
+.welcome-recent-date { color: #7c8693; font-variant-numeric: tabular-nums; }
+
+.welcome-busy {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #ffb84d;
+}

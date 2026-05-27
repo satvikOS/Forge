@@ -15,6 +15,7 @@ import ComponentInfoPanel from './ComponentInfoPanel';
 import CommandPalette from './CommandPalette';
 import { TABS as RIBBON_TABS } from './RibbonToolbar';
 import QuickAccessToolbar from './QuickAccessToolbar';
+import WelcomeScreen from './WelcomeScreen';
 import ToastContainer from './ToastContainer';
 import { RollbackBar } from './SwUxOverlays';
 import './SwUxOverlays.css';
@@ -347,6 +348,13 @@ function WorkbenchContainer() {
 
                 {/* Toast Notifications */}
                 <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+                {/* WF-09 — Welcome screen: first-run modal with real
+                    engineering templates. Auto-shows on first launch,
+                    dismisses on close and remembers via localStorage.
+                    Re-open via `archdisc:open-welcome` event (future
+                    File menu / Welcome button). */}
+                <WelcomeScreen />
             </div>
         </ViewportProvider>
     );

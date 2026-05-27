@@ -6435,6 +6435,23 @@ const TOOL_HANDLERS = {
           const hist = window.__archdiscHistory;
           window.__archdiscLastSavedHistoryCursor = hist?.entries?.length ?? 0;
         });
+        // WF-09 — push the snapshot onto the Recent Projects list so
+        // the Welcome screen + future File menu can show it. Most-
+        // recent first, deduped by filename, capped at 5.
+        try {
+          const KEY = 'archdisc:recent-projects:v1';
+          const raw = window.localStorage.getItem(KEY);
+          const list = raw ? JSON.parse(raw) : [];
+          const filtered = (Array.isArray(list) ? list : []).filter(r => r?.filename !== result.filename);
+          filtered.unshift({
+            filename: result.filename,
+            savedAt: new Date().toISOString(),
+            entries: result.entries,
+            bodies: result.bodies,
+            bytes: result.bytes,
+          });
+          window.localStorage.setItem(KEY, JSON.stringify(filtered.slice(0, 5)));
+        } catch { /* quota / serialization → silent */ }
       }
       return {
         status: 'ok',
