@@ -415,6 +415,52 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   await place('Automotive', 'Exhaust Stack', -1180, T.cabFloorY, T.cabRearZ - 100, -90, 0, 0);
   await place('Automotive', 'Exhaust Stack',  1180, T.cabFloorY, T.cabRearZ - 100, -90, 0, 0);
 
+  // ═════════ PHASE 8b: ROUND-3 — hood + fenders + sleeper + trailer ════
+  // Hood covers the engine bay top — between fascia (z=0) and cab
+  // front (z=−800). Position at y just below cab roof level, z mid bay.
+  await place('Automotive', 'Engine Hood', -1150, T.cabFloorY + 1200, -400);
+  // Front fenders over the front wheels (one each side). Built as
+  // half-annular ring; rotated ry=90 so the fender wraps cross-truck.
+  await place('Automotive', 'Front Fender', -1300, T.axleY, T.frontAxleZ + 200, 0, 90, 0);
+  await place('Automotive', 'Front Fender',  1300, T.axleY, T.frontAxleZ + 200, 0, 90, 0);
+  // Mud guards behind rear wheels
+  await place('Automotive', 'Mud Guard Rear', -1340, T.axleY - 200, T.rearAxleZ2 - 400, 0, 90, 0);
+  await place('Automotive', 'Mud Guard Rear',  1340, T.axleY - 200, T.rearAxleZ2 - 400, 0, 90, 0);
+  // Sleeper cab extension behind the main cab box
+  await place('Automotive', 'Sleeper Cab Extension', -1200, T.cabFloorY, T.cabRearZ - 100);
+  // Twin chrome air horns on the roof
+  await place('Automotive', 'Air Horn', -800, T.cabRoofY + 60, T.cabRearZ + 800, 0, 90, 0);
+  await place('Automotive', 'Air Horn',  600, T.cabRoofY + 60, T.cabRearZ + 800, 0, 90, 0);
+  // Aero roof fairing on the back of the cab — directs air over trailer
+  await place('Automotive', 'Aero Roof Fairing', -1200, T.cabRoofY + 20, T.cabRearZ + 200);
+  // Fifth wheel pivot plate behind the cab
+  await place('Automotive', 'Fifth Wheel Plate', 0, T.frameY + 50, -3400);
+  await captureAllAngles('08b-hood-sleeper-fenders');
+
+  // ═════════ PHASE 8c: TRAILER (long box behind tractor) ═══════════════
+  // Trailer king-pin plate sits ON TOP of the fifth wheel.
+  await place('Automotive', 'Trailer King-Pin Plate', -450, T.frameY + 80, -3400);
+  // Trailer floor + roof + 2 side panels + rear door form a box behind
+  // the tractor extending z=−3400 (kingpin) back to z=−13400 (rear).
+  // Floor: width 2500, depth 10000, thickness 12. Native sketch in XY
+  // (2500×10000) extruded in +Z by 12. To place horizontally at
+  // y=trailerFloorY we rotate rx=90 so +Y → +Z and the depth-10000
+  // axis (Y in builder) becomes Z in world.
+  const TLR_FLOOR_Y = T.frameY + 200;
+  const TLR_ROOF_Y  = TLR_FLOOR_Y + 2500;
+  const TLR_FRONT_Z = -3400;
+  const TLR_REAR_Z  = -13400;
+  await place('Automotive', 'Trailer Floor', -1250, TLR_FLOOR_Y, TLR_REAR_Z, 90, 0, 0);
+  await place('Automotive', 'Trailer Roof',  -1250, TLR_ROOF_Y,  TLR_REAR_Z, 90, 0, 0);
+  // Side panels: width 10000, height 2500, thickness 10. Native sketch
+  // in XY (10000×2500) extruded +Z by 10. To make vertical wall in YZ
+  // plane (normal +X), rotate ry=90 (X→−Z, Z→+X).
+  await place('Automotive', 'Trailer Side Panel', -1250, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
+  await place('Automotive', 'Trailer Side Panel',  1240, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
+  // Rear door (XY plane, normal +Z by default — face the back of trailer)
+  await place('Automotive', 'Trailer Rear Door', -1250, TLR_FLOOR_Y, TLR_REAR_Z, 0, 180, 0);
+  await captureAllAngles('08c-trailer');
+
   // ═════════ PHASE 9: FASTENERS (high-density patterns) ════════════════
   // 28 grille perimeter bolts (around centred grille panel)
   await placeCirc('Fasteners', 'Socket Head Cap Screw (ISO 4762)',

@@ -431,6 +431,88 @@ export const VOLVO_FH = {
     depth_mm:  1800,
     thickness_mm: 18,
   },
+  // ── Round-3: Hood, sleeper, fenders, 5th wheel, air horn ──
+  'Engine Hood': {
+    // Covers the engine bay between fascia and cab front. Slightly
+    // curved top would be ideal — currently a flat slab.
+    width_mm:  2300,
+    depth_mm:   700,
+    thickness_mm: 8,
+  },
+  'Front Fender': {
+    // Quarter-pipe shape over each front wheel. Built as half-annular
+    // polyline-revolve.
+    outerRadius_mm: 680,
+    thickness_mm:   30,
+    width_mm:      380,
+  },
+  'Sleeper Cab Extension': {
+    // Box behind the driver's seat — extends the cab rearward into a
+    // sleeper berth.
+    width_mm:  2400,
+    height_mm: 1800,
+    depth_mm:  1000,
+  },
+  'Air Horn': {
+    radius_mm:  55,
+    length_mm: 600,
+  },
+  'Fifth Wheel Plate': {
+    // Disc-shaped pivot plate at the rear of the tractor where the
+    // semi-trailer king-pin engages.
+    outerRadius_mm: 480,
+    innerRadius_mm: 80,
+    thickness_mm: 28,
+  },
+  'Trailer King-Pin Plate': {
+    // Underside of the trailer that mates with the fifth wheel.
+    width_mm:  900,
+    depth_mm:  900,
+    thickness_mm: 30,
+  },
+  'Trailer Body': {
+    // Long box trailer.
+    width_mm:  2500,
+    height_mm: 2500,
+    depth_mm:  10000,
+    thickness_mm: 8,
+  },
+  'Trailer Floor': {
+    width_mm: 2500,
+    depth_mm: 10000,
+    thickness_mm: 12,
+  },
+  'Trailer Roof': {
+    width_mm: 2500,
+    depth_mm: 10000,
+    thickness_mm: 10,
+  },
+  'Trailer Side Panel': {
+    width_mm: 10000,
+    height_mm: 2500,
+    thickness_mm: 10,
+  },
+  'Trailer Rear Door': {
+    width_mm: 2500,
+    height_mm: 2500,
+    thickness_mm: 14,
+  },
+  'Mud Guard Rear': {
+    width_mm: 320,
+    height_mm: 380,
+    thickness_mm: 6,
+  },
+  'Side Step Light': {
+    width_mm: 90,
+    height_mm: 35,
+    depth_mm: 25,
+  },
+  'Aero Roof Fairing': {
+    // Aerodynamic fairing over the roof toward the trailer.
+    width_mm: 2400,
+    height_mm: 250,
+    depth_mm: 1500,
+  },
 };
 
 export const VOLVO_FH_PARTS = Object.keys(VOLVO_FH);

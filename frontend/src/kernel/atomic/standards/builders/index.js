@@ -117,6 +117,21 @@ const BUILDERS = {
   volvoCupHolder:           Automotive.volvoCupHolder,
   volvoSleeperBunk:         Automotive.volvoSleeperBunk,
   volvoHeadliner:           Automotive.volvoHeadliner,
+  // Round-3 additions
+  volvoEngineHood:          Automotive.volvoEngineHood,
+  volvoFrontFender:         Automotive.volvoFrontFender,
+  volvoSleeperCabExtension: Automotive.volvoSleeperCabExtension,
+  volvoAirHorn:             Automotive.volvoAirHorn,
+  volvoFifthWheelPlate:     Automotive.volvoFifthWheelPlate,
+  volvoTrailerKingPinPlate: Automotive.volvoTrailerKingPinPlate,
+  volvoTrailerBody:         Automotive.volvoTrailerBody,
+  volvoTrailerFloor:        Automotive.volvoTrailerFloor,
+  volvoTrailerRoof:         Automotive.volvoTrailerRoof,
+  volvoTrailerSidePanel:    Automotive.volvoTrailerSidePanel,
+  volvoTrailerRearDoor:     Automotive.volvoTrailerRearDoor,
+  volvoMudGuardRear:        Automotive.volvoMudGuardRear,
+  volvoSideStepLight:       Automotive.volvoSideStepLight,
+  volvoAeroRoofFairing:     Automotive.volvoAeroRoofFairing,
 };
 
 export function getBuilder(builderKey) {

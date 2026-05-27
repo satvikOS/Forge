@@ -882,3 +882,151 @@ export async function volvoHeadliner(part) {
   await extrude(part, c.thickness_mm);
   return part;
 }
+
+// ─── Round-3 builders ─────────────────────────────────────────────────────
+
+export async function volvoEngineHood(part) {
+  const c = VOLVO_FH['Engine Hood'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.depth_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+// Front fender — quarter-pipe over the wheel. Polyline-revolve of a
+// quarter circle (90° arc) returns a half-pipe; we want a quarter so
+// the fender wraps over the top of the wheel, not under.
+export async function volvoFrontFender(part) {
+  const c = VOLVO_FH['Front Fender'];
+  // Half-annular profile: outer + inner arc returning, 180° sweep
+  // (covers top half over the wheel).
+  const samples = 10;
+  const profile = [];
+  // Outer arc 0..π
+  for (let i = 0; i <= samples; i++) {
+    const t = (i * Math.PI) / samples;
+    profile.push([c.outerRadius_mm * Math.cos(t), c.outerRadius_mm * Math.sin(t)]);
+  }
+  const innerR = c.outerRadius_mm - c.thickness_mm;
+  for (let i = samples; i >= 0; i--) {
+    const t = (i * Math.PI) / samples;
+    profile.push([innerR * Math.cos(t), innerR * Math.sin(t)]);
+  }
+  await startSketch(part, 'XY');
+  sketchPolyline(part, profile);
+  finishSketch(part);
+  await extrude(part, c.width_mm);
+  return part;
+}
+export async function volvoSleeperCabExtension(part) {
+  const c = VOLVO_FH['Sleeper Cab Extension'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.height_mm);
+  finishSketch(part);
+  await extrude(part, c.depth_mm);
+  return part;
+}
+export async function volvoAirHorn(part) {
+  const c = VOLVO_FH['Air Horn'];
+  await startSketch(part, 'XY');
+  sketchCircle(part, 0, 0, c.radius_mm);
+  finishSketch(part);
+  await extrude(part, c.length_mm);
+  return part;
+}
+// Fifth-wheel pivot plate — annular disc with a slot for the king pin.
+export async function volvoFifthWheelPlate(part) {
+  const c = VOLVO_FH['Fifth Wheel Plate'];
+  await startSketch(part, 'XY');
+  sketchCircle(part, 0, 0, c.outerRadius_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  await startSketch(part, 'top');
+  sketchCircle(part, 0, 0, c.innerRadius_mm);
+  finishSketch(part);
+  await cut(part, c.thickness_mm + 2);
+  return part;
+}
+export async function volvoTrailerKingPinPlate(part) {
+  const c = VOLVO_FH['Trailer King-Pin Plate'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.depth_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+export async function volvoTrailerBody(part) {
+  // Full box — empty. We don't actually use this; the e2e composes
+  // the trailer from 4 panels (floor / roof / 2 sides / rear door)
+  // so the interior is visible if we want. Keep as a single closed
+  // shell for the simple case.
+  const c = VOLVO_FH['Trailer Body'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.height_mm);
+  finishSketch(part);
+  await extrude(part, c.depth_mm);
+  return part;
+}
+export async function volvoTrailerFloor(part) {
+  const c = VOLVO_FH['Trailer Floor'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.depth_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+export async function volvoTrailerRoof(part) {
+  const c = VOLVO_FH['Trailer Roof'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.depth_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+export async function volvoTrailerSidePanel(part) {
+  const c = VOLVO_FH['Trailer Side Panel'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.height_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+export async function volvoTrailerRearDoor(part) {
+  const c = VOLVO_FH['Trailer Rear Door'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.height_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+export async function volvoMudGuardRear(part) {
+  const c = VOLVO_FH['Mud Guard Rear'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.height_mm);
+  finishSketch(part);
+  await extrude(part, c.thickness_mm);
+  return part;
+}
+export async function volvoSideStepLight(part) {
+  const c = VOLVO_FH['Side Step Light'];
+  await startSketch(part, 'XY');
+  sketchRectangle(part, 0, 0, c.width_mm, c.depth_mm);
+  finishSketch(part);
+  await extrude(part, c.height_mm);
+  return part;
+}
+export async function volvoAeroRoofFairing(part) {
+  const c = VOLVO_FH['Aero Roof Fairing'];
+  // Trapezoid side profile — tall at back, low at front for aero.
+  const profile = [
+    [0, 0],
+    [c.depth_mm, 0],
+    [c.depth_mm, c.height_mm],
+    [0, c.height_mm * 0.4],
+  ];
+  await startSketch(part, 'XY');
+  sketchPolyline(part, profile);
+  finishSketch(part);
+  await extrude(part, c.width_mm);
+  return part;
+}

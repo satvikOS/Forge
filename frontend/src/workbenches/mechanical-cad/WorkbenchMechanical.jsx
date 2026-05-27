@@ -1014,6 +1014,21 @@ function WorkbenchMechanical() {
                 if (leaf.includes('Cup Holder'))         return 0x282a30;
                 if (leaf.includes('Sleeper Bunk'))       return 0x8a4844;  // mattress red
                 if (leaf.includes('Headliner'))          return 0xb8bcc0;  // grey ceiling
+                // Round-3 colours
+                if (leaf.includes('Engine Hood'))        return 0xb84a3a;  // body red
+                if (leaf.includes('Front Fender'))       return 0xb84a3a;  // body red
+                if (leaf.includes('Sleeper Cab Extension')) return 0xb84a3a;
+                if (leaf.includes('Air Horn'))           return 0xd0d4d8;  // polished chrome
+                if (leaf.includes('Fifth Wheel'))        return 0x4a4d54;
+                if (leaf.includes('Trailer King-Pin'))   return 0x52555c;
+                if (leaf.includes('Trailer Floor'))      return 0x3a3d44;
+                if (leaf.includes('Trailer Roof'))       return 0xe4e6e8;  // white aero trailer
+                if (leaf.includes('Trailer Side Panel')) return 0xe4e6e8;  // white aero trailer
+                if (leaf.includes('Trailer Rear Door'))  return 0xc8cad0;
+                if (leaf.includes('Trailer Body'))       return 0xe4e6e8;
+                if (leaf.includes('Mud Guard Rear'))     return 0x141414;  // rubber
+                if (leaf.includes('Side Step Light'))    return 0xffe8a0;  // amber
+                if (leaf.includes('Aero Roof Fairing'))  return 0x4ebec0;  // cyan
                 return 0x3a8a86;
             }
             if (spec.category === 'Spacecraft') {
