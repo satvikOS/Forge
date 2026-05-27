@@ -9,9 +9,21 @@ import { useEffect, useState } from 'react';
  * never have to thread props through the workbench wrapper. Pure
  * inline styles to keep the diff to a single new file.
  */
+const DISMISS_KEY = 'archdisc.emptyStateHint.dismissed';
+
 export default function EmptyStateHint() {
   const [show, setShow] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  // Dismissal persists across reloads — once a user clicks "Got it"
+  // they've seen the hint; re-showing it on every fresh session would
+  // become noise. Re-show is still possible via clearing the key.
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(DISMISS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -85,7 +97,12 @@ export default function EmptyStateHint() {
           }}>?</kbd> any time to see every keyboard shortcut.
         </div>
         <button
-          onClick={() => setDismissed(true)}
+          onClick={() => {
+            setDismissed(true);
+            if (typeof window !== 'undefined') {
+              try { window.localStorage.setItem(DISMISS_KEY, '1'); } catch {}
+            }
+          }}
           style={{
             marginTop: 12,
             background: 'transparent',
