@@ -428,6 +428,9 @@ function WorkbenchMechanical() {
     const [activeTool, setActiveTool] = useState(null);    // Currently active tool name
     const [activeProjectId, setActiveProjectId] = useState(null);
     const [selection, setSelection] = useState(null);
+    // Press '?' to toggle the keyboard-shortcut help overlay (SW/NX
+    // convention). Listed in the keydown handler below.
+    const [helpOverlayOpen, setHelpOverlayOpen] = useState(false);
     // Drawer collapse state — both the left toolbar (icon strip) and the
     // right properties panel can be collapsed to thin slivers so the user
     // can reclaim viewport real estate without losing access to the
@@ -945,8 +948,15 @@ function WorkbenchMechanical() {
                     else if (typeof window.__archdiscFocusOnAll === 'function') window.__archdiscFocusOnAll();
                     return;
                 }
+                // ? = Toggle keyboard-shortcut help overlay (SW/NX convention)
+                if (k === '?' || (k === '/' && e.shiftKey)) {
+                    e.preventDefault();
+                    setHelpOverlayOpen((prev) => !prev);
+                    return;
+                }
             }
             if (e.key === 'Escape') {
+                if (helpOverlayOpen) { setHelpOverlayOpen(false); return; }
                 setActiveDropdown(null); setActiveTool(null); setToolStatus(null); setSelection(null);
             }
         };
@@ -1410,6 +1420,74 @@ function WorkbenchMechanical() {
 
             {/* Tool parameter dialog — listens for handler requestToolParams() calls */}
             <ToolParamDialog />
+
+            {/* Keyboard shortcuts help overlay — press '?' to toggle. */}
+            {helpOverlayOpen && (
+                <div
+                    style={{
+                        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+                        zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                    onClick={() => setHelpOverlayOpen(false)}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            background: 'rgba(20,24,32,0.96)', border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 8, padding: '20px 24px', minWidth: 460, maxWidth: 560,
+                            boxShadow: '0 18px 60px rgba(0,0,0,0.45)', color: '#e5e7eb',
+                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <div style={{ fontSize: 15, fontWeight: 600 }}>Keyboard shortcuts</div>
+                            <button
+                                onClick={() => setHelpOverlayOpen(false)}
+                                style={{
+                                    background: 'transparent', border: 'none', color: '#9ca3af',
+                                    cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0,
+                                }}
+                                aria-label="Close help"
+                            >×</button>
+                        </div>
+                        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                            <tbody>
+                                {[
+                                    ['S', 'Start Sketch'],
+                                    ['L', 'Line (in sketch)'],
+                                    ['R', 'Rectangle (in sketch)'],
+                                    ['D', 'Smart Dimension'],
+                                    ['E', 'Extrude (unified, with Boolean enum)'],
+                                    ['F', 'Fillet'],
+                                    ['C', 'Chamfer'],
+                                    ['M', 'Measure → Distance'],
+                                    ['Space', 'Zoom-to-Fit'],
+                                    ['V', 'Select mode'],
+                                    ['G', 'Move mode'],
+                                    ['?', 'Toggle this help'],
+                                    ['Esc', 'Cancel active tool / close menus'],
+                                ].map(([k, label]) => (
+                                    <tr key={k}>
+                                        <td style={{ padding: '5px 12px 5px 0', width: 80 }}>
+                                            <kbd style={{
+                                                background: 'rgba(255,255,255,0.08)',
+                                                border: '1px solid rgba(255,255,255,0.15)',
+                                                borderRadius: 4, padding: '2px 8px',
+                                                fontFamily: 'monospace', fontSize: 12, color: '#e5e7eb',
+                                            }}>{k}</kbd>
+                                        </td>
+                                        <td style={{ padding: '5px 0', color: '#cbd5e1' }}>{label}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        <div style={{ marginTop: 14, fontSize: 11, color: '#6b7280' }}>
+                            Modifier combos (Ctrl/Alt/Cmd) are reserved for the browser/Electron menus.
+                            Shortcuts skip when a dialog is open or a text field is focused.
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* AI dialogs — both still mountable but the second floating
                 launcher was removed (UX cleanup 2026-05-24). The chat
