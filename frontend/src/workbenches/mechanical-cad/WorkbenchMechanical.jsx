@@ -961,6 +961,44 @@ function WorkbenchMechanical() {
                 handleToolExecute('document', 'Save Snapshot');
                 return;
             }
+            // Ctrl/Cmd + Z = Undo (one step back through the kernel
+            // HistoryLog from SP-3a). Ctrl/Cmd + Y or Ctrl+Shift+Z = Redo.
+            // The kernel HistoryLog tracks geometric ops; the rollback
+            // bar (UX Tier-1 #10) drives the same API on click/drag —
+            // these shortcuts just give the user keyboard parity.
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                try {
+                    const h = window.__archdiscKernelHistory;
+                    if (!h) return;
+                    if (h.cursor <= 0) {
+                        // Already at baseline (no entries yet) — no-op.
+                        return;
+                    }
+                    const prev = h.cursor === 0 ? '__baseline' : h.entries[h.cursor - 1];
+                    h.rollBackTo(prev);
+                } catch (err) {
+                    console.warn('[archdisc] undo failed', err);
+                }
+                return;
+            }
+            if (
+                (e.ctrlKey || e.metaKey) && (
+                    (e.key === 'y' || e.key === 'Y') ||
+                    (e.shiftKey && (e.key === 'z' || e.key === 'Z'))
+                )
+            ) {
+                e.preventDefault();
+                try {
+                    const h = window.__archdiscKernelHistory;
+                    if (!h) return;
+                    if (h.cursor >= h.entries.length - 1) return;  // at tail
+                    h.rollForwardTo(h.entries[h.cursor + 1]);
+                } catch (err) {
+                    console.warn('[archdisc] redo failed', err);
+                }
+                return;
+            }
             if (e.key === 'Escape') {
                 if (helpOverlayOpen) { setHelpOverlayOpen(false); return; }
                 setActiveDropdown(null); setActiveTool(null); setToolStatus(null); setSelection(null);
