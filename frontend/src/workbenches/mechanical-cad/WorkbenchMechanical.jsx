@@ -63,6 +63,7 @@ import {
     SelectionPriorityBar,
 } from '../../components/SwUxOverlays';
 import '../../components/SwUxOverlays.css';
+import MiniToolbar from '../../components/MiniToolbar';
 import '../../components/FeatureTreePanel.css';
 import '../../components/ThoughtBubble.css';
 import '../../components/RibbonToolbar.css';
@@ -1456,6 +1457,10 @@ function WorkbenchMechanical() {
                 <SketchStateBadge />
                 {/* Tier-11a NX-distinctive: Selection-priority pre-filter (top-left) */}
                 <SelectionPriorityBar />
+                {/* WF-05 — Mini-Toolbar that tracks the selected body and
+                    surfaces the seven most-used selection-driven ops at
+                    the body's current screen position. */}
+                <MiniToolbar />
             </main>
 
             {/* RIGHT PROPERTIES PANEL — collapse toggle on the inner edge.
