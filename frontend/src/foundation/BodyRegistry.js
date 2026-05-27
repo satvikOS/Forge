@@ -16,11 +16,101 @@
 
 class BodyRegistry {
   constructor() {
-    this.bodies = [];      // [{ id, name, sourceTool, group, manifold, brepShapeRef, volume_mm3, createdAt, visible }]
+    this.bodies = [];      // [{ id, name, sourceTool, group, manifold, brepShapeRef, volume_mm3, createdAt, visible, locked, groupId }]
     this._listeners = new Set();
     this._counter = 0;
     this.selectedId = null;          // legacy single-select (backwards-compat)
     this._selectedIds = new Set();   // multi-select set
+    // WF-32 — subassembly grouping. Map of groupId → { id, name, bodyIds }.
+    // Bodies carry their groupId (or null) so the Part Browser can render
+    // nested. Membership is exclusive: a body is in at most one group.
+    this._groups = new Map();
+    this._groupCounter = 0;
+  }
+
+  // ── WF-32: subassembly grouping ────────────────────────────────────────────
+
+  /**
+   * Create a new group containing the given body ids. Returns the group id
+   * or null if the input is invalid. Bodies that were already in another
+   * group are moved to the new one.
+   */
+  createGroup(name, bodyIds = []) {
+    const cleaned = String(name || '').trim();
+    if (!cleaned) return null;
+    const validIds = (Array.isArray(bodyIds) ? bodyIds : []).filter(id =>
+      this.bodies.some(b => b.id === id));
+    const id = `group-${(++this._groupCounter).toString().padStart(3, '0')}`;
+    // Re-home bodies from any prior group.
+    for (const bid of validIds) this._detachBodyFromGroup(bid, false);
+    const entry = { id, name: cleaned, bodyIds: new Set(validIds) };
+    this._groups.set(id, entry);
+    for (const bid of validIds) {
+      const b = this.bodies.find(x => x.id === bid);
+      if (b) b.groupId = id;
+    }
+    this._notify();
+    return id;
+  }
+
+  /** Add a body to an existing group. Moves it out of any prior group. */
+  addToGroup(groupId, bodyId) {
+    const g = this._groups.get(groupId);
+    const b = this.bodies.find(x => x.id === bodyId);
+    if (!g || !b) return false;
+    this._detachBodyFromGroup(bodyId, false);
+    g.bodyIds.add(bodyId);
+    b.groupId = groupId;
+    this._notify();
+    return true;
+  }
+
+  /** Remove a body from its group (without deleting the body). */
+  removeFromGroup(bodyId) {
+    const changed = this._detachBodyFromGroup(bodyId, true);
+    if (changed) this._notify();
+    return changed;
+  }
+
+  /** Internal helper. `notify=false` lets the caller batch notifications. */
+  _detachBodyFromGroup(bodyId, notify) {
+    const b = this.bodies.find(x => x.id === bodyId);
+    if (!b || !b.groupId) return false;
+    const g = this._groups.get(b.groupId);
+    if (g) g.bodyIds.delete(bodyId);
+    b.groupId = null;
+    if (notify) this._notify();
+    return true;
+  }
+
+  /** Delete a group entry (bodies stay in the registry, just ungrouped). */
+  removeGroup(groupId) {
+    const g = this._groups.get(groupId);
+    if (!g) return false;
+    for (const bid of g.bodyIds) {
+      const b = this.bodies.find(x => x.id === bid);
+      if (b) b.groupId = null;
+    }
+    this._groups.delete(groupId);
+    this._notify();
+    return true;
+  }
+
+  /** Snapshot of every group as plain { id, name, bodyIds[] }. */
+  getGroups() {
+    return Array.from(this._groups.values()).map(g => ({
+      id: g.id,
+      name: g.name,
+      bodyIds: Array.from(g.bodyIds),
+    }));
+  }
+
+  /** Look up the group an individual body belongs to (or null). */
+  getGroupOf(bodyId) {
+    const b = this.bodies.find(x => x.id === bodyId);
+    if (!b?.groupId) return null;
+    const g = this._groups.get(b.groupId);
+    return g ? { id: g.id, name: g.name, bodyIds: Array.from(g.bodyIds) } : null;
   }
 
   // ── Single-select (legacy, backwards-compat) ───────────────────────────────
@@ -142,6 +232,8 @@ class BodyRegistry {
       volume_mm3,
       createdAt: new Date().toISOString(),
       visible: true,
+      // WF-32 — subassembly grouping. null = ungrouped.
+      groupId: null,
       // WF-31 — locked bodies cannot be deleted or modified through
       // the standard selection-driven ops (Delete, Fillet, Pattern,
       // Material reassignment, etc.). Visible + selectable + measurable
@@ -176,6 +268,9 @@ class BodyRegistry {
     if (i < 0) return false;
     // WF-31 — locked bodies refuse remove(). Caller must unlock first.
     if (this.bodies[i].locked) return false;
+    // WF-32 — detach from group before removing so the group's
+    // bodyIds Set stays consistent.
+    this._detachBodyFromGroup(id, false);
     const [removed] = this.bodies.splice(i, 1);
     // Remove from scene as well
     if (removed.group?.parent) removed.group.parent.remove(removed.group);
