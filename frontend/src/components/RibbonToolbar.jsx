@@ -505,6 +505,7 @@ const TABS = {
       { label: 'Project', tools: [
         { name: 'Save Snapshot', icon: '💾', key: 'documentation', shortcut: 'Ctrl+S' },
         { name: 'Load Snapshot', icon: '📂', key: 'documentation' },
+        { name: 'Export Project Bundle', icon: '🗜', key: 'documentation' },
       ]},
     ]
   },

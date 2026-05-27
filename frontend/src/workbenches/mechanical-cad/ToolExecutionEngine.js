@@ -46,6 +46,7 @@ import {
 // clicks in the ribbon exercise the validated foundation code paths.
 import { getManifold } from '../../foundation/manifoldKernel.js';
 import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
+import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6388,6 +6389,31 @@ const TOOL_HANDLERS = {
     // parametric/design-intent layer round-trips today). Pairs with
     // localStorage persistence — the .archdisc.json is the shareable
     // hand-off / backup format.
+    // Workflow-02 — per-component STEP + assembly STEP + manifest, ZIPed
+    // for vendor hand-off. Real engineering deliverable that closes the
+    // honest gap I flagged in the assessment: "per-component CAD file
+    // export was not an automated tool yet". Iterates BodyRegistry,
+    // calls kernel exportStep on each body, packages a project bundle.
+    'Export Project Bundle': async () => {
+      const result = await exportProjectBundle({});
+      // Mirror to window.__lastBundle so headed e2e specs can introspect
+      // the bundle bytes + manifest without needing to dynamically import
+      // the foundation module across the Electron file:// boundary.
+      if (typeof window !== 'undefined') {
+        window.__lastBundle = result;
+      }
+      if (!result.ok) {
+        return { status: 'error', message: `Export Project Bundle: ${result.reason || 'unknown'}` };
+      }
+      const failureNote = result.failures > 0
+        ? ` (${result.failures} body${result.failures === 1 ? '' : 'ies'} skipped — see manifest)`
+        : '';
+      return {
+        status: 'ok',
+        message: `Project bundle exported: ${result.components} component STEPs + assembly.step + manifest.json (${result.bytes.toLocaleString()} bytes)${failureNote}`,
+        bundle: result,
+      };
+    },
     'Save Snapshot': () => {
       const result = downloadProjectSnapshot({});
       if (!result.ok) {
