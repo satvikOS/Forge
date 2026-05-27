@@ -54,3 +54,15 @@ dist-electron/
 ge9x-deliverable/
 autonomous-output/
 engine-output/
+
+# E2E artefacts (regenerated on every run; never commit)
+e2e-output/
+e2e/screenshots/
+
+# Large local reference media — never commit (course videos in repo root)
+*.mp4
+*.webm
+*.mov
+
+# AI-orchestration scratch / wakeup notes
+docs/superpowers/notes/custom-occt-build-recon.md
