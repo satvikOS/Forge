@@ -753,6 +753,11 @@ function WorkbenchMechanical() {
         if (typeof window !== 'undefined') {
             window.__archdiscBusyTool = toolName;
             window.__archdiscBusyStartedAt = Date.now();
+            // WF-15 — track the most recently run tool so the F1 help
+            // drawer (HelpDrawer) can show the docs for that tool. Lives
+            // across runs (busy slot clears on finally, this one persists)
+            // so F1 always has something to display.
+            window.__archdiscLastTool = toolName;
         }
 
         // Execute the tool action — handlers may be async (foundation
