@@ -147,9 +147,9 @@ export default function MiniToolbar() {
       <button className="mt-btn"                 onClick={onIsolate}           title="Isolate body"                data-mt-action="isolate">⊡</button>
       <button className="mt-btn"                 onClick={onProperties}        title="Properties"                  data-mt-action="properties">ⓘ</button>
       <span className="mt-sep" aria-hidden />
-      <button className="mt-btn" onClick={() => runTool('part',     'Fillet')}         title="Fillet"          data-mt-action="fillet">⌒</button>
-      <button className="mt-btn" onClick={() => runTool('part',     'Linear Pattern')} title="Linear Pattern"  data-mt-action="pattern">⋮⋮</button>
-      <button className="mt-btn" onClick={() => runTool('assembly', 'Mirror')}         title="Mirror"          data-mt-action="mirror">⟷</button>
+      <button className="mt-btn" onClick={() => runTool('part', 'Fillet')}         title="Fillet"          data-mt-action="fillet">⌒</button>
+      <button className="mt-btn" onClick={() => runTool('part', 'Linear Pattern')} title="Linear Pattern"  data-mt-action="pattern">⋮⋮</button>
+      <button className="mt-btn" onClick={() => runTool('part', 'Mirror Feature')} title="Mirror Feature"  data-mt-action="mirror">⟷</button>
     </div>
   );
 }

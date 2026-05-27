@@ -57,3 +57,45 @@
 .status-fps {
   color: var(--text-muted, #666);
 }
+
+/* WF-06 — saving / calculating / dirty indicators */
+.status-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #ffb84d;
+  font-weight: 500;
+}
+.status-busy-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffb84d;
+  animation: status-busy-pulse 0.9s ease-in-out infinite;
+}
+.status-busy-elapsed {
+  color: #c8b48a;
+  font-weight: 400;
+}
+@keyframes status-busy-pulse {
+  0%   { transform: scale(1.0); opacity: 0.95; }
+  50%  { transform: scale(1.6); opacity: 0.35; }
+  100% { transform: scale(1.0); opacity: 0.95; }
+}
+
+.status-saved-flash {
+  color: #6ee07d;
+  font-weight: 500;
+  animation: status-saved-fade 2.5s ease-in forwards;
+}
+@keyframes status-saved-fade {
+  0%   { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+
+.status-dirty {
+  color: #ff8b6e;
+  font-weight: 500;
+}

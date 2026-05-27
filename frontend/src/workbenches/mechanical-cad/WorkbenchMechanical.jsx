@@ -745,16 +745,32 @@ function WorkbenchMechanical() {
 
         setActiveTool(toolName);
 
+        // WF-06 — publish a "busy" signal so the bottom status bar can
+        // show a "Calculating…" indicator for long async ops (booleans,
+        // tessellation, fillet, etc.). Owners read this slot via the
+        // status-tick poll. Cleared in the finally below.
+        if (typeof window !== 'undefined') {
+            window.__archdiscBusyTool = toolName;
+            window.__archdiscBusyStartedAt = Date.now();
+        }
+
         // Execute the tool action — handlers may be async (foundation
         // path uses manifold-3d WASM and returns a Promise). Show a
         // transient "Running…" status while we wait so the UI is honest.
         const out = executeTool(groupKey, toolName, scene, viewport);
         let result;
-        if (out && typeof out.then === 'function') {
-            setToolStatus({ message: `${toolName} running…`, type: 'info', tool: toolName });
-            result = await out;
-        } else {
-            result = out;
+        try {
+            if (out && typeof out.then === 'function') {
+                setToolStatus({ message: `${toolName} running…`, type: 'info', tool: toolName });
+                result = await out;
+            } else {
+                result = out;
+            }
+        } finally {
+            if (typeof window !== 'undefined') {
+                window.__archdiscBusyTool = null;
+                window.__archdiscBusyStartedAt = null;
+            }
         }
 
         setToolStatus({

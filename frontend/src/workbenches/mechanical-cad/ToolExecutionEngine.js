@@ -6419,6 +6419,23 @@ const TOOL_HANDLERS = {
       if (!result.ok) {
         return { status: 'error', message: `Save Snapshot failed: ${result.reason || 'unknown'}` };
       }
+      // WF-06 — publish the saved-at marker so StatusBarPro can compare
+      // it against the DesignHistory cursor and decide "saved" vs
+      // "● Unsaved" without scraping React state across components.
+      //
+      // The cursor capture happens via a microtask so it observes the
+      // post-`logHistoryAfterRun` state (executeTool pushes a history
+      // entry for the Save Snapshot itself AFTER this handler returns;
+      // capturing synchronously would record cursor-minus-one and the
+      // dirty check below would immediately re-fire).
+      if (typeof window !== 'undefined') {
+        window.__archdiscLastSavedAt = Date.now();
+        window.__archdiscLastSavedFilename = result.filename;
+        Promise.resolve().then(() => {
+          const hist = window.__archdiscHistory;
+          window.__archdiscLastSavedHistoryCursor = hist?.entries?.length ?? 0;
+        });
+      }
       return {
         status: 'ok',
         message: `Saved ${result.filename} — ${result.entries} history entries, ${result.variables} variables, ${result.bodies} bodies (${result.bytes.toLocaleString()} bytes)`,

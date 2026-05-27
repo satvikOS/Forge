@@ -194,7 +194,13 @@ function WorkbenchContainer() {
                         label: tool.name,
                         category: `${tabLabel} › ${groupLabel}`,
                         shortcut: tool.shortcut || undefined,
-                        action: () => dispatchTool(tabKey, tool.name),
+                        // Dispatch the TOOL's groupKey (the `key` field on
+                        // the registry entry) — that's what ToolExecutionEngine
+                        // routes on, not the ribbon-tab key. A tool's tab and
+                        // key sometimes match (Box → key:'part', tab:'part')
+                        // but often don't (Export Project Bundle → key:
+                        // 'documentation', tab:'drawing').
+                        action: () => dispatchTool(tool.key || tabKey, tool.name),
                     });
                 }
             }

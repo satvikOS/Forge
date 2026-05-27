@@ -32,7 +32,12 @@ const DEFAULT_PINS = [
   { kind: 'tool',   tab: 'part',     tool: 'Box',                            label: 'Box',                 glyph: '□' },
   { kind: 'tool',   tab: 'part',     tool: 'Cylinder',                       label: 'Cylinder',            glyph: '○' },
   { kind: 'tool',   tab: 'part',     tool: 'Extrude Boss',                   label: 'Extrude',             glyph: '⇧' },
-  { kind: 'tool',   tab: 'drawing',  tool: 'Export Project Bundle',          label: 'Export Bundle',       glyph: '🗜' },
+  // The `tab` field here is actually the tool's groupKey (the dispatch
+  // target), not the ribbon-tab key. ToolExecutionEngine routes on the
+  // group; for tools whose own `key` differs from the ribbon-tab they
+  // appear in (Export Project Bundle is in tab "drawing" but key
+  // "documentation"), the groupKey wins.
+  { kind: 'tool',   tab: 'documentation', tool: 'Export Project Bundle',     label: 'Export Bundle',       glyph: '🗜' },
 ];
 
 function loadPins() {
