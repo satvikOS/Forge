@@ -933,10 +933,14 @@ function WorkbenchMechanical() {
                     handleToolExecute('sketch', 'Rectangle');
                     return;
                 }
-                // D = Smart Dimension
+                // D = Smart Dimension. The handler lives in the 'document'
+                // group (via the 'documentation' alias) — see GROUP_ALIASES
+                // in ToolExecutionEngine.js. 3671329c mistakenly routed to
+                // 'sketch'. The ribbon entry also declares key:'documentation'
+                // so this matches the ribbon-click path.
                 if (k === 'd' || k === 'D') {
                     e.preventDefault();
-                    handleToolExecute('sketch', 'Smart Dimension');
+                    handleToolExecute('documentation', 'Smart Dimension');
                     return;
                 }
                 // M = Measure
