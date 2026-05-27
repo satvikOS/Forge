@@ -14,6 +14,7 @@ import ProjectLibrary from './ProjectLibrary';
 import ComponentInfoPanel from './ComponentInfoPanel';
 import CommandPalette from './CommandPalette';
 import { TABS as RIBBON_TABS } from './RibbonToolbar';
+import QuickAccessToolbar from './QuickAccessToolbar';
 import ToastContainer from './ToastContainer';
 import { RollbackBar } from './SwUxOverlays';
 import './SwUxOverlays.css';
@@ -273,6 +274,20 @@ function WorkbenchContainer() {
                         </button>
                     </div>
                 </header>
+
+                {/* QUICK ACCESS TOOLBAR — pinned commands, one click away
+                    regardless of the active ribbon tab. Persists across
+                    sessions via localStorage. Dispatches the same
+                    `archdisc:run-tool` event the Command Palette uses,
+                    so the entire chain (event → handleToolExecute →
+                    kernel op) is exercised on every pin click. */}
+                <QuickAccessToolbar
+                    onSave={handleSave}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    canUndo={undoStack.length > 0}
+                    canRedo={redoStack.length > 0}
+                />
 
                 {/*
                  * STAGE — the fixed-viewport area. The 3D viewport occupies
