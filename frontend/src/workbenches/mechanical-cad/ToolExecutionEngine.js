@@ -49,6 +49,7 @@ import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot }
 import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
 import { export3MF } from '../../foundation/MeshThreeMF.js';
 import { exportBomCsv } from '../../foundation/MeshBomCsv.js';
+import { exportDxf } from '../../foundation/MeshDxfExport.js';
 import { manifoldToMesh } from '../../foundation/ManifoldThreeBridge.js';
 import {
   linearPattern as fLinearPattern,
@@ -6396,6 +6397,19 @@ const TOOL_HANDLERS = {
     // honest gap I flagged in the assessment: "per-component CAD file
     // export was not an automated tool yet". Iterates BodyRegistry,
     // calls kernel exportStep on each body, packages a project bundle.
+    // WF-20 — DXF (AutoCAD R12) export. Universal fabrication-shop
+    // format -- waterjet / laser / CNC / AutoCAD seats consume it
+    // directly. Each body lives on its own DXF layer.
+    'Export DXF': () => {
+      const result = exportDxf({});
+      if (typeof window !== 'undefined') window.__lastDxf = result;
+      if (!result.ok) return { status: 'error', message: `Export DXF: ${result.reason || 'unknown'}` };
+      return {
+        status: 'ok',
+        message: `Exported ${result.filename}: ${result.bodies} bodies on ${result.bodies} layers, ${result.faces.toLocaleString()} faces (${result.bytes.toLocaleString()} bytes)`,
+        result,
+      };
+    },
     // WF-14 — Bill of Materials CSV. Fabrication shops + procurement
     // teams need a flat per-body manifest with volume/mass/material —
     // this is the "Send the BOM" deliverable. Mirrors on window.

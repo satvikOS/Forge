@@ -514,6 +514,7 @@ export const TABS = {
         { name: 'Export Project Bundle', icon: '🗜', key: 'documentation' },
         { name: 'Export 3MF',             icon: '🧊', key: 'documentation' },
         { name: 'Export BOM (CSV)',       icon: '🧾', key: 'documentation' },
+        { name: 'Export DXF',             icon: '📐', key: 'documentation' },
       ]},
     ]
   },
