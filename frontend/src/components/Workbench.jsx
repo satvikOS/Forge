@@ -79,13 +79,36 @@ function WorkbenchContainer() {
 
     // Toast helper
     const addToast = (message, type = 'info', duration = 3000) => {
-        const id = Date.now();
+        const id = Date.now() + Math.random();   // dedupe rapid back-to-back fires
         setToasts(prev => [...prev, { id, message, type, duration }]);
     };
 
     const removeToast = (id) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     };
+
+    // WF-28 — surface tool execution results as toasts. The Workbench-
+    // Mechanical handleToolExecute fires `archdisc:tool-result` on
+    // every run with { tool, status, message } -- we map that to the
+    // toast type (success / info / warn / error) so the user gets a
+    // visible confirmation regardless of whether the status bar is
+    // open or visible. Filters out duplicate `*** running…` messages
+    // (those fire BEFORE the final result) so the queue doesn't fill
+    // with two toasts per op.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onResult = (ev) => {
+            const { tool, status, message } = ev?.detail || {};
+            if (!message || /running…$/.test(message)) return;
+            const type = (status === 'success' || status === 'ok') ? 'success'
+                       : status === 'error' ? 'error'
+                       : status === 'warn'  ? 'warn'
+                       : 'info';
+            addToast(`${tool}: ${message}`, type, type === 'error' ? 5000 : 3000);
+        };
+        window.addEventListener('archdisc:tool-result', onResult);
+        return () => window.removeEventListener('archdisc:tool-result', onResult);
+    }, []);
 
     // Monitor online/offline status
     useEffect(() => {

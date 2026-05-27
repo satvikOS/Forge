@@ -835,6 +835,16 @@ function WorkbenchMechanical() {
             tool: toolName,
         });
 
+        // WF-28 — also fire a toast via CustomEvent so the Workbench-
+        // level ToastContainer can surface the result regardless of
+        // whether the status bar is currently visible. The Workbench
+        // listens for archdisc:tool-result and routes to addToast().
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('archdisc:tool-result', {
+                detail: { tool: toolName, status: result.status, message: result.message },
+            }));
+        }
+
         if (toolStatusTimerRef.current) clearTimeout(toolStatusTimerRef.current);
         const delay = result.status === 'success' ? 4000 : result.status === 'error' ? 6000 : 8000;
         toolStatusTimerRef.current = setTimeout(() => {
