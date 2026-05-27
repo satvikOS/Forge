@@ -11,24 +11,105 @@
  * Fusion 360's Browser / SolidWorks' FeatureManager / Onshape's
  * Parts list, but for analysis ops rather than geometry features.
  *
- * Storage: in-memory + localStorage. The full timeline persists across
- * hard reloads under `archdisc.designHistory.v1` (UX Tier 10c follow-on).
- * The SessionMemory module still handles per-project save/load when the
- * user explicitly opens a project; this is the implicit "where was I"
- * preservation that every CAD user expects.
+ * Storage: in-memory + IndexedDB (primary) + localStorage (fallback).
+ * Workflow-01 of the autonomous gap-fill campaign: the previous
+ * localStorage-only path tail-capped at 500 entries which is useless
+ * for 10k+ feature projects (real engines, structures, industrial
+ * systems). IndexedDB has no practical row cap; we raise the in-memory
+ * tail to 50,000 and let IDB hold the lot. localStorage stays as a
+ * synchronous fallback (small recent tail) when IDB is unavailable.
  */
 
 const STORAGE_KEY = 'archdisc.designHistory.v1';
-const STORAGE_CAP = 500;  // never serialise more than this many entries
+const STORAGE_CAP = 50000;          // IDB-backed; raised from 500
+const LS_FALLBACK_CAP = 500;        // localStorage tail when IDB absent
+const IDB_DB_NAME = 'archdisc.designHistory';
+const IDB_STORE = 'entries';
+const IDB_VERSION = 1;
+const IDB_PERSIST_DEBOUNCE_MS = 300;
+
+function openIDB() {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let req;
+    try { req = window.indexedDB.open(IDB_DB_NAME, IDB_VERSION); }
+    catch { resolve(null); return; }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+    req.onblocked = () => resolve(null);
+  });
+}
+
+async function loadFromIDB() {
+  const db = await openIDB();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    let tx;
+    try {
+      tx = db.transaction([IDB_STORE], 'readonly');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const all = Array.isArray(req.result) ? req.result : [];
+        // Sort by stored `when` (ISO ts) so ordering survives random IDB key order.
+        all.sort((a, b) => (a.when ?? '').localeCompare(b.when ?? ''));
+        resolve(all.slice(-STORAGE_CAP));
+        try { db.close(); } catch {}
+      };
+      req.onerror = () => { resolve(null); try { db.close(); } catch {} };
+    } catch { resolve(null); try { db.close(); } catch {} }
+  });
+}
+
+async function saveToIDB(entries) {
+  const db = await openIDB();
+  if (!db) return false;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction([IDB_STORE], 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      // Clear + rewrite the tail. For 50k entries this is ~tens of ms;
+      // acceptable for the debounced async write off the critical path.
+      const clearReq = store.clear();
+      clearReq.onsuccess = () => {
+        for (const e of entries.slice(-STORAGE_CAP)) {
+          try { store.put(e); } catch {}
+        }
+      };
+      tx.oncomplete = () => { resolve(true); try { db.close(); } catch {} };
+      tx.onerror = () => { resolve(false); try { db.close(); } catch {} };
+      tx.onabort = () => { resolve(false); try { db.close(); } catch {} };
+    } catch { resolve(false); try { db.close(); } catch {} }
+  });
+}
 
 class DesignHistory {
   constructor() {
     this.entries = [];
     this._listeners = new Set();
-    this._hydrate();
+    this._idbDebounce = null;
+    // _hydrate() returns a promise; constructor doesn't wait for it (kept sync).
+    // Listeners are re-notified once async hydrate completes.
+    this._hydratePromise = this._hydrate();
   }
 
-  _hydrate() {
+  async _hydrate() {
+    // Try IDB first (rich, uncapped).
+    try {
+      const fromIDB = await loadFromIDB();
+      if (fromIDB && Array.isArray(fromIDB) && fromIDB.length > 0) {
+        this.entries = fromIDB;
+        this._notifyHydrate();
+        return;
+      }
+    } catch (err) { /* IDB unavailable; fall through */ }
+    // localStorage fallback.
     if (typeof window === 'undefined' || !window.localStorage) return;
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -36,24 +117,41 @@ class DesignHistory {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         this.entries = parsed.slice(-STORAGE_CAP);
+        this._notifyHydrate();
       }
     } catch (err) {
       console.warn('DesignHistory hydrate failed', err);
     }
   }
 
+  _notifyHydrate() {
+    for (const fn of this._listeners) {
+      try { fn(this.entries); } catch {}
+    }
+  }
+
   _persist() {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    try {
-      const tail = this.entries.slice(-STORAGE_CAP);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tail));
-    } catch (err) {
-      // Quota exceeded or other storage error — log once but don't crash.
-      if (!this._persistWarned) {
-        console.warn('DesignHistory persist failed', err);
-        this._persistWarned = true;
+    if (typeof window === 'undefined') return;
+    // Synchronous tail to localStorage (so a hard browser kill still
+    // preserves the most recent entries even if the async IDB write
+    // hadn't flushed).
+    if (window.localStorage) {
+      try {
+        const tail = this.entries.slice(-LS_FALLBACK_CAP);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tail));
+      } catch (err) {
+        if (!this._persistWarned) {
+          console.warn('DesignHistory localStorage persist failed', err);
+          this._persistWarned = true;
+        }
       }
     }
+    // Debounced async IDB write — full uncapped tail.
+    if (this._idbDebounce) clearTimeout(this._idbDebounce);
+    this._idbDebounce = setTimeout(() => {
+      this._idbDebounce = null;
+      saveToIDB(this.entries).catch(() => {});
+    }, IDB_PERSIST_DEBOUNCE_MS);
   }
 
   /**
