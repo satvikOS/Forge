@@ -141,6 +141,27 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x223a52, step: 1 },
     ],
   },
+  'Sculpt Circular Pattern': {
+    title: 'Sculpt — Circular Pattern',
+    blurb: 'Pattern the open sketch into a ring of copies about the origin (bolt circles, gear teeth, valve seats). Sketch the feature offset from the origin.',
+    fields: [
+      { name: 'mode', label: 'Mode', type: 'enum', options: ['extrude', 'cut'], default: 'extrude' },
+      { name: 'count', label: 'Count', type: 'number', default: 6, min: 1, step: 1 },
+      { name: 'distance', label: 'Depth', type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'angle', label: 'Spread', type: 'number', default: 360, unit: '°', min: 1, step: 5 },
+    ],
+  },
+  'Sculpt Linear Pattern': {
+    title: 'Sculpt — Linear Pattern',
+    blurb: 'Pattern the open sketch into a straight row (head-bolt rows, cooling fins, rivet lines). Each copy offset by (dx, dy) from the last.',
+    fields: [
+      { name: 'mode', label: 'Mode', type: 'enum', options: ['extrude', 'cut'], default: 'extrude' },
+      { name: 'count', label: 'Count', type: 'number', default: 5, min: 1, step: 1 },
+      { name: 'distance', label: 'Depth', type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'dx', label: 'Step X', type: 'number', default: 50, unit: 'mm', step: 1 },
+      { name: 'dy', label: 'Step Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
   'Sculpt Place Body': {
     title: 'Sculpt — Place + Finish Body',
     blurb: 'Rotate + translate the finished sculpt part into the assembly and register it as a body. Clears the active part for the next one.',

@@ -62,6 +62,7 @@ import {
   translate as sculptTranslate,
   rotate as sculptRotate,
   linearPattern as sculptLinearPattern,
+  circularPattern as sculptCircularPattern,
 } from '../../kernel/atomic/AtomicOps.js';
 import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
 import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
@@ -1579,6 +1580,36 @@ const TOOL_HANDLERS = {
       _sculptHasOpenSketch = false;
       await sculptRevolve(_sculptPart, values.segments ?? 64, values.degrees ?? 360);
       return { status: 'success', message: `Sculpt Revolve: ${values.degrees}° | vol ≈ ${_sculptPart.solid.volume().toFixed(0)} mm³` };
+    },
+    // Pattern the open sketch into a ring of copies (bolt circles, gear
+    // teeth, valve seats). 'extrude' seeds the pattern; 'cut' needs a base.
+    'Sculpt Circular Pattern': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Circular Pattern');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Circular Pattern cancelled' };
+      if (!_sculptPart || !_sculptHasOpenSketch) {
+        return { status: 'warn', message: 'Sculpt Circular Pattern: sketch a feature offset from the origin first.' };
+      }
+      sculptFinishSketch(_sculptPart);
+      _sculptHasOpenSketch = false;
+      const mode = values.mode === 'cut' ? 'cut' : 'extrude';
+      const count = Math.max(1, Math.floor(values.count ?? 6));
+      await sculptCircularPattern(_sculptPart, mode, count, values.distance ?? 30, values.angle ?? 360);
+      return { status: 'success', message: `Sculpt Circular Pattern: ${count}× ${mode} over ${values.angle ?? 360}° | vol ≈ ${_sculptPart.solid.volume().toFixed(0)} mm³` };
+    },
+    // Pattern the open sketch into a straight row (head-bolt rows, cooling
+    // fins, rivet lines). Each copy offset by (dx, dy) mm from the last.
+    'Sculpt Linear Pattern': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Linear Pattern');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Linear Pattern cancelled' };
+      if (!_sculptPart || !_sculptHasOpenSketch) {
+        return { status: 'warn', message: 'Sculpt Linear Pattern: sketch a feature first.' };
+      }
+      sculptFinishSketch(_sculptPart);
+      _sculptHasOpenSketch = false;
+      const mode = values.mode === 'cut' ? 'cut' : 'extrude';
+      const count = Math.max(1, Math.floor(values.count ?? 5));
+      await sculptLinearPattern(_sculptPart, mode, count, values.distance ?? 30, values.dx ?? 50, values.dy ?? 0);
+      return { status: 'success', message: `Sculpt Linear Pattern: ${count}× ${mode} step (${values.dx ?? 50},${values.dy ?? 0}) | vol ≈ ${_sculptPart.solid.volume().toFixed(0)} mm³` };
     },
     'Sculpt Place Body': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Place Body');
