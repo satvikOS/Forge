@@ -150,34 +150,50 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   };
 
   const captureAllAngles = async (label) => {
-    await win.evaluate(() => {
-      if (typeof window.__archdiscFrameAll === 'function') window.__archdiscFrameAll();
-      if (typeof window.__archdiscSetOrbitBase === 'function') window.__archdiscSetOrbitBase();
-    });
-    await win.waitForTimeout(200);
-    // v6 — pulled-back zooms so the full 14 m tractor-trailer rig fits
-    // in every shot. The v5 audit showed top-down was just trailer roof
-    // (need much wider zoom) and side/wide were still too close. Per
-    // [[feedback_check_previous_before_iterating]] — no new parts in
-    // v6, only camera tuning.
+    // v8 — direct camera positioning via `__archdiscViewport`.
+    // v7 audit: multiplicative-zoom orbit helper kept producing the
+    // same view because FrameAll auto-centred + auto-fitted each
+    // capture. v8 sets camera position + lookAt target explicitly
+    // from the known rig bounding box.
+    //
+    // Scene units = metres (Three.js scale 0.001 mm→m), so a rig
+    // 14 m long sits at ~14 scene units. We aim the camera 25–40 m
+    // away in scene units so the whole rig fits at FOV~50°.
+    //
+    // Rig bbox in mm: x ∈ [−1500, +1500], y ∈ [0, 3500],
+    // z ∈ [−10400, 0]. Centre in scene metres: (0, 1.75, −5.2).
+    // Place camera at centre + (distance × dirVec).
+    const tgt = { x: 0, y: 1.75, z: -5.2 };
     const angles = [
-      { name: 'iso-front',     az:  35, el:  18, zoom: 3.5 },
-      { name: 'iso-rear',      az: 145, el:  18, zoom: 3.5 },
-      { name: 'front',         az:   0, el:   2, zoom: 2.4 },
-      { name: 'rear',          az: 180, el:   2, zoom: 2.4 },
-      { name: 'side-right',    az:  90, el:   5, zoom: 3.8 },  // full rig length
-      { name: 'side-left',     az: -90, el:   5, zoom: 3.8 },
-      { name: 'top-down',      az:   0, el:  85, zoom: 4.0 },  // entire footprint
-      { name: 'low-iso',       az:  35, el: -10, zoom: 3.0 },
-      { name: 'wide',          az:  35, el:  18, zoom: 4.5 },
-      { name: 'front-quarter', az:  25, el:  10, zoom: 2.6 },
-      { name: 'rear-quarter',  az: 155, el:  10, zoom: 2.6 },
-      // Cab-only close-up (no trailer) for inspecting cab fidelity.
-      { name: 'cab-close',     az:  35, el:   5, zoom: 0.8 },
+      { name: 'iso-front',     az:  35, el:  18, dist: 22 },
+      { name: 'iso-rear',      az: 145, el:  18, dist: 22 },
+      { name: 'front',         az:   0, el:   3, dist: 14 },
+      { name: 'rear',          az: 180, el:   3, dist: 14 },
+      { name: 'side-right',    az:  90, el:   8, dist: 22 },
+      { name: 'side-left',     az: -90, el:   8, dist: 22 },
+      { name: 'top-down',      az:   0, el:  85, dist: 22 },
+      { name: 'low-iso',       az:  35, el: -10, dist: 22 },
+      { name: 'wide',          az:  35, el:  18, dist: 32 },
+      { name: 'front-quarter', az:  25, el:  10, dist: 18 },
+      { name: 'rear-quarter',  az: 155, el:  10, dist: 18 },
+      { name: 'cab-close',     az:  35, el:   5, dist:  6 },
     ];
     for (const a of angles) {
-      await win.evaluate((c) => window.__archdiscOrbitView?.(c.az, c.el, c.zoom), a);
-      await win.waitForTimeout(180);
+      await win.evaluate(({ az, el, dist, tx, ty, tz }) => {
+        const vp = window.__archdiscViewport;
+        if (!vp?.camera || !vp?.orbitControls) return;
+        const azRad = (az * Math.PI) / 180;
+        const elRad = (el * Math.PI) / 180;
+        const cx = tx + dist * Math.cos(elRad) * Math.sin(azRad);
+        const cy = ty + dist * Math.sin(elRad);
+        const cz = tz + dist * Math.cos(elRad) * Math.cos(azRad);
+        vp.camera.position.set(cx, cy, cz);
+        vp.orbitControls.target.set(tx, ty, tz);
+        vp.camera.lookAt(tx, ty, tz);
+        vp.orbitControls.update();
+        if (vp.renderer) vp.renderer.render(vp.scene, vp.camera);
+      }, { ...a, tx: tgt.x, ty: tgt.y, tz: tgt.z });
+      await win.waitForTimeout(220);
       await win.screenshot({ path: path.join(OUT, `${label}-${a.name}.png`) });
     }
   };
