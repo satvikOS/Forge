@@ -255,6 +255,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xcfd3d7, step: 1 },
     ],
   },
+  'Sculpt Gear': {
+    title: 'Sculpt — Spur Gear (involute-style)',
+    blurb: 'A parametric spur gear: module × teeth on standard pitch/addendum/dedendum circles, with a central bore. Two same-module gears mesh at centre distance m·(z1+z2)/2.',
+    fields: [
+      { name: 'module', label: 'Module (m)', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'teeth', label: 'Teeth (z)', type: 'number', default: 24, min: 6, step: 1 },
+      { name: 'thickness', label: 'Face width', type: 'number', default: 120, unit: 'mm', min: 2, step: 5 },
+      { name: 'boreR', label: 'Bore radius', type: 'number', default: 60, unit: 'mm', min: 0, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a8d92, step: 1 },
+    ],
+  },
   'Sculpt Flex Pipe': {
     title: 'Sculpt — Flex Pipe (corrugated bellows)',
     blurb: 'A corrugated bellows tube (exhaust flex section) — radius oscillates along the axis to form real convolutions. Built along +Z; rotate onto the run.',
