@@ -145,6 +145,7 @@ import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../.
 import { findTool } from '../../ai/ToolRegistry.js';
 import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { crownPanel as fCrownPanel, fenderArch as fFenderArch } from '../../foundation/ClassAPanel.js';
+import { embossText as fEmbossText } from '../../foundation/EmbossText.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1891,6 +1892,28 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
       const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
+    },
+
+    // ─── SP-18 — embossed text (real-font 3D lettering, e.g. VOLVO) ─────
+    'Sculpt Embossed Text': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Embossed Text');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Embossed Text cancelled' };
+      try {
+        const text = (values.text ?? 'VOLVO').toString();
+        let m = await fEmbossText({
+          text, size: values.size ?? 300, depth: values.depth ?? 40,
+          curveSegments: values.curveSegments ?? 8,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0xcfd3d7;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Embossed Text: "${text}" @ ${values.size} mm — real-font 3D relief, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Embossed Text: ' + err.message };
+      }
     },
 
     'Import STEP': async (scene, viewport) => {

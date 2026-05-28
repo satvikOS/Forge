@@ -236,6 +236,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x2c4d6a, step: 1 },
     ],
   },
+  'Sculpt Embossed Text': {
+    title: 'Sculpt — Embossed Text (real-font relief)',
+    blurb: 'Extrude any string as smooth real-font 3D lettering (e.g. the VOLVO wordmark) — a true manifold you can mount raised on a panel.',
+    fields: [
+      { name: 'text', label: 'Text', type: 'text', default: 'VOLVO' },
+      { name: 'size', label: 'Cap height', type: 'number', default: 300, unit: 'mm', min: 5, step: 5 },
+      { name: 'depth', label: 'Relief depth', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'curveSegments', label: 'Glyph smoothness', type: 'number', default: 8, min: 2, step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xcfd3d7, step: 1 },
+    ],
+  },
   'Sculpt Zebra Check': {
     title: 'Sculpt — Zebra Check (Class-A QC)',
     blurb: 'Overlay striped reflection lines on every body to inspect surface continuity. Smooth, evenly-spaced stripes = clean Class-A; kinks/jumps = discontinuity. Run again to toggle off.',
