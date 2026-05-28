@@ -155,21 +155,25 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
       if (typeof window.__archdiscSetOrbitBase === 'function') window.__archdiscSetOrbitBase();
     });
     await win.waitForTimeout(200);
-    // v4 — every angle uses zoom>=1.6 so the full tractor-trailer fits.
-    // The v3 angles at zoom=1.0 had the camera too close, showing only
-    // a fragment of one side (per the previous-version audit).
+    // v6 — pulled-back zooms so the full 14 m tractor-trailer rig fits
+    // in every shot. The v5 audit showed top-down was just trailer roof
+    // (need much wider zoom) and side/wide were still too close. Per
+    // [[feedback_check_previous_before_iterating]] — no new parts in
+    // v6, only camera tuning.
     const angles = [
-      { name: 'iso-front',   az:  35, el:  18, zoom: 1.9 },
-      { name: 'iso-rear',    az: 145, el:  18, zoom: 1.9 },
-      { name: 'front',       az:   0, el:   2, zoom: 1.6 },
-      { name: 'rear',        az: 180, el:   2, zoom: 1.6 },
-      { name: 'side-right',  az:  90, el:   5, zoom: 2.0 },
-      { name: 'side-left',   az: -90, el:   5, zoom: 2.0 },
-      { name: 'top-down',    az:   0, el:  85, zoom: 2.0 },
-      { name: 'low-iso',     az:  35, el: -10, zoom: 1.9 },
-      { name: 'wide',        az:  35, el:  18, zoom: 2.8 },
-      { name: 'front-quarter', az: 25, el:  10, zoom: 1.7 },
-      { name: 'rear-quarter',  az: 155, el: 10, zoom: 1.7 },
+      { name: 'iso-front',     az:  35, el:  18, zoom: 3.5 },
+      { name: 'iso-rear',      az: 145, el:  18, zoom: 3.5 },
+      { name: 'front',         az:   0, el:   2, zoom: 2.4 },
+      { name: 'rear',          az: 180, el:   2, zoom: 2.4 },
+      { name: 'side-right',    az:  90, el:   5, zoom: 3.8 },  // full rig length
+      { name: 'side-left',     az: -90, el:   5, zoom: 3.8 },
+      { name: 'top-down',      az:   0, el:  85, zoom: 4.0 },  // entire footprint
+      { name: 'low-iso',       az:  35, el: -10, zoom: 3.0 },
+      { name: 'wide',          az:  35, el:  18, zoom: 4.5 },
+      { name: 'front-quarter', az:  25, el:  10, zoom: 2.6 },
+      { name: 'rear-quarter',  az: 155, el:  10, zoom: 2.6 },
+      // Cab-only close-up (no trailer) for inspecting cab fidelity.
+      { name: 'cab-close',     az:  35, el:   5, zoom: 0.8 },
     ];
     for (const a of angles) {
       await win.evaluate((c) => window.__archdiscOrbitView?.(c.az, c.el, c.zoom), a);
@@ -454,18 +458,23 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   // Per [[feedback_check_previous_before_iterating]]: no NEW parts in
   // v4 — only the trailer scale fix that addresses the v3 regression.
   await place('Automotive', 'Trailer King-Pin Plate', -450, T.frameY + 80, -3400);
-  // v5 adjustment: 5 m was too short — split the difference at 7 m so
-  // the trailer is proportionally correct for a Volvo FH tractor (12 m
-  // total combo length, tractor 5 m + trailer 7 m).
+  // v6 — keep the 7 m trailer but DROP THE ROOF placement. The v5 audit
+  // showed the trailer roof was a huge opaque white panel that
+  // dominated top-down views and hid the cab from above. With the roof
+  // removed the top-down view shows the truck interior + chassis +
+  // trailer floor (cargo bed style). Sides + rear door + floor remain.
   const TLR_FLOOR_Y = T.frameY + 200;
   const TLR_ROOF_Y  = TLR_FLOOR_Y + 2200;
   const TLR_FRONT_Z = -3400;
   const TLR_REAR_Z  = -10400;
+  const SKIP_TRAILER_ROOF = true;
   // Trailer Floor / Roof scaled — we still pass the catalog leaf (10m)
   // but PLACE further forward so the visible 5m segment overlaps the
   // tractor end with the trailer rear visible.
   await place('Automotive', 'Trailer Floor', -1150, TLR_FLOOR_Y, TLR_REAR_Z + 5000, 90, 0, 0);
-  await place('Automotive', 'Trailer Roof',  -1150, TLR_ROOF_Y,  TLR_REAR_Z + 5000, 90, 0, 0);
+  if (!SKIP_TRAILER_ROOF) {
+    await place('Automotive', 'Trailer Roof', -1150, TLR_ROOF_Y, TLR_REAR_Z + 5000, 90, 0, 0);
+  }
   await place('Automotive', 'Trailer Side Panel', -1150, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
   await place('Automotive', 'Trailer Side Panel',  1140, TLR_FLOOR_Y, TLR_FRONT_Z, 0, 90, 0);
   await place('Automotive', 'Trailer Rear Door', -1150, TLR_FLOOR_Y, TLR_REAR_Z, 0, 180, 0);
