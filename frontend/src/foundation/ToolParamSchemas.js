@@ -253,6 +253,13 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xcfd3d7, step: 1 },
     ],
   },
+  'Sculpt Merge Bodies': {
+    title: 'Sculpt — Merge Bodies (weld watertight)',
+    blurb: 'Boolean-union every solid body into ONE watertight solid (overlapping panels weld at their seams). Exact — keeps smooth Class-A surfaces, no voxelization.',
+    fields: [
+      { name: 'color', label: 'Merged colour (hex)', type: 'number', default: 0x33597a, step: 1 },
+    ],
+  },
   'Sculpt Zebra Check': {
     title: 'Sculpt — Zebra Check (Class-A QC)',
     blurb: 'Overlay striped reflection lines on every body to inspect surface continuity. Smooth, evenly-spaced stripes = clean Class-A; kinks/jumps = discontinuity. Run again to toggle off.',

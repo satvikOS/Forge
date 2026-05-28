@@ -1894,6 +1894,35 @@ const TOOL_HANDLERS = {
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
     },
 
+    // ─── SP-20 — merge skins into ONE watertight body (boolean union) ───
+    // Exact union (NOT a voxel op) so smooth Class-A surfaces are
+    // preserved while the separate overlapping panels become a single
+    // sealed solid — the "stitch/trim into a sealed body" step.
+    'Sculpt Merge Bodies': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Merge Bodies');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Merge Bodies cancelled' };
+      const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || getBodyRegistry();
+      // skip instanced sub-assemblies (no single mergeable manifold)
+      const bodies = (reg?.list?.() || []).filter(b => b.manifold && b.group && !b.group.userData?.subAssembly);
+      if (bodies.length < 2) return { status: 'warn', message: 'Sculpt Merge Bodies: need ≥2 solid bodies to merge.' };
+      try {
+        const Mod = await getManifold();
+        let acc = Mod.Manifold.union(bodies[0].manifold, bodies[1].manifold);
+        for (let i = 2; i < bodies.length; i++) {
+          const nx = Mod.Manifold.union(acc, bodies[i].manifold);
+          acc.delete(); acc = nx;
+        }
+        const n = bodies.length;
+        for (const b of bodies) { try { reg.remove(b.id); } catch (e) { /* already gone */ } }
+        const color = Number.isFinite(values.color) ? values.color : 0x33597a;
+        addFoundationManifoldToScene(scene, viewport, acc, color);
+        if (typeof window !== 'undefined') window.__lastMerge = { mergedCount: n, volume: acc.volume() };
+        return { status: 'success', message: `Sculpt Merge Bodies: welded ${n} skins into ONE watertight body — V≈${acc.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Merge Bodies: ' + err.message };
+      }
+    },
+
     // ─── SP-18 — embossed text (real-font 3D lettering, e.g. VOLVO) ─────
     'Sculpt Embossed Text': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Embossed Text');
