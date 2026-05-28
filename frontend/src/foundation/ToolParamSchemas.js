@@ -255,6 +255,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xcfd3d7, step: 1 },
     ],
   },
+  'Sculpt Bearing': {
+    title: 'Sculpt — Ball Bearing',
+    blurb: 'A rolling-element bearing: outer race + inner race + a ring of balls at the pitch circle. Axis +Z.',
+    fields: [
+      { name: 'boreR', label: 'Bore radius', type: 'number', default: 80, unit: 'mm', min: 2, step: 2 },
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 160, unit: 'mm', min: 5, step: 2 },
+      { name: 'width', label: 'Width', type: 'number', default: 90, unit: 'mm', min: 2, step: 2 },
+      { name: 'balls', label: 'Ball count', type: 'number', default: 10, min: 4, step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa0a6, step: 1 },
+    ],
+  },
   'Sculpt Thread': {
     title: 'Sculpt — Threaded Rod (V-thread)',
     blurb: 'A real single-start helical V-thread (screws / studs / lead screws). One crest wraps the circumference and spirals up by the pitch. Axis +Y.',

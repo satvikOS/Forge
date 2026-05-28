@@ -151,6 +151,7 @@ import { corrugatedPipe as fCorrugatedPipe } from '../../foundation/FlexPipe.js'
 import { spurGear as fSpurGear } from '../../foundation/SpurGear.js';
 import { helicalSpring as fHelicalSpring } from '../../foundation/SpringCoil.js';
 import { threadedRod as fThreadedRod } from '../../foundation/ThreadedRod.js';
+import { ballBearing as fBallBearing } from '../../foundation/Bearing.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1897,6 +1898,27 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
       const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
+    },
+
+    // ─── SP-32 — ball bearing (races + rolling balls) ─────────────────
+    'Sculpt Bearing': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Bearing');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Bearing cancelled' };
+      try {
+        let m = await fBallBearing({
+          boreR: values.boreR ?? 80, outerR: values.outerR ?? 160,
+          width: values.width ?? 90, balls: values.balls ?? 10,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x9aa0a6;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Bearing: Ø${(values.boreR ?? 80) * 2} bore → Ø${(values.outerR ?? 160) * 2}, ${values.balls ?? 10} balls — V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Bearing: ' + err.message };
+      }
     },
 
     // ─── SP-30 — threaded rod (single-start helical V-thread) ──────────

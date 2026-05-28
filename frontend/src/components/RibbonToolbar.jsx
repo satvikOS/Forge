@@ -268,6 +268,7 @@ export const TABS = {
         { name: 'Sculpt Gear',      icon: '⚙', key: 'part' },
         { name: 'Sculpt Spring',    icon: '➰', key: 'part' },
         { name: 'Sculpt Thread',    icon: '🌀', key: 'part' },
+        { name: 'Sculpt Bearing',   icon: '⊚', key: 'part' },
         { name: 'Sculpt Bolt Array', icon: '⁘', key: 'part' },
         { name: 'Sculpt Crown Panel', icon: '⌒', key: 'part' },
         { name: 'Sculpt Fender Arch', icon: '◜', key: 'part' },
