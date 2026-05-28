@@ -966,7 +966,7 @@ function WorkbenchMechanical() {
                 if (leaf.includes('Cab Roof Panel'))     return 0x4ebec0;  // cab cyan
                 if (leaf.includes('Cab Floor Panel'))    return 0x46555c;  // dark floor
                 if (leaf.includes('Windshield'))         return 0x2a3e48;  // v9 — darker tinted glass so interior doesn't bleed through
-                if (leaf.includes('Side Window'))        return 0xa7d5e2;  // pale blue glass
+                if (leaf.includes('Side Window'))        return 0x18242c;  // v12 — opaque tinted glass (was pale blue, let interior show through)
                 if (leaf.includes('Cab Door'))           return 0xb84a3a;  // body red
                 if (leaf.includes('Air Deflector'))      return 0x4ebec0;  // cyan
                 if (leaf.includes('A Pillar'))           return 0x2a3036;
