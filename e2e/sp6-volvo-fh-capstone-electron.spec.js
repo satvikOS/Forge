@@ -126,11 +126,26 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
     await win.waitForFunction(([p]) => (window.__archdiscRegistry?.list?.() || []).length > p, [before], { timeout: 180000 });
     return (await bodyCount()) - before;
   };
-  const place = async (catName, leafName, x, y, z, rx = 0, ry = 0, rz = 0) => {
+  // v13/SP-7 — fill per-placement dimension inputs declared by the
+  // catalog leaf (NO baked dims in JS). When `dims` is passed, the
+  // e2e fills the `data-dim-field` inputs in the dialog before
+  // clicking Place; the spec dispatched to the place-handler carries
+  // these as opts.dimensions, which the builder reads instead of any
+  // catalog default.
+  const setDims = async (dims) => {
+    if (!dims) return;
+    for (const [name, val] of Object.entries(dims)) {
+      const inp = win.locator(`.standards-library-dialog [data-dim-field="${name}"]`);
+      if (await inp.count() === 0) continue;
+      await inp.fill(String(val));
+    }
+  };
+  const place = async (catName, leafName, x, y, z, rx = 0, ry = 0, rz = 0, dims) => {
     await openStd('single');
     await cat(catName);
     await lf(leafName);
     await setPR(x, y, z, rx, ry, rz);
+    await setDims(dims);
     return stdPlace();
   };
   const placeCirc = async (catName, leafName, x, y, z, count, radius, opts = {}) => {
@@ -307,8 +322,13 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   //
   // Hmm this is getting confusing. Let me just place it with rotation
   // and accept some visual offset. Tweak if needed.
-  await place('Automotive', 'Cab Floor Panel', -1250, T.cabFloorY, T.cabRearZ, 90, 0, 0);
-  await place('Automotive', 'Cab Roof Panel',  -1250, T.cabRoofY,  T.cabRearZ, 90, 0, 0);
+  // v13 — sketchRectangle is CENTRED at (cx, cy). Earlier versions
+  // used x=-1250 thinking it was the panel corner, but actually it
+  // was the panel CENTRE, so the body occupied x=[-2500, 0] (half the
+  // cab missing). Centre placements at x=0, z=cabMidZ.
+  const cabMidZ = (T.cabFrontZ + T.cabRearZ) / 2;
+  await place('Automotive', 'Cab Floor Panel', 0, T.cabFloorY, cabMidZ, 90, 0, 0);
+  await place('Automotive', 'Cab Roof Panel',  0, T.cabRoofY,  cabMidZ, 90, 0, 0);
 
   // Side Panels: built width × height × thickness. Native XY plane =
   // 2200×2400, thin in Z. To make it a VERTICAL side wall in YZ plane
@@ -320,14 +340,21 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   // Place LEFT side at x=−1250, top of floor (y=cabFloorY), z=cabFrontZ
   // (front of cab). After ry=90, the 2200-wide dim extends in −Z from
   // z=cabFrontZ to z=cabFrontZ−2200 = cabRearZ.
-  await place('Automotive', 'Cab Side Panel', -1250, T.cabFloorY, T.cabFrontZ, 0, 90, 0);
-  await place('Automotive', 'Cab Side Panel',  1240, T.cabFloorY, T.cabFrontZ, 0, 90, 0);
+  // v13 — side panels centred at cabMidZ along Z, x=±1280 (60mm-thick
+  // wall sits at x∈[1250,1310] right / [-1310,-1250] left).
+  // SP-7: dimensions now PASSED through the dialog (not baked). The
+  // 2200×2400×60 values reach the builder via opts.dimensions filled
+  // by setDims().
+  const cabSideDims = { width_mm: 2200, height_mm: 2400, thickness_mm: 60 };
+  await place('Automotive', 'Cab Side Panel', -1280, T.cabFloorY, cabMidZ, 0, 90, 0, cabSideDims);
+  await place('Automotive', 'Cab Side Panel',  1280, T.cabFloorY, cabMidZ, 0, 90, 0, cabSideDims);
 
   // Rear Panel: built width × height × thickness (2500×2400×10). Native
   // face is XY, normal +Z. To put it at the back wall of the cab, we
   // want face XY normal -Z (facing forward toward driver). Just rotate
   // ry=180 to flip. Place at x=−1250, y=cabFloorY, z=cabRearZ.
-  await place('Automotive', 'Cab Rear Panel', -1250, T.cabFloorY, T.cabRearZ, 0, 180, 0);
+  // v13 — rear panel centred at x=0
+  await place('Automotive', 'Cab Rear Panel', 0, T.cabFloorY, T.cabRearZ, 0, 180, 0);
 
   // Windshield: tilted glass at the cab FRONT.
   // Built as 2300×1100 in XY, extruded by 8 in Z. To place at cabFrontZ

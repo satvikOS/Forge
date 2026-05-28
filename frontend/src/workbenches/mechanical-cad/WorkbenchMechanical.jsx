@@ -1078,6 +1078,10 @@ function WorkbenchMechanical() {
                 designation: spec.designation,
                 length_mm: spec.length_mm,
                 length_in: spec.length_in,
+                // Per-placement dims dialog-input (no baked catalog
+                // values). Catalog leaves declare `dimensionFields`;
+                // dialog renders them; spec carries them here.
+                dimensions: spec.dimensions || {},
             };
             await placeStandard(spec.builderKey, part, builderOpts);
             // Rotation BEFORE translate — rotates the part around its own

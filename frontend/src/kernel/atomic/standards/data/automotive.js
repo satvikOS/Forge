@@ -177,10 +177,15 @@ export const VOLVO_FH = {
   // Cab is ~2500 mm wide × 2400 mm tall × 2200 mm deep (from fascia
   // backplate to cab rear wall). All panels are flat slabs that get
   // positioned + rotated into the cab box.
+  // v13 (post-omni-coherence): dims are NOT baked here. The catalog
+  // entry just names the part + declares which dim fields the dialog
+  // should render; the user / e2e supplies the actual numbers.
   'Cab Side Panel': {
-    width_mm: 2200,
-    height_mm: 2400,
-    thickness_mm: 60,   // v10 — was 10mm, interior bleed-through visible
+    dimensionFields: [
+      { name: 'width_mm',     label: 'Width',     default: 2200, step: 50 },
+      { name: 'height_mm',    label: 'Height',    default: 2400, step: 50 },
+      { name: 'thickness_mm', label: 'Thickness', default: 60,   step: 5  },
+    ],
   },
   'Cab Rear Panel': {
     width_mm: 2500,

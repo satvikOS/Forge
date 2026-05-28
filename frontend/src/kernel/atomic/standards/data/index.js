@@ -12,6 +12,11 @@ export * from './skf.js';
 export * from './spacecraft.js';
 export * from './automotive.js';
 
+// Re-import what we need to compose STANDARDS_CATALOG below — explicit
+// import (not just star-export) so we can reference dimensionFields
+// from data files inline.
+import { VOLVO_FH } from './automotive.js';
+
 import {
   ISO_4762, ISO_4014, ISO_4017, ISO_4032, ISO_7089, ISO_7090,
   ISO_273, ISO_898_GRADES, ISO_SIZES,
@@ -152,7 +157,12 @@ export const STANDARDS_CATALOG = {
     'Lower Side Skirt':          { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoLowerSideSkirt' },
     'Door Handle Recess':        { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoDoorHandleRecess' },
     'Roof Beacon Bar':           { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoRoofBeaconBar' },
-    'Cab Side Panel':            { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoCabSidePanel' },
+    'Cab Side Panel': {
+      standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm',
+      builderKey: 'volvoCabSidePanel',
+      // The catalog leaf inherits dimensionFields from the data spec — propagate.
+      dimensionFields: VOLVO_FH['Cab Side Panel'].dimensionFields,
+    },
     'Cab Rear Panel':            { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoCabRearPanel' },
     'Cab Roof Panel':            { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoCabRoofPanel' },
     'Cab Floor Panel':           { standard: 'Volvo FH ref', sizes: ['stock'], table: { stock: {} }, units: 'mm', builderKey: 'volvoCabFloorPanel' },

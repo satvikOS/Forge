@@ -376,12 +376,20 @@ export async function volvoRoofBeaconBar(part) {
 // position + rotation (via the dialog) orients it as a side wall,
 // roof, floor, windshield etc.
 
-export async function volvoCabSidePanel(part) {
-  const c = VOLVO_FH['Cab Side Panel'];
+export async function volvoCabSidePanel(part, opts = {}) {
+  // v13/SP-7 — dims come from per-placement opts.dimensions (filled by
+  // the dialog), NOT from a baked catalog spec. Falls back to the leaf's
+  // declared dimensionFields defaults if the dialog didn't override.
+  const d = opts.dimensions || {};
+  const fallback = (VOLVO_FH['Cab Side Panel'].dimensionFields || [])
+    .reduce((m, f) => ({ ...m, [f.name]: f.default }), {});
+  const width_mm     = d.width_mm     ?? fallback.width_mm     ?? 2200;
+  const height_mm    = d.height_mm    ?? fallback.height_mm    ?? 2400;
+  const thickness_mm = d.thickness_mm ?? fallback.thickness_mm ?? 60;
   await startSketch(part, 'XY');
-  sketchRectangle(part, 0, 0, c.width_mm, c.height_mm);
+  sketchRectangle(part, 0, 0, width_mm, height_mm);
   finishSketch(part);
-  await extrude(part, c.thickness_mm);
+  await extrude(part, thickness_mm);
   return part;
 }
 export async function volvoCabRearPanel(part) {

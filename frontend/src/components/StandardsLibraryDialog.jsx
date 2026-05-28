@@ -38,6 +38,7 @@ export default function StandardsLibraryDialog() {
     rotationX: 0,                   // deg, world X
     rotationY: 0,                   // deg, world Y
     rotationZ: 0,                   // deg, world Z (applied BEFORE translate)
+    dimensions: {},                 // per-placement dim inputs (no baked dims)
     orientRadial: false,            // circular-pattern only: rotate each
                                     // instance around Z so +X points outward
     pattern: 'circular',            // 'circular' | 'linear'
@@ -84,17 +85,30 @@ export default function StandardsLibraryDialog() {
     }
   }, [state.category, state.leafName]);
 
-  // When leaf changes, reset size + length to leaf defaults.
+  // When leaf changes, reset size + length to leaf defaults AND seed
+  // per-placement dimension fields from the leaf's `dimensionFields`
+  // declaration (each field has {name, default, label, unit}).
   useEffect(() => {
     if (!leaf) return;
     const firstSize = leaf.sizes[0];
     setState((s) => {
-      if (s.size && leaf.table[s.size]) return s;
+      const nextDims = {};
+      if (Array.isArray(leaf.dimensionFields)) {
+        for (const f of leaf.dimensionFields) {
+          nextDims[f.name] = (s.dimensions && s.dimensions[f.name] != null)
+            ? s.dimensions[f.name]
+            : f.default;
+        }
+      }
+      if (s.size && leaf.table[s.size]) {
+        return { ...s, dimensions: nextDims };
+      }
       return {
         ...s,
         size: firstSize,
         length: leaf.defaultLength_mm || leaf.defaultLength_in || 25,
         grade: leaf.defaultGrade || s.grade,
+        dimensions: nextDims,
       };
     });
   }, [leaf]);
@@ -117,6 +131,7 @@ export default function StandardsLibraryDialog() {
       designation: state.size,
       position: [state.positionX, state.positionY, state.positionZ + state.axisZOffset],
       rotation: [state.rotationX, state.rotationY, state.rotationZ],
+      dimensions: { ...state.dimensions },   // user-input dims, never baked
       mode: state.mode,
     };
     if (state.mode === 'pattern') {
@@ -270,6 +285,36 @@ export default function StandardsLibraryDialog() {
                 onChange={(e) => setState((s) => ({ ...s, rotationZ: parseFloat(e.target.value) || 0 }))}
               />
             </div>
+
+            {/* Per-placement DIMENSION inputs — declared by the catalog
+                leaf via `dimensionFields:[{name,label,default,unit}]`.
+                No dims are baked in the catalog spec; every dimension
+                is filled by the user / e2e through these inputs. */}
+            {Array.isArray(leaf?.dimensionFields) && leaf.dimensionFields.length > 0 && (
+              <div className="dims-block">
+                <div className="row"><label>Dimensions (mm)</label></div>
+                {leaf.dimensionFields.map((f) => (
+                  <div key={f.name} className="row dim-row">
+                    <label htmlFor={`sl-dim-${f.name}`}>{f.label}</label>
+                    <input
+                      id={`sl-dim-${f.name}`}
+                      data-dim-field={f.name}
+                      type="number"
+                      value={state.dimensions[f.name] ?? f.default ?? 0}
+                      step={f.step || 1}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setState((s) => ({
+                          ...s,
+                          dimensions: { ...s.dimensions, [f.name]: Number.isFinite(v) ? v : 0 },
+                        }));
+                      }}
+                    />
+                    {f.unit && <span style={{ fontSize: 10, color: '#888' }}>{f.unit}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {state.mode === 'pattern' && (
               <div className="pattern-block">
