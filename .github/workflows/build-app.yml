@@ -87,6 +87,18 @@ jobs:
           node -e "const fs=require('fs');const p=require('./package.json');p.version='$VERSION';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
           node -e "console.log('package.json version is now', require('./package.json').version)"
 
+      # npm's registry fetches occasionally ECONNRESET / abort on the hosted
+      # runners (build 1.0.417 / commit a448d0b failed exactly here on the
+      # Linux job while Windows + Mac succeeded with identical code). Make
+      # npm retry individual fetches with generous timeouts.
+      - name: Configure npm fetch retries
+        shell: bash
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set fetch-timeout 600000
+
       # --ignore-scripts is REQUIRED here: the root package.json defines an
       # `install` lifecycle script (`npm install --prefix backend && ...`).
       # `backend/` is a separate server component — it is NOT bundled into the
@@ -96,12 +108,29 @@ jobs:
       # tree, which crashed Windows npm with EPERM during cleanup. The desktop
       # release build only needs root (electron/electron-builder/electron-updater)
       # + frontend deps.
+      #
+      # Wrapped in a 3-attempt retry loop (mirrors the electron-builder step)
+      # so a single transient network abort can't fail the whole release.
       - name: Install root dependencies (electron, electron-builder, electron-updater)
-        run: npm install --no-audit --no-fund --ignore-scripts
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            echo "root npm install attempt $i"
+            npm install --no-audit --no-fund --ignore-scripts && break
+            if [ "$i" -eq 3 ]; then echo "root npm install failed after 3 attempts"; exit 1; fi
+            sleep $((i * 20))
+          done
 
       - name: Install frontend dependencies
-        run: npm install --no-audit --no-fund
+        shell: bash
         working-directory: frontend
+        run: |
+          for i in 1 2 3; do
+            echo "frontend npm install attempt $i"
+            npm install --no-audit --no-fund && break
+            if [ "$i" -eq 3 ]; then echo "frontend npm install failed after 3 attempts"; exit 1; fi
+            sleep $((i * 20))
+          done
 
       - name: Build frontend (Vite)
         run: npx vite build
