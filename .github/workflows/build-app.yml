@@ -33,10 +33,13 @@ permissions:
   contents: write
 
 concurrency:
-  # Per-SHA group so every commit gets its own queue slot and a real
-  # release. No cancellation — releasing on every commit is intentional.
+  # Per-SHA group so every distinct commit gets its own slot and a real
+  # release (different SHAs never collide). cancel-in-progress collapses a
+  # DOUBLE-DELIVERED push webhook for the SAME SHA to a single run — a
+  # double delivery once produced two builds (#421 + #422) and two
+  # releases for one commit; with cancellation the duplicate is superseded.
   group: build-app-${{ github.sha }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   release:
