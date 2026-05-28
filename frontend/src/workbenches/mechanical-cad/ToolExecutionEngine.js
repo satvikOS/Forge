@@ -145,6 +145,7 @@ import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../.
 import { findTool } from '../../ai/ToolRegistry.js';
 import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
+import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
 import { ArchDiscKernel } from '../../kernel/brep/ArchDiscKernel.js';
 import { tessellatePerFace as kernelTessellatePerFace } from '../../kernel/brep/BrepTessellate.js';
@@ -1755,6 +1756,70 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Tire: Ø${outerR * 2} × ${width} mm, ${treadCount} tread blocks | ${part.featureCount()} features` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Tire: ' + err.message };
+      }
+    },
+
+    // ─── SP-13/14/15 — instanced fastener array (one draw call) ────────
+    // Sculpt one hex bolt, then stamp it `count` times via a single
+    // THREE.InstancedMesh (SP-15) — PBR metal material (SP-14), registered
+    // as one named sub-assembly group (SP-13). count can run into the
+    // hundreds/thousands at ~1 draw call.
+    'Sculpt Bolt Array': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Bolt Array');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Bolt Array cancelled' };
+      try {
+        const headR = values.headR ?? 16, headH = values.headH ?? 12;
+        const shankR = values.shankR ?? 9, shankLen = values.shankLen ?? 42;
+        const layout = values.layout || 'grid';
+        const count = Math.max(1, Math.floor(values.count ?? 120));
+        const spacing = values.spacing ?? 64, radius = values.radius ?? 320;
+        // base bolt: hex head (0..headH) + shank (0..headH+shankLen), unioned
+        const part = sculptCreatePart('Bolt');
+        await sculptStartSketch(part, 'XY');
+        sculptSketchPolygon(part, 0, 0, headR, 6);
+        sculptFinishSketch(part);
+        await sculptExtrude(part, headH);
+        await sculptStartSketch(part, 'XY');
+        sculptSketchCircle(part, 0, 0, shankR);
+        sculptFinishSketch(part);
+        await sculptExtrude(part, headH + shankLen);
+        // index-driven instance transforms (NO randomness)
+        const instances = [];
+        if (layout === 'circle') {
+          for (let i = 0; i < count; i++) {
+            const a = (i / count) * 2 * Math.PI;
+            instances.push({ position: [Math.cos(a) * radius, Math.sin(a) * radius, 0] });
+          }
+        } else {
+          const cols = Math.ceil(Math.sqrt(count));
+          for (let i = 0; i < count; i++) {
+            const r = Math.floor(i / cols), c = i % cols;
+            instances.push({ position: [c * spacing - (cols - 1) * spacing / 2, r * spacing - (Math.ceil(count / cols) - 1) * spacing / 2, 0] });
+          }
+        }
+        const inst = buildInstancedAssembly({
+          basePart: part.solid, instances,
+          materialOpts: { color: Number.isFinite(values.color) ? values.color : 0x8a8d92, metalness: 0.72, roughness: 0.34 },
+        });
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        group.position.set(x * 0.001, y * 0.001, z * 0.001);
+        const rx = values.rx ?? 0;
+        if (rx) group.rotation.x = rx * Math.PI / 180;
+        group.add(inst);
+        group.name = values.name || `Fastener Array (${count})`;
+        group.userData.pickable = true;
+        group.userData.generatedModel = true;
+        group.userData.subAssembly = true;        // SP-13 — named sub-assembly
+        group.userData.instanceCount = count;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+        try { registerBody({ group, manifold: part.solid, sourceTool: 'Sculpt Bolt Array' }); } catch (e) { /* registry optional */ }
+        if (typeof window !== 'undefined') window.__lastInstancedArray = { count, layout, drawCalls: 1, name: group.name };
+        return { status: 'success', message: `Sculpt Bolt Array: ${count} bolts (${layout}) → ONE InstancedMesh / 1 draw call, PBR metal, sub-assembly "${group.name}"` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Bolt Array: ' + err.message };
       }
     },
 

@@ -264,6 +264,7 @@ export const TABS = {
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
         { name: 'Sculpt Tire',      icon: '◎', key: 'part' },
+        { name: 'Sculpt Bolt Array', icon: '⁘', key: 'part' },
         { name: 'Sculpt Place Body', icon: '⊕', key: 'part' },
       ]},
     ]
