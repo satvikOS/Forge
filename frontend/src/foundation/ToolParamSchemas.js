@@ -255,6 +255,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xcfd3d7, step: 1 },
     ],
   },
+  'Sculpt Spring': {
+    title: 'Sculpt — Helical Spring',
+    blurb: 'A coil spring: a circular wire swept along a helix (suspension / valve / compression). Keep pitch > 2·wire-radius so coils do not fuse. Axis +Y.',
+    fields: [
+      { name: 'coilR', label: 'Coil radius', type: 'number', default: 120, unit: 'mm', min: 5, step: 5 },
+      { name: 'wireR', label: 'Wire radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'pitch', label: 'Pitch (rise/turn)', type: 'number', default: 80, unit: 'mm', min: 4, step: 2 },
+      { name: 'turns', label: 'Turns', type: 'number', default: 8, min: 1, step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa0a6, step: 1 },
+    ],
+  },
   'Sculpt Gear': {
     title: 'Sculpt — Spur Gear (involute-style)',
     blurb: 'A parametric spur gear: module × teeth on standard pitch/addendum/dedendum circles, with a central bore. Two same-module gears mesh at centre distance m·(z1+z2)/2.',

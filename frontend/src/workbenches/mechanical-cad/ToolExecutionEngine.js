@@ -149,6 +149,7 @@ import { embossText as fEmbossText } from '../../foundation/EmbossText.js';
 import { edgeFillet as fEdgeFillet } from '../../foundation/EdgeBlend.js';
 import { corrugatedPipe as fCorrugatedPipe } from '../../foundation/FlexPipe.js';
 import { spurGear as fSpurGear } from '../../foundation/SpurGear.js';
+import { helicalSpring as fHelicalSpring } from '../../foundation/SpringCoil.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1895,6 +1896,27 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
       const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
+    },
+
+    // ─── SP-29 — helical spring (wire swept along a helix) ─────────────
+    'Sculpt Spring': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Spring');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Spring cancelled' };
+      try {
+        let m = await fHelicalSpring({
+          coilR: values.coilR ?? 120, wireR: values.wireR ?? 20,
+          pitch: values.pitch ?? 80, turns: values.turns ?? 8,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x9aa0a6;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Spring: coil Ø${(values.coilR ?? 120) * 2}, wire Ø${(values.wireR ?? 20) * 2}, ${values.turns ?? 8} turns — V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Spring: ' + err.message };
+      }
     },
 
     // ─── SP-28 — spur gear (parametric involute-style teeth) ───────────
