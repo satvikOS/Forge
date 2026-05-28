@@ -45,6 +45,23 @@ import {
 // Mirror Feature, Sweep, Loft, Quad-tet FEA, Frame FEA, etc.) so
 // clicks in the ribbon exercise the validated foundation code paths.
 import { getManifold } from '../../foundation/manifoldKernel.js';
+// Atomic-sculpt ops — the pure platform-driven construction path. The
+// Sculpt ribbon tools below call these (via dialogs) so the e2e/AI
+// builds each part sketch-by-sketch with user-input dims; no catalog
+// recipes, no baked geometry.
+import {
+  createPart as sculptCreatePart,
+  startSketch as sculptStartSketch,
+  sketchRectangle as sculptSketchRectangle,
+  sketchCircle as sculptSketchCircle,
+  sketchPolygon as sculptSketchPolygon,
+  finishSketch as sculptFinishSketch,
+  extrude as sculptExtrude,
+  cut as sculptCut,
+  revolve as sculptRevolve,
+  translate as sculptTranslate,
+  rotate as sculptRotate,
+} from '../../kernel/atomic/AtomicOps.js';
 import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
 import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
 import { export3MF } from '../../foundation/MeshThreeMF.js';
@@ -267,6 +284,21 @@ export function executeTool(groupKey, toolName, scene, viewport) {
 // Name of the currently-running ribbon tool — addFoundationManifoldToScene
 // reads this so each new body remembers which tool created it.
 let _activeToolName = null;
+
+// ─── Atomic-sculpt session state ──────────────────────────────────────────
+// The pure-sculpt ribbon tools build ONE part at a time. `_sculptPart`
+// is the active Part being sculpted; Sculpt Rectangle/Circle start or
+// continue its sketch, Extrude/Revolve/Cut add features, Place Body
+// finishes + registers it and clears the slot for the next part.
+let _sculptPart = null;
+let _sculptHasOpenSketch = false;
+function _sculptEnsurePart() {
+  if (!_sculptPart) {
+    _sculptPart = sculptCreatePart(`Sculpt Part ${Date.now() % 100000}`);
+    _sculptHasOpenSketch = false;
+  }
+  return _sculptPart;
+}
 
 /**
  * Apply position + rotation from a primitive's dialog values to a Three.js
@@ -1474,6 +1506,101 @@ const TOOL_HANDLERS = {
       }
       window.dispatchEvent(new CustomEvent('archdisc:standards-library:open', { detail: { mode: 'pattern' } }));
       return { status: 'success', message: 'Pattern Standards: catalog browser opened (pattern placement).' };
+    },
+
+    // ─── ATOMIC SCULPT — pure platform-driven construction ──────────────
+    // No catalog recipes, no baked dims. Each tool opens a dialog,
+    // takes user-input dimensions, and runs the corresponding AtomicOps
+    // function on the active `_sculptPart`. The feature history is
+    // recorded + replayable in the FeatureTreePanel.
+    'Sculpt Rectangle': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Rectangle');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Rectangle cancelled' };
+      const part = _sculptEnsurePart();
+      if (!_sculptHasOpenSketch) {
+        await sculptStartSketch(part, values.plane || 'XY');
+        _sculptHasOpenSketch = true;
+      }
+      sculptSketchRectangle(part, values.cx ?? 0, values.cy ?? 0, values.w ?? 100, values.h ?? 100);
+      return { status: 'success', message: `Sculpt Rectangle: ${values.w}×${values.h} mm on ${values.plane} | features: ${part.featureCount()}` };
+    },
+    'Sculpt Circle': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Circle');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Circle cancelled' };
+      const part = _sculptEnsurePart();
+      if (!_sculptHasOpenSketch) {
+        await sculptStartSketch(part, values.plane || 'XY');
+        _sculptHasOpenSketch = true;
+      }
+      sculptSketchCircle(part, values.cx ?? 0, values.cy ?? 0, values.r ?? 50);
+      return { status: 'success', message: `Sculpt Circle: r=${values.r} mm | features: ${part.featureCount()}` };
+    },
+    'Sculpt Polygon': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Polygon');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Polygon cancelled' };
+      const part = _sculptEnsurePart();
+      if (!_sculptHasOpenSketch) {
+        await sculptStartSketch(part, values.plane || 'XY');
+        _sculptHasOpenSketch = true;
+      }
+      sculptSketchPolygon(part, values.cx ?? 0, values.cy ?? 0, values.r ?? 50, values.n ?? 6);
+      return { status: 'success', message: `Sculpt Polygon: ${values.n}-gon r=${values.r} | features: ${part.featureCount()}` };
+    },
+    'Sculpt Extrude': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Extrude');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Extrude cancelled' };
+      if (!_sculptPart || !_sculptHasOpenSketch) {
+        return { status: 'warn', message: 'Sculpt Extrude: sketch a profile first (Sculpt Rectangle / Circle).' };
+      }
+      sculptFinishSketch(_sculptPart);
+      _sculptHasOpenSketch = false;
+      await sculptExtrude(_sculptPart, values.distance ?? 50);
+      return { status: 'success', message: `Sculpt Extrude: ${values.distance} mm | vol ≈ ${_sculptPart.solid.volume().toFixed(0)} mm³` };
+    },
+    'Sculpt Cut': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Cut');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Cut cancelled' };
+      if (!_sculptPart || !_sculptHasOpenSketch) {
+        return { status: 'warn', message: 'Sculpt Cut: sketch a profile first.' };
+      }
+      sculptFinishSketch(_sculptPart);
+      _sculptHasOpenSketch = false;
+      await sculptCut(_sculptPart, values.distance ?? 50);
+      return { status: 'success', message: `Sculpt Cut: depth ${values.distance} mm` };
+    },
+    'Sculpt Revolve': async () => {
+      const { values, cancelled } = await requestToolParams('Sculpt Revolve');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Revolve cancelled' };
+      if (!_sculptPart || !_sculptHasOpenSketch) {
+        return { status: 'warn', message: 'Sculpt Revolve: sketch a profile first.' };
+      }
+      sculptFinishSketch(_sculptPart);
+      _sculptHasOpenSketch = false;
+      await sculptRevolve(_sculptPart, values.segments ?? 64, values.degrees ?? 360);
+      return { status: 'success', message: `Sculpt Revolve: ${values.degrees}° | vol ≈ ${_sculptPart.solid.volume().toFixed(0)} mm³` };
+    },
+    'Sculpt Place Body': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Place Body');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Place Body cancelled' };
+      if (!_sculptPart || !_sculptPart.solid) {
+        return { status: 'warn', message: 'Sculpt Place Body: nothing sculpted yet (Extrude/Revolve first).' };
+      }
+      const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+      if (rx || ry || rz) sculptRotate(_sculptPart, rx, ry, rz);
+      const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+      if (x || y || z) sculptTranslate(_sculptPart, x, y, z);
+      const color = Number.isFinite(values.color) ? values.color : 0x9aa3ad;
+      const group = addFoundationManifoldToScene(scene, viewport, _sculptPart.solid, color);
+      const placed = _sculptPart;
+      _sculptPart = null;          // clear for the next part
+      _sculptHasOpenSketch = false;
+      if (typeof window !== 'undefined') {
+        window.__lastSculptPlacement = {
+            name: placed.name, features: placed.featureCount(),
+            history: placed.describe(),
+        };
+      }
+      return { status: 'success', message: `Sculpt Place Body: "${placed.name}" placed (${placed.featureCount()} features) at (${x},${y},${z})` };
     },
 
     'Import STEP': async (scene, viewport) => {

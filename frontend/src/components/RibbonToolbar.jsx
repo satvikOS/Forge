@@ -248,6 +248,18 @@ export const TABS = {
         { name: 'Standards Library', icon: '🔩', key: 'part' },
         { name: 'Pattern Standards', icon: '▦', key: 'part' },
       ]},
+      // Pure atomic-sculpt group — build any part sketch-by-sketch with
+      // user-input dimensions, no catalog recipe / baked geometry. The
+      // canonical "interact only with the platform" construction path.
+      { label: 'Sculpt', tools: [
+        { name: 'Sculpt Rectangle', icon: '▭', key: 'part' },
+        { name: 'Sculpt Circle',    icon: '◯', key: 'part' },
+        { name: 'Sculpt Polygon',   icon: '⬡', key: 'part' },
+        { name: 'Sculpt Extrude',   icon: '⬆', key: 'part' },
+        { name: 'Sculpt Cut',       icon: '⬇', key: 'part' },
+        { name: 'Sculpt Revolve',   icon: '↻', key: 'part' },
+        { name: 'Sculpt Place Body', icon: '⊕', key: 'part' },
+      ]},
     ]
   },
   assembly: {

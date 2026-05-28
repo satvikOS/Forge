@@ -37,6 +37,78 @@
 
 export const TOOL_PARAM_SCHEMAS = {
 
+  // ─── ATOMIC SCULPT (pure platform-driven construction) ───────────────────
+  // Every dimension is user-input here. No baked geometry, no catalog
+  // recipe. The e2e (or a human) sequences these to sculpt each part
+  // sketch-by-sketch, feature-by-feature, through the ribbon UI.
+  'Sculpt Rectangle': {
+    title: 'Sculpt — Sketch Rectangle',
+    blurb: 'Start (or continue) the active sculpt part with a rectangle on the chosen plane. Centre + size in mm.',
+    fields: [
+      { name: 'cx', label: 'Centre X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'cy', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'w',  label: 'Width',    type: 'number', default: 100, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'h',  label: 'Height',   type: 'number', default: 100, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'plane', label: 'Plane', type: 'enum', default: 'XY', options: ['XY', 'top', 'bottom'] },
+    ],
+  },
+  'Sculpt Circle': {
+    title: 'Sculpt — Sketch Circle',
+    blurb: 'Add a circle to the active sculpt sketch. Centre + radius in mm.',
+    fields: [
+      { name: 'cx', label: 'Centre X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'cy', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'r',  label: 'Radius',   type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'plane', label: 'Plane', type: 'enum', default: 'XY', options: ['XY', 'top', 'bottom'] },
+    ],
+  },
+  'Sculpt Polygon': {
+    title: 'Sculpt — Sketch N-gon',
+    blurb: 'Add a regular polygon to the active sculpt sketch.',
+    fields: [
+      { name: 'cx', label: 'Centre X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'cy', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'r',  label: 'Circumradius', type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'n',  label: 'Sides',    type: 'number', default: 6, min: 3, step: 1 },
+      { name: 'plane', label: 'Plane', type: 'enum', default: 'XY', options: ['XY', 'top', 'bottom'] },
+    ],
+  },
+  'Sculpt Extrude': {
+    title: 'Sculpt — Extrude',
+    blurb: 'Finish the open sketch and extrude it by the given distance (mm).',
+    fields: [
+      { name: 'distance', label: 'Distance', type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+    ],
+  },
+  'Sculpt Cut': {
+    title: 'Sculpt — Cut',
+    blurb: 'Finish the open sketch and subtract it (through-cut) from the active part.',
+    fields: [
+      { name: 'distance', label: 'Depth', type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+    ],
+  },
+  'Sculpt Revolve': {
+    title: 'Sculpt — Revolve',
+    blurb: 'Finish the open sketch (X≥0 half-plane) and revolve it around the Y axis.',
+    fields: [
+      { name: 'segments', label: 'Segments', type: 'number', default: 64, min: 3, step: 1 },
+      { name: 'degrees',  label: 'Sweep °',  type: 'number', default: 360, min: 1, max: 360, step: 1 },
+    ],
+  },
+  'Sculpt Place Body': {
+    title: 'Sculpt — Place + Finish Body',
+    blurb: 'Rotate + translate the finished sculpt part into the assembly and register it as a body. Clears the active part for the next one.',
+    fields: [
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+
   // ─── SOLID PRIMITIVES ────────────────────────────────────────────────────
   'Box': {
     title: 'Box — Solid Primitive',
