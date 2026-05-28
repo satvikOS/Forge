@@ -1809,8 +1809,8 @@ const TOOL_HANDLERS = {
         group.scale.set(0.001, 0.001, 0.001);
         const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
         group.position.set(x * 0.001, y * 0.001, z * 0.001);
-        const rx = values.rx ?? 0;
-        if (rx) group.rotation.x = rx * Math.PI / 180;
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        group.rotation.set(rx * Math.PI / 180, ry * Math.PI / 180, rz * Math.PI / 180);
         group.add(inst);
         group.name = values.name || `Fastener Array (${count})`;
         group.userData.pickable = true;

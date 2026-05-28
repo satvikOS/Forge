@@ -194,6 +194,8 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
       { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
       { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a8d92, step: 1 },
     ],
   },
