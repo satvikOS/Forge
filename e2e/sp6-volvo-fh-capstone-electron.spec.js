@@ -171,7 +171,7 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
       { name: 'rear',          az: 180, el:   3, dist: 14 },
       { name: 'side-right',    az:  90, el:   8, dist: 22 },
       { name: 'side-left',     az: -90, el:   8, dist: 22 },
-      { name: 'top-down',      az:   0, el:  85, dist: 22 },
+      { name: 'top-down',      az:   0, el:  60, dist: 22 },   // v9 — oblique not nadir, retains depth detail
       { name: 'low-iso',       az:  35, el: -10, dist: 22 },
       { name: 'wide',          az:  35, el:  18, dist: 32 },
       { name: 'front-quarter', az:  25, el:  10, dist: 18 },

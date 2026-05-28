@@ -965,7 +965,7 @@ function WorkbenchMechanical() {
                 if (leaf.includes('Cab Rear Panel'))     return 0xc55a4a;  // slightly brighter red
                 if (leaf.includes('Cab Roof Panel'))     return 0x4ebec0;  // cab cyan
                 if (leaf.includes('Cab Floor Panel'))    return 0x46555c;  // dark floor
-                if (leaf.includes('Windshield'))         return 0xb6dde8;  // pale blue glass
+                if (leaf.includes('Windshield'))         return 0x2a3e48;  // v9 — darker tinted glass so interior doesn't bleed through
                 if (leaf.includes('Side Window'))        return 0xa7d5e2;  // pale blue glass
                 if (leaf.includes('Cab Door'))           return 0xb84a3a;  // body red
                 if (leaf.includes('Air Deflector'))      return 0x4ebec0;  // cyan
@@ -1021,11 +1021,15 @@ function WorkbenchMechanical() {
                 if (leaf.includes('Air Horn'))           return 0xd0d4d8;  // polished chrome
                 if (leaf.includes('Fifth Wheel'))        return 0x4a4d54;
                 if (leaf.includes('Trailer King-Pin'))   return 0x52555c;
-                if (leaf.includes('Trailer Floor'))      return 0x3a3d44;
-                if (leaf.includes('Trailer Roof'))       return 0xe4e6e8;  // white aero trailer
-                if (leaf.includes('Trailer Side Panel')) return 0xe4e6e8;  // white aero trailer
-                if (leaf.includes('Trailer Rear Door'))  return 0xc8cad0;
-                if (leaf.includes('Trailer Body'))       return 0xe4e6e8;
+                // v9 — trailer panels no longer dominate frame in side
+                // views: switched from bright white (0xe4e6e8) to a
+                // muted dark grey close to the cab side colour, so the
+                // cab still reads as the focal element.
+                if (leaf.includes('Trailer Floor'))      return 0x2c2f34;
+                if (leaf.includes('Trailer Roof'))       return 0x3c4048;
+                if (leaf.includes('Trailer Side Panel')) return 0x4a4e56;  // muted grey trailer
+                if (leaf.includes('Trailer Rear Door'))  return 0x5a5e66;
+                if (leaf.includes('Trailer Body'))       return 0x4a4e56;
                 if (leaf.includes('Mud Guard Rear'))     return 0x141414;  // rubber
                 if (leaf.includes('Side Step Light'))    return 0xffe8a0;  // amber
                 if (leaf.includes('Aero Roof Fairing'))  return 0x4ebec0;  // cyan
