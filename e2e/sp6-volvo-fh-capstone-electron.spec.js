@@ -161,9 +161,11 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
     // away in scene units so the whole rig fits at FOV~50°.
     //
     // Rig bbox in mm: x ∈ [−1500, +1500], y ∈ [0, 3500],
-    // z ∈ [−10400, 0]. Centre in scene metres: (0, 1.75, −5.2).
-    // Place camera at centre + (distance × dirVec).
-    const tgt = { x: 0, y: 1.75, z: -5.2 };
+    // z ∈ [−10400, 0]. v10 — target shifted from rig centre
+    // (z=−5.2 = midpoint of tractor+trailer) to CAB centre
+    // (z=−1.8 = midpoint of cabFront..cabRear). The cab is the
+    // focal subject; the trailer remains in the background.
+    const tgt = { x: 0, y: 1.75, z: -1.8 };
     const angles = [
       { name: 'iso-front',     az:  35, el:  18, dist: 22 },
       { name: 'iso-rear',      az: 145, el:  18, dist: 22 },

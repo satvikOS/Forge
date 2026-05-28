@@ -178,14 +178,14 @@ export const VOLVO_FH = {
   // backplate to cab rear wall). All panels are flat slabs that get
   // positioned + rotated into the cab box.
   'Cab Side Panel': {
-    width_mm: 2200,    // depth of cab (extends in -Z when extruded along +Z)
+    width_mm: 2200,
     height_mm: 2400,
-    thickness_mm: 10,
+    thickness_mm: 60,   // v10 — was 10mm, interior bleed-through visible
   },
   'Cab Rear Panel': {
     width_mm: 2500,
     height_mm: 2400,
-    thickness_mm: 10,
+    thickness_mm: 60,   // v10 — match side wall thickness
   },
   'Cab Roof Panel': {
     width_mm: 2500,
