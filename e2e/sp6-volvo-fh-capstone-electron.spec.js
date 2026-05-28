@@ -387,31 +387,36 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   await place('Automotive', 'Roof Beacon Bar', -600, T.cabRoofY + 40, T.cabFrontZ + 100);
   await captureAllAngles('06-fascia');
 
-  // ═════════ PHASE 7: CAB INTERIOR (inside the cab box) ════════════════
-  // Driver/passenger sit on the floor; steering wheel hangs in front of
-  // the driver. Y = floor height + some offset.
+  // ═════════ PHASE 7: CAB INTERIOR (further inside cab box — v5 fix) ═══
+  // v4 audit: interior parts were sticking out through cab walls. v5
+  // shifts every interior body INWARD by 200 mm on X (away from side
+  // walls) and 200 mm UP on Y (clear of floor edge). Cab side walls at
+  // x=±1250; interior content moved to x ∈ [−1050, +1050]. Y starts
+  // 200 mm above cab floor.
+  const INT_Y = T.cabFloorY + 200;
   for (const driver of [-1, 1]) {
-    const x = driver * 500;
-    await place('Automotive', 'Driver Seat Base', x - 300, T.cabFloorY + 200, -1500);
-    await place('Automotive', 'Driver Seat Back', x - 300, T.cabFloorY + 300, -2050);
-    await place('Automotive', 'Seat Headrest',    x - 140, T.cabFloorY + 1080, -2100);
+    const x = driver * 450;
+    await place('Automotive', 'Driver Seat Base', x - 300, INT_Y, -1500);
+    await place('Automotive', 'Driver Seat Back', x - 300, INT_Y + 100, -2050);
+    await place('Automotive', 'Seat Headrest',    x - 140, INT_Y + 880,  -2100);
   }
-  // Steering wheel for the driver (left side)
-  await place('Automotive', 'Steering Wheel Rim',   -500, T.cabFloorY + 800, -1100, 90, 0, 0);
-  await place('Automotive', 'Steering Wheel Boss',  -500, T.cabFloorY + 800, -1100);
+  // Steering wheel for the driver (left side, inset further from wall)
+  await place('Automotive', 'Steering Wheel Rim',   -480, INT_Y + 600, -1100, 90, 0, 0);
+  await place('Automotive', 'Steering Wheel Boss',  -480, INT_Y + 600, -1100);
   for (let i = 0; i < 3; i++) {
-    await place('Automotive', 'Steering Wheel Spoke', -500, T.cabFloorY + 800, -1100, 90, 0, i * 120 - 90);
+    await place('Automotive', 'Steering Wheel Spoke', -480, INT_Y + 600, -1100, 90, 0, i * 120 - 90);
   }
-  await place('Automotive', 'Steering Column', -500, T.cabFloorY + 600, -1250);
-  // Dashboard across the front interior wall
-  await place('Automotive', 'Dashboard', -1100, T.cabFloorY + 500, T.cabFrontZ - 50);
-  await place('Automotive', 'Instrument Cluster', -800, T.cabFloorY + 720, T.cabFrontZ + 20);
-  await place('Automotive', 'Gear Shifter', -200, T.cabFloorY + 350, -1300);
+  await place('Automotive', 'Steering Column', -480, INT_Y + 400, -1250);
+  // Dashboard across the front interior wall — kept slightly inboard of
+  // the cab side walls (x ∈ [−950, +1150]).
+  await place('Automotive', 'Dashboard', -950, INT_Y + 300, T.cabFrontZ + 30);
+  await place('Automotive', 'Instrument Cluster', -750, INT_Y + 520, T.cabFrontZ + 80);
+  await place('Automotive', 'Gear Shifter', -200, INT_Y + 150, -1300);
   for (let i = 0; i < 3; i++) {
-    await place('Automotive', 'Foot Pedal', -800 + i * 130, T.cabFloorY + 100, -1300);
+    await place('Automotive', 'Foot Pedal', -800 + i * 130, INT_Y - 100, -1300);
   }
   // Sleeper bunk behind the seats
-  await place('Automotive', 'Sleeper Bunk', -1100, T.cabFloorY + 100, T.cabRearZ + 200);
+  await place('Automotive', 'Sleeper Bunk', -1000, INT_Y, T.cabRearZ + 300);
   await captureAllAngles('07-interior');
 
   // ═════════ PHASE 8: EXHAUST STACKS (vertical, behind cab) ════════════
@@ -449,10 +454,13 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   // Per [[feedback_check_previous_before_iterating]]: no NEW parts in
   // v4 — only the trailer scale fix that addresses the v3 regression.
   await place('Automotive', 'Trailer King-Pin Plate', -450, T.frameY + 80, -3400);
+  // v5 adjustment: 5 m was too short — split the difference at 7 m so
+  // the trailer is proportionally correct for a Volvo FH tractor (12 m
+  // total combo length, tractor 5 m + trailer 7 m).
   const TLR_FLOOR_Y = T.frameY + 200;
-  const TLR_ROOF_Y  = TLR_FLOOR_Y + 2200;     // shorter roof (was 2500)
+  const TLR_ROOF_Y  = TLR_FLOOR_Y + 2200;
   const TLR_FRONT_Z = -3400;
-  const TLR_REAR_Z  = -8400;                  // 5 m trailer (was 10 m)
+  const TLR_REAR_Z  = -10400;
   // Trailer Floor / Roof scaled — we still pass the catalog leaf (10m)
   // but PLACE further forward so the visible 5m segment overlaps the
   // tractor end with the trailer rear visible.

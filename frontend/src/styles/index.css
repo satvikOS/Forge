@@ -7,55 +7,61 @@
 }
 
 :root {
-  /* ---- Color Palette ---- */
-  /* Backgrounds - True OLED black scale */
-  --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-tertiary: #151515;
-  --bg-elevated: #1a1a1a;
-  --bg-hover: #222222;
-  --bg-active: #2a2a2a;
-  --bg-surface: #0d0d0d;
+  /* ========== ArchDisc Mech — OLED-black monotone theme ==========
+     Per user 2026-05-27: "entire ui should be monotone oled black with
+     matte black accent". All accents → matte black (monochrome).
+     Status colours → grayscale variants (no red/green/orange/blue).
+     Text → grayscale (white/light grey only). */
 
-  /* Accent - Maroon (primary brand) */
-  --accent-primary: #9b1b40;
-  --accent-hover: #b32050;
-  --accent-primary-muted: rgba(155, 27, 64, 0.15);
-  --accent-primary-border: rgba(155, 27, 64, 0.4);
+  /* Backgrounds — pure OLED black scale */
+  --bg-primary:    #000000;
+  --bg-secondary:  #050505;
+  --bg-tertiary:   #0a0a0a;
+  --bg-elevated:   #0e0e0e;
+  --bg-hover:      #161616;
+  --bg-active:     #1c1c1c;
+  --bg-surface:    #060606;
 
-  /* Accent - Orange (highlights, CTA) */
-  --accent-orange: #ff6b35;
-  --accent-orange-hover: #ff8555;
-  --accent-orange-dark: #e55a2a;
-  --accent-orange-muted: rgba(255, 107, 53, 0.15);
-  --accent-orange-border: rgba(255, 107, 53, 0.4);
+  /* Accent — matte black (was burgundy). Hover/border are slightly
+     lighter blacks for depth without colour. */
+  --accent-primary:        #1d1d1d;
+  --accent-hover:          #262626;
+  --accent-primary-muted:  rgba(255, 255, 255, 0.06);
+  --accent-primary-border: rgba(255, 255, 255, 0.12);
 
-  /* Accent - Blue (info, links, active overlays) */
-  --accent-blue: #4a90e2;
-  --accent-blue-muted: rgba(74, 144, 226, 0.15);
-  --accent-blue-border: rgba(74, 144, 226, 0.35);
+  /* Accent — matte black variant (was orange). */
+  --accent-orange:         #1a1a1a;
+  --accent-orange-hover:   #232323;
+  --accent-orange-dark:    #101010;
+  --accent-orange-muted:   rgba(255, 255, 255, 0.05);
+  --accent-orange-border:  rgba(255, 255, 255, 0.1);
 
-  /* Semantic colors */
-  --color-success: #43a047;
-  --color-success-muted: rgba(67, 160, 71, 0.15);
-  --color-error: #e53935;
-  --color-error-muted: rgba(229, 57, 53, 0.15);
-  --color-warning: #fb8c00;
-  --color-warning-muted: rgba(251, 140, 0, 0.15);
-  --color-info: #4a90e2;
+  /* Accent — matte black variant (was blue). */
+  --accent-blue:           #1a1a1a;
+  --accent-blue-muted:     rgba(255, 255, 255, 0.05);
+  --accent-blue-border:    rgba(255, 255, 255, 0.1);
 
-  /* Text */
-  --text-primary: #c8c8c8;
-  --text-secondary: #808080;
-  --text-muted: #555555;
-  --text-disabled: #3a3a3a;
-  --text-inverse: #ffffff;
+  /* Semantic — monochrome grayscale (status read by brightness, not hue). */
+  --color-success:         #d8d8d8;
+  --color-success-muted:   rgba(255, 255, 255, 0.08);
+  --color-error:           #ffffff;
+  --color-error-muted:     rgba(255, 255, 255, 0.12);
+  --color-warning:         #b8b8b8;
+  --color-warning-muted:   rgba(255, 255, 255, 0.07);
+  --color-info:            #a0a0a0;
 
-  /* Borders */
-  --border-color: #1a1a1a;
-  --border-light: #252525;
-  --border-subtle: #111111;
-  --border-focus: var(--accent-primary);
+  /* Text — monochrome */
+  --text-primary:  #e6e6e6;
+  --text-secondary:#9a9a9a;
+  --text-muted:    #5a5a5a;
+  --text-disabled: #2a2a2a;
+  --text-inverse:  #ffffff;
+
+  /* Borders — matte blacks */
+  --border-color:   #1a1a1a;
+  --border-light:   #232323;
+  --border-subtle:  #0e0e0e;
+  --border-focus:   #2a2a2a;
 
   /* ---- Spacing ---- */
   --gap-1: 1px;
@@ -74,11 +80,11 @@
   --radius-pill: 100px;
 
   /* ---- Shadows ---- */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
-  --shadow-glow-accent: 0 0 0 2px var(--accent-primary-muted);
-  --shadow-glow-blue: 0 0 0 2px var(--accent-blue-muted);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.7);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.95);
+  --shadow-glow-accent: 0 0 0 1px rgba(255, 255, 255, 0.10);
+  --shadow-glow-blue:   0 0 0 1px rgba(255, 255, 255, 0.10);
 
   /* ---- Transitions ---- */
   --transition-fast: 0.1s ease;

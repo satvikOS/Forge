@@ -21,8 +21,8 @@
   bottom: 80px;               /* above status bar */
   width: 420px;
   max-width: calc(100vw - 32px);
-  background: #1a1c20;
-  border: 1px solid #2c3036;
+  background: #060606;        /* OLED-black panel */
+  border: 1px solid #1a1a1a;  /* matte-black border */
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -51,9 +51,9 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #2a3340;
-  color: #9ec5ff;
-  border: 1px solid #38445a;
+  background: #161616;       /* matte black */
+  color: #c8c8c8;
+  border: 1px solid #232323;
 }
 
 .standards-library-dialog .close-btn {
@@ -100,8 +100,8 @@
 }
 
 .standards-library-dialog .category-tree .cat.active > button {
-  background: #232830;
-  color: #ffd170;
+  background: #121212;
+  color: #f0f0f0;
 }
 
 .standards-library-dialog .category-tree ul {
@@ -123,7 +123,7 @@
 }
 
 .standards-library-dialog .category-tree li.active button {
-  background: #2c343f;
+  background: #181818;
   color: #fff;
 }
 
@@ -154,9 +154,9 @@
 
 .standards-library-dialog .row select,
 .standards-library-dialog .row input[type="number"] {
-  background: #11141a;
+  background: #000;          /* pure OLED for fields */
   color: #fff;
-  border: 1px solid #2c3036;
+  border: 1px solid #1c1c1c;
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
@@ -165,7 +165,7 @@
 
 .standards-library-dialog .row select:focus,
 .standards-library-dialog .row input:focus {
-  border-color: #6097ff;
+  border-color: #444444;     /* matte-black focus ring */
   outline: 0;
 }
 
@@ -189,9 +189,9 @@
 }
 
 .standards-library-dialog .length-chips .chip.active {
-  background: #2a3a52;
+  background: #1c1c1c;
   color: #fff;
-  border-color: #4a6ea0;
+  border-color: #2e2e2e;
 }
 
 .standards-library-dialog .pattern-block {
@@ -222,10 +222,12 @@
 }
 
 .standards-library-dialog footer .place {
-  background: #2a6dff;
-  color: #fff;
-  border: 1px solid #4480ff;
+  /* OLED-black monotone — Place is the brightest matte-black button so
+     the user knows it's the primary action without using accent colour. */
+  background: #1f1f1f;
+  color: #f2f2f2;
+  border: 1px solid #303030;
   font-weight: 600;
 }
 
-.standards-library-dialog footer .place:hover { background: #3b7eff; }
+.standards-library-dialog footer .place:hover { background: #292929; }
