@@ -144,6 +144,7 @@ import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation
 import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../../foundation/MotionRender.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
+import { crownPanel as fCrownPanel, fenderArch as fFenderArch } from '../../foundation/ClassAPanel.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1821,6 +1822,75 @@ const TOOL_HANDLERS = {
       } catch (err) {
         return { status: 'error', message: 'Sculpt Bolt Array: ' + err.message };
       }
+    },
+
+    // ─── SP-17 — Class-A crowned panel (doubly-curved smooth skin) ──────
+    'Sculpt Crown Panel': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Crown Panel');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Crown Panel cancelled' };
+      try {
+        let m = await fCrownPanel({
+          width: values.width ?? 2000, length: values.length ?? 2400,
+          crownX: values.crownX ?? 180, crownZ: values.crownZ ?? 120,
+          thickness: values.thickness ?? 40, nu: values.nu ?? 30, nv: values.nv ?? 26,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x33597a;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Crown Panel: ${values.width}×${values.length} mm, crown ${values.crownX}/${values.crownZ} — Class-A skin, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Crown Panel: ' + err.message };
+      }
+    },
+
+    // ─── SP-17 — Class-A fender / wheel-arch (swept curved skin) ────────
+    'Sculpt Fender Arch': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Fender Arch');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Fender Arch cancelled' };
+      try {
+        let m = await fFenderArch({
+          archRadius: values.archRadius ?? 560, archSpan: values.archSpan ?? 200,
+          width: values.width ?? 360, section: values.section ?? 140,
+          thickness: values.thickness ?? 30, nv: values.nv ?? 40,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x2c4d6a;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Fender Arch: R${values.archRadius} × ${values.archSpan}° — Class-A wheel arch, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Fender Arch: ' + err.message };
+      }
+    },
+
+    // ─── SP-17 — Zebra-stripe Class-A QC (toggle reflection lines) ──────
+    'Sculpt Zebra Check': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Zebra Check');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Zebra Check cancelled' };
+      const reg = (typeof window !== 'undefined' && window.__archdiscRegistry) || getBodyRegistry();
+      const bodies = (reg?.list?.() || []);
+      const opts = {
+        stripeFrequency: values.stripeFrequency ?? 18,
+        direction: values.direction === 'vertical' ? 1 : 0,
+        sharpness: values.sharpness ?? 0.85,
+      };
+      let appliedBodies = 0, meshes = 0, toggledOff = 0;
+      for (const b of bodies) {
+        const g = b.group;
+        if (!g) continue;
+        const r = applyZebraToObject(g, opts);
+        meshes += r.meshes;
+        if (r.applied) appliedBodies++; else toggledOff++;
+      }
+      try { viewport?.renderer?.render?.(viewport.scene, viewport.camera); } catch (e) { /* render best-effort */ }
+      if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
+      const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
+      return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
     },
 
     'Import STEP': async (scene, viewport) => {
