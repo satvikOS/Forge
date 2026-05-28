@@ -162,6 +162,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'dy', label: 'Step Y', type: 'number', default: 0, unit: 'mm', step: 1 },
     ],
   },
+  'Sculpt Tire': {
+    title: 'Sculpt — Tire (tread wrapped on carcass)',
+    blurb: 'Revolve a tyre carcass then circular-pattern tread blocks around the circumference. Defaults model a Volvo FH 315/80R22.5 drive tyre.',
+    fields: [
+      { name: 'rimR', label: 'Rim radius', type: 'number', default: 286, unit: 'mm', min: 1, step: 1 },
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 537, unit: 'mm', min: 1, step: 1 },
+      { name: 'width', label: 'Section width', type: 'number', default: 315, unit: 'mm', min: 1, step: 5 },
+      { name: 'treadCount', label: 'Tread blocks', type: 'number', default: 54, min: 6, step: 1 },
+      { name: 'treadDepth', label: 'Tread depth', type: 'number', default: 22, unit: 'mm', min: 1, step: 1 },
+      { name: 'axis', label: 'Spin axis', type: 'enum', options: ['X', 'Y', 'Z'], default: 'X' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x1a1a1a, step: 1 },
+    ],
+  },
   'Sculpt Place Body': {
     title: 'Sculpt — Place + Finish Body',
     blurb: 'Rotate + translate the finished sculpt part into the assembly and register it as a body. Clears the active part for the next one.',

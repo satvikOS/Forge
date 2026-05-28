@@ -1714,6 +1714,50 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-12 — tire with tread wrapped around the carcass ─────────────
+    // Revolve a tyre cross-section (axis Y), stand it up so the axis is Z,
+    // then circular-pattern tread bars around the circumference (axis Z) —
+    // the one place the AtomicOps Y-revolve and Z-circular-pattern need to
+    // be reconciled, so it lives in a single macro tool.
+    'Sculpt Tire': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Tire');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Tire cancelled' };
+      try {
+        const rimR = values.rimR ?? 286, outerR = values.outerR ?? 537, width = values.width ?? 315;
+        const treadCount = Math.max(6, Math.floor(values.treadCount ?? 54));
+        const treadDepth = values.treadDepth ?? 22;
+        const part = sculptCreatePart(`Tire ${Date.now() % 100000}`);
+        // 1) carcass: rectangular cross-section in the +X half-plane,
+        //    revolved 360° about Y → an annulus (tyre body).
+        await sculptStartSketch(part, 'XY');
+        sculptSketchRectangle(part, (rimR + outerR) / 2, 0, (outerR - rimR), width);
+        sculptFinishSketch(part);
+        await sculptRevolve(part, 96, 360);
+        // 2) stand it up (axis Y → Z) and shift so width spans z∈[0,width].
+        sculptRotate(part, 90, 0, 0);
+        sculptTranslate(part, 0, 0, width / 2);
+        // 3) one tread bar protruding past the OD, circular-patterned around
+        //    the circumference. distance=width → each bar spans the full
+        //    tread width and aligns with the carcass.
+        await sculptStartSketch(part, 'XY');
+        sculptSketchRectangle(part, outerR + treadDepth / 2 - 4, 0, treadDepth + 8, 46);
+        sculptFinishSketch(part);
+        await sculptCircularPattern(part, 'extrude', treadCount, width, 360);
+        // 4) recentre on width, orient to the requested mount axis, place.
+        sculptTranslate(part, 0, 0, -width / 2);
+        const axis = values.axis || 'X';        // truck wheels spin about X
+        if (axis === 'X') sculptRotate(part, 0, 90, 0);
+        else if (axis === 'Y') sculptRotate(part, 90, 0, 0);
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) sculptTranslate(part, x, y, z);
+        const color = Number.isFinite(values.color) ? values.color : 0x1a1a1a;
+        addFoundationManifoldToScene(scene, viewport, part.solid, color);
+        return { status: 'success', message: `Sculpt Tire: Ø${outerR * 2} × ${width} mm, ${treadCount} tread blocks | ${part.featureCount()} features` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Tire: ' + err.message };
+      }
+    },
+
     'Import STEP': async (scene, viewport) => {
       // Foundation path: read a STEP (ISO 10303-21) faceted B-rep
       // via foundation.parseStep, rebuild the mesh as a manifold,
