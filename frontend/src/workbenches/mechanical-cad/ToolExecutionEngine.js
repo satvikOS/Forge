@@ -147,6 +147,7 @@ import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { crownPanel as fCrownPanel, fenderArch as fFenderArch } from '../../foundation/ClassAPanel.js';
 import { embossText as fEmbossText } from '../../foundation/EmbossText.js';
 import { edgeFillet as fEdgeFillet } from '../../foundation/EdgeBlend.js';
+import { corrugatedPipe as fCorrugatedPipe } from '../../foundation/FlexPipe.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1893,6 +1894,28 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
       const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
+    },
+
+    // ─── SP-22 — corrugated exhaust flex pipe (bellows tube) ───────────
+    'Sculpt Flex Pipe': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Flex Pipe');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Flex Pipe cancelled' };
+      try {
+        let m = await fCorrugatedPipe({
+          length: values.length ?? 600, radius: values.radius ?? 90,
+          amplitude: values.amplitude ?? 22, convolutions: values.convolutions ?? 12,
+          sides: values.sides ?? 36,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x8a9098;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Flex Pipe: Ø${(values.radius ?? 90) * 2} × ${values.length} mm, ${values.convolutions} convolutions — corrugated bellows, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Flex Pipe: ' + err.message };
+      }
     },
 
     // ─── SP-21 — edge-blend fillet (G1 rolling-ball, run along an edge) ─

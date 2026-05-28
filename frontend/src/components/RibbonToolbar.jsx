@@ -260,6 +260,7 @@ export const TABS = {
         { name: 'Sculpt Revolve',   icon: '↻', key: 'part' },
         { name: 'Sculpt Loft',      icon: '⏧', key: 'part' },
         { name: 'Sculpt Pipe',      icon: '〜', key: 'part' },
+        { name: 'Sculpt Flex Pipe', icon: '≋', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
