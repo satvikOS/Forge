@@ -336,13 +336,15 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
 
   // Side Windows: cut-outs/panels on the side walls. Native XY rect
   // 800×700, thin in Z. Rotate ry=90 so face becomes YZ normal +X.
-  await place('Automotive', 'Side Window', -1250 - 7, 2100, -1200, 0, 90, 0);
-  await place('Automotive', 'Side Window',  1247,     2100, -1200, 0, 90, 0);
-
-  // Doors: like side panels but smaller. 1100×1800. Native XY, thin in Z.
-  // Rotate ry=90 → face YZ normal +X. Place at the cab side, lower half.
-  await place('Automotive', 'Cab Door', -1250 - 32, T.cabFloorY, -1100, 0, 90, 0);
-  await place('Automotive', 'Cab Door',  1250,      T.cabFloorY, -1100, 0, 90, 0);
+  // v11 — windows + doors are sub-panels OUTBOARD of the (now 60 mm
+  // thick) cab side panels. Cab side panel face = x ∈ [1240, 1300]
+  // on the right and [−1300, −1240] on the left. Place the door
+  // exterior at x=±1310 and window at x=±1315 so they LAYER on top
+  // of the side panel instead of overlapping in the same Z plane.
+  await place('Automotive', 'Side Window', -1315, 2100, -1200, 0, 90, 0);
+  await place('Automotive', 'Side Window',  1315, 2100, -1200, 0, 90, 0);
+  await place('Automotive', 'Cab Door',   -1310, T.cabFloorY, -1100, 0, 90, 0);
+  await place('Automotive', 'Cab Door',    1310, T.cabFloorY, -1100, 0, 90, 0);
 
   // A pillars (between fascia and side window — at z=cabFrontZ corners)
   // Built 110×110, height=1800. After extrude in +Z the pillar extends
@@ -364,31 +366,29 @@ test('SP-6 v2 — coherent Volvo FH truck via UI', async () => {
   // The fascia covers the engine bay front. Header bar at top, grille
   // mid, bumper bottom. All sit just in front of (or at) z=0, x=±1250.
   //
-  // Cab Front Panel (the slim header): native 2500×220×8 in XY.
-  // Default face normal +Z = forward toward viewer. Good — no rotation.
-  // Place at x=−1250, y=fasciaHeaderY, z=0.
+  // v11 — fascia parts SPREAD ACROSS Z so they don't all stack at
+  // z≈0..30 (chaotic in v10 front view). Layering from back to front:
+  //   header bar    z = 0
+  //   grille panel  z = 30
+  //   intake slats  z = 40
+  //   bumper main   z = 70 (extends forward 280)
+  //   side caps     z = 70
+  //   headlights    z = 100
+  //   VOLVO emboss  z = 120 (raised relief)
+  //   L badges      z = 120
+  //   bumper trim   z = 110 (forward of bumper main)
   await place('Automotive', 'Cab Front Panel', -1250, T.fasciaHeaderY, 0);
-  // Radiator Grille Panel (1500×500): native XY, normal +Z. Centred.
-  await place('Automotive', 'Radiator Grille Panel', -750, T.fasciaGrilleY, 20);
-  // Lower Intake Slats (1500×220):
-  await place('Automotive', 'Lower Intake Slat Bank', -750, T.fasciaGrilleY - 460, 20);
-  // Bumper Main (2500×220×280): the BUMPER's built rectangle is
-  // (width=2500, depth=220) and extrude is height=280 along +Z. So the
-  // bumper extends 280mm forward (toward camera) — good for a real
-  // bumper. Place x=−1250, y=fasciaBumperY, z=0.
-  await place('Automotive', 'Bumper Main Section', -1250, T.fasciaBumperY - 100, 0);
-  await place('Automotive', 'Bumper Lower Trim',   -1200, T.fasciaBumperY - 280, 20);
-  await place('Automotive', 'Bumper Side Cap', -1250, T.fasciaBumperY - 280, 0);
-  await place('Automotive', 'Bumper Side Cap',   930, T.fasciaBumperY - 280, 0);
-
-  // Headlight clusters at top corners of fascia
-  await place('Automotive', 'Headlight Cluster', -1200, T.fasciaGrilleY + 350, 30);
-  await place('Automotive', 'Headlight Cluster',   820, T.fasciaGrilleY + 350, 30);
-
-  // VOLVO emboss + L badges on the header bar
-  await place('Automotive', 'VOLVO Logo Emboss', -350, T.fasciaHeaderY + 30, 12);
-  await place('Automotive', 'L Badge', -1180, T.fasciaHeaderY + 80, 12);
-  await place('Automotive', 'L Badge',  1100, T.fasciaHeaderY + 80, 12);
+  await place('Automotive', 'Radiator Grille Panel', -750, T.fasciaGrilleY, 30);
+  await place('Automotive', 'Lower Intake Slat Bank', -750, T.fasciaGrilleY - 460, 40);
+  await place('Automotive', 'Bumper Main Section', -1250, T.fasciaBumperY - 100, 70);
+  await place('Automotive', 'Bumper Lower Trim',   -1200, T.fasciaBumperY - 280, 110);
+  await place('Automotive', 'Bumper Side Cap', -1250, T.fasciaBumperY - 280, 70);
+  await place('Automotive', 'Bumper Side Cap',   930, T.fasciaBumperY - 280, 70);
+  await place('Automotive', 'Headlight Cluster', -1200, T.fasciaGrilleY + 350, 100);
+  await place('Automotive', 'Headlight Cluster',   820, T.fasciaGrilleY + 350, 100);
+  await place('Automotive', 'VOLVO Logo Emboss', -350, T.fasciaHeaderY + 30, 120);
+  await place('Automotive', 'L Badge', -1180, T.fasciaHeaderY + 80, 120);
+  await place('Automotive', 'L Badge',  1100, T.fasciaHeaderY + 80, 120);
 
   // Step plate at the bottom of the fascia
   await place('Automotive', 'Cab Front Step Plate', -900, T.fasciaStepY, 30);
