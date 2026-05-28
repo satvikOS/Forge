@@ -159,62 +159,66 @@
 .action-status.done {
     background: var(--color-success-muted);
     color: var(--color-success);
-    border: 1px solid rgba(67, 160, 71, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .action-status.error {
     background: var(--color-error-muted);
     color: var(--color-error);
-    border: 1px solid rgba(229, 57, 53, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
 /* ─── Tool Status Bar ──────────────────────────────────────────────────────── */
+/* OLED-monotone, top-right single slot — never centre over the viewport,
+   never coloured. Severity reads as a grayscale left-border brightness. */
 .tool-status-bar {
     position: absolute;
-    bottom: 12px;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 64px;
+    right: 16px;
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 8px 14px;
     border-radius: 8px;
     font-size: 12px;
-    max-width: 600px;
-    min-width: 280px;
+    max-width: 360px;
+    min-width: 220px;
     z-index: 100;
     animation: tool-status-enter 0.15s ease-out;
     backdrop-filter: blur(12px);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+    background: rgba(14, 14, 14, 0.94);
+    border: 1px solid #2a2a2a;
+    color: #d6d6d6;
 }
 
 @keyframes tool-status-enter {
-    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .tool-status-bar.tool-status-success {
-    background: rgba(46, 125, 50, 0.9);
-    border: 1px solid rgba(76, 175, 80, 0.5);
-    color: #e8f5e9;
+    background: rgba(14, 14, 14, 0.94);
+    border-left: 3px solid #6f6f6f;
+    color: #e2e2e2;
 }
 
 .tool-status-bar.tool-status-info {
-    background: rgba(21, 101, 192, 0.9);
-    border: 1px solid rgba(66, 165, 245, 0.5);
-    color: #e3f2fd;
+    background: rgba(14, 14, 14, 0.94);
+    border-left: 3px solid #4a4a4a;
+    color: #cfcfcf;
 }
 
 .tool-status-bar.tool-status-warn {
-    background: rgba(230, 126, 34, 0.9);
-    border: 1px solid rgba(255, 152, 0, 0.5);
-    color: #fff3e0;
+    background: rgba(18, 18, 18, 0.94);
+    border-left: 3px solid #9a9a9a;
+    color: #ededed;
 }
 
 .tool-status-bar.tool-status-error {
-    background: rgba(198, 40, 40, 0.9);
-    border: 1px solid rgba(244, 67, 54, 0.5);
-    color: #ffebee;
+    background: rgba(20, 20, 20, 0.94);
+    border-left: 3px solid #ffffff;
+    color: #ffffff;
 }
 
 .tool-status-icon {
