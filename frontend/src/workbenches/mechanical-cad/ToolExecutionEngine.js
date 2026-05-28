@@ -146,6 +146,7 @@ import { findTool } from '../../ai/ToolRegistry.js';
 import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
 import { crownPanel as fCrownPanel, fenderArch as fFenderArch } from '../../foundation/ClassAPanel.js';
 import { embossText as fEmbossText } from '../../foundation/EmbossText.js';
+import { edgeFillet as fEdgeFillet } from '../../foundation/EdgeBlend.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1892,6 +1893,30 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
       const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
+    },
+
+    // ─── SP-21 — edge-blend fillet (G1 rolling-ball, run along an edge) ─
+    'Sculpt Edge Fillet': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Edge Fillet');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Edge Fillet cancelled' };
+      try {
+        let m = await fEdgeFillet({ radius: values.radius ?? 80, length: values.length ?? 1000, segments: values.segments ?? 28 });
+        // quadrant about the base (+Z) edge axis, then orient onto the axis
+        const q = ((Math.floor(Number(values.quadrant) || 0)) % 4 + 4) % 4;
+        if (q) { const r = m.rotate([0, 0, q * 90]); m.delete?.(); m = r; }
+        const axis = values.axis || 'Z';
+        if (axis === 'X') { const r = m.rotate([0, 90, 0]); m.delete?.(); m = r; }
+        else if (axis === 'Y') { const r = m.rotate([-90, 0, 0]); m.delete?.(); m = r; }
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x33597a;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Edge Fillet: R${values.radius} × ${values.length} mm along ${axis} (G1 tangent) — merge to weld into the corner` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Edge Fillet: ' + err.message };
+      }
     },
 
     // ─── SP-20 — merge skins into ONE watertight body (boolean union) ───

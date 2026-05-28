@@ -268,6 +268,7 @@ export const TABS = {
         { name: 'Sculpt Crown Panel', icon: '⌒', key: 'part' },
         { name: 'Sculpt Fender Arch', icon: '◜', key: 'part' },
         { name: 'Sculpt Embossed Text', icon: '🅰', key: 'part' },
+        { name: 'Sculpt Edge Fillet', icon: '◝', key: 'part' },
         { name: 'Sculpt Merge Bodies', icon: '⧉', key: 'part' },
         { name: 'Sculpt Zebra Check', icon: '☰', key: 'part' },
         { name: 'Sculpt Place Body', icon: '⊕', key: 'part' },
