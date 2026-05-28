@@ -61,6 +61,7 @@ import {
   revolve as sculptRevolve,
   translate as sculptTranslate,
   rotate as sculptRotate,
+  linearPattern as sculptLinearPattern,
 } from '../../kernel/atomic/AtomicOps.js';
 import { downloadProjectSnapshot, buildProjectSnapshot, restoreProjectSnapshot } from '../../foundation/ProjectSnapshot.js';
 import { exportProjectBundle } from '../../foundation/ProjectBundleExport.js';
@@ -1601,6 +1602,85 @@ const TOOL_HANDLERS = {
         };
       }
       return { status: 'success', message: `Sculpt Place Body: "${placed.name}" placed (${placed.featureCount()} features) at (${x},${y},${z})` };
+    },
+
+    // ─── SP-8 — Class-A loft (smooth frustum between two circles) ───────
+    'Sculpt Loft': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Loft');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Loft cancelled' };
+      try {
+        const r1 = values.r1 ?? 200, r2 = values.r2 ?? 80, height = values.height ?? 400;
+        const profiles = [
+          { points2D: fCircleProfile(r1, 48), origin: [0, 0, 0],      normal: [0, 0, 1], up: [0, 1, 0] },
+          { points2D: fCircleProfile(r2, 48), origin: [0, 0, height], normal: [0, 0, 1], up: [0, 1, 0] },
+        ];
+        let m = await fLoft({ profiles });
+        const rx = values.rx ?? 0;
+        if (rx) m = m.rotate([rx, 0, 0]);
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x9aa3ad;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Loft: r1=${r1}→r2=${r2} over ${height} mm — Class-A frustum, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Loft: ' + err.message };
+      }
+    },
+
+    // ─── SP-10 — swept pipe / harness (circle along 3-point path) ───────
+    'Sculpt Pipe': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Pipe');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Pipe cancelled' };
+      try {
+        const radius = values.radius ?? 40;
+        const A = [values.x1 ?? 0, values.y1 ?? 0, values.z1 ?? 0];
+        const B = [values.x2 ?? 0, values.y2 ?? 1000, values.z2 ?? 0];
+        const bend = values.bend ?? 0;
+        // 3-point path: start → bowed midpoint → end. The midpoint is
+        // displaced laterally by `bend` (perpendicular to the chord, in
+        // the XZ plane) to make a curved hose/harness run.
+        const mid = [(A[0] + B[0]) / 2 + bend, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2 + bend * 0.3];
+        const path = [A, mid, B];
+        const prof = fCircleProfile(radius, 20);
+        const m = await fSweep({ profile2D: prof, path, samples: 48 });
+        const color = Number.isFinite(values.color) ? values.color : 0xb9bcc1;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-9 — perforated panel (grid of holes cut through a plate) ────
+    'Sculpt Perforated Panel': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Perforated Panel');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Perforated Panel cancelled' };
+      try {
+        const w = values.w ?? 1500, h = values.h ?? 500, t = values.t ?? 6;
+        const holeR = values.holeR ?? 9, cols = Math.max(1, Math.floor(values.cols ?? 40));
+        const rows = Math.max(1, Math.floor(values.rows ?? 14)), spacing = values.spacing ?? 30;
+        const part = sculptCreatePart(`Perforated Panel ${Date.now() % 100000}`);
+        await sculptStartSketch(part, 'XY');
+        sculptSketchRectangle(part, 0, 0, w, h);
+        sculptFinishSketch(part);
+        await sculptExtrude(part, t);
+        // Cut `rows` rows of `cols` holes each (one linearPattern-cut per row).
+        const startX = -((cols - 1) * spacing) / 2;
+        const startY = -((rows - 1) * spacing) / 2;
+        for (let r = 0; r < rows; r++) {
+          await sculptStartSketch(part, 'XY');
+          sculptSketchCircle(part, startX, startY + r * spacing, holeR);
+          sculptFinishSketch(part);
+          await sculptLinearPattern(part, 'cut', cols, t + 2, spacing, 0);
+        }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) sculptTranslate(part, x, y, z);
+        const color = Number.isFinite(values.color) ? values.color : 0x223a52;
+        addFoundationManifoldToScene(scene, viewport, part.solid, color);
+        return { status: 'success', message: `Sculpt Perforated Panel: ${cols}×${rows}=${cols * rows} holes through ${w}×${h} mm | ${part.featureCount()} features` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Perforated Panel: ' + err.message };
+      }
     },
 
     'Import STEP': async (scene, viewport) => {

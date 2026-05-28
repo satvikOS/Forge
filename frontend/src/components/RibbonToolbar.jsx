@@ -258,6 +258,9 @@ export const TABS = {
         { name: 'Sculpt Extrude',   icon: '⬆', key: 'part' },
         { name: 'Sculpt Cut',       icon: '⬇', key: 'part' },
         { name: 'Sculpt Revolve',   icon: '↻', key: 'part' },
+        { name: 'Sculpt Loft',      icon: '⏧', key: 'part' },
+        { name: 'Sculpt Pipe',      icon: '〜', key: 'part' },
+        { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Place Body', icon: '⊕', key: 'part' },
       ]},
     ]

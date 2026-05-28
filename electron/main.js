@@ -68,7 +68,7 @@ function createWindow() {
       webgl: true,
       enableWebSQL: false,
     },
-    backgroundColor: '#0d0d1a',
+    backgroundColor: '#000000',
     show: false,
   });
 
