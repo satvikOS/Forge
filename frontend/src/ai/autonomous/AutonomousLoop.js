@@ -1,0 +1,185 @@
+/**
+ * AutonomousLoop — the non-stop, self-directed, self-improving agent loop
+ * for ArchDisc Mech. This is Archie — ArchDisc's autonomous agent, for CAD:
+ * instead of waiting for a human prompt, it directs ITSELF, builds real
+ * geometry with Mech's own tools, critiques the result, learns a skill,
+ * curates memory, and immediately starts the next cycle — forever (until
+ * stopped).
+ *
+ *   observe → self-direct a goal → (reuse skill | plan) → execute via the
+ *   real ribbon tool → self-critique → learn (skill + memory + nudge) →
+ *   persist → repeat
+ *
+ * Decoupled from the workbench: the caller injects `executeTool`, a viewport
+ * getter, and (optionally) a per-cycle callback + LLM provider config. State
+ * is mirrored on `window.__archdiscAgent` for the UI + e2e introspection.
+ */
+
+import { capabilityMap } from './MechCapabilityMap.js';
+import { AgentMemory } from './AgentMemory.js';
+import { SkillLibrary } from './SkillLibrary.js';
+import { SelfDirector } from './SelfDirector.js';
+import { SelfCritic } from './SelfCritic.js';
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/** Human-readable label for the model Archie is harnessing (cloud or local). */
+function brainLabel(cfg) {
+  if (!cfg || !cfg.provider) return 'heuristic (no model connected)';
+  const local = cfg.baseUrl && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(cfg.baseUrl);
+  return `${cfg.provider}${cfg.model ? ':' + cfg.model : ''}${local ? ' (local)' : ' (cloud)'}`;
+}
+
+export class AutonomousLoop {
+  /**
+   * @param {object} deps
+   * @param {(group:string,tool:string,scene:object,viewport:object)=>Promise} deps.executeTool
+   * @param {()=>object} deps.getViewport   returns { scene, camera, ... } (window.__archdiscViewport)
+   * @param {object=} deps.providerCfg       BYO-LLM config (optional)
+   * @param {(evt:object)=>void=} deps.onCycle
+   * @param {number=} deps.cycleDelayMs       pause between cycles (watchable)
+   */
+  constructor(deps = {}) {
+    this.executeTool = deps.executeTool;
+    this.getViewport = deps.getViewport || (() => (typeof window !== 'undefined' ? window.__archdiscViewport : null));
+    this.onCycle = deps.onCycle || (() => {});
+    this.cycleDelayMs = deps.cycleDelayMs ?? 350;
+    this.memory = new AgentMemory();
+    this.skills = new SkillLibrary();
+    this.director = new SelfDirector({ providerCfg: deps.providerCfg });
+    this.brain = brainLabel(deps.providerCfg);
+    this.critic = new SelfCritic();
+    this.running = false;
+    this.cycle = 0;
+    this.maxCycles = 0;          // 0 = forever
+    this.log = [];
+    this.currentGoal = null;
+    this._mirror();
+  }
+
+  bodyCount() {
+    try { return (typeof window !== 'undefined' && window.__archdiscRegistry?.list?.() || []).length; }
+    catch { return 0; }
+  }
+  lastVolume() {
+    try {
+      const list = window.__archdiscRegistry?.list?.() || [];
+      const last = list[list.length - 1];
+      return last?.manifold?.volume ? last.manifold.volume() : null;
+    } catch { return null; }
+  }
+
+  /** Start the non-stop loop. Returns immediately; loop runs in background. */
+  start({ maxCycles = 0, reset = false } = {}) {
+    if (this.running) return;
+    if (reset) { this.memory.reset(); this.skills.reset(); this.cycle = 0; this.log = []; }
+    this.maxCycles = maxCycles;
+    this.running = true;
+    this._mirror();
+    this._run();   // not awaited — perpetual
+  }
+
+  stop() { this.running = false; this._mirror(); }
+
+  async _run() {
+    while (this.running && (this.maxCycles <= 0 || this.cycle < this.maxCycles)) {
+      try { await this._cycle(); }
+      catch (err) { this._record({ cycle: this.cycle, error: err.message }); }
+      if (!this.running) break;
+      await sleep(this.cycleDelayMs);
+    }
+    this.running = false;
+    this._mirror();
+  }
+
+  async _cycle() {
+    this.cycle += 1;
+    const viewport = this.getViewport();
+    const scene = viewport?.scene;
+
+    // 1. observe + 2. self-direct
+    const recall = this.memory.recall();
+    const goal = await this.director.nextGoal(recall);
+    this.currentGoal = goal;
+    this._mirror();
+
+    // 3. reuse a learned skill's (improved) params if we have one
+    const skill = this.skills.match(goal.goalId);
+    let params = skill ? { ...goal.params, ...skill.params } : { ...goal.params };
+    const tool = (skill && skill.tool) || goal.tool;
+    // spread each build along X so the autonomous output is laid out in a
+    // readable row rather than stacked at the origin (tools without an `x`
+    // dial simply ignore it).
+    params = { ...params, x: (this.cycle - 1) * 750 };
+
+    // 4. execute via the REAL ribbon tool (params injected so no dialog)
+    const before = this.bodyCount();
+    if (typeof window !== 'undefined') {
+      window.__archdiscPlanParams = window.__archdiscPlanParams || {};
+      window.__archdiscPlanParams[tool] = params;
+    }
+    let result = { status: 'error', message: 'executeTool unavailable' };
+    if (this.executeTool && scene && viewport) {
+      result = await this.executeTool('part', tool, scene, viewport);
+    }
+    const after = this.bodyCount();
+
+    // 5. self-critique
+    const verdict = this.critic.critique({ result, bodiesBefore: before, bodiesAfter: after, lastVolume: this.lastVolume() });
+
+    // 6. learn — skill (auto-create/improve) + memory + nudge
+    const run = {
+      goalId: goal.goalId, subject: goal.subject, tool, params,
+      steps: [{ tool, params }], score: verdict.score, ok: verdict.ok,
+      status: result.status, source: goal.source,
+    };
+    const skillOutcome = this.skills.learnFromRun(run);
+    this.memory.recordRun(run);
+    const nudge = this.memory.maybeNudge();
+    if (verdict.notes?.length) this.memory.addLearning(`[${goal.goalId}] ${verdict.notes.join('; ')}`, 'critic');
+
+    // 7. emit
+    this._record({
+      cycle: this.cycle, goal: goal.subject, goalId: goal.goalId, tool,
+      source: goal.source, score: +verdict.score.toFixed(2), ok: verdict.ok,
+      skill: skillOutcome.action, nudge: !!nudge, message: result.message,
+    });
+  }
+
+  _record(evt) {
+    this.log.push({ at: Date.now(), ...evt });
+    if (this.log.length > 200) this.log = this.log.slice(-200);
+    this._mirror();
+    try { this.onCycle(evt); } catch { /* UI best-effort */ }
+  }
+
+  state() {
+    return {
+      running: this.running, cycle: this.cycle, maxCycles: this.maxCycles,
+      brain: this.brain,
+      currentGoal: this.currentGoal,
+      builtIds: this.memory.builtIds,
+      skills: this.skills.list().map(s => ({ name: s.name, version: s.version, used: s.successCount, score: s.score })),
+      learnings: this.memory.learnings.slice(-6).map(l => l.text),
+      log: this.log.slice(-12),
+    };
+  }
+
+  _mirror() {
+    if (typeof window !== 'undefined') window.__archdiscAgent = this.state();
+  }
+}
+
+// Lazily-constructed singleton, wired by the workbench.
+let _instance = null;
+export function getAutonomousLoop(deps) {
+  if (!_instance && deps) _instance = new AutonomousLoop(deps);
+  else if (_instance && deps) {
+    // refresh injected deps (new viewport/provider on remount)
+    if (deps.executeTool) _instance.executeTool = deps.executeTool;
+    if (deps.getViewport) _instance.getViewport = deps.getViewport;
+    if (deps.providerCfg) { _instance.director = new SelfDirector({ providerCfg: deps.providerCfg }); _instance.brain = brainLabel(deps.providerCfg); }
+    if (deps.onCycle) _instance.onCycle = deps.onCycle;
+  }
+  return _instance;
+}

@@ -153,6 +153,8 @@ import { helicalSpring as fHelicalSpring } from '../../foundation/SpringCoil.js'
 import { threadedRod as fThreadedRod } from '../../foundation/ThreadedRod.js';
 import { ballBearing as fBallBearing } from '../../foundation/Bearing.js';
 import { camProfile as fCamProfile } from '../../foundation/CamProfile.js';
+import { getAutonomousLoop } from '../../ai/autonomous/AutonomousLoop.js';
+import { loadProviderConfig } from '../../ai/PlannerProviders.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1643,6 +1645,47 @@ const TOOL_HANDLERS = {
         };
       }
       return { status: 'success', message: `Sculpt Place Body: "${placed.name}" placed (${placed.featureCount()} features) at (${x},${y},${z})` };
+    },
+
+    // ─── Archie — autonomous, self-directed, self-improving agent ──────
+    // Starts the non-stop loop: Archie picks its own goals (grounded in
+    // Mech's tools), builds geometry via these same handlers, critiques,
+    // learns skills + curates memory, and repeats. Dialog params are
+    // injected by the loop so it runs hands-free. State on window.__archdiscAgent.
+    'Archie Agent': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Archie Agent');
+      if (cancelled) return { status: 'warn', message: 'Archie cancelled' };
+      // Harness whatever model the platform has connected — cloud (API key)
+      // or local/own-hardware (OpenAI-compatible endpoint, e.g. Ollama). When
+      // a model is configured Archie self-directs with the LLM; otherwise it
+      // falls back to its grounded heuristic curriculum (still fully autonomous).
+      const providerCfg = loadProviderConfig() || null;
+      const loop = getAutonomousLoop({
+        executeTool,
+        getViewport: () => (typeof window !== 'undefined' ? window.__archdiscViewport : viewport),
+        cycleDelayMs: values.cycleDelayMs ?? 350,
+        providerCfg,
+        onCycle: (evt) => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('archdisc:archie:cycle', { detail: evt }));
+          }
+        },
+      });
+      if (!loop) return { status: 'error', message: 'Archie: could not start the agent loop.' };
+      if (loop.running) return { status: 'warn', message: `Archie already running (cycle ${loop.cycle}). Use Stop Archie.` };
+      const maxCycles = Math.max(0, Math.floor(values.maxCycles ?? 0));
+      loop.start({ maxCycles, reset: values.reset === 'yes' || values.reset === true });
+      const brain = providerCfg
+        ? `harnessing ${providerCfg.provider}${providerCfg.model ? `:${providerCfg.model}` : ''}${providerCfg.baseUrl ? ` @ ${providerCfg.baseUrl}` : ''}`
+        : 'grounded heuristic (no model connected)';
+      return { status: 'success', message: `Archie started — autonomous, self-directing ${brain}${maxCycles ? ` (${maxCycles} cycles)` : ' (non-stop)'}. State: window.__archdiscAgent` };
+    },
+
+    'Stop Archie': async () => {
+      const loop = getAutonomousLoop();
+      if (!loop) return { status: 'warn', message: 'Archie is not running.' };
+      loop.stop();
+      return { status: 'success', message: `Archie stopped at cycle ${loop.cycle}. ${loop.skills.list().length} skills learned.` };
     },
 
     // ─── SP-8 — Class-A loft (smooth frustum between two circles) ───────

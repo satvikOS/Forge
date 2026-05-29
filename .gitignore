@@ -66,3 +66,7 @@ e2e/screenshots/
 
 # AI-orchestration scratch / wakeup notes
 docs/superpowers/notes/custom-occt-build-recon.md
+
+# Hermes reference zip (scraped into Archie; never commit)
+hermes-agent-main.zip
+_scrape_hermes/

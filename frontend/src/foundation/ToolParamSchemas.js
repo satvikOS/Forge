@@ -395,6 +395,20 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'sharpness', label: 'Edge sharpness', type: 'number', default: 0.85, min: 0, max: 1, step: 0.05 },
     ],
   },
+  'Archie Agent': {
+    title: 'Archie — Autonomous Agent',
+    blurb: 'Start Archie: ArchDisc\'s self-directed, self-improving agent. It picks its own goals (grounded in Mech\'s tools), builds geometry hands-free, critiques, learns skills + curates memory, and repeats. maxCycles 0 = non-stop. Watch window.__archdiscAgent.',
+    fields: [
+      { name: 'maxCycles', label: 'Max cycles (0 = non-stop)', type: 'number', default: 0, min: 0, step: 1 },
+      { name: 'cycleDelayMs', label: 'Cycle delay', type: 'number', default: 350, unit: 'ms', min: 0, step: 50 },
+      { name: 'reset', label: 'Reset memory + skills', type: 'enum', options: ['no', 'yes'], default: 'no' },
+    ],
+  },
+  'Stop Archie': {
+    title: 'Archie — Stop',
+    blurb: 'Stop the autonomous agent loop after the current cycle. Memory + learned skills persist.',
+    fields: [],
+  },
   'Sculpt Place Body': {
     title: 'Sculpt — Place + Finish Body',
     blurb: 'Rotate + translate the finished sculpt part into the assembly and register it as a body. Clears the active part for the next one.',

@@ -279,6 +279,11 @@ export const TABS = {
         { name: 'Sculpt Zebra Check', icon: '☰', key: 'part' },
         { name: 'Sculpt Place Body', icon: '⊕', key: 'part' },
       ]},
+      // Archie — ArchDisc's autonomous, self-directed, self-improving agent.
+      { label: 'Archie', tools: [
+        { name: 'Archie Agent', icon: '🜂', key: 'part', primary: true },
+        { name: 'Stop Archie', icon: '⏹', key: 'part' },
+      ]},
     ]
   },
   assembly: {

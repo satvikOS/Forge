@@ -112,7 +112,18 @@ function WorkbenchContainer() {
             addToast(`${tool}: ${message}`, type, type === 'error' ? 5000 : 3000);
         };
         window.addEventListener('archdisc:tool-result', onResult);
-        return () => window.removeEventListener('archdisc:tool-result', onResult);
+        // Archie (autonomous agent) — live per-cycle status, single top-right slot.
+        const onArchie = (ev) => {
+            const c = ev?.detail || {};
+            if (!c.cycle) return;
+            const tag = c.error ? `error: ${c.error}` : `${c.goal} → ${c.ok ? 'ok' : 'weak'} (${c.score})${c.skill && c.skill !== 'kept' ? ` · skill ${c.skill}` : ''}${c.nudge ? ' · memory nudge' : ''}`;
+            addToast(`Archie cycle ${c.cycle}: ${tag}`, c.ok ? 'success' : 'warn', 2500);
+        };
+        window.addEventListener('archdisc:archie:cycle', onArchie);
+        return () => {
+            window.removeEventListener('archdisc:tool-result', onResult);
+            window.removeEventListener('archdisc:archie:cycle', onArchie);
+        };
     }, []);
 
     // Monitor online/offline status
