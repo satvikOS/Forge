@@ -152,6 +152,7 @@ import { spurGear as fSpurGear } from '../../foundation/SpurGear.js';
 import { helicalSpring as fHelicalSpring } from '../../foundation/SpringCoil.js';
 import { threadedRod as fThreadedRod } from '../../foundation/ThreadedRod.js';
 import { ballBearing as fBallBearing } from '../../foundation/Bearing.js';
+import { camProfile as fCamProfile } from '../../foundation/CamProfile.js';
 import { registerBody, getBodyRegistry } from '../../foundation/BodyRegistry.js';
 import { buildInstancedAssembly } from '../../foundation/MassiveAssembly.js';
 import { requestToolParams } from '../../foundation/ToolParamDialog.js';
@@ -1898,6 +1899,28 @@ const TOOL_HANDLERS = {
       if (typeof window !== 'undefined') window.__lastZebraCheck = { appliedBodies, toggledOff, meshes, stripeFrequency: opts.stripeFrequency };
       const verb = appliedBodies >= toggledOff ? 'ON' : 'OFF';
       return { status: 'success', message: `Zebra Check ${verb}: ${meshes} meshes across ${bodies.length} bodies — inspect reflection-line continuity (Class-A QC)` };
+    },
+
+    // ─── SP-33 — radial cam (rise-dwell-fall lobe) ────────────────────
+    'Sculpt Cam': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Cam');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Cam cancelled' };
+      try {
+        let m = await fCamProfile({
+          baseR: values.baseR ?? 120, lift: values.lift ?? 70,
+          noseCenter: values.noseCenter ?? 90, noseWidth: values.noseWidth ?? 120,
+          thickness: values.thickness ?? 90, boreR: values.boreR ?? 40,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0x6a6f76;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Cam: base R${values.baseR ?? 120} + ${values.lift ?? 70} lift — rise-dwell-fall, V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Cam: ' + err.message };
+      }
     },
 
     // ─── SP-32 — ball bearing (races + rolling balls) ─────────────────
