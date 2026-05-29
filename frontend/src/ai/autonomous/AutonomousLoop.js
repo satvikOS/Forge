@@ -47,6 +47,10 @@ export class AutonomousLoop {
     this.onCycle = deps.onCycle || (() => {});
     this.cycleDelayMs = deps.cycleDelayMs ?? 350;
     this.memory = new AgentMemory();
+    // Burn permanent platform familiarity into memory the moment Archie is
+    // constructed — it knows the WHOLE platform (every tool, the exact kernel,
+    // all CAD/CAM/CAE domains) every session, surviving resets.
+    this.memory.seedKnowledge(capabilityMap.knowledgeFacts());
     this.skills = new SkillLibrary();
     this.director = new SelfDirector({ providerCfg: deps.providerCfg });
     this.brain = brainLabel(deps.providerCfg);
@@ -202,6 +206,7 @@ export class AutonomousLoop {
       perception: this.perception.last,
       unmet: this.parity.unmet(this.memory.builtIds).map(r => r.id),
       currentGoal: this.currentGoal,
+      knowledge: (this.memory.knowledge || []).map(k => k.text),
       builtIds: this.memory.builtIds,
       skills: this.skills.list().map(s => ({ name: s.name, version: s.version, used: s.successCount, score: s.score })),
       learnings: this.memory.learnings.slice(-6).map(l => l.text),

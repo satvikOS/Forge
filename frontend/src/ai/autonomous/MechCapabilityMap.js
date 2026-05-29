@@ -132,14 +132,95 @@ export class MechCapabilityMap {
     return this.curriculum.filter(c => !done.has(c.id));
   }
 
-  /** Compact grounding text for an LLM self-director / planner. */
+  /** The FULL ribbon-tool surface (CAD + CAM + CAE), grouped by tab, with
+   *  each tool's purpose — so Archie knows every capability, not just the
+   *  sculpt construction tools. */
+  toolCatalog() {
+    const byTab = {};
+    for (const t of TOOL_REGISTRY) (byTab[t.tab] = byTab[t.tab] || []).push(t);
+    const lines = ['Full ribbon-tool surface (CAD + CAM + CAE):'];
+    for (const tab of Object.keys(byTab)) {
+      lines.push(`  ${tab} tab:`);
+      for (const t of byTab[tab]) lines.push(`    - ${t.name} [${t.category}]: ${t.description}`);
+    }
+    return lines.join('\n');
+  }
+
+  /** The exact B-rep / NURBS kernel op surface — the precise geometry
+   *  foundation beneath the mesh tools. Stated statically (kernel-free) so
+   *  this module never pulls the kernel WASM at import. */
+  kernelSummary() {
+    return [
+      'Exact B-rep / NURBS kernel (ArchDiscKernel facade, ~44 ops) — the precise',
+      'geometry engine beneath the mesh tools:',
+      '  - Primitives: box, cylinder, sphere, cone, torus',
+      '  - Booleans: fuse / cut / common + fuseAll / non-manifold / coincident / lattice',
+      '  - Features: extrude, revolve, fillet, chamfer, variable-radius fillet, profile extrude/revolve/sweep',
+      '  - Local ops: shell, thicken, offset, draft',
+      '  - Surfacing: sweep, loft, pipe-shell sweep, tangent loft, stitch faces, convergent solid',
+      '  - NURBS: build/refine/elevate/curvature, auto-trim B-rep, surface-surface intersection, trimmed face',
+      '  - Blends: G2/G3 edge blends, cliff-edge, mitre/setback corners, face-face, hold-line, n-sided patch',
+      '  - Sheet metal: base/edge flange, flat pattern, hem, jog, miter flange, sketched bend',
+      '  - Healing: simplify, auto-fill faces, auto-repair self-intersection, harmonize normals',
+      '  - Direct modeling: push/pull face, move face, delete-face-and-heal, feature infer',
+      '  - Sections: planar section, imprint, partition, replace face; subdivide; retopology',
+      '  - Inspect: point classify, ray fire, curve/surface eval, mass properties, adjacency, Class-A zebra',
+      '  - Data exchange: STEP AP242 + IGES import/export, faceting / hidden-line',
+      'A custom exact-kernel WASM build is in progress to deepen this',
+      '(auto-trim NURBS, true G2 variational blends, parametric trim curves).',
+    ].join('\n');
+  }
+
+  /** The engineering domains Archie spans — every discipline rides on the
+   *  one exact-geometry substrate. */
+  engineeringDomains() {
+    return [
+      'Engineering domains (all on one exact-geometry substrate):',
+      '  - CAD: sketch + part modelling (atomic Sculpt tools AND the exact B-rep kernel)',
+      '  - CAM: 2.5/3-axis milling G-code, pocket clearing, post-processing, additive slice preview',
+      '  - CAE: static/modal/buckling/frame/rotordynamics FEA, steady thermal, CFD, fatigue,',
+      '    forced vibration, stress concentration, topology optimization',
+      '  - Machine elements: bearing life, gear mesh, shaft sizing, bolted joint, spring, pressure vessel',
+      '  - Propulsion: Brayton cycle, compressor/turbine stage, combustor, nozzle, blade cooling, heat exchanger, mission',
+      '  - Assembly + kinematics: mates, motion study, mass properties',
+      '  - Hand-off: 3-view/section drawings, STL/STEP/glTF export, costing, DFM, quotes',
+    ].join('\n');
+  }
+
+  /** Concise, durable facts seeded into AgentMemory so Archie is familiar
+   *  with the WHOLE platform every session ("burned in"). */
+  knowledgeFacts() {
+    const s = registrySummary();
+    return [
+      `Mech is a full CAD/CAM/CAE platform: ${s.total} ribbon tools across ${Object.keys(s.byTab).join(', ')} tabs, ~24 atomic Sculpt construction tools, and a ~44-op exact B-rep/NURBS kernel.`,
+      'CAD = sketch + part modelling via the Sculpt tools AND the exact B-rep kernel (primitives, booleans, features, surfacing, NURBS, blends, sheet-metal, healing, direct ops, sections).',
+      'CAM = milling G-code (2.5/3-axis), pocket clearing, post-processing, additive slicing.',
+      'CAE = FEA (static/modal/buckling/frame/rotordynamics), thermal, CFD, fatigue, vibration, topology optimization, plus machine-element + propulsion calculators.',
+      'Data exchange: STEP AP242, IGES, STL, glTF — in and out.',
+      'The exact-geometry substrate is the ArchDisc B-rep kernel; a custom exact-kernel WASM build is underway to deepen it (auto-trim NURBS, true G2 blends, parametric trim).',
+      'Archie builds via the real ribbon tools (no bypass), self-critiques with machine vision over its own render, learns reusable skills, curates memory, and works non-stop toward 1:1-or-better parity with the reference.',
+    ];
+  }
+
+  /** Compact-but-COMPLETE grounding text for an LLM self-director / planner —
+   *  the full platform, not just the sculpt tools. */
   groundingSummary() {
     return [
-      'ArchDisc Mech — sculpt-construction capabilities you (the agent) can use:',
-      ...this.curriculum.map(c => `  • ${c.id}: build ${c.subject} via "${c.tool}"`),
+      'ArchDisc Mech — your complete capability surface (you, Archie, are fully familiar with all of it):',
       '',
-      'You may also compose multiple sculpt tools into an assembly. Full tool registry:',
-      registrySummary(),
+      'Atomic Sculpt construction tools (build geometry from scratch):',
+      ...this.sculptTools.map(t => `  - ${t}`),
+      '',
+      this.toolCatalog(),
+      '',
+      this.kernelSummary(),
+      '',
+      this.engineeringDomains(),
+      '',
+      'Current parity curriculum (the airliner you assemble subsystem-by-subsystem):',
+      ...this.curriculum.map(c => `  • ${c.id}: ${c.subject}${c.tool ? ` via "${c.tool}"` : ' (multi-step assembly)'}`),
+      '',
+      'You may compose multiple tools into an assembly in one cycle.',
     ].join('\n');
   }
 }

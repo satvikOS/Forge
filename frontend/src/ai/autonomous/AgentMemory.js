@@ -26,11 +26,29 @@ export class AgentMemory {
     const s = load() || {};
     this.builtIds = s.builtIds || [];          // curriculum ids completed
     this.learnings = s.learnings || [];        // durable distilled facts
+    this.knowledge = s.knowledge || [];        // PERMANENT platform familiarity (survives reset)
     this.runs = s.runs || [];                  // recent run records (capped)
     this.profile = s.profile || { focus: 'mechanical components', cyclesEver: 0 };
     this.itersSinceNudge = s.itersSinceNudge || 0;
     this.nudgeInterval = s.nudgeInterval || 4;  // distil every N runs
     this._mirror();
+  }
+
+  /**
+   * Burn permanent platform knowledge into memory — the facts that make
+   * Archie fully familiar with everything Mech can do. Deduped by text;
+   * unlike run learnings these are NEVER pruned or wiped (see reset()), so
+   * Archie stays familiar across every session. Returns count added.
+   */
+  seedKnowledge(facts = []) {
+    let added = 0;
+    for (const text of facts) {
+      if (!text || this.knowledge.some(k => k.text === text)) continue;
+      this.knowledge.push({ text, at: new Date().toISOString() });
+      added += 1;
+    }
+    if (added) this.persist();
+    return added;
   }
 
   /** Record one completed run (goal + outcome). Caps the run log. */
@@ -72,6 +90,7 @@ export class AgentMemory {
   recall() {
     return {
       builtIds: [...this.builtIds],
+      knowledge: this.knowledge.map(k => k.text),
       recentLearnings: this.learnings.slice(-6).map(l => l.text),
       cyclesEver: this.profile.cyclesEver,
     };
@@ -80,6 +99,10 @@ export class AgentMemory {
   /** Compact text for grounding an LLM. */
   summaryText() {
     const lines = [`Project memory (${this.profile.cyclesEver} cycles ever):`];
+    if (this.knowledge.length) {
+      lines.push('Platform familiarity (permanent):');
+      for (const k of this.knowledge) lines.push(`  - ${k.text}`);
+    }
     if (this.builtIds.length) lines.push(`Built: ${this.builtIds.join(', ')}`);
     if (this.learnings.length) {
       lines.push('Learnings:');
@@ -97,7 +120,7 @@ export class AgentMemory {
 
   _state() {
     return {
-      builtIds: this.builtIds, learnings: this.learnings, runs: this.runs,
+      builtIds: this.builtIds, learnings: this.learnings, knowledge: this.knowledge, runs: this.runs,
       profile: this.profile, itersSinceNudge: this.itersSinceNudge, nudgeInterval: this.nudgeInterval,
     };
   }
@@ -106,7 +129,8 @@ export class AgentMemory {
     if (typeof window !== 'undefined') window.__archdiscAgentMemory = this._state();
   }
 
-  /** Wipe (for a clean autonomous run / tests). */
+  /** Wipe run state for a clean autonomous run / tests. Permanent platform
+   *  knowledge is PRESERVED — Archie stays fully familiar across resets. */
   reset() {
     this.builtIds = []; this.learnings = []; this.runs = [];
     this.profile = { focus: 'mechanical components', cyclesEver: 0 };

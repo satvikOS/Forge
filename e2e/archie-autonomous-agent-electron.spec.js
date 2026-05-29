@@ -137,6 +137,14 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
   expect(agent.parityScore).toBeGreaterThanOrEqual(1.0);
   expect(agent.parityReachedAt).toBeGreaterThan(0);
 
+  // ── Familiarity: Archie knows the WHOLE platform, burned into memory —
+  //    not just the sculpt tools. The knowledge survives a reset (permanent).
+  console.log('ARCHIE knowledge:', JSON.stringify(agent.knowledge));
+  expect(Array.isArray(agent.knowledge)).toBe(true);
+  expect(agent.knowledge.length).toBeGreaterThanOrEqual(7);
+  expect(agent.knowledge.join(' ')).toMatch(/CAD\/CAM\/CAE/);
+  expect(agent.knowledge.join(' ')).toMatch(/exact B-rep/);
+
   // ── Perception: Archie SAW its own render — geometry is on screen. An
   //    airliner is a THIN silhouette (slender wings + fuselage), so raw lit-
   //    pixel coverage is naturally low; the meaningful presence signal is the
