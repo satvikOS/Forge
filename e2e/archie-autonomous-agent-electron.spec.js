@@ -71,23 +71,30 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
 
   await capture('00-before');
 
-  // ── Start Archie via the ribbon (drive its dialog: bounded run + reset)
+  // ── Start Archie via the ribbon — NON-STOP (maxCycles 0). It runs
+  //    hands-free; we never stop or close it mid-build.
   await win.locator('[data-ribbon-tool-name="Archie Agent"]').first().dispatchEvent('click');
   const dlg = win.locator('.tpd-dialog');
   await dlg.waitFor({ state: 'visible', timeout: 8000 });
   await win.waitForTimeout(150);
-  await dlg.locator('[data-field="maxCycles"]').first().fill(String(CYCLES));
-  await dlg.locator('[data-field="cycleDelayMs"]').first().fill('250');
+  await dlg.locator('[data-field="maxCycles"]').first().fill('0');   // 0 = non-stop
+  await dlg.locator('[data-field="cycleDelayMs"]').first().fill('300');
   const resetSel = dlg.locator('[data-field="reset"]').first();
   if (await resetSel.count() > 0) await resetSel.selectOption('yes');
   await win.locator('.tpd-btn-run').dispatchEvent('click');
   await dlg.waitFor({ state: 'hidden', timeout: 8000 });
 
-  // ── Archie now runs hands-free. Wait until the loop finishes its cycles.
-  await win.waitForFunction((n) => {
-    const a = window.__archdiscAgent;
-    return a && a.running === false && a.cycle >= n;
-  }, CYCLES, { timeout: 20 * 60 * 1000 });
+  // ── Run NON-STOP until the LAST subsystem is built (1:1 parity reached)
+  //    — the app stays open the whole time, no closing to verify mid-build.
+  await win.waitForFunction(() => window.__archdiscAgent && window.__archdiscAgent.parityMet === true,
+    null, { timeout: 25 * 60 * 1000 });
+  // ── …then a few "for-better" betterment cycles past 1:1 (skill reuse).
+  const reachedAt = await win.evaluate(() => window.__archdiscAgent.parityReachedAt || 0);
+  await win.waitForFunction((r) => window.__archdiscAgent.cycle >= r + 3, reachedAt, { timeout: 5 * 60 * 1000 });
+  // ── Only after the last step do we halt + read the result.
+  await win.locator('[data-ribbon-tool-name="Stop Archie"]').first().dispatchEvent('click');
+  await win.waitForFunction(() => window.__archdiscAgent && window.__archdiscAgent.running === false,
+    null, { timeout: 30000 });
 
   const agent = await win.evaluate(() => window.__archdiscAgent);
   const skills = await win.evaluate(() => window.__archdiscAgentSkills || {});
@@ -100,15 +107,15 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
 
   await capture('99-after');
 
-  // ── Autonomy: ran the full cycle count on its own, no human input
-  expect(agent.cycle).toBe(CYCLES);
+  // ── Autonomy: ran hands-free until halted after the last step
   expect(agent.running).toBe(false);
-  // ── Self-direction: chose many DISTINCT goals grounded in Mech's tools
-  expect(memory.builtIds.length).toBeGreaterThanOrEqual(10);
+  expect(agent.cycle).toBeGreaterThanOrEqual(memory.builtIds.length);
+  // ── Self-direction: built the full 19-subsystem airliner on its own
+  expect(memory.builtIds.length).toBeGreaterThanOrEqual(18);
   // ── Actually built geometry hands-free via the real ribbon tools
-  expect(bodies).toBeGreaterThanOrEqual(10);
-  // ── Self-improvement: auto-created skills from successful runs
-  expect(Object.keys(skills).length).toBeGreaterThanOrEqual(10);
+  expect(bodies).toBeGreaterThanOrEqual(18);
+  // ── Self-improvement: auto-created a skill per subsystem
+  expect(Object.keys(skills).length).toBeGreaterThanOrEqual(18);
   // ── Curated persistent memory + at least one distillation nudge
   expect(memory.learnings.length).toBeGreaterThanOrEqual(1);
   expect(memory.learnings.some(l => l.source === 'nudge')).toBe(true);
