@@ -1,7 +1,7 @@
 /**
  * ParityObjective — Archie's north star. Archie's whole purpose is to work
  * non-stop until the project reaches 1:1 (or better) parity with the
- * reference target (the Video-21 Volvo FH vocabulary). This module defines
+ * reference target (the Video-611 airliner). This module defines
  * what "parity" means as a concrete, measurable surface and scores how
  * close the agent currently is, so the loop can pursue it relentlessly.
  *
@@ -14,9 +14,9 @@
 
 import { capabilityMap } from './MechCapabilityMap.js';
 
-// The required subsystem capabilities for 1:1 parity = the full Mech
+// The required subsystem capabilities for 1:1 parity = the full airliner
 // build vocabulary (grounded in the capability curriculum). Building every
-// one means Archie can construct the reference truck end-to-end.
+// one means Archie can construct the reference aircraft end-to-end.
 const REQUIREMENTS = capabilityMap.curriculum.map(c => ({ id: c.id, subject: c.subject }));
 
 export class ParityObjective {

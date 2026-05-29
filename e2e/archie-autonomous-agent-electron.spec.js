@@ -18,10 +18,11 @@ import path from 'path';
 
 const OUT = path.resolve(__dirname, 'screenshots', 'archie-airliner-611');
 fs.mkdirSync(OUT, { recursive: true });
-// Target = Video-611 airliner. 19 positioned subsystems (12 base + a
-// detail tier: turbofan fans, landing gear, winglets) → a fully-loaded
-// plane (parity 1.0), then refine cycles REUSE/improve learned skills.
-const CYCLES = 22;
+// Target = Video-611 airliner. 23 positioned subsystems: a base airframe +
+// a detail tier (real swept/tapered/airfoil wings, turbofan fans, landing
+// gear, winglets, flight-deck glazing, engine exhaust cones) → a fully-
+// loaded plane (parity 1.0), then refine cycles REUSE/improve skills.
+const CYCLES = 26;
 
 test.describe.configure({ timeout: 30 * 60 * 1000 });
 
@@ -133,10 +134,17 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
   expect(agent.parityScore).toBeGreaterThanOrEqual(1.0);
   expect(agent.parityReachedAt).toBeGreaterThan(0);
 
-  // ── Perception: Archie SAW its own render — geometry is on screen.
+  // ── Perception: Archie SAW its own render — geometry is on screen. An
+  //    airliner is a THIN silhouette (slender wings + fuselage), so raw lit-
+  //    pixel coverage is naturally low; the meaningful presence signal is the
+  //    on-screen bounding region. Assert both: some lit pixels AND a real,
+  //    centred bounding box (the plane occupies a substantial screen region).
   console.log('ARCHIE perception:', JSON.stringify(agent.perception));
   expect(agent.perception).toBeTruthy();
-  expect(agent.perception.coverage).toBeGreaterThan(0.02);
+  expect(agent.perception.coverage).toBeGreaterThan(0.01);
+  expect(agent.perception.bbox).toBeTruthy();
+  expect(agent.perception.bbox.w).toBeGreaterThan(0.15);
+  expect(agent.perception.bbox.h).toBeGreaterThan(0.15);
 
   await app.close();
 });

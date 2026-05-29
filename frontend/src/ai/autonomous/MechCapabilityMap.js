@@ -31,8 +31,10 @@ const CURRICULUM = [
     params: { r1: 320, r2: 55, height: 850, x: 0, y: 900, z: 2100, color: 0xeef0f2 } },
   { id: 'tailcone', subject: 'the tail cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
     params: { r1: 80, r2: 320, height: 1150, x: 0, y: 900, z: -3250, color: 0xeef0f2 } },
-  { id: 'wings', subject: 'the main wing', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
-    params: { width: 7200, length: 1150, crownX: 80, crownZ: 0, thickness: 110, nu: 26, nv: 14, x: 0, y: 900, z: -750, color: 0xdfe3e7 } },
+  { id: 'wingR', subject: 'the right main wing (swept, tapered, airfoil)', tool: 'Sculpt Wing', kind: 'surface', placed: true,
+    params: { side: 'R', rootChord: 1500, tipChord: 520, span: 3400, sweepDeg: 27, dihedralDeg: 5, rootThick: 0.13, tipThick: 0.10, n: 24, x: 0, y: 820, z: -650, color: 0xdfe3e7 } },
+  { id: 'wingL', subject: 'the left main wing (swept, tapered, airfoil)', tool: 'Sculpt Wing', kind: 'surface', placed: true,
+    params: { side: 'L', rootChord: 1500, tipChord: 520, span: 3400, sweepDeg: 27, dihedralDeg: 5, rootThick: 0.13, tipThick: 0.10, n: 24, x: 0, y: 820, z: -650, color: 0xdfe3e7 } },
   { id: 'hstab', subject: 'the horizontal stabiliser', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
     params: { width: 2900, length: 600, crownX: 35, crownZ: 0, thickness: 70, nu: 18, nv: 10, x: 0, y: 980, z: -2750, color: 0xdfe3e7 } },
   { id: 'vfin', subject: 'the vertical fin', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
@@ -86,9 +88,17 @@ const CURRICULUM = [
     { tool: 'Sculpt Tire', params: { rimR: 42, outerR: 100, width: 80, treadCount: 16, treadDepth: 8, axis: 'X', x: 650, y: 120, z: -650, color: 0x141414 } },
   ] },
   { id: 'wingletL', subject: 'the left winglet', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
-    params: { width: 280, length: 480, crownX: 20, crownZ: 0, thickness: 50, nu: 8, nv: 8, rz: 75, x: -3500, y: 1000, z: -700, color: 0xdfe3e7 } },
+    params: { width: 230, length: 470, crownX: 18, crownZ: 0, thickness: 46, nu: 8, nv: 8, rz: 78, x: -3380, y: 1130, z: -1880, color: 0xdfe3e7 } },
   { id: 'wingletR', subject: 'the right winglet', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
-    params: { width: 280, length: 480, crownX: 20, crownZ: 0, thickness: 50, nu: 8, nv: 8, rz: -75, x: 3500, y: 1000, z: -700, color: 0xdfe3e7 } },
+    params: { width: 230, length: 470, crownX: 18, crownZ: 0, thickness: 46, nu: 8, nv: 8, rz: -78, x: 3380, y: 1130, z: -1880, color: 0xdfe3e7 } },
+
+  // ── Finer detail — flight-deck glazing + engine exhaust cones.
+  { id: 'cockpit', subject: 'the flight-deck windscreen', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 300, length: 360, crownX: 60, crownZ: 30, thickness: 26, nu: 14, nv: 12, rx: -28, x: 0, y: 1140, z: 1480, color: 0x0a0e12 } },
+  { id: 'exhaustL', subject: 'the left engine exhaust cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 130, r2: 42, height: 300, x: -1550, y: 600, z: -700, color: 0x191c1f } },
+  { id: 'exhaustR', subject: 'the right engine exhaust cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 130, r2: 42, height: 300, x: 1550, y: 600, z: -700, color: 0x191c1f } },
 ];
 
 export class MechCapabilityMap {

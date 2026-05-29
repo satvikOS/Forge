@@ -272,6 +272,7 @@ export const TABS = {
         { name: 'Sculpt Cam',       icon: '◓', key: 'part' },
         { name: 'Sculpt Bolt Array', icon: '⁘', key: 'part' },
         { name: 'Sculpt Crown Panel', icon: '⌒', key: 'part' },
+        { name: 'Sculpt Wing', icon: '⪼', key: 'part' },
         { name: 'Sculpt Fender Arch', icon: '◜', key: 'part' },
         { name: 'Sculpt Embossed Text', icon: '🅰', key: 'part' },
         { name: 'Sculpt Edge Fillet', icon: '◝', key: 'part' },

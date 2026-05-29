@@ -144,7 +144,7 @@ import { generateAssemblySequence, sampleAssemblyFrames } from '../../foundation
 import { motionAnimatedSVG, motionFilmstripSVG, countAnimatedFrames } from '../../foundation/MotionRender.js';
 import { findTool } from '../../ai/ToolRegistry.js';
 import { applyZebraToObject } from '../../foundation/ZebraStripes.js';
-import { crownPanel as fCrownPanel, fenderArch as fFenderArch } from '../../foundation/ClassAPanel.js';
+import { crownPanel as fCrownPanel, fenderArch as fFenderArch, sweptWing as fSweptWing } from '../../foundation/ClassAPanel.js';
 import { embossText as fEmbossText } from '../../foundation/EmbossText.js';
 import { edgeFillet as fEdgeFillet } from '../../foundation/EdgeBlend.js';
 import { corrugatedPipe as fCorrugatedPipe } from '../../foundation/FlexPipe.js';
@@ -1894,6 +1894,30 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Crown Panel: ${values.width}×${values.length} mm, crown ${values.crownX}/${values.crownZ} — Class-A skin, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Crown Panel: ' + err.message };
+      }
+    },
+
+    // ─── Swept tapered airfoil wing (one side per call) ─────────────────
+    'Sculpt Wing': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Wing');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Wing cancelled' };
+      try {
+        let m = await fSweptWing({
+          side: values.side === 'L' ? 'L' : 'R',
+          rootChord: values.rootChord ?? 1500, tipChord: values.tipChord ?? 520,
+          span: values.span ?? 3400, sweepDeg: values.sweepDeg ?? 27,
+          dihedralDeg: values.dihedralDeg ?? 5, rootThick: values.rootThick ?? 0.13,
+          tipThick: values.tipThick ?? 0.10, n: values.n ?? 24,
+        });
+        const rx = values.rx ?? 0, ry = values.ry ?? 0, rz = values.rz ?? 0;
+        if (rx || ry || rz) { const r = m.rotate([rx, ry, rz]); m.delete?.(); m = r; }
+        const x = values.x ?? 0, y = values.y ?? 0, z = values.z ?? 0;
+        if (x || y || z) { const t = m.translate([x, y, z]); m.delete?.(); m = t; }
+        const color = Number.isFinite(values.color) ? values.color : 0xdfe3e7;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        return { status: 'success', message: `Sculpt Wing: ${values.side === 'L' ? 'left' : 'right'} semi-span ${values.span ?? 3400} mm, ${values.sweepDeg ?? 27}° sweep, taper ${((values.tipChord ?? 520) / (values.rootChord ?? 1500)).toFixed(2)} — V≈${m.volume().toFixed(0)} mm³` };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Wing: ' + err.message };
       }
     },
 

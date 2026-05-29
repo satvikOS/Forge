@@ -105,6 +105,47 @@ export async function fenderArch({
   return await loftStations(profiles);
 }
 
+/** NACA-style symmetric airfoil as a closed 2D loop of [xc∈0..1, yfrac]
+ *  points (yfrac = half-thickness fraction of chord, per unit t/c). Ordered
+ *  upper LE→TE then lower TE→LE so the loop winding matches crownPanel. */
+function airfoilLoop(n = 24) {
+  const yt = (xc) => 5 * (0.2969 * Math.sqrt(xc) - 0.1260 * xc - 0.3516 * xc * xc + 0.2843 * xc ** 3 - 0.1036 * xc ** 4);
+  const up = [], lo = [];
+  for (let i = 0; i <= n; i++) { const xc = i / n, y = yt(xc); up.push([xc, y]); lo.push([xc, -y]); }
+  return up.concat(lo.slice(1, -1).reverse());
+}
+
+/**
+ * A real swept, tapered, airfoil-section wing for ONE side (root at the
+ * local origin, tip outboard). Unlike a flat crown panel this has genuine
+ * planform geometry — leading-edge sweep, dihedral, taper, and a NACA
+ * thickness section — lofted from a large root airfoil to a smaller tip
+ * airfoil. Aircraft frame: X = span (side 'R' = +X, 'L' = -X), Y = up,
+ * Z = chord (leading edge toward +Z). Caller translates the root onto the
+ * wing-box. Volume sign is corrected so both sides render solid regardless
+ * of loft direction.
+ */
+export async function sweptWing({
+  side = 'R', rootChord = 1500, tipChord = 520, span = 3400,
+  sweepDeg = 27, dihedralDeg = 5, rootThick = 0.13, tipThick = 0.10, n = 24,
+} = {}) {
+  const s = side === 'L' ? -1 : 1;
+  const sweep = Math.tan(sweepDeg * Math.PI / 180);
+  const dih = Math.tan(dihedralDeg * Math.PI / 180);
+  const rootLE = rootChord * 0.5;                 // root chord centred on local z=0
+  const tipLE = rootLE - span * sweep;            // tip leading edge swept aft
+  const station = (xPos, chord, tc, leZ, yBase, loop) =>
+    loop.map(([xc, yf]) => [xPos, yBase + yf * tc * chord, leZ - xc * chord]);
+  const build = async (loop) => loftStations([
+    station(0, rootChord, rootThick, rootLE, 0, loop),
+    station(s * span, tipChord, tipThick, tipLE, span * dih, loop),
+  ]);
+  const af = airfoilLoop(n);
+  let m = await build(af);
+  if (m.volume() < 0) { m.delete?.(); m = await build(af.slice().reverse()); }
+  return m;
+}
+
 /** Loft already-3D station loops (each same length) into a closed solid. */
 async function loftStations(stations) {
   const { getManifold } = await import('./manifoldKernel.js');
