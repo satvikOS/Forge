@@ -49,6 +49,46 @@ const CURRICULUM = [
     params: { w: 3000, h: 90, t: 30, holeR: 18, cols: 34, rows: 1, spacing: 86, x: 0, y: 1040, z: -600, color: 0x10181f } },
   { id: 'titles', subject: 'the fuselage titles', tool: 'Sculpt Embossed Text', kind: 'surface', placed: true,
     params: { text: 'ARCHDISC', size: 180, depth: 18, x: -300, y: 1080, z: 360, color: 0x1a3a6a } },
+
+  // ── DETAIL TIER — pushing PAST 1:1: real turbofan fans (hub + radial
+  //    blades), landing gear (strut + wheel), winglets. Multi-step
+  //    assemblies that compose existing Sculpt tools in one cycle.
+  { id: 'fanL', subject: 'the left turbofan fan', kind: 'assembly', placed: true, steps: [
+    { tool: 'Sculpt Rectangle', params: { cx: 95, cy: 0, w: 120, h: 24, plane: 'XY' } },
+    { tool: 'Sculpt Circular Pattern', params: { mode: 'extrude', count: 24, distance: 16, angle: 360 } },
+    { tool: 'Sculpt Circle', params: { cx: 0, cy: 0, r: 52, plane: 'XY' } },
+    { tool: 'Sculpt Extrude', params: { distance: 16 } },
+    { tool: 'Sculpt Place Body', params: { x: -1550, y: 600, z: 690, color: 0x16191c } },
+  ] },
+  { id: 'fanR', subject: 'the right turbofan fan', kind: 'assembly', placed: true, steps: [
+    { tool: 'Sculpt Rectangle', params: { cx: 95, cy: 0, w: 120, h: 24, plane: 'XY' } },
+    { tool: 'Sculpt Circular Pattern', params: { mode: 'extrude', count: 24, distance: 16, angle: 360 } },
+    { tool: 'Sculpt Circle', params: { cx: 0, cy: 0, r: 52, plane: 'XY' } },
+    { tool: 'Sculpt Extrude', params: { distance: 16 } },
+    { tool: 'Sculpt Place Body', params: { x: 1550, y: 600, z: 690, color: 0x16191c } },
+  ] },
+  { id: 'gearNose', subject: 'the nose landing gear', kind: 'assembly', placed: true, steps: [
+    { tool: 'Sculpt Circle', params: { cx: 0, cy: 0, r: 22, plane: 'XY' } },
+    { tool: 'Sculpt Extrude', params: { distance: 420 } },
+    { tool: 'Sculpt Place Body', params: { rx: 90, x: 0, y: 560, z: 1450, color: 0x2a2e34 } },
+    { tool: 'Sculpt Tire', params: { rimR: 36, outerR: 85, width: 60, treadCount: 14, treadDepth: 8, axis: 'X', x: 0, y: 130, z: 1450, color: 0x141414 } },
+  ] },
+  { id: 'gearMainL', subject: 'the left main gear', kind: 'assembly', placed: true, steps: [
+    { tool: 'Sculpt Circle', params: { cx: 0, cy: 0, r: 26, plane: 'XY' } },
+    { tool: 'Sculpt Extrude', params: { distance: 440 } },
+    { tool: 'Sculpt Place Body', params: { rx: 90, x: -650, y: 560, z: -650, color: 0x2a2e34 } },
+    { tool: 'Sculpt Tire', params: { rimR: 42, outerR: 100, width: 80, treadCount: 16, treadDepth: 8, axis: 'X', x: -650, y: 120, z: -650, color: 0x141414 } },
+  ] },
+  { id: 'gearMainR', subject: 'the right main gear', kind: 'assembly', placed: true, steps: [
+    { tool: 'Sculpt Circle', params: { cx: 0, cy: 0, r: 26, plane: 'XY' } },
+    { tool: 'Sculpt Extrude', params: { distance: 440 } },
+    { tool: 'Sculpt Place Body', params: { rx: 90, x: 650, y: 560, z: -650, color: 0x2a2e34 } },
+    { tool: 'Sculpt Tire', params: { rimR: 42, outerR: 100, width: 80, treadCount: 16, treadDepth: 8, axis: 'X', x: 650, y: 120, z: -650, color: 0x141414 } },
+  ] },
+  { id: 'wingletL', subject: 'the left winglet', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 280, length: 480, crownX: 20, crownZ: 0, thickness: 50, nu: 8, nv: 8, rz: 75, x: -3500, y: 1000, z: -700, color: 0xdfe3e7 } },
+  { id: 'wingletR', subject: 'the right winglet', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 280, length: 480, crownX: 20, crownZ: 0, thickness: 50, nu: 8, nv: 8, rz: -75, x: 3500, y: 1000, z: -700, color: 0xdfe3e7 } },
 ];
 
 export class MechCapabilityMap {
@@ -61,8 +101,10 @@ export class MechCapabilityMap {
   /** Default params for a sculpt tool (so the agent always has valid dials). */
   defaultsFor(tool) { return defaultsForTool(tool); }
 
-  /** A curriculum entry merged with the tool's real defaults. */
+  /** A curriculum entry merged with the tool's real defaults. Multi-step
+   * (assembly) entries carry their own full `steps` and pass through. */
   resolveCurriculum(entry) {
+    if (Array.isArray(entry.steps)) return { ...entry };
     return { ...entry, params: { ...this.defaultsFor(entry.tool), ...(entry.params || {}) } };
   }
 

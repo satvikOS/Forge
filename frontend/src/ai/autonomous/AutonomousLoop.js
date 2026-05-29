@@ -110,24 +110,35 @@ export class AutonomousLoop {
     this.currentGoal = goal;
     this._mirror();
 
-    // 3. reuse a learned skill's (improved) params if we have one
+    // 3. resolve the build recipe — a learned skill (reuse/improve) wins;
+    //    else the goal. Multi-step subsystems (fans, gear, swept wings)
+    //    carry `steps` (a sequence of tool calls); simple parts carry a
+    //    single `tool`+`params`.
     const skill = this.skills.match(goal.goalId);
-    let params = skill ? { ...goal.params, ...skill.params } : { ...goal.params };
-    const tool = (skill && skill.tool) || goal.tool;
-    // Positioned (`placed`) parts keep their own aircraft coordinates so
-    // they assemble into one model; un-placed components get spread along X
-    // so a row of standalone parts stays readable.
-    if (!goal.placed) params = { ...params, x: (this.cycle - 1) * 750 };
-
-    // 4. execute via the REAL ribbon tool (params injected so no dialog)
-    const before = this.bodyCount();
-    if (typeof window !== 'undefined') {
-      window.__archdiscPlanParams = window.__archdiscPlanParams || {};
-      window.__archdiscPlanParams[tool] = params;
+    let steps;
+    if (skill && Array.isArray(skill.steps) && skill.steps.length) {
+      steps = skill.steps;
+    } else if (Array.isArray(goal.steps) && goal.steps.length) {
+      steps = goal.steps;
+    } else {
+      const params = skill && skill.params ? { ...goal.params, ...skill.params } : { ...goal.params };
+      const tool = (skill && skill.tool) || goal.tool;
+      // un-placed standalone parts get spread along X so they stay readable
+      const p = goal.placed ? params : { ...params, x: (this.cycle - 1) * 750 };
+      steps = [{ tool, params: p }];
     }
+
+    // 4. execute each step via the REAL ribbon tool (params injected → no dialog)
+    const before = this.bodyCount();
     let result = { status: 'error', message: 'executeTool unavailable' };
-    if (this.executeTool && scene && viewport) {
-      result = await this.executeTool('part', tool, scene, viewport);
+    for (const st of steps) {
+      if (typeof window !== 'undefined') {
+        window.__archdiscPlanParams = window.__archdiscPlanParams || {};
+        window.__archdiscPlanParams[st.tool] = st.params || {};
+      }
+      if (this.executeTool && scene && viewport) {
+        result = await this.executeTool('part', st.tool, scene, viewport);
+      }
     }
     const after = this.bodyCount();
 
@@ -142,9 +153,11 @@ export class AutonomousLoop {
     const verdict = this.critic.critique({ result, bodiesBefore: before, bodiesAfter: after, lastVolume: this.lastVolume(), coverageBefore, coverageAfter });
 
     // 6. learn — skill (auto-create/improve) + memory + nudge
+    const recipeTool = goal.tool || (steps[0] && steps[0].tool) || null;
     const run = {
-      goalId: goal.goalId, subject: goal.subject, tool, params,
-      steps: [{ tool, params }], score: verdict.score, ok: verdict.ok,
+      goalId: goal.goalId, subject: goal.subject,
+      tool: recipeTool, params: steps.length === 1 ? steps[0].params : undefined,
+      steps, score: verdict.score, ok: verdict.ok,
       status: result.status, source: goal.source,
     };
     const skillOutcome = this.skills.learnFromRun(run);
@@ -163,8 +176,8 @@ export class AutonomousLoop {
 
     // 8. emit
     this._record({
-      cycle: this.cycle, goal: goal.subject, goalId: goal.goalId, tool,
-      source: goal.source, score: +verdict.score.toFixed(2), ok: verdict.ok,
+      cycle: this.cycle, goal: goal.subject, goalId: goal.goalId, tool: recipeTool,
+      steps: steps.length, source: goal.source, score: +verdict.score.toFixed(2), ok: verdict.ok,
       skill: skillOutcome.action, nudge: !!nudge, parity: parityScore,
       coverage: coverageAfter, message: result.message,
     });

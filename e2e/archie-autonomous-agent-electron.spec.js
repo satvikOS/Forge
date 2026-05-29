@@ -18,9 +18,10 @@ import path from 'path';
 
 const OUT = path.resolve(__dirname, 'screenshots', 'archie-airliner-611');
 fs.mkdirSync(OUT, { recursive: true });
-// Target = Video-611 airliner. 12 positioned subsystems → assembles a
+// Target = Video-611 airliner. 19 positioned subsystems (12 base + a
+// detail tier: turbofan fans, landing gear, winglets) → a fully-loaded
 // plane (parity 1.0), then refine cycles REUSE/improve learned skills.
-const CYCLES = 15;
+const CYCLES = 22;
 
 test.describe.configure({ timeout: 30 * 60 * 1000 });
 
@@ -43,13 +44,13 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
   }
   await win.locator('[data-ribbon-tab-key="part"]').dispatchEvent('click');
 
-  const tgt = { x: 0, y: 1.0, z: -0.15 };
+  const tgt = { x: 0, y: 0.85, z: -0.15 };
   const capture = async (label) => {
     const angles = [
-      { name: 'iso',   az: 40, el: 20, dist: 11.5 },
-      { name: 'side',  az: 90, el:  8, dist: 11.5 },
-      { name: 'top',   az: 10, el: 60, dist: 11.5 },
-      { name: 'front', az:  2, el:  6, dist: 10.5 },
+      { name: 'iso',   az: 40, el: 18, dist: 12.5 },
+      { name: 'side',  az: 90, el:  7, dist: 12.5 },
+      { name: 'top',   az: 10, el: 60, dist: 12.5 },
+      { name: 'front', az:  2, el:  6, dist: 11.5 },
     ];
     for (const a of angles) {
       await win.evaluate(({ az, el, dist, tx, ty, tz }) => {
