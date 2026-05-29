@@ -70,3 +70,8 @@ docs/superpowers/notes/custom-occt-build-recon.md
 # Hermes reference zip (scraped into Archie; never commit)
 hermes-agent-main.zip
 _scrape_hermes/
+
+# Video-611 reference + extraction scratch
+Video-611.mp4
+video611-frames/
+_extract611.mjs

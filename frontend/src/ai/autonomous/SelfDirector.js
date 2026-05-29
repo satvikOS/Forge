@@ -41,7 +41,7 @@ export class SelfDirector {
     const unbuilt = capabilityMap.unbuilt(built);
     if (unbuilt.length) {
       const c = capabilityMap.resolveCurriculum(unbuilt[0]);
-      return { goalId: c.id, subject: c.subject, tool: c.tool, params: c.params, kind: c.kind, source: 'heuristic' };
+      return { goalId: c.id, subject: c.subject, tool: c.tool, params: c.params, kind: c.kind, placed: c.placed, source: 'heuristic' };
     }
     // Curriculum exhausted → graduate to refining learned components, a
     // deterministic round-robin keyed on total cycles so each refine
@@ -49,7 +49,7 @@ export class SelfDirector {
     const all = capabilityMap.curriculum;
     const idx = cyclesEver % all.length;
     const c = capabilityMap.resolveCurriculum(all[idx]);
-    return { goalId: c.id, subject: `${c.subject} (refine)`, tool: c.tool, params: c.params, kind: 'refine', source: 'heuristic' };
+    return { goalId: c.id, subject: `${c.subject} (refine)`, tool: c.tool, params: c.params, kind: 'refine', placed: c.placed, source: 'heuristic' };
   }
 
   async _llmGoal(provider, recall) {

@@ -17,37 +17,38 @@ import { TOOL_PARAM_SCHEMAS, defaultsForTool } from '../../foundation/ToolParamS
 // builds geometry with. Grounded in the actual ToolParamSchemas keys.
 const SCULPT_TOOLS = Object.keys(TOOL_PARAM_SCHEMAS).filter(n => n.startsWith('Sculpt '));
 
-// A curriculum of buildable subjects, ordered easy→hard, each expressed as
-// a tool + the dial-overrides that make it a recognisable real component.
-// The SelfDirector walks this when no LLM is configured, so the agent is
-// productive fully offline. Every entry is a REAL Mech capability.
-// Every entry is a SINGLE-CALL body producer (one tool → one registered
-// body) so the agent can build it hands-free in one cycle.
+// PARITY TARGET = Video-611: a commercial twin-engine AIRLINER. The
+// curriculum is the airliner's subsystems, each a single-call body producer
+// PLACED at its real aircraft coordinate (Z = nose+→tail−, Y up, X = span),
+// so building the whole curriculum ASSEMBLES a coherent aeroplane. `placed`
+// tells the loop to honour the part's own x/y/z (not spread it in a row).
+// All grounded in real Sculpt tools (Loft = bodies of revolution along +Z,
+// Crown Panel = lifting/airfoil surfaces).
 const CURRICULUM = [
-  { id: 'gear', subject: 'a spur gear', tool: 'Sculpt Gear', kind: 'component',
-    params: { module: 8, teeth: 24, thickness: 90, boreR: 50 } },
-  { id: 'spring', subject: 'a helical spring', tool: 'Sculpt Spring', kind: 'component',
-    params: { coilR: 110, wireR: 18, pitch: 80, turns: 7 } },
-  { id: 'bearing', subject: 'a ball bearing', tool: 'Sculpt Bearing', kind: 'component',
-    params: { boreR: 70, outerR: 150, width: 80, balls: 10 } },
-  { id: 'thread', subject: 'a threaded rod', tool: 'Sculpt Thread', kind: 'component',
-    params: { length: 500, majorR: 70, pitch: 60, threadDepth: 16 } },
-  { id: 'cam', subject: 'a radial cam', tool: 'Sculpt Cam', kind: 'component',
-    params: { baseR: 110, lift: 60, noseWidth: 120, thickness: 90, boreR: 40 } },
-  { id: 'crown', subject: 'a Class-A crowned panel', tool: 'Sculpt Crown Panel', kind: 'surface',
-    params: { width: 1800, length: 2000, crownX: 120, crownZ: 90, thickness: 50 } },
-  { id: 'pipe', subject: 'a swept pipe', tool: 'Sculpt Pipe', kind: 'component',
-    params: { radius: 60, x2: 0, y2: 900, z2: 0, bend: 200 } },
-  { id: 'flex', subject: 'a corrugated flex pipe', tool: 'Sculpt Flex Pipe', kind: 'component',
-    params: { length: 600, radius: 90, amplitude: 24, convolutions: 12 } },
-  { id: 'grille', subject: 'a perforated grille', tool: 'Sculpt Perforated Panel', kind: 'surface',
-    params: { w: 1400, h: 700, t: 40, holeR: 14, cols: 26, rows: 12, spacing: 50 } },
-  { id: 'tire', subject: 'a tread-wrapped tyre', tool: 'Sculpt Tire', kind: 'component',
-    params: { rimR: 286, outerR: 537, width: 315, treadCount: 28, axis: 'X' } },
-  { id: 'badge', subject: 'an embossed VOLVO badge', tool: 'Sculpt Embossed Text', kind: 'surface',
-    params: { text: 'ARCHDISC', size: 280, depth: 40 } },
-  { id: 'fasteners', subject: 'an instanced bolt array', tool: 'Sculpt Bolt Array', kind: 'instanced',
-    params: { count: 120, layout: 'grid', spacing: 60 } },
+  { id: 'fuselage', subject: 'the fuselage barrel', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 320, r2: 320, height: 4200, x: 0, y: 900, z: -2100, color: 0xeef0f2 } },
+  { id: 'nose', subject: 'the nose cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 320, r2: 55, height: 850, x: 0, y: 900, z: 2100, color: 0xeef0f2 } },
+  { id: 'tailcone', subject: 'the tail cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 80, r2: 320, height: 1150, x: 0, y: 900, z: -3250, color: 0xeef0f2 } },
+  { id: 'wings', subject: 'the main wing', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 7200, length: 1150, crownX: 80, crownZ: 0, thickness: 110, nu: 26, nv: 14, x: 0, y: 900, z: -750, color: 0xdfe3e7 } },
+  { id: 'hstab', subject: 'the horizontal stabiliser', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 2900, length: 600, crownX: 35, crownZ: 0, thickness: 70, nu: 18, nv: 10, x: 0, y: 980, z: -2750, color: 0xdfe3e7 } },
+  { id: 'vfin', subject: 'the vertical fin', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 1100, length: 650, crownX: 35, crownZ: 0, thickness: 70, nu: 16, nv: 10, rz: 90, x: 0, y: 1380, z: -2650, color: 0xdfe3e7 } },
+  { id: 'engineL', subject: 'the left engine nacelle', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 165, r2: 140, height: 820, x: -1550, y: 600, z: -150, color: 0xb9bcc1 } },
+  { id: 'engineR', subject: 'the right engine nacelle', tool: 'Sculpt Loft', kind: 'body', placed: true,
+    params: { r1: 165, r2: 140, height: 820, x: 1550, y: 600, z: -150, color: 0xb9bcc1 } },
+  { id: 'pylonL', subject: 'the left engine pylon', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 90, length: 700, crownX: 10, crownZ: 0, thickness: 60, nu: 8, nv: 10, x: -1550, y: 760, z: -150, color: 0xdfe3e7 } },
+  { id: 'pylonR', subject: 'the right engine pylon', tool: 'Sculpt Crown Panel', kind: 'surface', placed: true,
+    params: { width: 90, length: 700, crownX: 10, crownZ: 0, thickness: 60, nu: 8, nv: 10, x: 1550, y: 760, z: -150, color: 0xdfe3e7 } },
+  { id: 'windows', subject: 'the cabin window band', tool: 'Sculpt Perforated Panel', kind: 'surface', placed: true,
+    params: { w: 3000, h: 90, t: 30, holeR: 18, cols: 34, rows: 1, spacing: 86, x: 0, y: 1040, z: -600, color: 0x10181f } },
+  { id: 'titles', subject: 'the fuselage titles', tool: 'Sculpt Embossed Text', kind: 'surface', placed: true,
+    params: { text: 'ARCHDISC', size: 180, depth: 18, x: -300, y: 1080, z: 360, color: 0x1a3a6a } },
 ];
 
 export class MechCapabilityMap {

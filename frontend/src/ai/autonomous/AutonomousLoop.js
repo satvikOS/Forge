@@ -21,6 +21,7 @@ import { SkillLibrary } from './SkillLibrary.js';
 import { SelfDirector } from './SelfDirector.js';
 import { SelfCritic } from './SelfCritic.js';
 import { ParityObjective } from './ParityObjective.js';
+import { Perception } from './Perception.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -50,6 +51,8 @@ export class AutonomousLoop {
     this.director = new SelfDirector({ providerCfg: deps.providerCfg });
     this.brain = brainLabel(deps.providerCfg);
     this.critic = new SelfCritic();
+    this.perception = new Perception();
+    this.lastCoverage = 0;
     this.parity = new ParityObjective(deps.parityTarget ?? 1.0);
     this.refinements = 0;
     this.parityReachedAt = null;   // cycle at which 1:1 was first reached
@@ -111,10 +114,10 @@ export class AutonomousLoop {
     const skill = this.skills.match(goal.goalId);
     let params = skill ? { ...goal.params, ...skill.params } : { ...goal.params };
     const tool = (skill && skill.tool) || goal.tool;
-    // spread each build along X so the autonomous output is laid out in a
-    // readable row rather than stacked at the origin (tools without an `x`
-    // dial simply ignore it).
-    params = { ...params, x: (this.cycle - 1) * 750 };
+    // Positioned (`placed`) parts keep their own aircraft coordinates so
+    // they assemble into one model; un-placed components get spread along X
+    // so a row of standalone parts stays readable.
+    if (!goal.placed) params = { ...params, x: (this.cycle - 1) * 750 };
 
     // 4. execute via the REAL ribbon tool (params injected so no dialog)
     const before = this.bodyCount();
@@ -128,8 +131,15 @@ export class AutonomousLoop {
     }
     const after = this.bodyCount();
 
-    // 5. self-critique
-    const verdict = this.critic.critique({ result, bodiesBefore: before, bodiesAfter: after, lastVolume: this.lastVolume() });
+    // 4b. PERCEIVE — Archie looks at its own render (machine vision over
+    //     the actual pixels), so it knows the build is really on screen.
+    const coverageBefore = this.lastCoverage;
+    const percept = this.perception.perceive(viewport) || {};
+    const coverageAfter = (typeof percept.coverage === 'number') ? percept.coverage : coverageBefore;
+    this.lastCoverage = coverageAfter;
+
+    // 5. self-critique (perception-aware)
+    const verdict = this.critic.critique({ result, bodiesBefore: before, bodiesAfter: after, lastVolume: this.lastVolume(), coverageBefore, coverageAfter });
 
     // 6. learn — skill (auto-create/improve) + memory + nudge
     const run = {
@@ -155,7 +165,8 @@ export class AutonomousLoop {
     this._record({
       cycle: this.cycle, goal: goal.subject, goalId: goal.goalId, tool,
       source: goal.source, score: +verdict.score.toFixed(2), ok: verdict.ok,
-      skill: skillOutcome.action, nudge: !!nudge, parity: parityScore, message: result.message,
+      skill: skillOutcome.action, nudge: !!nudge, parity: parityScore,
+      coverage: coverageAfter, message: result.message,
     });
   }
 
@@ -175,6 +186,7 @@ export class AutonomousLoop {
       parityScore, parityTarget: this.parity.target,
       parityMet: parityScore >= this.parity.target,
       parityReachedAt: this.parityReachedAt,
+      perception: this.perception.last,
       unmet: this.parity.unmet(this.memory.builtIds).map(r => r.id),
       currentGoal: this.currentGoal,
       builtIds: this.memory.builtIds,

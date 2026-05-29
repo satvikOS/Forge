@@ -16,10 +16,10 @@ import path from 'path';
  * __archdiscAgentMemory + the live body registry.
  */
 
-const OUT = path.resolve(__dirname, 'screenshots', 'archie-autonomous-agent');
+const OUT = path.resolve(__dirname, 'screenshots', 'archie-airliner-611');
 fs.mkdirSync(OUT, { recursive: true });
-// 13-entry curriculum → 13 distinct builds, then 2 refine cycles that
-// REUSE/improve learned skills (closed learning loop).
+// Target = Video-611 airliner. 12 positioned subsystems → assembles a
+// plane (parity 1.0), then refine cycles REUSE/improve learned skills.
 const CYCLES = 15;
 
 test.describe.configure({ timeout: 30 * 60 * 1000 });
@@ -43,11 +43,13 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
   }
   await win.locator('[data-ribbon-tab-key="part"]').dispatchEvent('click');
 
-  const tgt = { x: 2.5, y: 0.6, z: 0 };
+  const tgt = { x: 0, y: 1.0, z: -0.15 };
   const capture = async (label) => {
     const angles = [
-      { name: 'iso',  az: 38, el: 18, dist: 9.5 },
-      { name: 'front', az: 2, el: 10, dist: 9.0 },
+      { name: 'iso',   az: 40, el: 20, dist: 11.5 },
+      { name: 'side',  az: 90, el:  8, dist: 11.5 },
+      { name: 'top',   az: 10, el: 60, dist: 11.5 },
+      { name: 'front', az:  2, el:  6, dist: 10.5 },
     ];
     for (const a of angles) {
       await win.evaluate(({ az, el, dist, tx, ty, tz }) => {
@@ -122,6 +124,11 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
   expect(agent.parityMet).toBe(true);
   expect(agent.parityScore).toBeGreaterThanOrEqual(1.0);
   expect(agent.parityReachedAt).toBeGreaterThan(0);
+
+  // ── Perception: Archie SAW its own render — geometry is on screen.
+  console.log('ARCHIE perception:', JSON.stringify(agent.perception));
+  expect(agent.perception).toBeTruthy();
+  expect(agent.perception.coverage).toBeGreaterThan(0.02);
 
   await app.close();
 });
