@@ -20,6 +20,7 @@ import { AgentMemory } from './AgentMemory.js';
 import { SkillLibrary } from './SkillLibrary.js';
 import { SelfDirector } from './SelfDirector.js';
 import { SelfCritic } from './SelfCritic.js';
+import { ParityObjective } from './ParityObjective.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -49,9 +50,12 @@ export class AutonomousLoop {
     this.director = new SelfDirector({ providerCfg: deps.providerCfg });
     this.brain = brainLabel(deps.providerCfg);
     this.critic = new SelfCritic();
+    this.parity = new ParityObjective(deps.parityTarget ?? 1.0);
+    this.refinements = 0;
+    this.parityReachedAt = null;   // cycle at which 1:1 was first reached
     this.running = false;
     this.cycle = 0;
-    this.maxCycles = 0;          // 0 = forever
+    this.maxCycles = 0;          // 0 = forever — Archie works non-stop toward parity
     this.log = [];
     this.currentGoal = null;
     this._mirror();
@@ -138,11 +142,20 @@ export class AutonomousLoop {
     const nudge = this.memory.maybeNudge();
     if (verdict.notes?.length) this.memory.addLearning(`[${goal.goalId}] ${verdict.notes.join('; ')}`, 'critic');
 
-    // 7. emit
+    // 7. parity — the whole point: track progress toward 1:1-or-better.
+    if (goal.kind === 'refine') this.refinements += 1;
+    const parityScore = this.parity.score(this.memory.builtIds, this.refinements);
+    const parityMet = parityScore >= this.parity.target;
+    if (parityMet && this.parityReachedAt === null) {
+      this.parityReachedAt = this.cycle;
+      this.memory.addLearning(`1:1 parity reached at cycle ${this.cycle} — now working for BETTER.`, 'parity');
+    }
+
+    // 8. emit
     this._record({
       cycle: this.cycle, goal: goal.subject, goalId: goal.goalId, tool,
       source: goal.source, score: +verdict.score.toFixed(2), ok: verdict.ok,
-      skill: skillOutcome.action, nudge: !!nudge, message: result.message,
+      skill: skillOutcome.action, nudge: !!nudge, parity: parityScore, message: result.message,
     });
   }
 
@@ -154,9 +167,15 @@ export class AutonomousLoop {
   }
 
   state() {
+    const parityScore = this.parity.score(this.memory.builtIds, this.refinements);
     return {
       running: this.running, cycle: this.cycle, maxCycles: this.maxCycles,
       brain: this.brain,
+      goal: 'work non-stop until 1:1-or-better parity with the reference',
+      parityScore, parityTarget: this.parity.target,
+      parityMet: parityScore >= this.parity.target,
+      parityReachedAt: this.parityReachedAt,
+      unmet: this.parity.unmet(this.memory.builtIds).map(r => r.id),
       currentGoal: this.currentGoal,
       builtIds: this.memory.builtIds,
       skills: this.skills.list().map(s => ({ name: s.name, version: s.version, used: s.successCount, score: s.score })),

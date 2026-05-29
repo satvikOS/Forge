@@ -109,11 +109,19 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
   // ── Curated persistent memory + at least one distillation nudge
   expect(memory.learnings.length).toBeGreaterThanOrEqual(1);
   expect(memory.learnings.some(l => l.source === 'nudge')).toBe(true);
-  // ── Closed learning loop: the 2 refine cycles (14-15) REUSED learned
-  //    skills, so at least one skill has been used more than once.
+  // ── Closed learning loop: the refine cycles REUSED learned skills, so
+  //    at least one skill has been used more than once.
   const reused = Object.values(skills).some(s => (s.successCount || 0) >= 2);
   console.log('ARCHIE skills:', Object.values(skills).map(s => `${s.name} v${s.version} x${s.successCount} (${s.score})`));
   expect(reused).toBe(true);
+
+  // ── Archie's goal: work non-stop until 1:1-or-better parity. Having
+  //    built the full vocabulary it reports parity reached, and kept
+  //    refining for BETTER (score ≥ 1.0, reachedAt recorded).
+  console.log('ARCHIE parity:', agent.parityScore, 'met:', agent.parityMet, 'reachedAt:', agent.parityReachedAt, 'unmet:', agent.unmet);
+  expect(agent.parityMet).toBe(true);
+  expect(agent.parityScore).toBeGreaterThanOrEqual(1.0);
+  expect(agent.parityReachedAt).toBeGreaterThan(0);
 
   await app.close();
 });
