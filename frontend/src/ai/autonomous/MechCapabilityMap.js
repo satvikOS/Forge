@@ -27,8 +27,14 @@ const SCULPT_TOOLS = Object.keys(TOOL_PARAM_SCHEMAS).filter(n => n.startsWith('S
 const CURRICULUM = [
   { id: 'fuselage', subject: 'the fuselage barrel', tool: 'Sculpt Loft', kind: 'body', placed: true,
     params: { r1: 320, r2: 320, height: 4200, x: 0, y: 900, z: -2100, color: 0xeef0f2 } },
-  { id: 'nose', subject: 'the nose cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
-    params: { r1: 320, r2: 55, height: 850, x: 0, y: 900, z: 2100, color: 0xeef0f2 } },
+  // Curved ogive nose (radome) — three frustums of increasing slope
+  // approximate the smooth inward curve of a real airliner nose, vs a single
+  // sharp cone.
+  { id: 'nose', subject: 'the ogive nose radome', kind: 'assembly', placed: true, steps: [
+    { tool: 'Sculpt Loft', params: { r1: 320, r2: 286, height: 300, x: 0, y: 900, z: 2100, color: 0xeef0f2 } },
+    { tool: 'Sculpt Loft', params: { r1: 286, r2: 196, height: 300, x: 0, y: 900, z: 2400, color: 0xeef0f2 } },
+    { tool: 'Sculpt Loft', params: { r1: 196, r2: 46, height: 300, x: 0, y: 900, z: 2700, color: 0xeef0f2 } },
+  ] },
   { id: 'tailcone', subject: 'the tail cone', tool: 'Sculpt Loft', kind: 'body', placed: true,
     params: { r1: 80, r2: 320, height: 1150, x: 0, y: 900, z: -3250, color: 0xeef0f2 } },
   { id: 'wingR', subject: 'the right main wing (swept, tapered, airfoil)', tool: 'Sculpt Wing', kind: 'surface', placed: true,

@@ -47,11 +47,14 @@ test('Archie — autonomous self-directed self-improving agent', async () => {
 
   const tgt = { x: 0, y: 0.85, z: -0.15 };
   const capture = async (label) => {
+    // Framed CLOSE so the airliner fills the frame and its detail (fans,
+    // gear, cockpit glazing, exhaust cones, winglets) is actually verifiable
+    // — not a tiny silhouette lost in black.
     const angles = [
-      { name: 'iso',   az: 40, el: 18, dist: 12.5 },
-      { name: 'side',  az: 90, el:  7, dist: 12.5 },
-      { name: 'top',   az: 10, el: 60, dist: 12.5 },
-      { name: 'front', az:  2, el:  6, dist: 11.5 },
+      { name: 'iso',   az: 40, el: 18, dist: 6.2 },
+      { name: 'side',  az: 90, el:  7, dist: 6.6 },
+      { name: 'top',   az: 10, el: 60, dist: 6.6 },
+      { name: 'front', az:  2, el:  6, dist: 5.6 },
     ];
     for (const a of angles) {
       await win.evaluate(({ az, el, dist, tx, ty, tz }) => {
