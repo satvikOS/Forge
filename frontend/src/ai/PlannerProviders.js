@@ -243,6 +243,76 @@ export const PROVIDERS = {
     },
   },
 
+  // Archie local fleet — DeepSeek-R1-Distill-Qwen-7B + per-discipline
+  // LoRA adapters, served by mlx_lm.server (localhost:8080 by default).
+  // OpenAI-compat /v1/chat/completions, with a per-request `adapters`
+  // field that hot-swaps the LoRA path without restarting the server.
+  // The caller passes `discipline` and we map it to the adapter dir
+  // (e.g. sketch -> adapters/archie/mech/sketch). Falls back to the
+  // bare base model if no discipline is supplied.
+  archie: {
+    label: 'Archie (local fleet, MLX)',
+    defaultModel: 'archie-7b-base',
+    defaultBaseUrl: 'http://localhost:8080',
+    /**
+     * Discipline -> filesystem path of the LoRA adapter the server hot-loads.
+     * Paths are relative to ~/archdisc-Models per Archie repo layout. Mech
+     * disciplines: sketch / part / assembly / simulate / manufacture / drawing.
+     */
+    adapterFor(discipline) {
+      if (!discipline) return null;
+      return `adapters/archie/mech/${discipline}`;
+    },
+    async generate({ model, baseUrl, system, userMessage, discipline, adapters }) {
+      const url = `${(baseUrl ?? 'http://localhost:8080').replace(/\/+$/, '')}/v1/chat/completions`;
+      const body = {
+        model: model ?? 'archie-7b-base',
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: userMessage },
+        ],
+        temperature: 0.2,
+      };
+      const adapterPath = adapters ?? this.adapterFor(discipline);
+      if (adapterPath) body.adapters = adapterPath;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Archie ${res.status}: ${text.slice(0, 300)}`);
+      }
+      const json = await res.json();
+      return json.choices?.[0]?.message?.content ?? '';
+    },
+    async generateStream({ model, baseUrl, system, userMessage, discipline, adapters, onToken }) {
+      const url = `${(baseUrl ?? 'http://localhost:8080').replace(/\/+$/, '')}/v1/chat/completions`;
+      const body = {
+        model: model ?? 'archie-7b-base',
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: userMessage },
+        ],
+        temperature: 0.2,
+        stream: true,
+      };
+      const adapterPath = adapters ?? this.adapterFor(discipline);
+      if (adapterPath) body.adapters = adapterPath;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`Archie ${res.status}: ${t.slice(0, 300)}`);
+      }
+      return readSSE(res, (j) => j?.choices?.[0]?.delta?.content ?? '', onToken);
+    },
+  },
+
   // Azure AI Foundry (services.ai.azure.com) — serverless model
   // deployments: DeepSeek, Llama, Mistral, Phi, etc. OpenAI-shaped chat
   // body, but the path is /models/chat/completions, auth is the `api-key`
@@ -364,6 +434,7 @@ export const COMPATIBLE_PRESETS = [
   { id: 'mistral',    label: 'Mistral (cloud)',               baseUrl: 'https://api.mistral.ai',             model: 'mistral-large-latest' },
   { id: 'deepinfra',  label: 'DeepInfra (cloud)',             baseUrl: 'https://api.deepinfra.com',          model: 'meta-llama/Meta-Llama-3.1-70B-Instruct' },
   // Local
+  { id: 'archie',     label: 'Archie (local fleet, MLX, per-discipline LoRA)', baseUrl: 'http://localhost:8080', model: 'archie-7b-base' },
   { id: 'ollama',     label: 'Ollama (local, default)',       baseUrl: 'http://localhost:11434',             model: 'llama3.1:8b' },
   { id: 'lmstudio',   label: 'LM Studio (local, default)',    baseUrl: 'http://localhost:1234',              model: 'local-model' },
   { id: 'vllm',       label: 'vLLM (local, default)',         baseUrl: 'http://localhost:8000',              model: 'meta-llama/Llama-3.1-8B-Instruct' },
