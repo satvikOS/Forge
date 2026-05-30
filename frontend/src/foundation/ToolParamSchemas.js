@@ -124,6 +124,26 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-120 — G2 Blend Between Edges (CATIA GSD Bridge / NX Studio Free
+  // Form G2-Blend / SW Boundary Surface). Fit a true G2 (curvature-
+  // continuous) NURBS surface between two body edges with degree-5-in-v
+  // / degree-3-in-u. The analytic surface IS the spine face; tessellated
+  // shell is on .occtWrapper for rendering.
+  'Sculpt G2 Blend': {
+    title: 'Sculpt — G2 Blend (curvature-continuous surface fit)',
+    blurb: 'OCCT-backed G2 blend: fit a degree-5×3 NURBS surface between 2 selected box edges. Analytic surface is the spine face.',
+    fields: [
+      { name: 'boxSize',   label: 'Box side',       type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'edgeA',     label: 'Edge A index',   type: 'number', default: 0,  unit: '',   min: 0, step: 1 },
+      { name: 'edgeB',     label: 'Edge B index',   type: 'number', default: 2,  unit: '',   min: 0, step: 1 },
+      { name: 'uSegments', label: 'U segments',     type: 'number', default: 32, unit: '',   min: 8, step: 4 },
+      { name: 'vSegments', label: 'V segments',     type: 'number', default: 16, unit: '',   min: 4, step: 2 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6a8c1, step: 1 },
+    ],
+  },
   // SP-119 — Delete Face And Heal (SW Direct Editing / NX Synchronous
   // Modeling Delete Face / Creo Flexible Modeling). Remove a face from
   // a body and have OCCT's defeaturer auto-heal the wound by extending

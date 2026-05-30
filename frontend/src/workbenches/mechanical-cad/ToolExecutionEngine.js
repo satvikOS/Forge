@@ -1747,6 +1747,65 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-120 — G2 Blend Between Edges (OCCT NURBS surface fit) ────
+    // CATIA GSD Bridge / NX Studio Free Form G2-Blend / SW Boundary
+    // Surface class. Fit a true G2 (curvature-continuous) NURBS
+    // surface between 2 selected body edges with cross-boundary
+    // tangent and 2nd-derivative matching. Result is a SpineBody
+    // whose primary spine face IS the analytic NURBS face.
+    'Sculpt G2 Blend': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt G2 Blend');
+      if (cancelled) return { status: 'warn', message: 'Sculpt G2 Blend cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastG2BlendReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const eA = values.edgeA ?? 0;
+        const eB = values.edgeB ?? 2;
+        const uSegs = values.uSegments ?? 32;
+        const vSegs = values.vSegments ?? 16;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0) throw new Error('boxSize > 0');
+        if (eA === eB) throw new Error('edgeA must differ from edgeB');
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const blend = await ArchDiscKernel.brep.g2BlendBetweenEdges(box, {
+          edgeIndexA: eA, edgeIndexB: eB,
+          uSegments: uSegs, vSegments: vSegs,
+        });
+        const placed = await ArchDiscKernel.brep.translate(blend, px - s / 2, py - s / 2, pz - s / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xe6a8c1;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Inspect the blend's analytic spine face.
+        const faces = (blend.body && typeof blend.body.faces === 'function') ? blend.body.faces() : [];
+        const analyticFaces = faces.filter((f) => f.isAnalytic || (f.surface && f.surface.type === 'nurbs'));
+        const analyticSurface = blend.meta && blend.meta.analyticSurface;
+        if (typeof window !== 'undefined') {
+          window.__lastG2BlendReport = {
+            boxSize: s, edgeA: eA, edgeB: eB, uSegments: uSegs, vSegments: vSegs,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            volume: metrics.volume,
+            spineFaceCount: faces.length,
+            analyticFaceCount: analyticFaces.length,
+            hasAnalyticSurface: !!analyticSurface,
+            analyticDegreeU: analyticSurface ? analyticSurface.degreeU : null,
+            analyticDegreeV: analyticSurface ? analyticSurface.degreeV : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt G2 Blend: ${s}³ edges (${eA},${eB}) ${uSegs}×${vSegs} segs | ${metrics.faceCount} faces / ${metrics.edgeCount} edges, ${analyticFaces.length}/${faces.length} analytic spine faces${analyticSurface ? `, degree ${analyticSurface.degreeU}×${analyticSurface.degreeV}` : ''} — OCCT G2 NURBS | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastG2BlendReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt G2 Blend: ' + err.message };
+      }
+    },
+
     // ─── SP-119 — Delete Face And Heal (OCCT defeaturer) ────────────
     // SW Direct Editing / NX Synchronous Modeling Delete Face / Creo
     // Flexible Modeling Defeature. BRepAlgoAPI_Defeaturing removes
