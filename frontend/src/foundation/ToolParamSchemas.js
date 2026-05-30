@@ -124,6 +124,28 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-46 — OCCT Variable-Radius Fillet (NX / CATIA / Creo flagship).
+  // Build a box via the OCCT-backed B-rep kernel and apply a
+  // variable-radius fillet where the radius ramps linearly from r1 at
+  // one end of each edge to r2 at the other. The first Sculpt tool
+  // that goes through the EXACT B-rep kernel (frontend/src/kernel/brep,
+  // opencascade.js-backed) rather than manifold-3d — covers a feature
+  // class the mesh kernel can't do at all.
+  'Sculpt Variable Fillet Box': {
+    title: 'Sculpt — Variable Fillet Box (OCCT exact B-rep)',
+    blurb: 'OCCT-backed box with a variable-radius fillet ramped linearly along every edge — the canonical NX / CATIA / Creo finish op.',
+    fields: [
+      { name: 'dx', label: 'Box X (length)', type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'dy', label: 'Box Y (depth)',  type: 'number', default: 70,  unit: 'mm', min: 5, step: 1 },
+      { name: 'dz', label: 'Box Z (height)', type: 'number', default: 50,  unit: 'mm', min: 5, step: 1 },
+      { name: 'r1', label: 'Fillet R start', type: 'number', default: 2, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'r2', label: 'Fillet R end',   type: 'number', default: 8, unit: 'mm', min: 0.1, step: 0.1, hint: 'r1 ≠ r2 ⇒ variable; r1 = r2 ⇒ constant fillet' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9c8d6a, step: 1 },
+    ],
+  },
   // SP-45 — Architectural Wall (Revit / AutoCAD Architecture / ArchiCAD /
   // FreeCAD BIM ArchWall class). Parametric BIM wall with optional door
   // and window openings cut through the thickness. The canonical primitive

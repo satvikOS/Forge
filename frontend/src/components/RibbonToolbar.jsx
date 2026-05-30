@@ -272,6 +272,7 @@ export const TABS = {
         { name: 'Sculpt Point Cloud Recon', icon: '∴', key: 'part' },
         { name: 'Sculpt Pocket Toolpath', icon: '⌗', key: 'part' },
         { name: 'Sculpt Architectural Wall', icon: '⌸', key: 'part' },
+        { name: 'Sculpt Variable Fillet Box', icon: '◔', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

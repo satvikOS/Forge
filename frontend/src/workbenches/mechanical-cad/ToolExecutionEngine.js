@@ -1747,6 +1747,62 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-46 — OCCT Variable-Radius Fillet (NX / CATIA / Creo) ───────
+    // FIRST Sculpt tool that routes through the OCCT-backed EXACT B-rep
+    // kernel (frontend/src/kernel/brep, opencascade.js): build a box,
+    // apply variable-radius fillet to every edge (R ramps linearly from
+    // r1 → r2 along each edge), translate to position. The mesh kernel
+    // (manifold-3d) can't do exact variable fillets — this op exists
+    // ONLY because OCCT is integrated. Demonstrates the OCCT path
+    // working end-to-end through the Sculpt UI.
+    'Sculpt Variable Fillet Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Variable Fillet Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Variable Fillet Box cancelled' };
+      try {
+        const dx = values.dx ?? 100, dy = values.dy ?? 70, dz = values.dz ?? 50;
+        const r1 = values.r1 ?? 2, r2 = values.r2 ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        // Clamp the fillet radii so they don't exceed half the smallest
+        // box dimension — OCCT will throw "fillet radius too large"
+        // otherwise. (NX / CATIA do the same check internally.)
+        const rMax = Math.min(dx, dy, dz) / 2 - 0.01;
+        const r1c = Math.min(Math.max(0.1, r1), rMax);
+        const r2c = Math.min(Math.max(0.1, r2), rMax);
+        const clamped = (r1c !== r1) || (r2c !== r2);
+
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        const filleted = await ArchDiscKernel.brep.variableFillet(box, r1c, r2c);
+        // Position the body. makeBox is anchored at the origin's −X−Y−Z
+        // corner, so translate by (px, py, pz) − box centre to centre it.
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0x9c8d6a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        if (typeof window !== 'undefined') {
+          window.__lastVariableFilletReport = {
+            dx, dy, dz,
+            r1: r1c, r2: r2c, r1Requested: r1, r2Requested: r2, clamped,
+            boxVolume: dx * dy * dz,
+            actualVolume: metrics.volume,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Variable Fillet Box: ${dx}×${dy}×${dz} mm + R${r1c.toFixed(1)} → R${r2c.toFixed(1)} on every edge${clamped ? ' (clamped to fit)' : ''} | V = ${(metrics.volume / 1000).toFixed(1)} cm³, ${metrics.faceCount} faces, ${metrics.edgeCount} edges — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Variable Fillet Box: ' + err.message };
+      }
+    },
+
     // ─── SP-45 — Architectural Wall (Revit / AutoCAD Arch / ArchiCAD) ──
     // Parametric BIM wall: a rectangular slab cut with optional door +
     // window openings. Inspired by FreeCAD's BIM ArchWall (Length /
