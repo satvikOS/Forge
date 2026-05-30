@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-82 — OCCT Sweep along L-Path. Circle profile swept along a
+  // 3-segment L-shaped polyline via OCCT sweepProfile. The "tortuous
+  // path" pattern is what real CAM toolpath tubes / wiring harnesses /
+  // pipe runs use; demonstrates OCCT sweep works on multi-segment open
+  // 3D wires.
+  'Sculpt OCCT L-Sweep': {
+    title: 'Sculpt — OCCT L-Sweep (circle swept along L path)',
+    blurb: 'OCCT-backed sweep of a circle profile along a 3-segment L-shaped path.',
+    fields: [
+      { name: 'profileR', label: 'Profile radius', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'segA',     label: 'Vertical segment',  type: 'number', default: 60, unit: 'mm', min: 5, step: 1 },
+      { name: 'segB',     label: 'Horizontal segment', type: 'number', default: 80, unit: 'mm', min: 5, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba38a, step: 1 },
+    ],
+  },
   // SP-81 — Push-Pull Face (NX Synchronous Technology / CATIA FTA /
   // Creo Flexible Modeling). Directly modify a body by translating one
   // of its faces along its normal, regenerating the adjacent walls.

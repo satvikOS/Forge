@@ -1747,6 +1747,47 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-82 — OCCT L-Sweep (circle swept along L-shape path) ──────
+    'Sculpt OCCT L-Sweep': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt OCCT L-Sweep');
+      if (cancelled) return { status: 'warn', message: 'Sculpt OCCT L-Sweep cancelled' };
+      try {
+        const pr = values.profileR ?? 6, A = values.segA ?? 60, B = values.segB ?? 80;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (typeof window !== 'undefined') {
+          window.__lastLSweepReport = { profileR: pr, segA: A, segB: B, actualVolume: 0, faceCount: 0, edgeCount: 0, elapsedMs: 0, error: 'in progress' };
+        }
+        const t0 = Date.now();
+        // L path: (0,0,0) → (0,0,A) → (B,0,A). 3 waypoints.
+        const pathPts = [
+          { x: 0, y: 0, z: 0 },
+          { x: 0, y: 0, z: A },
+          { x: B, y: 0, z: A },
+        ];
+        // Circle profile in the XY plane (perpendicular to the start
+        // tangent +Z). 16 segments.
+        const profilePts = [];
+        const segs = 16;
+        for (let i = 0; i < segs; i++) {
+          const a = (2 * Math.PI / segs) * i;
+          profilePts.push({ x: pr * Math.cos(a), y: pr * Math.sin(a), z: 0 });
+        }
+        const swept = await ArchDiscKernel.brep.sweepProfile(profilePts, pathPts);
+        const placed = await ArchDiscKernel.brep.translate(swept, px, py - A / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6ba38a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Approx volume: total path length × π·pr².
+        const pathLen = A + B;
+        const predictedV = pathLen * Math.PI * pr * pr;
+        if (typeof window !== 'undefined') {
+          window.__lastLSweepReport = { profileR: pr, segA: A, segB: B, pathLen, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / Math.max(1, predictedV), faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs, error: null };
+        }
+        return { status: 'success', message: `Sculpt OCCT L-Sweep: pr=${pr} A=${A} B=${B} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(1)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt OCCT L-Sweep: ' + err.message }; }
+    },
+
     // ─── SP-81 — Push-Pull Box (OCCT direct-modeling face shift) ─────
     'Sculpt Push-Pull Box': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Push-Pull Box');
