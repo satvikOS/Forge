@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-96 — Coin (disc + raised inner disc fused). Universal coin /
+  // button / control-knob-with-cap primitive.
+  'Sculpt Coin': {
+    title: 'Sculpt — Coin (disc + raised face)',
+    blurb: 'OCCT-backed coin: large flat disc with a smaller raised disc on top, fused.',
+    fields: [
+      { name: 'outerR',  label: 'Outer radius', type: 'number', default: 25, unit: 'mm', min: 2, step: 1 },
+      { name: 'outerT',  label: 'Coin thickness', type: 'number', default: 3, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'innerR',  label: 'Raised-face radius', type: 'number', default: 18, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'innerT',  label: 'Raised-face height', type: 'number', default: 1, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc7a572, step: 1 },
+    ],
+  },
   // SP-95 — Hockey Puck (cylinder with both rims filleted). Universal
   // puck / wheel / disc-with-rounded-edges primitive.
   'Sculpt Hockey Puck': {

@@ -322,6 +322,7 @@ export const TABS = {
         { name: 'Sculpt Wedge Block', icon: '◣', key: 'part' },
         { name: 'Sculpt Rounded-Top Box', icon: '⌒', key: 'part' },
         { name: 'Sculpt Hockey Puck', icon: '⬬', key: 'part' },
+        { name: 'Sculpt Coin', icon: '🜸', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

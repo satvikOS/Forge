@@ -1747,6 +1747,33 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-96 — Coin (OCCT cyl + cyl fused) ─────────────────────────
+    'Sculpt Coin': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Coin');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Coin cancelled' };
+      try {
+        const oR = values.outerR ?? 25, oT = values.outerT ?? 3;
+        const iR = values.innerR ?? 18, iT = values.innerT ?? 1;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (iR >= oR) throw new Error('innerR must be < outerR');
+        const t0 = Date.now();
+        const base = await ArchDiscKernel.brep.makeCylinder(oR, oT);
+        const face = await ArchDiscKernel.brep.makeCylinder(iR, iT);
+        const faceP = await ArchDiscKernel.brep.translate(face, 0, 0, oT);
+        const coin = await ArchDiscKernel.brep.fuse(base, faceP);
+        const placed = await ArchDiscKernel.brep.translate(coin, px, py, pz - (oT + iT) / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc7a572;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = Math.PI * oR * oR * oT + Math.PI * iR * iR * iT;
+        if (typeof window !== 'undefined') {
+          window.__lastCoinReport = { outerR: oR, outerT: oT, innerR: iR, innerT: iT, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Coin: Ø${oR * 2}×${oT} + Ø${iR * 2}×${iT} face | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Coin: ' + err.message }; }
+    },
+
     // ─── SP-95 — Hockey Puck (OCCT cyl + filletAll rims) ─────────────
     'Sculpt Hockey Puck': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Hockey Puck');
