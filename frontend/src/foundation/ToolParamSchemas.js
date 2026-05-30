@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-112 — Infer Feature (SW Direct Editing / Creo Flexible Modeling /
+  // NX Synchronous Modeling class). Read-only feature recognition: walk
+  // every face of a filleted cube and classify it (fillet / fillet-corner
+  // / planar-step / etc.) from surface type + spine adjacency.
+  'Sculpt Infer Feature': {
+    title: 'Sculpt — Infer Feature (direct modeling face classification)',
+    blurb: 'OCCT-backed feature recognition: filleted cube → tally face classifications by inferFeature. 6 planar + 12 fillets + 8 corners expected.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd0d4dc, step: 1 },
+    ],
+  },
   // SP-111 — STEP Export + Import (ISO 10303 round-trip).
   // Build a body, export to STEP AP203, re-import, render the imported
   // version, verify volume conservation. Real CAD interop with NX /

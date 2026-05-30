@@ -338,6 +338,7 @@ export const TABS = {
         { name: 'Sculpt Sheet Metal Jog', icon: '⏷', key: 'part' },
         { name: 'Sculpt Class-A Analyze', icon: '🌈', key: 'part' },
         { name: 'Sculpt STEP Round-Trip', icon: '⇄', key: 'part' },
+        { name: 'Sculpt Infer Feature', icon: '🔍', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

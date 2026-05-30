@@ -1747,6 +1747,62 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-112 — Infer Feature (OCCT face classification) ──────────
+    // SW Direct Editing / Creo Flexible Modeling / NX Synchronous
+    // Modeling class. Read-only feature recognition: classify every
+    // face of a filleted cube as fillet / fillet-corner / planar-step /
+    // etc. based on surface type + spine adjacency.
+    'Sculpt Infer Feature': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Infer Feature');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Infer Feature cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastInferReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 6;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('boxSize > 0; filletR ∈ (0, boxSize/2)');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const color = Number.isFinite(values.color) ? values.color : 0xd0d4dc;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Classify every face via inferFeature (1-based indices).
+        const tally = {};
+        const perFace = [];
+        for (let i = 1; i <= metrics.faceCount; i++) {
+          try {
+            const ifr = await ArchDiscKernel.brep.inferFeature(placed, i);
+            const ft = ifr.featureType;
+            tally[ft] = (tally[ft] || 0) + 1;
+            perFace.push({ idx: i, featureType: ft, confidence: ifr.confidence, suggested_op: ifr.suggested_op });
+          } catch (err) {
+            tally['error'] = (tally['error'] || 0) + 1;
+            perFace.push({ idx: i, featureType: 'error', error: err.message });
+          }
+        }
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastInferReport = {
+            boxSize: s, filletR: fR,
+            faceCount: metrics.faceCount,
+            tally,
+            perFace,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Infer Feature: ${s}³ fillet R=${fR} | ${metrics.faceCount} faces classified — ${Object.entries(tally).map(([k, v]) => `${v}×${k}`).join(', ')} — OCCT direct modeling | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastInferReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Infer Feature: ' + err.message };
+      }
+    },
+
     // ─── SP-111 — STEP Round-Trip (ISO 10303 export + import) ───────
     // Real CAD interop check: NX / CATIA / SolidWorks / Creo speak
     // STEP AP203 / AP214 natively. Build a filleted box, export to
