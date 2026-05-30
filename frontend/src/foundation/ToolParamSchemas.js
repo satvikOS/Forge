@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-139 — Planar Section (SW Section View / CATIA Section / NX Cross-
+  // Section). Cross-cut a body with a plane → either intersection
+  // curves (drawing views) or split pieces (machining setups).
+  'Sculpt Planar Section': {
+    title: 'Sculpt — Planar Section (cross-cut with plane)',
+    blurb: 'OCCT-backed planar section: sphere R=20 cut at z=5 → intersection circle. Volume preserved across split halves.',
+    fields: [
+      { name: 'sphereR',  label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'planeZ',   label: 'Plane z',       type: 'number', default: 5,  unit: 'mm', step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA', label: 'Top half colour',    type: 'number', default: 0xe6a8a8, step: 1 },
+      { name: 'colorB', label: 'Bottom half colour', type: 'number', default: 0xa8a8e6, step: 1 },
+    ],
+  },
   // SP-138 — NURBS Refine + Elevate Degree (CATIA GSD Insert Knot /
   // NX Insert Knot / SW NURBS Tools). h-refinement (knot insertion)
   // + p-refinement (degree elevation) on a 4×4 NURBS sail. Surface

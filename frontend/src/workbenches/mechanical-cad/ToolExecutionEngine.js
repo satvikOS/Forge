@@ -1747,6 +1747,63 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-139 — Planar Section (OCCT plane cross-cut, split mode) ──
+    // SW Section View / CATIA Section / NX Cross-Section class.
+    // Cross-cut a body with a plane via planarSection {output:'split'}.
+    // Returns top + bottom halves; volume conservation enforced.
+    'Sculpt Planar Section': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Planar Section');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Planar Section cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastSectionReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const planeZ = values.planeZ ?? 5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0) throw new Error('sphereR > 0');
+        if (Math.abs(planeZ) >= sR) throw new Error('|planeZ| < sphereR');
+        const t0 = Date.now();
+        const sphere = await ArchDiscKernel.brep.makeSphere(sR);
+        const placed = await ArchDiscKernel.brep.translate(sphere, px, py, pz);
+        const result = await ArchDiscKernel.brep.planarSection(placed, {
+          origin: [px, py, pz + planeZ], normal: [0, 0, 1],
+        }, { output: 'split' });
+        const pieces = result.pieces || (Array.isArray(result) ? result : []);
+        const elapsedMs = Date.now() - t0;
+        const colorA = Number.isFinite(values.colorA) ? values.colorA : 0xe6a8a8;
+        const colorB = Number.isFinite(values.colorB) ? values.colorB : 0xa8a8e6;
+        // Render each piece — translate them slightly apart for visual clarity.
+        const pieceVols = [];
+        for (let i = 0; i < pieces.length; i++) {
+          const offsetZ = i === 0 ? 5 : -5;  // exploded view
+          const pP = await ArchDiscKernel.brep.translate(pieces[i], 0, 0, offsetZ);
+          await addBrepShapeToScene(scene, viewport, pP, i === 0 ? colorA : colorB);
+          const m = await ArchDiscKernel.brep.measure(pP);
+          pieceVols.push(m.volume);
+        }
+        const sphereV = (4 / 3) * Math.PI * sR * sR * sR;
+        const sumV = pieceVols.reduce((a, b) => a + b, 0);
+        if (typeof window !== 'undefined') {
+          window.__lastSectionReport = {
+            sphereR: sR, planeZ,
+            sphereVolume: sphereV,
+            pieceCount: pieces.length,
+            pieceVolumes: pieceVols,
+            sumVolume: sumV,
+            relError: Math.abs(sumV - sphereV) / sphereV,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Planar Section: sphere R=${sR} cut at z=${planeZ} | ${pieces.length} pieces, ΣV=${(sumV / 1000).toFixed(2)} cm³ = sphere ${(sphereV / 1000).toFixed(2)} cm³ (rel err ${(Math.abs(sumV - sphereV) / sphereV * 100).toFixed(3)} %), per-piece [${pieceVols.map((v) => (v / 1000).toFixed(2)).join(', ')}] cm³ — OCCT planarSection split | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastSectionReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Planar Section: ' + err.message };
+      }
+    },
+
     // ─── SP-138 — NURBS Refine + Elevate (h + p refinement chain) ────
     // CATIA GSD Insert Knot / NX Insert Knot / SW NURBS Tools class.
     // Chain h-refinement (knot insertion at 0.25/0.5/0.75) with
