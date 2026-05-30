@@ -1747,6 +1747,69 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-83 — Boolean Intersect (OCCT common: box ∩ sphere) ───────
+    'Sculpt Boolean Intersect': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Boolean Intersect');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Boolean Intersect cancelled' };
+      try {
+        const S = values.boxSize ?? 60, R = values.sphereR ?? 40;
+        const sdx = values.sphereDx ?? 0, sdy = values.sphereDy ?? 0, sdz = values.sphereDz ?? 0;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(S, S, S);
+        const boxC = await ArchDiscKernel.brep.translate(box, -S / 2, -S / 2, -S / 2);
+        const sph = await ArchDiscKernel.brep.makeSphere(R);
+        const sphC = await ArchDiscKernel.brep.translate(sph, sdx, sdy, sdz);
+        const inter = await ArchDiscKernel.brep.common(boxC, sphC);
+        const placed = await ArchDiscKernel.brep.translate(inter, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa3826b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastIntersectReport = { boxSize: S, sphereR: R, sphereOffset: [sdx, sdy, sdz], actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Boolean Intersect: box ${S} ∩ sphere R=${R} | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Boolean Intersect: ' + err.message }; }
+    },
+
+    // ─── SP-84 — Revolved Vase (OCCT revolveProfile on 4-pt profile) ──
+    'Sculpt Revolved Vase': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Revolved Vase');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Revolved Vase cancelled' };
+      try {
+        const baseR = values.baseR ?? 30, neckR = values.neckR ?? 14;
+        const H = values.height ?? 80, baseH = Math.min(values.baseH ?? 20, H - 1);
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Profile (CCW in XY plane, all x ≥ 0):
+        // (0, 0) → (baseR, 0) → (baseR, baseH) → (neckR, H) → (0, H) → (0, 0)
+        const pts = [
+          { x: 0,     y: 0,     z: 0 },
+          { x: baseR, y: 0,     z: 0 },
+          { x: baseR, y: baseH, z: 0 },
+          { x: neckR, y: H,     z: 0 },
+          { x: 0,     y: H,     z: 0 },
+        ];
+        const axis = { origin: [0, 0, 0], direction: [0, 1, 0] };
+        const vase = await ArchDiscKernel.brep.revolveProfile(pts, axis, 360);
+        const placed = await ArchDiscKernel.brep.translate(vase, px, py - H / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6b9aa3;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Predicted volume = base cylinder (baseR² π baseH) + frustum
+        //  (from baseR @ baseH to neckR @ H): π·(H−baseH)/3 · (baseR² + baseR·neckR + neckR²)
+        const baseV = Math.PI * baseR * baseR * baseH;
+        const frustumV = (Math.PI * (H - baseH) / 3) * (baseR * baseR + baseR * neckR + neckR * neckR);
+        const predictedV = baseV + frustumV;
+        if (typeof window !== 'undefined') {
+          window.__lastVaseReport = { baseR, neckR, height: H, baseH, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Revolved Vase: baseR=${baseR} neckR=${neckR} H=${H} baseH=${baseH} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Revolved Vase: ' + err.message }; }
+    },
+
     // ─── SP-82 — OCCT L-Sweep (circle swept along L-shape path) ──────
     'Sculpt OCCT L-Sweep': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt OCCT L-Sweep');

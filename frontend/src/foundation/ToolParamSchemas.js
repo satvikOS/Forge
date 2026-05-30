@@ -124,6 +124,39 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-83 — Boolean Intersect (common). Universal Boolean Intersect /
+  // Common between two intersecting primitives. Box ∩ Sphere etc.
+  'Sculpt Boolean Intersect': {
+    title: 'Sculpt — Boolean Intersect (Box ∩ Sphere via OCCT)',
+    blurb: 'OCCT-backed boolean intersection: keep only the overlap of a box and a sphere.',
+    fields: [
+      { name: 'boxSize',   label: 'Box side', type: 'number', default: 60, unit: 'mm', min: 2, step: 1 },
+      { name: 'sphereR',   label: 'Sphere R', type: 'number', default: 40, unit: 'mm', min: 2, step: 1 },
+      { name: 'sphereDx',  label: 'Sphere X offset', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'sphereDy',  label: 'Sphere Y offset', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'sphereDz',  label: 'Sphere Z offset', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3826b, step: 1 },
+    ],
+  },
+  // SP-84 — Revolved Vase (revolveProfile). A 4-vertex profile in the +X
+  // half plane revolved 360° about Y axis. Vase / lamp / shaft form.
+  'Sculpt Revolved Vase': {
+    title: 'Sculpt — Revolved Vase (4-point profile, OCCT revolveProfile)',
+    blurb: 'OCCT-backed revolved-axisymmetric body: a 4-vertex profile in the +X half plane revolved 360° about Y.',
+    fields: [
+      { name: 'baseR',  label: 'Base radius',  type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'neckR',  label: 'Neck radius',  type: 'number', default: 14, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Height',       type: 'number', default: 80, unit: 'mm', min: 5, step: 1 },
+      { name: 'baseH',  label: 'Base shoulder height', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b9aa3, step: 1 },
+    ],
+  },
   // SP-82 — OCCT Sweep along L-Path. Circle profile swept along a
   // 3-segment L-shaped polyline via OCCT sweepProfile. The "tortuous
   // path" pattern is what real CAM toolpath tubes / wiring harnesses /
