@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-150 — Trim Members (SW Weldments Trim/Extend / CATIA Trim /
+  // NX Trim Member). Auto-trim weldment members at shared joints
+  // — butt or mitered — so overlapping ends are removed.
+  'Sculpt Trim Members': {
+    title: 'Sculpt — Trim Members (weldments butt / miter)',
+    blurb: 'OCCT-backed trim: 2 perpendicular members → trim at the shared joint with mitered mode. trims[] log appended.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'mode',         label: 'Trim mode',     type: 'string', default: 'mitered', choices: ['butt', 'mitered'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8090a8, step: 1 },
+    ],
+  },
   // SP-149 — Gusset (SW Gusset / CATIA Reinforcement Plate / NX Gusset).
   // Triangular reinforcement plate spanning the corner between 2
   // weldment members. Stiffens the joint without adding much weight.

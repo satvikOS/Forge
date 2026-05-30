@@ -1747,6 +1747,54 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-150 — Trim Members (OCCT Weldments butt / miter trim) ────
+    // SW Weldments Trim/Extend / CATIA Trim / NX Trim Member. Auto-
+    // trim weldment members at shared joints — butt or mitered.
+    // Each member's metadata appends a trims[] log entry.
+    'Sculpt Trim Members': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Trim Members');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Trim Members cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastTrimMembersReport = { error: 'in progress' };
+      }
+      try {
+        const lenMm = values.memberLength ?? 500;
+        const lenM = lenMm / 1000;
+        const mode = (values.mode || 'mitered').toLowerCase();
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (lenMm <= 0) throw new Error('memberLength > 0');
+        const t0 = Date.now();
+        const memberA = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [lenM, 0, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        const memberB = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [0, lenM, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        const result = await ArchDiscKernel.brep.trimMembers([memberA, memberB], { mode });
+        const color = Number.isFinite(values.color) ? values.color : 0x8090a8;
+        for (const m of result.members) {
+          await addBrepShapeToScene(scene, viewport, m, color);
+        }
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastTrimMembersReport = {
+            memberLengthMm: lenMm, mode,
+            memberCount: result.members.length,
+            trimCount: result.trimCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Trim Members: ${lenMm}mm members + ${mode} trim | ${result.members.length} members, ${result.trimCount} trims applied — OCCT Weldments | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastTrimMembersReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Trim Members: ' + err.message };
+      }
+    },
+
     // ─── SP-149 — Gusset (OCCT Weldments triangular reinforcement) ───
     // SW Gusset / CATIA Reinforcement Plate / NX Gusset class.
     // Triangular reinforcement plate spanning the corner between 2
