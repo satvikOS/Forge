@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-143 — Sweep Flange (SW Lofted Bend / CATIA Sheetmetal Sweep /
+  // NX Swept Flange). Sweep a flange profile along a polyline path —
+  // the sheet-metal version of swept boss.
+  'Sculpt Sweep Flange': {
+    title: 'Sculpt — Sweep Flange (sheet metal swept lip)',
+    blurb: 'OCCT-backed sheet metal sweep: base flange + swept lip along a 2-point straight path. Bend record type=sweepFlange for downstream Flat Pattern.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'profileWidth', label: 'Profile width', type: 'number', default: 15,  unit: 'mm', min: 1, step: 1 },
+      { name: 'pathLength',   label: 'Path length',   type: 'number', default: 80,  unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8e6d8, step: 1 },
+    ],
+  },
   // SP-142 — Eval Surface (SW Surface Inquiry / CATIA Measure /
   // NX Curve & Surface Inspect). Sample point + normal + 1st/2nd
   // partials + curvatures at (u, v) on a face.

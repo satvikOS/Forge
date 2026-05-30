@@ -369,6 +369,7 @@ export const TABS = {
         { name: 'Sculpt Project Points', icon: '◬', key: 'part' },
         { name: 'Sculpt Per-Face Tessellation', icon: '⌗', key: 'part' },
         { name: 'Sculpt Eval Surface', icon: '⊕', key: 'part' },
+        { name: 'Sculpt Sweep Flange', icon: '〰', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

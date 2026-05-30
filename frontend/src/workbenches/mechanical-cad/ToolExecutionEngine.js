@@ -1747,6 +1747,70 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-143 — Sweep Flange (OCCT sheet metal swept lip) ─────────
+    // SW Lofted Bend / CATIA Sheetmetal Sweep / NX Swept Flange class.
+    // Sweep a flange profile along a polyline path — the sheet-metal
+    // version of swept boss. Bend record carries type='sweepFlange'
+    // for downstream Flat Pattern.
+    'Sculpt Sweep Flange': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Sweep Flange');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Sweep Flange cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastSweepFlangeReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const profileW = values.profileWidth ?? 15;
+        const pathLen = values.pathLength ?? 80;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || profileW <= 0 || pathLen <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        // Path: straight 2-point along +X at top edge of base.
+        const path = [
+          { x: -pathLen / 2, y: pY / 2, z: t },
+          { x:  pathLen / 2, y: pY / 2, z: t },
+        ];
+        const swept = await ArchDiscKernel.brep.sweepFlange(base, {
+          pathSketch: path, profileWidth: profileW,
+        });
+        const sweptSm = ArchDiscKernel.brep.getSheetMetalMetadata(swept);
+        const sweptM = await ArchDiscKernel.brep.measure(swept);
+        const placed = await ArchDiscKernel.brep.translate(swept, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb8e6d8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const bends = (sweptSm && sweptSm.bends) ? sweptSm.bends : [];
+        const lastBend = bends.length > 0 ? bends[bends.length - 1] : null;
+        if (typeof window !== 'undefined') {
+          window.__lastSweepFlangeReport = {
+            plateX: pX, plateY: pY, thickness: t, profileWidth: profileW, pathLength: pathLen,
+            baseVolume: baseM.volume,
+            sweptVolume: sweptM.volume,
+            baseFaceCount: baseM.faceCount,
+            sweptFaceCount: sweptM.faceCount,
+            bendCount: bends.length,
+            lastBendType: lastBend ? lastBend.type : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Sweep Flange: ${pX}×${pY}×${t} base + ${profileW}-wide flange swept ${pathLen} mm | base V=${(baseM.volume / 1000).toFixed(2)} → swept V=${(sweptM.volume / 1000).toFixed(2)} cm³, faces ${baseM.faceCount}→${sweptM.faceCount}, bends=${bends.length} (last type=${lastBend?.type}) — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastSweepFlangeReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Sweep Flange: ' + err.message };
+      }
+    },
+
     // ─── SP-142 — Eval Surface (OCCT BRepAdaptor_Surface D2) ─────────
     // SW Surface Inquiry / CATIA Measure / NX Curve & Surface Inspect
     // class. Sample point + outward normal + 1st/2nd partials +
