@@ -1747,6 +1747,68 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-142 — Eval Surface (OCCT BRepAdaptor_Surface D2) ─────────
+    // SW Surface Inquiry / CATIA Measure / NX Curve & Surface Inspect
+    // class. Sample point + outward normal + 1st/2nd partials +
+    // Gaussian + mean + principal curvatures at (u, v) on a face.
+    'Sculpt Eval Surface': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Eval Surface');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Eval Surface cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastEvalSurfReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0) throw new Error('sphereR > 0');
+        const t0 = Date.now();
+        const sphere = await ArchDiscKernel.brep.makeSphere(sR);
+        const placed = await ArchDiscKernel.brep.translate(sphere, px, py, pz);
+        const color = Number.isFinite(values.color) ? values.color : 0xb8d2e6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const faces = placed.body.faces();
+        // The sphere has 1 face (with seam edges). Sample at 3 (u,v) points.
+        const samples = [
+          { label: 'centre', u: 0.5, v: 0.5 },
+          { label: 'pole-near', u: 0.5, v: 0.1 },
+          { label: 'edge', u: 0.25, v: 0.5 },
+        ];
+        const results = [];
+        const expectedK = 1 / (sR * sR);  // sphere Gaussian curvature
+        const expectedH = 1 / sR;          // sphere mean curvature magnitude
+        for (const s of samples) {
+          const ev = await ArchDiscKernel.brep.evalSurface(faces[0], s.u, s.v, { normalised: true });
+          // Distance from sphere centre = sR check.
+          const dist = Math.sqrt(
+            (ev.point.x - px) ** 2 + (ev.point.y - py) ** 2 + (ev.point.z - pz) ** 2,
+          );
+          results.push({
+            label: s.label, u: s.u, v: s.v,
+            point: ev.point,
+            normal: ev.normal,
+            distFromCentre: dist,
+            gaussian: ev.gaussianCurvature,
+            mean: ev.meanCurvature,
+            surfaceType: ev.surfaceType,
+          });
+        }
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastEvalSurfReport = {
+            sphereR: sR, expectedK, expectedH,
+            results,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Eval Surface: sphere R=${sR} | ${results.map((rr) => `${rr.label}@(${rr.u},${rr.v}) dist=${rr.distFromCentre.toFixed(3)} G=${(rr.gaussian || 0).toExponential(3)} H=${(rr.mean || 0).toExponential(3)} type=${rr.surfaceType}`).join(' | ')} (expected K=1/R²=${expectedK.toExponential(3)}) — OCCT BRepAdaptor_Surface | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastEvalSurfReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Eval Surface: ' + err.message };
+      }
+    },
+
     // ─── SP-141 — Per-Face Tessellation (selection-aware + FEA prep) ─
     // Each triangle tagged with its source B-rep face id (0-based).
     // Face-adjacency map records which B-rep faces share an edge.

@@ -124,6 +124,20 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-142 — Eval Surface (SW Surface Inquiry / CATIA Measure /
+  // NX Curve & Surface Inspect). Sample point + normal + 1st/2nd
+  // partials + curvatures at (u, v) on a face.
+  'Sculpt Eval Surface': {
+    title: 'Sculpt — Eval Surface (point + normal + κ at (u,v))',
+    blurb: 'OCCT-backed evalSurface: sphere R=20 sampled at 3 (u,v) — Gaussian κ = 1/R² = 2.5e-3 1/mm² (uniform on sphere), normal points radially outward.',
+    fields: [
+      { name: 'sphereR', label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8d2e6, step: 1 },
+    ],
+  },
   // SP-141 — Per-Face Tessellation (selection-aware rendering +
   // FEA mesh prep). Each triangle tagged with its source B-rep
   // face id; face-adjacency map records which faces share edges.
