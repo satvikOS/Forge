@@ -1747,6 +1747,61 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-79 — Half-Cylinder (OCCT cyl − half-space cut) ──────────
+    'Sculpt Half-Cylinder': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Half-Cylinder');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Half-Cylinder cancelled' };
+      try {
+        const R = values.R ?? 20, H = values.height ?? 60;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const cyl = await ArchDiscKernel.brep.makeCylinder(R, H);
+        const box = await ArchDiscKernel.brep.makeBox(R * 4, R * 2, H + 2);
+        const boxP = await ArchDiscKernel.brep.translate(box, -R * 2, -R * 2, -1);
+        const half = await ArchDiscKernel.brep.cut(cyl, boxP);
+        const placed = await ArchDiscKernel.brep.translate(half, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6ba38a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = 0.5 * Math.PI * R * R * H;
+        if (typeof window !== 'undefined') {
+          window.__lastHalfCylReport = { R, height: H, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Half-Cylinder: R=${R} H=${H} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Half-Cylinder: ' + err.message }; }
+    },
+
+    // ─── SP-80 — Quarter-Sphere (OCCT sphere − 2 half-space cuts) ───
+    'Sculpt Quarter-Sphere': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Quarter-Sphere');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Quarter-Sphere cancelled' };
+      try {
+        const R = values.R ?? 25;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const sph = await ArchDiscKernel.brep.makeSphere(R);
+        // Cut z < 0 half.
+        const box1 = await ArchDiscKernel.brep.makeBox(R * 4, R * 4, R * 2);
+        const box1P = await ArchDiscKernel.brep.translate(box1, -R * 2, -R * 2, -R * 2);
+        const half = await ArchDiscKernel.brep.cut(sph, box1P);
+        // Cut y < 0 quarter.
+        const box2 = await ArchDiscKernel.brep.makeBox(R * 4, R * 2, R * 4);
+        const box2P = await ArchDiscKernel.brep.translate(box2, -R * 2, -R * 2, -R * 2);
+        const quarter = await ArchDiscKernel.brep.cut(half, box2P);
+        const placed = await ArchDiscKernel.brep.translate(quarter, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8a6ba3;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (1 / 3) * Math.PI * R * R * R;        // (4/3 π R³) / 4
+        if (typeof window !== 'undefined') {
+          window.__lastQuarterSphereReport = { R, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Quarter-Sphere: R=${R} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Quarter-Sphere: ' + err.message }; }
+    },
+
     // ─── SP-77 — Lozenge / Stadium (OCCT box + 2 cyls fused) ─────────
     'Sculpt Lozenge Prism': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Lozenge Prism');

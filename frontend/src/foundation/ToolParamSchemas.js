@@ -124,6 +124,31 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-79 — Half-Cylinder (cyl − half-space cut).
+  'Sculpt Half-Cylinder': {
+    title: 'Sculpt — Half-Cylinder (cylinder cut in half)',
+    blurb: 'OCCT-backed half-cylinder: cylinder − below-plane box. Half-pipe / channel / mug-handle primitive.',
+    fields: [
+      { name: 'R',      label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Height (Z)', type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba38a, step: 1 },
+    ],
+  },
+  // SP-80 — Quarter-Sphere (sphere − 2 half-spaces).
+  'Sculpt Quarter-Sphere': {
+    title: 'Sculpt — Quarter-Sphere',
+    blurb: 'OCCT-backed quarter-sphere: sphere − below-Z box − below-Y box. Corner / chamfer-edge primitive.',
+    fields: [
+      { name: 'R', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a6ba3, step: 1 },
+    ],
+  },
   // SP-77 — Lozenge / Stadium (rectangle + semicircular ends).
   'Sculpt Lozenge Prism': {
     title: 'Sculpt — Lozenge / Stadium (rect + 2 semicircles, extruded)',
