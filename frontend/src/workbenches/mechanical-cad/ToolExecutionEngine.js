@@ -1747,6 +1747,66 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-113 — GLTF Export (Khronos glTF 2.0 visualization) ───────
+    // Khronos glTF 2.0 is the web/AR/VR/game standard — Three.js
+    // viewers, Blender, Unreal, Babylon, model-viewer, AR Quick Look
+    // all consume it natively. Complements STEP for manufacturing
+    // with GLTF for visualization + collaboration.
+    'Sculpt GLTF Export': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt GLTF Export');
+      if (cancelled) return { status: 'warn', message: 'Sculpt GLTF Export cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastGltfReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 4;
+        const defl = values.deflection ?? 0.1;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('boxSize > 0; filletR ∈ (0, boxSize/2)');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const color = Number.isFinite(values.color) ? values.color : 0xe6c990;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const tGltf0 = Date.now();
+        const gltfText = await ArchDiscKernel.brep.exportGltf(placed, {
+          name: 'ArchDisc_FilletedCube', deflection: defl,
+        });
+        const exportMs = Date.now() - tGltf0;
+        const summary = ArchDiscKernel.brep.parseGltfSummary(gltfText);
+        const elapsedMs = Date.now() - t0;
+        let gltfParsed = null;
+        try {
+          gltfParsed = JSON.parse(gltfText);
+        } catch { /* keep summary only */ }
+        const asset = gltfParsed && gltfParsed.asset ? gltfParsed.asset : null;
+        if (typeof window !== 'undefined') {
+          window.__lastGltfReport = {
+            boxSize: s, filletR: fR, deflection: defl,
+            gltfBytes: gltfText.length,
+            gltfSchema: summary.schema,
+            vertCount: summary.vertCount,
+            triCount: summary.triCount,
+            assetVersion: asset ? asset.version : null,
+            assetGenerator: asset ? asset.generator : null,
+            meshCount: gltfParsed && gltfParsed.meshes ? gltfParsed.meshes.length : null,
+            nodeCount: gltfParsed && gltfParsed.nodes ? gltfParsed.nodes.length : null,
+            sceneCount: gltfParsed && gltfParsed.scenes ? gltfParsed.scenes.length : null,
+            accessorsCount: gltfParsed && gltfParsed.accessors ? gltfParsed.accessors.length : null,
+            exportMs, elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt GLTF Export: ${s}³ fillet R=${fR} defl=${defl} | glTF ${gltfText.length} bytes, schema=${summary.schema}, ${summary.vertCount} verts / ${summary.triCount} tris, asset v=${asset ? asset.version : '?'} — Khronos glTF 2.0 | export ${exportMs} ms, total ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastGltfReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt GLTF Export: ' + err.message };
+      }
+    },
+
     // ─── SP-112 — Infer Feature (OCCT face classification) ──────────
     // SW Direct Editing / Creo Flexible Modeling / NX Synchronous
     // Modeling class. Read-only feature recognition: classify every

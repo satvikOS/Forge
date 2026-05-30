@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-113 — GLTF Export (Khronos glTF 2.0 — web/AR/VR/game standard).
+  // Used by Three.js viewers, Blender, Unreal, Babylon.js, model-
+  // viewer, AR Quick Look. Complements STEP for mfg with GLTF for
+  // visualization / collaboration.
+  'Sculpt GLTF Export': {
+    title: 'Sculpt — GLTF Export (Khronos glTF 2.0)',
+    blurb: 'OCCT-backed GLTF export: filleted box → glTF 2.0 JSON. Validate schema header, vert + tri counts, parse with parseGltfSummary.',
+    fields: [
+      { name: 'boxSize',    label: 'Box side',      type: 'number', default: 40,   unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',    label: 'Fillet radius', type: 'number', default: 4,    unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.1, unit: 'mm', min: 0.01, step: 0.01 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6c990, step: 1 },
+    ],
+  },
   // SP-112 — Infer Feature (SW Direct Editing / Creo Flexible Modeling /
   // NX Synchronous Modeling class). Read-only feature recognition: walk
   // every face of a filleted cube and classify it (fillet / fillet-corner
