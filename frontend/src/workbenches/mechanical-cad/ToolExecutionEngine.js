@@ -1747,6 +1747,36 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-89 — T-Joint Cylinder (OCCT rotate + fuse) ────────────────
+    'Sculpt T-Joint Cylinder': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt T-Joint Cylinder');
+      if (cancelled) return { status: 'warn', message: 'Sculpt T-Joint Cylinder cancelled' };
+      try {
+        const priR = values.priR ?? 15, priLen = values.priLen ?? 100;
+        const secR = values.secR ?? 10, secLen = values.secLen ?? 120;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Primary along Z, centred on origin.
+        const pri = await ArchDiscKernel.brep.makeCylinder(priR, priLen);
+        const priP = await ArchDiscKernel.brep.translate(pri, 0, 0, -priLen / 2);
+        // Secondary along Z, then rotate 90° about Y axis → now along X.
+        // OCCT rotate(src, axisVector, angleRad, origin).
+        const sec = await ArchDiscKernel.brep.makeCylinder(secR, secLen);
+        const secZ = await ArchDiscKernel.brep.translate(sec, 0, 0, -secLen / 2);
+        const secX = await ArchDiscKernel.brep.rotate(secZ, { x: 0, y: 1, z: 0 }, Math.PI / 2, { x: 0, y: 0, z: 0 });
+        const joint = await ArchDiscKernel.brep.fuse(priP, secX);
+        const placed = await ArchDiscKernel.brep.translate(joint, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6ba39a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastTeeJointReport = { priR, priLen, secR, secLen, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt T-Joint Cylinder: pri Ø${priR * 2}×${priLen} (Z) + sec Ø${secR * 2}×${secLen} (X) | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt T-Joint Cylinder: ' + err.message }; }
+    },
+
     // ─── SP-88 — Grid Hole Plate (OCCT M×N drilled pattern) ──────────
     'Sculpt Grid Hole Plate': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Grid Hole Plate');

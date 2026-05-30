@@ -315,6 +315,7 @@ export const TABS = {
         { name: 'Sculpt Cone with Bore', icon: '🜂', key: 'part' },
         { name: 'Sculpt Sheet Metal L-Bracket', icon: '↺', key: 'part' },
         { name: 'Sculpt Grid Hole Plate', icon: '⋮', key: 'part' },
+        { name: 'Sculpt T-Joint Cylinder', icon: '┬', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

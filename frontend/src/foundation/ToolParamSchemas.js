@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-89 — T-Joint Cylinder (perpendicular tubes fused). Pipe / handrail
+  // / scaffolding-frame junction primitive. Uses OCCT rotate to build a
+  // genuinely perpendicular secondary axis.
+  'Sculpt T-Joint Cylinder': {
+    title: 'Sculpt — T-Joint Cylinder (perpendicular tubes fused)',
+    blurb: 'OCCT-backed T-joint: vertical primary tube + horizontal secondary tube fused at a 90° intersection.',
+    fields: [
+      { name: 'priR',     label: 'Primary R', type: 'number', default: 15, unit: 'mm', min: 1, step: 1 },
+      { name: 'priLen',   label: 'Primary length', type: 'number', default: 100, unit: 'mm', min: 5, step: 5 },
+      { name: 'secR',     label: 'Secondary R', type: 'number', default: 10, unit: 'mm', min: 1, step: 1 },
+      { name: 'secLen',   label: 'Secondary length', type: 'number', default: 120, unit: 'mm', min: 5, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba39a, step: 1 },
+    ],
+  },
   // SP-88 — Grid Hole Plate (NX / CATIA / Creo / SW linear pattern op).
   // Rectangular plate with a regular M×N grid of through holes.
   'Sculpt Grid Hole Plate': {
