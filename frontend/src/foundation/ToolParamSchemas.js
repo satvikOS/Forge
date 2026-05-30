@@ -124,6 +124,50 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-74 — Trapezoid Prism (extruded isoceles trapezoid).
+  'Sculpt Trapezoid Prism': {
+    title: 'Sculpt — Trapezoid Prism (isoceles trapezoid extruded)',
+    blurb: 'OCCT-backed isoceles-trapezoid extrusion. Dovetail / sliding rail primitive.',
+    fields: [
+      { name: 'bottom', label: 'Bottom width', type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'top',    label: 'Top width',    type: 'number', default: 50, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Section height (Y)', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',  label: 'Extrusion depth (Z)', type: 'number', default: 200, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a82a3, step: 1 },
+    ],
+  },
+  // SP-75 — Cross / Plus Prism (extruded "+" shape).
+  'Sculpt Cross Prism': {
+    title: 'Sculpt — Cross Prism (+ shape extruded)',
+    blurb: 'OCCT-backed "+" cross-section extrusion. Switch / star pattern / aerospace stiffener.',
+    fields: [
+      { name: 'armLength', label: 'Arm length',    type: 'number', default: 60, unit: 'mm', min: 1, step: 1, hint: 'centre to tip' },
+      { name: 'armWidth',  label: 'Arm width',     type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',     label: 'Extrusion depth', type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3829a, step: 1 },
+    ],
+  },
+  // SP-76 — Star Prism (N-point star polygon extruded).
+  'Sculpt Star Prism': {
+    title: 'Sculpt — Star Prism (N-point star extruded)',
+    blurb: 'OCCT-backed regular N-point star polygon extruded along Z.',
+    fields: [
+      { name: 'points',   label: 'Number of points', type: 'number', default: 5, min: 3, max: 16, step: 1 },
+      { name: 'outerR',   label: 'Outer radius', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'innerR',   label: 'Inner radius', type: 'number', default: 14, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',    label: 'Extrusion depth', type: 'number', default: 15, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6824a, step: 1 },
+    ],
+  },
   // SP-73 — Whiffle Ball (sphere with N drilled holes). OCCT exact analytic
   // sphere − N cylindrical bores. Lightweight ball / spherical air-flow
   // diffuser / decorative shell.
