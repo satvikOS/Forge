@@ -1747,6 +1747,74 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-87 — Sheet Metal L-Bracket + Flat Pattern (OCCT) ─────────
+    'Sculpt Sheet Metal L-Bracket': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Sheet Metal L-Bracket');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Sheet Metal L-Bracket cancelled' };
+      try {
+        const W = values.plateW ?? 80, H = values.plateH ?? 50, t = values.thickness ?? 1.5;
+        const flangeLen = values.flangeLen ?? 30;
+        const bendAngleDeg = values.bendAngleDeg ?? 90;
+        const sep = values.separation ?? 120;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalReport = { W, H, t, flangeLen, bendAngleDeg, foldedVolume: 0, flatVolume: 0, foldedFaces: 0, flatFaces: 0, elapsedMs: 0, error: 'in progress' };
+        }
+        const t0 = Date.now();
+        const profile = [
+          { x: -W / 2, y: -H / 2, z: 0 },
+          { x:  W / 2, y: -H / 2, z: 0 },
+          { x:  W / 2, y:  H / 2, z: 0 },
+          { x: -W / 2, y:  H / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        // Find the +X edge (the right side of the rectangle) — it's the
+        // one whose midpoint has the largest X coordinate. Iterate edges
+        // and pick by midpoint x.
+        const edges = base.body.edges();
+        let bestEdge = null, bestX = -Infinity;
+        for (const e of edges) {
+          const ev = await ArchDiscKernel.brep.evalCurve(e, 0.5).catch(() => null);
+          if (ev && ev.point && ev.point.x > bestX && Math.abs(ev.point.z - t) < 0.5) {
+            // Pick a TOP edge (z ≈ t) of the +X side so the flange faces +X.
+            bestX = ev.point.x; bestEdge = e;
+          }
+        }
+        if (!bestEdge) {
+          // Fallback — any +X edge.
+          for (const e of edges) {
+            const ev = await ArchDiscKernel.brep.evalCurve(e, 0.5).catch(() => null);
+            if (ev && ev.point && ev.point.x > bestX) { bestX = ev.point.x; bestEdge = e; }
+          }
+        }
+        if (!bestEdge) throw new Error('could not find a flangeable edge on the base flange');
+        const folded = await ArchDiscKernel.brep.edgeFlange(base, bestEdge, { length: flangeLen, angleDeg: bendAngleDeg });
+        const flat = await ArchDiscKernel.brep.flatPattern(folded);
+        const elapsedMs = Date.now() - t0;
+
+        const foldedP = await ArchDiscKernel.brep.translate(folded, px - sep / 2, py, pz);
+        const flatP   = await ArchDiscKernel.brep.translate(flat,   px + sep / 2, py, pz);
+
+        const colorFolded = Number.isFinite(values.colorFolded) ? values.colorFolded : 0x8aa56b;
+        const colorFlat   = Number.isFinite(values.colorFlat)   ? values.colorFlat   : 0xa56b8a;
+        await addBrepShapeToScene(scene, viewport, foldedP, colorFolded);
+        await addBrepShapeToScene(scene, viewport, flatP, colorFlat);
+        const mFolded = await ArchDiscKernel.brep.measure(foldedP);
+        const mFlat   = await ArchDiscKernel.brep.measure(flatP);
+
+        if (typeof window !== 'undefined') {
+          window.__lastSheetMetalReport = {
+            W, H, t, flangeLen, bendAngleDeg,
+            foldedVolume: mFolded.volume, flatVolume: mFlat.volume,
+            foldedFaces: mFolded.faceCount, flatFaces: mFlat.faceCount,
+            elapsedMs, error: null,
+          };
+        }
+        return { status: 'success', message: `Sculpt Sheet Metal L-Bracket: ${W}×${H}×${t} base + ${flangeLen} mm flange @ ${bendAngleDeg}° | folded V = ${(mFolded.volume / 1000).toFixed(2)} cm³ (${mFolded.faceCount} faces); flat V = ${(mFlat.volume / 1000).toFixed(2)} cm³ (${mFlat.faceCount} faces) — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Sheet Metal L-Bracket: ' + err.message }; }
+    },
+
     // ─── SP-85 — Biconvex Lens (OCCT sphere ∩ sphere) ────────────────
     'Sculpt Biconvex Lens': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Biconvex Lens');

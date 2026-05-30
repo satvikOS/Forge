@@ -124,6 +124,27 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-87 — Sheet Metal Flat Pattern (NX / CATIA / Creo / SW workbench
+  // flagship). Build a baseFlange + edgeFlange (L-shape sheet metal),
+  // then unfold via flatPattern; lay the folded and unfolded versions
+  // in the scene side-by-side.
+  'Sculpt Sheet Metal L-Bracket': {
+    title: 'Sculpt — Sheet Metal L-Bracket + Flat Pattern',
+    blurb: 'OCCT-backed sheet-metal L-bracket: baseFlange + edgeFlange + flatPattern. Folded and unfolded versions land side-by-side.',
+    fields: [
+      { name: 'plateW',        label: 'Base flange width (X)', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'plateH',        label: 'Base flange depth (Y)', type: 'number', default: 50, unit: 'mm', min: 10, step: 5 },
+      { name: 'thickness',     label: 'Sheet thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.3, step: 0.1 },
+      { name: 'flangeLen',     label: 'Edge flange length', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'bendAngleDeg',  label: 'Bend angle', type: 'number', default: 90, unit: '°', min: 10, max: 175, step: 5 },
+      { name: 'separation',    label: 'Folded↔unfolded spacing', type: 'number', default: 120, unit: 'mm', min: 0, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorFolded',   label: 'Folded colour',   type: 'number', default: 0x8aa56b, step: 1 },
+      { name: 'colorFlat',     label: 'Flat colour',     type: 'number', default: 0xa56b8a, step: 1 },
+    ],
+  },
   // SP-85 — Biconvex Lens (sphere ∩ sphere). Universal optical primitive.
   'Sculpt Biconvex Lens': {
     title: 'Sculpt — Biconvex Lens (sphere ∩ sphere)',
