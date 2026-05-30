@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-41 — Pressure Vessel (AutoCAD Plant3D / AVEVA E3D / CADWorx /
+  // NX / CATIA / Creo plant-design). ASME Sec VIII Div 1-style 2:1
+  // ellipsoidal head + cylindrical shell + 2:1 ellipsoidal head,
+  // revolved 360° about the vertical axis. The canonical chemical
+  // process / oil & gas vessel primitive.
+  'Sculpt Pressure Vessel': {
+    title: 'Sculpt — Pressure Vessel (ASME 2:1 ellipsoidal)',
+    blurb: 'Vertical pressure vessel: cylindrical shell + two 2:1 ellipsoidal heads (ASME Sec VIII Div 1). Plant-design class.',
+    fields: [
+      { name: 'D',        label: 'Diameter',        type: 'number', default: 300, unit: 'mm', min: 20, step: 10 },
+      { name: 'L',        label: 'Shell length',    type: 'number', default: 800, unit: 'mm', min: 0,  step: 10 },
+      { name: 'headSegments', label: 'Head segments', type: 'number', default: 32, min: 6, max: 96, step: 1 },
+      { name: 'circularSegments', label: 'Circular segments', type: 'number', default: 64, min: 12, max: 256, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',    label: 'Colour (hex)',    type: 'number', default: 0x8aa5b0, step: 1 },
+    ],
+  },
   // SP-40 — Topology Optimisation (Creo GTO / NX Generative Engineering /
   // nTopology / Autodesk Generative Design). The flagship generative-
   // design op: a SIMP solver carves an organic load-path truss out of a

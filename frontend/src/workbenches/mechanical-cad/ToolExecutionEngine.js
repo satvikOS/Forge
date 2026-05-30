@@ -89,6 +89,7 @@ import { buildLatticeSpec, estimateVolumeFraction } from '../../foundation/Latti
 import { hexagonPolygon, honeycombCenters, panelRectangle, predictWallArea } from '../../foundation/HoneycombPanel.js';
 import { poissonDiskSeeds, voronoiCellPolygon, insetConvexPolygon, polygonSignedArea } from '../../foundation/VoronoiPanel.js';
 import { runCantileverSIMP, makeCubeDensitySDF } from '../../foundation/TopoCantilever.js';
+import { ellipsoidalVesselProfile, predictVesselVolume, vesselHeight } from '../../foundation/VesselGeometry.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1738,6 +1739,56 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-41 — Pressure Vessel (AutoCAD Plant3D / NX / CATIA plant-design) ─
+    // Revolve the meridional half-section of a 2:1-ellipsoidal vessel
+    // around the vertical axis. Manifold.revolve rotates around the
+    // Y-axis and remaps Y → Z, so we build the profile in (x = radial,
+    // y = height) and the solid stands vertically along world Z after
+    // revolve. Analytic volume matches the closed-form formula.
+    'Sculpt Pressure Vessel': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Pressure Vessel');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Pressure Vessel cancelled' };
+      try {
+        const D = values.D ?? 300, L = values.L ?? 800;
+        const headSegments = Math.max(6, Math.floor(values.headSegments ?? 32));
+        const circularSegments = Math.max(12, Math.floor(values.circularSegments ?? 64));
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        const profile = ellipsoidalVesselProfile({ D, L, headSegments });
+        const Mod = await getManifold();
+        let solid = Mod.Manifold.revolve([profile], circularSegments, 360);
+        // Centre the vessel on the requested position. After revolve,
+        // the vessel axis is Z and y=0..D/2+L maps to z=0..D/2+L. We
+        // shift so the vessel's mid-height ends up at the user's z.
+        const h = vesselHeight(D, L);
+        solid = solid.translate([px, py, pz - h / 2]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : null;
+        const predictedV = predictVesselVolume(D, L);
+        const color = Number.isFinite(values.color) ? values.color : 0x8aa5b0;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastVesselReport = {
+            D, L, height: h,
+            headSegments, circularSegments,
+            volume, predictedVolume: predictedV,
+            relError: Math.abs(volume - predictedV) / predictedV,
+            triCount,
+            profilePoints: profile.length,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt Pressure Vessel: Ø${D} × ${L} mm shell + 2×D/4 heads (height ${h} mm, ${circularSegments} segs) | V ${(volume / 1000).toFixed(0)} cm³ (predicted ${(predictedV / 1000).toFixed(0)} cm³, rel err ${(Math.abs(volume - predictedV) / predictedV * 100).toFixed(2)}%)${tcStr}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Pressure Vessel: ' + err.message };
       }
     },
 
