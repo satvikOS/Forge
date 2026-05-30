@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-148 — Weld Bead (SW Weldments Weld Bead / CATIA Assembly Weld
+  // / NX Weld Bead). Build a fillet weld bead between 2 perpendicular
+  // structural members that share an endpoint joint.
+  'Sculpt Weld Bead': {
+    title: 'Sculpt — Weld Bead (fillet weld at perpendicular corner)',
+    blurb: 'OCCT-backed weld bead: 2 perpendicular structural members + 6mm fillet weld at the shared endpoint joint.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'beadSize',     label: 'Bead size',     type: 'number', default: 6,   unit: 'mm', min: 1, step: 1 },
+      { name: 'beadType',     label: 'Bead type',     type: 'string', default: 'fillet', choices: ['fillet', 'square', 'V', 'bevel'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorMember', label: 'Member colour', type: 'number', default: 0x90a8c0, step: 1 },
+      { name: 'colorBead',   label: 'Bead colour',   type: 'number', default: 0xe6a040, step: 1 },
+    ],
+  },
   // SP-147 — Trimmed NURBS Face (CATIA GSD Trim / NX Surface Trim /
   // SW Trim Surface). Build a NURBS surface with a rectangular trim
   // window — only the (u,v) interior of the window is rendered.

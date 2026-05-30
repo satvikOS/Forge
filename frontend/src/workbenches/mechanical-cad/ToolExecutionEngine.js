@@ -1747,6 +1747,63 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-148 — Weld Bead (OCCT Weldments fillet weld at joint) ────
+    // SW Weldments Weld Bead / CATIA Assembly Weld / NX Weld Bead.
+    // Build 2 perpendicular weldment-tagged structural members
+    // sharing an endpoint joint, then fillet weld between them.
+    'Sculpt Weld Bead': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Weld Bead');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Weld Bead cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastWeldBeadReport = { error: 'in progress' };
+      }
+      try {
+        const lenMm = values.memberLength ?? 500;
+        const lenM = lenMm / 1000;
+        const beadSize = values.beadSize ?? 6;
+        const beadType = (values.beadType || 'fillet').toLowerCase();
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (lenMm <= 0 || beadSize <= 0) throw new Error('lengths > 0');
+        const t0 = Date.now();
+        // Member A — along +X.
+        const memberA = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [lenM, 0, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        // Member B — along +Y, sharing origin joint with A.
+        const memberB = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [0, lenM, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        const colorMember = Number.isFinite(values.colorMember) ? values.colorMember : 0x90a8c0;
+        const colorBead = Number.isFinite(values.colorBead) ? values.colorBead : 0xe6a040;
+        await addBrepShapeToScene(scene, viewport, memberA, colorMember);
+        await addBrepShapeToScene(scene, viewport, memberB, colorMember);
+        const result = await ArchDiscKernel.brep.weldBead(memberA, memberB, {
+          type: beadType, size: beadSize,
+        });
+        if (result.bead) {
+          await addBrepShapeToScene(scene, viewport, result.bead, colorBead);
+        }
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastWeldBeadReport = {
+            memberLengthMm: lenMm, beadSize, beadType,
+            weldId: result.weldId || null,
+            joint: result.joint || null,
+            beadLength: result.beadLength || null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Weld Bead: ${lenMm}mm members + ${beadType} weld bead size=${beadSize}mm | weldId=${result.weldId}, joint=[${result.joint?.join(',')}], bead L=${result.beadLength} mm — OCCT Weldments | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastWeldBeadReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Weld Bead: ' + err.message };
+      }
+    },
+
     // ─── SP-147 — Trimmed NURBS Face (OCCT MakeFace with trim wire) ──
     // CATIA GSD Trim / NX Surface Trim / SW Trim Surface class. Build
     // a NURBS surface with a rectangular trim window in (u,v) — only
