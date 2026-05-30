@@ -88,6 +88,7 @@ import { planCope } from '../../foundation/CopeCut.js';
 import { buildLatticeSpec, estimateVolumeFraction } from '../../foundation/LatticeTPMS.js';
 import { hexagonPolygon, honeycombCenters, panelRectangle, predictWallArea } from '../../foundation/HoneycombPanel.js';
 import { poissonDiskSeeds, voronoiCellPolygon, insetConvexPolygon, polygonSignedArea } from '../../foundation/VoronoiPanel.js';
+import { runCantileverSIMP, makeCubeDensitySDF } from '../../foundation/TopoCantilever.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1737,6 +1738,81 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-40 — Topology Optimisation (Creo GTO / nTopology / Autodesk) ─
+    // Run a SIMP cantilever optimisation on a rectangular design domain,
+    // then build the watertight solid via Manifold.levelSet using the
+    // per-cube density field as the SDF. The result is the organic
+    // load-path truss that's the flagship generative-design output of
+    // Creo GTO, NX Generative Engineering, and Autodesk Generative
+    // Design. Pure foundation: optimizeSIMP was already in the kernel.
+    'Sculpt Topology Optimize': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Topology Optimize');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Topology Optimize cancelled' };
+      try {
+        const W = values.W ?? 60, H = values.H ?? 40, T = values.T ?? 30;
+        const gridN = Math.max(4, Math.floor(values.gridN ?? 10));
+        const volumeFraction = values.volumeFraction ?? 0.35;
+        const loadN = values.loadN ?? 1000;
+        const maxIter = Math.max(3, Math.floor(values.maxIter ?? 18));
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        // Y and Z cell counts scale with W:H and W:T ratios so cells stay roughly cubic.
+        const nx = gridN;
+        const ny = Math.max(2, Math.round(gridN * H / W));
+        const nz = Math.max(2, Math.round(gridN * T / W));
+
+        const opt = runCantileverSIMP({
+          W, H, T, nx, ny, nz, volumeFraction, loadN, maxIter,
+        });
+        const sdf = makeCubeDensitySDF(opt, 0.5);
+        const bounds = { min: [0, 0, 0], max: [W, H, T] };
+        const edgeLength = Math.min(opt.dx, opt.dy, opt.dz) * 0.6;
+
+        const Mod = await getManifold();
+        let solid = Mod.Manifold.levelSet(sdf, bounds, edgeLength, 0);
+        // Centre the truss on the requested position (move the design-box
+        // centroid from (W/2, H/2, T/2) to (px, py, pz)).
+        solid = solid.translate([px - W / 2, py - H / 2, pz - T / 2]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : null;
+        const designVolume = W * H * T;
+        // Fraction of cubes whose density crossed the threshold — direct
+        // sanity check vs target volumeFraction (boundary tessellation
+        // adds a small partial-cube contribution on top).
+        let cubesInside = 0;
+        for (const d of opt.densitiesCube) if (d >= 0.5) cubesInside++;
+        const cubeFraction = cubesInside / opt.densitiesCube.length;
+
+        const color = Number.isFinite(values.color) ? values.color : 0xd47a4f;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastTopoReport = {
+            W, H, T, gridN, nx, ny, nz, volumeFraction,
+            loadN, maxIter,
+            tetCount: opt.mesh.tets.length,
+            fixedNodeCount: opt.fixedNodes.length,
+            loadNodeCount: opt.loadNodes.length,
+            iterations: opt.iterations,
+            compliance: opt.compliance,
+            designVolume,
+            optimizedVolume: volume,
+            optimizedFractionActual: volume / designVolume,
+            cubeFraction,
+            triCount,
+            simpMs: opt.elapsedMs,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt Topology Optimize: ${W}×${H}×${T} mm design @ ${nx}×${ny}×${nz} (${opt.mesh.tets.length} tets), vol ${volumeFraction.toFixed(2)} target | ${opt.iterations} iters, compliance ${opt.compliance.toFixed(2)} | V optimized ${(volume / 1000).toFixed(1)} cm³ (${(volume / designVolume * 100).toFixed(1)}% domain, ${cubesInside}/${opt.densitiesCube.length} cubes solid)${tcStr} | SIMP ${opt.elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Topology Optimize: ' + err.message };
       }
     },
 

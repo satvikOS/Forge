@@ -124,6 +124,29 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-40 — Topology Optimisation (Creo GTO / NX Generative Engineering /
+  // nTopology / Autodesk Generative Design). The flagship generative-
+  // design op: a SIMP solver carves an organic load-path truss out of a
+  // rectangular design domain under a cantilever load with a target
+  // volume fraction. The kernel already shipped optimizeSIMP — this
+  // wires it as a one-shot Sculpt tool.
+  'Sculpt Topology Optimize': {
+    title: 'Sculpt — Topology Optimise (SIMP cantilever)',
+    blurb: 'SIMP topology optimisation of a cantilever box (fix −X face, downward load on +X face). Generative-design organic truss output.',
+    fields: [
+      { name: 'W',  label: 'Design domain X', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'H',  label: 'Design domain Y', type: 'number', default: 40, unit: 'mm', min: 10, step: 5 },
+      { name: 'T',  label: 'Design domain Z', type: 'number', default: 30, unit: 'mm', min: 5,  step: 5 },
+      { name: 'gridN',           label: 'Grid cells (X dir)', type: 'number', default: 10, min: 4, max: 24, step: 1, hint: 'Y and Z scaled in proportion' },
+      { name: 'volumeFraction',  label: 'Target vol fraction',type: 'number', default: 0.35, min: 0.1, max: 0.8, step: 0.05 },
+      { name: 'loadN',           label: 'Cantilever load',    type: 'number', default: 1000, unit: 'N',  min: 1, step: 100 },
+      { name: 'maxIter',         label: 'Max SIMP iters',     type: 'number', default: 18, min: 3, max: 60, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd47a4f, step: 1 },
+    ],
+  },
   // SP-39 — Voronoi Panel (nTopology / Autodesk Generative Design).
   // Irregular cellular-pattern panel via 2D Voronoi tessellation.
   // The "natural-looking" counterpart to SP-38 honeycomb: cells vary
