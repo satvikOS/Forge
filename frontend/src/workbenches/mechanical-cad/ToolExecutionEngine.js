@@ -83,6 +83,7 @@ import {
   loft as fLoft,
   circleProfile as fCircleProfile,
 } from '../../foundation/SweepLoft.js';
+import { buildRouteCenterline, polylinePathLength, summarizeBends } from '../../foundation/Routing.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1732,6 +1733,51 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-35 — Routing (NX/Creo Routing-class first slice) ────────────
+    // Pull a 4-waypoint harness/pipe run through ENFORCED minimum-radius
+    // bends — every interior corner is replaced with a tangent circular
+    // arc (the real bend-tool contract). The achieved bend radius is
+    // honest: if a corner has no leg headroom, the radius is clamped and
+    // surfaced in the result message. Discretised arc feeds the existing
+    // foundation sweep so this rides on already-validated tube geometry.
+    'Sculpt Route': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Route');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Route cancelled' };
+      try {
+        const diameter = values.diameter ?? 30;
+        const bendR    = values.bendR    ?? 80;
+        const arcSamples = Math.max(4, Math.floor(values.arcSamples ?? 16));
+        const path = [
+          [values.x1 ?? 0,    values.y1 ?? 0, values.z1 ?? 0],
+          [values.x2 ?? 500,  values.y2 ?? 0, values.z2 ?? 0],
+          [values.x3 ?? 500,  values.y3 ?? 0, values.z3 ?? 500],
+          [values.x4 ?? 1000, values.y4 ?? 0, values.z4 ?? 500],
+        ];
+        const { centerline, bends, length } = buildRouteCenterline(path, bendR, arcSamples);
+        const straightLen = polylinePathLength(path);
+        const prof = fCircleProfile(diameter / 2, 24);
+        // sweep samples ≥ centerline knots, so we don't undersample the arcs.
+        const m = await fSweep({ profile2D: prof, path: centerline, samples: Math.max(centerline.length, 64) });
+        const color = Number.isFinite(values.color) ? values.color : 0xc6a86b;
+        addFoundationManifoldToScene(scene, viewport, m, color);
+        // Surface the routing report for downstream consumers (Archie, dialogs).
+        if (typeof window !== 'undefined') {
+          window.__lastRouteReport = {
+            diameter, bendR, requestedWaypoints: path.length,
+            centerlineLength: length, straightLength: straightLen,
+            saved: straightLen - length, bends,
+          };
+        }
+        const summary = summarizeBends(bends);
+        return {
+          status: 'success',
+          message: `Sculpt Route: Ø${diameter} mm tube, ${path.length} waypoints → ${summary} | centerline ${length.toFixed(1)} mm (straight ${straightLen.toFixed(1)} mm, saved ${(straightLen - length).toFixed(1)} mm) | V≈${m.volume().toFixed(0)} mm³`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Route: ' + err.message };
       }
     },
 

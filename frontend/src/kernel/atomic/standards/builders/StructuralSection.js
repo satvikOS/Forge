@@ -21,8 +21,9 @@ import {
   startSketch, sketchRectangle, sketchPolyline, finishSketch, extrude, cut,
 } from '../../AtomicOps.js';
 import {
-  AISC_W_SHAPES, AISC_L_SHAPES, AISC_HSS_RECT, INCH_TO_MM,
+  AISC_W_SHAPES, AISC_L_SHAPES, AISC_HSS_RECT,
 } from '../data/aisc.js';
+import { INCH_TO_MM } from '../data/asme.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // AISC W-shape — Wide-Flange I-beam

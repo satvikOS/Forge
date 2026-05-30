@@ -152,5 +152,7 @@ export const AISC_W_SIZES = Object.keys(AISC_W_SHAPES);
 export const AISC_L_SIZES = Object.keys(AISC_L_SHAPES);
 export const AISC_HSS_SIZES = Object.keys(AISC_HSS_RECT);
 
-// Inch-to-mm conversion (matches asme.js INCH_TO_MM).
-export const INCH_TO_MM = 25.4;
+// Inch-to-mm conversion lives once in asme.js; AISC consumers import it
+// directly from there. (Re-defining it here used to collide with asme.js
+// in data/index.js's star-export — native ESM rejects duplicate named
+// exports across `export *` re-exports.)

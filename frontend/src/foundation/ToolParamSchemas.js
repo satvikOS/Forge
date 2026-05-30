@@ -124,6 +124,33 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-35 — Routing first slice (NX/Creo Routing-class). A 4-waypoint
+  // harness/pipe run with an ENFORCED minimum bend radius: interior
+  // corners are replaced with tangent circular arcs (real bend-tool
+  // contract). Honest radius-clamp when a corner has no leg headroom —
+  // the result message reports which bends were honoured / clamped.
+  'Sculpt Route': {
+    title: 'Sculpt — Route (smoothed harness with enforced bends)',
+    blurb: 'Pull a 4-waypoint harness/pipe run through enforced minimum-radius bends — interior corners are replaced with tangent arcs (NX/Creo Routing-class).',
+    fields: [
+      { name: 'diameter', label: 'Tube diameter',   type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'bendR',    label: 'Min bend radius', type: 'number', default: 80, unit: 'mm', min: 0,   step: 1, hint: '0 = sharp corners' },
+      { name: 'x1', label: 'W1 X', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'y1', label: 'W1 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z1', label: 'W1 Z', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'x2', label: 'W2 X', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'y2', label: 'W2 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z2', label: 'W2 Z', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'x3', label: 'W3 X', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'y3', label: 'W3 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z3', label: 'W3 Z', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'x4', label: 'W4 X', type: 'number', default: 1000, unit: 'mm', step: 1 },
+      { name: 'y4', label: 'W4 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z4', label: 'W4 Z', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'arcSamples', label: 'Samples per arc', type: 'number', default: 16, min: 4, max: 64, step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6a86b, step: 1 },
+    ],
+  },
   'Sculpt Perforated Panel': {
     title: 'Sculpt — Perforated Panel (mesh / grille)',
     blurb: 'Sketch a panel + cut a grid of holes through it. For radiator grilles, perforated heat shields, vented covers.',
