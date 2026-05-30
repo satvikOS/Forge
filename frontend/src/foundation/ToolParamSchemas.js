@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-121 — Intersect Surfaces (CATIA GSD Intersect / NX Curve / SW
+  // Curve Through Reference Points). Surface-Surface Intersection (SSI)
+  // foundational geometric op. Sphere + box → SSI gives the trim
+  // circle/loop where the two surfaces meet.
+  'Sculpt Intersect Surfaces': {
+    title: 'Sculpt — Intersect Surfaces (NURBS SSI)',
+    blurb: 'OCCT-backed SSI: 2 spheres → intersection circle. Both bodies have a single spherical face so SSI picks unambiguously.',
+    fields: [
+      { name: 'sphereR',  label: 'Sphere radius',  type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'centerD',  label: 'Centre distance', type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'samples',  label: 'Sample pts',     type: 'number', default: 64, unit: '',   min: 8, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA',    label: 'Sphere A colour', type: 'number', default: 0xa8c1e6, step: 1 },
+      { name: 'colorB',    label: 'Sphere B colour', type: 'number', default: 0xc1e6a8, step: 1 },
+      { name: 'colorCurve', label: 'Curve colour',   type: 'number', default: 0xff8030, step: 1 },
+    ],
+  },
   // SP-120 — G2 Blend Between Edges (CATIA GSD Bridge / NX Studio Free
   // Form G2-Blend / SW Boundary Surface). Fit a true G2 (curvature-
   // continuous) NURBS surface between two body edges with degree-5-in-v

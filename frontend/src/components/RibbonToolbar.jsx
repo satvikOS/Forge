@@ -347,6 +347,7 @@ export const TABS = {
         { name: 'Sculpt Push-Pull Face', icon: '↕', key: 'part' },
         { name: 'Sculpt Delete Face And Heal', icon: '✂', key: 'part' },
         { name: 'Sculpt G2 Blend', icon: '∾', key: 'part' },
+        { name: 'Sculpt Intersect Surfaces', icon: '✕', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

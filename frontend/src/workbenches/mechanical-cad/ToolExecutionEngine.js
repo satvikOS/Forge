@@ -1747,6 +1747,84 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-121 — Intersect Surfaces (OCCT NURBS SSI) ────────────────
+    // CATIA GSD Intersect / NX Curve / SW Curve. Surface-Surface
+    // Intersection (SSI) via OCCT GeomAPI_IntSS_1. Sphere + plane
+    // (first face of a box) → intersection circle at the chord
+    // height. Returns sampled polylines per intersection curve.
+    'Sculpt Intersect Surfaces': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Intersect Surfaces');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Intersect Surfaces cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastSSIReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const d = values.centerD ?? 15;
+        const samples = values.samples ?? 64;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0) throw new Error('sphereR > 0');
+        if (d >= 2 * sR) throw new Error('centerD < 2·sphereR (else no intersection)');
+        const t0 = Date.now();
+        const sphereA = await ArchDiscKernel.brep.makeSphere(sR);
+        const sphereB = await ArchDiscKernel.brep.makeSphere(sR);
+        // Offset sphere B along +Z by d so the two intersect at midplane z = d/2.
+        const sphereBP = await ArchDiscKernel.brep.translate(sphereB, 0, 0, d);
+        const ssi = await ArchDiscKernel.brep.intersectSurfaces(sphereA, sphereBP, { samples });
+        const elapsedMs = Date.now() - t0;
+        const colorA = Number.isFinite(values.colorA) ? values.colorA : 0xa8c1e6;
+        const colorB = Number.isFinite(values.colorB) ? values.colorB : 0xc1e6a8;
+        const colorCurve = Number.isFinite(values.colorCurve) ? values.colorCurve : 0xff8030;
+        const placedA = await ArchDiscKernel.brep.translate(sphereA, px, py, pz);
+        const placedB = await ArchDiscKernel.brep.translate(sphereBP, px, py, pz);
+        await addBrepShapeToScene(scene, viewport, placedA, colorA);
+        await addBrepShapeToScene(scene, viewport, placedB, colorB);
+        // Render each SSI curve as a Three.js Line.
+        for (const curve of ssi.curves) {
+          const positions = new Float32Array(curve.points);
+          // Offset by px/py/pz.
+          for (let i = 0; i < positions.length; i += 3) {
+            positions[i] += px;
+            positions[i + 1] += py;
+            positions[i + 2] += pz;
+          }
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+          const mat = new THREE.LineBasicMaterial({ color: colorCurve, linewidth: 3 });
+          const line = new THREE.LineLoop(geom, mat);
+          const group = new THREE.Group();
+          group.scale.set(0.001, 0.001, 0.001);
+          group.add(line);
+          group.userData.pickable = false;
+          group.userData.generatedModel = true;
+          scene.add(group);
+          group.updateMatrixWorld(true);
+        }
+        // Analytic intersection radius for 2 equal-R spheres distance d apart:
+        // r_int = √(R² − (d/2)²); plane at midpoint of centres.
+        const rChord = Math.sqrt(sR * sR - (d / 2) * (d / 2));
+        const expectedCircleLen = 2 * Math.PI * rChord;
+        if (typeof window !== 'undefined') {
+          window.__lastSSIReport = {
+            sphereR: sR, centerD: d, samples,
+            nbLines: ssi.stats.nbLines,
+            totalPoints: ssi.stats.totalPoints,
+            totalLength: ssi.stats.totalLength,
+            expectedRChord: rChord,
+            expectedCircleLen,
+            lengthRelError: Math.abs(ssi.stats.totalLength - expectedCircleLen) / expectedCircleLen,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Intersect Surfaces: sphere R=${sR} ∩ sphere R=${sR} d=${d} | ${ssi.stats.nbLines} curve(s), ${ssi.stats.totalPoints} pts, L=${ssi.stats.totalLength.toFixed(2)} mm (analytic circle 2π·√(R²−(d/2)²) = ${expectedCircleLen.toFixed(2)} mm, rel err ${(Math.abs(ssi.stats.totalLength - expectedCircleLen) / expectedCircleLen * 100).toFixed(3)} %) — OCCT GeomAPI_IntSS | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastSSIReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Intersect Surfaces: ' + err.message };
+      }
+    },
+
     // ─── SP-120 — G2 Blend Between Edges (OCCT NURBS surface fit) ────
     // CATIA GSD Bridge / NX Studio Free Form G2-Blend / SW Boundary
     // Surface class. Fit a true G2 (curvature-continuous) NURBS
