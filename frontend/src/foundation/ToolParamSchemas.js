@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+    // SP-117 — Clash Detection (SW Interference Detection / NX Check
+  // Tools / CATIA Clash Analysis). Two overlapping boxes, compute the
+  // interference volume + zone + min distance + zone count.
+  'Sculpt Clash Detection': {
+    title: 'Sculpt — Clash Detection (interference + zone)',
+    blurb: 'OCCT-backed clash check: two 40³ boxes shifted by (20,20,0) → interference 20×20×40 = 16,000 mm³. Render the clash zone separately.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',    type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'shiftX',   label: 'Shift X',     type: 'number', default: 20, unit: 'mm', min: 0, step: 1 },
+      { name: 'shiftY',   label: 'Shift Y',     type: 'number', default: 20, unit: 'mm', min: 0, step: 1 },
+      { name: 'shiftZ',   label: 'Shift Z',     type: 'number', default: 0,  unit: 'mm', min: 0, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA',    label: 'Box A colour',  type: 'number', default: 0x80a8d0, step: 1 },
+      { name: 'colorB',    label: 'Box B colour',  type: 'number', default: 0xd0a890, step: 1 },
+      { name: 'colorZone', label: 'Clash colour',  type: 'number', default: 0xff5060, step: 1 },
+    ],
+  },
   // SP-116 — Loop Subdivision (Maya/ZBrush/Modo/NX Realize Shape class).
   // Piecewise-smooth Loop subdivision (Hoppe et al. 1994) on a B-rep:
   // tessellate, weld, dihedral-detect creases, refine N levels with

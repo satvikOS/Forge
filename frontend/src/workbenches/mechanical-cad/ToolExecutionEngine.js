@@ -1747,6 +1747,67 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-117 — Clash Detection (OCCT interference + zone) ────────
+    // SW Interference Detection / NX Check Tools / CATIA Clash Analysis
+    // class. Two solids → interferenceVolume (mm³), minDistance (0 for
+    // overlap), zoneCount (disjoint overlap volumes), and the clash
+    // zone itself as a renderable B-rep. Critical DFM/QA op.
+    'Sculpt Clash Detection': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Clash Detection');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Clash Detection cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastClashReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const sx = values.shiftX ?? 20, sy = values.shiftY ?? 20, sz = values.shiftZ ?? 0;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0) throw new Error('boxSize > 0');
+        const t0 = Date.now();
+        const boxA = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const boxB = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const boxBShifted = await ArchDiscKernel.brep.translate(boxB, sx, sy, sz);
+        const clash = await ArchDiscKernel.brep.checkClash(boxA, boxBShifted, { withZone: true });
+        const colorA = Number.isFinite(values.colorA) ? values.colorA : 0x80a8d0;
+        const colorB = Number.isFinite(values.colorB) ? values.colorB : 0xd0a890;
+        const colorZone = Number.isFinite(values.colorZone) ? values.colorZone : 0xff5060;
+        const placedA = await ArchDiscKernel.brep.translate(boxA, px - s / 2, py - s / 2, pz - s / 2);
+        const placedB = await ArchDiscKernel.brep.translate(boxBShifted, px - s / 2, py - s / 2, pz - s / 2);
+        await addBrepShapeToScene(scene, viewport, placedA, colorA);
+        await addBrepShapeToScene(scene, viewport, placedB, colorB);
+        if (clash.interferenceZone) {
+          const placedZone = await ArchDiscKernel.brep.translate(clash.interferenceZone, px - s / 2, py - s / 2, pz - s / 2);
+          await addBrepShapeToScene(scene, viewport, placedZone, colorZone);
+        }
+        const elapsedMs = Date.now() - t0;
+        // Analytic interference: overlap region = (s-sx) × (s-sy) × (s-sz)
+        // when 0 ≤ sx,sy,sz < s; else 0.
+        const ox = Math.max(0, s - sx);
+        const oy = Math.max(0, s - sy);
+        const oz = Math.max(0, s - sz);
+        const predictedV = ox * oy * oz;
+        if (typeof window !== 'undefined') {
+          window.__lastClashReport = {
+            boxSize: s, shiftX: sx, shiftY: sy, shiftZ: sz,
+            clash: clash.clash,
+            interferenceVolume: clash.interferenceVolume,
+            predictedInterference: predictedV,
+            relError: predictedV > 0 ? Math.abs(clash.interferenceVolume - predictedV) / predictedV : 0,
+            minDistance: clash.minDistance,
+            zoneCount: clash.zoneCount,
+            zonePresent: !!clash.interferenceZone,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Clash Detection: ${s}³ + shift (${sx},${sy},${sz}) | clash=${clash.clash}, interference V=${(clash.interferenceVolume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)}, rel err ${(predictedV > 0 ? Math.abs(clash.interferenceVolume - predictedV) / predictedV * 100 : 0).toFixed(3)} %), minDist=${clash.minDistance.toFixed(3)} mm, zones=${clash.zoneCount} — OCCT clash | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastClashReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Clash Detection: ' + err.message };
+      }
+    },
+
     // ─── SP-116 — Loop Subdivision (OCCT piecewise-smooth SubD) ──────
     // Maya / ZBrush / Modo / NX Realize Shape class. Piecewise-smooth
     // Loop subdivision (Hoppe et al. 1994): tessellate, weld duplicate
