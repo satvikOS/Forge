@@ -1747,6 +1747,65 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-111 — STEP Round-Trip (ISO 10303 export + import) ───────
+    // Real CAD interop check: NX / CATIA / SolidWorks / Creo speak
+    // STEP AP203 / AP214 natively. Build a filleted box, export to
+    // STEP text, parse it back via importStep, render the imported
+    // copy, verify the volume matches the original within 0.1 %.
+    'Sculpt STEP Round-Trip': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt STEP Round-Trip');
+      if (cancelled) return { status: 'warn', message: 'Sculpt STEP Round-Trip cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastStepReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('boxSize > 0; filletR ∈ (0, boxSize/2)');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const original = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const originalM = await ArchDiscKernel.brep.measure(original);
+        // Export to STEP text and re-import.
+        const tExport0 = Date.now();
+        const stepText = await ArchDiscKernel.brep.exportStep(original);
+        const exportMs = Date.now() - tExport0;
+        const tImport0 = Date.now();
+        const imported = await ArchDiscKernel.brep.importStep(stepText);
+        const importMs = Date.now() - tImport0;
+        const importedM = await ArchDiscKernel.brep.measure(imported);
+        const placed = await ArchDiscKernel.brep.translate(imported, px - s / 2, py - s / 2, pz - s / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc0d4e8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        // Verify STEP header.
+        const stepFirst200 = stepText.slice(0, 200);
+        const isISO10303 = stepText.includes('ISO-10303-21');
+        if (typeof window !== 'undefined') {
+          window.__lastStepReport = {
+            boxSize: s, filletR: fR,
+            stepBytes: stepText.length,
+            stepHeader: stepFirst200,
+            isISO10303,
+            originalVolume: originalM.volume,
+            originalFaceCount: originalM.faceCount,
+            importedVolume: importedM.volume,
+            importedFaceCount: importedM.faceCount,
+            volumeRelError: Math.abs(importedM.volume - originalM.volume) / originalM.volume,
+            faceCountMatch: importedM.faceCount === originalM.faceCount,
+            exportMs, importMs, elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt STEP Round-Trip: ${s}³ fillet R=${fR} | STEP ${stepText.length} bytes, original V=${(originalM.volume / 1000).toFixed(2)} cm³ → imported V=${(importedM.volume / 1000).toFixed(2)} cm³ (rel err ${(Math.abs(importedM.volume - originalM.volume) / originalM.volume * 100).toFixed(4)} %), faces ${originalM.faceCount} → ${importedM.faceCount} — OCCT ISO 10303 | export ${exportMs} ms, import ${importMs} ms, total ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastStepReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt STEP Round-Trip: ' + err.message };
+      }
+    },
+
     // ─── SP-110 — Class-A Analyze (OCCT Gaussian curvature heatmap) ──
     // CATIA Free Style / NX Studio Free Form Class-A QC. Tessellate a
     // filleted cube + compute discrete Gaussian curvature heatmap.

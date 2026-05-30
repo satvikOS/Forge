@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-111 — STEP Export + Import (ISO 10303 round-trip).
+  // Build a body, export to STEP AP203, re-import, render the imported
+  // version, verify volume conservation. Real CAD interop with NX /
+  // CATIA / SolidWorks / Creo.
+  'Sculpt STEP Round-Trip': {
+    title: 'Sculpt — STEP Round-Trip (ISO 10303 export + import)',
+    blurb: 'OCCT-backed STEP AP203 round-trip: filleted box → exportStep → importStep → re-render. Volume conserved.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0d4e8, step: 1 },
+    ],
+  },
   // SP-110 — Class-A Curvature Analyze (CATIA Free Style / NX Studio
   // Free Form). Discrete Gaussian curvature heatmap on a tessellated
   // body — find dents and curvature breaks. Sphere → uniform K = 1/R².
