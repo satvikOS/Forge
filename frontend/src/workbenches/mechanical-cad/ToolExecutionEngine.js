@@ -84,6 +84,7 @@ import {
   circleProfile as fCircleProfile,
 } from '../../foundation/SweepLoft.js';
 import { buildRouteCenterline, polylinePathLength, summarizeBends } from '../../foundation/Routing.js';
+import { planCope } from '../../foundation/CopeCut.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1733,6 +1734,91 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-36 — Cope cut (NX/Creo/SolidWorks weldment flagship op) ──────
+    // Two cylindrical tubes meet — the primary gets a saddle/fishmouth cut
+    // where the secondary intersects it so the joint nests for welding.
+    // The planCope geometry predicts cope depth + contact arc analytically
+    // (axesDistance, sin θ); the actual material removal is a manifold
+    // boolean diff between the primary and an enlarged copy of the
+    // secondary (clearance enlarges the cutter so the weld root has room).
+    // BrepWeldments.js:67-70 flagged this as queued Tier-6b — this is it.
+    'Sculpt Cope': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Cope');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Cope cancelled' };
+      try {
+        const priR    = values.priR    ?? 40;
+        const secR    = values.secR    ?? 30;
+        const priLen  = values.priLen  ?? 600;
+        const secLen  = values.secLen  ?? 400;
+        const angleDeg = values.angleDeg ?? 90;
+        const offsetY = values.offset  ?? 0;
+        const clearance = Math.max(0, values.clearance ?? 1.0);
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        const angleRad = angleDeg * Math.PI / 180;
+        // Primary axis: along +X through (px, py, pz). Path is two-point.
+        const priPath = [[px - priLen / 2, py, pz], [px + priLen / 2, py, pz]];
+        // Secondary axis: tilted by angleDeg in the XZ plane, offset perp.
+        // in Y by offsetY, passing through (px, py + offsetY, pz).
+        const dirS = [Math.cos(angleRad), 0, Math.sin(angleRad)];
+        const secMid = [px, py + offsetY, pz];
+        const secStart = [secMid[0] - dirS[0] * secLen / 2, secMid[1], secMid[2] - dirS[2] * secLen / 2];
+        const secEnd   = [secMid[0] + dirS[0] * secLen / 2, secMid[1], secMid[2] + dirS[2] * secLen / 2];
+        const secPath = [secStart, secEnd];
+        // Build the three sweeps. The primary + secondary are the bodies
+        // the user sees; the enlarged secondary is the cope cutter.
+        const priProf = fCircleProfile(priR, 40);
+        const secProf = fCircleProfile(secR, 32);
+        const cutProf = fCircleProfile(secR + clearance, 32);
+        const priManifold = await fSweep({ profile2D: priProf, path: priPath, samples: 8 });
+        const secManifold = await fSweep({ profile2D: secProf, path: secPath, samples: 8 });
+        const cutBlank    = await fSweep({ profile2D: cutProf, path: secPath, samples: 8 });
+
+        // Plan the cope BEFORE the boolean so we report honest geometry
+        // even when the boolean is robust enough to mask a degenerate case.
+        const plan = planCope({
+          p1: [px, py, pz], d1: [1, 0, 0], R1: priR,
+          p2: secMid,        d2: dirS,    R2: secR,
+        });
+
+        const volBefore = priManifold.volume();
+        let copedPri = priManifold;
+        if (plan.willCut) {
+          const Mod = await getManifold();
+          copedPri = Mod.Manifold.difference(priManifold, cutBlank);
+        }
+        const volAfter = copedPri.volume();
+        const volRemoved = volBefore - volAfter;
+
+        const priColor = Number.isFinite(values.color)    ? values.color    : 0xc6a86b;
+        const secColor = Number.isFinite(values.secColor) ? values.secColor : 0x6b9ec6;
+        addFoundationManifoldToScene(scene, viewport, copedPri,   priColor);
+        addFoundationManifoldToScene(scene, viewport, secManifold, secColor);
+
+        if (typeof window !== 'undefined') {
+          window.__lastCopeReport = {
+            priR, secR, angleDeg, offset: offsetY, clearance,
+            axesDistance: plan.axesDistance,
+            copeDepth: plan.copeDepth,
+            contactArc: plan.contactArc,
+            willCut: plan.willCut,
+            volBefore, volAfter, volRemoved,
+            note: plan.note,
+          };
+        }
+
+        const head = plan.willCut
+          ? `coped Ø${priR * 2} primary at ${angleDeg}° joint`
+          : `no cope (${plan.note})`;
+        return {
+          status: 'success',
+          message: `Sculpt Cope: ${head} | cope depth ${plan.copeDepth.toFixed(1)} mm, contact arc ≈ ${plan.contactArc.toFixed(1)} mm | V removed ${volRemoved.toFixed(0)} mm³ (${volBefore.toFixed(0)} → ${volAfter.toFixed(0)})`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Cope: ' + err.message };
       }
     },
 

@@ -124,6 +124,31 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-36 — Weldment Cope cut (NX/Creo/SolidWorks weldment flagship op).
+  // Two cylindrical tubes (primary along X, secondary at `angleDeg` from
+  // X in the XZ plane, offset perpendicularly by `offset`) — the primary
+  // gets a saddle/fishmouth cut where the secondary intersects it, so
+  // the joint nests cleanly for welding. The planCope geometry is exact
+  // (axes-distance + sin θ); the material removal is a manifold boolean.
+  // BrepWeldments.js:67-70 flagged cope cut as queued Tier-6b — this is it.
+  'Sculpt Cope': {
+    title: 'Sculpt — Cope cut (tube-on-tube weldment saddle)',
+    blurb: 'Cope the primary tube where a secondary tube intersects it — the flagship NX/Creo weldment joint. Both tubes land in the scene; the primary carries the saddle cut.',
+    fields: [
+      { name: 'priR',      label: 'Primary radius',   type: 'number', default: 40, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'secR',      label: 'Secondary radius', type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'priLen',    label: 'Primary length',   type: 'number', default: 600, unit: 'mm', min: 1, step: 10 },
+      { name: 'secLen',    label: 'Secondary length', type: 'number', default: 400, unit: 'mm', min: 1, step: 10 },
+      { name: 'angleDeg',  label: 'Joint angle',      type: 'number', default: 90, unit: '°', min: 5, max: 175, step: 1, hint: 'angle between secondary and primary axes (XZ plane)' },
+      { name: 'offset',    label: 'Axis offset',      type: 'number', default: 0, unit: 'mm', step: 1, hint: 'perpendicular offset of secondary axis (Y direction)' },
+      { name: 'clearance', label: 'Weld clearance',   type: 'number', default: 1.0, unit: 'mm', min: 0, step: 0.1, hint: 'gap added to the cope cutter for weld root' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',     label: 'Primary colour (hex)',   type: 'number', default: 0xc6a86b, step: 1 },
+      { name: 'secColor',  label: 'Secondary colour (hex)', type: 'number', default: 0x6b9ec6, step: 1 },
+    ],
+  },
   // SP-35 — Routing first slice (NX/Creo Routing-class). A 4-waypoint
   // harness/pipe run with an ENFORCED minimum bend radius: interior
   // corners are replaced with tangent circular arcs (real bend-tool
