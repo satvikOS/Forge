@@ -1747,6 +1747,98 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-65 — Spool (OCCT 2 flanges + shaft via fuse) ──────────────
+    'Sculpt Spool': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Spool');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Spool cancelled' };
+      try {
+        const fR = values.flangeR ?? 25, fT = values.flangeT ?? 5;
+        const sR = values.shaftR ?? 12, sL = values.shaftL ?? 30;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR >= fR) throw new Error('shaftR must be < flangeR');
+        const t0 = Date.now();
+        const f1 = await ArchDiscKernel.brep.makeCylinder(fR, fT);
+        const shaft = await ArchDiscKernel.brep.makeCylinder(sR, sL);
+        const shaftP = await ArchDiscKernel.brep.translate(shaft, 0, 0, fT);
+        const f2 = await ArchDiscKernel.brep.makeCylinder(fR, fT);
+        const f2P = await ArchDiscKernel.brep.translate(f2, 0, 0, fT + sL);
+        let spool = await ArchDiscKernel.brep.fuse(f1, shaftP);
+        spool = await ArchDiscKernel.brep.fuse(spool, f2P);
+        const totalH = 2 * fT + sL;
+        const placed = await ArchDiscKernel.brep.translate(spool, px, py, pz - totalH / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6b9aa5;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = 2 * Math.PI * fR * fR * fT + Math.PI * sR * sR * sL;
+        if (typeof window !== 'undefined') {
+          window.__lastSpoolReport = { flangeR: fR, flangeT: fT, shaftR: sR, shaftL: sL, totalHeight: totalH, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Spool: Ø${fR * 2}/Ø${sR * 2} × ${totalH} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Spool: ' + err.message }; }
+    },
+
+    // ─── SP-66 — Hex Nut (OCCT hex prism − bore) ──────────────────────
+    'Sculpt Hex Nut': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hex Nut');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hex Nut cancelled' };
+      try {
+        const S = values.acrossFlats ?? 24;
+        const H = values.height ?? 16;
+        const bR = values.boreR ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (bR > (S / 2) - 0.5) throw new Error('boreR too large for nut');
+        const R = S / Math.sqrt(3);
+        const t0 = Date.now();
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i + Math.PI / 6;
+          pts.push({ x: R * Math.cos(a), y: R * Math.sin(a), z: 0 });
+        }
+        const hex = await ArchDiscKernel.brep.extrudeProfile(pts, H);
+        const bore = await ArchDiscKernel.brep.makeCylinder(bR, H + 2);
+        const boreP = await ArchDiscKernel.brep.translate(bore, 0, 0, -1);
+        const nut = await ArchDiscKernel.brep.cut(hex, boreP);
+        const placed = await ArchDiscKernel.brep.translate(nut, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8a7a6a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const hexArea = (3 * Math.sqrt(3) / 2) * R * R;
+        const predictedV = (hexArea - Math.PI * bR * bR) * H;
+        if (typeof window !== 'undefined') {
+          window.__lastNutReport = { acrossFlats: S, height: H, boreR: bR, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Hex Nut: AF=${S} H=${H} bore=Ø${bR * 2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Hex Nut: ' + err.message }; }
+    },
+
+    // ─── SP-67 — Washer (OCCT cyl − cyl annular) ──────────────────────
+    'Sculpt Washer': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Washer');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Washer cancelled' };
+      try {
+        const oR = values.outerR ?? 15, bR = values.boreR ?? 8.5, t = values.thickness ?? 2.5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (bR >= oR) throw new Error('boreR must be < outerR');
+        const t0 = Date.now();
+        const outer = await ArchDiscKernel.brep.makeCylinder(oR, t);
+        const bore = await ArchDiscKernel.brep.makeCylinder(bR, t + 2);
+        const boreP = await ArchDiscKernel.brep.translate(bore, 0, 0, -1);
+        const washer = await ArchDiscKernel.brep.cut(outer, boreP);
+        const placed = await ArchDiscKernel.brep.translate(washer, px, py, pz - t / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9a9a9a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = Math.PI * (oR * oR - bR * bR) * t;
+        if (typeof window !== 'undefined') {
+          window.__lastWasherReport = { outerR: oR, boreR: bR, thickness: t, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Washer: Ø${oR * 2}/Ø${bR * 2} × ${t} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Washer: ' + err.message }; }
+    },
+
     // ─── SP-63 — Sphere primitive (OCCT exact analytic surface) ───────
     'Sculpt Sphere Primitive': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Sphere Primitive');

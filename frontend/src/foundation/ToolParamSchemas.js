@@ -124,6 +124,50 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-65 — Spool / Yo-yo (NX / CATIA / Creo / SW pattern). Two end
+  // flanges + connecting shaft. OCCT fuse of 3 cylinders.
+  'Sculpt Spool': {
+    title: 'Sculpt — Spool (2 flanges + shaft)',
+    blurb: 'OCCT-backed spool: two end flanges connected by a cylindrical shaft. Wire-spool / yo-yo / sheave hub form.',
+    fields: [
+      { name: 'flangeR', label: 'Flange radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'flangeT', label: 'Flange thickness', type: 'number', default: 5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shaftR',  label: 'Shaft radius', type: 'number', default: 12, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shaftL',  label: 'Shaft length (between flanges)', type: 'number', default: 30, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b9aa5, step: 1 },
+    ],
+  },
+  // SP-66 — Hex Nut (NX / CATIA / Creo / SW). Hex prism with axial hole.
+  'Sculpt Hex Nut': {
+    title: 'Sculpt — Hex Nut (DIN 934 / ISO 4032 form)',
+    blurb: 'OCCT-backed hex nut: hex prism with central threaded-hole through-cut. Standard fastener primitive.',
+    fields: [
+      { name: 'acrossFlats', label: 'Across-flats (wrench size)', type: 'number', default: 24, unit: 'mm', min: 2, step: 1, hint: 'M16 = 24, M20 = 30, M24 = 36' },
+      { name: 'height', label: 'Nut height',  type: 'number', default: 16, unit: 'mm', min: 1, step: 1 },
+      { name: 'boreR',  label: 'Bore radius', type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a7a6a, step: 1 },
+    ],
+  },
+  // SP-67 — Washer (DIN 125 / ISO 7089). Flat annular disc.
+  'Sculpt Washer': {
+    title: 'Sculpt — Washer (DIN 125 / ISO 7089 plain washer)',
+    blurb: 'OCCT-backed flat washer: outer cyl − bore cyl. Standard fastener washer.',
+    fields: [
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 15, unit: 'mm', min: 1, step: 0.5 },
+      { name: 'boreR',  label: 'Bore radius',  type: 'number', default: 8.5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'thickness', label: 'Thickness', type: 'number', default: 2.5, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a9a9a, step: 1 },
+    ],
+  },
   // SP-63 — Sphere Primitive (NX / CATIA / Creo / SW). OCCT makeSphere.
   'Sculpt Sphere Primitive': {
     title: 'Sculpt — Sphere (OCCT exact analytic surface)',
