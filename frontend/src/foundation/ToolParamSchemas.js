@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-137 — Stitch Faces (SW Knit Surface / CATIA Join / NX Sew).
+  // Tolerant sewing of separate faces into a shell — bridges small
+  // gaps and welds shared boundaries within tolerance.
+  'Sculpt Stitch Faces': {
+    title: 'Sculpt — Stitch Faces (tolerant sewing)',
+    blurb: 'OCCT-backed sewing: 2 panels with 0.05mm gap stitched at tol=0.1mm into one continuous sheet.',
+    fields: [
+      { name: 'panelW',    label: 'Panel width',  type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'panelH',    label: 'Panel height', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'gap',       label: 'Gap',          type: 'number', default: 0.05, unit: 'mm', min: 0, step: 0.01 },
+      { name: 'tolerance', label: 'Sewing tol',   type: 'number', default: 0.1,  unit: 'mm', min: 0.01, step: 0.01 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd8b8e6, step: 1 },
+    ],
+  },
   // SP-136 — Loft Tangent (CATIA Multi-Sections Solid / NX Through-Curves
   // tangent option / SW Lofted Boss with smoothing). 3 square section
   // wires lofted with SetSmoothing for G1 tangency between sections.

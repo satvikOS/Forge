@@ -1747,6 +1747,46 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-137 — Stitch Faces (OCCT BRepBuilderAPI_Sewing) ──────────
+    // SW Knit Surface / CATIA Join / NX Sew class. Tolerant sewing of
+    // separate faces into a shell — bridges small gaps and welds
+    // shared boundaries within the sewing tolerance.
+    'Sculpt Stitch Faces': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Stitch Faces');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Stitch Faces cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastStitchReport = { error: 'in progress' };
+      }
+      try {
+        const w = values.panelW ?? 20, h = values.panelH ?? 20;
+        const gap = values.gap ?? 0.05;
+        const tol = values.tolerance ?? 0.1;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (w <= 0 || h <= 0 || tol <= gap) throw new Error('panelW/H > 0; tolerance > gap');
+        const t0 = Date.now();
+        const stitched = await ArchDiscKernel.brep.stitchFaces({ panelW: w, panelH: h, gap, tolerance: tol });
+        const placed = await ArchDiscKernel.brep.translate(stitched, px - w, py - h / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xd8b8e6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastStitchReport = {
+            panelW: w, panelH: h, gap, tolerance: tol,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Stitch Faces: ${w}×${h} + ${w}×${h} panels gap=${gap} tol=${tol} | ${metrics.faceCount} faces / ${metrics.edgeCount} edges — OCCT BRepBuilderAPI_Sewing | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastStitchReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Stitch Faces: ' + err.message };
+      }
+    },
+
     // ─── SP-136 — Loft Tangent (OCCT ThruSections + SetSmoothing) ────
     // CATIA Multi-Sections Solid / NX Through-Curves tangent option /
     // SW Lofted Boss with smoothing. 3 square sections lofted with G1
