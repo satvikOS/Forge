@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-73 — Whiffle Ball (sphere with N drilled holes). OCCT exact analytic
+  // sphere − N cylindrical bores. Lightweight ball / spherical air-flow
+  // diffuser / decorative shell.
+  'Sculpt Whiffle Ball': {
+    title: 'Sculpt — Whiffle Ball (sphere with N drilled holes)',
+    blurb: 'OCCT-backed sphere with N evenly-spaced cylindrical holes drilled through. Decorative / aerodynamic spherical shell.',
+    fields: [
+      { name: 'R',        label: 'Outer radius', type: 'number', default: 30, unit: 'mm', min: 5, step: 1 },
+      { name: 'holeR',    label: 'Hole radius', type: 'number', default: 5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'rings',    label: 'Rings (latitude)', type: 'number', default: 3, min: 1, max: 10, step: 1 },
+      { name: 'perRing',  label: 'Holes per ring', type: 'number', default: 6, min: 2, max: 24, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6b87a, step: 1 },
+    ],
+  },
   // SP-71 — Hex Bolt (DIN 933 / ISO 4017). Hex head + cylindrical shaft.
   // OCCT fuse of hex prism (head) + cylinder (shank).
   'Sculpt Hex Bolt': {

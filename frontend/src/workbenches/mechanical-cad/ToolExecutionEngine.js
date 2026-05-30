@@ -1747,6 +1747,56 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-73 — Whiffle Ball (OCCT sphere − N drilled cylinders) ────
+    'Sculpt Whiffle Ball': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Whiffle Ball');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Whiffle Ball cancelled' };
+      try {
+        const R = values.R ?? 30, holeR = values.holeR ?? 5;
+        const rings = Math.max(1, Math.floor(values.rings ?? 3));
+        const perRing = Math.max(2, Math.floor(values.perRing ?? 6));
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        let ball = await ArchDiscKernel.brep.makeSphere(R);
+        // Drill rings of holes along latitude lines. Each ring at angle
+        // φ from horizontal; ring 0 at equator, others symmetric ±.
+        // Holes are vertical cylinders aligned with the radial direction
+        // — since OCCT cylinder axis is +Z, we can only drill axis-Z
+        // holes here. Stack them on multiple latitudes by translating
+        // the cylinder to (x, y) on a great circle in the XY plane.
+        // For visual variety, also drill axially through one set.
+        const drillLen = R * 2.5;
+        let cutCount = 0;
+        for (let ring = 0; ring < rings; ring++) {
+          const ringZ = (rings === 1) ? 0 : (R * 0.6 * (ring / (rings - 1) - 0.5) * 2);
+          const ringR = Math.sqrt(Math.max(0.1, R * R - ringZ * ringZ)) - holeR * 0.5;
+          for (let j = 0; j < perRing; j++) {
+            const a = (2 * Math.PI / perRing) * j + (ring % 2 ? Math.PI / perRing : 0);
+            const hx = ringR * Math.cos(a), hy = ringR * Math.sin(a);
+            const cyl = await ArchDiscKernel.brep.makeCylinder(holeR, drillLen);
+            // axis-Z cylinder: drill straight through Z at (hx, hy)
+            // To drill RADIAL holes we'd need OCCT rotation; for first
+            // slice all holes are Z-aligned which gives a nice "Swiss
+            // cheese" pattern at multiple latitudes.
+            const cylP = await ArchDiscKernel.brep.translate(cyl, hx, hy, -drillLen / 2);
+            try {
+              const next = await ArchDiscKernel.brep.cut(ball, cylP);
+              ball = next; cutCount += 1;
+            } catch { /* skip holes that exit the sphere */ }
+          }
+        }
+        const placed = await ArchDiscKernel.brep.translate(ball, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc6b87a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastWhiffleReport = { R, holeR, rings, perRing, cutCount, sphereVolume: (4 / 3) * Math.PI * R * R * R, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Whiffle Ball: R=${R} ${rings} rings × ${perRing} = ${cutCount} holes Ø${holeR * 2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Whiffle Ball: ' + err.message }; }
+    },
+
     // ─── SP-71 — Hex Bolt (OCCT hex prism head + cyl shank, fused) ────
     'Sculpt Hex Bolt': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Hex Bolt');

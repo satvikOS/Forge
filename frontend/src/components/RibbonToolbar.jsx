@@ -299,6 +299,7 @@ export const TABS = {
         { name: 'Sculpt Polygon Prism', icon: '⬠', key: 'part' },
         { name: 'Sculpt Hex Bolt', icon: '⛚', key: 'part' },
         { name: 'Sculpt Half-Sphere Dome', icon: '◗', key: 'part' },
+        { name: 'Sculpt Whiffle Ball', icon: '⌾', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
