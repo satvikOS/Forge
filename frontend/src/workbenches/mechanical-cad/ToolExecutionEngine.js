@@ -1747,6 +1747,65 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-114 — IGES Round-Trip (legacy CAD interop) ──────────────
+    // IGES 5.3 is still required by older CNC shops + PTC-Creo class
+    // systems. Completes the interop trio with SP-111 STEP and
+    // SP-113 GLTF.
+    'Sculpt IGES Round-Trip': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt IGES Round-Trip');
+      if (cancelled) return { status: 'warn', message: 'Sculpt IGES Round-Trip cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastIgesReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('boxSize > 0; filletR ∈ (0, boxSize/2)');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const original = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const originalM = await ArchDiscKernel.brep.measure(original);
+        const tExport0 = Date.now();
+        const igesText = await ArchDiscKernel.brep.exportIges(original, { unit: 'MM' });
+        const exportMs = Date.now() - tExport0;
+        const summary = ArchDiscKernel.brep.parseIgesSummary(igesText);
+        const tImport0 = Date.now();
+        const imported = await ArchDiscKernel.brep.importIges(igesText);
+        const importMs = Date.now() - tImport0;
+        const importedM = await ArchDiscKernel.brep.measure(imported);
+        const placed = await ArchDiscKernel.brep.translate(imported, px - s / 2, py - s / 2, pz - s / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x90c6e6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const isIges53 = igesText.startsWith('S') || igesText.includes('1H,');
+        if (typeof window !== 'undefined') {
+          window.__lastIgesReport = {
+            boxSize: s, filletR: fR,
+            igesBytes: igesText.length,
+            startLines: summary.startLines,
+            globalLines: summary.globalLines,
+            directoryLines: summary.directoryLines,
+            parameterLines: summary.parameterLines,
+            terminateLines: summary.terminateLines,
+            isIges53,
+            originalVolume: originalM.volume,
+            originalFaceCount: originalM.faceCount,
+            importedVolume: importedM.volume,
+            importedFaceCount: importedM.faceCount,
+            volumeRelError: Math.abs(importedM.volume - originalM.volume) / originalM.volume,
+            exportMs, importMs, elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt IGES Round-Trip: ${s}³ fillet R=${fR} | IGES ${igesText.length} bytes (S=${summary.startLines} G=${summary.globalLines} D=${summary.directoryLines} P=${summary.parameterLines} T=${summary.terminateLines}), V ${(originalM.volume / 1000).toFixed(2)} → ${(importedM.volume / 1000).toFixed(2)} cm³ (rel err ${(Math.abs(importedM.volume - originalM.volume) / originalM.volume * 100).toFixed(4)} %), faces ${originalM.faceCount} → ${importedM.faceCount} — IGES 5.3 | export ${exportMs} ms, import ${importMs} ms, total ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastIgesReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt IGES Round-Trip: ' + err.message };
+      }
+    },
+
     // ─── SP-113 — GLTF Export (Khronos glTF 2.0 visualization) ───────
     // Khronos glTF 2.0 is the web/AR/VR/game standard — Three.js
     // viewers, Blender, Unreal, Babylon, model-viewer, AR Quick Look

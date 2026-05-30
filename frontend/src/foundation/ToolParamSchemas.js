@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-114 — IGES Export + Round-Trip (legacy CAD interop). IGES 5.3
+  // is still required by older CNC shops and PTC-Creo-class systems.
+  // Completes the interop trio: STEP (modern MCAD) + GLTF (web/AR) +
+  // IGES (legacy + CNC).
+  'Sculpt IGES Round-Trip': {
+    title: 'Sculpt — IGES Round-Trip (legacy CAD interop)',
+    blurb: 'OCCT-backed IGES 5.3 export + parseIgesSummary + importIges → re-render. Conserves volume across the round-trip.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x90c6e6, step: 1 },
+    ],
+  },
   // SP-113 — GLTF Export (Khronos glTF 2.0 — web/AR/VR/game standard).
   // Used by Three.js viewers, Blender, Unreal, Babylon.js, model-
   // viewer, AR Quick Look. Complements STEP for mfg with GLTF for
