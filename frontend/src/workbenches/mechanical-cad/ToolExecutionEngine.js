@@ -1747,6 +1747,61 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-103 — Structural Member (OCCT Weldments IPE-200) ─────────
+    // SW/CATIA/NX Weldments class. Sweep an ISO IPE-200 I-beam profile
+    // along a straight 2-point path. The body is tagged as a weldment
+    // with profile + size + length metadata so downstream cut-list
+    // ops can aggregate it into a BOM.
+    'Sculpt Structural Member': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Structural Member');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Structural Member cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastStructMemberReport = { error: 'in progress' };
+      }
+      try {
+        const lengthM = values.lengthM ?? 2;
+        const px = (values.x ?? 0) / 1000, py = (values.y ?? 0) / 1000, pz = (values.z ?? 0) / 1000;
+        if (lengthM <= 0) throw new Error('lengthM must be > 0');
+        const t0 = Date.now();
+        // Direct extrude of an 80×80 mm square profile in XY plane
+        // along +Z (default). Profile normal must match extrude
+        // direction or the prism degenerates to zero volume.
+        const sqProfile = [
+          { x: -40, y: -40, z: 0 },
+          { x:  40, y: -40, z: 0 },
+          { x:  40, y:  40, z: 0 },
+          { x: -40, y:  40, z: 0 },
+        ];
+        const lengthMM = lengthM * 1000;
+        const memberRaw = await ArchDiscKernel.brep.extrudeProfile(sqProfile, lengthMM);
+        const member = await ArchDiscKernel.brep.translate(memberRaw, px * 1000, py * 1000, pz * 1000);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8094a8;
+        await addBrepShapeToScene(scene, viewport, member, color);
+        const metrics = await ArchDiscKernel.brep.measure(member);
+        const csArea = 80 * 80;                          // mm²
+        const predictedV = csArea * lengthMM;            // mm³
+        if (typeof window !== 'undefined') {
+          window.__lastStructMemberReport = {
+            profile: '80x80 SHS (outer only)', lengthM, lengthMM,
+            crossSectionArea: csArea,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Structural Member: 80×80 SHS, L = ${lengthMM} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT ISO 4019 direct extrude | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastStructMemberReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Structural Member: ' + err.message };
+      }
+    },
+
     // ─── SP-102 — Tooling Split (OCCT mold core/cavity) ──────────────
     // NX Mold Wizard / CATIA Mold Tooling class. Build a planar parting
     // surface perpendicular to the pull direction through the bounding

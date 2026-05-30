@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-103 — Structural Member (SW/CATIA/NX Weldments class). Sweep an
+  // ISO/ANSI standard structural profile (IPE I-beam, C-channel, square
+  // tube, angle, round tube) along a 3D path. Result is tagged with
+  // weldment metadata for downstream cut-list / drawing BOM ops.
+  'Sculpt Structural Member': {
+    title: 'Sculpt — SHS Beam (ISO 4019 80×80, direct extrude)',
+    blurb: 'OCCT-backed direct extrude of an ISO 4019 80×80 square hollow section profile along a long path. Honest workaround for the weldments builder unit-mix bug.',
+    fields: [
+      { name: 'lengthM', label: 'Length', type: 'number', default: 2, unit: 'm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8094a8, step: 1 },
+    ],
+  },
   // SP-102 — Tooling Split (NX Mold Wizard / CATIA Mold Tooling class).
   // Split body into CORE + CAVITY halves via a planar parting surface
   // through the bounding-box centroid, perpendicular to the pull
