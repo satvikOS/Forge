@@ -1747,6 +1747,63 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-132 — NURBS Curvature (OCCT D2 + differential geometry) ──
+    // SW Surface Curvature / CATIA GSD Curvature Analysis / NX
+    // Curvature class. Differential-geometry curvature on a true NURBS
+    // surface (vs SP-110 discrete heatmap). At (u,v): D2 partial
+    // derivatives, first/second fundamental forms, eigendecomposition
+    // → kMin/kMax principal + gaussian + mean + normal + position.
+    'Sculpt NURBS Curvature': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt NURBS Curvature');
+      if (cancelled) return { status: 'warn', message: 'Sculpt NURBS Curvature cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastNurbsCurvReport = { error: 'in progress' };
+      }
+      try {
+        const size = values.size ?? 40;
+        const crown = values.crown ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (size < 10 || size > 200) throw new Error('size ∈ [10, 200]');
+        if (crown < 0 || crown > 50) throw new Error('crown ∈ [0, 50]');
+        const t0 = Date.now();
+        const patch = await ArchDiscKernel.brep.buildNurbsPatch({ size, crown });
+        const placed = await ArchDiscKernel.brep.translate(patch, px - size / 2, py - size / 2, pz);
+        const color = Number.isFinite(values.color) ? values.color : 0xc0e0c0;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        // Sample at 3 representative parameter points.
+        const samples = [
+          { label: 'centre', u: 0.5, v: 0.5 },
+          { label: 'corner', u: 0.0, v: 0.0 },
+          { label: 'off-centre', u: 0.25, v: 0.75 },
+        ];
+        const results = [];
+        for (const s of samples) {
+          const c = await ArchDiscKernel.brep.nurbsCurvature(patch, s.u, s.v);
+          results.push({
+            label: s.label, u: s.u, v: s.v,
+            gaussian: c.gaussian, mean: c.mean,
+            kMin: c.kMin, kMax: c.kMax,
+            normal: c.normal,
+            position: c.position,
+            eulerCheck: Math.abs((c.kMin + c.kMax) - 2 * c.mean),  // should be ~0
+            gaussianCheck: Math.abs(c.gaussian - c.kMin * c.kMax),  // should be ~0
+          });
+        }
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsCurvReport = {
+            size, crown, results, elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt NURBS Curvature: ${size}×${size} crown=${crown} | ${results.map((r) => `${r.label} G=${r.gaussian.toExponential(2)} H=${r.mean.toExponential(2)} κmin=${r.kMin.toExponential(2)} κmax=${r.kMax.toExponential(2)}`).join(' | ')} — OCCT NURBS D2 | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsCurvReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt NURBS Curvature: ' + err.message };
+      }
+    },
+
     // ─── SP-131 — Build NURBS Patch (OCCT Geom_BSplineSurface) ───────
     // CATIA GSD / NX Studio Free Form / SW Surface Loft / Modo NURBS
     // class. Build a 4×4 cubic clamped-cubic NURBS sail patch with a
