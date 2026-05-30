@@ -1747,6 +1747,37 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-70 — Polygon Prism (OCCT extrudeProfile, regular N-gon) ──
+    'Sculpt Polygon Prism': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Polygon Prism');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Polygon Prism cancelled' };
+      try {
+        const N = Math.max(3, Math.floor(values.sides ?? 6));
+        const R = values.radius ?? 25;
+        const H = values.height ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const pts = [];
+        for (let i = 0; i < N; i++) {
+          const a = (2 * Math.PI / N) * i;
+          pts.push({ x: R * Math.cos(a), y: R * Math.sin(a), z: 0 });
+        }
+        const prism = await ArchDiscKernel.brep.extrudeProfile(pts, H);
+        const placed = await ArchDiscKernel.brep.translate(prism, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9aaa82;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Regular N-gon area = (1/2) N R² sin(2π/N)
+        const A = 0.5 * N * R * R * Math.sin(2 * Math.PI / N);
+        const predictedV = A * H;
+        if (typeof window !== 'undefined') {
+          window.__lastPrismReport = { sides: N, radius: R, height: H, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Polygon Prism: ${N}-gon R=${R} × ${H} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Polygon Prism: ' + err.message }; }
+    },
+
     // ─── SP-68 — Filleted Box (OCCT filletAll) ───────────────────────
     'Sculpt Filleted Box': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Filleted Box');

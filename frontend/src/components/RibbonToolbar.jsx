@@ -296,6 +296,7 @@ export const TABS = {
         { name: 'Sculpt Washer', icon: '◍', key: 'part' },
         { name: 'Sculpt Filleted Box', icon: '◖', key: 'part' },
         { name: 'Sculpt Chamfered Box', icon: '◐', key: 'part' },
+        { name: 'Sculpt Polygon Prism', icon: '⬠', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

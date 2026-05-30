@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-70 — Polygon Prism (N-sided regular). OCCT extrudeProfile on a
+  // regular N-gon. NX / CATIA / Creo / SW polygon primitive.
+  'Sculpt Polygon Prism': {
+    title: 'Sculpt — Polygon Prism (regular N-gon extruded)',
+    blurb: 'OCCT-backed regular N-gon extruded along Z. N = 3 (triangle), 5 (pentagon), 8 (octagon), …',
+    fields: [
+      { name: 'sides',  label: 'Sides (N)', type: 'number', default: 6, min: 3, max: 32, step: 1 },
+      { name: 'radius', label: 'Circumradius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Height',     type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aaa82, step: 1 },
+    ],
+  },
   // SP-68 — Constant-R Fillet on all edges (filletAll). Different from
   // SP-46 (variable r1→r2): every edge gets the same radius. NX Edge
   // Fillet / CATIA Edge Fillet / Creo Round / SW Fillet.
