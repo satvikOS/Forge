@@ -1747,6 +1747,100 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-108 — Edge Flange (OCCT sheet metal L-bracket) ───────────
+    // SW Sheet Metal / CATIA Generative Sheetmetal / NX Sheet Metal
+    // class. baseFlange (flat plate tagged sheetMetal) + edgeFlange
+    // (perpendicular flange off picked edge). The bend record carries
+    // thickness, kFactor, bend radius, bend allowance, and bend index.
+    'Sculpt Edge Flange': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Edge Flange');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Edge Flange cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastEdgeFlangeReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const fL = values.flangeL ?? 30;
+        const angle = values.angleDeg ?? 90;
+        const edgeIdx = values.edgeIdx ?? 1;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || fL <= 0) throw new Error('plateX, plateY, thickness, flangeL must be > 0');
+        const t0 = Date.now();
+        // Base flange — rectangular profile in XY, centred on origin.
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        const baseSm = ArchDiscKernel.brep.getSheetMetalMetadata(base);
+        // Diagnostic: enumerate all edges with their start/end points
+        // so we can identify which ones are horizontal long-edges.
+        const edgesInfo = [];
+        if (base.body && typeof base.body.edges === 'function') {
+          const allEdges = base.body.edges();
+          for (let i = 0; i < allEdges.length; i++) {
+            const e = allEdges[i];
+            const p0 = e.startVertex && e.startVertex.point;
+            const p1 = e.endVertex && e.endVertex.point;
+            if (p0 && p1) {
+              const len = Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
+              edgesInfo.push({ idx: i + 1, len, p0, p1 });
+            }
+          }
+        }
+        // Pick an edge by 1-based index and fold off it.
+        const flanged = await ArchDiscKernel.brep.edgeFlange(base, edgeIdx, {
+          length: fL, angleDeg: angle,
+        });
+        // Read metadata BEFORE translate (translate strips the sheet
+        // metal metadata by re-binding the spine).
+        const flangedSm = ArchDiscKernel.brep.getSheetMetalMetadata(flanged);
+        const flangedM = await ArchDiscKernel.brep.measure(flanged);
+        const placed = await ArchDiscKernel.brep.translate(flanged, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xd1d6e8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const finalM = flangedM;
+        const finalSm = flangedSm;
+        const bendCount = (finalSm && finalSm.bends) ? finalSm.bends.length : 0;
+        const lastBend = (finalSm && finalSm.bends && finalSm.bends.length > 0)
+          ? finalSm.bends[finalSm.bends.length - 1] : null;
+        if (typeof window !== 'undefined') {
+          window.__lastEdgeFlangeReport = {
+            plateX: pX, plateY: pY, thickness: t, flangeLength: fL, angleDeg: angle, edgeIdx,
+            baseVolume: baseM.volume,
+            baseFaceCount: baseM.faceCount,
+            baseIsSheetMetal: !!baseSm,
+            baseSheetMetalThickness: baseSm ? baseSm.thickness : null,
+            finalVolume: finalM.volume,
+            finalFaceCount: finalM.faceCount,
+            finalEdgeCount: finalM.edgeCount,
+            bendCount,
+            edgesInfo,
+            lastBend: lastBend ? {
+              type: lastBend.type,
+              length: lastBend.length,
+              angleDeg: lastBend.angleDeg,
+              kFactor: lastBend.kFactor,
+              bendRadius: lastBend.bendRadius,
+              bendAllowance: lastBend.bendAllowance,
+            } : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Edge Flange: ${pX}×${pY}×${t} base + ${fL}×${angle}° flange off edge ${edgeIdx} | base V = ${(baseM.volume / 1000).toFixed(2)} cm³, final V = ${(finalM.volume / 1000).toFixed(2)} cm³, faces ${baseM.faceCount}→${finalM.faceCount}, bends=${bendCount} — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastEdgeFlangeReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Edge Flange: ' + err.message };
+      }
+    },
+
     // ─── SP-107 — Boundary Boss (OCCT multi-section loft) ────────────
     // SW Boundary Boss / CATIA Multi-Sections Solid / NX Through-
     // Curves. Loft N closed planar profile wires into a smooth solid

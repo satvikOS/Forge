@@ -124,6 +124,26 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-108 — Edge Flange (SW Sheet Metal / CATIA Generative Sheetmetal /
+  // NX Sheet Metal class). baseFlange (flat plate) + edgeFlange off the
+  // long edge → classic L-bracket. The bend record carries kFactor,
+  // bend allowance, and a bend index for downstream Flat Pattern.
+  'Sculpt Edge Flange': {
+    title: 'Sculpt — Edge Flange (sheet metal L-bracket)',
+    blurb: 'OCCT-backed sheet metal: 100×60×2 mm base flange + 30 mm × 90° edge flange off the long edge. Body tagged with sheetMetal metadata.',
+    fields: [
+      { name: 'plateX',    label: 'Plate X',        type: 'number', default: 100, unit: 'mm', min: 5,  step: 1 },
+      { name: 'plateY',    label: 'Plate Y',        type: 'number', default: 60,  unit: 'mm', min: 5,  step: 1 },
+      { name: 'thickness', label: 'Thickness',      type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeL',   label: 'Flange length',  type: 'number', default: 30,  unit: 'mm', min: 1,  step: 1 },
+      { name: 'angleDeg',  label: 'Bend angle',     type: 'number', default: 90,  unit: '°',  min: 1,  step: 1 },
+      { name: 'edgeIdx',   label: 'Edge index',     type: 'number', default: 1,   unit: '',   min: 1,  step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd1d6e8, step: 1 },
+    ],
+  },
   // SP-107 — Boundary Boss (SW Boundary Boss / CATIA Multi-Sections / NX
   // Through-Curves). N profile cross-sections lofted with G1 tangency
   // into a smooth solid. Canonical 2-profile case: circle → square
