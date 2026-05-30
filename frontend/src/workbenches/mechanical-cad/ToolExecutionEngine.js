@@ -1747,6 +1747,39 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-90 — 3-Axis Cross (OCCT 3 perpendicular tubes fused) ─────
+    'Sculpt 3-Axis Cross': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt 3-Axis Cross');
+      if (cancelled) return { status: 'warn', message: 'Sculpt 3-Axis Cross cancelled' };
+      try {
+        const R = values.R ?? 5, L = values.length ?? 80;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Z-axis tube.
+        const zT = await ArchDiscKernel.brep.makeCylinder(R, L);
+        const zTC = await ArchDiscKernel.brep.translate(zT, 0, 0, -L / 2);
+        // X-axis tube: build along Z then rotate 90° about Y.
+        const xT = await ArchDiscKernel.brep.makeCylinder(R, L);
+        const xTC = await ArchDiscKernel.brep.translate(xT, 0, 0, -L / 2);
+        const xTR = await ArchDiscKernel.brep.rotate(xTC, { x: 0, y: 1, z: 0 }, Math.PI / 2, { x: 0, y: 0, z: 0 });
+        // Y-axis tube: build along Z then rotate -90° about X.
+        const yT = await ArchDiscKernel.brep.makeCylinder(R, L);
+        const yTC = await ArchDiscKernel.brep.translate(yT, 0, 0, -L / 2);
+        const yTR = await ArchDiscKernel.brep.rotate(yTC, { x: 1, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 0 });
+        let cross = await ArchDiscKernel.brep.fuse(zTC, xTR);
+        cross = await ArchDiscKernel.brep.fuse(cross, yTR);
+        const placed = await ArchDiscKernel.brep.translate(cross, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa3826b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastCrossAxisReport = { R, length: L, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt 3-Axis Cross: R=${R} L=${L} | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt 3-Axis Cross: ' + err.message }; }
+    },
+
     // ─── SP-89 — T-Joint Cylinder (OCCT rotate + fuse) ────────────────
     'Sculpt T-Joint Cylinder': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt T-Joint Cylinder');

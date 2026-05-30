@@ -124,6 +124,20 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-90 — 3-Axis Cross (X/Y/Z perpendicular tubes fused). Coordinate-
+  // marker / antenna-cross / model-pivot primitive.
+  'Sculpt 3-Axis Cross': {
+    title: 'Sculpt — 3-Axis Cross (X/Y/Z tubes fused)',
+    blurb: 'OCCT-backed cartesian axes marker: 3 perpendicular cylinders along X / Y / Z fused into one body.',
+    fields: [
+      { name: 'R',      label: 'Tube radius', type: 'number', default: 5,  unit: 'mm', min: 1, step: 0.5 },
+      { name: 'length', label: 'Tube length', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3826b, step: 1 },
+    ],
+  },
   // SP-89 — T-Joint Cylinder (perpendicular tubes fused). Pipe / handrail
   // / scaffolding-frame junction primitive. Uses OCCT rotate to build a
   // genuinely perpendicular secondary axis.
