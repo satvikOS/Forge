@@ -1747,6 +1747,57 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-128 — Self-Intersection QA (OCCT 2-tier validity) ────────
+    // SW Tools/Check Geometry / CATIA Quick Check / NX Check Tools
+    // class. 2-tier QA pipeline:
+    //   1. checkSelfIntersection — BRepCheck_Analyzer intrinsic
+    //      validity + pairwise solid overlap via BRepAlgoAPI_Common.
+    //   2. selfIntersect — Möller triangle-triangle detector on the
+    //      tessellated mesh at the given deflection resolution.
+    'Sculpt Self-Intersect QA': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Self-Intersect QA');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Self-Intersect QA cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastSelfIntReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 4;
+        const defl = values.deflection ?? 0.1;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('s>0; fR ∈ (0, s/2)');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const color = Number.isFinite(values.color) ? values.color : 0x90e0a8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const tier1 = await ArchDiscKernel.brep.checkSelfIntersection(placed);
+        const tier2 = await ArchDiscKernel.brep.selfIntersect(placed, { deflection: defl });
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastSelfIntReport = {
+            boxSize: s, filletR: fR, deflection: defl,
+            tier1Valid: tier1.valid,
+            tier1SelfIntersects: tier1.selfIntersects,
+            tier1Count: tier1.count,
+            tier2Intersecting: tier2.intersecting,
+            tier2PairCount: tier2.pairCount,
+            tier2FacePairs: tier2.facePairs ? tier2.facePairs.slice(0, 5) : [],
+            tier2Stats: tier2.stats,
+            cleanBody: tier1.valid && !tier1.selfIntersects && !tier2.intersecting,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Self-Intersect QA: ${s}³ fillet R=${fR} | tier1 valid=${tier1.valid} si=${tier1.selfIntersects} count=${tier1.count}, tier2 intersecting=${tier2.intersecting} pairs=${tier2.pairCount} faces=${tier2.facePairs ? tier2.facePairs.length : 0} — OCCT 2-tier QA | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastSelfIntReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Self-Intersect QA: ' + err.message };
+      }
+    },
+
     // ─── SP-127 — Flat Pattern (OCCT sheet metal unroll) ─────────────
     // SW Flatten / CATIA Unfold / NX Flatten / Creo Flat Pattern.
     // Unroll a bent sheet metal body into its flat manufacturing

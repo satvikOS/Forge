@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-128 — Self-Intersection QA (SW Tools/Check Geometry / CATIA Quick
+  // Check / NX Check Tools). 2-tier QA: BRepCheck_Analyzer intrinsic
+  // validity + mesh-level Möller triangle-triangle detector for fine
+  // self-intersection inspection.
+  'Sculpt Self-Intersect QA': {
+    title: 'Sculpt — Self-Intersection QA (2-tier validity check)',
+    blurb: 'OCCT-backed QA: filleted cube → checkSelfIntersection (intrinsic + solid overlap) + selfIntersect (mesh Möller). Validates clean body.',
+    fields: [
+      { name: 'boxSize',    label: 'Box side',        type: 'number', default: 40,  unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',    label: 'Fillet radius',   type: 'number', default: 4,   unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.1, unit: 'mm', min: 0.01, step: 0.01 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x90e0a8, step: 1 },
+    ],
+  },
   // SP-127 — Flat Pattern (SW Flatten / CATIA Unfold / NX Flatten /
   // PTC Creo Flat Pattern). Unroll a bent sheet metal body into its
   // flat manufacturing layout for laser-cutter / waterjet handoff.
