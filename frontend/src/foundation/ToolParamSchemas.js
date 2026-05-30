@@ -124,6 +124,33 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-47 — Hole Wizard (NX / CATIA / Creo / SolidWorks universal op).
+  // Drill a hole through a plate via the OCCT-backed B-rep kernel, with
+  // optional counterbore (recess for the screw head) and countersink
+  // (chamfered cone for a flush flat-head screw). Every mechanical CAD
+  // ships this — the most-used op outside of the basic primitives.
+  'Sculpt Hole Wizard': {
+    title: 'Sculpt — Hole Wizard (drilled hole, counterbore, countersink)',
+    blurb: 'OCCT-backed drilled hole through a plate with optional counterbore + countersink. Universal NX / CATIA / Creo / SW op.',
+    fields: [
+      { name: 'plateW', label: 'Plate W (X)', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'plateH', label: 'Plate H (Y)', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'plateT', label: 'Plate thickness (Z)', type: 'number', default: 15, unit: 'mm', min: 1, step: 1 },
+      { name: 'holeR',  label: 'Through-hole R', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'holeX',  label: 'Hole X (centre)', type: 'number', default: 0, unit: 'mm', step: 1, hint: 'offset from plate centre' },
+      { name: 'holeY',  label: 'Hole Y (centre)', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'counterbore',      label: 'Counterbore', type: 'enum', default: 'no', options: ['no', 'yes'] },
+      { name: 'counterboreR',     label: 'Counterbore R', type: 'number', default: 7, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'counterboreDepth', label: 'Counterbore depth', type: 'number', default: 5, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'countersink',      label: 'Countersink', type: 'enum', default: 'no', options: ['no', 'yes'] },
+      { name: 'countersinkR',     label: 'Countersink top R', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'countersinkAngle', label: 'Countersink angle', type: 'number', default: 90, unit: '°', min: 30, max: 170, step: 5, hint: 'included angle (82° UNF, 90° ISO)' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b8aa5, step: 1 },
+    ],
+  },
   // SP-46 — OCCT Variable-Radius Fillet (NX / CATIA / Creo flagship).
   // Build a box via the OCCT-backed B-rep kernel and apply a
   // variable-radius fillet where the radius ramps linearly from r1 at

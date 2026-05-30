@@ -1747,6 +1747,120 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-47 — Hole Wizard (NX / CATIA / Creo / SW universal op) ────
+    // OCCT-backed drilled hole through a plate. The cutter is a fused
+    // assembly of the through-hole cylinder + optional counterbore
+    // cylinder (recess for the screw head) + optional countersink
+    // cone (chamfered taper for a flush flat-head screw). Subtract
+    // from the plate via OCCT boolean cut.
+    'Sculpt Hole Wizard': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hole Wizard');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hole Wizard cancelled' };
+      try {
+        const W = values.plateW ?? 80, H = values.plateH ?? 60, T = values.plateT ?? 15;
+        const holeR  = values.holeR  ?? 4;
+        const holeX  = values.holeX  ?? 0;
+        const holeY  = values.holeY  ?? 0;
+        const wantCbore = String(values.counterbore || 'no') === 'yes';
+        const wantCsink = String(values.countersink || 'no') === 'yes';
+        const cboreR = values.counterboreR ?? 7;
+        const cboreDepth = values.counterboreDepth ?? 5;
+        const csinkR = values.countersinkR ?? 8;
+        const csinkAngleDeg = values.countersinkAngle ?? 90;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        if (holeR >= Math.min(W, H) / 2 - 1) throw new Error('hole radius too large for plate');
+        if (wantCbore && (cboreR <= holeR + 0.01 || cboreDepth >= T - 0.5)) {
+          throw new Error('counterbore must be wider than hole AND shallower than plate thickness');
+        }
+        const csinkDepth = wantCsink ? (csinkR - holeR) / Math.tan((csinkAngleDeg / 2) * Math.PI / 180) : 0;
+        if (wantCsink && csinkDepth >= T - 0.5) throw new Error('countersink too deep for plate thickness');
+
+        const t0 = Date.now();
+        // 1. Plate, anchored at the (−X,−Y,−Z) corner.
+        const plate = await ArchDiscKernel.brep.makeBox(W, H, T);
+
+        // 2. Through-hole cylinder, slightly longer than plate so the
+        //    boolean cut goes all the way through cleanly. Cylinder is
+        //    along +Z, anchored at origin → translate to hole position.
+        const overshoot = 2;
+        const through = await ArchDiscKernel.brep.makeCylinder(holeR, T + 2 * overshoot);
+        let cutter = await ArchDiscKernel.brep.translate(through, W / 2 + holeX, H / 2 + holeY, -overshoot);
+
+        // 3. Counterbore — a wider cylinder, recessed from the +Z (top)
+        //    face of the plate by `cboreDepth`. Top of plate is at z = T.
+        if (wantCbore) {
+          const cbore = await ArchDiscKernel.brep.makeCylinder(cboreR, cboreDepth + overshoot);
+          const cboreP = await ArchDiscKernel.brep.translate(cbore, W / 2 + holeX, H / 2 + holeY, T - cboreDepth);
+          cutter = await ArchDiscKernel.brep.fuse(cutter, cboreP);
+        }
+        // 4. Countersink — a cone tapering from `csinkR` at the top
+        //    face down to `holeR` at depth `csinkDepth`. OCCT's
+        //    makeCone(r1, r2, h) → r1 at z=0, r2 at z=h. We want the
+        //    wider end at the top of the plate (z = T) and the narrower
+        //    end at z = T − csinkDepth → use r1 = holeR at z = 0 of the
+        //    cone-local frame, r2 = csinkR at z = csinkDepth, then
+        //    translate so the cone's z = csinkDepth aligns with plate
+        //    top (z = T).
+        if (wantCsink) {
+          const csink = await ArchDiscKernel.brep.makeCone(holeR, csinkR, csinkDepth);
+          // After construction the cone runs z=0..csinkDepth with holeR
+          // at z=0 and csinkR at z=csinkDepth. To put csinkR at plate
+          // top (z=T) we translate by z = T − csinkDepth.
+          const csinkP = await ArchDiscKernel.brep.translate(csink, W / 2 + holeX, H / 2 + holeY, T - csinkDepth);
+          cutter = await ArchDiscKernel.brep.fuse(cutter, csinkP);
+        }
+
+        // 5. Subtract the cutter from the plate.
+        const drilled = await ArchDiscKernel.brep.cut(plate, cutter);
+
+        // 6. Position the final body so the plate centre is at (px, py, pz).
+        const placed = await ArchDiscKernel.brep.translate(drilled, px - W / 2, py - H / 2, pz - T / 2);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0x6b8aa5;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        // Analytic predicted volume removed:
+        //   through hole:  π·R²·T
+        //   counterbore:   π·(cboreR² − R²)·cboreDepth
+        //   countersink:   frustum (π/3)·h·(R² + R·csinkR + csinkR²) − π·R²·h
+        const slabV = W * H * T;
+        let removed = Math.PI * holeR * holeR * T;
+        if (wantCbore) removed += Math.PI * (cboreR * cboreR - holeR * holeR) * cboreDepth;
+        if (wantCsink) {
+          const frustumV = (Math.PI * csinkDepth / 3) * (holeR * holeR + holeR * csinkR + csinkR * csinkR);
+          removed += frustumV - Math.PI * holeR * holeR * csinkDepth;
+        }
+        const predicted = slabV - removed;
+
+        if (typeof window !== 'undefined') {
+          window.__lastHoleReport = {
+            plateW: W, plateH: H, plateT: T,
+            holeR, holeX, holeY,
+            counterbore: wantCbore, counterboreR: cboreR, counterboreDepth: cboreDepth,
+            countersink: wantCsink, countersinkR: csinkR, countersinkAngle: csinkAngleDeg, countersinkDepth: csinkDepth,
+            slabVolume: slabV,
+            removedAnalytic: removed,
+            predictedVolume: predicted,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predicted) / Math.max(1, predicted),
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        const featureStr = (wantCbore ? '+counterbore' : '') + (wantCsink ? '+countersink' : '');
+        return {
+          status: 'success',
+          message: `Sculpt Hole Wizard: ${W}×${H}×${T} mm plate, Ø${holeR * 2} hole${featureStr} | V = ${(metrics.volume / 1000).toFixed(1)} cm³ (predicted ${(predicted / 1000).toFixed(1)} cm³, rel err ${(Math.abs(metrics.volume - predicted) / predicted * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Hole Wizard: ' + err.message };
+      }
+    },
+
     // ─── SP-46 — OCCT Variable-Radius Fillet (NX / CATIA / Creo) ───────
     // FIRST Sculpt tool that routes through the OCCT-backed EXACT B-rep
     // kernel (frontend/src/kernel/brep, opencascade.js): build a box,
