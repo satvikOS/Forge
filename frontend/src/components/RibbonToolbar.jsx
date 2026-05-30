@@ -350,6 +350,7 @@ export const TABS = {
         { name: 'Sculpt Intersect Surfaces', icon: '✕', key: 'part' },
         { name: 'Sculpt Retopo', icon: '◧', key: 'part' },
         { name: 'Sculpt Hidden Line', icon: '▭', key: 'part' },
+        { name: 'Sculpt Mass Properties', icon: '⚖', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

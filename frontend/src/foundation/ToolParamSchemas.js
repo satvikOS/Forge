@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-124 — Mass Properties (SW Mass Properties / CATIA Measure Inertia
+  // / NX Measure / Creo Mass Properties). Real engineering inertia
+  // tensor + principal moments + principal axes via OCCT
+  // GProp_GProps + GProp_PrincipalProps. Critical FEA/CFD prep.
+  'Sculpt Mass Properties': {
+    title: 'Sculpt — Mass Properties (inertia tensor + principal axes)',
+    blurb: 'OCCT-backed mass-properties: volume, surface area, centroid, 3×3 inertia tensor, principal moments, principal axes. Density configurable (kg/m³).',
+    fields: [
+      { name: 'boxSize', label: 'Box side',     type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'density', label: 'Density',      type: 'number', default: 7850, unit: 'kg/m³', min: 1, step: 100 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8c2cc, step: 1 },
+    ],
+  },
   // SP-123 — Hidden Line Projection (SW Drawing / CATIA Drafting / NX
   // Drafting class). 2D-drawing-quality HLR projection via OCCT
   // HLRBRep_Algo. Returns 4 polyline buckets: visible+sharp, visible+

@@ -1747,6 +1747,64 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-124 — Mass Properties (OCCT inertia + principal axes) ────
+    // SW Mass Properties / CATIA Measure Inertia / NX Measure / Creo
+    // Mass Properties class. Volume + surface area + centroid + full
+    // 3×3 inertia tensor about centroid + principal moments + principal
+    // axes (engine + JS Jacobi cross-check). Critical FEA/CFD prep.
+    'Sculpt Mass Properties': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Mass Properties');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Mass Properties cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastMassPropsReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 4;
+        const density = values.density ?? 7850;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('s>0; fR ∈ (0, s/2)');
+        if (density <= 0) throw new Error('density > 0');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const mp = await ArchDiscKernel.brep.massProperties(placed, { densityKgPerM3: density });
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb8c2cc;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        // Sanity: for a near-cubic body (filleted slightly), principal moments
+        // should be ~equal. Compute their variance to check.
+        const pm = mp.principalMoments;
+        const pmMean = (pm[0] + pm[1] + pm[2]) / 3;
+        const pmVar = ((pm[0] - pmMean) ** 2 + (pm[1] - pmMean) ** 2 + (pm[2] - pmMean) ** 2) / 3;
+        const pmStdDev = Math.sqrt(pmVar);
+        if (typeof window !== 'undefined') {
+          window.__lastMassPropsReport = {
+            boxSize: s, filletR: fR, density,
+            volume: mp.volume,
+            mass: mp.mass,
+            surfaceArea: mp.surfaceArea,
+            centroid: mp.centroid,
+            inertiaTensor: mp.inertiaTensor,
+            principalMoments: mp.principalMoments,
+            principalMomentsJs: mp.principalMomentsJs,
+            principalAxes: mp.principalAxes,
+            principalAxesJs: mp.principalAxesJs,
+            pmStdDev,
+            pmMean,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Mass Properties: ${s}³ fillet R=${fR} density=${density} kg/m³ | V=${(mp.volume / 1000).toFixed(2)} cm³, mass=${mp.mass.toFixed(4)} kg, A=${(mp.surfaceArea / 100).toFixed(2)} cm², centroid=(${mp.centroid.x.toFixed(2)}, ${mp.centroid.y.toFixed(2)}, ${mp.centroid.z.toFixed(2)}), principal moments=[${pm.map((p) => p.toExponential(2)).join(', ')}] mm⁵ — OCCT GProp | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastMassPropsReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Mass Properties: ' + err.message };
+      }
+    },
+
     // ─── SP-123 — Hidden Line Projection (OCCT HLR for 2D drawings) ──
     // SW Drawing / CATIA Drafting / NX Drafting class. Orthographic
     // HLR projection via OCCT HLRBRep_Algo + Projector / Hide / Update.
