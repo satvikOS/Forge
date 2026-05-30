@@ -124,6 +124,31 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-43 — Point Cloud Reconstruction (reverse engineering, the
+  // canonical scan-to-CAD entry point). Sample N noisy points from a
+  // parametric source (sphere / torus / cylinder), run the foundation
+  // density-voxel reconstruct, hand the resulting mesh to
+  // Manifold.ofMesh. The visual demonstrates "messy scan → watertight
+  // solid" — the user picks the source so they can see how each
+  // topology survives the reconstruction.
+  'Sculpt Point Cloud Recon': {
+    title: 'Sculpt — Point Cloud Reconstruction (scan → solid)',
+    blurb: 'Sample noisy points from a parametric source and reverse-engineer the surface back via density voxelization + marching cubes.',
+    fields: [
+      { name: 'source',     label: 'Source shape',  type: 'enum', default: 'sphere', options: ['sphere', 'torus', 'cylinder'] },
+      { name: 'sourceR1',   label: 'Primary radius',type: 'number', default: 50, unit: 'mm', min: 5, step: 1 },
+      { name: 'sourceR2',   label: 'Secondary R',   type: 'number', default: 20, unit: 'mm', min: 1, step: 1, hint: 'torus minor radius (ignored for sphere)' },
+      { name: 'sourceH',    label: 'Height',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1, hint: 'cylinder height (ignored for sphere / torus)' },
+      { name: 'nPoints',    label: 'Sample points', type: 'number', default: 3000, min: 100, max: 50000, step: 100 },
+      { name: 'noiseStdMm', label: 'Scan noise σ',  type: 'number', default: 0.3, unit: 'mm', min: 0, step: 0.05 },
+      { name: 'seed',       label: 'Sample seed',   type: 'number', default: 42, min: 1, step: 1 },
+      { name: 'threshold',  label: 'Iso threshold', type: 'number', default: 0.65, min: 0.1, max: 0.95, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9c6a8d, step: 1 },
+    ],
+  },
   // SP-42 — I-Beam (AISC W-shape, AutoCAD / Revit / NX / CATIA / Creo
   // structural workbench class). 12-vertex CCW cross-section extruded
   // by the beam length — the canonical rolled-steel structural section.

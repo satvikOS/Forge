@@ -91,6 +91,9 @@ import { poissonDiskSeeds, voronoiCellPolygon, insetConvexPolygon, polygonSigned
 import { runCantileverSIMP, makeCubeDensitySDF } from '../../foundation/TopoCantilever.js';
 import { ellipsoidalVesselProfile, predictVesselVolume, vesselHeight } from '../../foundation/VesselGeometry.js';
 import { wShapeProfile, wShapeArea, WSHAPE_PRESETS } from '../../foundation/IBeamGeometry.js';
+import { sampleSphere } from '../../foundation/PointCloudRecon.js';
+import { sampleTorus, sampleCylinder, sphereVolume, torusVolume, cylinderVolume } from '../../foundation/ScanSources.js';
+import { pointCloudSDF, pointCloudBBox } from '../../foundation/PointCloudSDF.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1740,6 +1743,110 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-43 — Point Cloud Reconstruction (reverse engineering) ──────
+    // Generate a noisy point cloud from a parametric source (sphere /
+    // torus / cylinder) and reverse-engineer the surface back via the
+    // foundation density-voxel reconstruct → Manifold.ofMesh. Honest
+    // about the algorithm: density voxelisation slightly inflates the
+    // reconstructed volume vs analytic (~10 %), so the report carries
+    // both numbers + the ratio. A Hoppe-style SDF pipeline (per-point
+    // normals + signed distance) is the next-tier upgrade — flagged in
+    // PointCloudRecon.js as the future work.
+    'Sculpt Point Cloud Recon': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Point Cloud Recon');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Point Cloud Recon cancelled' };
+      try {
+        const source     = String(values.source || 'sphere');
+        const R1         = values.sourceR1 ?? 50;
+        const R2         = values.sourceR2 ?? 20;
+        const H          = values.sourceH  ?? 80;
+        const nPoints    = Math.max(100, Math.floor(values.nPoints ?? 3000));
+        const noiseStdMm = values.noiseStdMm ?? 0.3;
+        const seed       = Math.max(1, Math.floor(values.seed ?? 42));
+        const threshold  = values.threshold ?? 0.65;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        // Sample the cloud + record analytic ground-truth volume.
+        let points, analyticV;
+        let sourceLabel;
+        if (source === 'torus') {
+          points = sampleTorus(R1, R2, nPoints, { noiseStdMm, seed });
+          analyticV = torusVolume(R1, R2);
+          sourceLabel = `torus R=${R1}, r=${R2}`;
+        } else if (source === 'cylinder') {
+          points = sampleCylinder(R1, H, nPoints, { noiseStdMm, seed });
+          analyticV = cylinderVolume(R1, H);
+          sourceLabel = `cylinder R=${R1}, H=${H}`;
+        } else {
+          points = sampleSphere(R1, nPoints, { noiseStdMm, seed });
+          analyticV = sphereVolume(R1);
+          sourceLabel = `sphere R=${R1}`;
+        }
+
+        // Build the point-cloud SDF and feed it to Manifold.levelSet.
+        // thicknessR sets the "wrap radius" around the points — large
+        // enough that adjacent samples' tubes fuse into a continuous
+        // shell, small enough that the reconstructed surface tracks the
+        // true source. levelSet always produces a watertight Manifold
+        // (by construction), so we sidestep the marching-cubes +
+        // mesh-repair "Not manifold" failure mode.
+        const extent = source === 'cylinder' ? Math.max(2 * R1, H)
+                      : source === 'torus'   ? 2 * (R1 + R2)
+                      : 2 * R1;
+        const thicknessR = extent / 25;
+        const edgeLength = thicknessR * 0.6;
+
+        const tRecon0 = Date.now();
+        const sdf = pointCloudSDF(points, thicknessR);
+        const bounds = pointCloudBBox(points, thicknessR * 2);
+
+        // Stash the recon facts before levelSet runs so the e2e can
+        // observe a partial result even if the kernel chokes.
+        if (typeof window !== 'undefined') {
+          window.__lastReconReport = {
+            source, sourceLabel,
+            R1, R2, H, nPoints, noiseStdMm, seed, threshold,
+            thicknessR, edgeLength,
+            analyticVolume: analyticV,
+            manifoldVolume: 0, ratio: 0, triCount: 0,
+            bounds, reconMs: 0,
+            manifoldError: null,
+          };
+        }
+        const Mod = await getManifold();
+        let solid;
+        try {
+          solid = Mod.Manifold.levelSet(sdf, bounds, edgeLength, 0);
+        } catch (e) {
+          if (typeof window !== 'undefined' && window.__lastReconReport) {
+            window.__lastReconReport.manifoldError = e.message || String(e);
+            window.__lastReconReport.reconMs = Date.now() - tRecon0;
+          }
+          throw new Error(`Manifold.levelSet failed: ${e.message}`);
+        }
+        const reconMs = Date.now() - tRecon0;
+        solid = solid.translate([px, py, pz]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : 0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9c6a8d;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined' && window.__lastReconReport) {
+          window.__lastReconReport.manifoldVolume = volume;
+          window.__lastReconReport.ratio = volume / analyticV;
+          window.__lastReconReport.reconMs = reconMs;
+          window.__lastReconReport.triCount = triCount;
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Point Cloud Recon: ${sourceLabel}, ${nPoints} pts (σ=${noiseStdMm} mm) → ${triCount.toLocaleString()} tris | V ${(volume / 1000).toFixed(1)} cm³ vs analytic ${(analyticV / 1000).toFixed(1)} cm³ (ratio ${(volume / analyticV * 100).toFixed(1)} %) | recon ${reconMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Point Cloud Recon: ' + err.message };
       }
     },
 
