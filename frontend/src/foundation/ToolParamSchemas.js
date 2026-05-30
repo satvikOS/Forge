@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-149 — Gusset (SW Gusset / CATIA Reinforcement Plate / NX Gusset).
+  // Triangular reinforcement plate spanning the corner between 2
+  // weldment members. Stiffens the joint without adding much weight.
+  'Sculpt Gusset': {
+    title: 'Sculpt — Gusset (triangular corner reinforcement)',
+    blurb: 'OCCT-backed weldments gusset: 2 perpendicular members + triangular gusset 100mm legs × 6mm thick at the inner corner.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'gussetSize',   label: 'Gusset leg',    type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'thickness',    label: 'Plate thick',   type: 'number', default: 6,   unit: 'mm', min: 1, step: 1 },
+      { name: 'position',     label: 'Position',      type: 'string', default: 'inner', choices: ['inner', 'outer'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorMember', label: 'Member colour', type: 'number', default: 0x90a8c0, step: 1 },
+      { name: 'colorGusset', label: 'Gusset colour', type: 'number', default: 0x40e090, step: 1 },
+    ],
+  },
   // SP-148 — Weld Bead (SW Weldments Weld Bead / CATIA Assembly Weld
   // / NX Weld Bead). Build a fillet weld bead between 2 perpendicular
   // structural members that share an endpoint joint.

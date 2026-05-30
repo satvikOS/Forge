@@ -1747,6 +1747,74 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-149 — Gusset (OCCT Weldments triangular reinforcement) ───
+    // SW Gusset / CATIA Reinforcement Plate / NX Gusset class.
+    // Triangular reinforcement plate spanning the corner between 2
+    // weldment-tagged structural members. Each leg sits along its
+    // member by `size` mm; the plate has `thickness` extrude depth.
+    'Sculpt Gusset': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Gusset');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Gusset cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastGussetReport = { error: 'in progress' };
+      }
+      try {
+        const lenMm = values.memberLength ?? 500;
+        const lenM = lenMm / 1000;
+        const size = values.gussetSize ?? 100;
+        const thickness = values.thickness ?? 6;
+        const position = (values.position || 'inner').toLowerCase();
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (lenMm <= 0 || size <= 0 || thickness <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const memberA = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [lenM, 0, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        const memberB = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [0, lenM, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        const colorMember = Number.isFinite(values.colorMember) ? values.colorMember : 0x90a8c0;
+        const colorGusset = Number.isFinite(values.colorGusset) ? values.colorGusset : 0x40e090;
+        await addBrepShapeToScene(scene, viewport, memberA, colorMember);
+        await addBrepShapeToScene(scene, viewport, memberB, colorMember);
+        const result = await ArchDiscKernel.brep.gusset(memberA, memberB, {
+          type: 'triangular', size, thickness, position,
+        });
+        if (result.gusset) {
+          await addBrepShapeToScene(scene, viewport, result.gusset, colorGusset);
+        }
+        const elapsedMs = Date.now() - t0;
+        // Gusset triangle area = ½ · leg² = ½ · 100² = 5000 mm². Volume = area × t = 30,000 mm³.
+        const predictedTriArea = 0.5 * size * size;
+        const predictedV = predictedTriArea * thickness;
+        let actualV = null;
+        if (result.gusset) {
+          try {
+            const m = await ArchDiscKernel.brep.measure(result.gusset);
+            actualV = m.volume;
+          } catch { /* ignore */ }
+        }
+        if (typeof window !== 'undefined') {
+          window.__lastGussetReport = {
+            memberLengthMm: lenMm, gussetSize: size, thickness, position,
+            gussetId: result.gussetId || null,
+            joint: result.joint || null,
+            actualVolume: actualV,
+            predictedVolume: predictedV,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Gusset: ${lenMm}mm members + triangular gusset leg=${size}mm thick=${thickness}mm @ ${position} | gussetId=${result.gussetId}, joint=[${result.joint?.join(',')}], V actual=${actualV?.toFixed(0) ?? '?'} predicted=${predictedV} mm³ — OCCT Weldments | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastGussetReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Gusset: ' + err.message };
+      }
+    },
+
     // ─── SP-148 — Weld Bead (OCCT Weldments fillet weld at joint) ────
     // SW Weldments Weld Bead / CATIA Assembly Weld / NX Weld Bead.
     // Build 2 perpendicular weldment-tagged structural members
