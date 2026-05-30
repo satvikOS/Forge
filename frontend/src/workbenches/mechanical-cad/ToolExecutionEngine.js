@@ -1747,6 +1747,56 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-147 — Trimmed NURBS Face (OCCT MakeFace with trim wire) ──
+    // CATIA GSD Trim / NX Surface Trim / SW Trim Surface class. Build
+    // a NURBS surface with a rectangular trim window in (u,v) — only
+    // the interior of the window is rendered. Real OCCT MakeFace +
+    // trim-wire construction.
+    'Sculpt Trimmed NURBS': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Trimmed NURBS');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Trimmed NURBS cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastTrimReport = { error: 'in progress' };
+      }
+      try {
+        const sX = values.sizeX ?? 80, sY = values.sizeY ?? 80;
+        const bulge = values.bulge ?? 12;
+        const uMin = values.trimUMin ?? 0.25;
+        const uMax = values.trimUMax ?? 0.75;
+        const vMin = values.trimVMin ?? 0.25;
+        const vMax = values.trimVMax ?? 0.75;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sX <= 0 || sY <= 0) throw new Error('sizes > 0');
+        if (uMin >= uMax || vMin >= vMax) throw new Error('trim min < max');
+        const t0 = Date.now();
+        const trimmed = await ArchDiscKernel.brep.trimmedNurbsFace({
+          sizeX: sX, sizeY: sY, bulge,
+          trimUMin: uMin, trimUMax: uMax, trimVMin: vMin, trimVMax: vMax,
+        });
+        const placed = await ArchDiscKernel.brep.translate(trimmed, px - sX / 2, py - sY / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa8d8a8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastTrimReport = {
+            sizeX: sX, sizeY: sY, bulge,
+            trimUMin: uMin, trimUMax: uMax, trimVMin: vMin, trimVMax: vMax,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            volume: metrics.volume,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Trimmed NURBS: ${sX}×${sY} bulge=${bulge} trim u[${uMin},${uMax}] v[${vMin},${vMax}] | ${metrics.faceCount} faces / ${metrics.edgeCount} edges — OCCT MakeFace+trim | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastTrimReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Trimmed NURBS: ' + err.message };
+      }
+    },
+
     // ─── SP-146 — Cut List (OCCT Weldments BOM aggregation) ─────────
     // SW Weldments Cut List / CATIA Stock & Mill / NX Weldments Cut
     // List class. Walk the BodyRegistry, filter bodies with weldment

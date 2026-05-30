@@ -124,6 +124,26 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-147 — Trimmed NURBS Face (CATIA GSD Trim / NX Surface Trim /
+  // SW Trim Surface). Build a NURBS surface with a rectangular trim
+  // window — only the (u,v) interior of the window is rendered.
+  'Sculpt Trimmed NURBS': {
+    title: 'Sculpt — Trimmed NURBS Face (window cut on sail)',
+    blurb: 'OCCT-backed trimmed NURBS: 80×80 bulged sail surface with rectangular trim window [0.25, 0.75] in u and v. Only the inner window survives.',
+    fields: [
+      { name: 'sizeX',    label: 'Patch X size', type: 'number', default: 80, unit: 'mm', min: 10, step: 1 },
+      { name: 'sizeY',    label: 'Patch Y size', type: 'number', default: 80, unit: 'mm', min: 10, step: 1 },
+      { name: 'bulge',    label: 'Bulge',        type: 'number', default: 12, unit: 'mm', min: 0, step: 0.5 },
+      { name: 'trimUMin', label: 'Trim U min',   type: 'number', default: 0.25, unit: '', min: 0, step: 0.05 },
+      { name: 'trimUMax', label: 'Trim U max',   type: 'number', default: 0.75, unit: '', min: 0, step: 0.05 },
+      { name: 'trimVMin', label: 'Trim V min',   type: 'number', default: 0.25, unit: '', min: 0, step: 0.05 },
+      { name: 'trimVMax', label: 'Trim V max',   type: 'number', default: 0.75, unit: '', min: 0, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8d8a8, step: 1 },
+    ],
+  },
   // SP-146 — Cut List (SW Weldments Cut List / CATIA Stock & Mill /
   // NX Weldments Cut List). Aggregate every weldment-tagged member
   // in the scene by (profile, size, length) → one BOM line per
