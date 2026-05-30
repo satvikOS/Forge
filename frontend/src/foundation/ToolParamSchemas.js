@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-88 — Grid Hole Plate (NX / CATIA / Creo / SW linear pattern op).
+  // Rectangular plate with a regular M×N grid of through holes.
+  'Sculpt Grid Hole Plate': {
+    title: 'Sculpt — Grid Hole Plate (M×N drilled pattern)',
+    blurb: 'OCCT-backed plate with a regular M×N grid of through holes. Universal hole-pattern primitive.',
+    fields: [
+      { name: 'plateW',  label: 'Plate width',  type: 'number', default: 120, unit: 'mm', min: 10, step: 10 },
+      { name: 'plateH',  label: 'Plate height', type: 'number', default: 80,  unit: 'mm', min: 10, step: 10 },
+      { name: 'plateT',  label: 'Plate thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'cols',    label: 'Columns', type: 'number', default: 4, min: 1, max: 12, step: 1 },
+      { name: 'rows',    label: 'Rows',    type: 'number', default: 3, min: 1, max: 12, step: 1 },
+      { name: 'holeR',   label: 'Hole radius', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'margin',  label: 'Edge margin', type: 'number', default: 12, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a7aa5, step: 1 },
+    ],
+  },
   // SP-87 — Sheet Metal Flat Pattern (NX / CATIA / Creo / SW workbench
   // flagship). Build a baseFlange + edgeFlange (L-shape sheet metal),
   // then unfold via flatPattern; lay the folded and unfolded versions

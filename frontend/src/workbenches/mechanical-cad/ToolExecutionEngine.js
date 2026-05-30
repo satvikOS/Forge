@@ -1747,6 +1747,46 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-88 — Grid Hole Plate (OCCT M×N drilled pattern) ──────────
+    'Sculpt Grid Hole Plate': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Grid Hole Plate');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Grid Hole Plate cancelled' };
+      try {
+        const W = values.plateW ?? 120, H = values.plateH ?? 80, T = values.plateT ?? 6;
+        const cols = Math.max(1, Math.floor(values.cols ?? 4));
+        const rows = Math.max(1, Math.floor(values.rows ?? 3));
+        const holeR = values.holeR ?? 4;
+        const margin = values.margin ?? 12;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const innerW = W - 2 * margin, innerH = H - 2 * margin;
+        const dx = cols > 1 ? innerW / (cols - 1) : 0;
+        const dy = rows > 1 ? innerH / (rows - 1) : 0;
+        if (holeR * 2 > Math.min(dx, dy) - 1 && cols > 1 && rows > 1) throw new Error('hole radius too large for grid spacing');
+        const t0 = Date.now();
+        let plate = await ArchDiscKernel.brep.makeBox(W, H, T);
+        for (let i = 0; i < cols; i++) {
+          for (let j = 0; j < rows; j++) {
+            const cx = margin + (cols > 1 ? i * dx : innerW / 2);
+            const cy = margin + (rows > 1 ? j * dy : innerH / 2);
+            const hole = await ArchDiscKernel.brep.makeCylinder(holeR, T + 2);
+            const holeP = await ArchDiscKernel.brep.translate(hole, cx, cy, -1);
+            plate = await ArchDiscKernel.brep.cut(plate, holeP);
+          }
+        }
+        const placed = await ArchDiscKernel.brep.translate(plate, px - W / 2, py - H / 2, pz - T / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8a7aa5;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const N = cols * rows;
+        const predictedV = (W * H - N * Math.PI * holeR * holeR) * T;
+        if (typeof window !== 'undefined') {
+          window.__lastGridPlateReport = { W, H, T, cols, rows, N, holeR, margin, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Grid Hole Plate: ${W}×${H}×${T} + ${cols}×${rows}=${N} holes Ø${holeR * 2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Grid Hole Plate: ' + err.message }; }
+    },
+
     // ─── SP-87 — Sheet Metal L-Bracket + Flat Pattern (OCCT) ─────────
     'Sculpt Sheet Metal L-Bracket': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Sheet Metal L-Bracket');
