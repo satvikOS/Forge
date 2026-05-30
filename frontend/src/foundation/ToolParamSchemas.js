@@ -124,6 +124,28 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-123 — Hidden Line Projection (SW Drawing / CATIA Drafting / NX
+  // Drafting class). 2D-drawing-quality HLR projection via OCCT
+  // HLRBRep_Algo. Returns 4 polyline buckets: visible+sharp, visible+
+  // outline (silhouette), hidden+sharp, hidden+outline. Foundation
+  // of all 2D engineering drawing workflows.
+  'Sculpt Hidden Line': {
+    title: 'Sculpt — Hidden Line Projection (2D drawing edges)',
+    blurb: 'OCCT-backed HLR: filleted cube → orthographic projection along view dir → visible + hidden + silhouette polylines for 2D drawing.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',  label: 'Fillet radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'viewX',    label: 'View dir X',    type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'viewY',    label: 'View dir Y',    type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'viewZ',    label: 'View dir Z',    type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody',    label: 'Body colour',    type: 'number', default: 0xcccccc, step: 1 },
+      { name: 'colorVisible', label: 'Visible colour', type: 'number', default: 0x000000, step: 1 },
+      { name: 'colorHidden',  label: 'Hidden colour',  type: 'number', default: 0x888888, step: 1 },
+    ],
+  },
   // SP-122 — Retopologise (Maya / ZBrush / NX Realize Shape / Modo /
   // 3ds Max retopo). Isotropic remeshing (Botsch-Kobbelt) with optional
   // pull-back to original B-rep surface. Produces a clean even-density

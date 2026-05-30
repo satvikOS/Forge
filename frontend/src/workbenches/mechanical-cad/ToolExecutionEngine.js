@@ -1747,6 +1747,89 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-123 — Hidden Line Projection (OCCT HLR for 2D drawings) ──
+    // SW Drawing / CATIA Drafting / NX Drafting class. Orthographic
+    // HLR projection via OCCT HLRBRep_Algo + Projector / Hide / Update.
+    // Returns 4 polyline buckets ready to consume in a 2D drawing
+    // view: visible+sharp, visible+outline (silhouette), hidden+sharp,
+    // hidden+outline. Renders visible solid, hidden as Three.js Lines.
+    'Sculpt Hidden Line': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hidden Line');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hidden Line cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastHiddenLineReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 6;
+        const vX = values.viewX ?? 1, vY = values.viewY ?? 1, vZ = values.viewZ ?? 1;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('s>0; fR ∈ (0, s/2)');
+        const vmag = Math.sqrt(vX * vX + vY * vY + vZ * vZ);
+        if (vmag < 1e-9) throw new Error('view direction must be non-zero');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const colorBody = Number.isFinite(values.colorBody) ? values.colorBody : 0xcccccc;
+        const colorVisible = Number.isFinite(values.colorVisible) ? values.colorVisible : 0x000000;
+        const colorHidden = Number.isFinite(values.colorHidden) ? values.colorHidden : 0x888888;
+        await addBrepShapeToScene(scene, viewport, placed, colorBody);
+        const hlr = await ArchDiscKernel.brep.hiddenLineProjection(placed, { viewDir: [vX, vY, vZ] });
+        const elapsedMs = Date.now() - t0;
+        // Render each polyline as a Three.js Line.
+        const renderPolys = (polys, color, dashed) => {
+          for (const poly of polys) {
+            if (!poly || poly.length < 2) continue;
+            const positions = new Float32Array(poly.length * 3);
+            for (let i = 0; i < poly.length; i++) {
+              positions[3 * i + 0] = poly[i].x ?? poly[i][0];
+              positions[3 * i + 1] = poly[i].y ?? poly[i][1];
+              positions[3 * i + 2] = poly[i].z ?? poly[i][2];
+            }
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = dashed
+              ? new THREE.LineDashedMaterial({ color, linewidth: 2, dashSize: 0.5, gapSize: 0.3 })
+              : new THREE.LineBasicMaterial({ color, linewidth: 2 });
+            const line = new THREE.Line(geom, mat);
+            if (dashed) line.computeLineDistances();
+            const group = new THREE.Group();
+            group.scale.set(0.001, 0.001, 0.001);
+            group.add(line);
+            group.userData.pickable = false;
+            group.userData.generatedModel = true;
+            group.userData.hlrEdges = true;
+            scene.add(group);
+            group.updateMatrixWorld(true);
+          }
+        };
+        renderPolys(hlr.visibleSharp, colorVisible, false);
+        renderPolys(hlr.visibleOutline, colorVisible, false);
+        renderPolys(hlr.hiddenSharp, colorHidden, true);
+        renderPolys(hlr.hiddenOutline, colorHidden, true);
+        if (typeof window !== 'undefined') {
+          window.__lastHiddenLineReport = {
+            boxSize: s, filletR: fR,
+            viewDir: hlr.viewDir,
+            visibleSharpCount: hlr.visibleSharp.length,
+            visibleOutlineCount: hlr.visibleOutline.length,
+            hiddenSharpCount: hlr.hiddenSharp.length,
+            hiddenOutlineCount: hlr.hiddenOutline.length,
+            totalEdgeCount: hlr.edgeCount,
+            method: hlr.method,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Hidden Line: ${s}³ fillet R=${fR} view=[${vX},${vY},${vZ}] | ${hlr.edgeCount} edges (visible sharp ${hlr.visibleSharp.length}, visible outline ${hlr.visibleOutline.length}, hidden sharp ${hlr.hiddenSharp.length}, hidden outline ${hlr.hiddenOutline.length}) — OCCT HLR | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastHiddenLineReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Hidden Line: ' + err.message };
+      }
+    },
+
     // ─── SP-122 — Retopologise (OCCT isotropic remeshing) ────────────
     // Maya / ZBrush / NX Realize Shape / Modo / 3ds Max retopo class.
     // Botsch-Kobbelt isotropic remeshing with optional pull-back to
