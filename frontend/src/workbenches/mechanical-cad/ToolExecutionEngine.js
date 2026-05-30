@@ -1747,6 +1747,91 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-52 — Hollow Cylinder / Bushing (OCCT) ──────────────────────
+    'Sculpt Hollow Cylinder': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hollow Cylinder');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hollow Cylinder cancelled' };
+      try {
+        const oR = values.outerR ?? 20, iR = values.innerR ?? 15, H = values.height ?? 40;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (iR >= oR) throw new Error('innerR must be < outerR');
+        const t0 = Date.now();
+        const outer = await ArchDiscKernel.brep.makeCylinder(oR, H);
+        const inner = await ArchDiscKernel.brep.makeCylinder(iR, H + 2);
+        // Inner is slightly longer so the boolean cut clears the outer
+        // cleanly without float roundoff slivers. Offset by -1 in z.
+        const innerOffset = await ArchDiscKernel.brep.translate(inner, 0, 0, -1);
+        const hollow = await ArchDiscKernel.brep.cut(outer, innerOffset);
+        const placed = await ArchDiscKernel.brep.translate(hollow, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0x9aa3ad;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        const predictedV = Math.PI * (oR * oR - iR * iR) * H;
+
+        if (typeof window !== 'undefined') {
+          window.__lastBushingReport = {
+            outerR: oR, innerR: iR, height: H,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Hollow Cylinder: Ø${oR * 2}/Ø${iR * 2} × ${H} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Hollow Cylinder: ' + err.message };
+      }
+    },
+
+    // ─── SP-51 — Torus primitive (OCCT exact analytic surface) ─────────
+    'Sculpt Torus Primitive': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Torus Primitive');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Torus Primitive cancelled' };
+      try {
+        const R = values.majorR ?? 30, r = values.minorR ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (r >= R) throw new Error('minorR must be < majorR');
+
+        const t0 = Date.now();
+        const torus = await ArchDiscKernel.brep.makeTorus(R, r);
+        const placed = await ArchDiscKernel.brep.translate(torus, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0xc6826b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        // Analytic torus volume: 2 · π² · R · r²
+        const predictedV = 2 * Math.PI * Math.PI * R * r * r;
+
+        if (typeof window !== 'undefined') {
+          window.__lastTorusReport = {
+            majorR: R, minorR: r,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Torus Primitive: R=${R} r=${r} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Torus Primitive: ' + err.message };
+      }
+    },
+
     // ─── SP-50 — Planar Section / Split (NX Cut / CATIA Split Body) ────
     // OCCT-backed: slice a primitive solid by a plane and lay both
     // pieces in the scene with a configurable separation along the

@@ -124,6 +124,37 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-52 — Hollow Cylinder / Bushing (NX / CATIA / Creo / SW primitive).
+  // OCCT-backed: outer cylinder − inner cylinder via boolean cut. The
+  // canonical bushing / sleeve / pipe-section primitive.
+  'Sculpt Hollow Cylinder': {
+    title: 'Sculpt — Hollow Cylinder (OCCT bushing primitive)',
+    blurb: 'OCCT-backed hollow cylinder: outer Ø minus inner Ø, used as bushings, sleeves, pipe sections.',
+    fields: [
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'innerR', label: 'Inner radius', type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'height', label: 'Height',       type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+  // SP-51 — Torus (NX / CATIA / Creo / SW primitive). OCCT-backed via
+  // makeTorus(majorR, minorR). The exact analytic torus surface, not
+  // a mesh approximation.
+  'Sculpt Torus Primitive': {
+    title: 'Sculpt — Torus (OCCT exact analytic surface)',
+    blurb: 'OCCT-backed torus primitive: ring of major radius R sweeping a circle of minor radius r. The full analytic torus surface.',
+    fields: [
+      { name: 'majorR', label: 'Major radius R', type: 'number', default: 30, unit: 'mm', min: 2, step: 1 },
+      { name: 'minorR', label: 'Minor radius r', type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6826b, step: 1 },
+    ],
+  },
   // SP-50 — Planar Section / Split (universal CAD section-view op).
   // OCCT-backed: slice a primitive solid with a user-positioned plane
   // and lay both pieces in the scene with a small separation so the
