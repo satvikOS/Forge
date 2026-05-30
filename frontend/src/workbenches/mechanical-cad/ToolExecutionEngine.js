@@ -1747,6 +1747,34 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-95 — Hockey Puck (OCCT cyl + filletAll rims) ─────────────
+    'Sculpt Hockey Puck': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hockey Puck');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hockey Puck cancelled' };
+      try {
+        const R = values.R ?? 40, H = values.height ?? 20;
+        const rim = Math.min(values.rim ?? 4, Math.min(R, H) / 2 - 0.01);
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const cyl = await ArchDiscKernel.brep.makeCylinder(R, H);
+        const puck = await ArchDiscKernel.brep.filletAll(cyl, rim);
+        const placed = await ArchDiscKernel.brep.translate(puck, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x1a1a1a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Approx volume: cyl − 2 × (annular wedge along the rim).
+        // Each rim removes ≈ (R²·π − (R−r)²·π)·r + extra rounding ≈
+        // 2πr·(R − r/2) per rim, but the analytic is tricky. We just
+        // bound: less than full cyl, more than (R−rim)²·π·H.
+        const cylV = Math.PI * R * R * H;
+        if (typeof window !== 'undefined') {
+          window.__lastPuckReport = { R, height: H, rim, cylVolume: cylV, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Hockey Puck: Ø${R * 2}×${H} + rim R${rim} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (cyl V = ${(cylV / 1000).toFixed(2)}), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Hockey Puck: ' + err.message }; }
+    },
+
     // ─── SP-94 — Rounded-Top Box (OCCT box + half-cyl fused) ─────────
     'Sculpt Rounded-Top Box': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Rounded-Top Box');

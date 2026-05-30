@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-95 — Hockey Puck (cylinder with both rims filleted). Universal
+  // puck / wheel / disc-with-rounded-edges primitive.
+  'Sculpt Hockey Puck': {
+    title: 'Sculpt — Hockey Puck (cyl + filletAll rims)',
+    blurb: 'OCCT-backed disc with both circular rim edges rounded via filletAll. Puck / wheel / control-knob primitive.',
+    fields: [
+      { name: 'R',      label: 'Radius', type: 'number', default: 40, unit: 'mm', min: 2, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'rim',    label: 'Rim fillet R', type: 'number', default: 4, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x1a1a1a, step: 1 },
+    ],
+  },
   // SP-94 — Rounded-Top Box (box + half-cylinder fused on top).
   // Capsule housing / bread loaf / mouse shell primitive.
   'Sculpt Rounded-Top Box': {
