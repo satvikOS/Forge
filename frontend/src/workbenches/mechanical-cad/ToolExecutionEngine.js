@@ -1747,6 +1747,43 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-94 — Rounded-Top Box (OCCT box + half-cyl fused) ─────────
+    'Sculpt Rounded-Top Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Rounded-Top Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Rounded-Top Box cancelled' };
+      try {
+        const dx = values.dx ?? 100, dy = values.dy ?? 50, dz = values.dz ?? 25;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Box from (0,0,0) → (dx, dy, dz).
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        // Cylinder of radius dy/2 along Z, then rotate 90° about Y to
+        // make its axis horizontal (along +X). Length = dx.
+        const cyl = await ArchDiscKernel.brep.makeCylinder(dy / 2, dx);
+        // Rotate so the cylinder axis lies along +X. OCCT's
+        // rotate(+Z, +Y, π/2) maps +Z → +X (right-hand rule with thumb
+        // along +Y, fingers curl from +Z to +X — empirically verified).
+        // After rotate, the cylinder runs from origin to (dx, 0, 0).
+        const cylX = await ArchDiscKernel.brep.rotate(cyl, { x: 0, y: 1, z: 0 }, Math.PI / 2, { x: 0, y: 0, z: 0 });
+        // Translate so the cyl axis goes from (0, dy/2, dz) to (dx, dy/2, dz)
+        // — sitting along the top centerline of the box.
+        const cylP = await ArchDiscKernel.brep.translate(cylX, 0, dy / 2, dz);
+        const lidded = await ArchDiscKernel.brep.fuse(box, cylP);
+        const placed = await ArchDiscKernel.brep.translate(lidded, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa3826b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Predicted volume: rectangular box + half-cyl (top half above z=dz).
+        // Volume = box volume + (1/2) · π·(dy/2)²·dx
+        const predictedV = dx * dy * dz + 0.5 * Math.PI * (dy / 2) * (dy / 2) * dx;
+        if (typeof window !== 'undefined') {
+          window.__lastRoundedReport = { dx, dy, dz, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Rounded-Top Box: ${dx}×${dy}×${dz} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Rounded-Top Box: ' + err.message }; }
+    },
+
     // ─── SP-93 — Wedge Block (OCCT right-triangle prism) ─────────────
     'Sculpt Wedge Block': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Wedge Block');

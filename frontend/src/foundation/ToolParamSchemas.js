@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-94 — Rounded-Top Box (box + half-cylinder fused on top).
+  // Capsule housing / bread loaf / mouse shell primitive.
+  'Sculpt Rounded-Top Box': {
+    title: 'Sculpt — Rounded-Top Box (box + half-cylinder lid)',
+    blurb: 'OCCT-backed box with a half-cylindrical "lid" fused on top. Capsule / mouse-shell / housing primitive.',
+    fields: [
+      { name: 'dx', label: 'Box X (length along cyl axis)', type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy', label: 'Box Y',  type: 'number', default: 50, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz', label: 'Box Z (rectangular portion)',  type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3826b, step: 1 },
+    ],
+  },
   // SP-93 — Wedge Block (right-triangle prism). Ramp / door stop /
   // alignment wedge primitive.
   'Sculpt Wedge Block': {
