@@ -1747,6 +1747,93 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-54 — Drilled Flange (OCCT bolt-circle pattern) ─────────────
+    'Sculpt Drilled Flange': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Drilled Flange');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Drilled Flange cancelled' };
+      try {
+        const oR = values.outerR ?? 40, T = values.thickness ?? 10;
+        const holeR = values.holeR ?? 3;
+        const N = Math.max(2, Math.floor(values.holeCount ?? 6));
+        const bcR = values.boltCircleR ?? 28;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (bcR + holeR >= oR) throw new Error('hole circle exceeds outer radius');
+
+        const t0 = Date.now();
+        let flange = await ArchDiscKernel.brep.makeCylinder(oR, T);
+        for (let i = 0; i < N; i++) {
+          const ang = (i / N) * 2 * Math.PI;
+          const hx = bcR * Math.cos(ang), hy = bcR * Math.sin(ang);
+          const hole = await ArchDiscKernel.brep.makeCylinder(holeR, T + 2);
+          const holePlaced = await ArchDiscKernel.brep.translate(hole, hx, hy, -1);
+          flange = await ArchDiscKernel.brep.cut(flange, holePlaced);
+        }
+        const placed = await ArchDiscKernel.brep.translate(flange, px, py, pz - T / 2);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0x8a9a6b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        const predictedV = Math.PI * (oR * oR - N * holeR * holeR) * T;
+
+        if (typeof window !== 'undefined') {
+          window.__lastFlangeReport = {
+            outerR: oR, thickness: T, holeR, holeCount: N, boltCircleR: bcR,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Drilled Flange: Ø${oR * 2} × ${T} mm + ${N}×Ø${holeR * 2} on Ø${bcR * 2} BC | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Drilled Flange: ' + err.message };
+      }
+    },
+
+    // ─── SP-53 — Cone primitive (OCCT exact analytic surface) ─────────
+    'Sculpt Cone Primitive': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Cone Primitive');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Cone Primitive cancelled' };
+      try {
+        const r1 = values.r1 ?? 20, r2 = values.r2 ?? 8, H = values.height ?? 40;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (r1 === 0 && r2 === 0) throw new Error('at least one of r1, r2 must be > 0');
+        const t0 = Date.now();
+        const cone = await ArchDiscKernel.brep.makeCone(r1, r2, H);
+        const placed = await ArchDiscKernel.brep.translate(cone, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb88a4a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Frustum volume: π·h/3 · (r1² + r1·r2 + r2²)
+        const predictedV = (Math.PI * H / 3) * (r1 * r1 + r1 * r2 + r2 * r2);
+        if (typeof window !== 'undefined') {
+          window.__lastConeReport = {
+            r1, r2, height: H,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Cone Primitive: r1=${r1} r2=${r2} h=${H} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Cone Primitive: ' + err.message };
+      }
+    },
+
     // ─── SP-52 — Hollow Cylinder / Bushing (OCCT) ──────────────────────
     'Sculpt Hollow Cylinder': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Hollow Cylinder');

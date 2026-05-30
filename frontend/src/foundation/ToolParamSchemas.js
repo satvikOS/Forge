@@ -124,6 +124,41 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-54 — Drilled Flange (NX / CATIA / Creo / SW common assembly part).
+  // A disc with an evenly-spaced bolt circle of holes. OCCT-backed via
+  // makeCylinder + N · makeCylinder + cut. The canonical pipe-flange /
+  // bearing-cap / coupling primitive.
+  'Sculpt Drilled Flange': {
+    title: 'Sculpt — Drilled Flange (bolt-circle pattern)',
+    blurb: 'OCCT-backed flange: disc + bolt-circle of holes. The canonical pipe-flange / bearing-cap primitive.',
+    fields: [
+      { name: 'outerR',       label: 'Outer radius', type: 'number', default: 40, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness',    label: 'Thickness',    type: 'number', default: 10, unit: 'mm', min: 1, step: 1 },
+      { name: 'holeR',        label: 'Hole radius',  type: 'number', default: 3,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'holeCount',    label: 'Hole count',   type: 'number', default: 6,  min: 2, max: 24, step: 1 },
+      { name: 'boltCircleR',  label: 'Bolt-circle R', type: 'number', default: 28, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a9a6b, step: 1 },
+    ],
+  },
+  // SP-53 — Cone Primitive (NX / CATIA / Creo / SW). OCCT makeCone(r1, r2, h).
+  // The exact analytic cone surface. r1 = r2 collapses to a cylinder;
+  // r1 ≠ r2 gives a frustum (truncated cone) or full cone (one r = 0).
+  'Sculpt Cone Primitive': {
+    title: 'Sculpt — Cone (OCCT exact analytic surface)',
+    blurb: 'OCCT-backed cone / frustum: bottom radius r1, top radius r2, height h. Set r2 = 0 for a full cone.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 0,   step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 8,  unit: 'mm', min: 0,   step: 1, hint: '0 for a full cone' },
+      { name: 'height', label: 'Height',        type: 'number', default: 40, unit: 'mm', min: 1,   step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb88a4a, step: 1 },
+    ],
+  },
   // SP-52 — Hollow Cylinder / Bushing (NX / CATIA / Creo / SW primitive).
   // OCCT-backed: outer cylinder − inner cylinder via boolean cut. The
   // canonical bushing / sleeve / pipe-section primitive.
