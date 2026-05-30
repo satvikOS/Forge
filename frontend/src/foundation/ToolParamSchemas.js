@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-153 — Closed Corner (SW Closed Corner / CATIA Sheetmetal Corner
+  // Closure / NX Bridge Transition). Close the triangular gap left
+  // between 2 adjacent edge-flanges with a butt / overlap / underlap
+  // patch.
+  'Sculpt Closed Corner': {
+    title: 'Sculpt — Closed Corner (close perimeter gap)',
+    blurb: 'OCCT-backed sheet metal: base + miterFlange on 2 adjacent edges + closedCorner butt patch. corners[] log appended.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 25,  unit: 'mm', min: 1, step: 1 },
+      { name: 'cornerType',   label: 'Corner type',   type: 'string', default: 'butt', choices: ['butt', 'overlap', 'underlap'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd8c0b8, step: 1 },
+    ],
+  },
   // SP-152 — Miter Flange (SW Miter Flange / CATIA Miter Wall / NX
   // Miter Flange). Sweep a flange along multiple adjacent edges with
   // mitered corner records appended for downstream miter trim.

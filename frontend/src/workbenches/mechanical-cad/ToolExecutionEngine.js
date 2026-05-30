@@ -1747,6 +1747,64 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-153 — Closed Corner (OCCT sheet metal corner closure) ───
+    // SW Closed Corner / CATIA Sheetmetal Corner Closure / NX Bridge
+    // Transition. Bridge the triangular gap between 2 adjacent edge-
+    // flanges with a butt / overlap / underlap patch. Each closure
+    // appends to metadata.sheetMetal.corners[].
+    'Sculpt Closed Corner': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Closed Corner');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Closed Corner cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastClosedCornerReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const fL = values.flangeLength ?? 25;
+        const cornerType = (values.cornerType || 'butt').toLowerCase();
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || fL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        // Add 2 perpendicular flanges (front-top + right-top) so we have an
+        // adjacent pair for the closed-corner op.
+        const withFlanges = await ArchDiscKernel.brep.miterFlange(base, [4, 7], {
+          length: fL, angleDeg: 90,
+        });
+        const closed = await ArchDiscKernel.brep.closedCorner(withFlanges, { cornerType });
+        const closedSm = ArchDiscKernel.brep.getSheetMetalMetadata(closed);
+        const closedM = await ArchDiscKernel.brep.measure(closed);
+        const placed = await ArchDiscKernel.brep.translate(closed, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xd8c0b8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const corners = (closedSm && closedSm.corners) ? closedSm.corners : [];
+        if (typeof window !== 'undefined') {
+          window.__lastClosedCornerReport = {
+            plateX: pX, plateY: pY, thickness: t, flangeLength: fL, cornerType,
+            faceCount: closedM.faceCount,
+            volume: closedM.volume,
+            cornerCount: corners.length,
+            lastCornerType: corners.length > 0 ? corners[corners.length - 1].cornerType : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Closed Corner: ${pX}×${pY}×${t} + miter + ${cornerType} corner closure | V=${(closedM.volume / 1000).toFixed(2)} cm³, faces=${closedM.faceCount}, corners=${corners.length} (last type=${corners.length > 0 ? corners[corners.length - 1].cornerType : 'none'}) — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastClosedCornerReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Closed Corner: ' + err.message };
+      }
+    },
+
     // ─── SP-152 — Miter Flange (OCCT sheet metal multi-edge sweep) ───
     // SW Miter Flange / CATIA Miter Wall / NX Miter Flange class.
     // Sweep a flange along multiple adjacent edges; the kernel
