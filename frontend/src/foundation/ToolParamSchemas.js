@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-116 — Loop Subdivision (Maya/ZBrush/Modo/NX Realize Shape class).
+  // Piecewise-smooth Loop subdivision (Hoppe et al. 1994) on a B-rep:
+  // tessellate, weld, dihedral-detect creases, refine N levels with
+  // sharp-edge preservation. Foundation of organic shape design.
+  'Sculpt Loop Subdivision': {
+    title: 'Sculpt — Loop Subdivision (piecewise-smooth, Hoppe 1994)',
+    blurb: 'OCCT-backed SubD: box → tessellate → Loop subdivision with crease detection. Cube edges preserved as sharp creases.',
+    fields: [
+      { name: 'boxSize',     label: 'Box side',          type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'levels',      label: 'Subdivision levels', type: 'number', default: 2, unit: '',   min: 1, step: 1 },
+      { name: 'dihedralDeg', label: 'Crease threshold',  type: 'number', default: 30, unit: '°',  min: 1, step: 1 },
+      { name: 'deflection',  label: 'Tess deflection',   type: 'number', default: 1.0, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd2a8e6, step: 1 },
+    ],
+  },
   // SP-115 — Convergent Solid (NX Convergent Modeling / SW Mesh BREP /
   // CATIA Imagine & Shape class). Build a solid from a tessellated
   // mesh input via OCCT BRepBuilderAPI_Sewing → MakeSolid pipeline.

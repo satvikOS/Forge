@@ -1747,6 +1747,69 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-116 — Loop Subdivision (OCCT piecewise-smooth SubD) ──────
+    // Maya / ZBrush / Modo / NX Realize Shape class. Piecewise-smooth
+    // Loop subdivision (Hoppe et al. 1994): tessellate, weld duplicate
+    // verts, detect sharp creases by dihedral angle, refine N levels
+    // with crease-aware rules that keep cube edges sharp. Render the
+    // resulting refined mesh directly as Three.js BufferGeometry.
+    'Sculpt Loop Subdivision': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Loop Subdivision');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Loop Subdivision cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastSubdivReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const levels = values.levels ?? 2;
+        const dihedralDeg = values.dihedralDeg ?? 30;
+        const deflection = values.deflection ?? 1.0;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || levels < 1) throw new Error('boxSize > 0, levels ≥ 1');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const refined = await ArchDiscKernel.brep.subdivideShape(cube, {
+          levels, dihedralDeg, deflection,
+        });
+        const elapsedMs = Date.now() - t0;
+        // Build a Three.js mesh from refined positions/normals/indices.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(refined.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(refined.normals, 3));
+        geom.setIndex(new THREE.BufferAttribute(refined.indices, 1));
+        const color = Number.isFinite(values.color) ? values.color : 0xd2a8e6;
+        const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.6 });
+        const mesh = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);
+        group.position.set(px / 1000 - s / 2000, py / 1000 - s / 2000, pz / 1000 - s / 2000);
+        group.add(mesh);
+        group.userData.pickable = true;
+        group.userData.generatedModel = true;
+        group.userData.subdivMesh = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+        if (typeof window !== 'undefined') {
+          window.__lastSubdivReport = {
+            boxSize: s, levels, dihedralDeg, deflection,
+            baseVerts: refined.stats.baseVerts,
+            baseTris: refined.stats.baseTris,
+            weldedVerts: refined.stats.weldedVerts,
+            refinedVerts: refined.stats.refinedVerts,
+            refinedTris: refined.stats.refinedTris,
+            creaseEdges: refined.stats.creaseEdges,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Loop Subdivision: ${s}³ levels=${levels} dihedral=${dihedralDeg}° | base ${refined.stats.baseTris} tris (${refined.stats.weldedVerts} welded verts) → refined ${refined.stats.refinedTris} tris (${refined.stats.refinedVerts} verts), ${refined.stats.creaseEdges} crease edges — OCCT piecewise-smooth SubD | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastSubdivReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Loop Subdivision: ' + err.message };
+      }
+    },
+
     // ─── SP-115 — Convergent Solid (OCCT mesh → B-rep via Sewing) ────
     // NX Convergent Modeling / SW Mesh BREP / CATIA Imagine & Shape
     // class. Build a solid from a tessellated mesh input through the
