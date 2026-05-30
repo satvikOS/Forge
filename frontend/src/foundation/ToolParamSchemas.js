@@ -124,6 +124,34 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-77 — Lozenge / Stadium (rectangle + semicircular ends).
+  'Sculpt Lozenge Prism': {
+    title: 'Sculpt — Lozenge / Stadium (rect + 2 semicircles, extruded)',
+    blurb: 'OCCT-backed stadium shape: rectangle with semicircular ends. Pill / control-button primitive.',
+    fields: [
+      { name: 'length', label: 'Total length', type: 'number', default: 80, unit: 'mm', min: 5, step: 1 },
+      { name: 'radius', label: 'End radius',   type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'depth',  label: 'Extrusion depth', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x82a3c6, step: 1 },
+    ],
+  },
+  // SP-78 — D-Shape (circle truncated by a chord).
+  'Sculpt D-Shape Prism': {
+    title: 'Sculpt — D-Shape (truncated circle, extruded)',
+    blurb: 'OCCT-backed D-shape: cylinder − half-space box. Shaft-with-flat / D-bore primitive.',
+    fields: [
+      { name: 'R',      label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'flat',   label: 'Flat distance from centre', type: 'number', default: 18, unit: 'mm', min: 0, step: 1, hint: 'flat side at +X = this distance' },
+      { name: 'depth',  label: 'Extrusion depth', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3c682, step: 1 },
+    ],
+  },
   // SP-74 — Trapezoid Prism (extruded isoceles trapezoid).
   'Sculpt Trapezoid Prism': {
     title: 'Sculpt — Trapezoid Prism (isoceles trapezoid extruded)',

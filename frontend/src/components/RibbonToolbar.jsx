@@ -303,6 +303,8 @@ export const TABS = {
         { name: 'Sculpt Trapezoid Prism', icon: '⏢', key: 'part' },
         { name: 'Sculpt Cross Prism', icon: '✛', key: 'part' },
         { name: 'Sculpt Star Prism', icon: '★', key: 'part' },
+        { name: 'Sculpt Lozenge Prism', icon: '◖', key: 'part' },
+        { name: 'Sculpt D-Shape Prism', icon: 'Ⓓ', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

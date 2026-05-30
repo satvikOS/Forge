@@ -1747,6 +1747,67 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-77 — Lozenge / Stadium (OCCT box + 2 cyls fused) ─────────
+    'Sculpt Lozenge Prism': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Lozenge Prism');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Lozenge Prism cancelled' };
+      try {
+        const L = values.length ?? 80, R = values.radius ?? 15, D = values.depth ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (2 * R > L + 1e-6) throw new Error('2·R exceeds length — no stadium possible');
+        const rectL = L - 2 * R;
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(rectL, 2 * R, D);
+        const boxP = await ArchDiscKernel.brep.translate(box, -rectL / 2, -R, 0);
+        const cyl1 = await ArchDiscKernel.brep.makeCylinder(R, D);
+        const cyl1P = await ArchDiscKernel.brep.translate(cyl1, -rectL / 2, 0, 0);
+        const cyl2 = await ArchDiscKernel.brep.makeCylinder(R, D);
+        const cyl2P = await ArchDiscKernel.brep.translate(cyl2, rectL / 2, 0, 0);
+        let stad = await ArchDiscKernel.brep.fuse(boxP, cyl1P);
+        stad = await ArchDiscKernel.brep.fuse(stad, cyl2P);
+        const placed = await ArchDiscKernel.brep.translate(stad, px, py, pz - D / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x82a3c6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (rectL * 2 * R + Math.PI * R * R) * D;
+        if (typeof window !== 'undefined') {
+          window.__lastLozengeReport = { length: L, radius: R, depth: D, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Lozenge Prism: L=${L} R=${R} D=${D} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Lozenge Prism: ' + err.message }; }
+    },
+
+    // ─── SP-78 — D-Shape (OCCT cyl − half-space box cut) ──────────────
+    'Sculpt D-Shape Prism': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt D-Shape Prism');
+      if (cancelled) return { status: 'warn', message: 'Sculpt D-Shape Prism cancelled' };
+      try {
+        const R = values.R ?? 25, flat = values.flat ?? 18, D = values.depth ?? 30;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (flat >= R) throw new Error('flat must be < R (otherwise everything is cut)');
+        const t0 = Date.now();
+        const cyl = await ArchDiscKernel.brep.makeCylinder(R, D);
+        // Half-space box covering x > flat region.
+        const box = await ArchDiscKernel.brep.makeBox(R * 2, R * 4, D + 2);
+        const boxP = await ArchDiscKernel.brep.translate(box, flat, -2 * R, -1);
+        const d = await ArchDiscKernel.brep.cut(cyl, boxP);
+        const placed = await ArchDiscKernel.brep.translate(d, px, py, pz - D / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa3c682;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Area of truncated disc: π·R² − segment(R, R−flat).
+        // Segment (chord at x = flat): R²·acos(flat/R) − flat·√(R² − flat²).
+        const segArea = R * R * Math.acos(flat / R) - flat * Math.sqrt(R * R - flat * flat);
+        const predictedV = (Math.PI * R * R - segArea) * D;
+        if (typeof window !== 'undefined') {
+          window.__lastDShapeReport = { R, flat, depth: D, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt D-Shape Prism: R=${R} flat=${flat} D=${D} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt D-Shape Prism: ' + err.message }; }
+    },
+
     // ─── SP-74 — Trapezoid Prism ──────────────────────────────────────
     'Sculpt Trapezoid Prism': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Trapezoid Prism');
