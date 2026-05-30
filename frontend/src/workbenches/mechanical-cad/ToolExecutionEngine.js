@@ -1747,6 +1747,48 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-55 — L-Bracket (OCCT 90° angle bracket via fuse) ──────────
+    'Sculpt L-Bracket': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt L-Bracket');
+      if (cancelled) return { status: 'warn', message: 'Sculpt L-Bracket cancelled' };
+      try {
+        const W = values.width ?? 60, A = values.legA ?? 80, B = values.legB ?? 60, t = values.thickness ?? 6;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Vertical leg: X = [0, W], Y = [0, t], Z = [0, A]
+        const vert = await ArchDiscKernel.brep.makeBox(W, t, A);
+        // Horizontal leg: X = [0, W], Y = [0, B], Z = [0, t]
+        const horiz = await ArchDiscKernel.brep.makeBox(W, B, t);
+        const bracket = await ArchDiscKernel.brep.fuse(vert, horiz);
+        const placed = await ArchDiscKernel.brep.translate(bracket, px - W / 2, py - B / 2, pz);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0x9aa5b8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Volume = W·t·(A + B - t). The −t·t·W subtracts the corner cube
+        // counted twice in (vert + horiz).
+        const predictedV = W * t * (A + B - t);
+        if (typeof window !== 'undefined') {
+          window.__lastBracketReport = {
+            width: W, legA: A, legB: B, thickness: t,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt L-Bracket: ${W} wide, leg A=${A} × leg B=${B} × t=${t} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt L-Bracket: ' + err.message };
+      }
+    },
+
     // ─── SP-54 — Drilled Flange (OCCT bolt-circle pattern) ─────────────
     'Sculpt Drilled Flange': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Drilled Flange');

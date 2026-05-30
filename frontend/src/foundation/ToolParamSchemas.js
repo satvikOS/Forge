@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-55 — L-Bracket / Angle Bracket (NX / CATIA / Creo / SW / Revit).
+  // Two perpendicular rectangular plates joined at 90°. Canonical
+  // hardware primitive — used everywhere from shelf brackets to
+  // structural gusset plates. OCCT boolean fuse.
+  'Sculpt L-Bracket': {
+    title: 'Sculpt — L-Bracket (90° angle bracket)',
+    blurb: 'OCCT-backed L-shaped angle bracket: vertical leg + horizontal leg joined at a 90° corner.',
+    fields: [
+      { name: 'width',     label: 'Bracket width (X)', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'legA',      label: 'Vertical leg height', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'legB',      label: 'Horizontal leg depth', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness', label: 'Plate thickness', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa5b8, step: 1 },
+    ],
+  },
   // SP-54 — Drilled Flange (NX / CATIA / Creo / SW common assembly part).
   // A disc with an evenly-spaced bolt circle of holes. OCCT-backed via
   // makeCylinder + N · makeCylinder + cut. The canonical pipe-flange /
