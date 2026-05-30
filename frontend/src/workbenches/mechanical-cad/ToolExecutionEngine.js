@@ -1747,6 +1747,64 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-91 — V-Groove Box (OCCT extrudeProfile triangle + cut) ────
+    'Sculpt V-Groove Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt V-Groove Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt V-Groove Box cancelled' };
+      try {
+        const dx = values.dx ?? 80, dy = values.dy ?? 60, dz = values.dz ?? 30;
+        const gW = values.grooveW ?? 20, gD = values.grooveD ?? 12;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (gW >= dx - 4) throw new Error('groove top width too large for box');
+        if (gD >= dz - 1) throw new Error('groove deeper than box');
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        // Triangular wedge profile in the XZ plane (Z = 0 is on the +Z
+        // face of the box at dz). Tip at (0, 0, 0), opening at the top:
+        // (-gW/2, 0), (gW/2, 0), (0, -gD). Extrude along Y by dy + 2.
+        const triPts = [
+          { x: -gW / 2, y: 0, z: dz },
+          { x:  gW / 2, y: 0, z: dz },
+          { x:  0,      y: 0, z: dz - gD },
+        ];
+        // extrudeProfile requires the profile to be a closed planar wire
+        // with z=0; we put the triangle in the XY plane and translate later.
+        const triXY = [
+          { x: -gW / 2, y: 0, z: 0 },
+          { x:  gW / 2, y: 0, z: 0 },
+          { x:  0,      y: gD, z: 0 },
+        ];
+        // Extrude depth along Z (perpendicular to the profile plane).
+        // We want the wedge to extend along Y, so we'll rotate the
+        // extrusion result 90° about X afterwards.
+        const wedgeZ = await ArchDiscKernel.brep.extrudeProfile(triXY, dy + 2);
+        // Rotate about X axis by -90° to align the wedge along Y.
+        const wedgeY = await ArchDiscKernel.brep.rotate(wedgeZ, { x: 1, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 0 });
+        // Translate the wedge so its apex sits at the +Z face midline of
+        // the box. Box runs (0..dx, 0..dy, 0..dz); wedge apex should sit
+        // at (dx/2, _, dz). After rotate, the wedge ran:
+        //   y: 0..(dy+2)   (the extrude direction, now Y)
+        //   x: -gW/2..+gW/2
+        //   z: 0..gD       (the triangle's height, now Z, flipped to +Z)
+        // We want the wedge apex at (dx/2, *, dz) and the open mouth at
+        // (dx/2 ± gW/2, *, dz + gD). After rotate the wedge sits at
+        // z = -gD..0 (apex bottom). Translate to put apex at (dx/2, -1, dz).
+        const wedgeP = await ArchDiscKernel.brep.translate(wedgeY, dx / 2, -1, dz);
+        const grooved = await ArchDiscKernel.brep.cut(box, wedgeP);
+        const placed = await ArchDiscKernel.brep.translate(grooved, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8aa37a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const grooveV = 0.5 * gW * gD * dy;          // triangular prism
+        const predictedV = dx * dy * dz - grooveV;
+        if (typeof window !== 'undefined') {
+          window.__lastVGrooveReport = { dx, dy, dz, grooveW: gW, grooveD: gD, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt V-Groove Box: ${dx}×${dy}×${dz} + V W=${gW} D=${gD} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt V-Groove Box: ' + err.message }; }
+    },
+
     // ─── SP-90 — 3-Axis Cross (OCCT 3 perpendicular tubes fused) ─────
     'Sculpt 3-Axis Cross': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt 3-Axis Cross');

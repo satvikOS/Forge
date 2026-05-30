@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-91 — V-Groove Box (machining feature). Box with triangular wedge
+  // cut along its length. Universal lathe / mill V-groove primitive.
+  'Sculpt V-Groove Box': {
+    title: 'Sculpt — V-Groove Box (triangular groove cut)',
+    blurb: 'OCCT-backed box with a triangular V-groove cut along its length. Universal V-groove machining primitive.',
+    fields: [
+      { name: 'dx',       label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy',       label: 'Box Y (groove runs along)', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz',       label: 'Box Z', type: 'number', default: 30, unit: 'mm', min: 5, step: 1 },
+      { name: 'grooveW',  label: 'Groove top width', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'grooveD',  label: 'Groove depth', type: 'number', default: 12, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8aa37a, step: 1 },
+    ],
+  },
   // SP-90 — 3-Axis Cross (X/Y/Z perpendicular tubes fused). Coordinate-
   // marker / antenna-cross / model-pivot primitive.
   'Sculpt 3-Axis Cross': {
