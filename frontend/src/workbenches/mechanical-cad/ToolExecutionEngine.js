@@ -1747,6 +1747,103 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-56 — T-Profile (OCCT structural tee, fused) ───────────────
+    'Sculpt T-Profile': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt T-Profile');
+      if (cancelled) return { status: 'warn', message: 'Sculpt T-Profile cancelled' };
+      try {
+        const L = values.length ?? 500, bf = values.bf ?? 100, d = values.d ?? 80;
+        const tw = values.tw ?? 6, tf = values.tf ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Stem: at x = -tw/2, y = 0, height d
+        const stem = await ArchDiscKernel.brep.makeBox(tw, L, d);
+        const stemP = await ArchDiscKernel.brep.translate(stem, -tw / 2, 0, 0);
+        // Flange: at top, full bf width, tf thick
+        const flange = await ArchDiscKernel.brep.makeBox(bf, L, tf);
+        const flangeP = await ArchDiscKernel.brep.translate(flange, -bf / 2, 0, d - tf);
+        const tee = await ArchDiscKernel.brep.fuse(stemP, flangeP);
+        const placed = await ArchDiscKernel.brep.translate(tee, px, py - L / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8f9a85;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const stemArea = tw * (d - tf);
+        const flangeArea = bf * tf;
+        const predictedV = (stemArea + flangeArea) * L;
+        if (typeof window !== 'undefined') {
+          window.__lastTeeReport = { length: L, bf, d, tw, tf, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt T-Profile: ${L} mm × bf${bf} × d${d} × tw${tw} × tf${tf} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt T-Profile: ' + err.message }; }
+    },
+
+    // ─── SP-57 — U-Channel (OCCT structural C, fused) ──────────────────
+    'Sculpt U-Channel': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt U-Channel');
+      if (cancelled) return { status: 'warn', message: 'Sculpt U-Channel cancelled' };
+      try {
+        const L = values.length ?? 500, bf = values.bf ?? 100, d = values.d ?? 80;
+        const tw = values.tw ?? 6, tf = values.tf ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const bottom = await ArchDiscKernel.brep.makeBox(bf, L, tf);
+        const bottomP = await ArchDiscKernel.brep.translate(bottom, -bf / 2, 0, 0);
+        const wallL = await ArchDiscKernel.brep.makeBox(tw, L, d);
+        const wallLP = await ArchDiscKernel.brep.translate(wallL, -bf / 2, 0, 0);
+        const wallR = await ArchDiscKernel.brep.makeBox(tw, L, d);
+        const wallRP = await ArchDiscKernel.brep.translate(wallR, bf / 2 - tw, 0, 0);
+        let chan = await ArchDiscKernel.brep.fuse(bottomP, wallLP);
+        chan = await ArchDiscKernel.brep.fuse(chan, wallRP);
+        const placed = await ArchDiscKernel.brep.translate(chan, px, py - L / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9a858f;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Bottom plate (bf × tf) + 2 walls of (tw × (d − tf)) each.
+        const A = bf * tf + 2 * tw * (d - tf);
+        const predictedV = A * L;
+        if (typeof window !== 'undefined') {
+          window.__lastChannelReport = { length: L, bf, d, tw, tf, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt U-Channel: ${L} mm × bf${bf} × d${d} × tw${tw} × tf${tf} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt U-Channel: ' + err.message }; }
+    },
+
+    // ─── SP-58 — Hex Block (OCCT extrudeProfile on hex polygon) ───────
+    'Sculpt Hex Block': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hex Block');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hex Block cancelled' };
+      try {
+        const S = values.acrossFlats ?? 24;
+        const H = values.height ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        // Hexagon "across flats" S means: inradius (apothem) = S/2; circumradius = S/√3.
+        const R = S / Math.sqrt(3);
+        const t0 = Date.now();
+        // CCW closed hex profile in the XY plane, points at angles 30°, 90°, …, 330°
+        // so the flats are perpendicular to the X and Y axes (wrenching surfaces).
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i + Math.PI / 6;     // 30° offset
+          pts.push({ x: R * Math.cos(a), y: R * Math.sin(a), z: 0 });
+        }
+        const hex = await ArchDiscKernel.brep.extrudeProfile(pts, H);
+        const placed = await ArchDiscKernel.brep.translate(hex, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x858f9a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Hex area (across-flats S) = (3·√3 / 2)·R² = √3 / 2 · S² ≈ 0.866 · S²
+        const hexArea = (3 * Math.sqrt(3) / 2) * R * R;
+        const predictedV = hexArea * H;
+        if (typeof window !== 'undefined') {
+          window.__lastHexReport = { acrossFlats: S, height: H, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Hex Block: AF=${S} × H=${H} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Hex Block: ' + err.message }; }
+    },
+
     // ─── SP-55 — L-Bracket (OCCT 90° angle bracket via fuse) ──────────
     'Sculpt L-Bracket': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt L-Bracket');

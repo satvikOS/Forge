@@ -124,6 +124,53 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-56 — T-Profile (NX / CATIA / Creo / SW / Revit structural section).
+  // Stem + flange, fused. AISC tee shape.
+  'Sculpt T-Profile': {
+    title: 'Sculpt — T-Profile (structural tee section)',
+    blurb: 'OCCT-backed T section: stem + flange fused. Standard AISC tee shape (e.g. WT, MT, ST).',
+    fields: [
+      { name: 'length', label: 'Length',       type: 'number', default: 500, unit: 'mm', min: 10, step: 10 },
+      { name: 'bf',     label: 'Flange width', type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'd',      label: 'Total depth',  type: 'number', default: 80,  unit: 'mm', min: 10, step: 5 },
+      { name: 'tw',     label: 'Stem thickness', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'tf',     label: 'Flange thickness', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8f9a85, step: 1 },
+    ],
+  },
+  // SP-57 — U-Channel (NX / CATIA / Creo / SW). Bottom plate + 2 walls.
+  'Sculpt U-Channel': {
+    title: 'Sculpt — U-Channel (structural C section)',
+    blurb: 'OCCT-backed U / C section: bottom plate + 2 side walls fused. Standard AISC C-shape.',
+    fields: [
+      { name: 'length',  label: 'Length',     type: 'number', default: 500, unit: 'mm', min: 10, step: 10 },
+      { name: 'bf',      label: 'Outer width (X)', type: 'number', default: 100, unit: 'mm', min: 20, step: 5 },
+      { name: 'd',       label: 'Wall height (Z)', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'tw',      label: 'Wall thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'tf',      label: 'Bottom thickness', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a858f, step: 1 },
+    ],
+  },
+  // SP-58 — Hex Block (NX / CATIA / Creo / SW). Hexagonal prism via
+  // OCCT extrudeProfile. The canonical nut / wrenching-surface primitive.
+  'Sculpt Hex Block': {
+    title: 'Sculpt — Hex Block (hexagonal prism)',
+    blurb: 'OCCT-backed regular-hexagon prism. The canonical nut / wrenching-surface primitive.',
+    fields: [
+      { name: 'acrossFlats', label: 'Across-flats (S)', type: 'number', default: 24, unit: 'mm', min: 2, step: 1, hint: 'wrench size; ISO M16 = 24' },
+      { name: 'height', label: 'Height (Z)', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x858f9a, step: 1 },
+    ],
+  },
   // SP-55 — L-Bracket / Angle Bracket (NX / CATIA / Creo / SW / Revit).
   // Two perpendicular rectangular plates joined at 90°. Canonical
   // hardware primitive — used everywhere from shelf brackets to
