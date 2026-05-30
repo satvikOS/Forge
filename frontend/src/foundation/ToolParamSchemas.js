@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-152 — Miter Flange (SW Miter Flange / CATIA Miter Wall / NX
+  // Miter Flange). Sweep a flange along multiple adjacent edges with
+  // mitered corner records appended for downstream miter trim.
+  'Sculpt Miter Flange': {
+    title: 'Sculpt — Miter Flange (multi-edge with miter records)',
+    blurb: 'OCCT-backed miter flange: 100×60×2 base + 25mm flange swept along 2 top edges (front + right) with miter records appended.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 25,  unit: 'mm', min: 1, step: 1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 90,  unit: '°',  min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0d8b8, step: 1 },
+    ],
+  },
   // SP-151 — End Cap (SW Weldments End Cap / CATIA Tube End / NX Cap).
   // Cap the open end of a structural tube member with a flat plate.
   // Each member's metadata.weldment.caps[] log records the end.

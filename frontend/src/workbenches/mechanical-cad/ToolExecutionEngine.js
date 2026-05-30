@@ -1747,6 +1747,64 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-152 — Miter Flange (OCCT sheet metal multi-edge sweep) ───
+    // SW Miter Flange / CATIA Miter Wall / NX Miter Flange class.
+    // Sweep a flange along multiple adjacent edges; the kernel
+    // appends `miterPartner` cross-references on adjacent bends so
+    // downstream tooling can trim at the 45° bisector.
+    'Sculpt Miter Flange': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Miter Flange');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Miter Flange cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastMiterFlangeReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const fL = values.flangeLength ?? 25;
+        const angle = values.angleDeg ?? 90;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || fL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        // Pick edges 4 + 7 (front-top + right-top, both at z=t plane).
+        const mitered = await ArchDiscKernel.brep.miterFlange(base, [4, 7], {
+          length: fL, angleDeg: angle,
+        });
+        const miteredSm = ArchDiscKernel.brep.getSheetMetalMetadata(mitered);
+        const miteredM = await ArchDiscKernel.brep.measure(mitered);
+        const placed = await ArchDiscKernel.brep.translate(mitered, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc0d8b8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const bends = (miteredSm && miteredSm.bends) ? miteredSm.bends : [];
+        const miterPartners = bends.filter((b) => b.miterPartner != null).length;
+        if (typeof window !== 'undefined') {
+          window.__lastMiterFlangeReport = {
+            plateX: pX, plateY: pY, thickness: t, flangeLength: fL, angleDeg: angle,
+            baseVolume: baseM.volume, miteredVolume: miteredM.volume,
+            baseFaceCount: baseM.faceCount, miteredFaceCount: miteredM.faceCount,
+            bendCount: bends.length,
+            miterPartners,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Miter Flange: ${pX}×${pY}×${t} + flange ${fL}×${angle}° on 2 edges | base V=${(baseM.volume / 1000).toFixed(2)} → V=${(miteredM.volume / 1000).toFixed(2)} cm³, faces ${baseM.faceCount}→${miteredM.faceCount}, bends=${bends.length}, miterPartners=${miterPartners} — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastMiterFlangeReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Miter Flange: ' + err.message };
+      }
+    },
+
     // ─── SP-151 — End Cap (OCCT Weldments tube end closure) ─────────
     // SW Weldments End Cap / CATIA Tube End / NX Cap. Cap the open
     // end of a structural tube member with a flat plate. Caps the
