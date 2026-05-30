@@ -124,6 +124,20 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-146 — Cut List (SW Weldments Cut List / CATIA Stock & Mill /
+  // NX Weldments Cut List). Aggregate every weldment-tagged member
+  // in the scene by (profile, size, length) → one BOM line per
+  // unique cut. Foundation of the fabrication-shop deliverable.
+  'Sculpt Cut List': {
+    title: 'Sculpt — Cut List (Weldments BOM aggregation)',
+    blurb: 'OCCT-backed cut list: build 3 structuralMembers (2 same SHS, 1 different) → cutList groups into 2 BOM lines (qty 2 + qty 1).',
+    fields: [
+      { name: 'rounding', label: 'Length rounding', type: 'number', default: 1, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
   // SP-145 — Shut-Off Surfaces (CATIA Mold / NX Mold Wizard / SW Shut-
   // Off Surfaces). Auto-fill free-edge loops on a body so the mold
   // parting can use a watertight target. Closed bodies report

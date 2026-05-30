@@ -1747,6 +1747,60 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-146 — Cut List (OCCT Weldments BOM aggregation) ─────────
+    // SW Weldments Cut List / CATIA Stock & Mill / NX Weldments Cut
+    // List class. Walk the BodyRegistry, filter bodies with weldment
+    // metadata, group by (profile, size, rounded-length) → one BOM
+    // line per unique cut. The headline fabrication deliverable.
+    // We build 3 structural members (2 identical + 1 different) so
+    // the aggregator has something to group.
+    'Sculpt Cut List': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Cut List');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Cut List cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastCutListReport = { error: 'in progress' };
+      }
+      try {
+        const rounding = values.rounding ?? 1;
+        const t0 = Date.now();
+        // Build 3 members via the kernel structuralMember op. Geometry is
+        // affected by the documented unit-mix bug (SP-103) but the weldment
+        // metadata stamp survives — and that's what cutList aggregates.
+        const m1 = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [1, 0, 0]],            // 1 m
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        await addBrepShapeToScene(scene, viewport, m1, 0xa8c8e6);
+        const m2 = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0.05, 0], [1, 0.05, 0]],      // 1 m, same profile
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        await addBrepShapeToScene(scene, viewport, m2, 0xa8c8e6);
+        const m3 = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0.1, 0], [0.5, 0.1, 0]],      // 0.5 m, different size
+          { profile: 'squaretube', size: '80x80x5' },
+        );
+        await addBrepShapeToScene(scene, viewport, m3, 0xa8d8c8);
+        const bom = ArchDiscKernel.brep.cutList({ rounding });
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastCutListReport = {
+            rounding,
+            totalLines: bom.totalLines,
+            totalLengthMm: bom.totalLengthMm,
+            groups: bom.groups,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Cut List: 3 members built (2× 50×50×4 @ 1m + 1× 80×80×5 @ 0.5m) | ${bom.totalLines} BOM lines, total ${bom.totalLengthMm.toFixed(1)} mm — OCCT Weldments cut list | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastCutListReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Cut List: ' + err.message };
+      }
+    },
+
     // ─── SP-145 — Shut-Off Surfaces (OCCT mold-prep, fill loops) ─────
     // CATIA Mold / NX Mold Wizard / SW Shut-Off Surfaces class. Walk
     // the body, classify free edges, group into closed loops, and
