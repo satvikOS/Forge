@@ -352,6 +352,7 @@ export const TABS = {
         { name: 'Sculpt Hidden Line', icon: '▭', key: 'part' },
         { name: 'Sculpt Mass Properties', icon: '⚖', key: 'part' },
         { name: 'Sculpt Sheet Metal Hem', icon: '⌅', key: 'part' },
+        { name: 'Sculpt Sketched Bend', icon: '⌃', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

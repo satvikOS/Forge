@@ -1747,6 +1747,69 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-126 — Sketched Bend (OCCT sheet metal arbitrary bend) ────
+    // SW Sketched Bend / NX Sketched Bend / CATIA Sheetmetal Walls on
+    // Sketches. Bend the sheet along a sketched line on a flat face;
+    // the bend record carries bendPosition for Flat Pattern.
+    'Sculpt Sketched Bend': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Sketched Bend');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Sketched Bend cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastSketchedBendReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const angle = values.angleDeg ?? 45;
+        const fL = values.flangeLength ?? 30;
+        const edgeIdx = values.edgeIdx ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || fL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        const bent = await ArchDiscKernel.brep.sketchedBend(base, edgeIdx, {
+          angleDeg: angle, flangeLength: fL,
+        });
+        const bentSm = ArchDiscKernel.brep.getSheetMetalMetadata(bent);
+        const bentM = await ArchDiscKernel.brep.measure(bent);
+        const placed = await ArchDiscKernel.brep.translate(bent, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb8c8da;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const bends = (bentSm && bentSm.bends) ? bentSm.bends : [];
+        const lastBend = bends.length > 0 ? bends[bends.length - 1] : null;
+        if (typeof window !== 'undefined') {
+          window.__lastSketchedBendReport = {
+            plateX: pX, plateY: pY, thickness: t, angleDeg: angle, flangeLength: fL, edgeIdx,
+            baseVolume: baseM.volume,
+            baseFaceCount: baseM.faceCount,
+            bentVolume: bentM.volume,
+            bentFaceCount: bentM.faceCount,
+            bendCount: bends.length,
+            lastBend: lastBend ? {
+              type: lastBend.type, length: lastBend.length, angleDeg: lastBend.angleDeg,
+              flangeLength: lastBend.flangeLength, bendPosition: lastBend.bendPosition,
+              bendAllowance: lastBend.bendAllowance,
+            } : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Sketched Bend: ${pX}×${pY}×${t} + sketched ${angle}° L=${fL} edge=${edgeIdx} | base V=${(baseM.volume / 1000).toFixed(2)} → bent V=${(bentM.volume / 1000).toFixed(2)} cm³, faces ${baseM.faceCount}→${bentM.faceCount}, last bend type=${lastBend?.type} bendAllowance=${lastBend?.bendAllowance?.toFixed(3)} mm — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastSketchedBendReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Sketched Bend: ' + err.message };
+      }
+    },
+
     // ─── SP-125 — Sheet Metal Hem (OCCT safety fold) ─────────────────
     // SW Sheet Metal / CATIA Generative Sheetmetal / NX Sheet Metal.
     // Fold a short hem (open 165° / closed 180° / rolled 270° /

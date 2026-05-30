@@ -124,6 +124,26 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-126 — Sketched Bend (SW Sketched Bend / NX Sketched Bend /
+  // CATIA Sheetmetal Walls on Sketches). Bend the sheet along a
+  // sketched line on a flat face; the bend record carries the
+  // bendPosition convention for downstream Flat Pattern.
+  'Sculpt Sketched Bend': {
+    title: 'Sculpt — Sketched Bend (45° on long edge)',
+    blurb: 'OCCT-backed sheet metal: base + sketched bend along edge. Bend record type=sketchedBend with configurable bendPosition.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 45,  unit: '°',  min: 1, step: 1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 30,  unit: 'mm', min: 1, step: 1 },
+      { name: 'edgeIdx',      label: 'Edge index',    type: 'number', default: 4,   unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8c8da, step: 1 },
+    ],
+  },
   // SP-125 — Sheet Metal Hem (SW Sheet Metal / CATIA Generative
   // Sheetmetal / NX Sheet Metal). Fold a short safety hem (180° closed
   // / 165° open / 270° rolled / 225° teardrop) back onto the parent
