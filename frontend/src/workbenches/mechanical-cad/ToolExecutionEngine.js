@@ -1747,6 +1747,68 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-104 — N-Sided NURBS Patch (Class-A surfacing) ────────────
+    // CATIA GSD Adaptive Sweep / NX Studio Free Form class. Build a
+    // pentagonal prism and replace its top cap with a degree-3×3 NURBS
+    // variational patch — boundary discretely faired through fairing
+    // iterations. Returns a SpineBody whose spine carries the analytic
+    // surface; the tessellated sewn shell is on .occtWrapper.
+    'Sculpt N-Sided Patch': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt N-Sided Patch');
+      if (cancelled) return { status: 'warn', message: 'Sculpt N-Sided Patch cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastNSidedReport = { error: 'in progress' };
+      }
+      try {
+        const R = values.R ?? 30, h = values.h ?? 20;
+        const subdivs = values.subdivs ?? 3;
+        const fairing = values.fairing ?? 40;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (R <= 0 || h <= 0) throw new Error('R, h must be > 0');
+        const t0 = Date.now();
+        // Regular pentagon profile, 5 vertices CCW.
+        const pent = [];
+        for (let i = 0; i < 5; i++) {
+          const ang = (2 * Math.PI * i) / 5 - Math.PI / 2;
+          pent.push({ x: R * Math.cos(ang), y: R * Math.sin(ang), z: 0 });
+        }
+        const prism = await ArchDiscKernel.brep.extrudeProfile(pent, h);
+        const prismM = await ArchDiscKernel.brep.measure(prism);
+        // Apply N-sided patch to the face with the most edges (auto-picks).
+        const patched = await ArchDiscKernel.brep.nSidedPatch(prism, {
+          subdivisions: subdivs,
+          fairingIterations: fairing,
+        });
+        const placed = await ArchDiscKernel.brep.translate(patched, px, py, pz - h / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xd3a8f0;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const patchedM = await ArchDiscKernel.brep.measure(placed);
+        // Analytic pentagon prism volume: (5/2)·R²·sin(2π/5) × h.
+        const pentArea = (5 / 2) * R * R * Math.sin((2 * Math.PI) / 5);
+        const predictedV = pentArea * h;
+        if (typeof window !== 'undefined') {
+          window.__lastNSidedReport = {
+            R, h, subdivs, fairing,
+            pentArea,
+            prismVolumeBefore: prismM.volume,
+            patchedVolume: patchedM.volume,
+            predictedVolume: predictedV,
+            relError: Math.abs(patchedM.volume - predictedV) / predictedV,
+            faceCountBefore: prismM.faceCount,
+            faceCountAfter: patchedM.faceCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt N-Sided Patch: pentagon R=${R} h=${h} subdivs=${subdivs} fairing=${fairing} | V = ${(patchedM.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(patchedM.volume - predictedV) / predictedV * 100).toFixed(3)} %), faces ${prismM.faceCount} → ${patchedM.faceCount} — OCCT Class-A NURBS | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastNSidedReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt N-Sided Patch: ' + err.message };
+      }
+    },
+
     // ─── SP-103 — Structural Member (OCCT Weldments IPE-200) ─────────
     // SW/CATIA/NX Weldments class. Sweep an ISO IPE-200 I-beam profile
     // along a straight 2-point path. The body is tagged as a weldment

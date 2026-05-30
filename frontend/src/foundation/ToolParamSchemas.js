@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-104 — N-Sided NURBS Patch (CATIA GSD Adaptive Sweep / NX Studio
+  // Free Form class). Fill a non-4-sided boundary loop with a degree-3×3
+  // NURBS variational surface. The pentagonal-prism top cap is the
+  // canonical 5-sided fill case.
+  'Sculpt N-Sided Patch': {
+    title: 'Sculpt — N-Sided NURBS Patch (pentagonal cap fill)',
+    blurb: 'OCCT-backed Class-A surfacing: pentagonal prism, top cap replaced with a degree-3×3 NURBS variational surface patch (CATIA GSD).',
+    fields: [
+      { name: 'R',       label: 'Pentagon radius', type: 'number', default: 30, unit: 'mm', min: 5, step: 1 },
+      { name: 'h',       label: 'Prism height',    type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'subdivs', label: 'Patch subdivs',   type: 'number', default: 3,  unit: '',   min: 0, step: 1 },
+      { name: 'fairing', label: 'Fairing iters',   type: 'number', default: 40, unit: '',   min: 0, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd3a8f0, step: 1 },
+    ],
+  },
   // SP-103 — Structural Member (SW/CATIA/NX Weldments class). Sweep an
   // ISO/ANSI standard structural profile (IPE I-beam, C-channel, square
   // tube, angle, round tube) along a 3D path. Result is tagged with
