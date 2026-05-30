@@ -1747,6 +1747,85 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-59 — Square HSS Tube (OCCT box − box) ──────────────────────
+    'Sculpt Square Tube': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Square Tube');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Square Tube cancelled' };
+      try {
+        const S = values.side ?? 50, t = values.wall ?? 4, L = values.length ?? 400;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (2 * t >= S - 0.5) throw new Error('wall too thick for square');
+        const t0 = Date.now();
+        const outer = await ArchDiscKernel.brep.makeBox(S, L, S);
+        const inner = await ArchDiscKernel.brep.makeBox(S - 2 * t, L + 2, S - 2 * t);
+        const innerP = await ArchDiscKernel.brep.translate(inner, t, -1, t);
+        const tube = await ArchDiscKernel.brep.cut(outer, innerP);
+        const placed = await ArchDiscKernel.brep.translate(tube, px - S / 2, py - L / 2, pz - S / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6b8aa5;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (S * S - (S - 2 * t) * (S - 2 * t)) * L;
+        if (typeof window !== 'undefined') {
+          window.__lastSqTubeReport = { side: S, wall: t, length: L, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Square Tube: ${S}×${S} × ${L} mm wall ${t} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Square Tube: ' + err.message }; }
+    },
+
+    // ─── SP-60 — Rectangular HSS Tube (OCCT box − box) ─────────────────
+    'Sculpt Rect Tube': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Rect Tube');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Rect Tube cancelled' };
+      try {
+        const Sx = values.sideX ?? 80, Sy = values.sideY ?? 40;
+        const t = values.wall ?? 4, L = values.length ?? 400;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (2 * t >= Math.min(Sx, Sy) - 0.5) throw new Error('wall too thick');
+        const t0 = Date.now();
+        const outer = await ArchDiscKernel.brep.makeBox(Sx, L, Sy);
+        const inner = await ArchDiscKernel.brep.makeBox(Sx - 2 * t, L + 2, Sy - 2 * t);
+        const innerP = await ArchDiscKernel.brep.translate(inner, t, -1, t);
+        const tube = await ArchDiscKernel.brep.cut(outer, innerP);
+        const placed = await ArchDiscKernel.brep.translate(tube, px - Sx / 2, py - L / 2, pz - Sy / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa56b8a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (Sx * Sy - (Sx - 2 * t) * (Sy - 2 * t)) * L;
+        if (typeof window !== 'undefined') {
+          window.__lastRectTubeReport = { sideX: Sx, sideY: Sy, wall: t, length: L, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Rect Tube: ${Sx}×${Sy} × ${L} mm wall ${t} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Rect Tube: ' + err.message }; }
+    },
+
+    // ─── SP-61 — Angle Iron (OCCT L-shape long extrusion via fuse) ────
+    'Sculpt Angle Iron': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Angle Iron');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Angle Iron cancelled' };
+      try {
+        const A = values.legA ?? 50, B = values.legB ?? 50, t = values.thickness ?? 5, L = values.length ?? 500;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        // Vertical leg (B) along Z, X-thickness t
+        const vert = await ArchDiscKernel.brep.makeBox(t, L, B);
+        // Horizontal leg (A) along X, Z-thickness t
+        const horiz = await ArchDiscKernel.brep.makeBox(A, L, t);
+        const angle = await ArchDiscKernel.brep.fuse(vert, horiz);
+        const placed = await ArchDiscKernel.brep.translate(angle, px - t / 2, py - L / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x8aa56b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (A * t + B * t - t * t) * L;
+        if (typeof window !== 'undefined') {
+          window.__lastAngleReport = { legA: A, legB: B, thickness: t, length: L, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Angle Iron: A=${A} B=${B} t=${t} × ${L} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Angle Iron: ' + err.message }; }
+    },
+
     // ─── SP-56 — T-Profile (OCCT structural tee, fused) ───────────────
     'Sculpt T-Profile': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt T-Profile');

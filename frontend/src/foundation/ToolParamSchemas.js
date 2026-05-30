@@ -124,6 +124,50 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-59 — Square HSS Tube (NX / CATIA / Creo / Revit, AISC HSS).
+  'Sculpt Square Tube': {
+    title: 'Sculpt — Square HSS Tube (hollow square section)',
+    blurb: 'OCCT-backed hollow square tube: outer box minus inner box.',
+    fields: [
+      { name: 'side',      label: 'Outer side', type: 'number', default: 50, unit: 'mm', min: 5, step: 5 },
+      { name: 'wall',      label: 'Wall thickness', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'length',    label: 'Length', type: 'number', default: 400, unit: 'mm', min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b8aa5, step: 1 },
+    ],
+  },
+  // SP-60 — Rectangular HSS Tube. Same as SP-59 but rectangular cross-section.
+  'Sculpt Rect Tube': {
+    title: 'Sculpt — Rectangular HSS Tube (hollow rect section)',
+    blurb: 'OCCT-backed hollow rectangular tube: outer box minus inner box.',
+    fields: [
+      { name: 'sideX',    label: 'Outer X', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'sideY',    label: 'Outer Y', type: 'number', default: 40, unit: 'mm', min: 5, step: 5 },
+      { name: 'wall',     label: 'Wall thickness', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'length',   label: 'Length', type: 'number', default: 400, unit: 'mm', min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa56b8a, step: 1 },
+    ],
+  },
+  // SP-61 — Angle Iron (AISC L-shape extruded as a long bar).
+  'Sculpt Angle Iron': {
+    title: 'Sculpt — Angle Iron (long L-shape extruded as a beam)',
+    blurb: 'OCCT-backed long L-shape extrusion. AISC L equal-leg or unequal-leg angles.',
+    fields: [
+      { name: 'legA',      label: 'Leg A (Y)', type: 'number', default: 50, unit: 'mm', min: 5, step: 5 },
+      { name: 'legB',      label: 'Leg B (Z)', type: 'number', default: 50, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness', label: 'Leg thickness', type: 'number', default: 5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'length',    label: 'Length', type: 'number', default: 500, unit: 'mm', min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8aa56b, step: 1 },
+    ],
+  },
   // SP-56 — T-Profile (NX / CATIA / Creo / SW / Revit structural section).
   // Stem + flange, fused. AISC tee shape.
   'Sculpt T-Profile': {
