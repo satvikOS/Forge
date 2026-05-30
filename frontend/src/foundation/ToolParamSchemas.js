@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-140 — Project Points Onto B-Rep (CATIA Project / NX Project Curve
+  // / SW Project Sketch). Project a point cloud onto the nearest face
+  // of a B-rep body — foundation for scan-fit / point-cloud-to-CAD.
+  'Sculpt Project Points': {
+    title: 'Sculpt — Project Points (snap cloud onto B-rep)',
+    blurb: 'OCCT-backed point projection: 100 random points sphere R=22 → projected onto sphere R=20 surface. Each projected point lies on the sphere within tolerance.',
+    fields: [
+      { name: 'sphereR',     label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'cloudR',      label: 'Cloud radius',  type: 'number', default: 22, unit: 'mm', min: 1, step: 1 },
+      { name: 'pointCount',  label: 'Point count',   type: 'number', default: 100, unit: '',   min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody', label: 'Sphere colour', type: 'number', default: 0xa8c8e6, step: 1 },
+      { name: 'colorPts',  label: 'Points colour', type: 'number', default: 0xff8040, step: 1 },
+    ],
+  },
   // SP-139 — Planar Section (SW Section View / CATIA Section / NX Cross-
   // Section). Cross-cut a body with a plane → either intersection
   // curves (drawing views) or split pieces (machining setups).

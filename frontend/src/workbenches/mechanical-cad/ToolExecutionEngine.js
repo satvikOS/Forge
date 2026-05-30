@@ -1747,6 +1747,90 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-140 — Project Points Onto B-Rep (OCCT GeomAPI_Projection) ─
+    // CATIA Project / NX Project Curve / SW Project Sketch class. Snap
+    // a point cloud onto the nearest face of a B-rep body. Each
+    // projected point lies on the body's surface. Foundation for scan-
+    // fit / point-cloud-to-CAD / mesh-to-CAD workflows.
+    'Sculpt Project Points': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Project Points');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Project Points cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastProjectReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const cR = values.cloudR ?? 22;
+        const n = values.pointCount ?? 100;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0 || cR <= 0 || n < 1) throw new Error('sR, cR > 0; n ≥ 1');
+        const t0 = Date.now();
+        const sphere = await ArchDiscKernel.brep.makeSphere(sR);
+        const placed = await ArchDiscKernel.brep.translate(sphere, px, py, pz);
+        const colorBody = Number.isFinite(values.colorBody) ? values.colorBody : 0xa8c8e6;
+        const colorPts = Number.isFinite(values.colorPts) ? values.colorPts : 0xff8040;
+        await addBrepShapeToScene(scene, viewport, placed, colorBody);
+        // Generate n random points on the surface of a sphere of radius cR
+        // (the cloud) centred at origin. Marsaglia method for uniform sphere
+        // distribution.
+        const cloud = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          let u1, u2, s;
+          do {
+            u1 = Math.random() * 2 - 1;
+            u2 = Math.random() * 2 - 1;
+            s = u1 * u1 + u2 * u2;
+          } while (s >= 1);
+          const factor = 2 * Math.sqrt(1 - s);
+          cloud[3 * i + 0] = (u1 * factor) * cR + px;
+          cloud[3 * i + 1] = (u2 * factor) * cR + py;
+          cloud[3 * i + 2] = (1 - 2 * s) * cR + pz;
+        }
+        const projected = await ArchDiscKernel.brep.projectPointsOntoBrep(placed, cloud);
+        const elapsedMs = Date.now() - t0;
+        // Verify: each projected point should be on the sphere (distance from
+        // centre ≈ sR within tolerance).
+        let maxDeviation = 0;
+        let avgDeviation = 0;
+        for (let i = 0; i < n; i++) {
+          const dx = projected[3 * i + 0] - px;
+          const dy = projected[3 * i + 1] - py;
+          const dz = projected[3 * i + 2] - pz;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const dev = Math.abs(d - sR);
+          maxDeviation = Math.max(maxDeviation, dev);
+          avgDeviation += dev;
+        }
+        avgDeviation /= n;
+        // Render projected points as a Three.js Points cloud.
+        const ptsGeom = new THREE.BufferGeometry();
+        ptsGeom.setAttribute('position', new THREE.BufferAttribute(projected, 3));
+        const ptsMat = new THREE.PointsMaterial({ color: colorPts, size: 1.5 });
+        const ptsObj = new THREE.Points(ptsGeom, ptsMat);
+        const ptsGroup = new THREE.Group();
+        ptsGroup.scale.set(0.001, 0.001, 0.001);
+        ptsGroup.add(ptsObj);
+        ptsGroup.userData.pickable = false;
+        ptsGroup.userData.generatedModel = true;
+        ptsGroup.userData.projectedPoints = true;
+        scene.add(ptsGroup);
+        ptsGroup.updateMatrixWorld(true);
+        if (typeof window !== 'undefined') {
+          window.__lastProjectReport = {
+            sphereR: sR, cloudR: cR, pointCount: n,
+            maxDeviation, avgDeviation,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Project Points: sphere R=${sR}, cloud R=${cR}, N=${n} pts | max deviation from sphere surface = ${maxDeviation.toExponential(2)} mm, avg = ${avgDeviation.toExponential(2)} mm — OCCT GeomAPI_ProjectPointOnSurf | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastProjectReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Project Points: ' + err.message };
+      }
+    },
+
     // ─── SP-139 — Planar Section (OCCT plane cross-cut, split mode) ──
     // SW Section View / CATIA Section / NX Cross-Section class.
     // Cross-cut a body with a plane via planarSection {output:'split'}.
