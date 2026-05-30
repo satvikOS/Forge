@@ -124,6 +124,29 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-37 — TPMS Lattice infill (nTopology / Creo Lattice / NX Lattice).
+  // Build a watertight Gyroid / Schwarz-P / Diamond lattice inside a
+  // bounding box via Manifold.levelSet. The flagship modern-AM feature
+  // (60-80% mass reduction at a target stiffness, heat exchangers, bio-
+  // scaffolds). First implicit-modelling primitive in this kernel.
+  'Sculpt Lattice': {
+    title: 'Sculpt — TPMS Lattice (gyroid / schwarz-P / diamond infill)',
+    blurb: 'Build a watertight triply-periodic minimal-surface lattice inside a bounding box. Modern AM-class infill (nTopology / Creo Lattice).',
+    fields: [
+      { name: 'family',    label: 'TPMS family',  type: 'enum', default: 'gyroid', options: ['gyroid', 'schwarzP', 'diamond'] },
+      { name: 'form',      label: 'Form',         type: 'enum', default: 'sheet',  options: ['sheet', 'solid'], hint: 'sheet = thick mid-shell, solid = network' },
+      { name: 'sx',        label: 'Box X',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'sy',        label: 'Box Y',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'sz',        label: 'Box Z',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'cellSize',  label: 'Cell size',    type: 'number', default: 25, unit: 'mm', min: 1, step: 1, hint: 'TPMS period (mm)' },
+      { name: 'isoLevel',  label: 'Iso level',    type: 'number', default: 0.5, min: 0.05, max: 2.5, step: 0.05, hint: 'sheet wall threshold (larger = thicker wall)' },
+      { name: 'resolution',label: 'MC resolution',type: 'number', default: 1.5, unit: 'mm', min: 0.5, step: 0.1, hint: 'marching-cubes spacing — smaller is finer + slower' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',     label: 'Colour (hex)', type: 'number', default: 0xa3c9c7, step: 1 },
+    ],
+  },
   // SP-36 — Weldment Cope cut (NX/Creo/SolidWorks weldment flagship op).
   // Two cylindrical tubes (primary along X, secondary at `angleDeg` from
   // X in the XZ plane, offset perpendicularly by `offset`) — the primary

@@ -263,6 +263,7 @@ export const TABS = {
         { name: 'Sculpt Flex Pipe', icon: '≋', key: 'part' },
         { name: 'Sculpt Route',     icon: '⤳', key: 'part' },
         { name: 'Sculpt Cope',      icon: '⌣', key: 'part' },
+        { name: 'Sculpt Lattice',   icon: '⌬', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

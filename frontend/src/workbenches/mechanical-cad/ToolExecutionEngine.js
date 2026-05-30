@@ -85,6 +85,7 @@ import {
 } from '../../foundation/SweepLoft.js';
 import { buildRouteCenterline, polylinePathLength, summarizeBends } from '../../foundation/Routing.js';
 import { planCope } from '../../foundation/CopeCut.js';
+import { buildLatticeSpec, estimateVolumeFraction } from '../../foundation/LatticeTPMS.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1734,6 +1735,70 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-37 — TPMS Lattice (nTopology / Creo Lattice / NX Lattice) ────
+    // Build a watertight gyroid / Schwarz-P / diamond lattice inside a
+    // bounding box using Manifold.levelSet (manifold-3d's marching-cubes
+    // over an SDF). The first implicit-modelling primitive in this
+    // kernel — the substrate for AM-class lattices, gradient-density
+    // infills, and topology-optimised mass reduction.
+    'Sculpt Lattice': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Lattice');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Lattice cancelled' };
+      try {
+        const family   = String(values.family || 'gyroid');
+        const form     = String(values.form   || 'sheet');
+        const size     = [values.sx ?? 80, values.sy ?? 80, values.sz ?? 80];
+        const cellSize = values.cellSize   ?? 25;
+        const isoLevel = values.isoLevel   ?? 0.5;
+        const resolution = values.resolution ?? 1.5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        // Origin the bbox so its CENTRE is at (0,0,0); we'll translate
+        // the resulting solid by (px, py, pz) at the end. This keeps
+        // every lattice placed centred on its requested position rather
+        // than corner-anchored.
+        const origin = [-size[0] / 2, -size[1] / 2, -size[2] / 2];
+        const spec = buildLatticeSpec({ family, form, size, cellSize, isoLevel, resolution, origin });
+        const vfEstimate = estimateVolumeFraction(spec, 24);
+
+        const Mod = await getManifold();
+        const t0 = Date.now();
+        const latticeRaw = Mod.Manifold.levelSet(spec.sdf, spec.bounds, spec.edgeLength, spec.level);
+        const elapsedMs = Date.now() - t0;
+        // levelSet builds the solid at the SDF's origin; translate it
+        // to the requested position. translate returns a new Manifold;
+        // the raw one will be GC'd or can be explicitly deleted.
+        const lattice = (px || py || pz)
+          ? latticeRaw.translate([px, py, pz])
+          : latticeRaw;
+        if (lattice !== latticeRaw && typeof latticeRaw.delete === 'function') {
+          try { latticeRaw.delete(); } catch { /* GC may have it */ }
+        }
+        const volume   = lattice.volume();
+        const triCount = typeof lattice.numTri === 'function' ? lattice.numTri() : null;
+        const bboxVol  = size[0] * size[1] * size[2];
+        const vfActual = volume / bboxVol;
+
+        const color = Number.isFinite(values.color) ? values.color : 0xa3c9c7;
+        addFoundationManifoldToScene(scene, viewport, lattice, color);
+        if (typeof window !== 'undefined') {
+          window.__lastLatticeReport = {
+            family: spec.family, form: spec.form,
+            size, cellSize, isoLevel, resolution,
+            bboxVolume: bboxVol, volume,
+            volFractionEstimate: vfEstimate, volFractionActual: vfActual,
+            triCount, elapsedMs,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt Lattice: ${spec.family} ${spec.form} | ${size.join('×')} mm @ ${cellSize} mm cells, iso ${isoLevel}, MC ${resolution} mm | V ${(volume / 1000).toFixed(1)} cm³ (${(vfActual * 100).toFixed(1)}% bbox)${tcStr} | levelSet ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Lattice: ' + err.message };
       }
     },
 
