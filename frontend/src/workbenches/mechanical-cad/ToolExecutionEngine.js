@@ -1747,6 +1747,72 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-122 — Retopologise (OCCT isotropic remeshing) ────────────
+    // Maya / ZBrush / NX Realize Shape / Modo / 3ds Max retopo class.
+    // Botsch-Kobbelt isotropic remeshing with optional pull-back to
+    // the original B-rep surface (GeomAPI_ProjectPointOnSurf_2).
+    // Output: refined-density mesh with uniform edge length.
+    'Sculpt Retopo': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Retopo');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Retopo cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastRetopoReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 6;
+        const tgt = values.targetEdge ?? 4;
+        const iters = values.iterations ?? 5;
+        const defl = values.deflection ?? 0.5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || tgt <= 0 || iters < 1) throw new Error('s, fR, tgt > 0; iters ≥ 1');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const retopo = await ArchDiscKernel.brep.retopoShape(filleted, {
+          targetEdgeLength: tgt, iterations: iters, deflection: defl,
+          pullBackToSurface: true,
+        });
+        const elapsedMs = Date.now() - t0;
+        // Render the refined mesh.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(retopo.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(retopo.normals, 3));
+        geom.setIndex(new THREE.BufferAttribute(retopo.indices, 1));
+        const color = Number.isFinite(values.color) ? values.color : 0xc8e6a8;
+        const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.65 });
+        const mesh = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);
+        group.position.set(px / 1000 - s / 2000, py / 1000 - s / 2000, pz / 1000 - s / 2000);
+        group.add(mesh);
+        group.userData.pickable = true;
+        group.userData.generatedModel = true;
+        group.userData.retopoMesh = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+        if (typeof window !== 'undefined') {
+          window.__lastRetopoReport = {
+            boxSize: s, filletR: fR, targetEdge: tgt, iterations: iters, deflection: defl,
+            baseVerts: retopo.stats.baseVerts,
+            baseTris: retopo.stats.baseTris,
+            weldedVerts: retopo.stats.weldedVerts,
+            retopoVerts: retopo.stats.retopoVerts,
+            retopoTris: retopo.stats.retopoTris,
+            projections: retopo.stats.projections,
+            maxProjectionDelta: retopo.stats.maxProjectionDelta,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Retopo: ${s}³ fillet R=${fR} targetEdge=${tgt} iters=${iters} | base ${retopo.stats.baseTris} tris → retopo ${retopo.stats.retopoTris} tris (${retopo.stats.retopoVerts} verts), ${retopo.stats.projections} surface projections (max Δ ${retopo.stats.maxProjectionDelta.toFixed(4)} mm) — OCCT B-K remesh | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastRetopoReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Retopo: ' + err.message };
+      }
+    },
+
     // ─── SP-121 — Intersect Surfaces (OCCT NURBS SSI) ────────────────
     // CATIA GSD Intersect / NX Curve / SW Curve. Surface-Surface
     // Intersection (SSI) via OCCT GeomAPI_IntSS_1. Sphere + plane

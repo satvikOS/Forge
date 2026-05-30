@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-122 — Retopologise (Maya / ZBrush / NX Realize Shape / Modo /
+  // 3ds Max retopo). Isotropic remeshing (Botsch-Kobbelt) with optional
+  // pull-back to original B-rep surface. Produces a clean even-density
+  // mesh for downstream simulation, animation, or 3D-print prep.
+  'Sculpt Retopo': {
+    title: 'Sculpt — Retopologise (isotropic remeshing)',
+    blurb: 'OCCT-backed retopo: filleted box → Botsch-Kobbelt remesh with target edge length, surface pull-back enabled. Mesh becomes uniformly dense.',
+    fields: [
+      { name: 'boxSize',     label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',     label: 'Fillet radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'targetEdge',  label: 'Target edge L', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'iterations',  label: 'B-K iterations', type: 'number', default: 5, unit: '',  min: 1, step: 1 },
+      { name: 'deflection',  label: 'Tess deflection', type: 'number', default: 0.5, unit: 'mm', min: 0.05, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8e6a8, step: 1 },
+    ],
+  },
   // SP-121 — Intersect Surfaces (CATIA GSD Intersect / NX Curve / SW
   // Curve Through Reference Points). Surface-Surface Intersection (SSI)
   // foundational geometric op. Sphere + box → SSI gives the trim
