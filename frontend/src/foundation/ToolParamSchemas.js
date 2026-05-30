@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-136 — Loft Tangent (CATIA Multi-Sections Solid / NX Through-Curves
+  // tangent option / SW Lofted Boss with smoothing). 3 square section
+  // wires lofted with SetSmoothing for G1 tangency between sections.
+  'Sculpt Loft Tangent': {
+    title: 'Sculpt — Loft Tangent (3-section smooth solid)',
+    blurb: 'OCCT-backed loft: 3 square sections (40/20/30 mm at z=0/20/40) with G1 SetSmoothing. Smooth lateral lofted surface.',
+    fields: [
+      { name: 's0', label: 'Section 0 size', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 's1', label: 'Section 1 size', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 's2', label: 'Section 2 size', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'z0', label: 'Section 0 Z',    type: 'number', default: 0,  unit: 'mm', step: 1 },
+      { name: 'z1', label: 'Section 1 Z',    type: 'number', default: 20, unit: 'mm', step: 1 },
+      { name: 'z2', label: 'Section 2 Z',    type: 'number', default: 40, unit: 'mm', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6c8b8, step: 1 },
+    ],
+  },
   // SP-135 — Pipe Shell Sweep (CATIA Rib Pipe / NX Tube / SW Swept Boss).
   // Sweep a circular profile along a tortuous right-angle polyline path
   // with N bends. Real BRepOffsetAPI_MakePipeShell — handles

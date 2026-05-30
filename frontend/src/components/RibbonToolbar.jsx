@@ -362,6 +362,7 @@ export const TABS = {
         { name: 'Sculpt Topology Adjacency', icon: '⌬', key: 'part' },
         { name: 'Sculpt Eval Curve', icon: '⌒', key: 'part' },
         { name: 'Sculpt Pipe Shell Sweep', icon: '⊃', key: 'part' },
+        { name: 'Sculpt Loft Tangent', icon: '◇', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

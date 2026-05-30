@@ -1747,6 +1747,50 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-136 — Loft Tangent (OCCT ThruSections + SetSmoothing) ────
+    // CATIA Multi-Sections Solid / NX Through-Curves tangent option /
+    // SW Lofted Boss with smoothing. 3 square sections lofted with G1
+    // tangent continuity between sections.
+    'Sculpt Loft Tangent': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Loft Tangent');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Loft Tangent cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastLoftReport = { error: 'in progress' };
+      }
+      try {
+        const s0 = values.s0 ?? 40, s1 = values.s1 ?? 20, s2 = values.s2 ?? 30;
+        const z0 = values.z0 ?? 0, z1 = values.z1 ?? 20, z2 = values.z2 ?? 40;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s0 <= 0 || s1 <= 0 || s2 <= 0) throw new Error('section sizes > 0');
+        const t0 = Date.now();
+        const loft = await ArchDiscKernel.brep.loftTangent({ s0, s1, s2, z0, z1, z2 });
+        const placed = await ArchDiscKernel.brep.translate(loft, px - s0 / 2, py - s0 / 2, pz - (z2 - z0) / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xe6c8b8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Naive estimate: average cross-section × total height.
+        const avgCS = (s0 * s0 + s1 * s1 + s2 * s2) / 3;
+        const predictedV = avgCS * (z2 - z0);
+        if (typeof window !== 'undefined') {
+          window.__lastLoftReport = {
+            s0, s1, s2, z0, z1, z2,
+            actualVolume: metrics.volume,
+            predictedVolume: predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Loft Tangent: 3 sections ${s0}/${s1}/${s2} at z=${z0}/${z1}/${z2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (avg-cs estimate ${(predictedV / 1000).toFixed(2)} cm³), ${metrics.faceCount} faces — OCCT ThruSections G1 | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastLoftReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Loft Tangent: ' + err.message };
+      }
+    },
+
     // ─── SP-135 — Pipe Shell Sweep (OCCT MakePipeShell tortuous path) ─
     // CATIA Rib Pipe / NX Tube / SW Swept Boss. Sweep a circle profile
     // along a right-angle polyline path with N bends. The OCCT
