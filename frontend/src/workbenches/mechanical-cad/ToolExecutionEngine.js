@@ -1747,6 +1747,43 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-62 — Slotted Plate (OCCT: 2 cyls + box = stadium cutter) ───
+    'Sculpt Slotted Plate': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Slotted Plate');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Slotted Plate cancelled' };
+      try {
+        const W = values.plateW ?? 120, H = values.plateH ?? 60, T = values.plateT ?? 6;
+        const slotL = values.slotL ?? 50, slotR = values.slotR ?? 5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (slotL + 2 * slotR > W - 4) throw new Error('slot too long for plate');
+        if (2 * slotR > H - 4) throw new Error('slot too tall for plate');
+        const t0 = Date.now();
+        const plate = await ArchDiscKernel.brep.makeBox(W, H, T);
+        // Slot cutter: 2 cyls at slot ends + box between them.
+        const cyl1 = await ArchDiscKernel.brep.makeCylinder(slotR, T + 2);
+        const cyl1P = await ArchDiscKernel.brep.translate(cyl1, W / 2 - slotL / 2, H / 2, -1);
+        const cyl2 = await ArchDiscKernel.brep.makeCylinder(slotR, T + 2);
+        const cyl2P = await ArchDiscKernel.brep.translate(cyl2, W / 2 + slotL / 2, H / 2, -1);
+        const slotBox = await ArchDiscKernel.brep.makeBox(slotL, 2 * slotR, T + 2);
+        const slotBoxP = await ArchDiscKernel.brep.translate(slotBox, W / 2 - slotL / 2, H / 2 - slotR, -1);
+        let cutter = await ArchDiscKernel.brep.fuse(cyl1P, cyl2P);
+        cutter = await ArchDiscKernel.brep.fuse(cutter, slotBoxP);
+        const slotted = await ArchDiscKernel.brep.cut(plate, cutter);
+        const placed = await ArchDiscKernel.brep.translate(slotted, px - W / 2, py - H / 2, pz - T / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6ba58a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Stadium area: π·R² + 2R·L
+        const slotArea = Math.PI * slotR * slotR + 2 * slotR * slotL;
+        const predictedV = (W * H - slotArea) * T;
+        if (typeof window !== 'undefined') {
+          window.__lastSlotPlateReport = { plateW: W, plateH: H, plateT: T, slotL, slotR, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Slotted Plate: ${W}×${H}×${T} mm + slot ${slotL}×Ø${slotR * 2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Slotted Plate: ' + err.message }; }
+    },
+
     // ─── SP-59 — Square HSS Tube (OCCT box − box) ──────────────────────
     'Sculpt Square Tube': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Square Tube');

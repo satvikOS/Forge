@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-62 — Slotted Plate (NX / CATIA / Creo / SW common feature).
+  // Plate with one or more elongated slots — common adjustable-mounting
+  // feature. OCCT-backed via 2 cylinders + box rectangle = slot cutter.
+  'Sculpt Slotted Plate': {
+    title: 'Sculpt — Slotted Plate (elongated slot)',
+    blurb: 'OCCT-backed plate with a centred elongated slot. Common adjustable-mounting feature.',
+    fields: [
+      { name: 'plateW', label: 'Plate width',  type: 'number', default: 120, unit: 'mm', min: 10, step: 10 },
+      { name: 'plateH', label: 'Plate height', type: 'number', default: 60,  unit: 'mm', min: 10, step: 10 },
+      { name: 'plateT', label: 'Plate thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'slotL',  label: 'Slot length',  type: 'number', default: 50, unit: 'mm', min: 1, step: 5 },
+      { name: 'slotR',  label: 'Slot radius',  type: 'number', default: 5,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba58a, step: 1 },
+    ],
+  },
   // SP-59 — Square HSS Tube (NX / CATIA / Creo / Revit, AISC HSS).
   'Sculpt Square Tube': {
     title: 'Sculpt — Square HSS Tube (hollow square section)',
