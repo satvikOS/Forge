@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-105 — Undercut Analysis (CATIA Mold / NX Mold Wizard).
+  // Companion to SP-100 Draft Analysis: classifies each face as good
+  // (faces +pull) / undercut (faces -pull AND ray-confirmed shadowed)
+  // / neutral. Frustum: 2 good + 1 undercut (bottom cap, shadowed by
+  // top cap).
+  'Sculpt Undercut Analysis': {
+    title: 'Sculpt — Undercut Analysis (mold QC, shadow-ray confirmed)',
+    blurb: 'OCCT-backed undercut QC: sample face normals, shadow-ray test candidates facing −pull. Frustum + +Z pull → 2 good / 1 undercut (bottom cap).',
+    fields: [
+      { name: 'r1', label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2', label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',  label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'threshold', label: 'Threshold (°)', type: 'number', default: 3, unit: '°', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xf5b074, step: 1 },
+    ],
+  },
   // SP-104 — N-Sided NURBS Patch (CATIA GSD Adaptive Sweep / NX Studio
   // Free Form class). Fill a non-4-sided boundary loop with a degree-3×3
   // NURBS variational surface. The pentagonal-prism top cap is the

@@ -1747,6 +1747,59 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-105 — Undercut Analysis (OCCT mold QC, shadow-ray) ───────
+    // CATIA Mold / NX Mold Wizard companion to SP-100 Draft Analysis.
+    // For every face: sample the outward normal, classify by sign vs
+    // pull, AND shadow-ray test the candidate undercut faces by
+    // firing a ray along +pull from just outside the face — if the
+    // ray hits another body face, the candidate is a confirmed undercut.
+    'Sculpt Undercut Analysis': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Undercut Analysis');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Undercut Analysis cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastUndercutReport = { error: 'in progress' };
+      }
+      try {
+        const r1 = values.r1 ?? 20, r2 = values.r2 ?? 10, h = values.h ?? 30;
+        const threshold = values.threshold ?? 3;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (r1 <= 0 || r2 < 0 || h <= 0) throw new Error('r1>0, r2≥0, h>0 required');
+        const t0 = Date.now();
+        const frustum = await ArchDiscKernel.brep.makeCone(r1, r2, h);
+        const placed = await ArchDiscKernel.brep.translate(frustum, px, py, pz - h / 2);
+        const analysis = await ArchDiscKernel.brep.undercutAnalysis(placed, {
+          pullDirection: [0, 0, 1], threshold,
+        });
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xf5b074;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        if (typeof window !== 'undefined') {
+          window.__lastUndercutReport = {
+            r1, r2, h, threshold,
+            pullDirection: analysis.pullDirection,
+            faceCount: analysis.perFace ? analysis.perFace.length : null,
+            good: analysis.good,
+            undercut: analysis.undercut,
+            neutral: analysis.neutral,
+            perFace: analysis.perFace ? analysis.perFace.map((f) => ({
+              faceIndex: f.faceIndex,
+              category: f.category,
+              isUndercut: f.isUndercut,
+              dotN: f.dotN,
+              shadowHits: f.shadowHits,
+            })) : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Undercut Analysis: r1=${r1} r2=${r2} h=${h} pull=+Z threshold=${threshold}° → +${analysis.good} good / ${analysis.undercut} undercut / ${analysis.neutral} neutral — OCCT shadow-ray QC | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastUndercutReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Undercut Analysis: ' + err.message };
+      }
+    },
+
     // ─── SP-104 — N-Sided NURBS Patch (Class-A surfacing) ────────────
     // CATIA GSD Adaptive Sweep / NX Studio Free Form class. Build a
     // pentagonal prism and replace its top cap with a degree-3×3 NURBS
