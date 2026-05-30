@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-144 — Replace Face (CATIA Surface Replacement / NX Replace Face
+  // / SW Replace Face). Rebuild a face on a different surface. With
+  // curvedSwap=true, replace with a domed NURBS surface (bulge).
+  'Sculpt Replace Face': {
+    title: 'Sculpt — Replace Face (curved swap with bulge)',
+    blurb: 'OCCT-backed face replace: cube → swap face 6 (top) with a bulged NURBS surface. Volume grows from added bulge.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',    type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'faceIdx', label: 'Face index',  type: 'number', default: 6,  unit: '',   min: 1, step: 1 },
+      { name: 'bulge',   label: 'Bulge',       type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6d0a8, step: 1 },
+    ],
+  },
   // SP-143 — Sweep Flange (SW Lofted Bend / CATIA Sheetmetal Sweep /
   // NX Swept Flange). Sweep a flange profile along a polyline path —
   // the sheet-metal version of swept boss.

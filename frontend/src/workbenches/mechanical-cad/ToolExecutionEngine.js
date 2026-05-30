@@ -1747,6 +1747,54 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-144 — Replace Face (OCCT curved-swap, P4 native) ────────
+    // CATIA Surface Replacement / NX Replace Face / SW Replace Face.
+    // Rebuild a picked face on a different surface. With curvedSwap
+    // mode, swap the planar face for a domed NURBS surface (bulge).
+    // The surrounding topology is rebuilt around the swapped face.
+    'Sculpt Replace Face': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Replace Face');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Replace Face cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastReplaceFaceReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const faceIdx = values.faceIdx ?? 6;
+        const bulge = values.bulge ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || bulge <= 0) throw new Error('s > 0, bulge > 0');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const beforeM = await ArchDiscKernel.brep.measure(cube);
+        const swapped = await ArchDiscKernel.brep.replaceFace(cube, faceIdx, {
+          curvedSwap: true, bulge,
+        });
+        const afterM = await ArchDiscKernel.brep.measure(swapped);
+        const placed = await ArchDiscKernel.brep.translate(swapped, px - s / 2, py - s / 2, pz - s / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xe6d0a8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        if (typeof window !== 'undefined') {
+          window.__lastReplaceFaceReport = {
+            boxSize: s, faceIdx, bulge,
+            volumeBefore: beforeM.volume,
+            volumeAfter: afterM.volume,
+            volumeDelta: afterM.volume - beforeM.volume,
+            faceCountBefore: beforeM.faceCount,
+            faceCountAfter: afterM.faceCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Replace Face: ${s}³ + bulge ${bulge} mm on face #${faceIdx} | V ${(beforeM.volume / 1000).toFixed(2)} → ${(afterM.volume / 1000).toFixed(2)} cm³ (ΔV = ${((afterM.volume - beforeM.volume) / 1000).toFixed(2)} cm³), faces ${beforeM.faceCount} → ${afterM.faceCount} — OCCT replaceFace curvedSwap | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastReplaceFaceReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Replace Face: ' + err.message };
+      }
+    },
+
     // ─── SP-143 — Sweep Flange (OCCT sheet metal swept lip) ─────────
     // SW Lofted Bend / CATIA Sheetmetal Sweep / NX Swept Flange class.
     // Sweep a flange profile along a polyline path — the sheet-metal
