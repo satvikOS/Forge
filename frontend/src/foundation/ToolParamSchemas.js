@@ -124,6 +124,29 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-129 — Ray Fire (NX Measure Ray / CATIA Distance / SW Measure).
+  // Foundational ray-shape intersection used by selection / picking /
+  // mold draft / clearance queries. Returns all hits along the ray
+  // with face, point, normal, UV parameters.
+  'Sculpt Ray Fire': {
+    title: 'Sculpt — Ray Fire (kernel ray query)',
+    blurb: 'OCCT-backed rayFire: sphere R=20 + ray from (-50,0,0) along +X → 2 hits at x=±20. Each hit reports face / point / normal / distance.',
+    fields: [
+      { name: 'sphereR',  label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'originX',  label: 'Ray origin X',  type: 'number', default: -50, unit: 'mm', step: 1 },
+      { name: 'originY',  label: 'Ray origin Y',  type: 'number', default: 0,  unit: 'mm', step: 1 },
+      { name: 'originZ',  label: 'Ray origin Z',  type: 'number', default: 0,  unit: 'mm', step: 1 },
+      { name: 'dirX',     label: 'Direction X',   type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'dirY',     label: 'Direction Y',   type: 'number', default: 0,  unit: '',   step: 0.1 },
+      { name: 'dirZ',     label: 'Direction Z',   type: 'number', default: 0,  unit: '',   step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody',  label: 'Body colour',  type: 'number', default: 0xa8c8e6, step: 1 },
+      { name: 'colorHit',   label: 'Hit colour',   type: 'number', default: 0xff4040, step: 1 },
+      { name: 'colorRay',   label: 'Ray colour',   type: 'number', default: 0x40ff40, step: 1 },
+    ],
+  },
   // SP-128 — Self-Intersection QA (SW Tools/Check Geometry / CATIA Quick
   // Check / NX Check Tools). 2-tier QA: BRepCheck_Analyzer intrinsic
   // validity + mesh-level Möller triangle-triangle detector for fine

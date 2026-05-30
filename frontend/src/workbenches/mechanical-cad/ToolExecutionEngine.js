@@ -1747,6 +1747,97 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-129 — Ray Fire (OCCT IntCurvesFace_ShapeIntersector) ─────
+    // NX Measure Ray / CATIA Distance / SW Measure. Foundational ray-
+    // shape intersection used by selection / picking / mold draft /
+    // clearance queries. Returns all hits along the ray with face,
+    // point, normal, UV parameters, and a state classification.
+    'Sculpt Ray Fire': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Ray Fire');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Ray Fire cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastRayFireReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const oX = values.originX ?? -50, oY = values.originY ?? 0, oZ = values.originZ ?? 0;
+        const dX = values.dirX ?? 1, dY = values.dirY ?? 0, dZ = values.dirZ ?? 0;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0) throw new Error('sphereR > 0');
+        const dMag = Math.sqrt(dX * dX + dY * dY + dZ * dZ);
+        if (dMag < 1e-9) throw new Error('direction must be non-zero');
+        const t0 = Date.now();
+        const sphere = await ArchDiscKernel.brep.makeSphere(sR);
+        const placedSphere = await ArchDiscKernel.brep.translate(sphere, px, py, pz);
+        const hits = await ArchDiscKernel.brep.rayFire(
+          placedSphere,
+          { x: oX + px, y: oY + py, z: oZ + pz },
+          { x: dX, y: dY, z: dZ },
+          { maxDistance: 1000 },
+        );
+        const elapsedMs = Date.now() - t0;
+        const colorBody = Number.isFinite(values.colorBody) ? values.colorBody : 0xa8c8e6;
+        const colorRay = Number.isFinite(values.colorRay) ? values.colorRay : 0x40ff40;
+        const colorHit = Number.isFinite(values.colorHit) ? values.colorHit : 0xff4040;
+        await addBrepShapeToScene(scene, viewport, placedSphere, colorBody);
+        // Render the ray as a long line.
+        const rayGeom = new THREE.BufferGeometry();
+        const rayLen = 200;
+        const ux = dX / dMag, uy = dY / dMag, uz = dZ / dMag;
+        rayGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+          oX + px, oY + py, oZ + pz,
+          oX + px + ux * rayLen, oY + py + uy * rayLen, oZ + pz + uz * rayLen,
+        ]), 3));
+        const rayLine = new THREE.Line(rayGeom, new THREE.LineBasicMaterial({ color: colorRay, linewidth: 2 }));
+        const rayGroup = new THREE.Group();
+        rayGroup.scale.set(0.001, 0.001, 0.001);
+        rayGroup.add(rayLine);
+        rayGroup.userData.pickable = false;
+        rayGroup.userData.generatedModel = true;
+        rayGroup.userData.rayFireLine = true;
+        scene.add(rayGroup);
+        rayGroup.updateMatrixWorld(true);
+        // Render each hit as a small sphere.
+        for (const h of hits) {
+          const hitMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(1.5, 12, 12),
+            new THREE.MeshStandardMaterial({ color: colorHit, metalness: 0.4, roughness: 0.3 }),
+          );
+          hitMesh.position.set(h.point.x, h.point.y, h.point.z);
+          const hitGroup = new THREE.Group();
+          hitGroup.scale.set(0.001, 0.001, 0.001);
+          hitGroup.add(hitMesh);
+          hitGroup.userData.pickable = false;
+          hitGroup.userData.generatedModel = true;
+          hitGroup.userData.rayFireHit = true;
+          scene.add(hitGroup);
+          hitGroup.updateMatrixWorld(true);
+        }
+        if (typeof window !== 'undefined') {
+          window.__lastRayFireReport = {
+            sphereR: sR,
+            origin: { x: oX, y: oY, z: oZ },
+            direction: { x: ux, y: uy, z: uz },
+            hitCount: hits.length,
+            hits: hits.map((h) => ({
+              point: h.point,
+              normal: h.normal,
+              distance: h.distance,
+              state: h.state,
+              uv: h.uv,
+            })),
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Ray Fire: sphere R=${sR} from (${oX},${oY},${oZ}) dir (${ux.toFixed(2)},${uy.toFixed(2)},${uz.toFixed(2)}) | ${hits.length} hits at distances [${hits.map((h) => h.distance.toFixed(2)).join(', ')}] mm — OCCT ray query | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastRayFireReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Ray Fire: ' + err.message };
+      }
+    },
+
     // ─── SP-128 — Self-Intersection QA (OCCT 2-tier validity) ────────
     // SW Tools/Check Geometry / CATIA Quick Check / NX Check Tools
     // class. 2-tier QA pipeline:
