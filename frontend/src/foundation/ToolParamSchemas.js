@@ -124,6 +124,29 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-44 — CAM Pocket Toolpath (Fusion CAM / NX CAM / Creo NC /
+  // Mastercam / SolidCAM "2.5D Pocket"). Concentric-rectangle clearing
+  // path generated as a 3D polyline + visualised as a swept tube. The
+  // entry point into the CAM workbench: real geometric toolpath the
+  // controller would execute, not just G-code text.
+  'Sculpt Pocket Toolpath': {
+    title: 'Sculpt — CAM Pocket Toolpath (2.5D concentric clearing)',
+    blurb: 'Rectangular pocket clearing path: concentric inset rectangles + Z-stepped passes. Rendered as a swept tube so you can see the tool route.',
+    fields: [
+      { name: 'pocketW',     label: 'Pocket width',  type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'pocketH',     label: 'Pocket height', type: 'number', default: 70,  unit: 'mm', min: 10, step: 5 },
+      { name: 'pocketDepth', label: 'Pocket depth',  type: 'number', default: 6,   unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'toolDiaMm',   label: 'Tool Ø',        type: 'number', default: 8,   unit: 'mm', min: 1, step: 0.5 },
+      { name: 'stepoverMm',  label: 'Stepover',      type: 'number', default: 4,   unit: 'mm', min: 0.1, step: 0.1, hint: 'radial pass-to-pass shift' },
+      { name: 'depthPerPassMm', label: 'Depth / pass', type: 'number', default: 2, unit: 'mm', min: 0.1, step: 0.1, hint: 'axial cut per Z level' },
+      { name: 'feedMmPerMin', label: 'Feed rate',    type: 'number', default: 800, unit: 'mm/min', min: 10, step: 50 },
+      { name: 'tubeR',       label: 'Path tube R',   type: 'number', default: 0.5, unit: 'mm', min: 0.1, step: 0.1, hint: 'visualisation tube radius' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xff6b3d, step: 1 },
+    ],
+  },
   // SP-43 — Point Cloud Reconstruction (reverse engineering, the
   // canonical scan-to-CAD entry point). Sample N noisy points from a
   // parametric source (sphere / torus / cylinder), run the foundation

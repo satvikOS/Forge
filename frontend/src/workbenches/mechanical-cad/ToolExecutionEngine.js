@@ -94,6 +94,7 @@ import { wShapeProfile, wShapeArea, WSHAPE_PRESETS } from '../../foundation/IBea
 import { sampleSphere } from '../../foundation/PointCloudRecon.js';
 import { sampleTorus, sampleCylinder, sphereVolume, torusVolume, cylinderVolume } from '../../foundation/ScanSources.js';
 import { pointCloudSDF, pointCloudBBox } from '../../foundation/PointCloudSDF.js';
+import { pocketSpiralPath, pathLength, pathCycleMinutes, pocketRingCount } from '../../foundation/CAMPocketPath.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1743,6 +1744,68 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-44 — CAM Pocket Toolpath (Fusion / NX / Creo / Mastercam) ──
+    // Generate the 3D polyline a 2.5D pocket-clearing toolpath would
+    // execute and sweep a small-radius cross-section along it so the
+    // route is VISIBLE in the viewport — the canonical CAM workbench
+    // deliverable. Report includes total path length + cycle-time
+    // estimate so a manufacturing engineer can size the operation.
+    'Sculpt Pocket Toolpath': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Pocket Toolpath');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Pocket Toolpath cancelled' };
+      try {
+        const W = values.pocketW ?? 100, H = values.pocketH ?? 70, D = values.pocketDepth ?? 6;
+        const toolDiaMm   = values.toolDiaMm    ?? 8;
+        const stepoverMm  = values.stepoverMm   ?? 4;
+        const depthPerPassMm = values.depthPerPassMm ?? 2;
+        const feedMmPerMin   = values.feedMmPerMin   ?? 800;
+        const tubeR       = values.tubeR ?? 0.5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        // Pocket aligned to local origin; the handler translates the
+        // final body so the pocket centre lands at the requested (px, py, pz).
+        const pocket = { xmin: -W / 2, ymin: -H / 2, xmax: W / 2, ymax: H / 2, depth: D };
+        const path = pocketSpiralPath(pocket, { toolDiaMm, stepoverMm, depthPerPassMm, safeZmm: 4 });
+        const len = pathLength(path);
+        const rings = pocketRingCount(pocket, { toolDiaMm, stepoverMm });
+        const cycleMin = pathCycleMinutes(path, feedMmPerMin);
+        const zPasses = Math.ceil(D / depthPerPassMm);
+
+        // Sweep a small circular cross-section along the path so the
+        // route reads as a ribbon in the viewport.  samples == waypoint
+        // count so every vertex of the polyline is preserved.
+        const profile = fCircleProfile(tubeR, 12);
+        let solid = await fSweep({ profile2D: profile, path, samples: path.length });
+        solid = solid.translate([px, py, pz]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : null;
+        const color = Number.isFinite(values.color) ? values.color : 0xff6b3d;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastPocketReport = {
+            pocketW: W, pocketH: H, pocketDepth: D,
+            toolDiaMm, stepoverMm, depthPerPassMm, feedMmPerMin, tubeR,
+            waypointCount: path.length,
+            pathLengthMm: len,
+            ringCount: rings,
+            zPasses,
+            cycleMinutes: cycleMin,
+            volume,
+            triCount,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt Pocket Toolpath: ${W}×${H}×${D} mm pocket, Ø${toolDiaMm} tool, ${rings} rings × ${zPasses} Z-passes | ${path.length} waypoints, ${(len / 1000).toFixed(2)} m path, est ${cycleMin.toFixed(1)} min @ F${feedMmPerMin}${tcStr}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Pocket Toolpath: ' + err.message };
       }
     },
 
