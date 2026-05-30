@@ -124,6 +124,26 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-125 — Sheet Metal Hem (SW Sheet Metal / CATIA Generative
+  // Sheetmetal / NX Sheet Metal). Fold a short safety hem (180° closed
+  // / 165° open / 270° rolled / 225° teardrop) back onto the parent
+  // flange. Removes sharp edges + stiffens.
+  'Sculpt Sheet Metal Hem': {
+    title: 'Sculpt — Sheet Metal Hem (safety fold)',
+    blurb: 'OCCT-backed hem: base plate + open hem (165°) on long edge. Bend records carry hemType / hemLength / hemAngleDeg / bendAllowance.',
+    fields: [
+      { name: 'plateX',    label: 'Plate X',     type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',    label: 'Plate Y',     type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness', label: 'Thickness',   type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'hemType',   label: 'Hem type',    type: 'string', default: 'open', choices: ['closed', 'open', 'rolled', 'teardrop'] },
+      { name: 'hemLength', label: 'Hem length',  type: 'number', default: 8,   unit: 'mm', min: 1, step: 1 },
+      { name: 'edgeIdx',   label: 'Edge index',  type: 'number', default: 4,   unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8dab8, step: 1 },
+    ],
+  },
   // SP-124 — Mass Properties (SW Mass Properties / CATIA Measure Inertia
   // / NX Measure / Creo Mass Properties). Real engineering inertia
   // tensor + principal moments + principal axes via OCCT

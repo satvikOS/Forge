@@ -1747,6 +1747,73 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-125 — Sheet Metal Hem (OCCT safety fold) ─────────────────
+    // SW Sheet Metal / CATIA Generative Sheetmetal / NX Sheet Metal.
+    // Fold a short hem (open 165° / closed 180° / rolled 270° /
+    // teardrop 225°) back onto the parent flange. The kernel reuses
+    // edgeFlange under the hood; the bend record is patched with
+    // hemType / hemLength / hemAngleDeg + a correct bendAllowance.
+    'Sculpt Sheet Metal Hem': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Sheet Metal Hem');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Sheet Metal Hem cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastHemReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const hemType = (values.hemType || 'open').toLowerCase();
+        const hemL = values.hemLength ?? 8;
+        const edgeIdx = values.edgeIdx ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || hemL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        const hemmed = await ArchDiscKernel.brep.hem(base, edgeIdx, {
+          hemType, hemLength: hemL,
+        });
+        const hemmedSm = ArchDiscKernel.brep.getSheetMetalMetadata(hemmed);
+        const hemmedM = await ArchDiscKernel.brep.measure(hemmed);
+        const placed = await ArchDiscKernel.brep.translate(hemmed, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc8dab8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const bends = (hemmedSm && hemmedSm.bends) ? hemmedSm.bends : [];
+        const lastBend = bends.length > 0 ? bends[bends.length - 1] : null;
+        if (typeof window !== 'undefined') {
+          window.__lastHemReport = {
+            plateX: pX, plateY: pY, thickness: t,
+            hemType, hemLength: hemL, edgeIdx,
+            baseVolume: baseM.volume,
+            baseFaceCount: baseM.faceCount,
+            hemmedVolume: hemmedM.volume,
+            hemmedFaceCount: hemmedM.faceCount,
+            bendCount: bends.length,
+            lastBend: lastBend ? {
+              type: lastBend.type, hemType: lastBend.hemType,
+              length: lastBend.length, hemLength: lastBend.hemLength,
+              hemAngleDeg: lastBend.hemAngleDeg, angleDeg: lastBend.angleDeg,
+              bendAllowance: lastBend.bendAllowance,
+            } : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Sheet Metal Hem: ${pX}×${pY}×${t} + ${hemType} hem L=${hemL} edge=${edgeIdx} | base V=${(baseM.volume / 1000).toFixed(2)} → hemmed V=${(hemmedM.volume / 1000).toFixed(2)} cm³, faces ${baseM.faceCount}→${hemmedM.faceCount}, bends=${bends.length} (last type=${lastBend?.type}, hemType=${lastBend?.hemType}, ${lastBend?.hemAngleDeg}° nominal) — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastHemReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Sheet Metal Hem: ' + err.message };
+      }
+    },
+
     // ─── SP-124 — Mass Properties (OCCT inertia + principal axes) ────
     // SW Mass Properties / CATIA Measure Inertia / NX Measure / Creo
     // Mass Properties class. Volume + surface area + centroid + full
