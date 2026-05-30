@@ -1747,6 +1747,54 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-81 — Push-Pull Box (OCCT direct-modeling face shift) ─────
+    'Sculpt Push-Pull Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Push-Pull Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Push-Pull Box cancelled' };
+      try {
+        const dx = values.dx ?? 60, dy = values.dy ?? 40, dz = values.dz ?? 30;
+        const distance = values.distance ?? 15;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (distance < 0 && -distance >= dz - 0.5) throw new Error('pull distance too large for box (would erase it)');
+        // Stash early report so the e2e doesn't hang on internal failure.
+        if (typeof window !== 'undefined') {
+          window.__lastPushPullReport = {
+            dx, dy, dz, distance,
+            topFaceIndex: -1,
+            predictedVolume: dx * dy * (dz + distance),
+            actualVolume: 0, relError: 1, faceCount: 0, edgeCount: 0,
+            elapsedMs: 0, error: 'in progress',
+          };
+        }
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        // Find the +Z (top) face by midpoint Z via evalSurface on each face.
+        const faces = box.body.faces();
+        let topIdx = -1, topZ = -Infinity;
+        for (let i = 0; i < faces.length; i++) {
+          const ev = await ArchDiscKernel.brep.evalSurface(faces[i], 0.5, 0.5, { normalised: true });
+          if (ev && ev.point && ev.point.z > topZ) {
+            topZ = ev.point.z; topIdx = i;
+          }
+        }
+        if (typeof window !== 'undefined' && window.__lastPushPullReport) {
+          window.__lastPushPullReport.topFaceIndex = topIdx + 1;
+        }
+        if (topIdx === -1) throw new Error('could not find +Z face on box');
+        const pushed = await ArchDiscKernel.brep.pushPullFace(box, faces[topIdx], distance);
+        const placed = await ArchDiscKernel.brep.translate(pushed, px - dx / 2, py - dy / 2, pz - (dz + distance) / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x7aa382;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = dx * dy * (dz + distance);
+        if (typeof window !== 'undefined') {
+          window.__lastPushPullReport = { dx, dy, dz, distance, topFaceIndex: topIdx + 1, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / Math.max(1, predictedV), faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs, error: null };
+        }
+        return { status: 'success', message: `Sculpt Push-Pull Box: ${dx}×${dy}×${dz} + face #${topIdx + 1} shift ${distance > 0 ? '+' : ''}${distance} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Push-Pull Box: ' + err.message }; }
+    },
+
     // ─── SP-79 — Half-Cylinder (OCCT cyl − half-space cut) ──────────
     'Sculpt Half-Cylinder': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Half-Cylinder');

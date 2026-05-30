@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-81 — Push-Pull Face (NX Synchronous Technology / CATIA FTA /
+  // Creo Flexible Modeling). Directly modify a body by translating one
+  // of its faces along its normal, regenerating the adjacent walls.
+  // OCCT-backed via BRepFeat_MakePrism (pushPullFace).
+  'Sculpt Push-Pull Box': {
+    title: 'Sculpt — Push-Pull Box (direct +Z face modification)',
+    blurb: 'OCCT-backed push (>0) or pull (<0) of a box top face. Synchronous-tech / direct-modeling op.',
+    fields: [
+      { name: 'dx', label: 'Box X', type: 'number', default: 60, unit: 'mm', min: 4, step: 1 },
+      { name: 'dy', label: 'Box Y', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'dz', label: 'Box Z', type: 'number', default: 30, unit: 'mm', min: 4, step: 1 },
+      { name: 'distance', label: 'Push distance (+) / pull (−)', type: 'number', default: 15, unit: 'mm', step: 1, hint: 'positive grows top, negative shortens' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x7aa382, step: 1 },
+    ],
+  },
   // SP-79 — Half-Cylinder (cyl − half-space cut).
   'Sculpt Half-Cylinder': {
     title: 'Sculpt — Half-Cylinder (cylinder cut in half)',
