@@ -1747,6 +1747,83 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-109 — Sheet Metal Jog (OCCT Z-fold) ──────────────────────
+    // SW Sheet Metal / CATIA Generative Sheetmetal / NX Sheet Metal
+    // class. Two perpendicular bends on the same edge → Z-fold step.
+    // The kernel runs edgeFlange twice (riser, then counter-bend at
+    // negative angle on the far edge of the riser); both bend records
+    // are tagged jogPart='start'/'end' for downstream Flat Pattern.
+    'Sculpt Sheet Metal Jog': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Sheet Metal Jog');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Sheet Metal Jog cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastJogReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const jogOffset = values.jogOffset ?? 10;
+        const fL = values.flangeLength ?? 20;
+        const angle = values.angleDeg ?? 90;
+        const edgeIdx = values.edgeIdx ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || jogOffset <= 0 || fL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        const jogged = await ArchDiscKernel.brep.jog(base, edgeIdx, {
+          jogOffset, angleDeg: angle, flangeLength: fL,
+        });
+        // Read metadata BEFORE translate (translate strips it).
+        const joggedSm = ArchDiscKernel.brep.getSheetMetalMetadata(jogged);
+        const joggedM = await ArchDiscKernel.brep.measure(jogged);
+        const placed = await ArchDiscKernel.brep.translate(jogged, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb8dabd;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const bends = (joggedSm && joggedSm.bends) ? joggedSm.bends : [];
+        const jogBends = bends.filter((b) => b.type === 'jog');
+        const jogStart = bends.find((b) => b.jogPart === 'start');
+        const jogEnd   = bends.find((b) => b.jogPart === 'end');
+        if (typeof window !== 'undefined') {
+          window.__lastJogReport = {
+            plateX: pX, plateY: pY, thickness: t,
+            jogOffset, flangeLength: fL, angleDeg: angle, edgeIdx,
+            baseVolume: baseM.volume,
+            baseFaceCount: baseM.faceCount,
+            finalVolume: joggedM.volume,
+            finalFaceCount: joggedM.faceCount,
+            finalEdgeCount: joggedM.edgeCount,
+            totalBendCount: bends.length,
+            jogBendCount: jogBends.length,
+            jogStart: jogStart ? {
+              length: jogStart.length, angleDeg: jogStart.angleDeg,
+              jogPart: jogStart.jogPart, jogOffset: jogStart.jogOffset,
+              bendAllowance: jogStart.bendAllowance,
+            } : null,
+            jogEnd: jogEnd ? {
+              length: jogEnd.length, angleDeg: jogEnd.angleDeg,
+              jogPart: jogEnd.jogPart, jogOffset: jogEnd.jogOffset,
+              bendAllowance: jogEnd.bendAllowance,
+            } : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Sheet Metal Jog: ${pX}×${pY}×${t} + jog offset=${jogOffset} angle=${angle}° flange=${fL} edge=${edgeIdx} | base V=${(baseM.volume / 1000).toFixed(2)} cm³, final V=${(joggedM.volume / 1000).toFixed(2)} cm³, faces ${baseM.faceCount}→${joggedM.faceCount}, ${bends.length} total bends (${jogBends.length} jog) — OCCT sheet metal | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastJogReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Sheet Metal Jog: ' + err.message };
+      }
+    },
+
     // ─── SP-108 — Edge Flange (OCCT sheet metal L-bracket) ───────────
     // SW Sheet Metal / CATIA Generative Sheetmetal / NX Sheet Metal
     // class. baseFlange (flat plate tagged sheetMetal) + edgeFlange

@@ -124,6 +124,32 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-109 — Sheet Metal Jog (SW Sheet Metal / CATIA Sheetmetal class).
+  // Two perpendicular bends along the SAME flange edge → Z-fold step.
+  // The kernel runs edgeFlange twice with opposite angles; both bend
+  // records carry the jog metadata for downstream Flat Pattern.
+  // (Tried `partingSurface` first but the kernel can't extrude a strip
+  // from a closed circular parting edge — degenerate polyline; logged.)
+  // Companion to SP-101 Parting Line. Build a real ruled SHEET body
+  // extending the parting line outward by `margin` mm on both sides
+  // — drives downstream toolingSplit core/cavity separation.
+  'Sculpt Sheet Metal Jog': {
+    title: 'Sculpt — Sheet Metal Jog (Z-fold)',
+    blurb: 'OCCT-backed sheet metal jog: two bends along a base flange edge form a Z-fold. Two bend records appended for downstream Flat Pattern.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5,  step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5,  step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'jogOffset',    label: 'Jog offset',    type: 'number', default: 10,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 20,  unit: 'mm', min: 1,  step: 1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 90,  unit: '°',  min: 1,  step: 1 },
+      { name: 'edgeIdx',      label: 'Edge index',    type: 'number', default: 4,   unit: '',   min: 1,  step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8dabd, step: 1 },
+    ],
+  },
   // SP-108 — Edge Flange (SW Sheet Metal / CATIA Generative Sheetmetal /
   // NX Sheet Metal class). baseFlange (flat plate) + edgeFlange off the
   // long edge → classic L-bracket. The bend record carries kFactor,
