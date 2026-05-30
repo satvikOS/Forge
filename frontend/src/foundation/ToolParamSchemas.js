@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-155 — Full-Pipeline Demo. One mega-slice that chains the entire
+  // ArchDisc kernel pipeline on a single sheet-metal L-bracket part
+  // and reports every result. End-to-end professional CAD workflow
+  // in one ribbon click: build → measure → analyse → check → export.
+  'Sculpt Full Pipeline Demo': {
+    title: 'Sculpt — Full Pipeline Demo (build + analyse + interop)',
+    blurb: 'Single-click pipeline: baseFlange + edgeFlange + mass-props + draft + self-intersect QA + HLR + STEP round-trip + GLTF. Real production CAD workflow.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 30,  unit: 'mm', min: 1, step: 1 },
+      { name: 'density',      label: 'Steel density', type: 'number', default: 7850, unit: 'kg/m³', min: 1, step: 100 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8c8d8, step: 1 },
+    ],
+  },
   // SP-154 — Boundary Boss + Guides (CATIA Multi-Sections Solid with
   // guides / NX Through-Curves with guides / SW Boundary Boss with
   // guide curves). 2 profile sections + 2 guide rails that shape the

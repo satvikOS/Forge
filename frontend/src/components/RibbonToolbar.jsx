@@ -381,6 +381,7 @@ export const TABS = {
         { name: 'Sculpt Miter Flange', icon: '◤', key: 'part' },
         { name: 'Sculpt Closed Corner', icon: '◣', key: 'part' },
         { name: 'Sculpt Boundary Boss Guides', icon: '✦', key: 'part' },
+        { name: 'Sculpt Full Pipeline Demo', icon: '★', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

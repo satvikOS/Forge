@@ -1747,6 +1747,133 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-155 — Full-Pipeline Demo (single-click end-to-end) ──────
+    // The capstone slice. One ribbon click runs the full ArchDisc
+    // kernel pipeline on a single sheet-metal L-bracket and produces
+    // a complete CAD deliverable: build + measure + analyse + check
+    // + export. Demonstrates every workbench category working
+    // together — sheet metal, mass properties, mold draft, QA, drawing,
+    // and 3-format interop in one chained operation.
+    'Sculpt Full Pipeline Demo': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Full Pipeline Demo');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Full Pipeline Demo cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastPipelineDemoReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const fL = values.flangeLength ?? 30;
+        const density = values.density ?? 7850;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || fL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const timings = {};
+        // ── Stage 1: Build sheet metal L-bracket ────────────────────────
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        let st = Date.now();
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const baseM = await ArchDiscKernel.brep.measure(base);
+        const lbracket = await ArchDiscKernel.brep.edgeFlange(base, 4, { length: fL, angleDeg: 90 });
+        const lbracketSm = ArchDiscKernel.brep.getSheetMetalMetadata(lbracket);
+        const lbracketM = await ArchDiscKernel.brep.measure(lbracket);
+        timings.build = Date.now() - st;
+        // ── Stage 2: Mass properties (steel) ─────────────────────────────
+        st = Date.now();
+        const mp = await ArchDiscKernel.brep.massProperties(lbracket, { densityKgPerM3: density });
+        timings.massProps = Date.now() - st;
+        // ── Stage 3: Draft analysis (mold tool QC, +Z pull) ──────────────
+        st = Date.now();
+        const draft = await ArchDiscKernel.brep.draftAnalysis(lbracket, [0, 0, 1], { minDraftDeg: 3 });
+        timings.draft = Date.now() - st;
+        // ── Stage 4: Self-intersect QA (2-tier) ──────────────────────────
+        st = Date.now();
+        const tier1 = await ArchDiscKernel.brep.checkSelfIntersection(lbracket);
+        const tier2 = await ArchDiscKernel.brep.selfIntersect(lbracket, { deflection: 0.5 });
+        timings.qa = Date.now() - st;
+        // ── Stage 5: Hidden-line projection (drawing) ────────────────────
+        st = Date.now();
+        const hlr = await ArchDiscKernel.brep.hiddenLineProjection(lbracket, { viewDir: [1, 1, 1] });
+        timings.hlr = Date.now() - st;
+        // ── Stage 6: STEP round-trip (interop) ───────────────────────────
+        st = Date.now();
+        const stepText = await ArchDiscKernel.brep.exportStep(lbracket);
+        const stepImported = await ArchDiscKernel.brep.importStep(stepText);
+        const stepImportedM = await ArchDiscKernel.brep.measure(stepImported);
+        timings.step = Date.now() - st;
+        // ── Stage 7: GLTF export (visualization) ─────────────────────────
+        st = Date.now();
+        const gltfText = await ArchDiscKernel.brep.exportGltf(lbracket, { name: 'L_Bracket' });
+        const gltfSummary = ArchDiscKernel.brep.parseGltfSummary(gltfText);
+        timings.gltf = Date.now() - st;
+        // Render the bracket.
+        const placed = await ArchDiscKernel.brep.translate(lbracket, px, py, pz);
+        const color = Number.isFinite(values.color) ? values.color : 0xb8c8d8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const totalMs = Date.now() - t0;
+        const bends = (lbracketSm && lbracketSm.bends) ? lbracketSm.bends : [];
+        if (typeof window !== 'undefined') {
+          window.__lastPipelineDemoReport = {
+            input: { plateX: pX, plateY: pY, thickness: t, flangeLength: fL, density },
+            build: {
+              baseVolume: baseM.volume,
+              finalVolume: lbracketM.volume,
+              faceCount: lbracketM.faceCount,
+              bendCount: bends.length,
+              bendAllowance: bends.length > 0 ? bends[0].bendAllowance : null,
+            },
+            mass: {
+              volumeMm3: mp.volume,
+              massKg: mp.mass,
+              surfaceAreaMm2: mp.surfaceArea,
+              centroid: mp.centroid,
+              principalMoments: mp.principalMoments,
+            },
+            draft: {
+              faceCount: draft.faceCount,
+              positive: draft.positive, negative: draft.negative, vertical: draft.vertical,
+            },
+            qa: {
+              tier1Valid: tier1.valid, tier1SelfIntersects: tier1.selfIntersects,
+              tier2Intersecting: tier2.intersecting, tier2PairCount: tier2.pairCount,
+              clean: tier1.valid && !tier1.selfIntersects && !tier2.intersecting,
+            },
+            hlr: {
+              visibleSharp: hlr.visibleSharp.length,
+              visibleOutline: hlr.visibleOutline.length,
+              hiddenSharp: hlr.hiddenSharp.length,
+              hiddenOutline: hlr.hiddenOutline.length,
+            },
+            step: {
+              bytes: stepText.length,
+              isISO10303: stepText.includes('ISO-10303-21'),
+              roundTripVolume: stepImportedM.volume,
+              roundTripRelError: Math.abs(stepImportedM.volume - lbracketM.volume) / lbracketM.volume,
+            },
+            gltf: {
+              bytes: gltfText.length,
+              schema: gltfSummary.schema,
+              verts: gltfSummary.vertCount,
+              tris: gltfSummary.triCount,
+            },
+            timings,
+            totalMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Full Pipeline Demo: ${pX}×${pY}×${t} L-bracket | build ${timings.build}ms (V=${(lbracketM.volume / 1000).toFixed(2)} cm³, ${lbracketM.faceCount} faces, ${bends.length} bend) | mass ${timings.massProps}ms (${mp.mass.toFixed(4)} kg steel) | draft ${timings.draft}ms (+${draft.positive}/${draft.negative}-/${draft.vertical}║) | QA ${timings.qa}ms (clean=${tier1.valid && !tier1.selfIntersects && !tier2.intersecting}) | HLR ${timings.hlr}ms (${hlr.visibleOutline.length}+${hlr.visibleSharp.length} visible) | STEP ${timings.step}ms (${stepText.length} bytes, RT relErr ${(Math.abs(stepImportedM.volume - lbracketM.volume) / lbracketM.volume * 100).toFixed(4)}%) | GLTF ${timings.gltf}ms (${gltfText.length} bytes, ${gltfSummary.triCount} tris) | total ${totalMs}ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastPipelineDemoReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Full Pipeline Demo: ' + err.message };
+      }
+    },
+
     // ─── SP-154 — Boundary Boss + Guides (multi-section + rails) ────
     // CATIA Multi-Sections Solid with guides / NX Through-Curves with
     // guides / SW Boundary Boss class. 2 profile sections + 2 guide
