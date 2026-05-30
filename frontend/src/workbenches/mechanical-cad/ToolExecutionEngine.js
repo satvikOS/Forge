@@ -1747,6 +1747,74 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-127 — Flat Pattern (OCCT sheet metal unroll) ─────────────
+    // SW Flatten / CATIA Unfold / NX Flatten / Creo Flat Pattern.
+    // Unroll a bent sheet metal body into its flat manufacturing
+    // layout: bend allowances are applied per recorded data; result
+    // is tagged isFlat=true. Renders both bent + flat for comparison.
+    'Sculpt Flat Pattern': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Flat Pattern');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Flat Pattern cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastFlatPatternReport = { error: 'in progress' };
+      }
+      try {
+        const pX = values.plateX ?? 100, pY = values.plateY ?? 60;
+        const t = values.thickness ?? 2;
+        const fL = values.flangeLength ?? 30;
+        const angle = values.angleDeg ?? 90;
+        const edgeIdx = values.edgeIdx ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pX <= 0 || pY <= 0 || t <= 0 || fL <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const profile = [
+          { x: -pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y: -pY / 2, z: 0 },
+          { x:  pX / 2, y:  pY / 2, z: 0 },
+          { x: -pX / 2, y:  pY / 2, z: 0 },
+        ];
+        const base = await ArchDiscKernel.brep.baseFlange(profile, { thickness: t });
+        const bent = await ArchDiscKernel.brep.edgeFlange(base, edgeIdx, {
+          length: fL, angleDeg: angle,
+        });
+        const bentSm = ArchDiscKernel.brep.getSheetMetalMetadata(bent);
+        const bentM = await ArchDiscKernel.brep.measure(bent);
+        const flat = await ArchDiscKernel.brep.flatPattern(bent);
+        const flatSm = ArchDiscKernel.brep.getSheetMetalMetadata(flat);
+        const flatM = await ArchDiscKernel.brep.measure(flat);
+        const placedBent = await ArchDiscKernel.brep.translate(bent, px, py, pz);
+        const placedFlat = await ArchDiscKernel.brep.translate(flat, px, py + pY + 30, pz);
+        const elapsedMs = Date.now() - t0;
+        const colorBent = Number.isFinite(values.colorBent) ? values.colorBent : 0xd1d6e8;
+        const colorFlat = Number.isFinite(values.colorFlat) ? values.colorFlat : 0xe6e6a8;
+        await addBrepShapeToScene(scene, viewport, placedBent, colorBent);
+        await addBrepShapeToScene(scene, viewport, placedFlat, colorFlat);
+        const bends = (bentSm && bentSm.bends) ? bentSm.bends : [];
+        const lastBend = bends.length > 0 ? bends[bends.length - 1] : null;
+        const totalBA = bends.reduce((acc, b) => acc + (b.bendAllowance || 0), 0);
+        if (typeof window !== 'undefined') {
+          window.__lastFlatPatternReport = {
+            plateX: pX, plateY: pY, thickness: t, flangeLength: fL, angleDeg: angle, edgeIdx,
+            bentVolume: bentM.volume,
+            bentFaceCount: bentM.faceCount,
+            bentBendCount: bends.length,
+            bentBendAllowanceSum: totalBA,
+            lastBendAllowance: lastBend ? lastBend.bendAllowance : null,
+            flatVolume: flatM.volume,
+            flatFaceCount: flatM.faceCount,
+            flatIsFlat: flatSm ? flatSm.isFlat : false,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Flat Pattern: ${pX}×${pY}×${t} L-bracket | bent V=${(bentM.volume / 1000).toFixed(2)} cm³, flat V=${(flatM.volume / 1000).toFixed(2)} cm³, bend allowance sum=${totalBA.toFixed(3)} mm (last ${lastBend?.bendAllowance?.toFixed(3)}), isFlat=${flatSm?.isFlat} — OCCT sheet metal unfold | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastFlatPatternReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Flat Pattern: ' + err.message };
+      }
+    },
+
     // ─── SP-126 — Sketched Bend (OCCT sheet metal arbitrary bend) ────
     // SW Sketched Bend / NX Sketched Bend / CATIA Sheetmetal Walls on
     // Sketches. Bend the sheet along a sketched line on a flat face;

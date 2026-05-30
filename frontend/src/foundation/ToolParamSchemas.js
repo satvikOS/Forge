@@ -124,6 +124,27 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-127 — Flat Pattern (SW Flatten / CATIA Unfold / NX Flatten /
+  // PTC Creo Flat Pattern). Unroll a bent sheet metal body into its
+  // flat manufacturing layout for laser-cutter / waterjet handoff.
+  // Bend allowances applied per the SP-108 / SP-126 recorded data.
+  'Sculpt Flat Pattern': {
+    title: 'Sculpt — Flat Pattern (unroll for fabrication)',
+    blurb: 'OCCT-backed flatPattern: L-bracket (baseFlange + edgeFlange) → unrolled rectangle ready for laser cutting.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 30,  unit: 'mm', min: 1, step: 1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 90,  unit: '°',  min: 1, step: 1 },
+      { name: 'edgeIdx',      label: 'Edge index',    type: 'number', default: 4,   unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBent', label: 'Bent colour', type: 'number', default: 0xd1d6e8, step: 1 },
+      { name: 'colorFlat', label: 'Flat colour', type: 'number', default: 0xe6e6a8, step: 1 },
+    ],
+  },
   // SP-126 — Sketched Bend (SW Sketched Bend / NX Sketched Bend /
   // CATIA Sheetmetal Walls on Sketches). Bend the sheet along a
   // sketched line on a flat face; the bend record carries the
