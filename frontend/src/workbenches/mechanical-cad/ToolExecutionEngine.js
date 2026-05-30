@@ -1747,6 +1747,53 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-145 — Shut-Off Surfaces (OCCT mold-prep, fill loops) ─────
+    // CATIA Mold / NX Mold Wizard / SW Shut-Off Surfaces class. Walk
+    // the body, classify free edges, group into closed loops, and
+    // fill each loop ≤ maxHoleDiameter with an n-sided NURBS patch via
+    // autoFillMissingFaces. The result is a watertight body suitable
+    // for a clean parting surface downstream.
+    'Sculpt Shut-Off Surfaces': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Shut-Off Surfaces');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Shut-Off Surfaces cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastShutOffReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const maxD = values.maxHoleDiameter ?? 100;
+        const tol = values.tolerance ?? 0.001;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0) throw new Error('sphereR > 0');
+        const t0 = Date.now();
+        const sphere = await ArchDiscKernel.brep.makeSphere(sR);
+        const placed = await ArchDiscKernel.brep.translate(sphere, px, py, pz);
+        const so = await ArchDiscKernel.brep.shutOffSurfaces(placed, {
+          maxHoleDiameter: maxD, tolerance: tol,
+        });
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb8e6c8;
+        await addBrepShapeToScene(scene, viewport, so.result || placed, color);
+        if (typeof window !== 'undefined') {
+          window.__lastShutOffReport = {
+            sphereR: sR, maxHoleDiameter: maxD, tolerance: tol,
+            loopCount: so.loopCount,
+            loopsFilled: so.loopsFilled,
+            loopsSkipped: so.loopsSkipped,
+            patchesAdded: so.patchesAdded,
+            watertight: so.watertight,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Shut-Off Surfaces: sphere R=${sR} maxD=${maxD} | ${so.loopCount} free-edge loops (${so.loopsFilled} filled, ${so.loopsSkipped} skipped), ${so.patchesAdded} patches added, watertight=${so.watertight} — OCCT mold-prep | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastShutOffReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Shut-Off Surfaces: ' + err.message };
+      }
+    },
+
     // ─── SP-144 — Replace Face (OCCT curved-swap, P4 native) ────────
     // CATIA Surface Replacement / NX Replace Face / SW Replace Face.
     // Rebuild a picked face on a different surface. With curvedSwap

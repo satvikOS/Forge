@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-145 — Shut-Off Surfaces (CATIA Mold / NX Mold Wizard / SW Shut-
+  // Off Surfaces). Auto-fill free-edge loops on a body so the mold
+  // parting can use a watertight target. Closed bodies report
+  // watertight=true (no free edges → no patches needed).
+  'Sculpt Shut-Off Surfaces': {
+    title: 'Sculpt — Shut-Off Surfaces (close free-edge loops)',
+    blurb: 'OCCT-backed mold prep: scan body for free-edge loops, fill each with an n-sided NURBS patch. Closed sphere is already watertight (0 loops).',
+    fields: [
+      { name: 'sphereR',         label: 'Sphere radius',    type: 'number', default: 20,  unit: 'mm', min: 1, step: 1 },
+      { name: 'maxHoleDiameter', label: 'Max hole Ø',       type: 'number', default: 100, unit: 'mm', min: 1, step: 5 },
+      { name: 'tolerance',       label: 'Heal tolerance',   type: 'number', default: 0.001, unit: 'mm', min: 1e-6, step: 0.0001 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8e6c8, step: 1 },
+    ],
+  },
   // SP-144 — Replace Face (CATIA Surface Replacement / NX Replace Face
   // / SW Replace Face). Rebuild a face on a different surface. With
   // curvedSwap=true, replace with a domed NURBS surface (bulge).

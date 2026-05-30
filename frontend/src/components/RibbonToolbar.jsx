@@ -371,6 +371,7 @@ export const TABS = {
         { name: 'Sculpt Eval Surface', icon: '⊕', key: 'part' },
         { name: 'Sculpt Sweep Flange', icon: '〰', key: 'part' },
         { name: 'Sculpt Replace Face', icon: '🔄', key: 'part' },
+        { name: 'Sculpt Shut-Off Surfaces', icon: '⊕', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
