@@ -1747,6 +1747,65 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-85 — Biconvex Lens (OCCT sphere ∩ sphere) ────────────────
+    'Sculpt Biconvex Lens': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Biconvex Lens');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Biconvex Lens cancelled' };
+      try {
+        const R = values.R ?? 40, sep = values.separation ?? 60;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sep >= 2 * R) throw new Error('separation must be < 2·R (spheres do not intersect)');
+        const t0 = Date.now();
+        const s1 = await ArchDiscKernel.brep.makeSphere(R);
+        const s1P = await ArchDiscKernel.brep.translate(s1, 0, 0, -sep / 2);
+        const s2 = await ArchDiscKernel.brep.makeSphere(R);
+        const s2P = await ArchDiscKernel.brep.translate(s2, 0, 0,  sep / 2);
+        const lens = await ArchDiscKernel.brep.common(s1P, s2P);
+        const placed = await ArchDiscKernel.brep.translate(lens, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9ac6c6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Volume of biconvex lens = 2 × spherical cap of height (R − sep/2).
+        // V_cap = π·h²·(3R − h) / 3 where h = R − sep/2.
+        const h = R - sep / 2;
+        const predictedV = 2 * (Math.PI * h * h * (3 * R - h) / 3);
+        if (typeof window !== 'undefined') {
+          window.__lastLensReport = { R, separation: sep, capHeight: h, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Biconvex Lens: R=${R} sep=${sep} ⇒ cap h=${h.toFixed(2)} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Biconvex Lens: ' + err.message }; }
+    },
+
+    // ─── SP-86 — Cone with Bore (OCCT frustum − cyl) ─────────────────
+    'Sculpt Cone with Bore': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Cone with Bore');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Cone with Bore cancelled' };
+      try {
+        const r1 = values.r1 ?? 25, r2 = values.r2 ?? 12, H = values.height ?? 40;
+        const bR = values.boreR ?? 6;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (bR >= Math.min(r1, r2 > 0 ? r2 : r1) - 0.5) throw new Error('bore too large for cone');
+        const t0 = Date.now();
+        const cone = await ArchDiscKernel.brep.makeCone(r1, r2, H);
+        const bore = await ArchDiscKernel.brep.makeCylinder(bR, H + 2);
+        const boreP = await ArchDiscKernel.brep.translate(bore, 0, 0, -1);
+        const bored = await ArchDiscKernel.brep.cut(cone, boreP);
+        const placed = await ArchDiscKernel.brep.translate(bored, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc6a39a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const coneV = (Math.PI * H / 3) * (r1 * r1 + r1 * r2 + r2 * r2);
+        const boreV = Math.PI * bR * bR * H;
+        const predictedV = coneV - boreV;
+        if (typeof window !== 'undefined') {
+          window.__lastConeBoreReport = { r1, r2, height: H, boreR: bR, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Cone with Bore: r1=${r1} r2=${r2} H=${H} bore Ø${bR * 2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Cone with Bore: ' + err.message }; }
+    },
+
     // ─── SP-83 — Boolean Intersect (OCCT common: box ∩ sphere) ───────
     'Sculpt Boolean Intersect': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Boolean Intersect');

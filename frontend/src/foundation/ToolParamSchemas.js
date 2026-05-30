@@ -124,6 +124,35 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-85 — Biconvex Lens (sphere ∩ sphere). Universal optical primitive.
+  'Sculpt Biconvex Lens': {
+    title: 'Sculpt — Biconvex Lens (sphere ∩ sphere)',
+    blurb: 'OCCT-backed biconvex lens: intersection of two spheres offset along Z. Optical / clear-button primitive.',
+    fields: [
+      { name: 'R',          label: 'Sphere radius', type: 'number', default: 40, unit: 'mm', min: 5, step: 1 },
+      { name: 'separation', label: 'Centre separation', type: 'number', default: 60, unit: 'mm', min: 1, step: 1, hint: 'lens thickness = 2·R − separation' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9ac6c6, step: 1 },
+    ],
+  },
+  // SP-86 — Cone with Bore (frustum − cylinder). Universal CAD primitive
+  // for adapter / collar / spindle.
+  'Sculpt Cone with Bore': {
+    title: 'Sculpt — Cone with Bore (frustum − cylinder)',
+    blurb: 'OCCT-backed truncated cone with an axial bore. Adapter / collar / spindle primitive.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 12, unit: 'mm', min: 0,  step: 1 },
+      { name: 'height', label: 'Height',        type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'boreR',  label: 'Bore radius',   type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6a39a, step: 1 },
+    ],
+  },
   // SP-83 — Boolean Intersect (common). Universal Boolean Intersect /
   // Common between two intersecting primitives. Box ∩ Sphere etc.
   'Sculpt Boolean Intersect': {

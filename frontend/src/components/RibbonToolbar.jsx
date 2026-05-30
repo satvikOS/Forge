@@ -311,6 +311,8 @@ export const TABS = {
         { name: 'Sculpt OCCT L-Sweep', icon: '⌐', key: 'part' },
         { name: 'Sculpt Boolean Intersect', icon: '∩', key: 'part' },
         { name: 'Sculpt Revolved Vase', icon: '🺫', key: 'part' },
+        { name: 'Sculpt Biconvex Lens', icon: '⬭', key: 'part' },
+        { name: 'Sculpt Cone with Bore', icon: '🜂', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
