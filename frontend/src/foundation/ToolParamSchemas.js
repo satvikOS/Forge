@@ -124,6 +124,29 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-50 — Planar Section / Split (universal CAD section-view op).
+  // OCCT-backed: slice a primitive solid with a user-positioned plane
+  // and lay both pieces in the scene with a small separation so the
+  // section reads as an exploded-view assembly. NX Cut, CATIA Split
+  // Body, Creo Solidify, SolidWorks Cut with Surface — same family.
+  'Sculpt Section Cut': {
+    title: 'Sculpt — Section Cut / Split (OCCT exploded section view)',
+    blurb: 'OCCT-backed solid sliced by a plane; both halves laid in the scene with a small separation.',
+    fields: [
+      { name: 'shape',     label: 'Primitive', type: 'enum',   default: 'box', options: ['box', 'cylinder', 'sphere'] },
+      { name: 'size',      label: 'Size (X/dia/R)', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'sizeY',     label: 'Size Y (box only)', type: 'number', default: 40, unit: 'mm', min: 5, step: 5 },
+      { name: 'sizeZ',     label: 'Size Z (box/cyl ht)', type: 'number', default: 30, unit: 'mm', min: 5, step: 5 },
+      { name: 'planeAxis', label: 'Plane normal', type: 'enum', default: 'Z', options: ['X', 'Y', 'Z'] },
+      { name: 'planeOffset', label: 'Plane offset', type: 'number', default: 0, unit: 'mm', step: 1, hint: 'distance from body centre along the chosen axis' },
+      { name: 'separation', label: 'Piece separation', type: 'number', default: 12, unit: 'mm', min: 0, step: 1, hint: 'how far apart to lay the two halves' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA', label: 'Piece A colour', type: 'number', default: 0xa56b6b, step: 1 },
+      { name: 'colorB', label: 'Piece B colour', type: 'number', default: 0x6b6ba5, step: 1 },
+    ],
+  },
   // SP-49 — Draft (NX / CATIA / Creo / SW mold-design op). Taper the
   // side faces of a body by `angleDeg` away from the neutral plane —
   // the canonical "draft for moldability" feature. OCCT-backed via

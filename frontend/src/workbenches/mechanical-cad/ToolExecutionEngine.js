@@ -1747,6 +1747,92 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-50 — Planar Section / Split (NX Cut / CATIA Split Body) ────
+    // OCCT-backed: slice a primitive solid by a plane and lay both
+    // pieces in the scene with a configurable separation along the
+    // plane normal so the section reads as an exploded view.
+    'Sculpt Section Cut': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Section Cut');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Section Cut cancelled' };
+      try {
+        const shape = String(values.shape || 'box');
+        const size  = values.size  ?? 60;
+        const sizeY = values.sizeY ?? 40;
+        const sizeZ = values.sizeZ ?? 30;
+        const planeAxis = String(values.planeAxis || 'Z');
+        const planeOffset = values.planeOffset ?? 0;
+        const separation  = Math.max(0, values.separation ?? 12);
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        const t0 = Date.now();
+        // Build the source primitive centred on the local origin.
+        let source;
+        let originX, originY, originZ;
+        if (shape === 'cylinder') {
+          source = await ArchDiscKernel.brep.makeCylinder(size / 2, sizeZ);
+          // Cylinder is anchored at z=0 base; centre it.
+          source = await ArchDiscKernel.brep.translate(source, 0, 0, -sizeZ / 2);
+          originX = 0; originY = 0; originZ = 0;
+        } else if (shape === 'sphere') {
+          source = await ArchDiscKernel.brep.makeSphere(size / 2);
+          // makeSphere is already centred on origin per OCCT default.
+          originX = 0; originY = 0; originZ = 0;
+        } else {
+          source = await ArchDiscKernel.brep.makeBox(size, sizeY, sizeZ);
+          source = await ArchDiscKernel.brep.translate(source, -size / 2, -sizeY / 2, -sizeZ / 2);
+          originX = 0; originY = 0; originZ = 0;
+        }
+
+        // Cutting plane: origin at body centre + offset along axis.
+        const normal = planeAxis === 'X' ? [1, 0, 0]
+                     : planeAxis === 'Y' ? [0, 1, 0]
+                     :                     [0, 0, 1];
+        const planeOrigin = [
+          originX + normal[0] * planeOffset,
+          originY + normal[1] * planeOffset,
+          originZ + normal[2] * planeOffset,
+        ];
+
+        const pieces = await ArchDiscKernel.brep.planarSection(source, {
+          origin: planeOrigin, normal,
+        }, { output: 'split' });
+        if (!Array.isArray(pieces) || pieces.length < 2) {
+          throw new Error(`planarSection produced ${pieces ? pieces.length : 0} piece(s); plane may miss the body`);
+        }
+
+        // Translate each piece along the plane normal (one +, one −) by
+        // separation / 2 so the section "opens up" along the cut axis.
+        const sepVec = [normal[0] * separation / 2, normal[1] * separation / 2, normal[2] * separation / 2];
+        const a = await ArchDiscKernel.brep.translate(pieces[0], px + sepVec[0], py + sepVec[1], pz + sepVec[2]);
+        const b = await ArchDiscKernel.brep.translate(pieces[1], px - sepVec[0], py - sepVec[1], pz - sepVec[2]);
+
+        const elapsedMs = Date.now() - t0;
+        const colorA = Number.isFinite(values.colorA) ? values.colorA : 0xa56b6b;
+        const colorB = Number.isFinite(values.colorB) ? values.colorB : 0x6b6ba5;
+        await addBrepShapeToScene(scene, viewport, a, colorA);
+        await addBrepShapeToScene(scene, viewport, b, colorB);
+        const metricsA = await ArchDiscKernel.brep.measure(a);
+        const metricsB = await ArchDiscKernel.brep.measure(b);
+
+        if (typeof window !== 'undefined') {
+          window.__lastSectionReport = {
+            shape, size, sizeY, sizeZ, planeAxis, planeOffset, separation,
+            pieceCount: pieces.length,
+            volumeA: metricsA.volume, volumeB: metricsB.volume,
+            volumeTotal: metricsA.volume + metricsB.volume,
+            facesA: metricsA.faceCount, facesB: metricsB.faceCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Section Cut: ${shape} sliced by ${planeAxis}-plane @ ${planeOffset} mm | piece A V = ${(metricsA.volume / 1000).toFixed(2)} cm³, piece B V = ${(metricsB.volume / 1000).toFixed(2)} cm³ — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Section Cut: ' + err.message };
+      }
+    },
+
     // ─── SP-49 — Draft Box (mold-design taper) ──────────────────────────
     // OCCT-backed: build a box and apply a draft angle to the side
     // faces, neutral plane at z = 0, pull direction +Z. The top face
