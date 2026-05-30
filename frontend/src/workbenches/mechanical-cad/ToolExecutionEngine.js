@@ -1747,6 +1747,74 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-119 — Delete Face And Heal (OCCT defeaturer) ────────────
+    // SW Direct Editing / NX Synchronous Modeling Delete Face / Creo
+    // Flexible Modeling Defeature. BRepAlgoAPI_Defeaturing removes
+    // the picked face and heals the wound by extending adjacent faces.
+    // The classic case: box-with-hole → delete hole face → box.
+    'Sculpt Delete Face And Heal': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Delete Face And Heal');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Delete Face And Heal cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastDeleteFaceReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const r = values.holeR ?? 5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || r <= 0 || r >= s / 2) throw new Error('boxSize > 0; holeR ∈ (0, boxSize/2)');
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(s, s, s);
+        // Build the through-hole: cylinder Ø2r, height = s+10 (extra to ensure through),
+        // centred at the box centre.
+        const cyl = await ArchDiscKernel.brep.makeCylinder(r, s + 10);
+        const cylP = await ArchDiscKernel.brep.translate(cyl, s / 2, s / 2, -5);
+        const withHole = await ArchDiscKernel.brep.cut(box, cylP);
+        const withHoleM = await ArchDiscKernel.brep.measure(withHole);
+        // The 7th face (1-based) on the box-with-hole is the through cylinder
+        // wall. (6 original box faces, hole adds 1 cylindrical face — the cut
+        // splits 2 box faces but typically keeps the count at 6 + 1 = 7.)
+        // Find the hole face by walking and looking for surfaceType=cylinder.
+        let holeFaceIdx = null;
+        let holeFaceType = null;
+        for (let i = 1; i <= withHoleM.faceCount; i++) {
+          try {
+            const ifr = await ArchDiscKernel.brep.inferFeature(withHole, i);
+            if (ifr.featureType === 'hole') { holeFaceIdx = i; holeFaceType = ifr.featureType; break; }
+          } catch { /* skip */ }
+        }
+        if (holeFaceIdx === null) throw new Error('could not find hole face by inferFeature');
+        const healed = await ArchDiscKernel.brep.deleteFaceAndHeal(withHole, holeFaceIdx);
+        const healedM = await ArchDiscKernel.brep.measure(healed);
+        const placed = await ArchDiscKernel.brep.translate(healed, px - s / 2, py - s / 2, pz - s / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc8d8a8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const boxV = s * s * s;
+        const holeV = Math.PI * r * r * s;
+        const withHoleVPredicted = boxV - holeV;
+        if (typeof window !== 'undefined') {
+          window.__lastDeleteFaceReport = {
+            boxSize: s, holeR: r,
+            boxV, holeV, withHoleVPredicted,
+            withHoleVActual: withHoleM.volume,
+            withHoleFaceCount: withHoleM.faceCount,
+            holeFaceIdx, holeFaceType,
+            healedV: healedM.volume,
+            healedFaceCount: healedM.faceCount,
+            healingRelError: Math.abs(healedM.volume - boxV) / boxV,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Delete Face And Heal: ${s}³ + Ø${r*2} hole → V ${(withHoleM.volume / 1000).toFixed(2)} cm³ (hole face #${holeFaceIdx} '${holeFaceType}'), healed V ${(healedM.volume / 1000).toFixed(2)} cm³ (vs box ${(boxV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(healedM.volume - boxV) / boxV * 100).toFixed(3)} %), faces ${withHoleM.faceCount} → ${healedM.faceCount} — OCCT defeaturer | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastDeleteFaceReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Delete Face And Heal: ' + err.message };
+      }
+    },
+
     // ─── SP-118 — Push-Pull Face (OCCT direct editing) ──────────────
     // SW Direct Editing / Creo Flexible Modeling Push-Pull / NX
     // Synchronous Modeling Move Face. Translate a face along its

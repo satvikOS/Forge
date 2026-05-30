@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-119 — Delete Face And Heal (SW Direct Editing / NX Synchronous
+  // Modeling Delete Face / Creo Flexible Modeling). Remove a face from
+  // a body and have OCCT's defeaturer auto-heal the wound by extending
+  // adjacent faces. Box-with-hole → delete hole face → restored box.
+  'Sculpt Delete Face And Heal': {
+    title: 'Sculpt — Delete Face And Heal (defeaturer)',
+    blurb: 'OCCT-backed defeaturer: box with a Ø10 through-hole → delete the cylindrical hole face → BRepAlgoAPI_Defeaturing heals it back to a solid box.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',    type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'holeR',    label: 'Hole radius', type: 'number', default: 5,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8d8a8, step: 1 },
+    ],
+  },
   // SP-118 — Push-Pull Face (SW Direct Editing / Creo Flexible Modeling
   // Push-Pull / NX Synchronous Modeling Move Face). Translate a face
   // along its outward normal by ±distance. Body remains topologically
