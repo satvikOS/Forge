@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-93 — Wedge Block (right-triangle prism). Ramp / door stop /
+  // alignment wedge primitive.
+  'Sculpt Wedge Block': {
+    title: 'Sculpt — Wedge Block (right-triangle prism)',
+    blurb: 'OCCT-backed right-triangle prism: ramp / alignment wedge / door stop primitive.',
+    fields: [
+      { name: 'base',   label: 'Base length (X)', type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'rise',   label: 'Rise height (Y)', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',  label: 'Depth (Z)',       type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8a36b, step: 1 },
+    ],
+  },
   // SP-92 — Dumbbell (sphere + bar + sphere fused). Gym / weight /
   // probe-marker / antenna primitive.
   'Sculpt Dumbbell': {

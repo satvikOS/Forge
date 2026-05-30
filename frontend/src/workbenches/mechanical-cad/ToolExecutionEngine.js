@@ -1747,6 +1747,33 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-93 — Wedge Block (OCCT right-triangle prism) ─────────────
+    'Sculpt Wedge Block': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Wedge Block');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Wedge Block cancelled' };
+      try {
+        const base = values.base ?? 80, rise = values.rise ?? 40, depth = values.depth ?? 60;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const tri = [
+          { x: -base / 2, y: -rise / 2, z: 0 },
+          { x:  base / 2, y: -rise / 2, z: 0 },
+          { x: -base / 2, y:  rise / 2, z: 0 },
+        ];
+        const wedge = await ArchDiscKernel.brep.extrudeProfile(tri, depth);
+        const placed = await ArchDiscKernel.brep.translate(wedge, px, py, pz - depth / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb8a36b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = 0.5 * base * rise * depth;
+        if (typeof window !== 'undefined') {
+          window.__lastWedgeReport = { base, rise, depth, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Wedge Block: ${base}×${rise}×${depth} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Wedge Block: ' + err.message }; }
+    },
+
     // ─── SP-92 — Dumbbell (OCCT sphere + cyl + sphere fused) ─────────
     'Sculpt Dumbbell': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Dumbbell');
