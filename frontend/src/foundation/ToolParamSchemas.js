@@ -124,6 +124,42 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-49 — Draft (NX / CATIA / Creo / SW mold-design op). Taper the
+  // side faces of a body by `angleDeg` away from the neutral plane —
+  // the canonical "draft for moldability" feature. OCCT-backed via
+  // BRepOffsetAPI_DraftAngle.
+  'Sculpt Draft Box': {
+    title: 'Sculpt — Draft Box (OCCT DraftAngle for moldability)',
+    blurb: 'OCCT-backed tapered box: build a box and apply a draft angle to the four side faces, neutral plane at z = 0 / pull along +Z.',
+    fields: [
+      { name: 'dx',       label: 'Box X',       type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy',       label: 'Box Y',       type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz',       label: 'Box Z',       type: 'number', default: 40, unit: 'mm', min: 10, step: 5 },
+      { name: 'angleDeg', label: 'Draft angle', type: 'number', default: 5,  unit: '°',  min: 0.5, max: 30, step: 0.5, hint: 'taper of side faces away from neutral plane' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa56b6b, step: 1 },
+    ],
+  },
+  // SP-48 — Shell (NX / CATIA / Creo / SW universal local op). Hollow
+  // out a closed body by removing one face and offsetting the remaining
+  // shell inward. The canonical hollow-housing primitive every
+  // mechanical CAD ships. OCCT-backed via BRepOffsetAPI_MakeThickSolid.
+  'Sculpt Shell Box': {
+    title: 'Sculpt — Shell Box (OCCT MakeThickSolid)',
+    blurb: 'OCCT-backed hollow box: build a solid box and shell it inward by `wall` mm, removing the +Z face. The canonical NX / CATIA / Creo / SW hollow-housing op.',
+    fields: [
+      { name: 'dx',   label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy',   label: 'Box Y', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz',   label: 'Box Z', type: 'number', default: 40, unit: 'mm', min: 10, step: 5 },
+      { name: 'wall', label: 'Wall thickness', type: 'number', default: 3, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba58a, step: 1 },
+    ],
+  },
   // SP-47 — Hole Wizard (NX / CATIA / Creo / SolidWorks universal op).
   // Drill a hole through a plate via the OCCT-backed B-rep kernel, with
   // optional counterbore (recess for the screw head) and countersink

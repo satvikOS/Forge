@@ -1747,6 +1747,112 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-49 — Draft Box (mold-design taper) ──────────────────────────
+    // OCCT-backed: build a box and apply a draft angle to the side
+    // faces, neutral plane at z = 0, pull direction +Z. The top face
+    // shrinks while the bottom stays full-size, giving a frustum-like
+    // shape that releases cleanly from a mold cavity.
+    'Sculpt Draft Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Draft Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Draft Box cancelled' };
+      try {
+        const dx = values.dx ?? 80, dy = values.dy ?? 60, dz = values.dz ?? 40;
+        const angleDeg = values.angleDeg ?? 5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        const drafted = await ArchDiscKernel.brep.draft(box, angleDeg, {
+          neutralOrigin: [0, 0, 0], neutralNormal: [0, 0, 1], pullDir: [0, 0, 1],
+        });
+        const placed = await ArchDiscKernel.brep.translate(drafted, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0xa56b6b;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        // Analytic prediction for a 4-side draft from a rectangular box
+        // (frustum with bottom dx × dy, top (dx − 2·δ) × (dy − 2·δ)
+        // where δ = dz·tan(angle)). Volume = h/3 · (A1 + A2 + √(A1·A2)).
+        const delta = dz * Math.tan(angleDeg * Math.PI / 180);
+        const topDx = Math.max(0.1, dx - 2 * delta);
+        const topDy = Math.max(0.1, dy - 2 * delta);
+        const A1 = dx * dy, A2 = topDx * topDy;
+        const predictedV = (dz / 3) * (A1 + A2 + Math.sqrt(A1 * A2));
+
+        if (typeof window !== 'undefined') {
+          window.__lastDraftReport = {
+            dx, dy, dz, angleDeg,
+            topDx, topDy, taperPerSide: delta,
+            boxVolume: dx * dy * dz,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Draft Box: ${dx}×${dy}×${dz} mm + ${angleDeg}° draft | top face ${topDx.toFixed(1)}×${topDy.toFixed(1)} mm, V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %) — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Draft Box: ' + err.message };
+      }
+    },
+
+    // ─── SP-48 — Shell Box (NX / CATIA / Creo / SW universal local op) ─
+    // OCCT-backed hollow-housing primitive. Build a box, shell it via
+    // BRepOffsetAPI_MakeThickSolid (negative offset = inward shell;
+    // top +Z face removed for the open mouth). Volume = enclosing slab
+    // − inner cavity matches the analytic shell formula.
+    'Sculpt Shell Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Shell Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Shell Box cancelled' };
+      try {
+        const dx = values.dx ?? 80, dy = values.dy ?? 60, dz = values.dz ?? 40;
+        const wall = values.wall ?? 3;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (wall * 2 >= Math.min(dx, dy, dz) - 1) throw new Error('wall too thick for box');
+
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        const shelled = await ArchDiscKernel.brep.shell(box, wall);
+        const placed = await ArchDiscKernel.brep.translate(shelled, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+
+        const color = Number.isFinite(values.color) ? values.color : 0x6ba58a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+
+        // Analytic: outer box − inner cavity (open at top so cavity has
+        // the same height as the box minus only the bottom wall).
+        const innerDx = dx - 2 * wall, innerDy = dy - 2 * wall, innerDz = dz - wall;
+        const predictedV = dx * dy * dz - innerDx * innerDy * innerDz;
+
+        if (typeof window !== 'undefined') {
+          window.__lastShellReport = {
+            dx, dy, dz, wall,
+            boxVolume: dx * dy * dz,
+            predictedShellVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return {
+          status: 'success',
+          message: `Sculpt Shell Box: ${dx}×${dy}×${dz} mm + wall ${wall} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Shell Box: ' + err.message };
+      }
+    },
+
     // ─── SP-47 — Hole Wizard (NX / CATIA / Creo / SW universal op) ────
     // OCCT-backed drilled hole through a plate. The cutter is a fused
     // assembly of the through-hole cylinder + optional counterbore
