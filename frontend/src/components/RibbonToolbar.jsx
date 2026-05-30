@@ -360,6 +360,7 @@ export const TABS = {
         { name: 'Sculpt Build NURBS Patch', icon: '⛵', key: 'part' },
         { name: 'Sculpt NURBS Curvature', icon: '∽', key: 'part' },
         { name: 'Sculpt Topology Adjacency', icon: '⌬', key: 'part' },
+        { name: 'Sculpt Eval Curve', icon: '⌒', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

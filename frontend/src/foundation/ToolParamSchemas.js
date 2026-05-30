@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-134 — Edge Curve Evaluation (SW Sketch Tangent / CATIA Reference
+  // Element / NX Curve Inspect). Differential-geometry sample of a
+  // body edge at parameter t in [0,1]: point + tangent + 2nd
+  // derivative + curvature. Foundation for fillet/sweep/loft pipelines.
+  'Sculpt Eval Curve': {
+    title: 'Sculpt — Eval Curve (point + tangent + curvature on edge)',
+    blurb: 'OCCT-backed evalCurve: cylinder Ø40×40 → eval all edges at t=0.5. Top/bottom circle κ=1/R=0.05, vertical seam κ=0.',
+    fields: [
+      { name: 'radius',  label: 'Cylinder radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'height',  label: 'Cylinder height', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8a8e0, step: 1 },
+    ],
+  },
   // SP-133 — Topology Adjacency (CATIA Selection Sets / NX Edge/Face
   // Walks / Creo Geometry Query). Three-tier face/edge/vertex
   // adjacency walks the spine graph. Box → 6F/12E/8V combinatorial

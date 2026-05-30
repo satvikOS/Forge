@@ -1747,6 +1747,68 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-134 — Eval Curve (OCCT BRepAdaptor_Curve D2) ─────────────
+    // SW Sketch Tangent / CATIA Reference Element / NX Curve Inspect
+    // class. Differential-geometry sample of a body edge at parameter
+    // t in [0,1]: point + tangent + 2nd derivative + curvature via
+    // |D1 × D2| / |D1|³. Cylinder edges → circle (κ=1/R) + line (κ=0).
+    'Sculpt Eval Curve': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Eval Curve');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Eval Curve cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastEvalCurveReport = { error: 'in progress' };
+      }
+      try {
+        const R = values.radius ?? 20;
+        const H = values.height ?? 40;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (R <= 0 || H <= 0) throw new Error('R, H > 0');
+        const t0 = Date.now();
+        const cyl = await ArchDiscKernel.brep.makeCylinder(R, H);
+        const placed = await ArchDiscKernel.brep.translate(cyl, px, py, pz - H / 2);
+        const color = Number.isFinite(values.color) ? values.color : 0xc8a8e0;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const allEdges = placed.body.edges();
+        const results = [];
+        for (let i = 0; i < allEdges.length; i++) {
+          const e = allEdges[i];
+          if (!e.geomRef) continue;
+          try {
+            const ev = await ArchDiscKernel.brep.evalCurve(e, 0.5);
+            results.push({
+              edgeIdx: i + 1,
+              point: ev.point,
+              tangent: ev.tangent,
+              curvature: ev.curvature,
+              speed: Math.hypot(ev.tangentRaw.x, ev.tangentRaw.y, ev.tangentRaw.z),
+              degenerate: ev.degenerate,
+              parameter: ev.parameter,
+              range: ev.range,
+            });
+          } catch (err) {
+            results.push({ edgeIdx: i + 1, error: err.message });
+          }
+        }
+        const elapsedMs = Date.now() - t0;
+        const circleCurv = 1 / R;
+        if (typeof window !== 'undefined') {
+          window.__lastEvalCurveReport = {
+            radius: R, height: H,
+            expectedCircleCurvature: circleCurv,
+            edgeCount: allEdges.length,
+            results,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Eval Curve: cyl R=${R}×${H} → ${results.length} edges sampled at t=0.5 | ${results.map((r) => r.error ? `[${r.edgeIdx}]ERR` : `[${r.edgeIdx}] κ=${r.curvature.toFixed(4)}`).join(', ')} (expected κ=1/R=${circleCurv.toFixed(4)} for circle, 0 for line) — OCCT BRepAdaptor_Curve | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastEvalCurveReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Eval Curve: ' + err.message };
+      }
+    },
+
     // ─── SP-133 — Topology Adjacency (OCCT three-tier graph walk) ────
     // CATIA Selection Sets / NX Edge/Face Walks / Creo Geometry Query.
     // Three-tier face/edge/vertex adjacency that walks the spine
