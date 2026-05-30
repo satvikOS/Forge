@@ -1747,6 +1747,48 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-131 — Build NURBS Patch (OCCT Geom_BSplineSurface) ───────
+    // CATIA GSD / NX Studio Free Form / SW Surface Loft / Modo NURBS
+    // class. Build a 4×4 cubic clamped-cubic NURBS sail patch with a
+    // crown lift on the inner 2×2 control poles → sail-like surface.
+    // Returns a SHEET SpineBody for downstream surfacing.
+    'Sculpt Build NURBS Patch': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Build NURBS Patch');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Build NURBS Patch cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastNurbsPatchReport = { error: 'in progress' };
+      }
+      try {
+        const size = values.size ?? 40;
+        const crown = values.crown ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (size < 10 || size > 200) throw new Error('size ∈ [10, 200]');
+        if (crown < 0 || crown > 50) throw new Error('crown ∈ [0, 50]');
+        const t0 = Date.now();
+        const patch = await ArchDiscKernel.brep.buildNurbsPatch({ size, crown });
+        const placed = await ArchDiscKernel.brep.translate(patch, px - size / 2, py - size / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xd9e3f0;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsPatchReport = {
+            size, crown,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            volume: metrics.volume,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Build NURBS Patch: ${size}×${size} crown=${crown} | ${metrics.faceCount} faces / ${metrics.edgeCount} edges — OCCT 4×4 NURBS sail | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsPatchReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Build NURBS Patch: ' + err.message };
+      }
+    },
+
     // ─── SP-130 — Classify Point (OCCT BRepClass3d_SolidClassifier) ──
     // Foundational point-in-solid test. Returns 'inside' / 'on' /
     // 'outside' / 'unknown'. Used by every Boolean / clearance / DFM

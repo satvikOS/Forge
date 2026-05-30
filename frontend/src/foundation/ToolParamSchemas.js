@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-131 — Build NURBS Patch (CATIA GSD / NX Studio Free Form / SW
+  // Surface Loft / Modo NURBS). Build a 4×4 cubic NURBS sail patch
+  // with a crown lift on the inner 2×2 control poles. Foundation for
+  // refine / elevate / curvature pipelines.
+  'Sculpt Build NURBS Patch': {
+    title: 'Sculpt — Build NURBS Patch (4×4 cubic sail)',
+    blurb: 'OCCT-backed NURBS: 4×4 clamped-cubic patch with inner-pole crown lift. Sheet body for Class-A surfacing.',
+    fields: [
+      { name: 'size',  label: 'Patch size',  type: 'number', default: 40, unit: 'mm', min: 10, step: 1 },
+      { name: 'crown', label: 'Crown lift',  type: 'number', default: 8,  unit: 'mm', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd9e3f0, step: 1 },
+    ],
+  },
   // SP-130 — Classify Point (foundational point-in-solid test).
   // Returns inside / on / outside. Used by every Boolean, clearance,
   // DFM, mold-region workflow downstream. SW/CATIA/NX/Creo equivalent.
