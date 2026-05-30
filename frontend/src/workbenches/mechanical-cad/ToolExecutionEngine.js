@@ -1747,6 +1747,35 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-92 — Dumbbell (OCCT sphere + cyl + sphere fused) ─────────
+    'Sculpt Dumbbell': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Dumbbell');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Dumbbell cancelled' };
+      try {
+        const bR = values.barR ?? 6, bL = values.barL ?? 80, wR = values.weightR ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (bR >= wR) throw new Error('barR must be < weightR');
+        const t0 = Date.now();
+        const bar = await ArchDiscKernel.brep.makeCylinder(bR, bL);
+        const barC = await ArchDiscKernel.brep.translate(bar, 0, 0, -bL / 2);
+        const s1 = await ArchDiscKernel.brep.makeSphere(wR);
+        const s1P = await ArchDiscKernel.brep.translate(s1, 0, 0, -bL / 2);
+        const s2 = await ArchDiscKernel.brep.makeSphere(wR);
+        const s2P = await ArchDiscKernel.brep.translate(s2, 0, 0,  bL / 2);
+        let db = await ArchDiscKernel.brep.fuse(barC, s1P);
+        db = await ArchDiscKernel.brep.fuse(db, s2P);
+        const placed = await ArchDiscKernel.brep.translate(db, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x6a7a8a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastDumbbellReport = { barR: bR, barL: bL, weightR: wR, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Dumbbell: barØ${bR * 2}×${bL} + weights Ø${wR * 2} | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Dumbbell: ' + err.message }; }
+    },
+
     // ─── SP-91 — V-Groove Box (OCCT extrudeProfile triangle + cut) ────
     'Sculpt V-Groove Box': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt V-Groove Box');

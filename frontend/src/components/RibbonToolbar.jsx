@@ -318,6 +318,7 @@ export const TABS = {
         { name: 'Sculpt T-Joint Cylinder', icon: '┬', key: 'part' },
         { name: 'Sculpt 3-Axis Cross', icon: '✥', key: 'part' },
         { name: 'Sculpt V-Groove Box', icon: '∇', key: 'part' },
+        { name: 'Sculpt Dumbbell', icon: '🜺', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

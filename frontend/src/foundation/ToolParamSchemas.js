@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-92 — Dumbbell (sphere + bar + sphere fused). Gym / weight /
+  // probe-marker / antenna primitive.
+  'Sculpt Dumbbell': {
+    title: 'Sculpt — Dumbbell (sphere + cyl + sphere fused)',
+    blurb: 'OCCT-backed dumbbell: two spheres fused to either end of a cylindrical bar.',
+    fields: [
+      { name: 'barR',     label: 'Bar radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'barL',     label: 'Bar length', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'weightR',  label: 'End weight R', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6a7a8a, step: 1 },
+    ],
+  },
   // SP-91 — V-Groove Box (machining feature). Box with triangular wedge
   // cut along its length. Universal lathe / mill V-groove primitive.
   'Sculpt V-Groove Box': {
