@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-118 — Push-Pull Face (SW Direct Editing / Creo Flexible Modeling
+  // Push-Pull / NX Synchronous Modeling Move Face). Translate a face
+  // along its outward normal by ±distance. Body remains topologically
+  // connected; adjacent faces are auto-trimmed/extended.
+  'Sculpt Push-Pull Face': {
+    title: 'Sculpt — Push-Pull Face (direct editing)',
+    blurb: 'OCCT-backed push-pull: pick a face, translate by ±distance along its outward normal. Box top face pushed up 20 mm → 40×40×60.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',     type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'faceIdx',  label: 'Face index',   type: 'number', default: 6,  unit: '',   min: 1, step: 1 },
+      { name: 'distance', label: 'Push distance', type: 'number', default: 20, unit: 'mm', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8e6c1, step: 1 },
+    ],
+  },
     // SP-117 — Clash Detection (SW Interference Detection / NX Check
   // Tools / CATIA Clash Analysis). Two overlapping boxes, compute the
   // interference volume + zone + min distance + zone count.

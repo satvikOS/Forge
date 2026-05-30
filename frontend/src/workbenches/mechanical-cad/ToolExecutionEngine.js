@@ -1747,6 +1747,59 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-118 — Push-Pull Face (OCCT direct editing) ──────────────
+    // SW Direct Editing / Creo Flexible Modeling Push-Pull / NX
+    // Synchronous Modeling Move Face. Translate a face along its
+    // outward normal by ±distance; body remains topologically
+    // connected; adjacent faces auto-trim/extend.
+    'Sculpt Push-Pull Face': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Push-Pull Face');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Push-Pull Face cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastPushPullFaceReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const faceIdx = values.faceIdx ?? 6;
+        const dist = values.distance ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0) throw new Error('boxSize > 0');
+        if (!Number.isFinite(dist) || dist === 0) throw new Error('distance must be non-zero');
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const beforeM = await ArchDiscKernel.brep.measure(box);
+        const pushed = await ArchDiscKernel.brep.pushPullFace(box, faceIdx, dist);
+        const afterM = await ArchDiscKernel.brep.measure(pushed);
+        const placed = await ArchDiscKernel.brep.translate(pushed, px - s / 2, py - s / 2, pz - s / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa8e6c1;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        // Predicted: face area × distance added/removed.
+        const faceArea = s * s; // each box face is s×s
+        const predictedDelta = faceArea * dist;
+        const actualDelta = afterM.volume - beforeM.volume;
+        if (typeof window !== 'undefined') {
+          window.__lastPushPullFaceReport = {
+            boxSize: s, faceIdx, distance: dist,
+            volumeBefore: beforeM.volume,
+            volumeAfter: afterM.volume,
+            volumeDelta: actualDelta,
+            predictedDelta,
+            relError: Math.abs(actualDelta - predictedDelta) / Math.abs(predictedDelta),
+            faceCountBefore: beforeM.faceCount,
+            faceCountAfter: afterM.faceCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Push-Pull Face: ${s}³ face #${faceIdx} ${dist > 0 ? 'push' : 'pull'} ${Math.abs(dist)} mm | V ${(beforeM.volume / 1000).toFixed(2)} → ${(afterM.volume / 1000).toFixed(2)} cm³ (ΔV = ${(actualDelta / 1000).toFixed(2)} cm³, predicted ${(predictedDelta / 1000).toFixed(2)}, rel err ${(Math.abs(actualDelta - predictedDelta) / Math.abs(predictedDelta) * 100).toFixed(3)} %), faces ${beforeM.faceCount} → ${afterM.faceCount} — OCCT direct editing | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastPushPullFaceReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Push-Pull Face: ' + err.message };
+      }
+    },
+
     // ─── SP-117 — Clash Detection (OCCT interference + zone) ────────
     // SW Interference Detection / NX Check Tools / CATIA Clash Analysis
     // class. Two solids → interferenceVolume (mm³), minDistance (0 for
