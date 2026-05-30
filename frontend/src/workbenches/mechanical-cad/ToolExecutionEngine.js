@@ -1747,6 +1747,82 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-154 — Boundary Boss + Guides (multi-section + rails) ────
+    // CATIA Multi-Sections Solid with guides / NX Through-Curves with
+    // guides / SW Boundary Boss class. 2 profile sections + 2 guide
+    // rails that shape the intermediate sections. Kernel uses
+    // PipeShell with auxiliary spines when available; falls back to
+    // ThruSections + SetSmoothing if not (meta.guideFallback set).
+    'Sculpt Boundary Boss Guides': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Boundary Boss Guides');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Boundary Boss Guides cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastBoundaryBossGuidesReport = { error: 'in progress' };
+      }
+      try {
+        const cR = values.circleR ?? 30;
+        const sqS = values.squareS ?? 40;
+        const H = values.height ?? 60;
+        const segs = values.circleSegs ?? 32;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (cR <= 0 || sqS <= 0 || H <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        // Bottom circle profile (z=0).
+        const circle = [];
+        for (let i = 0; i < segs; i++) {
+          const a = (2 * Math.PI * i) / segs;
+          circle.push({ x: cR * Math.cos(a), y: cR * Math.sin(a), z: 0 });
+        }
+        // Top square profile (z=H).
+        const s = sqS / 2;
+        const square = [
+          { x: -s, y: -s, z: H },
+          { x:  s, y: -s, z: H },
+          { x:  s, y:  s, z: H },
+          { x: -s, y:  s, z: H },
+        ];
+        // 2 guide rails: vertical lines from (+cR, 0, 0) → (+s, +s, H)
+        // and (-cR, 0, 0) → (-s, -s, H). These rails pull the loft
+        // through opposite corner-to-vertex paths.
+        const guide1 = [
+          { x:  cR, y:  0, z: 0 },
+          { x:   s, y:  s, z: H },
+        ];
+        const guide2 = [
+          { x: -cR, y:  0, z: 0 },
+          { x:  -s, y: -s, z: H },
+        ];
+        const boss = await ArchDiscKernel.brep.boundaryBoss({
+          profiles: [circle, square],
+          guides: [guide1, guide2],
+          smooth: true,
+        });
+        const placed = await ArchDiscKernel.brep.translate(boss, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xd0c0e0;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const meta = boss.meta || {};
+        if (typeof window !== 'undefined') {
+          window.__lastBoundaryBossGuidesReport = {
+            circleR: cR, squareS: sqS, height: H, segs,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            volume: metrics.volume,
+            mode: meta.mode || meta.op || null,
+            guideFallback: meta.guideFallback || null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Boundary Boss Guides: Ø${cR * 2} → □${sqS}×H${H} + 2 guides | ${metrics.faceCount} faces, V=${(metrics.volume / 1000).toFixed(2)} cm³, mode=${meta.mode || 'n/a'}, fallback=${meta.guideFallback || 'none'} — OCCT boundaryBoss | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastBoundaryBossGuidesReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Boundary Boss Guides: ' + err.message };
+      }
+    },
+
     // ─── SP-153 — Closed Corner (OCCT sheet metal corner closure) ───
     // SW Closed Corner / CATIA Sheetmetal Corner Closure / NX Bridge
     // Transition. Bridge the triangular gap between 2 adjacent edge-

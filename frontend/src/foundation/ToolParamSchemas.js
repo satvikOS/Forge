@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-154 — Boundary Boss + Guides (CATIA Multi-Sections Solid with
+  // guides / NX Through-Curves with guides / SW Boundary Boss with
+  // guide curves). 2 profile sections + 2 guide rails that shape the
+  // intermediate sections.
+  'Sculpt Boundary Boss Guides': {
+    title: 'Sculpt — Boundary Boss + Guides (loft with rails)',
+    blurb: 'OCCT-backed boundary boss with 2 guide rails: circle bottom + square top + 2 vertical guides at opposite quadrants.',
+    fields: [
+      { name: 'circleR',    label: 'Bottom circle radius', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'squareS',    label: 'Top square side',      type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'height',     label: 'Height',               type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'circleSegs', label: 'Circle segments',      type: 'number', default: 32, unit: '',  min: 8, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd0c0e0, step: 1 },
+    ],
+  },
   // SP-153 — Closed Corner (SW Closed Corner / CATIA Sheetmetal Corner
   // Closure / NX Bridge Transition). Close the triangular gap left
   // between 2 adjacent edge-flanges with a butt / overlap / underlap
