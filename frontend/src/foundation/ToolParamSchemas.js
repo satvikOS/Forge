@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-115 — Convergent Solid (NX Convergent Modeling / SW Mesh BREP /
+  // CATIA Imagine & Shape class). Build a solid from a tessellated
+  // mesh input via OCCT BRepBuilderAPI_Sewing → MakeSolid pipeline.
+  // The foundation for scan-to-CAD + 3D-print-to-CAD workflows.
+  'Sculpt Convergent Solid': {
+    title: 'Sculpt — Convergent Solid (mesh → B-rep via Sewing)',
+    blurb: 'OCCT-backed mesh-to-B-rep: build a cube from 12 triangle facets via Sewing + MakeSolid. NX Convergent Modeling foundation.',
+    fields: [
+      { name: 'size',      label: 'Cube side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'tolerance', label: 'Sewing tolerance', type: 'number', default: 0.001, unit: 'mm', min: 1e-6, step: 0.001 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8c6e6, step: 1 },
+    ],
+  },
   // SP-114 — IGES Export + Round-Trip (legacy CAD interop). IGES 5.3
   // is still required by older CNC shops and PTC-Creo-class systems.
   // Completes the interop trio: STEP (modern MCAD) + GLTF (web/AR) +

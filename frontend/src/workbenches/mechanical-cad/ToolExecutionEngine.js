@@ -1747,6 +1747,51 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-115 — Convergent Solid (OCCT mesh → B-rep via Sewing) ────
+    // NX Convergent Modeling / SW Mesh BREP / CATIA Imagine & Shape
+    // class. Build a solid from a tessellated mesh input through the
+    // OCCT BRepBuilderAPI_Sewing → MakeSolid pipeline. Foundation
+    // example: 12 triangle facets → closed cube solid. Real scan-to-
+    // CAD + 3D-print-to-CAD pipelines work on this exact path.
+    'Sculpt Convergent Solid': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Convergent Solid');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Convergent Solid cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastConvergentReport = { error: 'in progress' };
+      }
+      try {
+        const size = values.size ?? 40;
+        const tol = values.tolerance ?? 0.001;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (size <= 0 || tol <= 0) throw new Error('size, tolerance > 0');
+        const t0 = Date.now();
+        const solid = await ArchDiscKernel.brep.convergentSolid({ size, tolerance: tol });
+        const placed = await ArchDiscKernel.brep.translate(solid, px - size / 2, py - size / 2, pz - size / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa8c6e6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = size * size * size;
+        if (typeof window !== 'undefined') {
+          window.__lastConvergentReport = {
+            size, tolerance: tol,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Convergent Solid: ${size}³ tol=${tol} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces / ${metrics.edgeCount} edges — OCCT mesh → B-rep Sewing | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastConvergentReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Convergent Solid: ' + err.message };
+      }
+    },
+
     // ─── SP-114 — IGES Round-Trip (legacy CAD interop) ──────────────
     // IGES 5.3 is still required by older CNC shops + PTC-Creo class
     // systems. Completes the interop trio with SP-111 STEP and
