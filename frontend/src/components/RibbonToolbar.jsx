@@ -265,6 +265,7 @@ export const TABS = {
         { name: 'Sculpt Cope',      icon: '⌣', key: 'part' },
         { name: 'Sculpt Lattice',   icon: '⌬', key: 'part' },
         { name: 'Sculpt Honeycomb Panel', icon: '⬡', key: 'part' },
+        { name: 'Sculpt Voronoi Panel', icon: '⌖', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

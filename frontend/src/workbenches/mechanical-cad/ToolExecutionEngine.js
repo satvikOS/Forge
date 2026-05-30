@@ -87,6 +87,7 @@ import { buildRouteCenterline, polylinePathLength, summarizeBends } from '../../
 import { planCope } from '../../foundation/CopeCut.js';
 import { buildLatticeSpec, estimateVolumeFraction } from '../../foundation/LatticeTPMS.js';
 import { hexagonPolygon, honeycombCenters, panelRectangle, predictWallArea } from '../../foundation/HoneycombPanel.js';
+import { poissonDiskSeeds, voronoiCellPolygon, insetConvexPolygon, polygonSignedArea } from '../../foundation/VoronoiPanel.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1736,6 +1737,87 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-39 — Voronoi Panel (nTopology / Autodesk Generative Design) ─
+    // Irregular cellular panel via 2D Voronoi: Poisson-disk seeds inside
+    // the panel rectangle, each cell built by clipping the rectangle
+    // with the perpendicular-bisector half-plane between this seed and
+    // every other seed (Sutherland-Hodgman). Insets each cell by
+    // wallT/2 → walls = panel ∖ cells via Manifold boolean. Same
+    // visual pipeline as SP-38 honeycomb, but with cell shapes you'd
+    // see in nature (foams, sponges, basalt columns).
+    'Sculpt Voronoi Panel': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Voronoi Panel');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Voronoi Panel cancelled' };
+      try {
+        const W = values.W ?? 200, H = values.H ?? 200, T = values.T ?? 18;
+        const minDist = values.minDist ?? 24;
+        const wallT = values.wallT ?? 1.5;
+        const seedRng = Math.max(1, Math.floor(values.seed ?? 42));
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        // 1. Sample Poisson-disk seeds in the panel rectangle.
+        const seeds = poissonDiskSeeds(W, H, minDist, seedRng);
+        if (seeds.length < 2) throw new Error('Voronoi: not enough seeds — increase panel size or reduce minDist');
+        // 2. Build each Voronoi cell + inset.
+        const insetD = wallT / 2;
+        const insetCells = [];
+        let totalCellArea = 0, totalInsetArea = 0, droppedCells = 0;
+        for (let i = 0; i < seeds.length; i++) {
+          const cell = voronoiCellPolygon(seeds, i, W, H);
+          if (cell.length < 3) { droppedCells += 1; continue; }
+          totalCellArea += polygonSignedArea(cell);
+          const inset = insetConvexPolygon(cell, insetD);
+          if (inset.length < 3) { droppedCells += 1; continue; }
+          totalInsetArea += polygonSignedArea(inset);
+          insetCells.push(inset);
+        }
+        if (insetCells.length === 0) throw new Error('Voronoi: every cell collapsed to wall — wallT too large for cell size');
+
+        const Mod = await getManifold();
+        // Build the panel solid (CCW outer + extrude).
+        const panelCS = new Mod.CrossSection([panelRectangle(W, H)], 'Positive');
+        const panelSolid = Mod.Manifold.extrude(panelCS, T, 0, 0, [1, 1], false);
+        try { panelCS.delete(); } catch { /* GC */ }
+        // Build the cells solid (each inset cell CCW; non-overlapping by
+        // construction since they're Voronoi cells inset by the same d).
+        const cellsCS = new Mod.CrossSection(insetCells, 'Positive');
+        const cellsSolid = Mod.Manifold.extrude(cellsCS, T, 0, 0, [1, 1], false);
+        try { cellsCS.delete(); } catch { /* GC */ }
+        // Walls = panel ∖ cells, centred on z = pz.
+        let solid = Mod.Manifold.difference(panelSolid, cellsSolid);
+        try { panelSolid.delete?.(); cellsSolid.delete?.(); } catch { /* GC */ }
+        solid = solid.translate([px, py, pz - T / 2]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : null;
+        const slabVol = W * H * T;
+        const predictedWallVol = (totalCellArea - totalInsetArea) * T;
+        const color = Number.isFinite(values.color) ? values.color : 0xb3a3c7;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastVoronoiReport = {
+            W, H, T, minDist, wallT, seed: seedRng,
+            seedCount: seeds.length, cellCount: insetCells.length, droppedCells,
+            slabVolume: slabVol,
+            wallVolumeActual: volume,
+            wallVolumePredicted: predictedWallVol,
+            wallFractionActual: volume / slabVol,
+            wallFractionPredicted: predictedWallVol / slabVol,
+            cellAreaMean: totalCellArea / Math.max(1, seeds.length),
+            triCount,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt Voronoi Panel: ${W}×${H}×${T} mm slab, ${insetCells.length} Voronoi cells (seed ${seedRng}, minDist ${minDist}, wall ${wallT}) | V wall ${(volume / 1000).toFixed(1)} cm³ (${(volume / slabVol * 100).toFixed(1)}% slab, predicted ${(predictedWallVol / slabVol * 100).toFixed(1)}%)${tcStr}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Voronoi Panel: ' + err.message };
       }
     },
 

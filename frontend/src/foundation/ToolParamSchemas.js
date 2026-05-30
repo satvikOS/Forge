@@ -124,6 +124,27 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-39 — Voronoi Panel (nTopology / Autodesk Generative Design).
+  // Irregular cellular-pattern panel via 2D Voronoi tessellation.
+  // The "natural-looking" counterpart to SP-38 honeycomb: cells vary
+  // in size and shape, like a sea sponge / aerogel slice / basalt
+  // columns. First real Voronoi math in this kernel.
+  'Sculpt Voronoi Panel': {
+    title: 'Sculpt — Voronoi Panel (irregular generative-design cells)',
+    blurb: 'Voronoi tessellation panel — Poisson-disk seeds + convex-clipped cells, inset by wall thickness. nTopology / Autodesk Generative Design class.',
+    fields: [
+      { name: 'W',        label: 'Panel width',     type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'H',        label: 'Panel height',    type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'T',        label: 'Panel thickness', type: 'number', default: 18, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'minDist',  label: 'Min cell spacing',type: 'number', default: 24, unit: 'mm', min: 4, step: 1, hint: 'lower bound on seed-to-seed distance (Poisson-disk)' },
+      { name: 'wallT',    label: 'Wall thickness',  type: 'number', default: 1.5, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'seed',     label: 'Pattern seed',    type: 'number', default: 42, min: 1, step: 1, hint: 'deterministic — same seed → same layout' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',    label: 'Colour (hex)',    type: 'number', default: 0xb3a3c7, step: 1 },
+    ],
+  },
   // SP-38 — Honeycomb Panel (NX Composites / CATIA CPD / Creo composites).
   // The flagship aerospace sandwich-panel core: a rectangular slab with
   // a flat-top hex grid of cells, every cell separated from its neighbours
