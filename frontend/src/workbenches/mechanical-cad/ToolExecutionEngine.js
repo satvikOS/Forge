@@ -1747,6 +1747,33 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-97 — Hollow Sphere (OCCT sphere − inner sphere) ──────────
+    'Sculpt Hollow Sphere': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hollow Sphere');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hollow Sphere cancelled' };
+      try {
+        const oR = values.outerR ?? 30, t = values.thickness ?? 4;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (t >= oR) throw new Error('thickness must be < outerR');
+        const t0 = Date.now();
+        const outer = await ArchDiscKernel.brep.makeSphere(oR);
+        const inner = await ArchDiscKernel.brep.makeSphere(oR - t);
+        const hollow = await ArchDiscKernel.brep.cut(outer, inner);
+        const placed = await ArchDiscKernel.brep.translate(hollow, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x82c6a3;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const oV = (4 / 3) * Math.PI * oR * oR * oR;
+        const iV = (4 / 3) * Math.PI * (oR - t) ** 3;
+        const predictedV = oV - iV;
+        if (typeof window !== 'undefined') {
+          window.__lastHollowSphereReport = { outerR: oR, thickness: t, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Hollow Sphere: Ø${oR * 2} wall ${t} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Hollow Sphere: ' + err.message }; }
+    },
+
     // ─── SP-96 — Coin (OCCT cyl + cyl fused) ─────────────────────────
     'Sculpt Coin': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Coin');

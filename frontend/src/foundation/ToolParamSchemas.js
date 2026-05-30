@@ -124,6 +124,20 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-97 — Hollow Sphere (sphere − inner sphere). Tennis-ball shell /
+  // hollow ornament / spherical pressure-vessel primitive.
+  'Sculpt Hollow Sphere': {
+    title: 'Sculpt — Hollow Sphere (sphere − inner sphere)',
+    blurb: 'OCCT-backed hollow sphere: outer sphere − inner sphere via boolean cut. Pressure-vessel / ornament / tennis-ball-shell primitive.',
+    fields: [
+      { name: 'outerR',    label: 'Outer radius', type: 'number', default: 30, unit: 'mm', min: 2, step: 1 },
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x82c6a3, step: 1 },
+    ],
+  },
   // SP-96 — Coin (disc + raised inner disc fused). Universal coin /
   // button / control-knob-with-cap primitive.
   'Sculpt Coin': {
