@@ -1747,6 +1747,70 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-110 — Class-A Analyze (OCCT Gaussian curvature heatmap) ──
+    // CATIA Free Style / NX Studio Free Form Class-A QC. Tessellate a
+    // filleted cube + compute discrete Gaussian curvature heatmap.
+    // Flat faces are K ≈ 0 (uniform); the rounded edges/corners show
+    // a band of positive K = 1/r². Per-vertex colours from a percentile
+    // robust colour ramp. We render the curvature-coloured mesh directly.
+    'Sculpt Class-A Analyze': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Class-A Analyze');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Class-A Analyze cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastClassAReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 8;
+        const defl = values.deflection ?? 0.5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('boxSize, filletR > 0 and filletR < boxSize/2');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const analysis = await ArchDiscKernel.brep.classAAnalyze(placed, { deflection: defl });
+        const elapsedMs = Date.now() - t0;
+        // Build a Three.js mesh with per-vertex colours from analysis.colors.
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(analysis.positions, 3));
+        geom.setAttribute('normal',   new THREE.BufferAttribute(analysis.normals, 3));
+        geom.setAttribute('color',    new THREE.BufferAttribute(analysis.colors, 3));
+        geom.setIndex(new THREE.BufferAttribute(analysis.indices, 1));
+        const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.05, roughness: 0.7 });
+        const mesh = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);
+        group.add(mesh);
+        group.userData.pickable = true;
+        group.userData.generatedModel = true;
+        group.userData.classAHeatmap = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+        // Analytic Gaussian curvature on the filleted corners: K = 1/r².
+        const filletK = 1 / (fR * fR);
+        if (typeof window !== 'undefined') {
+          window.__lastClassAReport = {
+            boxSize: s, filletR: fR, deflection: defl,
+            gaussianRange: analysis.stats.gaussianRange,
+            meanRange: analysis.stats.meanRange,
+            samples: analysis.stats.samples,
+            triangleCount: analysis.stats.triangleCount,
+            degenerateTriangles: analysis.stats.degenerateTriangles,
+            robustRange: analysis.stats.robustRange,
+            expectedFilletK: filletK,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Class-A Analyze: ${s}×${s}×${s} fillet R=${fR} defl=${defl} | ${analysis.stats.triangleCount} tris / ${analysis.stats.samples} verts, K∈[${analysis.stats.gaussianRange[0].toExponential(2)}, ${analysis.stats.gaussianRange[1].toExponential(2)}] 1/mm² (expected fillet K=${filletK.toExponential(2)}) — OCCT Class-A heatmap | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastClassAReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Class-A Analyze: ' + err.message };
+      }
+    },
+
     // ─── SP-109 — Sheet Metal Jog (OCCT Z-fold) ──────────────────────
     // SW Sheet Metal / CATIA Generative Sheetmetal / NX Sheet Metal
     // class. Two perpendicular bends on the same edge → Z-fold step.

@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-110 — Class-A Curvature Analyze (CATIA Free Style / NX Studio
+  // Free Form). Discrete Gaussian curvature heatmap on a tessellated
+  // body — find dents and curvature breaks. Sphere → uniform K = 1/R².
+  'Sculpt Class-A Analyze': {
+    title: 'Sculpt — Class-A Analyze (Gaussian curvature heatmap)',
+    blurb: 'OCCT-backed Class-A QC: tessellate a filleted cube + Gaussian curvature heatmap. Flat faces K≈0, fillet bands K=1/r².',
+    fields: [
+      { name: 'boxSize',   label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',   label: 'Fillet radius', type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.5, unit: 'mm', min: 0.05, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
   // SP-109 — Sheet Metal Jog (SW Sheet Metal / CATIA Sheetmetal class).
   // Two perpendicular bends along the SAME flange edge → Z-fold step.
   // The kernel runs edgeFlange twice with opposite angles; both bend
