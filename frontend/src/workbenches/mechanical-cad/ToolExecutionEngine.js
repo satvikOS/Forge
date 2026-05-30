@@ -1747,6 +1747,92 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-45 — Architectural Wall (Revit / AutoCAD Arch / ArchiCAD) ──
+    // Parametric BIM wall: a rectangular slab cut with optional door +
+    // window openings. Inspired by FreeCAD's BIM ArchWall (Length /
+    // Width / Height properties + opening subtraction). The canonical
+    // architectural primitive every BIM tool ships.
+    'Sculpt Architectural Wall': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Architectural Wall');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Architectural Wall cancelled' };
+      try {
+        const L = values.length    ?? 4000;
+        const H = values.height    ?? 2800;
+        const T = values.thickness ?? 200;
+        const wantDoor   = String(values.door   || 'yes') === 'yes';
+        const wantWindow = String(values.window || 'yes') === 'yes';
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        const Mod = await getManifold();
+        // Wall: a cuboid centred on (0, 0) in the X-Y plane (Y = thickness),
+        // resting on z=0. Use Manifold.cube({size, center}) with center=true.
+        let wall = Mod.Manifold.cube([L, T, H], true);
+        // cube(centered=true) puts the centroid at origin; we want
+        // the BOTTOM face at z = 0, so lift the wall by H/2.
+        wall = wall.translate([0, 0, H / 2]);
+
+        const openings = [];
+        const removed = [];
+
+        if (wantDoor) {
+          const doorX = values.doorX ?? -800;
+          const doorW = values.doorW ?? 900;
+          const doorH = values.doorH ?? 2100;
+          // Slightly inflate Y so the boolean subtract cleanly removes
+          // the full wall thickness even with float roundoff.
+          const doorCutter = Mod.Manifold.cube([doorW, T + 2, doorH], true)
+            .translate([doorX, 0, doorH / 2]);
+          wall = Mod.Manifold.difference(wall, doorCutter);
+          openings.push({ kind: 'door', x: doorX, w: doorW, h: doorH });
+          removed.push({ kind: 'door', volume: doorW * T * doorH });
+          try { doorCutter.delete?.(); } catch { /* GC */ }
+        }
+        if (wantWindow) {
+          const windowX = values.windowX ?? 800;
+          const windowZ = values.windowZ ?? 900;
+          const windowW = values.windowW ?? 1200;
+          const windowH = values.windowH ?? 1200;
+          const windowCutter = Mod.Manifold.cube([windowW, T + 2, windowH], true)
+            .translate([windowX, 0, windowZ + windowH / 2]);
+          wall = Mod.Manifold.difference(wall, windowCutter);
+          openings.push({ kind: 'window', x: windowX, z: windowZ, w: windowW, h: windowH });
+          removed.push({ kind: 'window', volume: windowW * T * windowH });
+          try { windowCutter.delete?.(); } catch { /* GC */ }
+        }
+
+        wall = wall.translate([px, py, pz]);
+
+        const volume = wall.volume();
+        const triCount = typeof wall.numTri === 'function' ? wall.numTri() : null;
+        const slabVolume = L * T * H;
+        const totalRemoved = removed.reduce((s, r) => s + r.volume, 0);
+        const predictedVolume = slabVolume - totalRemoved;
+        const color = Number.isFinite(values.color) ? values.color : 0xc6b899;
+        addFoundationManifoldToScene(scene, viewport, wall, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastWallReport = {
+            length: L, height: H, thickness: T,
+            openings, openingCount: openings.length,
+            slabVolume, removedVolume: totalRemoved,
+            predictedVolume,
+            actualVolume: volume,
+            relError: Math.abs(volume - predictedVolume) / Math.max(1, predictedVolume),
+            triCount,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        const openingStr = openings.length === 0 ? 'no openings'
+                          : openings.map(o => `${o.kind} ${o.w}×${o.h}`).join(' + ');
+        return {
+          status: 'success',
+          message: `Sculpt Architectural Wall: ${L}×${T}×${H} mm slab, ${openingStr} | V ${(volume / 1e6).toFixed(3)} m³ (predicted ${(predictedVolume / 1e6).toFixed(3)} m³, rel err ${(Math.abs(volume - predictedVolume) / predictedVolume * 100).toFixed(3)} %)${tcStr}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Architectural Wall: ' + err.message };
+      }
+    },
+
     // ─── SP-44 — CAM Pocket Toolpath (Fusion / NX / Creo / Mastercam) ──
     // Generate the 3D polyline a 2.5D pocket-clearing toolpath would
     // execute and sweep a small-radius cross-section along it so the

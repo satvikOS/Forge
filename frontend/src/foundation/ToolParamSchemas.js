@@ -124,6 +124,32 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-45 — Architectural Wall (Revit / AutoCAD Architecture / ArchiCAD /
+  // FreeCAD BIM ArchWall class). Parametric BIM wall with optional door
+  // and window openings cut through the thickness. The canonical primitive
+  // every architectural CAD uses.
+  'Sculpt Architectural Wall': {
+    title: 'Sculpt — Architectural Wall (BIM with door / window openings)',
+    blurb: 'Parametric building wall with optional door + window openings cut through the full thickness. Revit / ArchiCAD / FreeCAD BIM class.',
+    fields: [
+      { name: 'length',    label: 'Wall length',    type: 'number', default: 4000, unit: 'mm', min: 100, step: 100 },
+      { name: 'height',    label: 'Wall height',    type: 'number', default: 2800, unit: 'mm', min: 100, step: 100 },
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 200,  unit: 'mm', min: 50,  step: 10 },
+      { name: 'door',      label: 'Door opening',   type: 'enum',   default: 'yes', options: ['yes', 'no'] },
+      { name: 'doorX',     label: 'Door centre X',  type: 'number', default: -800, unit: 'mm', step: 50, hint: 'offset along wall length from centre' },
+      { name: 'doorW',     label: 'Door width',     type: 'number', default: 900,  unit: 'mm', min: 100, step: 50 },
+      { name: 'doorH',     label: 'Door height',    type: 'number', default: 2100, unit: 'mm', min: 100, step: 50 },
+      { name: 'window',    label: 'Window opening', type: 'enum',   default: 'yes', options: ['yes', 'no'] },
+      { name: 'windowX',   label: 'Window centre X',  type: 'number', default: 800, unit: 'mm', step: 50 },
+      { name: 'windowZ',   label: 'Window sill Z',    type: 'number', default: 900, unit: 'mm', step: 50, hint: 'sill height above floor' },
+      { name: 'windowW',   label: 'Window width',     type: 'number', default: 1200, unit: 'mm', min: 100, step: 50 },
+      { name: 'windowH',   label: 'Window height',    type: 'number', default: 1200, unit: 'mm', min: 100, step: 50 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6b899, step: 1 },
+    ],
+  },
   // SP-44 — CAM Pocket Toolpath (Fusion CAM / NX CAM / Creo NC /
   // Mastercam / SolidCAM "2.5D Pocket"). Concentric-rectangle clearing
   // path generated as a 3D polyline + visualised as a swept tube. The
