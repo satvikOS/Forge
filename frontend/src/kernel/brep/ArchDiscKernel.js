@@ -31,7 +31,7 @@ import {
   autoRepairSelfIntersection,
   harmonizeNormals,
 } from './BrepHeal.js';
-import { tessellate } from './BrepTessellate.js';
+import { tessellate, tessellatePerFace } from './BrepTessellate.js';
 import { brepToMesh } from './brepToMesh.js';
 import * as Measure from './BrepMeasure.js';
 import {
@@ -199,6 +199,7 @@ export const ArchDiscKernel = {
     exportStep, importStep,
     /** Returns cached triangle data ({positions,normals,indices}); normally used via brepToMesh. */
     tessellate,
+    tessellatePerFace,
     brepToMesh,
     // ── Faceter option surface (SP-7, Area I) ──────────────────────────────
     /** Controlled-deflection faceting — chordal + angular tol, render/analysis profile. */

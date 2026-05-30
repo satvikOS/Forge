@@ -1747,6 +1747,86 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-141 — Per-Face Tessellation (selection-aware + FEA prep) ─
+    // Each triangle tagged with its source B-rep face id (0-based).
+    // Face-adjacency map records which B-rep faces share an edge.
+    // Foundation of selection-aware rendering + FEA mesh import +
+    // self-intersection detection (SP-128 tier 2).
+    'Sculpt Per-Face Tessellation': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Per-Face Tessellation');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Per-Face Tessellation cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastPerFaceTessReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const fR = values.filletR ?? 4;
+        const defl = values.deflection ?? 0.2;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0 || fR <= 0 || fR >= s / 2) throw new Error('s>0; fR ∈ (0, s/2)');
+        const t0 = Date.now();
+        const cube = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const filleted = await ArchDiscKernel.brep.filletAll(cube, fR);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - s / 2, py - s / 2, pz - s / 2);
+        const tess = await ArchDiscKernel.brep.tessellatePerFace(placed, defl);
+        const elapsedMs = Date.now() - t0;
+        // Render with per-face colours derived from faceIds.
+        const triCount = tess.indices.length / 3;
+        const positions = tess.positions;
+        const indices = tess.indices;
+        const faceIds = tess.faceIds;
+        // Build per-vertex colour from faceIds: pick a colour per face.
+        const palette = [
+          [0.9, 0.6, 0.6], [0.6, 0.9, 0.6], [0.6, 0.6, 0.9],
+          [0.9, 0.9, 0.6], [0.9, 0.6, 0.9], [0.6, 0.9, 0.9],
+          [0.95, 0.75, 0.55], [0.75, 0.55, 0.95], [0.55, 0.95, 0.75],
+          [0.85, 0.85, 0.85], [0.65, 0.85, 0.95], [0.95, 0.85, 0.65],
+        ];
+        const vertColors = new Float32Array(positions.length);
+        for (let t = 0; t < triCount; t++) {
+          const fid = faceIds[t];
+          const c = palette[fid % palette.length];
+          for (let v = 0; v < 3; v++) {
+            const vi = indices[t * 3 + v] * 3;
+            vertColors[vi]     = c[0];
+            vertColors[vi + 1] = c[1];
+            vertColors[vi + 2] = c[2];
+          }
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geom.setAttribute('color',    new THREE.BufferAttribute(vertColors, 3));
+        geom.setIndex(new THREE.BufferAttribute(indices, 1));
+        geom.computeVertexNormals();
+        const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.7 });
+        const mesh = new THREE.Mesh(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);
+        group.add(mesh);
+        group.userData.pickable = true;
+        group.userData.generatedModel = true;
+        group.userData.perFaceTessMesh = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+        if (typeof window !== 'undefined') {
+          window.__lastPerFaceTessReport = {
+            boxSize: s, filletR: fR, deflection: defl,
+            faceCount: tess.faceCount,
+            triCount,
+            vertCount: positions.length / 3,
+            faceAdjacencyCount: tess.faceAdjacency ? tess.faceAdjacency.length : 0,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Per-Face Tessellation: ${s}³ fillet R=${fR} defl=${defl} | ${tess.faceCount} faces / ${triCount} tris / ${tess.faceAdjacency?.length || 0} face-adjacency pairs — OCCT face-id mesh | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastPerFaceTessReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Per-Face Tessellation: ' + err.message };
+      }
+    },
+
     // ─── SP-140 — Project Points Onto B-Rep (OCCT GeomAPI_Projection) ─
     // CATIA Project / NX Project Curve / SW Project Sketch class. Snap
     // a point cloud onto the nearest face of a B-rep body. Each

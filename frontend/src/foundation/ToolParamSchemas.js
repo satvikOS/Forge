@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-141 — Per-Face Tessellation (selection-aware rendering +
+  // FEA mesh prep). Each triangle tagged with its source B-rep
+  // face id; face-adjacency map records which faces share edges.
+  'Sculpt Per-Face Tessellation': {
+    title: 'Sculpt — Per-Face Tessellation (face-id mesh)',
+    blurb: 'OCCT-backed per-face tessellation: filleted cube → triangle mesh with face-id tag per triangle + face-adjacency map.',
+    fields: [
+      { name: 'boxSize',    label: 'Box side',        type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',    label: 'Fillet radius',   type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.2, unit: 'mm', min: 0.05, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
   // SP-140 — Project Points Onto B-Rep (CATIA Project / NX Project Curve
   // / SW Project Sketch). Project a point cloud onto the nearest face
   // of a B-rep body — foundation for scan-fit / point-cloud-to-CAD.
