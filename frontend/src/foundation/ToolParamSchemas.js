@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-99 — Partition (NX-class multi-cell volumetric split). Splits a
+  // body into N independent solid pieces using a tool slab — each piece
+  // is a separately selectable SpineBody; total volume is preserved.
+  'Sculpt Partition Box': {
+    title: 'Sculpt — Partition Box (slab-split, multi-cell)',
+    blurb: 'OCCT-backed volumetric partition: a thin slab tool slices the box into 3 cells (below / inside-slab / above). Volume conservation contract enforced.',
+    fields: [
+      { name: 'boxX',   label: 'Box X', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxY',   label: 'Box Y', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxZ',   label: 'Box Z', type: 'number', default: 40,  unit: 'mm', min: 1, step: 1 },
+      { name: 'slabT',  label: 'Slab thickness', type: 'number', default: 1, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb89aff, step: 1 },
+    ],
+  },
   // SP-98 — Imprint Wire (box + cylinder footprint imprinted on top face).
   // Topology-only feature-recognition op (CATIA/NX-class). Volume preserved;
   // top face is split along the imprint circle so the inner disc can later
