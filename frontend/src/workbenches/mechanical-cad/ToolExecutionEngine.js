@@ -86,6 +86,7 @@ import {
 import { buildRouteCenterline, polylinePathLength, summarizeBends } from '../../foundation/Routing.js';
 import { planCope } from '../../foundation/CopeCut.js';
 import { buildLatticeSpec, estimateVolumeFraction } from '../../foundation/LatticeTPMS.js';
+import { hexagonPolygon, honeycombCenters, panelRectangle, predictWallArea } from '../../foundation/HoneycombPanel.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1735,6 +1736,83 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-38 — Honeycomb Panel (NX Composites / CATIA CPD / Creo) ─────
+    // Build an aerospace sandwich-panel CORE: a rectangular slab with a
+    // flat-top hex grid of cells, every cell separated by `wallT`. The
+    // 2D footprint is built as CrossSection(panel) − CrossSection(cells)
+    // and extruded to T — single boolean, single extrude, fast.
+    'Sculpt Honeycomb Panel': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Honeycomb Panel');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Honeycomb Panel cancelled' };
+      try {
+        const W = values.W ?? 200, H = values.H ?? 200, T = values.T ?? 20;
+        const s = values.hexSide ?? 15;
+        const wallT = values.wallT ?? 1.5;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        // Inner-hex circumradius after wall offset (s − wallT / √3) — see
+        // HoneycombPanel.js for the apothem-→-edge-offset derivation.
+        const innerR = Math.max(0.01, s - wallT / Math.sqrt(3));
+        if (innerR <= 0.01) throw new Error(`wallT (${wallT}) is too large for hexSide (${s}) — no interior left`);
+
+        // Generate every cell centre that touches the panel rim (pad = 2·s
+        // so partial edge cells are included for honest termination).
+        const centres = honeycombCenters(W, H, s, 2 * s);
+        const cellPolys = centres.map(([cx, cy]) => hexagonPolygon(cx, cy, innerR));
+        const panelPoly = panelRectangle(W, H);
+
+        const Mod = await getManifold();
+        // Build the panel solid + the cells solid + subtract = walls.
+        // Each shape is built as a proper closed Manifold so the boolean
+        // is reliable, vs the CrossSection-EvenOdd shortcut which left
+        // hex overhangs outside the panel rim as spurious solid.
+        const panelCS = new Mod.CrossSection([panelPoly], 'Positive');
+        const panelSolid = Mod.Manifold.extrude(panelCS, T, 0, 0, [1, 1], false);
+        try { panelCS.delete(); } catch { /* GC */ }
+        // Cells: each hex centred at a grid point. EvenOdd over the
+        // non-overlapping cell polygons treats each as its own region.
+        const cellsCS = new Mod.CrossSection(cellPolys, 'EvenOdd');
+        const cellsSolid = Mod.Manifold.extrude(cellsCS, T, 0, 0, [1, 1], false);
+        try { cellsCS.delete(); } catch { /* GC */ }
+        // Walls = panel ∖ cells.
+        let solid = Mod.Manifold.difference(panelSolid, cellsSolid);
+        try { panelSolid.delete?.(); cellsSolid.delete?.(); } catch { /* GC */ }
+        // Translate to requested (px, py, pz), with the panel mid-plane
+        // moved to z = pz (rather than the bottom face) — matches user
+        // expectation that "position is the panel's centre".
+        solid = solid.translate([px, py, pz - T / 2]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : null;
+        const wallAreaPred = predictWallArea(W, H, s, wallT);
+        const slabVol = W * H * T;
+        const expectedVol = wallAreaPred * T;
+        const color = Number.isFinite(values.color) ? values.color : 0xd0b67a;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastHoneycombReport = {
+            W, H, T, hexSide: s, wallT,
+            cellCount: centres.length,
+            slabVolume: slabVol,
+            wallVolumeActual: volume,
+            wallVolumePredicted: expectedVol,
+            wallAreaPredicted: wallAreaPred,
+            wallFractionActual: volume / slabVol,
+            wallFractionPredicted: wallAreaPred / (W * H),
+            triCount,
+          };
+        }
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt Honeycomb Panel: ${W}×${H}×${T} mm slab, ${centres.length} hex cells @ s=${s} mm, wall ${wallT} mm | V wall ${(volume / 1000).toFixed(1)} cm³ (${(volume / slabVol * 100).toFixed(1)}% slab, predicted ${(wallAreaPred / (W * H) * 100).toFixed(1)}%)${tcStr}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt Honeycomb Panel: ' + err.message };
       }
     },
 

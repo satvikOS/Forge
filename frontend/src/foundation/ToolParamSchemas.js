@@ -124,6 +124,26 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-38 — Honeycomb Panel (NX Composites / CATIA CPD / Creo composites).
+  // The flagship aerospace sandwich-panel core: a rectangular slab with
+  // a flat-top hex grid of cells, every cell separated from its neighbours
+  // by `wallT` of material. Cells overhanging the panel rim are clipped
+  // by the panel rectangle (real bonded-skin terminations).
+  'Sculpt Honeycomb Panel': {
+    title: 'Sculpt — Honeycomb Panel (aerospace sandwich-core)',
+    blurb: 'A flat-top hex-cell honeycomb panel for composite cores. Inset wall thickness; cells clip at the panel edge like a real bonded core.',
+    fields: [
+      { name: 'W',       label: 'Panel width',  type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'H',       label: 'Panel height', type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'T',       label: 'Panel thickness', type: 'number', default: 20, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'hexSide', label: 'Hex side (s)', type: 'number', default: 15,  unit: 'mm', min: 1, step: 0.5, hint: 'centre → vertex distance' },
+      { name: 'wallT',   label: 'Wall thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd0b67a, step: 1 },
+    ],
+  },
   // SP-37 — TPMS Lattice infill (nTopology / Creo Lattice / NX Lattice).
   // Build a watertight Gyroid / Schwarz-P / Diamond lattice inside a
   // bounding box via Manifold.levelSet. The flagship modern-AM feature
