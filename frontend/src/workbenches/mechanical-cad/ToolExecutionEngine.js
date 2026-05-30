@@ -1747,6 +1747,65 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-133 — Topology Adjacency (OCCT three-tier graph walk) ────
+    // CATIA Selection Sets / NX Edge/Face Walks / Creo Geometry Query.
+    // Three-tier face/edge/vertex adjacency that walks the spine
+    // graph: edgesOfFace / facesOfEdge / verticesOfEdge /
+    // facesOfVertex / edgesOfVertex. Each query is O(1).
+    'Sculpt Topology Adjacency': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Topology Adjacency');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Topology Adjacency cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastAdjReport = { error: 'in progress' };
+      }
+      try {
+        const s = values.boxSize ?? 40;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (s <= 0) throw new Error('boxSize > 0');
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(s, s, s);
+        const placed = await ArchDiscKernel.brep.translate(box, px - s / 2, py - s / 2, pz - s / 2);
+        const color = Number.isFinite(values.color) ? values.color : 0xb8b8c8;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const adj = ArchDiscKernel.brep.adjacency(placed);
+        const allFaces = placed.body.faces();
+        const allEdges = placed.body.edges();
+        const allVertices = placed.body.vertices();
+        // Walk face 1 → edges
+        const face1Edges = adj.edgesOfFace(allFaces[0]);
+        // Walk edge 1 → faces, vertices
+        const edge1Faces = adj.facesOfEdge(allEdges[0]);
+        const edge1Vertices = adj.verticesOfEdge(allEdges[0]);
+        // Walk vertex 1 → faces, edges
+        const vertex1Faces = adj.facesOfVertex(allVertices[0]);
+        const vertex1Edges = adj.edgesOfVertex(allVertices[0]);
+        // Coedges of edge 1
+        const edge1Coedges = adj.coedgesOfEdge ? adj.coedgesOfEdge(allEdges[0]) : [];
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastAdjReport = {
+            boxSize: s,
+            faceCount: allFaces.length,
+            edgeCount: allEdges.length,
+            vertexCount: allVertices.length,
+            face1EdgeCount: face1Edges.length,
+            edge1FaceCount: edge1Faces.length,
+            edge1VertexCount: edge1Vertices.length,
+            vertex1FaceCount: vertex1Faces.length,
+            vertex1EdgeCount: vertex1Edges.length,
+            edge1CoedgeCount: edge1Coedges.length,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Topology Adjacency: ${s}³ | ${allFaces.length}F/${allEdges.length}E/${allVertices.length}V cube — F0→${face1Edges.length}E, E0→${edge1Faces.length}F/${edge1Vertices.length}V/${edge1Coedges.length}coE, V0→${vertex1Faces.length}F/${vertex1Edges.length}E — OCCT spine graph | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastAdjReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Topology Adjacency: ' + err.message };
+      }
+    },
+
     // ─── SP-132 — NURBS Curvature (OCCT D2 + differential geometry) ──
     // SW Surface Curvature / CATIA GSD Curvature Analysis / NX
     // Curvature class. Differential-geometry curvature on a true NURBS

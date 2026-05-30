@@ -124,6 +124,21 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-133 — Topology Adjacency (CATIA Selection Sets / NX Edge/Face
+  // Walks / Creo Geometry Query). Three-tier face/edge/vertex
+  // adjacency walks the spine graph. Box → 6F/12E/8V combinatorial
+  // contract verified by adjacency queries.
+  'Sculpt Topology Adjacency': {
+    title: 'Sculpt — Topology Adjacency (face/edge/vertex graph walk)',
+    blurb: 'OCCT-backed adjacency: box → walk facesOfEdge / edgesOfFace / facesOfVertex / edgesOfVertex. Cube combinatorial contract (6F+12E+8V) verified.',
+    fields: [
+      { name: 'boxSize', label: 'Box side', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8b8c8, step: 1 },
+    ],
+  },
   // SP-132 — NURBS Curvature (analytic Gaussian / mean / principal).
   // SW Surface Curvature / CATIA GSD Curvature Analysis / NX Curvature.
   // Differential-geometry curvature on a true NURBS surface (vs the
