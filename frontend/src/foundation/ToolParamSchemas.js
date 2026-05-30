@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-151 — End Cap (SW Weldments End Cap / CATIA Tube End / NX Cap).
+  // Cap the open end of a structural tube member with a flat plate.
+  // Each member's metadata.weldment.caps[] log records the end.
+  'Sculpt End Cap': {
+    title: 'Sculpt — End Cap (close open tube end)',
+    blurb: 'OCCT-backed weldments end cap: structural member capped at both ends with 4mm plates. caps[] log entries appended.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'capThickness', label: 'Cap thickness', type: 'number', default: 4,   unit: 'mm', min: 1, step: 1 },
+      { name: 'endRef',       label: 'End',           type: 'string', default: 'start', choices: ['start', 'end'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x90a0b0, step: 1 },
+    ],
+  },
   // SP-150 — Trim Members (SW Weldments Trim/Extend / CATIA Trim /
   // NX Trim Member). Auto-trim weldment members at shared joints
   // — butt or mitered — so overlapping ends are removed.

@@ -1747,6 +1747,53 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-151 — End Cap (OCCT Weldments tube end closure) ─────────
+    // SW Weldments End Cap / CATIA Tube End / NX Cap. Cap the open
+    // end of a structural tube member with a flat plate. Caps the
+    // bounding rect of the profile at the picked end and fuses it
+    // onto the parent. metadata.weldment.caps[] records each cap.
+    'Sculpt End Cap': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt End Cap');
+      if (cancelled) return { status: 'warn', message: 'Sculpt End Cap cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastEndCapReport = { error: 'in progress' };
+      }
+      try {
+        const lenMm = values.memberLength ?? 500;
+        const lenM = lenMm / 1000;
+        const capThickness = values.capThickness ?? 4;
+        const endRef = (values.endRef || 'start').toLowerCase();
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (lenMm <= 0 || capThickness <= 0) throw new Error('all dims > 0');
+        const t0 = Date.now();
+        const member = await ArchDiscKernel.brep.structuralMember(
+          [[0, 0, 0], [lenM, 0, 0]],
+          { profile: 'squaretube', size: '50x50x4' },
+        );
+        const capped1 = await ArchDiscKernel.brep.endCap(member, endRef, { thickness: capThickness });
+        // Cap the other end too.
+        const otherEnd = endRef === 'start' ? 'end' : 'start';
+        const capped2 = await ArchDiscKernel.brep.endCap(capped1, otherEnd, { thickness: capThickness });
+        const cappedSm = ArchDiscKernel.brep.getWeldmentMetadata(capped2);
+        const color = Number.isFinite(values.color) ? values.color : 0x90a0b0;
+        await addBrepShapeToScene(scene, viewport, capped2, color);
+        const elapsedMs = Date.now() - t0;
+        if (typeof window !== 'undefined') {
+          window.__lastEndCapReport = {
+            memberLengthMm: lenMm, capThickness, endRef,
+            capCount: (cappedSm && cappedSm.caps) ? cappedSm.caps.length : 0,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt End Cap: ${lenMm}mm member + ${capThickness}mm cap × 2 (${endRef} + ${otherEnd}) | ${(cappedSm && cappedSm.caps) ? cappedSm.caps.length : 0} caps recorded — OCCT Weldments | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastEndCapReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt End Cap: ' + err.message };
+      }
+    },
+
     // ─── SP-150 — Trim Members (OCCT Weldments butt / miter trim) ────
     // SW Weldments Trim/Extend / CATIA Trim / NX Trim Member. Auto-
     // trim weldment members at shared joints — butt or mitered.
