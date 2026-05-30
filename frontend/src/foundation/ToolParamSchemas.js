@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-130 — Classify Point (foundational point-in-solid test).
+  // Returns inside / on / outside. Used by every Boolean, clearance,
+  // DFM, mold-region workflow downstream. SW/CATIA/NX/Creo equivalent.
+  'Sculpt Classify Point': {
+    title: 'Sculpt — Classify Point (inside / on / outside)',
+    blurb: 'OCCT-backed point classifier: sphere R=20 + 4 test points (0,0,0)=inside, (20,0,0)=on, (30,0,0)=outside, (15,0,0)=inside.',
+    fields: [
+      { name: 'sphereR', label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody', label: 'Body colour', type: 'number', default: 0xa8c8e6, step: 1 },
+      { name: 'colorIn',   label: 'Inside colour',  type: 'number', default: 0x40ff40, step: 1 },
+      { name: 'colorOn',   label: 'On colour',      type: 'number', default: 0xffff40, step: 1 },
+      { name: 'colorOut',  label: 'Outside colour', type: 'number', default: 0xff4040, step: 1 },
+    ],
+  },
   // SP-129 — Ray Fire (NX Measure Ray / CATIA Distance / SW Measure).
   // Foundational ray-shape intersection used by selection / picking /
   // mold draft / clearance queries. Returns all hits along the ray

@@ -1747,6 +1747,77 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-130 — Classify Point (OCCT BRepClass3d_SolidClassifier) ──
+    // Foundational point-in-solid test. Returns 'inside' / 'on' /
+    // 'outside' / 'unknown'. Used by every Boolean / clearance / DFM
+    // pipeline. 4 test points sample each verdict bucket so the user
+    // can see colour-coded hits inside, on, and outside the sphere.
+    'Sculpt Classify Point': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Classify Point');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Classify Point cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastClassifyReport = { error: 'in progress' };
+      }
+      try {
+        const sR = values.sphereR ?? 20;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (sR <= 0) throw new Error('sphereR > 0');
+        const t0 = Date.now();
+        const sphere = await ArchDiscKernel.brep.makeSphere(sR);
+        const placed = await ArchDiscKernel.brep.translate(sphere, px, py, pz);
+        const colorBody = Number.isFinite(values.colorBody) ? values.colorBody : 0xa8c8e6;
+        const colorIn = Number.isFinite(values.colorIn) ? values.colorIn : 0x40ff40;
+        const colorOn = Number.isFinite(values.colorOn) ? values.colorOn : 0xffff40;
+        const colorOut = Number.isFinite(values.colorOut) ? values.colorOut : 0xff4040;
+        await addBrepShapeToScene(scene, viewport, placed, colorBody);
+        // 4 well-chosen test points (analytic expected classification).
+        const testPoints = [
+          { pt: { x: 0, y: 0, z: 0 },  expected: 'inside' },   // dead centre
+          { pt: { x: sR, y: 0, z: 0 }, expected: 'on' },        // on the surface
+          { pt: { x: sR + 10, y: 0, z: 0 }, expected: 'outside' }, // outside
+          { pt: { x: sR * 0.5, y: 0, z: 0 }, expected: 'inside' }, // interior
+        ];
+        const results = [];
+        for (const t of testPoints) {
+          const verdict = await ArchDiscKernel.brep.classifyPoint(placed, {
+            x: t.pt.x + px, y: t.pt.y + py, z: t.pt.z + pz,
+          });
+          results.push({ pt: t.pt, expected: t.expected, actual: verdict, match: verdict === t.expected });
+          // Render the test point as a colour-coded sphere.
+          const col = verdict === 'inside' ? colorIn : verdict === 'on' ? colorOn : colorOut;
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(1.5, 12, 12),
+            new THREE.MeshStandardMaterial({ color: col, metalness: 0.4, roughness: 0.3 }),
+          );
+          m.position.set(t.pt.x + px, t.pt.y + py, t.pt.z + pz);
+          const g = new THREE.Group();
+          g.scale.set(0.001, 0.001, 0.001);
+          g.add(m);
+          g.userData.pickable = false;
+          g.userData.generatedModel = true;
+          g.userData.classifyPointMarker = true;
+          scene.add(g);
+          g.updateMatrixWorld(true);
+        }
+        const elapsedMs = Date.now() - t0;
+        const allMatch = results.every((r) => r.match);
+        if (typeof window !== 'undefined') {
+          window.__lastClassifyReport = {
+            sphereR: sR,
+            results,
+            allMatch,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Classify Point: sphere R=${sR} | 4 test points: ${results.map((r) => `(${r.pt.x},${r.pt.y},${r.pt.z})→${r.actual}${r.match ? '✓' : '✗(expected '+r.expected+')'}`).join(', ')} — OCCT BRepClass3d_SolidClassifier | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastClassifyReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Classify Point: ' + err.message };
+      }
+    },
+
     // ─── SP-129 — Ray Fire (OCCT IntCurvesFace_ShapeIntersector) ─────
     // NX Measure Ray / CATIA Distance / SW Measure. Foundational ray-
     // shape intersection used by selection / picking / mold draft /

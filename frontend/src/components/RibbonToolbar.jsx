@@ -356,6 +356,7 @@ export const TABS = {
         { name: 'Sculpt Flat Pattern', icon: '▬', key: 'part' },
         { name: 'Sculpt Self-Intersect QA', icon: '⚠', key: 'part' },
         { name: 'Sculpt Ray Fire', icon: '→', key: 'part' },
+        { name: 'Sculpt Classify Point', icon: '⊙', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
