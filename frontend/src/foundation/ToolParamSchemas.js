@@ -124,6 +124,35 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-71 — Hex Bolt (DIN 933 / ISO 4017). Hex head + cylindrical shaft.
+  // OCCT fuse of hex prism (head) + cylinder (shank).
+  'Sculpt Hex Bolt': {
+    title: 'Sculpt — Hex Bolt (DIN 933 / ISO 4017 form)',
+    blurb: 'OCCT-backed hex bolt: hex head + cylindrical shank, fused.',
+    fields: [
+      { name: 'acrossFlats', label: 'Head AF', type: 'number', default: 24, unit: 'mm', min: 2, step: 1, hint: 'wrench size' },
+      { name: 'headHeight',  label: 'Head height', type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shankR',      label: 'Shank radius', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shankLen',    label: 'Shank length', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x7a6a5a, step: 1 },
+    ],
+  },
+  // SP-72 — Half-Sphere Dome. Sphere − half-space box. Universal CAD
+  // dome / cap / hemisphere.
+  'Sculpt Half-Sphere Dome': {
+    title: 'Sculpt — Half-Sphere Dome (hemisphere via section cut)',
+    blurb: 'OCCT-backed hemisphere: sphere − below-XY box. Dome / cap / cup primitive.',
+    fields: [
+      { name: 'R', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x82a39a, step: 1 },
+    ],
+  },
   // SP-70 — Polygon Prism (N-sided regular). OCCT extrudeProfile on a
   // regular N-gon. NX / CATIA / Creo / SW polygon primitive.
   'Sculpt Polygon Prism': {

@@ -1747,6 +1747,68 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-71 — Hex Bolt (OCCT hex prism head + cyl shank, fused) ────
+    'Sculpt Hex Bolt': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Hex Bolt');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Hex Bolt cancelled' };
+      try {
+        const S = values.acrossFlats ?? 24;
+        const headH = values.headHeight ?? 10;
+        const sR = values.shankR ?? 8;
+        const sL = values.shankLen ?? 60;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const R = S / Math.sqrt(3);
+        const t0 = Date.now();
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i + Math.PI / 6;
+          pts.push({ x: R * Math.cos(a), y: R * Math.sin(a), z: 0 });
+        }
+        const head = await ArchDiscKernel.brep.extrudeProfile(pts, headH);
+        const shank = await ArchDiscKernel.brep.makeCylinder(sR, sL);
+        const shankP = await ArchDiscKernel.brep.translate(shank, 0, 0, -sL);
+        const bolt = await ArchDiscKernel.brep.fuse(head, shankP);
+        const total = headH + sL;
+        const placed = await ArchDiscKernel.brep.translate(bolt, px, py, pz - (headH - total) / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x7a6a5a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const hexA = (3 * Math.sqrt(3) / 2) * R * R;
+        const predictedV = hexA * headH + Math.PI * sR * sR * sL;
+        if (typeof window !== 'undefined') {
+          window.__lastBoltReport = { acrossFlats: S, headHeight: headH, shankR: sR, shankLen: sL, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Hex Bolt: AF=${S} head=${headH} shank Ø${sR * 2}×${sL} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Hex Bolt: ' + err.message }; }
+    },
+
+    // ─── SP-72 — Half-Sphere Dome (OCCT sphere − below-XY box cut) ────
+    'Sculpt Half-Sphere Dome': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Half-Sphere Dome');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Half-Sphere Dome cancelled' };
+      try {
+        const R = values.R ?? 25;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const sph = await ArchDiscKernel.brep.makeSphere(R);
+        // Half-space box covering z < 0 region (R*3 cubed, centred below).
+        const box = await ArchDiscKernel.brep.makeBox(R * 4, R * 4, R * 2);
+        const boxP = await ArchDiscKernel.brep.translate(box, -2 * R, -2 * R, -2 * R);
+        const dome = await ArchDiscKernel.brep.cut(sph, boxP);
+        const placed = await ArchDiscKernel.brep.translate(dome, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x82a39a;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (2 / 3) * Math.PI * R * R * R;
+        if (typeof window !== 'undefined') {
+          window.__lastDomeReport = { R, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Half-Sphere Dome: R=${R} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Half-Sphere Dome: ' + err.message }; }
+    },
+
     // ─── SP-70 — Polygon Prism (OCCT extrudeProfile, regular N-gon) ──
     'Sculpt Polygon Prism': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Polygon Prism');
