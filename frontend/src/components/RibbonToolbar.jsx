@@ -326,6 +326,7 @@ export const TABS = {
         { name: 'Sculpt Hollow Sphere', icon: '◌', key: 'part' },
         { name: 'Sculpt Imprint Wire', icon: '⊙', key: 'part' },
         { name: 'Sculpt Partition Box', icon: '▦', key: 'part' },
+        { name: 'Sculpt Draft Analysis', icon: '◭', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

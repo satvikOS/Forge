@@ -1747,6 +1747,55 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-100 — Draft Analysis (OCCT mold-tool QC) ─────────────────
+    // CATIA Mold Tooling Design / NX Mold Wizard class. Sample every
+    // face's outward normal at its parametric centre, signed-angle
+    // against the pull direction, classify positive/negative/vertical.
+    // Read-only QC: geometry is unchanged.
+    'Sculpt Draft Analysis': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Draft Analysis');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Draft Analysis cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastDraftAnalysisReport = { error: 'in progress' };
+      }
+      try {
+        const r1 = values.r1 ?? 20, r2 = values.r2 ?? 10, h = values.h ?? 30;
+        const minDeg = values.minDeg ?? 3;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (r1 <= 0 || r2 < 0 || h <= 0) throw new Error('r1>0, r2≥0, h>0 required');
+        const t0 = Date.now();
+        const frustum = await ArchDiscKernel.brep.makeCone(r1, r2, h);
+        const placed = await ArchDiscKernel.brep.translate(frustum, px, py, pz - h / 2);
+        const analysis = await ArchDiscKernel.brep.draftAnalysis(
+          placed, [0, 0, 1], { minDraftDeg: minDeg },
+        );
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9be38c;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        // Theoretical angle for the lateral face — for sanity reporting.
+        const lateralDeg = Math.atan((r1 - r2) / h) * 180 / Math.PI;
+        if (typeof window !== 'undefined') {
+          window.__lastDraftAnalysisReport = {
+            r1, r2, h, minDraftDeg: minDeg,
+            pullDirection: analysis.pullDirection,
+            faceCount: analysis.faceCount,
+            positive: analysis.positive,
+            negative: analysis.negative,
+            vertical: analysis.vertical,
+            perFace: analysis.perFace.map((f) => ({ faceIndex: f.faceIndex, category: f.category, angleDeg: f.angleDeg })),
+            theoreticalLateralDeg: lateralDeg,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Draft Analysis: r1=${r1} r2=${r2} h=${h} pull=+Z minDeg=${minDeg}° → +${analysis.positive} / ${analysis.negative}− / ${analysis.vertical}║ of ${analysis.faceCount} faces (theoretical lateral = ${lateralDeg.toFixed(2)}°) — OCCT mold QC | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastDraftAnalysisReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Draft Analysis: ' + err.message };
+      }
+    },
+
     // ─── SP-99 — Partition (OCCT multi-cell volumetric split) ────────
     // NX-class operation. A thin slab tool slices a box into 3 cells
     // (below-slab / inside-slab / above-slab). The kernel's partition

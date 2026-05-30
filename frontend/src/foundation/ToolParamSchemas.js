@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-100 — Draft Analysis (CATIA Mold Tooling Design / NX Mold Wizard
+  // class). Read-only QC: sample every face's outward normal against a
+  // pull direction and classify positive/negative/vertical. The frustum
+  // primitive has 1 positive cap, 1 negative cap, and 1 positive lateral
+  // (atan((r1−r2)/h) > 3° threshold).
+  'Sculpt Draft Analysis': {
+    title: 'Sculpt — Draft Analysis (mold-tool QC)',
+    blurb: 'OCCT-backed draft-angle QC: classify every face by mold-open angle. Cone frustum + +Z pull → positive (top + lateral) / negative (bottom).',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',      label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'minDeg', label: 'Min draft (°)', type: 'number', default: 3,  unit: '°',  min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9be38c, step: 1 },
+    ],
+  },
   // SP-99 — Partition (NX-class multi-cell volumetric split). Splits a
   // body into N independent solid pieces using a tool slab — each piece
   // is a separately selectable SpineBody; total volume is preserved.
