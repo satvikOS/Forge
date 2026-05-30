@@ -90,6 +90,7 @@ import { hexagonPolygon, honeycombCenters, panelRectangle, predictWallArea } fro
 import { poissonDiskSeeds, voronoiCellPolygon, insetConvexPolygon, polygonSignedArea } from '../../foundation/VoronoiPanel.js';
 import { runCantileverSIMP, makeCubeDensitySDF } from '../../foundation/TopoCantilever.js';
 import { ellipsoidalVesselProfile, predictVesselVolume, vesselHeight } from '../../foundation/VesselGeometry.js';
+import { wShapeProfile, wShapeArea, WSHAPE_PRESETS } from '../../foundation/IBeamGeometry.js';
 import { NURBSCurve } from '../../foundation/NURBSCurve.js';
 import { TetMesh } from '../../foundation/TetMesh.js';
 import { QuadraticTetMesh } from '../../foundation/QuadraticTetMesh.js';
@@ -1739,6 +1740,60 @@ const TOOL_HANDLERS = {
         return { status: 'success', message: `Sculpt Pipe: Ø${radius * 2} swept ${path.length}-pt path, V≈${m.volume().toFixed(0)} mm³` };
       } catch (err) {
         return { status: 'error', message: 'Sculpt Pipe: ' + err.message };
+      }
+    },
+
+    // ─── SP-42 — I-Beam (AISC W-shape rolled steel) ────────────────────
+    // Build the 12-vertex W-shape cross-section and extrude it by the
+    // beam length. AISC presets pre-fill the cross-section dialer with
+    // the standard imperial-to-metric dimensions; selecting "custom"
+    // uses whatever the user dialed in. Volume = cross-section area ×
+    // length to machine precision.
+    'Sculpt I-Beam': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt I-Beam');
+      if (cancelled) return { status: 'warn', message: 'Sculpt I-Beam cancelled' };
+      try {
+        const presetKey = String(values.preset || 'custom');
+        const preset = WSHAPE_PRESETS[presetKey];
+        const d  = preset ? preset.d  : (values.d  ?? 310);
+        const bf = preset ? preset.bf : (values.bf ?? 165);
+        const tw = preset ? preset.tw : (values.tw ?? 5.8);
+        const tf = preset ? preset.tf : (values.tf ?? 9.7);
+        const length = values.length ?? 1000;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+
+        const profile = wShapeProfile({ d, bf, tw, tf });
+        const sectionArea = wShapeArea({ d, bf, tw, tf });
+
+        const Mod = await getManifold();
+        const cs = new Mod.CrossSection([profile], 'Positive');
+        let solid = Mod.Manifold.extrude(cs, length, 0, 0, [1, 1], false);
+        try { cs.delete(); } catch { /* GC */ }
+        // Beam runs along Z by default; centre on the requested position.
+        solid = solid.translate([px, py, pz - length / 2]);
+
+        const volume = solid.volume();
+        const triCount = typeof solid.numTri === 'function' ? solid.numTri() : null;
+        const predictedV = sectionArea * length;
+        const color = Number.isFinite(values.color) ? values.color : 0x9c8d6a;
+        addFoundationManifoldToScene(scene, viewport, solid, color);
+
+        if (typeof window !== 'undefined') {
+          window.__lastIBeamReport = {
+            preset: presetKey, d, bf, tw, tf, length,
+            sectionArea, volume, predictedVolume: predictedV,
+            relError: Math.abs(volume - predictedV) / Math.max(1, predictedV),
+            triCount,
+          };
+        }
+        const presetStr = preset ? `${presetKey}` : `d${d} × bf${bf} × tw${tw} × tf${tf} mm`;
+        const tcStr = triCount != null ? ` | ${triCount.toLocaleString()} tris` : '';
+        return {
+          status: 'success',
+          message: `Sculpt I-Beam: ${presetStr} × ${length} mm | A = ${sectionArea.toFixed(1)} mm², V = ${(volume / 1000).toFixed(1)} cm³ (predicted ${(predictedV / 1000).toFixed(1)} cm³, rel err ${(Math.abs(volume - predictedV) / predictedV * 100).toFixed(3)}%)${tcStr}`,
+        };
+      } catch (err) {
+        return { status: 'error', message: 'Sculpt I-Beam: ' + err.message };
       }
     },
 

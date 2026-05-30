@@ -268,6 +268,7 @@ export const TABS = {
         { name: 'Sculpt Voronoi Panel', icon: '⌖', key: 'part' },
         { name: 'Sculpt Topology Optimize', icon: '✦', key: 'part' },
         { name: 'Sculpt Pressure Vessel', icon: '⏥', key: 'part' },
+        { name: 'Sculpt I-Beam', icon: 'Ⅰ', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

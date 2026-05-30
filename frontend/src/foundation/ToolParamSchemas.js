@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-42 — I-Beam (AISC W-shape, AutoCAD / Revit / NX / CATIA / Creo
+  // structural workbench class). 12-vertex CCW cross-section extruded
+  // by the beam length — the canonical rolled-steel structural section.
+  'Sculpt I-Beam': {
+    title: 'Sculpt — I-Beam (AISC W-shape)',
+    blurb: 'Parametric rolled-steel W-shape: pick an AISC preset or dial dimensions directly. 12-vertex extrude.',
+    fields: [
+      { name: 'preset', label: 'AISC preset', type: 'enum', default: 'custom', options: ['custom', 'W8x10', 'W12x26', 'W18x35', 'W24x68'], hint: 'overrides d / bf / tw / tf when not "custom"' },
+      { name: 'd',  label: 'Depth d',          type: 'number', default: 310, unit: 'mm', min: 10,  step: 1 },
+      { name: 'bf', label: 'Flange width bf',  type: 'number', default: 165, unit: 'mm', min: 10,  step: 1 },
+      { name: 'tw', label: 'Web thickness tw', type: 'number', default: 5.8, unit: 'mm', min: 0.5, step: 0.1 },
+      { name: 'tf', label: 'Flange thickness tf', type: 'number', default: 9.7, unit: 'mm', min: 0.5, step: 0.1 },
+      { name: 'length', label: 'Beam length',  type: 'number', default: 1000, unit: 'mm', min: 1, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)',  type: 'number', default: 0x9c8d6a, step: 1 },
+    ],
+  },
   // SP-41 — Pressure Vessel (AutoCAD Plant3D / AVEVA E3D / CADWorx /
   // NX / CATIA / Creo plant-design). ASME Sec VIII Div 1-style 2:1
   // ellipsoidal head + cylindrical shell + 2:1 ellipsoidal head,
