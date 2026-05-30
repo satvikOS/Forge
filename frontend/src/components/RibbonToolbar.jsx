@@ -333,6 +333,7 @@ export const TABS = {
         { name: 'Sculpt N-Sided Patch', icon: '⬠', key: 'part' },
         { name: 'Sculpt Undercut Analysis', icon: '⬇', key: 'part' },
         { name: 'Sculpt Helix Curve', icon: '⌇', key: 'part' },
+        { name: 'Sculpt Boundary Boss', icon: '◇', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

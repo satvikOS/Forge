@@ -124,6 +124,24 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-107 — Boundary Boss (SW Boundary Boss / CATIA Multi-Sections / NX
+  // Through-Curves). N profile cross-sections lofted with G1 tangency
+  // into a smooth solid. Canonical 2-profile case: circle → square
+  // transition.
+  'Sculpt Boundary Boss': {
+    title: 'Sculpt — Boundary Boss (circle → square loft)',
+    blurb: 'OCCT-backed multi-section loft: round bottom profile to square top profile, G1 smoothing. Volume bounded by min/max cross-section × height.',
+    fields: [
+      { name: 'circleR',  label: 'Bottom circle radius', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'squareS',  label: 'Top square side',      type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'height',   label: 'Height',               type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'circleSegs', label: 'Circle segments',    type: 'number', default: 32, unit: '',  min: 8, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb5e3c1, step: 1 },
+    ],
+  },
   // SP-106 — Helix Curve (SW Curves / CATIA GSD / NX). Generate a real
   // OCCT helix wire and render it as a Three.js polyline. Analytic
   // length formula L = revs·√(p² + (π·D)²) validated.

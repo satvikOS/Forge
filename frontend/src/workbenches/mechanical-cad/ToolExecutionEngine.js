@@ -1747,6 +1747,75 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-107 — Boundary Boss (OCCT multi-section loft) ────────────
+    // SW Boundary Boss / CATIA Multi-Sections Solid / NX Through-
+    // Curves. Loft N closed planar profile wires into a smooth solid
+    // with G1 tangency between sections. The canonical circle → square
+    // transition exercises the cross-topology loft path.
+    'Sculpt Boundary Boss': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Boundary Boss');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Boundary Boss cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastBoundaryBossReport = { error: 'in progress' };
+      }
+      try {
+        const cR = values.circleR ?? 30;
+        const sqS = values.squareS ?? 40;
+        const H = values.height ?? 60;
+        const segs = values.circleSegs ?? 32;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (cR <= 0 || sqS <= 0 || H <= 0) throw new Error('circleR, squareS, H must be > 0');
+        const t0 = Date.now();
+        // Bottom circle profile (z = 0).
+        const circle = [];
+        for (let i = 0; i < segs; i++) {
+          const a = (2 * Math.PI * i) / segs;
+          circle.push({ x: cR * Math.cos(a), y: cR * Math.sin(a), z: 0 });
+        }
+        // Top square profile (z = H), centred on axis.
+        const s = sqS / 2;
+        const square = [
+          { x: -s, y: -s, z: H },
+          { x:  s, y: -s, z: H },
+          { x:  s, y:  s, z: H },
+          { x: -s, y:  s, z: H },
+        ];
+        const boss = await ArchDiscKernel.brep.boundaryBoss({
+          profiles: [circle, square],
+          smooth: true,
+        });
+        const placed = await ArchDiscKernel.brep.translate(boss, px, py, pz - H / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb5e3c1;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Cross-section areas at each end.
+        const circleArea = Math.PI * cR * cR;
+        const squareArea = sqS * sqS;
+        const minArea = Math.min(circleArea, squareArea);
+        const maxArea = Math.max(circleArea, squareArea);
+        const minBound = minArea * H;
+        const maxBound = maxArea * H;
+        if (typeof window !== 'undefined') {
+          window.__lastBoundaryBossReport = {
+            circleR: cR, squareS: sqS, H, segs,
+            circleArea, squareArea,
+            actualVolume: metrics.volume,
+            minBound, maxBound,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Boundary Boss: Ø${cR * 2} → □${sqS}, H=${H} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (bounded [${(minBound / 1000).toFixed(2)}, ${(maxBound / 1000).toFixed(2)}]), ${metrics.faceCount} faces — OCCT multi-section loft | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastBoundaryBossReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Boundary Boss: ' + err.message };
+      }
+    },
+
     // ─── SP-106 — Helix Curve (OCCT wire, Three.js Line render) ──────
     // SW Curves / CATIA GSD / NX class. Generate a real OCCT helix
     // wire with constant pitch + revs + diameter. The polyline points
