@@ -1747,6 +1747,58 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-135 — Pipe Shell Sweep (OCCT MakePipeShell tortuous path) ─
+    // CATIA Rib Pipe / NX Tube / SW Swept Boss. Sweep a circle profile
+    // along a right-angle polyline path with N bends. The OCCT
+    // BRepOffsetAPI_MakePipeShell handles multi-segment paths cleanly
+    // (the SP-82 documented limit of sweepProfile is bypassed).
+    'Sculpt Pipe Shell Sweep': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Pipe Shell Sweep');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Pipe Shell Sweep cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastPipeShellReport = { error: 'in progress' };
+      }
+      try {
+        const pR = values.profileR ?? 4;
+        const segL = values.segLength ?? 20;
+        const bends = values.bendCount ?? 2;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (pR <= 0 || segL <= 0 || bends < 1) throw new Error('all dims > 0; bends ≥ 1');
+        const t0 = Date.now();
+        const pipe = await ArchDiscKernel.brep.pipeShellSweep({
+          profileRadius: pR, segLength: segL, bendCount: bends,
+        });
+        const placed = await ArchDiscKernel.brep.translate(pipe, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa8d8e6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        // Analytic estimate: cross-sec area πr² × total path length
+        // (= (bends+1) × segLength). Doesn't account for bend overlap but
+        // bounds the volume.
+        const totalLen = (bends + 1) * segL;
+        const cs = Math.PI * pR * pR;
+        const predictedV = cs * totalLen;
+        if (typeof window !== 'undefined') {
+          window.__lastPipeShellReport = {
+            profileR: pR, segLength: segL, bendCount: bends,
+            actualVolume: metrics.volume,
+            predictedVolume: predictedV,
+            volumeRelError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCount: metrics.faceCount,
+            edgeCount: metrics.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Pipe Shell Sweep: Ø${pR * 2}×${bends + 1} segs of ${segL} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(2)} %), ${metrics.faceCount} faces — OCCT MakePipeShell | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastPipeShellReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Pipe Shell Sweep: ' + err.message };
+      }
+    },
+
     // ─── SP-134 — Eval Curve (OCCT BRepAdaptor_Curve D2) ─────────────
     // SW Sketch Tangent / CATIA Reference Element / NX Curve Inspect
     // class. Differential-geometry sample of a body edge at parameter

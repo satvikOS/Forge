@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-135 — Pipe Shell Sweep (CATIA Rib Pipe / NX Tube / SW Swept Boss).
+  // Sweep a circular profile along a tortuous right-angle polyline path
+  // with N bends. Real BRepOffsetAPI_MakePipeShell — handles
+  // multi-segment paths cleanly (unlike sweepProfile).
+  'Sculpt Pipe Shell Sweep': {
+    title: 'Sculpt — Pipe Shell Sweep (multi-bend tube)',
+    blurb: 'OCCT-backed pipe shell: Ø8 circle along 3-segment right-angle path (X→Y→Z, 20mm each). MakePipeShell handles multi-bend without sweepProfile limitation.',
+    fields: [
+      { name: 'profileR', label: 'Tube radius', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'segLength', label: 'Segment length', type: 'number', default: 20, unit: 'mm', min: 5, step: 1 },
+      { name: 'bendCount', label: 'Bend count', type: 'number', default: 2,  unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8d8e6, step: 1 },
+    ],
+  },
   // SP-134 — Edge Curve Evaluation (SW Sketch Tangent / CATIA Reference
   // Element / NX Curve Inspect). Differential-geometry sample of a
   // body edge at parameter t in [0,1]: point + tangent + 2nd
