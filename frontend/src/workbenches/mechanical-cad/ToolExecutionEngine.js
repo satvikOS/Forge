@@ -1747,6 +1747,58 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-102 — Tooling Split (OCCT mold core/cavity) ──────────────
+    // NX Mold Wizard / CATIA Mold Tooling class. Build a planar parting
+    // surface perpendicular to the pull direction through the bounding
+    // box centroid, partition the body, classify the two pieces as
+    // core (above) and cavity (below), volume conservation enforced.
+    'Sculpt Tooling Split': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Tooling Split');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Tooling Split cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastToolingSplitReport = { error: 'in progress' };
+      }
+      try {
+        const r1 = values.r1 ?? 20, r2 = values.r2 ?? 10, h = values.h ?? 30;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (r1 <= 0 || r2 < 0 || h <= 0) throw new Error('r1>0, r2≥0, h>0 required');
+        const t0 = Date.now();
+        const frustum = await ArchDiscKernel.brep.makeCone(r1, r2, h);
+        const placed = await ArchDiscKernel.brep.translate(frustum, px, py, pz - h / 2);
+        const result = await ArchDiscKernel.brep.toolingSplit(placed, [0, 0, 1], {});
+        const elapsedMs = Date.now() - t0;
+        const colorCore = Number.isFinite(values.colorCore) ? values.colorCore : 0xf2b5b5;
+        const colorCavity = Number.isFinite(values.colorCavity) ? values.colorCavity : 0xb5d6f2;
+        if (result.core) await addBrepShapeToScene(scene, viewport, result.core, colorCore);
+        if (result.cavity) await addBrepShapeToScene(scene, viewport, result.cavity, colorCavity);
+        const coreM = result.core ? await ArchDiscKernel.brep.measure(result.core) : null;
+        const cavityM = result.cavity ? await ArchDiscKernel.brep.measure(result.cavity) : null;
+        // Total volume of the input frustum.
+        const totalV = Math.PI * h / 3 * (r1 * r1 + r1 * r2 + r2 * r2);
+        const sumV = (coreM ? coreM.volume : 0) + (cavityM ? cavityM.volume : 0);
+        if (typeof window !== 'undefined') {
+          window.__lastToolingSplitReport = {
+            r1, r2, h,
+            pullDirection: result.pullDirection,
+            partingPlane: result.partingPlane,
+            pieceCount: result.pieceCount,
+            coreVolume: coreM ? coreM.volume : null,
+            cavityVolume: cavityM ? cavityM.volume : null,
+            sumVolume: sumV,
+            predictedVolume: totalV,
+            relError: Math.abs(sumV - totalV) / totalV,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Tooling Split: frustum r1=${r1} r2=${r2} h=${h} → core ${coreM ? (coreM.volume/1000).toFixed(2) : '—'} cm³ + cavity ${cavityM ? (cavityM.volume/1000).toFixed(2) : '—'} cm³ (ΣV ${(sumV/1000).toFixed(2)} = predicted ${(totalV/1000).toFixed(2)}, rel err ${(Math.abs(sumV-totalV)/totalV*100).toFixed(3)} %) — OCCT mold tooling | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastToolingSplitReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Tooling Split: ' + err.message };
+      }
+    },
+
     // ─── SP-101 — Parting Line (OCCT mold silhouette) ────────────────
     // CATIA Mold / NX Mold Wizard class. Walk every edge of the body,
     // keep the ones where the two adjacent faces have OPPOSITE draft

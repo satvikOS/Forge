@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-102 — Tooling Split (NX Mold Wizard / CATIA Mold Tooling class).
+  // Split body into CORE + CAVITY halves via a planar parting surface
+  // through the bounding-box centroid, perpendicular to the pull
+  // direction. Each half is a separately selectable SpineBody tagged
+  // 'core' / 'cavity'.
+  'Sculpt Tooling Split': {
+    title: 'Sculpt — Tooling Split (core / cavity)',
+    blurb: 'OCCT-backed mold tooling split: frustum → core (above midplane) + cavity (below), each tagged. Volume conservation enforced.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',      label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorCore',   label: 'Core colour',   type: 'number', default: 0xf2b5b5, step: 1 },
+      { name: 'colorCavity', label: 'Cavity colour', type: 'number', default: 0xb5d6f2, step: 1 },
+    ],
+  },
   // SP-101 — Parting Line (CATIA Mold / NX Mold Wizard class). Walks
   // every edge, finds those where adjacent faces have OPPOSITE draft
   // signs — that's the silhouette curve the mold splits along. Frustum
