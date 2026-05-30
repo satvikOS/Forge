@@ -1747,6 +1747,75 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-106 — Helix Curve (OCCT wire, Three.js Line render) ──────
+    // SW Curves / CATIA GSD / NX class. Generate a real OCCT helix
+    // wire with constant pitch + revs + diameter. The polyline points
+    // are exposed on meta.polyline; we render them directly as a
+    // Three.js Line in the scene (brepToMesh doesn't handle wires).
+    'Sculpt Helix Curve': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Helix Curve');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Helix Curve cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastHelixReport = { error: 'in progress' };
+      }
+      try {
+        const D = values.diameter ?? 20;
+        const pitch = values.pitch ?? 5;
+        const revs = values.revolutions ?? 8;
+        const segsPerRev = values.segsPerRev ?? 64;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (D <= 0 || pitch <= 0 || revs <= 0) throw new Error('diameter, pitch, revs must be > 0');
+        const t0 = Date.now();
+        const helixBody = await ArchDiscKernel.brep.helix({
+          diameter: D, pitch, revolutions: revs,
+          segmentsPerRev: segsPerRev,
+          axisOrigin: [px, py, pz - (pitch * revs) / 2],
+          axisDirection: [0, 0, 1],
+        });
+        const meta = helixBody.meta || {};
+        const polyline = meta.polyline || [];
+        // Render as Three.js Line (bypass brepToMesh — no faces on wire).
+        const positions = new Float32Array(polyline.length * 3);
+        for (let i = 0; i < polyline.length; i++) {
+          positions[3 * i + 0] = polyline[i].x;
+          positions[3 * i + 1] = polyline[i].y;
+          positions[3 * i + 2] = polyline[i].z;
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const color = Number.isFinite(values.color) ? values.color : 0x60d3a8;
+        const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+        const line = new THREE.Line(geom, mat);
+        const group = new THREE.Group();
+        group.scale.set(0.001, 0.001, 0.001);
+        group.add(line);
+        group.userData.pickable = true;
+        group.userData.generatedModel = true;
+        group.userData.helixWire = true;
+        scene.add(group);
+        group.updateMatrixWorld(true);
+        const elapsedMs = Date.now() - t0;
+        const expectedLength = revs * Math.sqrt(pitch * pitch + Math.PI * Math.PI * D * D);
+        if (typeof window !== 'undefined') {
+          window.__lastHelixReport = {
+            diameter: D, pitch, revolutions: revs, segsPerRev,
+            pointCount: polyline.length,
+            expectedLength,
+            measuredLength: meta.length ? meta.length.measured : null,
+            kernelExpectedLength: meta.length ? meta.length.expected : null,
+            relError: meta.length ? Math.abs(meta.length.measured - expectedLength) / expectedLength : null,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Helix Curve: Ø${D}×pitch ${pitch}×${revs} turns | L = ${meta.length.measured.toFixed(2)} mm (predicted ${expectedLength.toFixed(2)} mm, rel err ${(Math.abs(meta.length.measured - expectedLength) / expectedLength * 100).toFixed(3)} %), ${polyline.length} pts — OCCT wire + THREE.Line | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastHelixReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Helix Curve: ' + err.message };
+      }
+    },
+
     // ─── SP-105 — Undercut Analysis (OCCT mold QC, shadow-ray) ───────
     // CATIA Mold / NX Mold Wizard companion to SP-100 Draft Analysis.
     // For every face: sample the outward normal, classify by sign vs

@@ -124,6 +124,23 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-106 — Helix Curve (SW Curves / CATIA GSD / NX). Generate a real
+  // OCCT helix wire and render it as a Three.js polyline. Analytic
+  // length formula L = revs·√(p² + (π·D)²) validated.
+  'Sculpt Helix Curve': {
+    title: 'Sculpt — Helix Curve (3D wire primitive)',
+    blurb: 'OCCT-backed helix wire: Ø20×pitch 5×8 turns. Length matches analytic L = revs·√(p² + (π·D)²). Rendered as a Three.js Line.',
+    fields: [
+      { name: 'diameter',    label: 'Diameter',    type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'pitch',       label: 'Pitch',       type: 'number', default: 5,  unit: 'mm/turn', min: 0.1, step: 0.5 },
+      { name: 'revolutions', label: 'Revolutions', type: 'number', default: 8,  unit: '',       min: 0.25, step: 0.5 },
+      { name: 'segsPerRev',  label: 'Segs / rev',  type: 'number', default: 64, unit: '',       min: 8, step: 8 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x60d3a8, step: 1 },
+    ],
+  },
   // SP-105 — Undercut Analysis (CATIA Mold / NX Mold Wizard).
   // Companion to SP-100 Draft Analysis: classifies each face as good
   // (faces +pull) / undercut (faces -pull AND ray-confirmed shadowed)
