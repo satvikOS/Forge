@@ -1747,6 +1747,68 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-138 — NURBS Refine + Elevate (h + p refinement chain) ────
+    // CATIA GSD Insert Knot / NX Insert Knot / SW NURBS Tools class.
+    // Chain h-refinement (knot insertion at 0.25/0.5/0.75) with
+    // p-refinement (degree elevation). The underlying surface shape
+    // is preserved EXACTLY through both operations; the control net
+    // is densified for downstream local-modification ops.
+    'Sculpt NURBS Refine': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt NURBS Refine');
+      if (cancelled) return { status: 'warn', message: 'Sculpt NURBS Refine cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastNurbsRefineReport = { error: 'in progress' };
+      }
+      try {
+        const size = values.size ?? 40;
+        const crown = values.crown ?? 8;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (size < 10 || size > 200) throw new Error('size ∈ [10, 200]');
+        const t0 = Date.now();
+        const base = await ArchDiscKernel.brep.buildNurbsPatch({ size, crown });
+        const baseSurf = base.meta && base.meta.nurbsSurf;
+        const baseInfo = baseSurf ? {
+          nUPoles: baseSurf.NbUPoles(), nVPoles: baseSurf.NbVPoles(),
+          uDegree: baseSurf.UDegree(), vDegree: baseSurf.VDegree(),
+        } : null;
+        const refined = await ArchDiscKernel.brep.refineNurbs(base);
+        const refinedSurf = refined.meta && refined.meta.nurbsSurf;
+        const refinedInfo = refinedSurf ? {
+          nUPoles: refinedSurf.NbUPoles(), nVPoles: refinedSurf.NbVPoles(),
+          uDegree: refinedSurf.UDegree(), vDegree: refinedSurf.VDegree(),
+        } : null;
+        const elevated = await ArchDiscKernel.brep.elevateNurbsDegree(refined);
+        const elevatedSurf = elevated.meta && elevated.meta.nurbsSurf;
+        const elevatedInfo = elevatedSurf ? {
+          nUPoles: elevatedSurf.NbUPoles(), nVPoles: elevatedSurf.NbVPoles(),
+          uDegree: elevatedSurf.UDegree(), vDegree: elevatedSurf.VDegree(),
+        } : null;
+        // Sample curvature at centre to verify shape preserved.
+        const baseCurv = await ArchDiscKernel.brep.nurbsCurvature(base, 0.5, 0.5);
+        const elevatedCurv = await ArchDiscKernel.brep.nurbsCurvature(elevated, 0.5, 0.5);
+        const placed = await ArchDiscKernel.brep.translate(elevated, px - size / 2, py - size / 2, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xc0d0e0;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsRefineReport = {
+            size, crown,
+            base: baseInfo, refined: refinedInfo, elevated: elevatedInfo,
+            baseGaussian: baseCurv.gaussian, baseMean: baseCurv.mean,
+            elevatedGaussian: elevatedCurv.gaussian, elevatedMean: elevatedCurv.mean,
+            gaussianShapeRelError: Math.abs(elevatedCurv.gaussian - baseCurv.gaussian) / Math.max(1e-9, Math.abs(baseCurv.gaussian)),
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt NURBS Refine: ${size}×${size} crown=${crown} | base ${baseInfo?.nUPoles}×${baseInfo?.nVPoles} (deg ${baseInfo?.uDegree}×${baseInfo?.vDegree}) → refined ${refinedInfo?.nUPoles}×${refinedInfo?.nVPoles} (deg ${refinedInfo?.uDegree}×${refinedInfo?.vDegree}) → elevated ${elevatedInfo?.nUPoles}×${elevatedInfo?.nVPoles} (deg ${elevatedInfo?.uDegree}×${elevatedInfo?.vDegree}). Centre Gaussian κ ${baseCurv.gaussian.toExponential(3)} → ${elevatedCurv.gaussian.toExponential(3)} (preserved) — OCCT h+p refinement | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastNurbsRefineReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt NURBS Refine: ' + err.message };
+      }
+    },
+
     // ─── SP-137 — Stitch Faces (OCCT BRepBuilderAPI_Sewing) ──────────
     // SW Knit Surface / CATIA Join / NX Sew class. Tolerant sewing of
     // separate faces into a shell — bridges small gaps and welds

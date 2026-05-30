@@ -124,6 +124,22 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-138 — NURBS Refine + Elevate Degree (CATIA GSD Insert Knot /
+  // NX Insert Knot / SW NURBS Tools). h-refinement (knot insertion)
+  // + p-refinement (degree elevation) on a 4×4 NURBS sail. Surface
+  // shape preserved exactly, control net densified.
+  'Sculpt NURBS Refine': {
+    title: 'Sculpt — NURBS Refine + Elevate (h + p refinement)',
+    blurb: 'OCCT-backed NURBS: buildNurbsPatch → refineNurbs (insert knots at 0.25/0.5/0.75) → elevateNurbsDegree. Shape preserved; control net densified.',
+    fields: [
+      { name: 'size',  label: 'Patch size', type: 'number', default: 40, unit: 'mm', min: 10, step: 1 },
+      { name: 'crown', label: 'Crown lift', type: 'number', default: 8,  unit: 'mm', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0d0e0, step: 1 },
+    ],
+  },
   // SP-137 — Stitch Faces (SW Knit Surface / CATIA Join / NX Sew).
   // Tolerant sewing of separate faces into a shell — bridges small
   // gaps and welds shared boundaries within tolerance.

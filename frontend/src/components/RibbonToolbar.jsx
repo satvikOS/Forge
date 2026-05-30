@@ -364,6 +364,7 @@ export const TABS = {
         { name: 'Sculpt Pipe Shell Sweep', icon: '⊃', key: 'part' },
         { name: 'Sculpt Loft Tangent', icon: '◇', key: 'part' },
         { name: 'Sculpt Stitch Faces', icon: '⫷', key: 'part' },
+        { name: 'Sculpt NURBS Refine', icon: '⫼', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },
