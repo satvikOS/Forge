@@ -124,6 +124,39 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-68 — Constant-R Fillet on all edges (filletAll). Different from
+  // SP-46 (variable r1→r2): every edge gets the same radius. NX Edge
+  // Fillet / CATIA Edge Fillet / Creo Round / SW Fillet.
+  'Sculpt Filleted Box': {
+    title: 'Sculpt — Filleted Box (constant-R on all edges, OCCT)',
+    blurb: 'OCCT-backed box with a constant fillet radius applied to all 12 edges.',
+    fields: [
+      { name: 'dx', label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 4, step: 1 },
+      { name: 'dy', label: 'Box Y', type: 'number', default: 60, unit: 'mm', min: 4, step: 1 },
+      { name: 'dz', label: 'Box Z', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'r',  label: 'Fillet R', type: 'number', default: 5, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+  // SP-69 — Chamfered Box (chamferAll constant distance). NX/CATIA/Creo
+  // / SW Chamfer.
+  'Sculpt Chamfered Box': {
+    title: 'Sculpt — Chamfered Box (constant distance, OCCT)',
+    blurb: 'OCCT-backed box with a constant 45° chamfer applied to all 12 edges.',
+    fields: [
+      { name: 'dx', label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 4, step: 1 },
+      { name: 'dy', label: 'Box Y', type: 'number', default: 60, unit: 'mm', min: 4, step: 1 },
+      { name: 'dz', label: 'Box Z', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'distance', label: 'Chamfer distance', type: 'number', default: 4, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa39aad, step: 1 },
+    ],
+  },
   // SP-65 — Spool / Yo-yo (NX / CATIA / Creo / SW pattern). Two end
   // flanges + connecting shaft. OCCT fuse of 3 cylinders.
   'Sculpt Spool': {

@@ -1747,6 +1747,52 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-68 — Filleted Box (OCCT filletAll) ───────────────────────
+    'Sculpt Filleted Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Filleted Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Filleted Box cancelled' };
+      try {
+        const dx = values.dx ?? 80, dy = values.dy ?? 60, dz = values.dz ?? 40;
+        const r = Math.min(values.r ?? 5, Math.min(dx, dy, dz) / 2 - 0.01);
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        const filleted = await ArchDiscKernel.brep.filletAll(box, r);
+        const placed = await ArchDiscKernel.brep.translate(filleted, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9aa3ad;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastFilletReport = { dx, dy, dz, r, boxVolume: dx * dy * dz, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Filleted Box: ${dx}×${dy}×${dz} mm + R${r} | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Filleted Box: ' + err.message }; }
+    },
+
+    // ─── SP-69 — Chamfered Box (OCCT chamferAll) ─────────────────────
+    'Sculpt Chamfered Box': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Chamfered Box');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Chamfered Box cancelled' };
+      try {
+        const dx = values.dx ?? 80, dy = values.dy ?? 60, dz = values.dz ?? 40;
+        const d = Math.min(values.distance ?? 4, Math.min(dx, dy, dz) / 2 - 0.01);
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const box = await ArchDiscKernel.brep.makeBox(dx, dy, dz);
+        const chamfered = await ArchDiscKernel.brep.chamferAll(box, d);
+        const placed = await ArchDiscKernel.brep.translate(chamfered, px - dx / 2, py - dy / 2, pz - dz / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa39aad;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastChamferReport = { dx, dy, dz, distance: d, boxVolume: dx * dy * dz, actualVolume: metrics.volume, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Chamfered Box: ${dx}×${dy}×${dz} mm + d${d} | V = ${(metrics.volume / 1000).toFixed(2)} cm³, ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Chamfered Box: ' + err.message }; }
+    },
+
     // ─── SP-65 — Spool (OCCT 2 flanges + shaft via fuse) ──────────────
     'Sculpt Spool': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Spool');
