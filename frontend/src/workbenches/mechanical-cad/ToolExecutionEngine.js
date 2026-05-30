@@ -1747,6 +1747,65 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-101 — Parting Line (OCCT mold silhouette) ────────────────
+    // CATIA Mold / NX Mold Wizard class. Walk every edge of the body,
+    // keep the ones where the two adjacent faces have OPPOSITE draft
+    // signs (one positive, one negative) — that's the curve along
+    // which the mold's core and cavity halves separate.
+    'Sculpt Parting Line': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Parting Line');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Parting Line cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastPartingLineReport = { error: 'in progress' };
+      }
+      try {
+        const r1 = values.r1 ?? 20, r2 = values.r2 ?? 10, h = values.h ?? 30;
+        const minDeg = values.minDeg ?? 3;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (r1 <= 0 || r2 < 0 || h <= 0) throw new Error('r1>0, r2≥0, h>0 required');
+        if (r1 === r2) throw new Error('r1 must differ from r2 (otherwise no draft, no parting line)');
+        const t0 = Date.now();
+        const frustum = await ArchDiscKernel.brep.makeCone(r1, r2, h);
+        const placed = await ArchDiscKernel.brep.translate(frustum, px, py, pz - h / 2);
+        const result = await ArchDiscKernel.brep.partingLine(
+          placed, [0, 0, 1], { minDraftDeg: minDeg },
+        );
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xffd070;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        // For each parting edge record the apparent radius from the body's
+        // axis (sqrt(x²+y²) at the start point) — for the frustum it
+        // should be r1 (bottom circle).
+        const edgesOut = result.edges.map((e) => {
+          const sx = e.start.x, sy = e.start.y, sz = e.start.z;
+          return {
+            edgeIndex: e.edgeIndex,
+            start: { x: sx, y: sy, z: sz },
+            end: { x: e.end.x, y: e.end.y, z: e.end.z },
+            leftDraft: e.leftDraft,
+            rightDraft: e.rightDraft,
+            apparentRadius: Math.sqrt(sx * sx + sy * sy),
+          };
+        });
+        if (typeof window !== 'undefined') {
+          window.__lastPartingLineReport = {
+            r1, r2, h, minDraftDeg: minDeg,
+            pullDirection: result.pullDirection,
+            edgeCount: result.edgeCount,
+            edges: edgesOut,
+            expectedBottomZ: pz - h / 2,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Parting Line: r1=${r1} r2=${r2} h=${h} pull=+Z → ${result.edgeCount} parting edge(s) — OCCT mold silhouette | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastPartingLineReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Parting Line: ' + err.message };
+      }
+    },
+
     // ─── SP-100 — Draft Analysis (OCCT mold-tool QC) ─────────────────
     // CATIA Mold Tooling Design / NX Mold Wizard class. Sample every
     // face's outward normal at its parametric centre, signed-angle

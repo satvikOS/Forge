@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-101 — Parting Line (CATIA Mold / NX Mold Wizard class). Walks
+  // every edge, finds those where adjacent faces have OPPOSITE draft
+  // signs — that's the silhouette curve the mold splits along. Frustum
+  // bottom circle is the canonical example (positive lateral meets
+  // negative bottom cap).
+  'Sculpt Parting Line': {
+    title: 'Sculpt — Parting Line (mold silhouette)',
+    blurb: 'OCCT-backed parting-line: silhouette curve where positive draft meets negative draft. Frustum bottom circle is the textbook 1-edge case.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',      label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'minDeg', label: 'Min draft (°)', type: 'number', default: 3,  unit: '°',  min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xffd070, step: 1 },
+    ],
+  },
   // SP-100 — Draft Analysis (CATIA Mold Tooling Design / NX Mold Wizard
   // class). Read-only QC: sample every face's outward normal against a
   // pull direction and classify positive/negative/vertical. The frustum
