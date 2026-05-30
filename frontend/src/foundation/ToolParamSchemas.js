@@ -124,6 +124,38 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-63 — Sphere Primitive (NX / CATIA / Creo / SW). OCCT makeSphere.
+  'Sculpt Sphere Primitive': {
+    title: 'Sculpt — Sphere (OCCT exact analytic surface)',
+    blurb: 'OCCT-backed sphere primitive. The full analytic 4π·R² surface, one face.',
+    fields: [
+      { name: 'R', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb89a82, step: 1 },
+    ],
+  },
+  // SP-64 — Stepped Shaft (NX / CATIA / Creo / SW). Multi-diameter
+  // cylinder via OCCT fuse — rotor / engine-shaft pattern.
+  'Sculpt Stepped Shaft': {
+    title: 'Sculpt — Stepped Shaft (multi-diameter cylinder via fuse)',
+    blurb: 'OCCT-backed stepped shaft with up to 4 segments of different radii. Common rotor / motor shaft / pinion form.',
+    fields: [
+      { name: 'r1', label: 'Segment 1 R', type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h1', label: 'Segment 1 L', type: 'number', default: 30, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'r2', label: 'Segment 2 R', type: 'number', default: 20, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h2', label: 'Segment 2 L', type: 'number', default: 60, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'r3', label: 'Segment 3 R', type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h3', label: 'Segment 3 L', type: 'number', default: 40, unit: 'mm', min: 0, step: 1, hint: '0 to omit' },
+      { name: 'r4', label: 'Segment 4 R', type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h4', label: 'Segment 4 L', type: 'number', default: 25, unit: 'mm', min: 0, step: 1, hint: '0 to omit' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a8a72, step: 1 },
+    ],
+  },
   // SP-62 — Slotted Plate (NX / CATIA / Creo / SW common feature).
   // Plate with one or more elongated slots — common adjustable-mounting
   // feature. OCCT-backed via 2 cylinders + box rectangle = slot cutter.

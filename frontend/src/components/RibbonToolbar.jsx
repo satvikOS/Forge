@@ -289,6 +289,8 @@ export const TABS = {
         { name: 'Sculpt Rect Tube', icon: '▭', key: 'part' },
         { name: 'Sculpt Angle Iron', icon: '∟', key: 'part' },
         { name: 'Sculpt Slotted Plate', icon: '◧', key: 'part' },
+        { name: 'Sculpt Sphere Primitive', icon: '●', key: 'part' },
+        { name: 'Sculpt Stepped Shaft', icon: 'Ⓢ', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

@@ -1747,6 +1747,62 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-63 — Sphere primitive (OCCT exact analytic surface) ───────
+    'Sculpt Sphere Primitive': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Sphere Primitive');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Sphere Primitive cancelled' };
+      try {
+        const R = values.R ?? 25;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const t0 = Date.now();
+        const sph = await ArchDiscKernel.brep.makeSphere(R);
+        const placed = await ArchDiscKernel.brep.translate(sph, px, py, pz);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xb89a82;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = (4 / 3) * Math.PI * R * R * R;
+        if (typeof window !== 'undefined') {
+          window.__lastSphereReport = { R, predictedVolume: predictedV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - predictedV) / predictedV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Sphere Primitive: R=${R} | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Sphere Primitive: ' + err.message }; }
+    },
+
+    // ─── SP-64 — Stepped Shaft (OCCT multi-cyl fuse) ──────────────────
+    'Sculpt Stepped Shaft': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Stepped Shaft');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Stepped Shaft cancelled' };
+      try {
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        const segments = [];
+        for (const [r, h] of [[values.r1, values.h1], [values.r2, values.h2], [values.r3, values.h3], [values.r4, values.h4]]) {
+          if (r > 0 && h > 0) segments.push({ r: Number(r), h: Number(h) });
+        }
+        if (segments.length === 0) throw new Error('at least one segment must have r > 0 and h > 0');
+        const t0 = Date.now();
+        let shaft = null;
+        let z = 0;
+        let totalV = 0;
+        for (const s of segments) {
+          const cyl = await ArchDiscKernel.brep.makeCylinder(s.r, s.h);
+          const cylP = await ArchDiscKernel.brep.translate(cyl, 0, 0, z);
+          shaft = shaft ? await ArchDiscKernel.brep.fuse(shaft, cylP) : cylP;
+          z += s.h;
+          totalV += Math.PI * s.r * s.r * s.h;
+        }
+        const placed = await ArchDiscKernel.brep.translate(shaft, px, py, pz - z / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0x9a8a72;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        if (typeof window !== 'undefined') {
+          window.__lastShaftReport = { segments, totalLength: z, predictedVolume: totalV, actualVolume: metrics.volume, relError: Math.abs(metrics.volume - totalV) / totalV, faceCount: metrics.faceCount, edgeCount: metrics.edgeCount, elapsedMs };
+        }
+        return { status: 'success', message: `Sculpt Stepped Shaft: ${segments.length} segments, total L = ${z} mm | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(totalV / 1000).toFixed(2)} cm³, rel err ${(Math.abs(metrics.volume - totalV) / totalV * 100).toFixed(3)} %), ${metrics.faceCount} faces — OCCT exact B-rep | ${elapsedMs} ms` };
+      } catch (err) { return { status: 'error', message: 'Sculpt Stepped Shaft: ' + err.message }; }
+    },
+
     // ─── SP-62 — Slotted Plate (OCCT: 2 cyls + box = stadium cutter) ───
     'Sculpt Slotted Plate': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Slotted Plate');
