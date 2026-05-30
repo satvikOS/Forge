@@ -1747,6 +1747,64 @@ const TOOL_HANDLERS = {
       }
     },
 
+    // ─── SP-98 — Imprint Wire (OCCT face-imprint, topology-only) ─────
+    // Project the boundary of a tool cylinder onto the top face of a
+    // box. Volume is preserved; the top face splits along the imprint
+    // circle so the inner disc becomes its own face (selectable later
+    // for emboss/pocket/draft/colour). CATIA/NX face-recognition class.
+    'Sculpt Imprint Wire': async (scene, viewport) => {
+      const { values, cancelled } = await requestToolParams('Sculpt Imprint Wire');
+      if (cancelled) return { status: 'warn', message: 'Sculpt Imprint Wire cancelled' };
+      if (typeof window !== 'undefined') {
+        window.__lastImprintReport = { error: 'in progress' };
+      }
+      try {
+        const bx = values.boxX ?? 100, by = values.boxY ?? 100, bz = values.boxZ ?? 20;
+        const tR = values.toolR ?? 20, tH = values.toolH ?? 30;
+        const px = values.x ?? 0, py = values.y ?? 0, pz = values.z ?? 0;
+        if (tR * 2 >= Math.min(bx, by)) throw new Error('tool Ø must be < box X/Y');
+        const t0 = Date.now();
+        // Build the recipient box and the cutting cylinder.
+        const box  = await ArchDiscKernel.brep.makeBox(bx, by, bz);
+        const cyl  = await ArchDiscKernel.brep.makeCylinder(tR, tH);
+        // Centre cyl over box top: box origin (0,0,0); cyl origin (0,0,0).
+        // Cyl needs to be at (bx/2, by/2, bz - tH/2) so its top circle is
+        // above the box and its bottom circle is below — guaranteeing
+        // the boundary projects onto the box top face.
+        const cylC = await ArchDiscKernel.brep.translate(cyl, bx / 2, by / 2, bz - tH / 2);
+        const measureBefore = await ArchDiscKernel.brep.measure(box);
+        const imprinted = await ArchDiscKernel.brep.imprint(box, cylC);
+        const placed = await ArchDiscKernel.brep.translate(imprinted, px - bx / 2, py - by / 2, pz - bz / 2);
+        const elapsedMs = Date.now() - t0;
+        const color = Number.isFinite(values.color) ? values.color : 0xa6c1d6;
+        await addBrepShapeToScene(scene, viewport, placed, color);
+        const metrics = await ArchDiscKernel.brep.measure(placed);
+        const predictedV = bx * by * bz;  // volume unchanged by imprint
+        const dFaces = metrics.faceCount - measureBefore.faceCount;
+        if (typeof window !== 'undefined') {
+          window.__lastImprintReport = {
+            boxX: bx, boxY: by, boxZ: bz, toolR: tR, toolH: tH,
+            predictedVolume: predictedV,
+            actualVolume: metrics.volume,
+            relError: Math.abs(metrics.volume - predictedV) / predictedV,
+            faceCountBefore: measureBefore.faceCount,
+            faceCountAfter: metrics.faceCount,
+            faceCountDelta: dFaces,
+            edgeCountBefore: measureBefore.edgeCount,
+            edgeCountAfter: metrics.edgeCount,
+            edgeCountDelta: metrics.edgeCount - measureBefore.edgeCount,
+            elapsedMs,
+          };
+        }
+        return { status: 'success', message: `Sculpt Imprint Wire: box ${bx}×${by}×${bz} + Ø${tR * 2} cyl footprint | V = ${(metrics.volume / 1000).toFixed(2)} cm³ (predicted ${(predictedV / 1000).toFixed(2)}, rel err ${(Math.abs(metrics.volume - predictedV) / predictedV * 100).toFixed(3)} %), faces ${measureBefore.faceCount} → ${metrics.faceCount} (+${dFaces}) — OCCT topology-only imprint | ${elapsedMs} ms` };
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          window.__lastImprintReport = { error: err.message };
+        }
+        return { status: 'error', message: 'Sculpt Imprint Wire: ' + err.message };
+      }
+    },
+
     // ─── SP-97 — Hollow Sphere (OCCT sphere − inner sphere) ──────────
     'Sculpt Hollow Sphere': async (scene, viewport) => {
       const { values, cancelled } = await requestToolParams('Sculpt Hollow Sphere');

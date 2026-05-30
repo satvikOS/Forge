@@ -324,6 +324,7 @@ export const TABS = {
         { name: 'Sculpt Hockey Puck', icon: '⬬', key: 'part' },
         { name: 'Sculpt Coin', icon: '🜸', key: 'part' },
         { name: 'Sculpt Hollow Sphere', icon: '◌', key: 'part' },
+        { name: 'Sculpt Imprint Wire', icon: '⊙', key: 'part' },
         { name: 'Sculpt Perforated Panel', icon: '⋯', key: 'part' },
         { name: 'Sculpt Circular Pattern', icon: '✻', key: 'part' },
         { name: 'Sculpt Linear Pattern', icon: '⁞', key: 'part' },

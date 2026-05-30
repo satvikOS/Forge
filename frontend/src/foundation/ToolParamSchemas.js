@@ -124,6 +124,25 @@ export const TOOL_PARAM_SCHEMAS = {
       { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
     ],
   },
+  // SP-98 — Imprint Wire (box + cylinder footprint imprinted on top face).
+  // Topology-only feature-recognition op (CATIA/NX-class). Volume preserved;
+  // top face is split along the imprint circle so the inner disc can later
+  // be selected for emboss/pocket/draft/colour separately.
+  'Sculpt Imprint Wire': {
+    title: 'Sculpt — Imprint Wire (box + cyl footprint)',
+    blurb: 'OCCT-backed face-imprint: project the boundary of a cylinder onto the top face of a box. Volume unchanged; face count grows by one.',
+    fields: [
+      { name: 'boxX',   label: 'Box X', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxY',   label: 'Box Y', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxZ',   label: 'Box Z', type: 'number', default: 20,  unit: 'mm', min: 1, step: 1 },
+      { name: 'toolR',  label: 'Tool radius',  type: 'number', default: 20, unit: 'mm', min: 1, step: 0.5 },
+      { name: 'toolH',  label: 'Tool height',  type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa6c1d6, step: 1 },
+    ],
+  },
   // SP-97 — Hollow Sphere (sphere − inner sphere). Tennis-ball shell /
   // hollow ornament / spherical pressure-vessel primitive.
   'Sculpt Hollow Sphere': {
