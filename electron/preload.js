@@ -9,6 +9,7 @@
 const { contextBridge } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // ---------------------------------------------------------- locate addon
 // In dev, the addon lives at `forge-kernel/build/Release/forge-kernel.node`.
@@ -397,6 +398,26 @@ const forgeApi = {
     flatPattern:  (sh, params)                          => kernel.sheetMetal.flatPattern(sh, params),
     bends:        (sh)                                  => kernel.sheetMetal.bends(sh),
   } : null,
+
+  // Forge-46 — trace persistence sink. ArchieTraceSink calls this once
+  // per run to append a JSONL line under ~/.forge/traces/. We do the
+  // fs work in preload because the renderer has no fs access.
+  trace: {
+    write: (filename, line) => {
+      try {
+        if (!/^[a-zA-Z0-9._-]+$/.test(String(filename || ''))) {
+          throw new Error('invalid trace filename');
+        }
+        const dir = path.join(os.homedir(), '.forge', 'traces');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const full = path.join(dir, filename);
+        fs.appendFileSync(full, String(line), 'utf8');
+        return { ok: true, path: full, bytes: Buffer.byteLength(String(line)) };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    },
+  },
 
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
   // weld beads, member trims, BOM cut list.

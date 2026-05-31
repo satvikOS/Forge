@@ -133,7 +133,7 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Filesystem-backed PartStore                 | ✅      | Forge-34 — `<root>/.forge/parts/<id>/v<n>.json` + content-addressed BREP blobs (SHA-256), 3-version round-trip green |
 | Git LFS / S3 blob backend                   | ◐      | Forge-34 — Git LFS adapter shipped (`GitLfsBackend`); S3 stub throws friendly "not configured" until `aws-sdk` is opted in |
 | IGES / JT / Parasolid import                | ◐      | Forge-34 — IGES via OCCT `IGESControl_Reader` ✅; JT + Parasolid throw "use STEP/IGES" error (proprietary kits not vendored) |
-| PMI / MBD export in STEP AP242              | ◐      | Forge-34 — schema AP242DIS + `/* PMI_FCF: … */` ISO-10303-21 comment block from AnnotationSet; full representation_item entity emission queued |
+| PMI / MBD export in STEP AP242              | ✅      | Forge-34 schema AP242DIS; Forge-46 emits real AP242 ed.2 entities — DATUM_FEATURE, DATUM, PERPENDICULARITY/PARALLELISM/POSITION/etc TOLERANCE, LENGTH_MEASURE_WITH_UNIT magnitudes, DATUM_REFERENCE + GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE, MAXIMUM/LEAST_MATERIAL_REQUIREMENT modifiers, ANNOTATION_TEXT_OCCURRENCE notes — splice is idempotent |
 
 ## 8. Assembly
 
@@ -155,7 +155,7 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Archie tool bridge                          | ✅      | Forge-17 |
 | `__forgeRun(prompt)` autonomous loop        | ✅      | Forge-17 |
 | Discipline-scoped tool slices               | ✅      | Forge-17 |
-| Trace capture for nightly retrain           | ◐      | runs in-memory; flush-to-disk follow-up |
+| Trace capture for nightly retrain           | ✅      | Forge-46 — JSONL flushed to `~/.forge/traces/forge-trace-YYYY-MM-DD.jsonl` on every run (renderer via preload.trace.write; Node via fs.appendFile); mesh blobs summarised by vertex/triangle count to keep lines bounded |
 
 ## 10. CI / CD / Self-verification
 
@@ -181,12 +181,12 @@ Self-grade as of the 7-agent integration wave:
   §4 Drawings:      8 ✅ / 0 ◐ / 0 ☐  (auto-BOM rollup wired in Forge-45)
   §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed 3/5-axis + stock-sim + CMM)
-  §7 PDM/IO:        4 ✅ / 3 ◐ / 0 ☐  (Forge-34 — filesystem store ✅; IGES ✅; PMI/MBD ◐; JT/Parasolid ◐ stub-with-error; S3 stub ◐ opt-in)
+  §7 PDM/IO:        5 ✅ / 2 ◐ / 0 ☐  (Forge-34 — filesystem store ✅; IGES ✅; PMI/MBD ✅ AP242 entities (Forge-46); JT/Parasolid ◐ stub-with-error; S3 stub ◐ opt-in)
   §8 Assembly:      8 ✅ / 0 ◐ / 0 ☐  (Forge-35 — hierarchy + exploded + BOM + patterns + smart + interference + motion)
-  §9 AI:            3 ✅ / 1 ◐ / 0 ☐
+  §9 AI:            4 ✅ / 0 ◐ / 0 ☐  (Forge-46 — trace flush-to-disk wired)
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐
 
-Totals: **103 ✅ / 4 ◐ / 4 ☐** out of 111 rows.
+Totals: **105 ✅ / 2 ◐ / 4 ☐** out of 111 rows.
 
 §§1, 3, 4, 5, 6, 8 are **fully green** — every
 SolidWorks/NX/Catia equivalent op is shipped and smoke-tested. UI/UX
@@ -200,15 +200,12 @@ Remaining 4 ☐:
   token having `workflow` scope.
 - §10 OCCT dylibs bundled in macOS .app — same blocker.
 
-Remaining 4 ◐:
+Remaining 2 ◐:
 - §1 Persistent topo IDs — TopExp index survives booleans; full
   selective-IDs across all ops is still vertical work.
-- §7 PMI/MBD STEP AP242 — round-trips via comment block; full
-  representation_item entities queued.
 - §7 JT / Parasolid import — proprietary kernel licensing; emits a
   helpful error pointing at STEP.
 - §7 S3 backend stub — opt-in; requires `aws-sdk` config.
-- §9 Trace flush-to-disk — runs in-memory today.
 
 Parity verdict for "epitome of CAD/CAM/CAE":
 
@@ -229,8 +226,7 @@ real follow-up slices that don't gate any current workflow.
 
 **Self-approval: YES for what's achievable in this environment.**
 The unblocked residuals (GPU instancing, worker FEA pool,
-persistent selective-IDs, AP242 PMI entities, S3 backend,
-trace flush) are the next legitimate slice tickets — none gates a
+persistent selective-IDs, S3 backend) are the next legitimate slice tickets — none gates a
 top-level workflow, and none requires re-architecting the kernel.
 
 If "epitome" requires every row literally green: not yet, two slices

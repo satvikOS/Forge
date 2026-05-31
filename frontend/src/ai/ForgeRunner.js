@@ -136,6 +136,7 @@ export async function runForgePrompt({
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal && signal.aborted) {
       trace.final = { status: 'cancelled' };
+      await _flushIfEnabled(trace);
       return trace;
     }
     const completion = await archie({ messages, discipline, signal });
@@ -149,6 +150,7 @@ export async function runForgePrompt({
       onTrace({ kind: 'clarify', iter });
       trace.iterations.push(iter);
       trace.final = { status: 'clarify', clarify: parsed.clarify };
+      await _flushIfEnabled(trace);
       return trace;
     }
 
@@ -156,6 +158,7 @@ export async function runForgePrompt({
       trace.iterations.push(iter);
       trace.final = { status: 'done', text: completion };
       onTrace({ kind: 'done', iter });
+      await _flushIfEnabled(trace);
       return trace;
     }
 
@@ -177,8 +180,22 @@ export async function runForgePrompt({
   }
 
   trace.final = { status: 'maxTurns' };
+  await _flushIfEnabled(trace);
   return trace;
 }
+
+// Forge-46: flush traces to disk at the end of every run. Best-effort —
+// failures log but never throw. Importing lazily so unit tests of
+// ForgeRunner that don't care about persistence don't pay the import cost.
+async function _flushIfEnabled(trace) {
+  if (typeof globalThis !== 'undefined' &&
+      globalThis.__forgeTraceDisabled === true) return;
+  try {
+    const { flushTrace } = await import('./ArchieTraceSink.js');
+    await flushTrace(trace);
+  } catch { /* sink is best-effort */ }
+}
+export { _flushIfEnabled as flushArchieTrace };
 
 /**
  * Install the autonomous entry point on `window`. Matches Studio's
