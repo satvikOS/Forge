@@ -10,7 +10,6 @@ files:
   - electron/**/*
   - frontend/dist/**/*
   - "!node_modules/**/*"
-  - "!backend/**/*"
   - "!e2e/**/*"
   - "!test-results/**/*"
 
