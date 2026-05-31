@@ -1,34 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import WorkbenchContainer from './components/Workbench';
-import ForgeApp from './forge-app/ForgeApp.jsx';
-import { Showcase as ForgeShowcase } from './forge-app/design-system/Showcase.jsx';
-import { ForgeAppV2 } from './forge-app/v2/ForgeAppV2.jsx';
-import './styles/index.css';
-import './styles/fonts.css';
+import React from 'react';
+import { ForgeShellV4 } from './forge-v4/ForgeShellV4.jsx';
 
-/**
- * ArchDisc - Professional AI-Powered Design Platform
- * Main application component that renders the workbench container.
- *
- * Forge-26: `#forge` (or any hash starting with `forge`) mounts the
- * new ForgeApp shell instead of the legacy workbench. Lets us iterate
- * on the new UI behind a route without disturbing the production path.
- */
+// Forge-65: v4 shell is the only entry. App.jsx is one line — no hash
+// routes, no legacy fallback. Per user mandate: "Full rewrite of
+// App.jsx, retire WorkbenchContainer entirely".
 function App() {
-  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
-  useEffect(() => {
-    const onHash = () => setHash(window.location.hash);
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
-
-  if (hash && hash.replace(/^#\/?/, '').startsWith('forge')) {
-    const path = hash.replace(/^#\/?/, '');
-    if (path === 'forge/design-showcase') return <ForgeShowcase />;
-    if (path === 'forge-v2') return <ForgeAppV2 />;
-    return <ForgeApp />;
-  }
-  return <WorkbenchContainer />;
+  return <ForgeShellV4 />;
 }
 
 export default App;
