@@ -108,6 +108,11 @@ export function useArchieDriver({ store = _store } = {}) {
     setStatus('idle');
   }, []);
 
+  // Forge-58 — redo stack: dropped steps are buffered here so Cmd+Shift+Z
+  // can recover them. Resets on a fresh `send()` because the design
+  // direction has branched. Capped at 100 entries.
+  const redoStackRef = useRef([]);
+
   // Forge-50 — rollback the parametric history to the picked step.
   // Truncates the timeline; on a live kernel this would replay only
   // those steps (RebuildEngine.rebuild on the partial tree). In the
@@ -117,12 +122,14 @@ export function useArchieDriver({ store = _store } = {}) {
       const idx = arr.findIndex((s) => s.id === stepId);
       if (idx < 0) return arr;
       const kept = arr.slice(0, idx + 1);
-      const dropped = arr.length - kept.length;
-      if (dropped > 0) {
+      const droppedSteps = arr.slice(idx + 1);
+      if (droppedSteps.length > 0) {
+        // Push to redo stack (newest last).
+        redoStackRef.current = [...redoStackRef.current, ...droppedSteps].slice(-100);
         setThread((t) => [...t, {
           id: nextMsgId(), ts: Date.now(),
           role: 'archie',
-          text: `Rolled back to "${kept[kept.length - 1].label}" (dropped ${dropped} step${dropped === 1 ? '' : 's'}).`,
+          text: `Rolled back to "${kept[kept.length - 1].label}" (dropped ${droppedSteps.length} step${droppedSteps.length === 1 ? '' : 's'}).`,
         }]);
       }
       setActiveStepId(stepId);
@@ -136,6 +143,45 @@ export function useArchieDriver({ store = _store } = {}) {
     });
   }, [activeThreadId, store]);
 
+  // Forge-58 — undo / redo wrapping rollbackTo.
+  //
+  //   undo: rollback to steps[N-2] (one step back). No-op when ≤ 1 step.
+  //   redo: append the most-recent dropped step from the redo stack.
+  //
+  // Both are coalesced through React's batching but we don't bundle
+  // multi-step undo into a single call — the user can hold Cmd+Z to
+  // walk back one at a time, which matches Photoshop / Figma muscle
+  // memory.
+  const undo = useCallback(() => {
+    if (steps.length <= 1) {
+      // Already at root — wipe.
+      if (steps.length === 1) {
+        redoStackRef.current = [...redoStackRef.current, steps[0]].slice(-100);
+        setSteps([]);
+        setActiveStepId(null);
+        if (activeThreadId) saveSteps(store.backend, activeThreadId, []);
+      }
+      return;
+    }
+    rollbackTo(steps[steps.length - 2].id);
+  }, [steps, rollbackTo, activeThreadId, store]);
+
+  const redo = useCallback(() => {
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const last = stack[stack.length - 1];
+    redoStackRef.current = stack.slice(0, -1);
+    setSteps((arr) => {
+      const next = [...arr, last];
+      if (activeThreadId) saveSteps(store.backend, activeThreadId, next);
+      return next;
+    });
+    setActiveStepId(last.id);
+  }, [activeThreadId, store]);
+
+  // Send a fresh prompt invalidates the redo stack (history branched).
+  const clearRedo = useCallback(() => { redoStackRef.current = []; }, []);
+
   // Forge-51 — start a fresh thread (e.g. user wants a clean slate).
   const newThread = useCallback(() => {
     const t = store.create({ discipline: 'part', title: 'Untitled thread' });
@@ -146,6 +192,9 @@ export function useArchieDriver({ store = _store } = {}) {
 
   const send = useCallback(async (prompt) => {
     if (!prompt || typeof prompt !== 'string') return null;
+    // Forge-58: a new prompt branches the timeline; old redo entries
+    // no longer apply.
+    redoStackRef.current = [];
     pushMsg({ role: 'user', text: prompt });
     setStatus('running');
 
@@ -222,5 +271,8 @@ export function useArchieDriver({ store = _store } = {}) {
   }, [pushMsg, pushStep]);
 
   return { thread, steps, status, activeStepId, activeThreadId, send, cancel,
-           rollbackTo, setActiveStepId, newThread };
+           rollbackTo, setActiveStepId, newThread,
+           undo, redo, clearRedo,
+           canUndo: steps.length > 0,
+           canRedo: redoStackRef.current.length > 0 };
 }

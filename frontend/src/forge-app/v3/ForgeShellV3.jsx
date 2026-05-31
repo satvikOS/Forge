@@ -34,6 +34,7 @@ import { ArchieSidebar } from './ArchieSidebar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { useArchieDriver } from './useArchieDriver.js';
 import { useViewState } from './useViewState.js';
+import { ContextMenu, viewportContextItems } from './Tooltip.jsx';
 
 const STORAGE = 'forge.v3';
 
@@ -57,6 +58,7 @@ export function ForgeShellV3() {
   const [docName] = useState('untitled.forge');
   const [measurement, setMeasurement] = useState({ mode: 'distance', points: [], unit: 'mm' });
   const [section, setSection] = useState({ enabled: false, plane: { normal: [1,0,0], constant: 0 } });
+  const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
   const cmdRef = useRef(null);
   const archie = useArchieDriver();
   // Views + display states tied to the active thread for persistence.
@@ -112,6 +114,9 @@ export function ForgeShellV3() {
         setTheme((t) => t === 'dark' ? 'light' : t === 'light' ? 'contrast' : 'dark');
       } else if (meta && e.key.toLowerCase() === 'd') {
         e.preventDefault(); viewState.cycleDisplay();
+      } else if (meta && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) archie.redo(); else archie.undo();
       } else if (!meta && e.key === 'Escape') {
         setActiveVerb(null);
       } else if (!meta && VIEW_KEYS[e.key] && document.activeElement?.tagName !== 'INPUT') {
@@ -120,7 +125,7 @@ export function ForgeShellV3() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [viewState]);
+  }, [viewState, archie]);
 
   // Verb-rail click prefills the command bar with the verb's natural-
   // language stem so the user can finish the sentence ("fillet __mm").
@@ -149,8 +154,38 @@ export function ForgeShellV3() {
     'bool.section':    'section ',
   };
 
+  // Right-click anywhere in the viewport surface opens a contextual menu.
+  // Other surfaces (verb rail / timeline / sidebar) get their own menus
+  // in follow-ups; viewport is the highest-value first stop.
+  function openCtxMenu(e) {
+    e.preventDefault();
+    setCtxMenu({ open: true, x: e.clientX, y: e.clientY });
+  }
+
   return (
-    <div className="forge-v3-app" data-testid="forge-v3-app">
+    <div className="forge-v3-app" data-testid="forge-v3-app"
+         onContextMenu={(e) => {
+           // Only open if the target is the viewport surface or one of
+           // its children (selected via the test-id chain).
+           const inViewport = e.target.closest?.('[data-testid^="forge-v3-viewport"]');
+           if (inViewport) openCtxMenu(e);
+         }}>
+      <ContextMenu open={ctxMenu.open} x={ctxMenu.x} y={ctxMenu.y}
+                   items={viewportContextItems(selection)}
+                   onPick={(it) => {
+                     if (it.id === 'delete' || it.id === 'hide'
+                       || it.id === 'isolate' || it.id === 'edit') {
+                       /* selection-bound op — route to verb selector */
+                       setActiveVerb(it.id === 'edit' ? 'modify.push' : null);
+                     } else if (it.id.startsWith('create.') ||
+                                it.id === 'fillet' || it.id === 'chamfer') {
+                       setActiveVerb(it.id);
+                       cmdRef.current?.focus();
+                     } else if (it.id === 'import') {
+                       archie.send('import…');
+                     }
+                   }}
+                   onClose={() => setCtxMenu({ open: false, x: 0, y: 0 })} />
       <header className="forge-v3-titlebar" role="banner">
         <span className="forge-v3-titlebar-brand">
           <span className="forge-v3-titlebar-brand-mark">⎈</span>Forge
