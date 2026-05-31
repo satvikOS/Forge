@@ -48,10 +48,10 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Tessellation off main thread                | ✅      | Forge-25 — pool of (hw_concurrency-1), 31× speedup |
 | LOD chain (low/med/high) per body           | ✅      | Forge-25 — diameter→pixels selector |
 | BVH spatial index                           | ✅      | Forge-25 — SAH-binned, leaf=8 |
-| GPU instancing for repeated shapes          | ☐      | renderer-side; queued |
+| GPU instancing for repeated shapes          | ✅      | Forge-44 — ForgeBodyMesh.instancedMeshFor + buildInstancedSceneGraph group an assembly by sourceHandle into THREE.InstancedMesh per shared part; picker.resolveHit returns per-instance handle from instanceId for raycast hits |
 | Frustum cull + occlusion                    | ✅      | frustum cull green; occlusion queued |
 | Parametric rebuild dirty propagation        | ✅      | Forge-25 RebuildEngine + FNV-1a input-hash cache |
-| Worker thread pool for FEA / CFD            | ☐      | follow-up slice |
+| Worker thread pool for FEA / CFD            | ✅      | Forge-44 — FeaWorkerPool with size-bounded queue (default min(8, hwConcurrency)); assemble / solve / integrate task kinds; pull-based dispatch with auto-respawn on worker fault; Node in-process fallback for headless tests; runner injection for custom backends |
 
 ## 3. UI / UX  — *user explicitly flagged this as V V IMPORTANT*
 
@@ -176,7 +176,7 @@ nice-to-have but not blocking).
 Self-grade as of the 7-agent integration wave:
 
   §1 Kernel:       26 ✅ / 1 ◐ / 0 ☐  (Forge-36 closed NURBS + sweep/loft/shell partials; only persistent topo IDs remain ◐)
-  §2 Perf:          9 ✅ / 0 ◐ / 2 ☐  (GPU instancing + worker FEA queued)
+  §2 Perf:         11 ✅ / 0 ◐ / 0 ☐  (Forge-44 closed GPU instancing + worker FEA pool)
   §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
   §4 Drawings:      8 ✅ / 0 ◐ / 0 ☐  (auto-BOM rollup wired in Forge-45)
   §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
@@ -186,16 +186,13 @@ Self-grade as of the 7-agent integration wave:
   §9 AI:            4 ✅ / 0 ◐ / 0 ☐  (Forge-46 — trace flush-to-disk wired)
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐
 
-Totals: **105 ✅ / 2 ◐ / 4 ☐** out of 111 rows.
+Totals: **107 ✅ / 2 ◐ / 2 ☐** out of 111 rows.
 
-§§1, 3, 4, 5, 6, 8 are **fully green** — every
+§§1, 2, 3, 4, 5, 6, 8, 9 are **fully green** — every
 SolidWorks/NX/Catia equivalent op is shipped and smoke-tested. UI/UX
 (the V V IMPORTANT bar) is fully green.
 
-Remaining 4 ☐:
-- §2 GPU instancing for repeated shapes — renderer-side; queued.
-- §2 Worker thread pool for FEA / CFD — Forge-25 shipped worker
-  tessellation; FEA/CFD pool is the analogous follow-up.
+Remaining 2 ☐:
 - §10 forge-kernel.node bundled in macOS .app — blocked on the OAuth
   token having `workflow` scope.
 - §10 OCCT dylibs bundled in macOS .app — same blocker.
@@ -218,15 +215,14 @@ geom/plastic/buckling/contact/fatigue + CFD → CAM 2.5D+3-axis+5-axis
 + stock sim + CMM + 4 G-code dialects → STEP/IGES/BREP/STL/PMI export
 → PDM versioning + lifecycle + ECO + filesystem store).
 
-The 4 ☐ + 5 ◐ residuals are: (a) two §10 rows blocked on an OAuth
+The 2 ☐ + 2 ◐ residuals are: (a) two §10 rows blocked on an OAuth
 scope the user controls (CI bundling of forge-kernel.node + OCCT
 dylibs into the installer), (b) two §7 rows blocked on proprietary
-third-party kernel licensing (JT / Parasolid), and (c) the rest are
-real follow-up slices that don't gate any current workflow.
+third-party kernel licensing (JT / Parasolid) — both emit helpful
+errors pointing the user at STEP.
 
 **Self-approval: YES for what's achievable in this environment.**
-The unblocked residuals (GPU instancing, worker FEA pool,
-persistent selective-IDs, S3 backend) are the next legitimate slice tickets — none gates a
+The unblocked residuals (persistent selective-IDs, S3 opt-in) are the next legitimate slice tickets — none gates a
 top-level workflow, and none requires re-architecting the kernel.
 
 If "epitome" requires every row literally green: not yet, two slices

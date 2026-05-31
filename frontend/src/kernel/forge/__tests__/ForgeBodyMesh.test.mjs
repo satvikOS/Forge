@@ -13,10 +13,28 @@ function stubTHREE() {
     computeBoundingSphere() { this.boundingSphere = { center: [0,0,0], radius: 1 }; }
   }
   class MeshStandardMaterial { constructor(opts) { Object.assign(this, opts || {}); } }
-  class Mesh {
-    constructor(geom, mat) { this.geometry = geom; this.material = mat; this.userData = {}; }
+  class Matrix4 {
+    constructor() { this.elements = new Array(16).fill(0); }
+    copy(m) { this.elements = [...m.elements]; return this; }
+    makeTranslation(x, y, z) { this.elements = [1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]; return this; }
   }
-  return { BufferGeometry, BufferAttribute, Mesh, MeshStandardMaterial };
+  class Mesh {
+    constructor(geom, mat) {
+      this.geometry = geom; this.material = mat; this.userData = {};
+      this.matrix = new Matrix4(); this.matrixAutoUpdate = true;
+    }
+  }
+  class InstancedMesh {
+    constructor(geom, mat, count) {
+      this.geometry = geom; this.material = mat; this.count = count;
+      this.userData = {};
+      this._matrices = new Array(count).fill(null).map(() => new Matrix4());
+      this.instanceMatrix = { needsUpdate: false };
+    }
+    setMatrixAt(i, m) { this._matrices[i].copy(m); }
+    getMatrixAt(i, dest) { dest.copy(this._matrices[i]); return dest; }
+  }
+  return { BufferGeometry, BufferAttribute, Mesh, InstancedMesh, MeshStandardMaterial, Matrix4 };
 }
 
 // ---- stub forge providing a 12-vertex / 4-triangle pyramid --------
@@ -105,6 +123,51 @@ for (const name of ['viridis', 'turbo', 'cool', 'gray']) {
       assert.ok(c[i] >= 0 && c[i] <= 1, `${name}(${t})[${i}] = ${c[i]} out of [0,1]`);
     }
   }
+}
+
+// ---- Forge-44: instancedMeshFor for repeated parts ----------------
+{
+  const THREE = stubTHREE();
+  const fbm = new ForgeBodyMesh(THREE, stubForge());
+  const ms = [
+    new THREE.Matrix4().makeTranslation(0, 0, 0),
+    new THREE.Matrix4().makeTranslation(10, 0, 0),
+    new THREE.Matrix4().makeTranslation(20, 0, 0),
+  ];
+  const im = fbm.instancedMeshFor(7, ms, { handles: [101, 102, 103] });
+  assert.equal(im.count, 3, 'InstancedMesh count');
+  assert.equal(im.instanceMatrix.needsUpdate, true, 'instanceMatrix.needsUpdate set');
+  const ud = im.userData[FORGE_USERDATA_KEY];
+  assert.equal(ud.kind, 'instanced');
+  assert.equal(ud.sourceHandle, 7);
+  assert.deepEqual(ud.handles, [101, 102, 103]);
+  // Picker resolves instanceId → per-instance handle.
+  const hit = fbm.resolveHit({ object: im, instanceId: 1 });
+  assert.equal(hit.kind, 'instance');
+  assert.equal(hit.handle, 102);
+  assert.equal(hit.sourceHandle, 7);
+  assert.equal(hit.instanceId, 1);
+}
+
+// ---- Forge-44: buildInstancedSceneGraph groups by sourceHandle ----
+{
+  const THREE = stubTHREE();
+  const fbm = new ForgeBodyMesh(THREE, stubForge());
+  // 3 bolts (source=7) + 1 plate (source=9) → expect 1 InstancedMesh + 1 Mesh.
+  const T = (x) => new THREE.Matrix4().makeTranslation(x, 0, 0);
+  const items = [
+    { sourceHandle: 7, instanceHandle: 201, transform: T(0) },
+    { sourceHandle: 7, instanceHandle: 202, transform: T(10) },
+    { sourceHandle: 7, instanceHandle: 203, transform: T(20) },
+    { sourceHandle: 9, instanceHandle: 301, transform: T(50) },
+  ];
+  const graph = fbm.buildInstancedSceneGraph(items);
+  assert.equal(graph.length, 2, 'one node per source part');
+  const im = graph.find((n) => n.userData[FORGE_USERDATA_KEY].kind === 'instanced');
+  const single = graph.find((n) => n.userData[FORGE_USERDATA_KEY].kind === 'body');
+  assert.ok(im && single);
+  assert.equal(im.count, 3, '3 bolts batched into one draw call');
+  assert.equal(single.userData[FORGE_USERDATA_KEY].handle, 301);
 }
 
 console.log('[forge.mesh] all tests passed');

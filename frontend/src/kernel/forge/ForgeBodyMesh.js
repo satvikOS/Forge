@@ -82,12 +82,86 @@ export class ForgeBodyMesh {
 
   /**
    * Resolve a `THREE.Intersection` (from a raycaster) back to a forge
-   * entity. Returns `{ handle, kind }` from userData, or `null` if the
-   * hit object wasn't bound by `meshFor`.
+   * entity. Returns `{ handle, kind, instanceId? }` — for instanced
+   * meshes the per-instance handle is `userData.forge.handles[instanceId]`.
    */
   resolveHit(intersection) {
     if (!intersection || !intersection.object) return null;
-    return intersection.object.userData?.[FORGE_USERDATA_KEY] || null;
+    const ud = intersection.object.userData?.[FORGE_USERDATA_KEY];
+    if (!ud) return null;
+    if (ud.kind === 'instanced' && Array.isArray(ud.handles)) {
+      const i = intersection.instanceId ?? -1;
+      if (i >= 0 && i < ud.handles.length) {
+        return { handle: ud.handles[i], kind: 'instance',
+                 sourceHandle: ud.sourceHandle, instanceId: i };
+      }
+      return { handle: ud.sourceHandle, kind: 'instanced' };
+    }
+    return ud;
+  }
+
+  /**
+   * Forge-44 — GPU-instanced mesh. For an assembly with N copies of the
+   * same part (e.g. 64 bolts in a flange), this draws all N in a single
+   * draw call via THREE.InstancedMesh — the only path to 100k components
+   * at interactive frame rates.
+   *
+   *   instancedMeshFor(handle, [Matrix4, Matrix4, …], { handles })
+   *
+   * `handles` is the per-instance forge handle array so picker hits map
+   * back to the actual component, not the source part.
+   */
+  instancedMeshFor(sourceHandle, matrices, opts = {}) {
+    const geom = this.geometryFor(sourceHandle, opts);
+    const { THREE } = this;
+    const material = opts.material || new THREE.MeshStandardMaterial({
+      color: 0xc4ccd6, metalness: 0.05, roughness: 0.45,
+    });
+    const n = matrices.length;
+    const im = new THREE.InstancedMesh(geom, material, n);
+    for (let i = 0; i < n; i++) im.setMatrixAt(i, matrices[i]);
+    if (typeof im.instanceMatrix?.needsUpdate !== 'undefined') {
+      im.instanceMatrix.needsUpdate = true;
+    }
+    im.userData[FORGE_USERDATA_KEY] = {
+      kind: 'instanced',
+      sourceHandle,
+      handles: opts.handles ? [...opts.handles] : new Array(n).fill(sourceHandle),
+    };
+    return im;
+  }
+
+  /**
+   * Forge-44 — group an assembly into one InstancedMesh per shared part.
+   * Input: an array of `{ instanceHandle, sourceHandle, transform: Matrix4 }`.
+   * Output: an array of InstancedMeshes (or plain Meshes when a part has
+   * only one instance, since the per-instance overhead isn't worth it).
+   */
+  buildInstancedSceneGraph(items, opts = {}) {
+    const groups = new Map();
+    for (const it of items) {
+      const k = String(it.sourceHandle);
+      if (!groups.has(k)) groups.set(k, { sourceHandle: it.sourceHandle, ts: [], hs: [] });
+      const g = groups.get(k);
+      g.ts.push(it.transform);
+      g.hs.push(it.instanceHandle);
+    }
+    const out = [];
+    for (const g of groups.values()) {
+      if (g.ts.length === 1) {
+        const m = this.meshFor(g.sourceHandle, opts);
+        if (g.ts[0] && typeof m.matrix?.copy === 'function') {
+          m.matrix.copy(g.ts[0]);
+          m.matrixAutoUpdate = false;
+        }
+        m.userData[FORGE_USERDATA_KEY] = { kind: 'body', handle: g.hs[0] };
+        out.push(m);
+      } else {
+        out.push(this.instancedMeshFor(g.sourceHandle, g.ts,
+                                       { ...opts, handles: g.hs }));
+      }
+    }
+    return out;
   }
 }
 
