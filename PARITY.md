@@ -51,7 +51,7 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | GPU instancing for repeated shapes          | ✅      | Forge-44 — ForgeBodyMesh.instancedMeshFor + buildInstancedSceneGraph group an assembly by sourceHandle into THREE.InstancedMesh per shared part; picker.resolveHit returns per-instance handle from instanceId for raycast hits |
 | Frustum cull + occlusion                    | ✅      | frustum cull green; occlusion queued |
 | Parametric rebuild dirty propagation        | ✅      | Forge-25 RebuildEngine + FNV-1a input-hash cache |
-| Worker thread pool for FEA / CFD            | ✅      | Forge-44 — FeaWorkerPool with size-bounded queue (default min(8, hwConcurrency)); assemble / solve / integrate task kinds; pull-based dispatch with auto-respawn on worker fault; Node in-process fallback for headless tests; runner injection for custom backends |
+| Worker thread pool for FEA / CFD            | ✅      | Forge-44 FeaWorkerPool surface + Forge-52 real off-main-thread worker file: `frontend/src/kernel/forge/sim/fea-worker.js` is bundled; pool autodetects the URL via `runtimeWorkerUrl()` (import.meta.url) when a Worker global exists; Node tests stay in-process. The worker's assemble/solve/integrate handlers are byte-identical to the in-process runner — same maths, off-main-thread. |
 
 ## 3. UI / UX  — *user explicitly flagged this as V V IMPORTANT*
 

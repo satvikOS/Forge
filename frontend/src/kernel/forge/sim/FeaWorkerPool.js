@@ -21,6 +21,19 @@ let _nextTaskId = 1;
 function uid() { return 'fea-task-' + (_nextTaskId++); }
 
 /**
+ * Resolve the default worker URL relative to this module. Returns null
+ * when the import-meta.url machinery isn't usable (older Node, certain
+ * bundlers); callers fall back to in-process execution.
+ */
+export function runtimeWorkerUrl() {
+  try {
+    return new URL('./fea-worker.js', import.meta.url);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The synchronous fallback runner. Used in Node tests and as a safe
  * default when a workerUrl isn't supplied. Operations are kept small
  * and deterministic so they don't accidentally become a performance
@@ -108,7 +121,15 @@ export class FeaWorkerPool {
    * @param {Function?}   opts.runner Override runner for tests:
    *   (task) => Promise<result>. Defaults to inProcessRun (sync).
    */
-  constructor({ workerUrl = null, size = 4, runner = null } = {}) {
+  constructor({ workerUrl, size = 4, runner = null } = {}) {
+    // Forge-52: default to spawning real workers when a Worker global
+    // exists. Tests pass `workerUrl: null` (explicit) to force the in-
+    // process path. Passing no value at all → autodetect: try to use
+    // the bundled fea-worker.js. Renderer + Electron get off-main-thread
+    // execution automatically; Node tests stay in-process.
+    if (workerUrl === undefined) {
+      workerUrl = (typeof Worker !== 'undefined') ? runtimeWorkerUrl() : null;
+    }
     this.workerUrl = workerUrl;
     this.size = Math.max(1, Math.min(8, size | 0));
     this.runner = runner || (async (task) => inProcessRun(task));
