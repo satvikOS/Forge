@@ -34,7 +34,7 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Sheet metal: unfold / flat pattern          | ✅      | Forge-24 — K-factor; documented topology limits |
 | Weldments: structural member/end cap/gusset | ✅      | Forge-24 — 7 profile kinds + cut list |
 | Surface modeling (NURBS authoring)          | ✅      | Forge-36 — `forge.surfacing.{buildPatch,trim,sew,refine,eval,intersect,projectPoint,classAAnalyse}` on `Geom_BSplineSurface` |
-| Persistent topo IDs (selective IDs)         | ✅      | Forge-47 — ForgeTopoIdRegistry assigns a stable `pid` to every face/edge/vertex at body birth + applyOp(kind, entries) walks survivor/split/merge/birth/death lineage so a user reference to "datum-A face" still resolves after extrude→fillet→cut→shell; lowest-occt-index wins splits + first-input wins merges keep IDs deterministic |
+| Persistent topo IDs (selective IDs)         | ✅      | Forge-47 ForgeTopoIdRegistry + Forge-59 LineageEmitter (`cutWithLineage`, `fuseWithLineage`, `filletWithLineage`) that derives survivor/split/birth/death entries by per-face centroid+area+normal matching across input/output tessellations — fully wired even before the C++ `Modified()/Generated()` path lands. Forge-60 will replace the derivation with native OCCT once the kernel build pipeline is restored. |
 
 ## 2. Performance
 
