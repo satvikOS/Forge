@@ -23,6 +23,9 @@ import { RollbackBar } from './RollbackBar.jsx';
 import { ProjectLibrary } from './ProjectLibrary.jsx';
 import { SketchStateBadge } from './SketchStateBadge.jsx';
 import { BodyContextMenu } from './BodyContextMenu.jsx';
+import { HelpDrawer } from './HelpDrawer.jsx';
+import { EquationManager } from './EquationManager.jsx';
+import { TopologyInspector } from './TopologyInspector.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -53,6 +56,9 @@ export function ForgeShellV4() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [sketchActive, setSketchActive] = useState(false);
   const [bodyCtxMenu, setBodyCtxMenu] = useState(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [equationsOpen, setEquationsOpen] = useState(false);
+  const [topologyOpen, setTopologyOpen] = useState(false);
   const cmdRef = useRef(null);
   const archieAbortRef = useRef(null);
 
@@ -76,8 +82,27 @@ export function ForgeShellV4() {
       } else if (meta && e.key.toLowerCase() === 't') {
         e.preventDefault();
         setTheme((t) => t === 'dark' ? 'light' : 'dark');
+      } else if (meta && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        setDisplayState((s) => {
+          const states = ['shaded', 'wireframe', 'section'];
+          const idx = states.indexOf(s);
+          return states[(idx + 1) % states.length];
+        });
+      } else if (meta && e.key.toLowerCase() === 'e') {
+        e.preventDefault(); setEquationsOpen((v) => !v);
+      } else if (meta && e.key.toLowerCase() === 'i') {
+        e.preventDefault(); setTopologyOpen((v) => !v);
+      } else if (e.key === 'F1') {
+        e.preventDefault(); setHelpOpen((v) => !v);
       } else if (!meta && e.key === 'Escape') {
         setActiveTool(null);
+        setBodyCtxMenu(null);
+      } else if (!meta && ['1','2','3','4','5','6','7'].includes(e.key) &&
+                 document.activeElement?.tagName !== 'INPUT' &&
+                 document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        setViewName(['iso','front','back','top','bottom','right','left'][parseInt(e.key)-1]);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -207,6 +232,14 @@ export function ForgeShellV4() {
         cmdRef.current?.focus(); return;
       case 'tools.library':
         setLibraryOpen(true); return;
+      case 'tools.equations':
+        setEquationsOpen(true); return;
+      case 'tools.topology':
+        setTopologyOpen(true); return;
+      case 'help.docs':
+        setHelpOpen(true); return;
+      case 'help.shortcuts':
+        setHelpOpen(true); return;
       case 'sketch.new':
         setSketchActive(true);
         setActiveTool('sketch.new');
@@ -342,6 +375,16 @@ export function ForgeShellV4() {
                   onToggleDock={() => setDockOpen((v) => !v)}
                   onSubmit={(text) => runArchie(text)} />
       <ToastHost />
+      <HelpDrawer open={helpOpen}
+                  onClose={() => setHelpOpen(false)}
+                  activeTool={activeTool}
+                  activeWb={activeWb} />
+      <EquationManager open={equationsOpen}
+                       onClose={() => setEquationsOpen(false)} />
+      <TopologyInspector open={topologyOpen}
+                         onClose={() => setTopologyOpen(false)}
+                         selection={selection}
+                         onSelect={setSelection} />
       <ToolParamDialog activeTool={activeTool}
                        selection={selection}
                        onConfirm={(tool, params) => {
