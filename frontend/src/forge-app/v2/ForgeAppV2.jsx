@@ -33,6 +33,7 @@ import { ArchiePortal } from '../archie-portal/ArchiePortal.jsx';
 import { CommandPalette, useCommandPalette } from './overlays/CommandPalette.jsx';
 import { WelcomeOverlay } from './overlays/WelcomeOverlay.jsx';
 import { SettingsDialog } from './overlays/SettingsDialog.jsx';
+import { ShortcutCheatSheet, useShortcutCheatSheet } from './overlays/ShortcutCheatSheet.jsx';
 
 const THEME_KEY = 'forge.theme.v2';
 const WELCOME_KEY = 'forge.welcome.dismissed';
@@ -94,6 +95,7 @@ export function ForgeAppV2() {
 
   // Overlays
   const { open: paletteOpen, openPalette, closePalette } = useCommandPalette();
+  const { open: cheatOpen, openSheet, closeSheet } = useShortcutCheatSheet();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
@@ -143,7 +145,8 @@ export function ForgeAppV2() {
         titleBar={
           <TitleBar onNewDoc={newDoc} theme={theme} onThemeChange={setTheme}
             onOpenPalette={openPalette}
-            onOpenSettings={() => setSettingsOpen(true)} />
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenHelp={openSheet} />
         }
         ribbon={<Ribbon onInvoke={onInvoke} />}
         documentTabs={
@@ -195,12 +198,13 @@ export function ForgeAppV2() {
         onTakeTour={dismissWelcome}
         recent={[]}
       />
+      <ShortcutCheatSheet open={cheatOpen} onClose={closeSheet} />
       <ToastHost />
     </ToastProvider>
   );
 }
 
-function TitleBar({ onNewDoc, theme, onThemeChange, onOpenPalette, onOpenSettings }) {
+function TitleBar({ onNewDoc, theme, onThemeChange, onOpenPalette, onOpenSettings, onOpenHelp }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
       <span style={{
@@ -230,8 +234,8 @@ function TitleBar({ onNewDoc, theme, onThemeChange, onOpenPalette, onOpenSetting
         <Tooltip content="Search commands (Cmd K)">
           <IconButton size="sm" icon={<Icon name="search" />} label="Command palette" onClick={onOpenPalette} />
         </Tooltip>
-        <Tooltip content="Help (?)">
-          <IconButton size="sm" icon={<Icon name="help" />} label="Help" />
+        <Tooltip content="Help — press ? for shortcuts">
+          <IconButton size="sm" icon={<Icon name="help" />} label="Help" onClick={openSheet} />
         </Tooltip>
         <Tooltip content="Settings">
           <IconButton size="sm" icon={<Icon name="settings" />} label="Settings" onClick={onOpenSettings} />
