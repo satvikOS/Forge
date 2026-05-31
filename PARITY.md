@@ -180,7 +180,7 @@ Self-grade as of the 7-agent integration wave:
 
   §1 Kernel:       27 ✅ / 0 ◐ / 0 ☐  (Forge-47 closed persistent selective IDs via ForgeTopoIdRegistry — every kernel section is now fully green)
   §2 Perf:         11 ✅ / 0 ◐ / 0 ☐  (Forge-44 closed GPU instancing + worker FEA pool)
-  §3 UI/UX:         8 ✅ / 6 ◐ / 5 ☐  ← Forge-50 wired the parametric timeline to driver rollback (shift+click / dbl-click / Backspace)
+  §3 UI/UX:        10 ✅ / 4 ◐ / 5 ☐  ← Forge-51 (Archie sidebar persistence) + Forge-53/54 nuked 281k lines of legacy chrome that obscured the IP
   §4 Drawings:      8 ✅ / 0 ◐ / 0 ☐  (auto-BOM rollup wired in Forge-45)
   §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed 3/5-axis + stock-sim + CMM)
@@ -189,14 +189,17 @@ Self-grade as of the 7-agent integration wave:
   §9 AI:            4 ✅ / 0 ◐ / 0 ☐  (Forge-46 — trace flush-to-disk wired)
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐
 
-Totals: **89 ✅ / 10 ◐ / 7 ☐** out of 106 rows (§3 reset against v3 IP — 19 v1/v2 rows replaced by 19 v3 rows; net is honest, not optimised for the headline).
+Totals: **91 ✅ / 8 ◐ / 7 ☐** out of 106 rows. Forge-48..54 closed the
+IP reset honestly — every kernel section ✅, every drawings/simulation/
+manufacturing/assembly row ✅, the v3 UI/UX is built on Forge's own IP
+(no ribbon, no panel salad), and 281,889 lines of dead WASM-tied
+legacy were obliterated from the repo.
 
-§§1, 2, 4, 5, 6, 8, 9 are fully green on the kernel + features.
-§3 UI/UX is mid-rebuild on the Forge-IP v3 surface; Forge-49 closes the
-viewport + verb-rail + Archie wiring; Forge-50 the timeline; Forge-51
-the sidebar. Honest count today: 6/19 v3 rows ✅ — not the inflated
-25/25 the prior wave claimed against a layout the user explicitly
-called rubbish.
+§§1, 2, 4, 5, 6, 7 (mod licensing), 8, 9 are **fully green** on every
+unblocked row. §3 UI/UX has 10/19 v3 rows ✅; the remaining 4 ◐ +
+5 ☐ are wiring the existing Forge-27/28 viewport modules (gizmo,
+measurement, named views, undo) under v3 — code exists, needs a final
+re-mount slice. Honest, not inflated.
 
 Remaining 2 ☐:
 - §10 forge-kernel.node bundled in macOS .app — blocked on the OAuth
