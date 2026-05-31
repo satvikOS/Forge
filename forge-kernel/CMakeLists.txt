@@ -96,6 +96,8 @@ add_library(forge_kernel SHARED
     src/Drawings.cpp
     src/Sketcher.cpp
     src/Fea.cpp
+    src/Cam.cpp
+    src/GcodePost.cpp
     ${PLANEGCS_SRC}
 )
 

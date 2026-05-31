@@ -18,6 +18,8 @@
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
+#include "forge/Cam.hpp"
+#include "forge/GcodePost.hpp"
 
 #include <Standard_Version.hxx>
 #include <cstring>
@@ -845,6 +847,226 @@ Napi::Value FeaSolveDynamic(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- cam (Forge-13)
+//
+// All CAM operations take a Tool {} and CuttingParams {} as plain JS
+// objects. The Tool fields map 1:1 onto forge::cam::Tool; type strings are
+// translated to the enum at the boundary so JS callers can write
+// `{ type: 'EndMill' }` rather than memorising integer codes.
+namespace cam_bind {
+
+forge::cam::Tool::Type parseToolType(Napi::Env env, const std::string& s) {
+    if (s == "EndMill")  return forge::cam::Tool::EndMill;
+    if (s == "BallNose") return forge::cam::Tool::BallNose;
+    if (s == "Drill")    return forge::cam::Tool::Drill;
+    if (s == "Chamfer")  return forge::cam::Tool::Chamfer;
+    throw Napi::TypeError::New(env, "forge.cam: unknown tool type '" + s + "'");
+}
+
+forge::cam::Tool readTool(Napi::Env env, Napi::Value val) {
+    if (!val.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.cam: tool must be an object");
+    }
+    Napi::Object obj = val.As<Napi::Object>();
+    forge::cam::Tool t{};
+    t.id          = obj.Has("id")          ? obj.Get("id").As<Napi::Number>().Uint32Value() : 0u;
+    t.name        = obj.Has("name")        ? std::string(obj.Get("name").As<Napi::String>()) : std::string("tool");
+    t.diameter    = obj.Has("diameter")    ? obj.Get("diameter").As<Napi::Number>().DoubleValue() : 0.0;
+    t.fluteLength = obj.Has("fluteLength") ? obj.Get("fluteLength").As<Napi::Number>().DoubleValue() : 0.0;
+    t.helix       = obj.Has("helix")       ? obj.Get("helix").As<Napi::Number>().DoubleValue() : 0.0;
+    t.flutes      = obj.Has("flutes")      ? obj.Get("flutes").As<Napi::Number>().Int32Value()   : 2;
+    if (obj.Has("type")) {
+        Napi::Value tv = obj.Get("type");
+        if (tv.IsString()) {
+            t.type = parseToolType(env, std::string(tv.As<Napi::String>()));
+        } else if (tv.IsNumber()) {
+            t.type = static_cast<forge::cam::Tool::Type>(tv.As<Napi::Number>().Int32Value());
+        } else {
+            throw Napi::TypeError::New(env, "forge.cam: tool.type must be string or number");
+        }
+    } else {
+        t.type = forge::cam::Tool::EndMill;
+    }
+    return t;
+}
+
+forge::cam::CuttingParams readParams(Napi::Env env, Napi::Value val) {
+    if (!val.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.cam: params must be an object");
+    }
+    Napi::Object obj = val.As<Napi::Object>();
+    forge::cam::CuttingParams p{};
+    p.feedXY     = obj.Has("feedXY")     ? obj.Get("feedXY").As<Napi::Number>().DoubleValue()     : 600.0;
+    p.feedZ      = obj.Has("feedZ")      ? obj.Get("feedZ").As<Napi::Number>().DoubleValue()      : 200.0;
+    p.spindleRPM = obj.Has("spindleRPM") ? obj.Get("spindleRPM").As<Napi::Number>().DoubleValue() : 12000.0;
+    p.stepover   = obj.Has("stepover")   ? obj.Get("stepover").As<Napi::Number>().DoubleValue()   : 1.0;
+    p.stepdown   = obj.Has("stepdown")   ? obj.Get("stepdown").As<Napi::Number>().DoubleValue()   : 2.0;
+    p.coolant    = obj.Has("coolant")    ? obj.Get("coolant").As<Napi::Number>().DoubleValue()    : 0.0;
+    return p;
+}
+
+Napi::Value packToolpath(Napi::Env env, const forge::cam::Toolpath& tp) {
+    auto out = Napi::Object::New(env);
+    out.Set("toolId", Napi::Number::New(env, tp.toolId));
+
+    // 5 floats per move: x, y, z, cutting (0/1), feedrate.
+    auto moves = Napi::Float32Array::New(env, tp.moves.size() * 5);
+    float* d = moves.Data();
+    for (std::size_t i = 0; i < tp.moves.size(); ++i) {
+        const auto& m = tp.moves[i];
+        d[i * 5 + 0] = static_cast<float>(m.x);
+        d[i * 5 + 1] = static_cast<float>(m.y);
+        d[i * 5 + 2] = static_cast<float>(m.z);
+        d[i * 5 + 3] = m.cutting ? 1.0f : 0.0f;
+        d[i * 5 + 4] = static_cast<float>(m.feedrate);
+    }
+    out.Set("moves", moves);
+    out.Set("moveCount",    Napi::Number::New(env, static_cast<double>(tp.moves.size())));
+    out.Set("cycleTimeSec", Napi::Number::New(env, tp.cycleTimeSec));
+    out.Set("estCuttingMm", Napi::Number::New(env, tp.estCuttingMm));
+    return out;
+}
+
+std::uint32_t readFaceArg(const Napi::CallbackInfo& info, std::size_t idx) {
+    if (info.Length() <= idx) return forge::cam::kAutoFaceId;
+    Napi::Value v = info[idx];
+    if (v.IsNull() || v.IsUndefined()) return forge::cam::kAutoFaceId;
+    if (v.IsNumber()) return v.As<Napi::Number>().Uint32Value();
+    throw Napi::TypeError::New(info.Env(), "forge.cam: faceId must be a number or null");
+}
+
+forge::cam::gcode::Dialect parseDialect(Napi::Env env, Napi::Value v) {
+    if (v.IsNumber()) {
+        return static_cast<forge::cam::gcode::Dialect>(v.As<Napi::Number>().Int32Value());
+    }
+    if (v.IsString()) {
+        std::string s = v.As<Napi::String>();
+        if (s == "Fanuc")    return forge::cam::gcode::Fanuc;
+        if (s == "Haas")     return forge::cam::gcode::Haas;
+        if (s == "LinuxCNC") return forge::cam::gcode::LinuxCNC;
+        if (s == "Grbl")     return forge::cam::gcode::Grbl;
+        throw Napi::TypeError::New(env, "forge.cam.gcode: unknown dialect '" + s + "'");
+    }
+    throw Napi::TypeError::New(env, "forge.cam.gcode: dialect must be string or number");
+}
+
+forge::cam::Toolpath readToolpathFromObject(Napi::Env env, Napi::Object obj) {
+    forge::cam::Toolpath tp{};
+    tp.toolId       = obj.Has("toolId") ? obj.Get("toolId").As<Napi::Number>().Uint32Value() : 0u;
+    tp.cycleTimeSec = obj.Has("cycleTimeSec") ? obj.Get("cycleTimeSec").As<Napi::Number>().DoubleValue() : 0.0;
+    tp.estCuttingMm = obj.Has("estCuttingMm") ? obj.Get("estCuttingMm").As<Napi::Number>().DoubleValue() : 0.0;
+    if (!obj.Has("moves")) {
+        throw Napi::TypeError::New(env, "forge.cam.gcode.toGcode: toolpath.moves missing");
+    }
+    auto arr = obj.Get("moves").As<Napi::Float32Array>();
+    const std::size_t n = arr.ElementLength() / 5;
+    tp.moves.reserve(n);
+    const float* d = arr.Data();
+    for (std::size_t i = 0; i < n; ++i) {
+        forge::cam::Move m{};
+        m.x        = d[i * 5 + 0];
+        m.y        = d[i * 5 + 1];
+        m.z        = d[i * 5 + 2];
+        m.cutting  = d[i * 5 + 3] > 0.5f;
+        m.feedrate = d[i * 5 + 4];
+        tp.moves.push_back(m);
+    }
+    return tp;
+}
+
+} // namespace cam_bind
+
+Napi::Value CamProfile(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto shape = requireHandle(info, 0);
+        auto faceId = cam_bind::readFaceArg(info, 1);
+        auto tool   = cam_bind::readTool(info.Env(), info[2]);
+        auto params = cam_bind::readParams(info.Env(), info[3]);
+        double zTop    = requireNumber(info, 4, "zTop");
+        double zBottom = requireNumber(info, 5, "zBottom");
+        double leadIn  = info.Length() > 6 && info[6].IsNumber()
+                            ? info[6].As<Napi::Number>().DoubleValue() : 0.0;
+        auto tp = forge::cam::profile(shape, faceId, tool, params, zTop, zBottom, leadIn);
+        return cam_bind::packToolpath(info.Env(), tp);
+    });
+}
+
+Napi::Value CamPocket(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto shape  = requireHandle(info, 0);
+        auto faceId = cam_bind::readFaceArg(info, 1);
+        auto tool   = cam_bind::readTool(info.Env(), info[2]);
+        auto params = cam_bind::readParams(info.Env(), info[3]);
+        double zTop    = requireNumber(info, 4, "zTop");
+        double zBottom = requireNumber(info, 5, "zBottom");
+        auto tp = forge::cam::pocket(shape, faceId, tool, params, zTop, zBottom);
+        return cam_bind::packToolpath(info.Env(), tp);
+    });
+}
+
+Napi::Value CamDrill(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto shape = requireHandle(info, 0);
+        if (!info[1].IsArray()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.cam.drill: expected holes array [[x,y,z], ...]");
+        }
+        auto arr = info[1].As<Napi::Array>();
+        std::vector<std::array<double, 3>> holes;
+        holes.reserve(arr.Length());
+        for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+            auto el = arr.Get(i);
+            if (!el.IsArray()) {
+                throw Napi::TypeError::New(info.Env(),
+                    "forge.cam.drill: hole element must be [x,y,z]");
+            }
+            auto a = el.As<Napi::Array>();
+            std::array<double, 3> h{0.0, 0.0, 0.0};
+            for (std::uint32_t j = 0; j < a.Length() && j < 3; ++j) {
+                h[j] = a.Get(j).As<Napi::Number>().DoubleValue();
+            }
+            holes.push_back(h);
+        }
+        auto tool   = cam_bind::readTool(info.Env(), info[2]);
+        auto params = cam_bind::readParams(info.Env(), info[3]);
+        double zTop    = requireNumber(info, 4, "zTop");
+        double zBottom = requireNumber(info, 5, "zBottom");
+        bool   peck    = info.Length() > 6 && info[6].IsBoolean()
+                            ? info[6].As<Napi::Boolean>().Value() : false;
+        auto tp = forge::cam::drill(shape, holes, tool, params, zTop, zBottom, peck);
+        return cam_bind::packToolpath(info.Env(), tp);
+    });
+}
+
+Napi::Value CamFaceMill(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto shape  = requireHandle(info, 0);
+        auto faceId = cam_bind::readFaceArg(info, 1);
+        auto tool   = cam_bind::readTool(info.Env(), info[2]);
+        auto params = cam_bind::readParams(info.Env(), info[3]);
+        double zTop  = requireNumber(info, 4, "zTop");
+        double depth = requireNumber(info, 5, "depth");
+        auto tp = forge::cam::faceMill(shape, faceId, tool, params, zTop, depth);
+        return cam_bind::packToolpath(info.Env(), tp);
+    });
+}
+
+Napi::Value CamToGcode(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.cam.gcode.toGcode: expected toolpath object");
+        }
+        auto env = info.Env();
+        auto tp = cam_bind::readToolpathFromObject(env, info[0].As<Napi::Object>());
+        auto dialect = cam_bind::parseDialect(env, info[1]);
+        double safeZ = info.Length() > 2 && info[2].IsNumber()
+                          ? info[2].As<Napi::Number>().DoubleValue() : 25.0;
+        std::string gcode = forge::cam::gcode::toGcode(tp, dialect, safeZ);
+        return Napi::String::New(env, gcode);
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -962,6 +1184,31 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     fea.Set("solveModal",   Napi::Function::New(env, FeaSolveModal));
     fea.Set("solveDynamic", Napi::Function::New(env, FeaSolveDynamic));
     exports.Set("fea", fea);
+    // -------- cam (2.5D toolpath generators + G-code post) -------------
+    auto cam = Napi::Object::New(env);
+    cam.Set("profile",  Napi::Function::New(env, CamProfile));
+    cam.Set("pocket",   Napi::Function::New(env, CamPocket));
+    cam.Set("drill",    Napi::Function::New(env, CamDrill));
+    cam.Set("faceMill", Napi::Function::New(env, CamFaceMill));
+
+    auto toolTypes = Napi::Object::New(env);
+    toolTypes.Set("EndMill",  Napi::Number::New(env, forge::cam::Tool::EndMill));
+    toolTypes.Set("BallNose", Napi::Number::New(env, forge::cam::Tool::BallNose));
+    toolTypes.Set("Drill",    Napi::Number::New(env, forge::cam::Tool::Drill));
+    toolTypes.Set("Chamfer",  Napi::Number::New(env, forge::cam::Tool::Chamfer));
+    cam.Set("ToolType", toolTypes);
+    cam.Set("kAutoFaceId", Napi::Number::New(env, forge::cam::kAutoFaceId));
+
+    auto gcode = Napi::Object::New(env);
+    gcode.Set("toGcode", Napi::Function::New(env, CamToGcode));
+    auto dialects = Napi::Object::New(env);
+    dialects.Set("Fanuc",    Napi::Number::New(env, forge::cam::gcode::Fanuc));
+    dialects.Set("Haas",     Napi::Number::New(env, forge::cam::gcode::Haas));
+    dialects.Set("LinuxCNC", Napi::Number::New(env, forge::cam::gcode::LinuxCNC));
+    dialects.Set("Grbl",     Napi::Number::New(env, forge::cam::gcode::Grbl));
+    gcode.Set("Dialect", dialects);
+    cam.Set("gcode", gcode);
+    exports.Set("cam", cam);
 
     return exports;
 }

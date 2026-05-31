@@ -105,6 +105,28 @@ const forgeApi = {
     projectShape: (h, direction) => kernel.drawings.projectShape(h, direction),
   } : null,
 
+  // 2.5D CAM (Forge-13) — toolpath generators + G-code post.
+  // Defensive null guard: older addons that predate Forge-13 may not
+  // ship the `cam` namespace; the renderer should detect that and
+  // hide the CAM workbench instead of crashing.
+  cam: kernel && kernel.cam ? {
+    ToolType:    Object.freeze({ ...kernel.cam.ToolType }),
+    kAutoFaceId: kernel.cam.kAutoFaceId,
+    profile:  (shape, faceId, tool, params, zTop, zBottom, leadIn) =>
+      kernel.cam.profile(shape, faceId, tool, params, zTop, zBottom, leadIn ?? 0),
+    pocket:   (shape, faceId, tool, params, zTop, zBottom) =>
+      kernel.cam.pocket(shape, faceId, tool, params, zTop, zBottom),
+    drill:    (shape, holes, tool, params, zTop, zBottom, peck) =>
+      kernel.cam.drill(shape, holes, tool, params, zTop, zBottom, !!peck),
+    faceMill: (shape, faceId, tool, params, zTop, depth) =>
+      kernel.cam.faceMill(shape, faceId, tool, params, zTop, depth),
+    gcode: kernel.cam.gcode ? {
+      Dialect: Object.freeze({ ...kernel.cam.gcode.Dialect }),
+      toGcode: (toolpath, dialect, safeZ) =>
+        kernel.cam.gcode.toGcode(toolpath, dialect, safeZ ?? 25),
+    } : null,
+  } : null,
+
   // parametric 2D sketcher (Forge-6) — planegcs-backed.
   sketcher: kernel && kernel.sketcher ? {
     kinds:    Object.freeze({ ...kernel.sketcher.kinds }),
