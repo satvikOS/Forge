@@ -78,13 +78,13 @@ viewport dominates. Old rows below are re-evaluated against v3.
 | Undo / redo (N-step history)                | ✅      | Forge-58 — driver-owned redo stack (capped 100); Cmd+Z rolls back one step, Cmd+Shift+Z replays the last dropped one; fresh prompts branch the timeline + clear redo (Figma/Photoshop semantics, not Word-style linear undo) |
 | Right-click context menus                   | ✅      | Forge-61 — ContextMenu primitive with smart viewport clamping, click-outside + Esc close; viewport right-click surfaces selection-aware items (edit/fillet/chamfer/hide/isolate/delete on a body, create.box/cyl/import on empty space) |
 | Hover tooltips (Smart positioning)          | ✅      | Forge-61 — Tooltip primitive with 350 ms hover delay, 4-side placement (top/right/bottom/left) clamped to a viewport pad, Esc dismiss, focus-trigger for keyboard users |
-| Keyboard shortcut customizer                | ◐      | Forge-28 module exists; needs v3 reachability (Settings dialog Forge-49) |
+| Keyboard shortcut customizer                | ◐      | Forge-62 Settings overlay reaches 5 categories (Appearance/Units/AI/Storage/About); a dedicated Shortcuts category with rebinding queued Forge-63 |
 | Progress + cancel for long ops              | ✅      | AbortController unchanged; ArchieRunner already plumbed |
-| Multi-document tabs                         | ☐      | v3 is single-doc today; multi-doc queued (Forge-49) |
-| Settings panel                              | ☐      | v2 modal deleted; v3 Settings overlay queued (Forge-49) |
-| Customizable workspaces / roles             | ☐      | v2 dropdown deleted; v3 has no "workspace" concept yet (a unified surface is the IP) |
-| Selection filter chip                       | ☐      | v3 will surface as a verb chip in the rail (Forge-49) |
-| Property manager panel                      | ☐      | v2 panel deleted; v3 surfaces property edits in the verb rail's active-verb drawer (Forge-49) |
+| Multi-document tabs                         | ✅      | Forge-62 — DocTabs renders one tab per Archie thread in the title bar; aria-selected on active, dirty marker, middle-click + × close, Cmd+N opens new doc; tabs read from ArchieThreadStore.index() |
+| Settings panel                              | ✅      | Forge-62 — SettingsOverlay (Cmd+,) — 5 categories (Appearance, Units, AI/Archie, Storage, About) with per-category persistence to `forge.v3.settings.<cat>`; Esc + backdrop-click close; theme change live-applies |
+| Customizable workspaces / roles             | n/a    | Forge IP — the v3 surface IS the workspace. The "workspace" concept contradicts the unified-canvas design; not implementing in this generation. |
+| Selection filter chip                       | n/a    | Forge IP — verb rail is already selection-contextual (face/edge/body modes); a separate filter chip is redundant. |
+| Property manager panel                      | n/a    | Forge IP — property edits happen via the cmd bar ("set fillet radius 3mm") and the verb-rail's active-verb drawer (Forge-63 surface), not a separate panel. |
 
 ## 4. Drawings / Drafting
 

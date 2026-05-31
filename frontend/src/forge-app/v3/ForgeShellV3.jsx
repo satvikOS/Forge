@@ -35,6 +35,9 @@ import { CommandBar } from './CommandBar.jsx';
 import { useArchieDriver } from './useArchieDriver.js';
 import { useViewState } from './useViewState.js';
 import { ContextMenu, viewportContextItems } from './Tooltip.jsx';
+import { DocTabs } from './DocTabs.jsx';
+import { SettingsOverlay } from './SettingsOverlay.jsx';
+import { ArchieThreadStore } from '../archie-portal/ArchieThreadStore.js';
 
 const STORAGE = 'forge.v3';
 
@@ -59,8 +62,16 @@ export function ForgeShellV3() {
   const [measurement, setMeasurement] = useState({ mode: 'distance', points: [], unit: 'mm' });
   const [section, setSection] = useState({ enabled: false, plane: { normal: [1,0,0], constant: 0 } });
   const [ctxMenu, setCtxMenu] = useState({ open: false, x: 0, y: 0 });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [docTabs, setDocTabs] = useState([]);
   const cmdRef = useRef(null);
   const archie = useArchieDriver();
+  // Multi-doc — refresh the tab list whenever the active thread shifts.
+  useEffect(() => {
+    const store = new ArchieThreadStore();
+    const idx = store.index();
+    setDocTabs(idx.map((e) => ({ id: e.id, title: e.title || 'Untitled', dirty: false })));
+  }, [archie.activeThreadId]);
   // Views + display states tied to the active thread for persistence.
   const viewState = useViewState({
     threadId: archie.activeThreadId,
@@ -117,6 +128,10 @@ export function ForgeShellV3() {
       } else if (meta && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) archie.redo(); else archie.undo();
+      } else if (meta && e.key === ',') {
+        e.preventDefault(); setSettingsOpen(true);
+      } else if (meta && e.key.toLowerCase() === 'n') {
+        e.preventDefault(); archie.newThread();
       } else if (!meta && e.key === 'Escape') {
         setActiveVerb(null);
       } else if (!meta && VIEW_KEYS[e.key] && document.activeElement?.tagName !== 'INPUT') {
@@ -190,8 +205,11 @@ export function ForgeShellV3() {
         <span className="forge-v3-titlebar-brand">
           <span className="forge-v3-titlebar-brand-mark">⎈</span>Forge
         </span>
-        <span className="forge-v3-titlebar-spacer" />
-        <span className="forge-v3-titlebar-doc-name">{docName}</span>
+        <DocTabs tabs={docTabs}
+                 activeId={archie.activeThreadId}
+                 onSwitch={() => { /* Forge-62b: switch driver thread */ }}
+                 onClose={() => { /* Forge-62b: archive thread */ }}
+                 onNew={() => archie.newThread()} />
         <span className="forge-v3-titlebar-spacer" />
         <span
           style={{ fontSize: 11, opacity: 0.6 }}
@@ -200,6 +218,9 @@ export function ForgeShellV3() {
           {viewState.displayState} · {viewState.activeView} · 0.3.0 · {archie.status}
         </span>
       </header>
+      <SettingsOverlay open={settingsOpen}
+                       onClose={() => setSettingsOpen(false)}
+                       onThemeChange={(t) => setTheme(t)} />
 
       <VerbRail
         selection={selection}
