@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './tokens.css';
 import { TopBar } from './TopBar.jsx';
 import { WorkbenchRail } from './WorkbenchRail.jsx';
-import { Toolbar } from './Toolbar.jsx';
+import { Toolbar, toolsForWorkbench } from './Toolbar.jsx';
 import { RightPanel } from './RightPanel.jsx';
 import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
@@ -36,6 +36,7 @@ export function ForgeShellV4() {
   const [thread, setThread]           = useState([]);
   const [running, setRunning]         = useState(false);
   const [featureTree, setFeatureTree] = useState([]);
+  const [activeFeatureId, setActiveFeatureId] = useState(null);
   const cmdRef = useRef(null);
 
   // Theme into the data attribute that the tokens.css selectors read.
@@ -125,12 +126,16 @@ export function ForgeShellV4() {
                activeTool={activeTool}
                onInvoke={(id) => {
                  setActiveTool(id);
+                 const groups = toolsForWorkbench(activeWb);
+                 const tool = groups.flatMap((g) => g.tools).find((t) => t.id === id);
+                 const nextId = `f-${featureTree.length}`;
                  setFeatureTree((t) => [...t, {
-                   id: `f-${t.length}`,
-                   label: id,
-                   icon: 'sketch.point',
+                   id: nextId,
+                   label: (tool?.label || id) + ' ' + (featureTree.length + 1),
+                   icon: tool?.icon || 'sketch.point',
                  }]);
-                 pushThread({ role: 'archie', text: `Queued ${id} (kernel mount lands in Forge-70).` });
+                 setActiveFeatureId(nextId);
+                 pushThread({ role: 'archie', text: `Queued ${tool?.label || id} (kernel mount lands in Forge-70).` });
                }} />
       <div className="forge-viewport" data-testid="forge-viewport">
         <ViewportSurface activeWb={activeWb} />
@@ -146,7 +151,32 @@ export function ForgeShellV4() {
         : (<RightPanel collapsed={rightCollapsed}
                        onToggle={() => setRightCollapsed((v) => !v)}
                        featureTree={featureTree}
-                       selection={selection} />)
+                       activeFeatureId={activeFeatureId}
+                       selection={selection}
+                       onPickFeature={setActiveFeatureId}
+                       onReorderFeature={(fromId, toId) => {
+                         setFeatureTree((arr) => {
+                           const fromIdx = arr.findIndex((n) => n.id === fromId);
+                           const toIdx   = arr.findIndex((n) => n.id === toId);
+                           if (fromIdx < 0 || toIdx < 0) return arr;
+                           const next = arr.slice();
+                           const [moved] = next.splice(fromIdx, 1);
+                           next.splice(toIdx, 0, moved);
+                           return next;
+                         });
+                       }}
+                       onToggleSuppress={(id) => {
+                         setFeatureTree((arr) => arr.map((n) =>
+                           n.id === id ? { ...n, suppressed: !n.suppressed } : n));
+                       }}
+                       onDeleteFeature={(id) => {
+                         setFeatureTree((arr) => arr.filter((n) => n.id !== id));
+                         if (activeFeatureId === id) setActiveFeatureId(null);
+                       }}
+                       onRenameFeature={(id, label) => {
+                         setFeatureTree((arr) => arr.map((n) =>
+                           n.id === id ? { ...n, label } : n));
+                       }} />)
       }
       <StatusBar workbench={activeWb} selection={selection} />
       <CommandBar ref={cmdRef}

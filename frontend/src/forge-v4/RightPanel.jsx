@@ -3,8 +3,11 @@
 
 import React from 'react';
 import { Icon } from './icons/Icon.jsx';
+import { FeatureTree } from './FeatureTree.jsx';
 
-export function RightPanel({ collapsed, onToggle, featureTree, selection }) {
+export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
+                             selection, onPickFeature, onReorderFeature,
+                             onToggleSuppress, onDeleteFeature, onRenameFeature }) {
   if (collapsed) {
     return (
       <aside className="forge-right" data-collapsed="true"
@@ -34,25 +37,13 @@ export function RightPanel({ collapsed, onToggle, featureTree, selection }) {
           </button>
         </header>
         <div className="forge-right-section-body">
-          {(featureTree?.length ?? 0) === 0 ? (
-            <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic' }}>
-              No features yet. Start a sketch or run an op.
-            </div>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {featureTree.map((n) => (
-                <li key={n.id}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      padding: '3px 0',
-                      color: n.suppressed ? 'var(--forge-ink-faint)' : 'var(--forge-ink)',
-                    }}>
-                  <Icon name={n.icon || 'sketch.point'} size={12} />
-                  <span>{n.label}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <FeatureTree nodes={featureTree}
+                       activeId={activeFeatureId}
+                       onPick={onPickFeature}
+                       onReorder={onReorderFeature}
+                       onToggleSuppress={onToggleSuppress}
+                       onDelete={onDeleteFeature}
+                       onRename={onRenameFeature} />
         </div>
       </section>
       <section className="forge-right-section">
