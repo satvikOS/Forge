@@ -11,6 +11,7 @@
 // you nothing; Forge gives you the brand mark, lit, framed, orbitable.
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
+import { Gizmo, MeasurementOverlay, SectionPlane } from './ViewportTools.jsx';
 
 function ViewportEmptyHint() {
   return (
@@ -26,7 +27,11 @@ function ViewportEmptyHint() {
   );
 }
 
-export function ViewportSurface({ selection, onSelect, steps = [] }) {
+export function ViewportSurface({ selection, onSelect, steps = [],
+                                  activeVerb = null,
+                                  measurement = null,
+                                  section = null,
+                                  onMeasurementPick = null }) {
   // Mount the r3f canvas only client-side. SSR renders the empty-state.
   const [canvasReady, setCanvasReady] = useState(false);
   const [bundle, setBundle] = useState(null);
@@ -66,7 +71,10 @@ export function ViewportSurface({ selection, onSelect, steps = [] }) {
         ? (
           <Suspense fallback={<ViewportEmptyHint />}>
             <ViewportScene bundle={bundle} steps={steps}
-                           selection={selection} onSelect={onSelect} />
+                           selection={selection} onSelect={onSelect}
+                           activeVerb={activeVerb}
+                           measurement={measurement} section={section}
+                           onMeasurementPick={onMeasurementPick} />
           </Suspense>
         )
         : <ViewportEmptyHint />
@@ -83,10 +91,21 @@ export function ViewportSurface({ selection, onSelect, steps = [] }) {
  * with a subtle floor grid + 3 lights. Becomes a real mesh tree when
  * the driver has steps producing geometry.
  */
-function ViewportScene({ bundle, steps, selection, onSelect }) {
+function ViewportScene({ bundle, steps, selection, onSelect,
+                         activeVerb, measurement, section, onMeasurementPick }) {
   const { Canvas, useFrame } = bundle;
   const { OrbitControls, Grid, Environment } = bundle.drei;
   const THREE = bundle.three;
+  const selectedRef = useRef(null);
+
+  const gizmoMode = activeVerb === 'modify.rotate' ? 'rotate'
+                  : activeVerb === 'modify.scale'  ? 'scale'
+                  : 'translate';
+  const showGizmo = (activeVerb === 'modify.move' ||
+                     activeVerb === 'modify.rotate' ||
+                     activeVerb === 'modify.scale') &&
+                    selection?.kind === 'body' && selection.ids?.length > 0;
+  const measurementMode = activeVerb === 'measure' ? (measurement?.mode || 'distance') : null;
 
   // Compose camera + lights + the mark + the per-step meshes (when
   // present). The driver's step payloads carry the mesh handles; we
@@ -115,10 +134,26 @@ function ViewportScene({ bundle, steps, selection, onSelect }) {
       <ForgeMark THREE={THREE} useFrame={useFrame} />
 
       <SceneMeshes THREE={THREE} steps={steps}
-                   selection={selection} onSelect={onSelect} />
+                   selection={selection} onSelect={onSelect}
+                   selectedRef={selectedRef}
+                   onPick={onMeasurementPick && measurementMode
+                     ? (pt) => onMeasurementPick(pt) : null} />
+
+      {showGizmo && (
+        <Gizmo mode={gizmoMode} enabled={true} targetRef={selectedRef} />
+      )}
+      {measurementMode && measurement?.points && (
+        <MeasurementOverlay mode={measurementMode}
+                            points={measurement.points}
+                            unit={measurement.unit || 'mm'} />
+      )}
+      {section?.enabled && (
+        <SectionPlane enabled={true} plane={section.plane} />
+      )}
 
       <OrbitControls makeDefault enableDamping dampingFactor={0.08}
-                     minDistance={5} maxDistance={300} />
+                     minDistance={5} maxDistance={300}
+                     enabled={!showGizmo /* disable orbit while dragging gizmo */} />
     </Canvas>
   );
 }
@@ -151,7 +186,7 @@ function ForgeMark({ THREE, useFrame }) {
 // Render scene meshes from the driver's steps array. When window.forge
 // is present we tessellate and cache; otherwise this is a no-op and
 // the ForgeMark stays as the hero.
-function SceneMeshes({ THREE, steps, selection, onSelect }) {
+function SceneMeshes({ THREE, steps, selection, onSelect, selectedRef, onPick }) {
   const [meshes, setMeshes] = useState([]);
 
   useEffect(() => {
@@ -182,17 +217,25 @@ function SceneMeshes({ THREE, steps, selection, onSelect }) {
   if (meshes.length === 0) return null;
   return (
     <group>
-      {meshes.map((m) => (
-        <mesh key={m.id} geometry={m.geometry}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect?.({ kind: 'body', ids: [m.handle] });
-              }}>
-          <meshStandardMaterial
-            color={selection?.ids?.includes(m.handle) ? '#d97a3b' : '#c4ccd6'}
-            roughness={0.4} metalness={0.1} />
-        </mesh>
-      ))}
+      {meshes.map((m) => {
+        const sel = selection?.ids?.includes(m.handle);
+        return (
+          <mesh key={m.id} geometry={m.geometry}
+                ref={sel ? selectedRef : null}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onPick && e.point) {
+                    onPick([e.point.x, e.point.y, e.point.z]);
+                  } else {
+                    onSelect?.({ kind: 'body', ids: [m.handle] });
+                  }
+                }}>
+            <meshStandardMaterial
+              color={sel ? '#d97a3b' : '#c4ccd6'}
+              roughness={0.4} metalness={0.1} />
+          </mesh>
+        );
+      })}
     </group>
   );
 }

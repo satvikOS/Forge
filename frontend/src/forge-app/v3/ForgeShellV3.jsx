@@ -54,8 +54,20 @@ export function ForgeShellV3() {
   const [activeVerb, setActiveVerb] = useState(null);
   const [selection, setSelection] = useState({ kind: 'none', ids: [] });
   const [docName] = useState('untitled.forge');
+  const [measurement, setMeasurement] = useState({ mode: 'distance', points: [], unit: 'mm' });
+  const [section, setSection] = useState({ enabled: false, plane: { normal: [1,0,0], constant: 0 } });
   const cmdRef = useRef(null);
   const archie = useArchieDriver();
+
+  // Reset measurement points when leaving the measure verb.
+  useEffect(() => {
+    if (activeVerb !== 'measure') {
+      setMeasurement((m) => ({ ...m, points: [] }));
+    }
+    if (activeVerb === 'bool.section') {
+      setSection((s) => ({ ...s, enabled: true }));
+    }
+  }, [activeVerb]);
   // Driver owns parametric state. Shell is a view onto it.
   const steps = archie.steps;
   const thread = archie.thread;
@@ -151,6 +163,14 @@ export function ForgeShellV3() {
         selection={selection}
         onSelect={setSelection}
         steps={steps}
+        activeVerb={activeVerb}
+        measurement={measurement}
+        section={section}
+        onMeasurementPick={(pt) => setMeasurement((m) => {
+          const limit = m.mode === 'distance' ? 2 : (m.mode === 'angle' ? 3 : 32);
+          const next = m.points.length >= limit ? [pt] : [...m.points, pt];
+          return { ...m, points: next };
+        })}
       />
 
       <TimelineStrip
