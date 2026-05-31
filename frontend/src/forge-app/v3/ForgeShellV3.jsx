@@ -54,13 +54,12 @@ export function ForgeShellV3() {
   const [activeVerb, setActiveVerb] = useState(null);
   const [selection, setSelection] = useState({ kind: 'none', ids: [] });
   const [docName] = useState('untitled.forge');
-  const [activeStepId, setActiveStepId] = useState(null);
   const cmdRef = useRef(null);
   const archie = useArchieDriver();
-  // The shell is the single source of truth for the rendered steps; we
-  // mirror the driver's append-only history so the user can scrub.
+  // Driver owns parametric state. Shell is a view onto it.
   const steps = archie.steps;
   const thread = archie.thread;
+  const activeStepId = archie.activeStepId;
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -156,7 +155,8 @@ export function ForgeShellV3() {
       <TimelineStrip
         steps={steps}
         activeStepId={activeStepId || (steps.length ? steps[steps.length - 1].id : null)}
-        onPick={setActiveStepId}
+        onPick={(id) => archie.setActiveStepId(id)}
+        onRollback={(id) => archie.rollbackTo(id)}
       />
 
       <ArchieSidebar

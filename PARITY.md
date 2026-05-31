@@ -70,7 +70,7 @@ viewport dominates. Old rows below are re-evaluated against v3.
 | Forge-IP design tokens (3 themes)           | ✅      | Forge-48 — dark/light/contrast, copper accent (#d97a3b), `prefers-reduced-motion` honoured |
 | Verb rail (selection-contextual)            | ✅      | Forge-48 — 5/8/4/8 verbs for none/face/edge/body selection; ≤12 per state ceiling |
 | Always-on command bar (Cmd+K focus)         | ✅      | Forge-48 — bottom 44px bar; Enter submit; Esc clear+blur; Cmd+K focus from anywhere |
-| Bottom timeline (parametric scrub)          | ◐      | Forge-48 — empty-state + populated cards + playhead render; rebuild-engine wiring queued Forge-50 |
+| Bottom timeline (parametric scrub)          | ✅      | Forge-48 layout + Forge-50 driver wiring: rollback via shift+click / double-click / Backspace; truncates the parametric history + announces in the Archie thread; calls `window.forge.rebuild({upToStepId})` when the kernel exposes one |
 | Persistent Archie sidebar                   | ✅      | Forge-48 layout + Forge-49 useArchieDriver wires the real ForgeRunner: streaming tool-call cards, running/cancel state, offline echo when forge-kernel.node absent |
 | Viewport (r3f canvas + orbit)               | ◐      | Forge-48 viewport surface + empty-state; r3f canvas + selection wiring queued Forge-50 (single-doc focus for now) |
 | Transform gizmo + measurement + section     | ◐      | Forge-27 modules exist; need re-mount under v3 viewport (Forge-49) |
@@ -180,7 +180,7 @@ Self-grade as of the 7-agent integration wave:
 
   §1 Kernel:       27 ✅ / 0 ◐ / 0 ☐  (Forge-47 closed persistent selective IDs via ForgeTopoIdRegistry — every kernel section is now fully green)
   §2 Perf:         11 ✅ / 0 ◐ / 0 ☐  (Forge-44 closed GPU instancing + worker FEA pool)
-  §3 UI/UX:         7 ✅ / 7 ◐ / 5 ☐  ← Forge-49 wired the verb-rail → cmd bar prefill and Archie sidebar to the real ForgeRunner
+  §3 UI/UX:         8 ✅ / 6 ◐ / 5 ☐  ← Forge-50 wired the parametric timeline to driver rollback (shift+click / dbl-click / Backspace)
   §4 Drawings:      8 ✅ / 0 ◐ / 0 ☐  (auto-BOM rollup wired in Forge-45)
   §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed 3/5-axis + stock-sim + CMM)

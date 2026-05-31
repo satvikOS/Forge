@@ -29,19 +29,53 @@ export function useArchieDriver() {
   const [thread, setThread] = useState([]);
   const [steps, setSteps]   = useState([]);
   const [status, setStatus] = useState('idle');
+  const [activeStepId, setActiveStepId] = useState(null);
   const abortRef = useRef(null);
 
   const pushMsg  = useCallback((m) => {
     setThread((t) => [...t, { id: nextMsgId(), ts: Date.now(), ...m }]);
   }, []);
   const pushStep = useCallback((s) => {
-    setSteps((arr) => [...arr, { id: nextMsgId(), ts: Date.now(), ...s }]);
+    const id = nextMsgId();
+    setSteps((arr) => [...arr, { id, ts: Date.now(), ...s }]);
+    setActiveStepId(id);
+    return id;
   }, []);
 
   const cancel = useCallback(() => {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = null;
     setStatus('idle');
+  }, []);
+
+  // Forge-50 — rollback the parametric history to the picked step.
+  // Truncates the timeline; on a live kernel this would replay only
+  // those steps (RebuildEngine.rebuild on the partial tree). In the
+  // dev shell it's a visual rollback.
+  const rollbackTo = useCallback((stepId) => {
+    setSteps((arr) => {
+      const idx = arr.findIndex((s) => s.id === stepId);
+      if (idx < 0) return arr;
+      const kept = arr.slice(0, idx + 1);
+      // Tell the user.
+      const dropped = arr.length - kept.length;
+      if (dropped > 0) {
+        setThread((t) => [...t, {
+          id: nextMsgId(), ts: Date.now(),
+          role: 'archie',
+          text: `Rolled back to "${kept[kept.length - 1].label}" (dropped ${dropped} step${dropped === 1 ? '' : 's'}).`,
+        }]);
+      }
+      setActiveStepId(stepId);
+      // Best-effort kernel rebuild — gated on window.forge.rebuild
+      // being installed by the RebuildEngine bootstrap (Forge-25).
+      if (typeof window !== 'undefined' && window.forge &&
+          typeof window.forge.rebuild === 'function') {
+        try { window.forge.rebuild({ upToStepId: stepId }); }
+        catch { /* best-effort */ }
+      }
+      return kept;
+    });
   }, []);
 
   const send = useCallback(async (prompt) => {
@@ -121,5 +155,6 @@ export function useArchieDriver() {
     }
   }, [pushMsg, pushStep]);
 
-  return { thread, steps, status, send, cancel };
+  return { thread, steps, status, activeStepId, send, cancel, rollbackTo,
+           setActiveStepId };
 }
