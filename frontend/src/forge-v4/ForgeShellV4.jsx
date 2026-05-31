@@ -26,6 +26,7 @@ import { BodyContextMenu } from './BodyContextMenu.jsx';
 import { HelpDrawer } from './HelpDrawer.jsx';
 import { EquationManager } from './EquationManager.jsx';
 import { TopologyInspector } from './TopologyInspector.jsx';
+import { PreviewPanels } from './PreviewPanels.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -59,6 +60,9 @@ export function ForgeShellV4() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [equationsOpen, setEquationsOpen] = useState(false);
   const [topologyOpen, setTopologyOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTab, setPreviewTab] = useState(() => stored.get('previewTab', 'drawing'));
+  useEffect(() => { stored.set('previewTab', previewTab); }, [previewTab]);
   const cmdRef = useRef(null);
   const archieAbortRef = useRef(null);
 
@@ -95,6 +99,8 @@ export function ForgeShellV4() {
         e.preventDefault(); setTopologyOpen((v) => !v);
       } else if (e.key === 'F1') {
         e.preventDefault(); setHelpOpen((v) => !v);
+      } else if (meta && e.key.toLowerCase() === 'p') {
+        e.preventDefault(); setPreviewOpen((v) => !v);
       } else if (!meta && e.key === 'Escape') {
         setActiveTool(null);
         setBodyCtxMenu(null);
@@ -205,6 +211,8 @@ export function ForgeShellV4() {
         setRightCollapsed((v) => !v); return;
       case 'view.toggleDock':
         setDockOpen((v) => !v); return;
+      case 'view.preview':
+        setPreviewOpen((v) => !v); return;
       case 'view.iso': case 'view.front': case 'view.top': case 'view.right':
         setViewName(id.replace('view.', ''));
         return;
@@ -324,6 +332,11 @@ export function ForgeShellV4() {
                          else handleMenuAction(it.id);
                        }}
                        onClose={() => setBodyCtxMenu(null)} />
+      <PreviewPanels open={previewOpen}
+                     onClose={() => setPreviewOpen(false)}
+                     activeTab={previewTab}
+                     onSwitchTab={setPreviewTab}
+                     features={featureTree} />
       <ProjectLibrary open={libraryOpen}
                       onClose={() => setLibraryOpen(false)}
                       onInsert={(it) => {
