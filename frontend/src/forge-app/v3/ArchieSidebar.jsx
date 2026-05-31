@@ -7,16 +7,39 @@
 
 import React from 'react';
 
-export function ArchieSidebar({ collapsed, onToggle, thread }) {
+export function ArchieSidebar({ collapsed, onToggle, thread, running = false, onCancel }) {
   return (
     <aside className="forge-v3-archie"
            data-collapsed={String(!!collapsed)}
+           data-running={String(!!running)}
            aria-label="Archie thread"
            data-testid="forge-v3-archie">
       <header className="forge-v3-archie-header">
-        <span className="forge-v3-archie-header-mark" aria-hidden="true">◐</span>
-        {!collapsed && <span>Archie</span>}
+        <span className="forge-v3-archie-header-mark" aria-hidden="true">
+          {running ? '◑' : '◐'}
+        </span>
+        {!collapsed && <span>Archie{running ? ' · working' : ''}</span>}
         <span style={{ flex: 1 }} />
+        {running && !collapsed && (
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Cancel Archie run"
+            data-testid="forge-v3-archie-cancel"
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--forge-v3-rail-edge)',
+              color: 'var(--forge-v3-ink-2)',
+              cursor: 'pointer',
+              padding: '1px 8px',
+              borderRadius: 3,
+              fontSize: 10,
+              marginRight: 6,
+            }}
+          >
+            cancel
+          </button>
+        )}
         <button
           type="button"
           onClick={onToggle}

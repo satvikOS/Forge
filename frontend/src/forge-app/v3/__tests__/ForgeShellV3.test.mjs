@@ -119,4 +119,41 @@ import { CommandBar } from '../CommandBar.jsx';
   assert.ok(html.includes('⌘K'));
 }
 
+// 7) CommandBar busy state — running=true swaps glyph to ◐, disables
+//    input, updates placeholder.
+{
+  const html = renderToStaticMarkup(React.createElement(CommandBar, {
+    onSubmit: () => {}, running: true,
+  }));
+  assert.ok(html.includes('◐'), 'busy glyph');
+  assert.ok(html.includes('disabled'), 'input disabled while busy');
+  assert.ok(html.includes('Archie is working'), 'busy placeholder');
+  assert.ok(html.includes('aria-busy="true"'), 'aria-busy set');
+}
+
+// 8) ArchieSidebar shows a Cancel button while running.
+{
+  const idle = renderToStaticMarkup(React.createElement(ArchieSidebar, {
+    collapsed: false, onToggle: () => {}, thread: [], running: false,
+    onCancel: () => {},
+  }));
+  assert.ok(!idle.includes('data-testid="forge-v3-archie-cancel"'),
+            'no cancel button when idle');
+
+  const busy = renderToStaticMarkup(React.createElement(ArchieSidebar, {
+    collapsed: false, onToggle: () => {}, thread: [], running: true,
+    onCancel: () => {},
+  }));
+  assert.ok(busy.includes('data-testid="forge-v3-archie-cancel"'),
+            'cancel button visible while running');
+  assert.ok(busy.includes('Archie · working'), 'header shows working state');
+}
+
+// 9) Shell SSR with no forge available shows "0.3.0 · idle" status.
+{
+  const html = renderToStaticMarkup(React.createElement(ForgeShellV3));
+  assert.ok(html.includes('data-testid="forge-v3-status"'), 'status zone');
+  assert.ok(html.includes('idle'), 'status reads idle initially');
+}
+
 console.log('[forge.v3.shell] all tests passed');

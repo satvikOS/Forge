@@ -27,11 +27,12 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import './tokens.css';
-import { VerbRail } from './VerbRail.jsx';
+import { VerbRail, verbsFor } from './VerbRail.jsx';
 import { ViewportSurface } from './ViewportSurface.jsx';
 import { TimelineStrip } from './TimelineStrip.jsx';
 import { ArchieSidebar } from './ArchieSidebar.jsx';
 import { CommandBar } from './CommandBar.jsx';
+import { useArchieDriver } from './useArchieDriver.js';
 
 const STORAGE = 'forge.v3';
 
@@ -53,10 +54,13 @@ export function ForgeShellV3() {
   const [activeVerb, setActiveVerb] = useState(null);
   const [selection, setSelection] = useState({ kind: 'none', ids: [] });
   const [docName] = useState('untitled.forge');
-  const [steps, setSteps] = useState([]);
   const [activeStepId, setActiveStepId] = useState(null);
-  const [thread, setThread] = useState([]);
   const cmdRef = useRef(null);
+  const archie = useArchieDriver();
+  // The shell is the single source of truth for the rendered steps; we
+  // mirror the driver's append-only history so the user can scrub.
+  const steps = archie.steps;
+  const thread = archie.thread;
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -86,15 +90,32 @@ export function ForgeShellV3() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  function pushStep(step) {
-    const next = [...steps, { id: `step-${steps.length + 1}`, ts: Date.now(), ...step }];
-    setSteps(next);
-    setActiveStepId(next[next.length - 1].id);
-  }
-
-  function pushThread(msg) {
-    setThread((t) => [...t, { id: `msg-${t.length + 1}`, ts: Date.now(), ...msg }]);
-  }
+  // Verb-rail click prefills the command bar with the verb's natural-
+  // language stem so the user can finish the sentence ("fillet __mm").
+  // This is the unification of "what GUI buttons mean" with the NL
+  // surface — every verb is just an NL prefix.
+  const VERB_PREFIXES = {
+    'create.sketch':   'sketch ',
+    'create.box':      'create a box ',
+    'create.cyl':      'create a cylinder ',
+    'import':          'import ',
+    'measure':         'measure ',
+    'modify.push':     'push the selected face by ',
+    'modify.fillet':   'fillet at ',
+    'modify.chamfer':  'chamfer at ',
+    'modify.shell':    'shell at ',
+    'modify.delete':   'delete the selected face ',
+    'modify.move':     'move by ',
+    'modify.rotate':   'rotate by ',
+    'modify.scale':    'scale by ',
+    'pattern':         'pattern ',
+    'mirror':          'mirror across ',
+    'constrain':       'constrain ',
+    'dimension':       'dimension ',
+    'bool.cut':        'cut with ',
+    'bool.fuse':       'fuse with ',
+    'bool.section':    'section ',
+  };
 
   return (
     <div className="forge-v3-app" data-testid="forge-v3-app">
@@ -105,13 +126,26 @@ export function ForgeShellV3() {
         <span className="forge-v3-titlebar-spacer" />
         <span className="forge-v3-titlebar-doc-name">{docName}</span>
         <span className="forge-v3-titlebar-spacer" />
-        <span style={{ fontSize: 11, opacity: 0.6 }}>0.3.0</span>
+        <span
+          style={{ fontSize: 11, opacity: 0.6 }}
+          data-testid="forge-v3-status"
+        >
+          0.3.0 · {archie.status}
+        </span>
       </header>
 
       <VerbRail
         selection={selection}
         activeVerb={activeVerb}
-        onVerb={(v) => setActiveVerb((prev) => prev === v ? null : v)}
+        onVerb={(v) => {
+          setActiveVerb((prev) => prev === v ? null : v);
+          if (cmdRef.current) {
+            cmdRef.current.focus();
+            cmdRef.current.value = VERB_PREFIXES[v] || (v.split('.').pop() + ' ');
+            // Surface the prefilled value to the CommandBar's controlled state.
+            cmdRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }}
       />
 
       <ViewportSurface
@@ -121,7 +155,7 @@ export function ForgeShellV3() {
 
       <TimelineStrip
         steps={steps}
-        activeStepId={activeStepId}
+        activeStepId={activeStepId || (steps.length ? steps[steps.length - 1].id : null)}
         onPick={setActiveStepId}
       />
 
@@ -129,18 +163,14 @@ export function ForgeShellV3() {
         collapsed={archieCollapsed}
         onToggle={() => setArchieCollapsed((v) => !v)}
         thread={thread}
+        running={archie.status === 'running'}
+        onCancel={archie.cancel}
       />
 
       <CommandBar
         ref={cmdRef}
-        onSubmit={(text) => {
-          pushThread({ role: 'user', text });
-          pushStep({ label: text.length > 28 ? text.slice(0, 28) + '…' : text,
-                     meta: 'archie' });
-          // Echo Archie placeholder until Forge-49 wires the real runner.
-          pushThread({ role: 'archie',
-                       text: `Queued. (Archie runner wires up in Forge-49 — for now I just echo.)` });
-        }}
+        onSubmit={(text) => archie.send(text)}
+        running={archie.status === 'running'}
       />
     </div>
   );

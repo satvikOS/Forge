@@ -7,10 +7,23 @@
 //
 // Refs are forwarded so the shell can focus the input on Cmd+K.
 
-import React, { forwardRef, useState } from 'react';
+import React, { forwardRef, useEffect, useRef, useState } from 'react';
 
-export const CommandBar = forwardRef(function CommandBar({ onSubmit, placeholder }, ref) {
+export const CommandBar = forwardRef(function CommandBar(
+  { onSubmit, placeholder, running = false }, externalRef
+) {
   const [value, setValue] = useState('');
+  const inputRef = useRef(null);
+
+  // Forward our internal ref while also exposing the input via the
+  // external ref so the shell can call .focus() AND .value = ... from
+  // verb-rail clicks. The shell mutates input.value + dispatches 'input'
+  // — we listen and sync state back.
+  useEffect(() => {
+    if (!externalRef) return;
+    if (typeof externalRef === 'function') externalRef(inputRef.current);
+    else externalRef.current = inputRef.current;
+  }, [externalRef]);
 
   function submit() {
     const text = value.trim();
@@ -24,9 +37,11 @@ export const CommandBar = forwardRef(function CommandBar({ onSubmit, placeholder
             role="form"
             aria-label="Forge command bar"
             data-testid="forge-v3-cmdbar">
-      <span className="forge-v3-cmdbar-prompt" aria-hidden="true">⌘</span>
+      <span className="forge-v3-cmdbar-prompt" aria-hidden="true">
+        {running ? '◐' : '⌘'}
+      </span>
       <input
-        ref={ref}
+        ref={inputRef}
         className="forge-v3-cmdbar-input"
         type="text"
         value={value}
@@ -40,8 +55,12 @@ export const CommandBar = forwardRef(function CommandBar({ onSubmit, placeholder
             e.currentTarget.blur();
           }
         }}
-        placeholder={placeholder || 'Tell Archie what to build — e.g. “a 10mm cube, fillet 2mm”'}
+        placeholder={placeholder || (running
+          ? 'Archie is working…'
+          : 'Tell Archie what to build — e.g. “a 10mm cube, fillet 2mm”')}
+        disabled={running}
         aria-label="Natural-language command"
+        aria-busy={running}
         spellCheck="false"
         autoComplete="off"
       />
