@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(forge_kernel CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)  # planegcs uses <std::numbers> + <std::ranges>
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -55,6 +55,32 @@ set(OCCT_LIBS
     TKDE TKDESTEP TKDEIGES TKDESTL TKDEVRML TKXSBase
 )
 
+# ---------------------------------------------------------------- Eigen
+# Header-only; planegcs and the wider Forge kernel both rely on it.
+set(EIGEN_INC "/opt/homebrew/opt/eigen/include/eigen3")
+if(NOT EXISTS "${EIGEN_INC}/Eigen/Sparse")
+    message(FATAL_ERROR "Eigen not found at ${EIGEN_INC}. Install with `brew install eigen`.")
+endif()
+
+# ---------------------------------------------------------------- Boost
+# planegcs uses boost::graph (connected_components) + boost::math::constants.
+# Header-only on brew. We need *_INC only — no link libs.
+set(BOOST_INC "/opt/homebrew/opt/boost/include")
+if(NOT EXISTS "${BOOST_INC}/boost/graph/adjacency_list.hpp")
+    message(FATAL_ERROR "Boost not found at ${BOOST_INC}. Install with `brew install boost`.")
+endif()
+
+# ---------------------------------------------------------- planegcs (vendored)
+# See forge-kernel/3rdParty/planegcs/UPSTREAM.md for source + edits.
+set(PLANEGCS_DIR "${CMAKE_SOURCE_DIR}/3rdParty/planegcs")
+set(PLANEGCS_SRC
+    "${PLANEGCS_DIR}/Constraints.cpp"
+    "${PLANEGCS_DIR}/GCS.cpp"
+    "${PLANEGCS_DIR}/Geo.cpp"
+    "${PLANEGCS_DIR}/SubSystem.cpp"
+    "${PLANEGCS_DIR}/qp_eq.cpp"
+)
+
 # -------------------------------------------------------------- target
 add_library(forge_kernel SHARED
     ${CMAKE_JS_SRC}
@@ -68,6 +94,8 @@ add_library(forge_kernel SHARED
     src/ComponentRegistry.cpp
     src/AssemblySolver.cpp
     src/Drawings.cpp
+    src/Sketcher.cpp
+    ${PLANEGCS_SRC}
 )
 
 set_target_properties(forge_kernel PROPERTIES
@@ -81,6 +109,8 @@ target_include_directories(forge_kernel PRIVATE
     "${NODE_ADDON_API_DIR}"
     "${OCCT_INC}"
     "${EIGEN_INC}"
+    "${BOOST_INC}"
+    "${PLANEGCS_DIR}"
     "${CMAKE_SOURCE_DIR}/include"
 )
 

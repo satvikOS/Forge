@@ -16,6 +16,7 @@
 #include "forge/ComponentRegistry.hpp"
 #include "forge/AssemblySolver.hpp"
 #include "forge/Drawings.hpp"
+#include "forge/Sketcher.hpp"
 
 #include <Standard_Version.hxx>
 #include <cstring>
@@ -463,6 +464,122 @@ Napi::Value ProjectShape(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- sketcher
+Napi::Value SketcherCreate(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::createSketch()));
+    });
+}
+Napi::Value SketcherDestroy(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        forge::destroySketch(requireHandle(info, 0));
+        return info.Env().Undefined();
+    });
+}
+Napi::Value SketcherAddPoint(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::addPoint(
+                requireHandle(info, 0),
+                requireNumber(info, 1, "x"),
+                requireNumber(info, 2, "y"))));
+    });
+}
+Napi::Value SketcherAddLine(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::addLine(
+                requireHandle(info, 0),
+                requireHandle(info, 1),
+                requireHandle(info, 2))));
+    });
+}
+Napi::Value SketcherAddCircle(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::addCircle(
+                requireHandle(info, 0),
+                requireHandle(info, 1),
+                requireNumber(info, 2, "radius"))));
+    });
+}
+Napi::Value SketcherAddArc(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::addArc(
+                requireHandle(info, 0),
+                requireHandle(info, 1),
+                requireHandle(info, 2),
+                requireHandle(info, 3))));
+    });
+}
+Napi::Value SketcherAddConstraint(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h    = requireHandle(info, 0);
+        auto kind = static_cast<forge::SketchConstraintKind>(requireHandle(info, 1));
+        if (info.Length() < 3 || !info[2].IsArray()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge: addConstraint expects refs array at arg 2");
+        }
+        auto arr = info[2].As<Napi::Array>();
+        std::vector<std::uint32_t> refs;
+        refs.reserve(arr.Length());
+        for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+            auto v = arr.Get(i);
+            if (!v.IsNumber()) {
+                throw Napi::TypeError::New(info.Env(),
+                    "forge: addConstraint refs must be numbers");
+            }
+            refs.push_back(v.As<Napi::Number>().Uint32Value());
+        }
+        double value = (info.Length() > 3 && info[3].IsNumber())
+                       ? info[3].As<Napi::Number>().DoubleValue()
+                       : 0.0;
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::addConstraint(h, kind, refs, value)));
+    });
+}
+Napi::Value SketcherSolve(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto r = forge::solve(requireHandle(info, 0));
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("status", Napi::Number::New(env, static_cast<double>(r.status)));
+        out.Set("dof",        Napi::Number::New(env, r.dof));
+        out.Set("iterations", Napi::Number::New(env, r.iterations));
+        return out;
+    });
+}
+Napi::Value SketcherReadPoint(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h   = requireHandle(info, 0);
+        auto pid = requireHandle(info, 1);
+        auto p = forge::readPoint(h, pid);
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("x", p.x);
+        out.Set("y", p.y);
+        return out;
+    });
+}
+Napi::Value SketcherWritePoint(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        forge::writePoint(
+            requireHandle(info, 0),
+            requireHandle(info, 1),
+            requireNumber(info, 2, "x"),
+            requireNumber(info, 3, "y"));
+        return info.Env().Undefined();
+    });
+}
+Napi::Value SketcherLiveCount(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::SketchRegistry::instance().liveCount()));
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -537,6 +654,42 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("projectShape", Napi::Function::New(env, ProjectShape));
 
     exports.Set("version", Napi::Function::New(env, Version));
+
+    // -------- sketcher (parametric 2D constraint solver) ----------------
+    auto sketcher = Napi::Object::New(env);
+    sketcher.Set("createSketch",  Napi::Function::New(env, SketcherCreate));
+    sketcher.Set("destroySketch", Napi::Function::New(env, SketcherDestroy));
+    sketcher.Set("addPoint",      Napi::Function::New(env, SketcherAddPoint));
+    sketcher.Set("addLine",       Napi::Function::New(env, SketcherAddLine));
+    sketcher.Set("addCircle",     Napi::Function::New(env, SketcherAddCircle));
+    sketcher.Set("addArc",        Napi::Function::New(env, SketcherAddArc));
+    sketcher.Set("addConstraint", Napi::Function::New(env, SketcherAddConstraint));
+    sketcher.Set("solve",         Napi::Function::New(env, SketcherSolve));
+    sketcher.Set("readPoint",     Napi::Function::New(env, SketcherReadPoint));
+    sketcher.Set("writePoint",    Napi::Function::New(env, SketcherWritePoint));
+    sketcher.Set("liveCount",     Napi::Function::New(env, SketcherLiveCount));
+
+    auto sketchKinds = Napi::Object::New(env);
+    sketchKinds.Set("Coincident",    Napi::Number::New(env, 1));
+    sketchKinds.Set("Parallel",      Napi::Number::New(env, 2));
+    sketchKinds.Set("Perpendicular", Napi::Number::New(env, 3));
+    sketchKinds.Set("Distance",      Napi::Number::New(env, 4));
+    sketchKinds.Set("Horizontal",    Napi::Number::New(env, 5));
+    sketchKinds.Set("Vertical",      Napi::Number::New(env, 6));
+    sketchKinds.Set("PointOnLine",   Napi::Number::New(env, 7));
+    sketchKinds.Set("PointOnCircle", Napi::Number::New(env, 8));
+    sketchKinds.Set("Equal",         Napi::Number::New(env, 9));
+    sketchKinds.Set("Tangent",       Napi::Number::New(env, 10));
+    sketcher.Set("kinds", sketchKinds);
+
+    auto statuses = Napi::Object::New(env);
+    statuses.Set("Success",      Napi::Number::New(env, 0));
+    statuses.Set("Failed",       Napi::Number::New(env, 1));
+    statuses.Set("Inconsistent", Napi::Number::New(env, 2));
+    sketcher.Set("statuses", statuses);
+
+    exports.Set("sketcher", sketcher);
+
     return exports;
 }
 

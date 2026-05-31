@@ -86,11 +86,7 @@ const forgeApi = {
   reserveInstances:  (n)            => kernel.reserveInstances(n),
   instanceBytesUsed: ()             => kernel.instanceBytesUsed(),
 
-  // mate-constraint solver (Forge-7).
-  // The native `assembly` object groups solver entry points. The
-  // contextBridge clones it across the isolation boundary, so we
-  // explicitly wrap functions in arrows here to keep the renderer view
-  // pure-data (no native bound references travel across).
+  // mate-constraint solver (Forge-7) — `forge.assembly`.
   assembly: kernel && kernel.assembly ? {
     MateKind: kernel.assembly.MateKind,
     addMate:       (kind, ia, ta, ib, tb, value) =>
@@ -103,15 +99,27 @@ const forgeApi = {
     clear:         ()          => kernel.assembly.clear(),
   } : null,
 
-  // engineering drawings (Forge-10) — HLR projection of a 3D shape to
-  // 2D polylines. direction can be a string preset ('front'|'top'|
-  // 'right'|'iso') or a Float64Array [dx, dy, dz]. Returns:
-  //   { visible:Float32Array, visibleStarts:Uint32Array, visibleCount,
-  //     hidden:Float32Array,  hiddenStarts:Uint32Array,  hiddenCount,
-  //     outline:Float32Array, outlineStarts:Uint32Array, outlineCount,
-  //     direction:[dx,dy,dz] }
+  // engineering drawings (Forge-10) — HLR projection of a 3D shape.
+  // direction = string preset ('front'|'top'|'right'|'iso') or Float64Array [dx,dy,dz].
   drawings: kernel && kernel.drawings ? {
     projectShape: (h, direction) => kernel.drawings.projectShape(h, direction),
+  } : null,
+
+  // parametric 2D sketcher (Forge-6) — planegcs-backed.
+  sketcher: kernel && kernel.sketcher ? {
+    kinds:    Object.freeze({ ...kernel.sketcher.kinds }),
+    statuses: Object.freeze({ ...kernel.sketcher.statuses }),
+    createSketch:  ()                       => kernel.sketcher.createSketch(),
+    destroySketch: (h)                      => kernel.sketcher.destroySketch(h),
+    addPoint:      (h, x, y)                => kernel.sketcher.addPoint(h, x, y),
+    addLine:       (h, p0, p1)              => kernel.sketcher.addLine(h, p0, p1),
+    addCircle:     (h, center, radius)      => kernel.sketcher.addCircle(h, center, radius),
+    addArc:        (h, center, p0, p1)      => kernel.sketcher.addArc(h, center, p0, p1),
+    addConstraint: (h, kind, refs, value)   => kernel.sketcher.addConstraint(h, kind, refs, value ?? 0),
+    solve:         (h)                      => kernel.sketcher.solve(h),
+    readPoint:     (h, pid)                 => kernel.sketcher.readPoint(h, pid),
+    writePoint:    (h, pid, x, y)           => kernel.sketcher.writePoint(h, pid, x, y),
+    liveCount:     ()                       => kernel.sketcher.liveCount(),
   } : null,
 };
 
