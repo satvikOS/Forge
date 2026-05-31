@@ -14,6 +14,7 @@
 #include "forge/MassProps.hpp"
 #include "forge/Transform.hpp"
 #include "forge/ComponentRegistry.hpp"
+#include "forge/AssemblySolver.hpp"
 
 #include <Standard_Version.hxx>
 
@@ -288,6 +289,83 @@ Napi::Value InstanceBytesUsed(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- assembly solver
+//
+// Wraps AssemblySolver under the `forge.assembly` namespace. The kind code
+// is the integer value of MateKind; topo ids are the schematic 0..3
+// described in AssemblySolver.hpp. `value` is optional for kinds that
+// don't use it (defaults to 0).
+Napi::Value AddMate(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto kind = static_cast<MateKind>(requireHandle(info, 0));
+        MateRef a{static_cast<InstanceId>(requireHandle(info, 1)),
+                  static_cast<std::uint32_t>(requireHandle(info, 2))};
+        MateRef b{static_cast<InstanceId>(requireHandle(info, 3)),
+                  static_cast<std::uint32_t>(requireHandle(info, 4))};
+        const double value = info.Length() > 5 && info[5].IsNumber()
+            ? info[5].As<Napi::Number>().DoubleValue() : 0.0;
+        const auto id = AssemblySolver::instance().addMate(kind, a, b, value);
+        return Napi::Number::New(info.Env(), id);
+    });
+}
+
+Napi::Value RemoveMate(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        AssemblySolver::instance().removeMate(requireHandle(info, 0));
+        return info.Env().Undefined();
+    });
+}
+
+Napi::Value SetMateActive(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto id = requireHandle(info, 0);
+        if (info.Length() < 2 || !info[1].IsBoolean()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.assembly.setMateActive: expected (id, bool)");
+        }
+        AssemblySolver::instance().setActive(id, info[1].As<Napi::Boolean>().Value());
+        return info.Env().Undefined();
+    });
+}
+
+Napi::Value SetFixed(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto id = requireHandle(info, 0);
+        if (info.Length() < 2 || !info[1].IsBoolean()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.assembly.setFixed: expected (instanceId, bool)");
+        }
+        AssemblySolver::instance().setFixed(id, info[1].As<Napi::Boolean>().Value());
+        return info.Env().Undefined();
+    });
+}
+
+Napi::Value SolveAssembly(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto rep = AssemblySolver::instance().solve();
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("converged",  Napi::Boolean::New(env, rep.converged));
+        out.Set("iterations", Napi::Number::New(env, rep.iterations));
+        out.Set("residual",   Napi::Number::New(env, rep.residual));
+        return out;
+    });
+}
+
+Napi::Value MateCount(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(AssemblySolver::instance().mateCount()));
+    });
+}
+
+Napi::Value ClearMates(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        AssemblySolver::instance().clearAll();
+        return info.Env().Undefined();
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -332,6 +410,28 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("instanceExists",   Napi::Function::New(env, InstanceExists));
     exports.Set("reserveInstances", Napi::Function::New(env, ReserveInstances));
     exports.Set("instanceBytesUsed",Napi::Function::New(env, InstanceBytesUsed));
+
+    // ---- assembly solver — wrapped under "assembly" namespace object.
+    auto assembly = Napi::Object::New(env);
+    assembly.Set("addMate",       Napi::Function::New(env, AddMate));
+    assembly.Set("removeMate",    Napi::Function::New(env, RemoveMate));
+    assembly.Set("setMateActive", Napi::Function::New(env, SetMateActive));
+    assembly.Set("setFixed",      Napi::Function::New(env, SetFixed));
+    assembly.Set("solve",         Napi::Function::New(env, SolveAssembly));
+    assembly.Set("mateCount",     Napi::Function::New(env, MateCount));
+    assembly.Set("clear",         Napi::Function::New(env, ClearMates));
+    // Mate-kind integer codes (must mirror MateKind in AssemblySolver.hpp).
+    auto kinds = Napi::Object::New(env);
+    kinds.Set("Coincident",    Napi::Number::New(env, 0));
+    kinds.Set("Concentric",    Napi::Number::New(env, 1));
+    kinds.Set("Parallel",      Napi::Number::New(env, 2));
+    kinds.Set("Perpendicular", Napi::Number::New(env, 3));
+    kinds.Set("Distance",      Napi::Number::New(env, 4));
+    kinds.Set("Angle",         Napi::Number::New(env, 5));
+    kinds.Set("Tangent",       Napi::Number::New(env, 6));
+    kinds.Set("Fixed",         Napi::Number::New(env, 7));
+    assembly.Set("MateKind", kinds);
+    exports.Set("assembly", assembly);
 
     exports.Set("version", Napi::Function::New(env, Version));
     return exports;

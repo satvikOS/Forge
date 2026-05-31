@@ -85,6 +85,23 @@ const forgeApi = {
   instanceExists:    (id)           => kernel.instanceExists(id),
   reserveInstances:  (n)            => kernel.reserveInstances(n),
   instanceBytesUsed: ()             => kernel.instanceBytesUsed(),
+
+  // mate-constraint solver (Forge-7).
+  // The native `assembly` object groups solver entry points. The
+  // contextBridge clones it across the isolation boundary, so we
+  // explicitly wrap functions in arrows here to keep the renderer view
+  // pure-data (no native bound references travel across).
+  assembly: kernel && kernel.assembly ? {
+    MateKind: kernel.assembly.MateKind,
+    addMate:       (kind, ia, ta, ib, tb, value) =>
+      kernel.assembly.addMate(kind, ia, ta, ib, tb, value),
+    removeMate:    (id)        => kernel.assembly.removeMate(id),
+    setMateActive: (id, on)    => kernel.assembly.setMateActive(id, on),
+    setFixed:      (inst, on)  => kernel.assembly.setFixed(inst, on),
+    solve:         ()          => kernel.assembly.solve(),
+    mateCount:     ()          => kernel.assembly.mateCount(),
+    clear:         ()          => kernel.assembly.clear(),
+  } : null,
 };
 
 if (kernel) {

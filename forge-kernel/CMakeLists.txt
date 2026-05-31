@@ -33,6 +33,13 @@ endif()
 set(OCCT_INC "${OCCT_ROOT}/include/opencascade")
 set(OCCT_LIB "${OCCT_ROOT}/lib")
 
+# ---------------------------------------------------------------- Eigen
+# Header-only template library; brew-installed.
+set(EIGEN_INC "/opt/homebrew/opt/eigen/include/eigen3")
+if(NOT EXISTS "${EIGEN_INC}/Eigen/Dense")
+    message(FATAL_ERROR "Eigen not found at ${EIGEN_INC}. Install with `brew install eigen`.")
+endif()
+
 # OCCT 7.9 reorganises the Data Exchange toolkits: TKSTEP / TKSTEPBase /
 # TKSTEPAttr / TKSTEP209 / TKSTEP214 are merged into TKDESTEP, TKSTL → TKDESTL,
 # TKVRML → TKDEVRML, TKIGES → TKDEIGES, plus new TKDEGLTF / TKDEOBJ / TKDEPLY.
@@ -59,6 +66,7 @@ add_library(forge_kernel SHARED
     src/MassProps.cpp
     src/Transform.cpp
     src/ComponentRegistry.cpp
+    src/AssemblySolver.cpp
 )
 
 set_target_properties(forge_kernel PROPERTIES
@@ -71,6 +79,7 @@ target_include_directories(forge_kernel PRIVATE
     ${CMAKE_JS_INC}
     "${NODE_ADDON_API_DIR}"
     "${OCCT_INC}"
+    "${EIGEN_INC}"
     "${CMAKE_SOURCE_DIR}/include"
 )
 
