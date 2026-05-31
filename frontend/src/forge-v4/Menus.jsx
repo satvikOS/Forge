@@ -82,6 +82,7 @@ export const MENU_SPEC = {
       { id: 'tools.shortcuts', label: 'Customize Shortcuts…', icon: 'misc.kbd' },
       { id: 'tools.search',    label: 'Command Search…',    icon: 'misc.search',   shortcut: '⌘K' },
       SEP,
+      { id: 'tools.library',   label: 'Standard Parts Library…', icon: 'misc.search' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
       { id: 'tools.interfere', label: 'Interference check', icon: 'measure.interfere' },
     ],

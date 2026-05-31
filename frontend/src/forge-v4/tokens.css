@@ -585,6 +585,126 @@ html, body, #root {
   background: var(--forge-err); color: #fff; border-color: var(--forge-err);
 }
 
+/* ============ Rollback timeline ============ */
+.forge-rollback {
+  position: absolute;
+  top: calc(var(--forge-topbar-h) + var(--forge-qat-h) + var(--forge-toolbar-h) + 12px);
+  right: calc(var(--forge-right-w) + 8px);
+  z-index: 5;
+}
+.forge-rollback-track {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  background: rgba(0,0,0,0.40);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius);
+  padding: 6px;
+  min-width: 200px;
+  position: relative;
+}
+.forge-rollback-card {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: 3px;
+  background: var(--forge-surface);
+  color: var(--forge-ink);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), border-color var(--forge-motion-fast);
+}
+.forge-rollback-card[data-active="true"] {
+  background: var(--forge-accent-mute);
+  border-color: var(--forge-accent);
+}
+.forge-rollback-card[data-suppressed="true"] {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.forge-rollback-card-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============ Standard Parts Library ============ */
+.forge-library {
+  position: fixed;
+  top: calc(var(--forge-topbar-h) + var(--forge-qat-h) + var(--forge-toolbar-h) + 8px);
+  left: calc(var(--forge-wb-rail-w) + 8px);
+  width: 280px;
+  max-height: calc(100vh - var(--forge-topbar-h) - var(--forge-qat-h) - var(--forge-toolbar-h) - var(--forge-statusbar-h) - var(--forge-cmdbar-h) - 24px);
+  background: var(--forge-canvas-3);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius-lg);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+  display: flex; flex-direction: column;
+  z-index: 700;
+}
+.forge-library-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--forge-rail-edge);
+  background: var(--forge-canvas);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--forge-radius-lg) var(--forge-radius-lg) 0 0;
+}
+.forge-library-search {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--forge-rail-edge);
+  color: var(--forge-ink-mute);
+}
+.forge-library-search input {
+  flex: 1;
+  background: transparent; border: none;
+  color: var(--forge-ink); font: inherit; font-size: 12px;
+  outline: none;
+}
+.forge-library-cats {
+  display: flex; flex-direction: column;
+  border-bottom: 1px solid var(--forge-rail-edge);
+  max-height: 140px;
+  overflow-y: auto;
+}
+.forge-library-cat {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  background: transparent; border: none;
+  color: var(--forge-ink-2);
+  font: inherit; font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-library-cat:hover { background: var(--forge-surface); }
+.forge-library-cat[data-active="true"] {
+  background: var(--forge-accent-mute);
+  color: var(--forge-ink);
+}
+.forge-library-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.forge-library-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px;
+  background: transparent; border: 1px solid transparent; border-radius: 3px;
+  color: var(--forge-ink);
+  font: inherit; font-size: 11px;
+  cursor: grab;
+  text-align: left;
+}
+.forge-library-item:hover {
+  background: var(--forge-surface);
+  border-color: var(--forge-rail-edge);
+}
+
 /* ============ Right panel ============ */
 .forge-right {
   background: var(--forge-canvas-2);
