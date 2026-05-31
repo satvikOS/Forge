@@ -1,255 +1,41 @@
-/* ========== ArchDisc - Unified Design Tokens ========== */
+/* Forge — minimal global reset. Per-component tokens live in
+ * frontend/src/forge-app/v3/tokens.css. */
 
 * {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
 }
 
-:root {
-  /* ========== ArchDisc Mech — OLED-black monotone theme ==========
-     Per user 2026-05-27: "entire ui should be monotone oled black with
-     matte black accent". All accents → matte black (monochrome).
-     Status colours → grayscale variants (no red/green/orange/blue).
-     Text → grayscale (white/light grey only). */
-
-  /* Backgrounds — pure OLED black scale */
-  --bg-primary:    #000000;
-  --bg-secondary:  #050505;
-  --bg-tertiary:   #0a0a0a;
-  --bg-elevated:   #0e0e0e;
-  --bg-hover:      #161616;
-  --bg-active:     #1c1c1c;
-  --bg-surface:    #060606;
-
-  /* Accent — matte black (was burgundy). Hover/border are slightly
-     lighter blacks for depth without colour. */
-  --accent-primary:        #1d1d1d;
-  --accent-hover:          #262626;
-  --accent-primary-muted:  rgba(255, 255, 255, 0.06);
-  --accent-primary-border: rgba(255, 255, 255, 0.12);
-
-  /* Accent — matte black variant (was orange). */
-  --accent-orange:         #1a1a1a;
-  --accent-orange-hover:   #232323;
-  --accent-orange-dark:    #101010;
-  --accent-orange-muted:   rgba(255, 255, 255, 0.05);
-  --accent-orange-border:  rgba(255, 255, 255, 0.1);
-
-  /* Accent — matte black variant (was blue). */
-  --accent-blue:           #1a1a1a;
-  --accent-blue-muted:     rgba(255, 255, 255, 0.05);
-  --accent-blue-border:    rgba(255, 255, 255, 0.1);
-
-  /* Semantic — monochrome grayscale (status read by brightness, not hue). */
-  --color-success:         #d8d8d8;
-  --color-success-muted:   rgba(255, 255, 255, 0.08);
-  --color-error:           #ffffff;
-  --color-error-muted:     rgba(255, 255, 255, 0.12);
-  --color-warning:         #b8b8b8;
-  --color-warning-muted:   rgba(255, 255, 255, 0.07);
-  --color-info:            #a0a0a0;
-
-  /* Text — monochrome */
-  --text-primary:  #e6e6e6;
-  --text-secondary:#9a9a9a;
-  --text-muted:    #5a5a5a;
-  --text-disabled: #2a2a2a;
-  --text-inverse:  #ffffff;
-
-  /* Borders — matte blacks */
-  --border-color:   #1a1a1a;
-  --border-light:   #232323;
-  --border-subtle:  #0e0e0e;
-  --border-focus:   #2a2a2a;
-
-  /* ---- Spacing ---- */
-  --gap-1: 1px;
-  --gap-2: 2px;
-  --gap-4: 4px;
-  --gap-6: 6px;
-  --gap-8: 8px;
-  --gap-12: 12px;
-  --gap-16: 16px;
-
-  /* ---- Radius ---- */
-  --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-pill: 100px;
-
-  /* ---- Shadows ---- */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.7);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.85);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.95);
-  --shadow-glow-accent: 0 0 0 1px rgba(255, 255, 255, 0.10);
-  --shadow-glow-blue:   0 0 0 1px rgba(255, 255, 255, 0.10);
-
-  /* ---- Transitions ---- */
-  --transition-fast: 0.1s ease;
-  --transition-normal: 0.2s ease;
-  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* ---- Layout Dimensions ---- */
-  --toolbar-width: 48px;
-  --header-height: 40px;
-  --properties-width: 280px;
-  --footer-height: 60px;
-  --status-bar-height: 28px;
-
-  /* ---- Typography ---- */
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-/* ========== Body ========== */
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  background: #0e1014;
+  color: #e8eaef;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  min-height: 100vh;
-  font-size: 12px;
+  letter-spacing: 0.01em;
+  overflow: hidden;
 }
 
-#root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ========== Selection ========== */
-::selection {
-  background: var(--accent-primary-muted);
-  color: var(--text-primary);
-}
-
-::-moz-selection {
-  background: var(--accent-primary-muted);
-  color: var(--text-primary);
-}
-
-/* ========== Scrollbar ========== */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-pill);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-/* Firefox scrollbar */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
-}
-
-/* ========== Code ========== */
-code, pre, .monospace {
-  font-family: 'IBM Plex Mono', 'SF Mono', Monaco, Consolas, 'Courier New', monospace;
-}
-
-/* ========== Loading Spinner ========== */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.spinner {
-  border: 2px solid var(--bg-tertiary);
-  border-top: 2px solid var(--accent-orange);
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  animation: spin 0.8s linear infinite;
-}
-
-/* ========== Global Button Styles ========== */
 button {
-  font-family: inherit;
-  cursor: pointer;
-  /* Use only GPU-composited properties for transitions to avoid layout thrash */
-  transition: background 0.08s ease, color 0.08s ease, border-color 0.08s ease;
-  will-change: auto;
+  font: inherit;
+  color: inherit;
 }
 
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+input, textarea {
+  font: inherit;
+  color: inherit;
 }
 
-button:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 1px;
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 4px;
 }
-
-/* ========== Global Input Styles ========== */
-input, select, textarea {
-  font-family: inherit;
-  transition: border-color 0.1s ease, box-shadow 0.1s ease;
-}
-
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: none;
-  border-color: var(--accent-primary) !important;
-  box-shadow: var(--shadow-glow-accent);
-}
-
-/* Hide number input spinners for cleaner look */
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  opacity: 0;
-  height: 0;
-}
-
-input[type="number"]:hover::-webkit-inner-spin-button,
-input[type="number"]:hover::-webkit-outer-spin-button {
-  opacity: 1;
-  height: auto;
-}
-
-/* ========== Utility Animations ========== */
-@keyframes dropdown-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
-}
-
-@keyframes subtle-glow {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-primary-muted); }
-  50% { box-shadow: 0 0 8px 2px var(--accent-primary-muted); }
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2);
 }
