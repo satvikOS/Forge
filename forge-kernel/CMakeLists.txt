@@ -101,6 +101,8 @@ add_library(forge_kernel SHARED
     src/Cam.cpp
     src/GcodePost.cpp
     src/IoExchange.cpp
+    src/DirectModeling.cpp
+    src/Healing.cpp
     ${PLANEGCS_SRC}
 )
 

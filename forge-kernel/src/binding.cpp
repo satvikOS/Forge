@@ -22,6 +22,8 @@
 #include "forge/GcodePost.hpp"
 #include "forge/Cfd.hpp"
 #include "forge/IoExchange.hpp"
+#include "forge/DirectModeling.hpp"
+#include "forge/Healing.hpp"
 
 #include <Standard_Version.hxx>
 #include <cstring>
@@ -1406,6 +1408,280 @@ Napi::Value IoExportStl(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- direct modeling (Forge-23)
+//
+// JS surface — under `forge.direct`:
+//   pushPullFace(handle, faceId, distance) → newHandle
+//   moveFace(handle, faceId, [tx,ty,tz])    → newHandle
+//   rotateFace(handle, faceId, [ox,oy,oz], [dx,dy,dz], angleRad) → newHandle
+//   deleteFaceAndHeal(handle, [faceId, …])  → newHandle
+//   replaceFace(handle, faceId, {kind, origin:[3], normal:[3], radius}) → newHandle
+//   inferFeature(handle, faceId) → { kind, label, normal:[3], centroid:[3], area, radius }
+//   faceCount(handle) → number
+namespace direct_bind {
+
+std::array<double, 3> readVec3(Napi::Env env, const Napi::Value& v, const char* what) {
+    if (!v.IsArray()) {
+        if (v.IsTypedArray()) {
+            auto ta = v.As<Napi::Float64Array>();
+            if (ta.ElementLength() != 3) {
+                throw Napi::TypeError::New(env,
+                    std::string("forge.direct: ") + what + " must be length 3");
+            }
+            return { ta.Data()[0], ta.Data()[1], ta.Data()[2] };
+        }
+        throw Napi::TypeError::New(env,
+            std::string("forge.direct: expected array[3] for ") + what);
+    }
+    auto a = v.As<Napi::Array>();
+    if (a.Length() != 3) {
+        throw Napi::TypeError::New(env,
+            std::string("forge.direct: ") + what + " must be length 3");
+    }
+    return { a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue(),
+             a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue(),
+             a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue() };
+}
+
+Napi::Array vec3ToArr(Napi::Env env, const std::array<double, 3>& v) {
+    auto a = Napi::Array::New(env, 3);
+    a.Set(uint32_t{0}, v[0]);
+    a.Set(uint32_t{1}, v[1]);
+    a.Set(uint32_t{2}, v[2]);
+    return a;
+}
+
+const char* featureKindName(forge::direct::FeatureKind k) {
+    switch (k) {
+        case forge::direct::FeatureKind::Boss:    return "boss";
+        case forge::direct::FeatureKind::Hole:    return "hole";
+        case forge::direct::FeatureKind::Fillet:  return "fillet";
+        case forge::direct::FeatureKind::Blend:   return "blend";
+        case forge::direct::FeatureKind::Chamfer: return "chamfer";
+        case forge::direct::FeatureKind::Unknown:
+        default:                                  return "unknown";
+    }
+}
+} // namespace direct_bind
+
+Napi::Value DirectPushPullFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h     = requireHandle(info, 0);
+        const auto faceId = requireHandle(info, 1);
+        const double d   = requireNumber(info, 2, "distance");
+        return Napi::Number::New(info.Env(),
+            forge::direct::pushPullFace(h, faceId, d));
+    });
+}
+
+Napi::Value DirectMoveFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h     = requireHandle(info, 0);
+        const auto faceId = requireHandle(info, 1);
+        auto t = direct_bind::readVec3(info.Env(), info[2], "translation");
+        return Napi::Number::New(info.Env(),
+            forge::direct::moveFace(h, faceId, t));
+    });
+}
+
+Napi::Value DirectRotateFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h     = requireHandle(info, 0);
+        const auto faceId = requireHandle(info, 1);
+        auto o = direct_bind::readVec3(info.Env(), info[2], "axisOrigin");
+        auto d = direct_bind::readVec3(info.Env(), info[3], "axisDir");
+        const double ang = requireNumber(info, 4, "angleRad");
+        return Napi::Number::New(info.Env(),
+            forge::direct::rotateFace(h, faceId, o, d, ang));
+    });
+}
+
+Napi::Value DirectDeleteFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h = requireHandle(info, 0);
+        if (!info[1].IsArray()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.direct.deleteFaceAndHeal: expected array of face ids");
+        }
+        auto arr = info[1].As<Napi::Array>();
+        std::vector<forge::direct::FaceId> ids;
+        ids.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            ids.push_back(arr.Get(i).As<Napi::Number>().Uint32Value());
+        }
+        return Napi::Number::New(info.Env(),
+            forge::direct::deleteFaceAndHeal(h, ids));
+    });
+}
+
+Napi::Value DirectReplaceFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h     = requireHandle(info, 0);
+        const auto faceId = requireHandle(info, 1);
+        if (!info[2].IsObject()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.direct.replaceFace: expected SurfaceSpec object");
+        }
+        auto spec = info[2].As<Napi::Object>();
+        forge::direct::SurfaceSpec s{};
+        if (spec.Has("kind")) {
+            std::string k = spec.Get("kind").As<Napi::String>();
+            if      (k == "plane")    s.kind = forge::direct::SurfaceSpec::Kind::Plane;
+            else if (k == "cylinder") s.kind = forge::direct::SurfaceSpec::Kind::Cylinder;
+            else if (k == "sphere")   s.kind = forge::direct::SurfaceSpec::Kind::Sphere;
+            else throw Napi::TypeError::New(info.Env(),
+                "forge.direct.replaceFace: kind must be plane/cylinder/sphere");
+        }
+        if (spec.Has("origin")) s.origin = direct_bind::readVec3(info.Env(), spec.Get("origin"), "origin");
+        if (spec.Has("normal")) s.normal = direct_bind::readVec3(info.Env(), spec.Get("normal"), "normal");
+        if (spec.Has("radius")) s.radius = spec.Get("radius").As<Napi::Number>().DoubleValue();
+        return Napi::Number::New(info.Env(),
+            forge::direct::replaceFace(h, faceId, s));
+    });
+}
+
+Napi::Value DirectInferFeature(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const auto h     = requireHandle(info, 0);
+        const auto faceId = requireHandle(info, 1);
+        const auto fi = forge::direct::inferFeature(h, faceId);
+        auto out = Napi::Object::New(env);
+        out.Set("kind",     Napi::String::New(env, direct_bind::featureKindName(fi.kind)));
+        out.Set("label",    Napi::String::New(env, fi.label));
+        out.Set("normal",   direct_bind::vec3ToArr(env, fi.normal));
+        out.Set("centroid", direct_bind::vec3ToArr(env, fi.centroid));
+        out.Set("area",     Napi::Number::New(env, fi.area));
+        out.Set("radius",   Napi::Number::New(env, fi.radius));
+        return out;
+    });
+}
+
+Napi::Value DirectFaceCount(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::direct::faceCount(requireHandle(info, 0))));
+    });
+}
+
+// ----------------------------------------------------------- healing (Forge-23)
+namespace heal_bind {
+Napi::Object sewReportToJs(Napi::Env env, const forge::heal::SewReport& r) {
+    auto o = Napi::Object::New(env);
+    o.Set("closedBefore",    Napi::Boolean::New(env, r.closedBefore));
+    o.Set("closedAfter",     Napi::Boolean::New(env, r.closedAfter));
+    o.Set("facesBefore",     Napi::Number::New(env, static_cast<double>(r.facesBefore)));
+    o.Set("facesAfter",      Napi::Number::New(env, static_cast<double>(r.facesAfter)));
+    o.Set("openEdgesBefore", Napi::Number::New(env, static_cast<double>(r.openEdgesBefore)));
+    o.Set("openEdgesAfter",  Napi::Number::New(env, static_cast<double>(r.openEdgesAfter)));
+    return o;
+}
+} // namespace heal_bind
+
+Napi::Value HealSew(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h = requireHandle(info, 0);
+        const double tol = info.Length() > 1 && info[1].IsNumber()
+            ? info[1].As<Napi::Number>().DoubleValue() : 1e-3;
+        auto env = info.Env();
+        auto r = forge::heal::sewShape(h, tol);
+        auto out = Napi::Object::New(env);
+        out.Set("handle", Napi::Number::New(env, r.handle));
+        out.Set("report", heal_bind::sewReportToJs(env, r.report));
+        return out;
+    });
+}
+
+Napi::Value HealSimplify(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h = requireHandle(info, 0);
+        forge::heal::SimplifyOptions opts{};
+        if (info.Length() > 1 && info[1].IsObject()) {
+            auto o = info[1].As<Napi::Object>();
+            if (o.Has("unifyFaces"))     opts.unifyFaces = o.Get("unifyFaces").As<Napi::Boolean>().Value();
+            if (o.Has("unifyEdges"))     opts.unifyEdges = o.Get("unifyEdges").As<Napi::Boolean>().Value();
+            if (o.Has("concatBSplines")) opts.concatBSplines = o.Get("concatBSplines").As<Napi::Boolean>().Value();
+            if (o.Has("angularTol"))     opts.angularTol = o.Get("angularTol").As<Napi::Number>().DoubleValue();
+        }
+        auto env = info.Env();
+        auto r = forge::heal::simplifyShape(h, opts);
+        auto out = Napi::Object::New(env);
+        out.Set("handle",      Napi::Number::New(env, r.handle));
+        out.Set("facesBefore", Napi::Number::New(env, static_cast<double>(r.facesBefore)));
+        out.Set("facesAfter",  Napi::Number::New(env, static_cast<double>(r.facesAfter)));
+        out.Set("edgesBefore", Napi::Number::New(env, static_cast<double>(r.edgesBefore)));
+        out.Set("edgesAfter",  Napi::Number::New(env, static_cast<double>(r.edgesAfter)));
+        return out;
+    });
+}
+
+Napi::Value HealAutoFill(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h = requireHandle(info, 0);
+        const double tol = info.Length() > 1 && info[1].IsNumber()
+            ? info[1].As<Napi::Number>().DoubleValue() : 1e-3;
+        auto env = info.Env();
+        auto r = forge::heal::autoFillMissingFaces(h, tol);
+        auto out = Napi::Object::New(env);
+        out.Set("handle", Napi::Number::New(env, r.handle));
+        auto rep = Napi::Object::New(env);
+        rep.Set("facesAdded",      Napi::Number::New(env, static_cast<double>(r.report.facesAdded)));
+        rep.Set("closedAfter",     Napi::Boolean::New(env, r.report.closedAfter));
+        rep.Set("openEdgesBefore", Napi::Number::New(env, static_cast<double>(r.report.openEdgesBefore)));
+        rep.Set("openEdgesAfter",  Napi::Number::New(env, static_cast<double>(r.report.openEdgesAfter)));
+        out.Set("report", rep);
+        return out;
+    });
+}
+
+Napi::Value HealAutoRepair(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto h = requireHandle(info, 0);
+        const double tol = info.Length() > 1 && info[1].IsNumber()
+            ? info[1].As<Napi::Number>().DoubleValue() : 1e-3;
+        auto env = info.Env();
+        auto r = forge::heal::autoRepairSelfIntersection(h, tol);
+        auto out = Napi::Object::New(env);
+        out.Set("handle", Napi::Number::New(env, r.handle));
+        auto rep = Napi::Object::New(env);
+        rep.Set("fixedTolerance",        Napi::Boolean::New(env, r.report.fixedTolerance));
+        rep.Set("fixedSelfIntersection", Napi::Boolean::New(env, r.report.fixedSelfIntersection));
+        rep.Set("fixedSmallFaces",       Napi::Boolean::New(env, r.report.fixedSmallFaces));
+        rep.Set("fixedOrientation",      Napi::Boolean::New(env, r.report.fixedOrientation));
+        rep.Set("fixedWires",            Napi::Boolean::New(env, r.report.fixedWires));
+        rep.Set("fixersFired",           Napi::Number::New(env, static_cast<double>(r.report.fixersFired)));
+        out.Set("report", rep);
+        return out;
+    });
+}
+
+Napi::Value HealHarmonizeNormals(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::heal::harmonizeNormals(requireHandle(info, 0)));
+    });
+}
+
+Napi::Value HealCheckValidity(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto r = forge::heal::checkValidity(requireHandle(info, 0));
+        auto out = Napi::Object::New(env);
+        out.Set("isClosed",           Napi::Boolean::New(env, r.isClosed));
+        out.Set("isManifold",         Napi::Boolean::New(env, r.isManifold));
+        out.Set("isOriented",         Napi::Boolean::New(env, r.isOriented));
+        out.Set("hasSelfIntersect",   Napi::Boolean::New(env, r.hasSelfIntersect));
+        out.Set("hasNonManifoldEdge", Napi::Boolean::New(env, r.hasNonManifoldEdge));
+        auto bf = Napi::Uint32Array::New(env, r.badFaces.size());
+        std::copy(r.badFaces.begin(), r.badFaces.end(), bf.Data());
+        out.Set("badFaces", bf);
+        auto be = Napi::Uint32Array::New(env, r.badEdges.size());
+        std::copy(r.badEdges.begin(), r.badEdges.end(), be.Data());
+        out.Set("badEdges", be);
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -1572,6 +1848,27 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     io.Set("importStl",  Napi::Function::New(env, IoImportStl));
     io.Set("exportStl",  Napi::Function::New(env, IoExportStl));
     exports.Set("io", io);
+
+    // -------- Direct modeling (Forge-23) — push/pull/move/delete face ---
+    auto direct = Napi::Object::New(env);
+    direct.Set("pushPullFace",      Napi::Function::New(env, DirectPushPullFace));
+    direct.Set("moveFace",          Napi::Function::New(env, DirectMoveFace));
+    direct.Set("rotateFace",        Napi::Function::New(env, DirectRotateFace));
+    direct.Set("deleteFaceAndHeal", Napi::Function::New(env, DirectDeleteFace));
+    direct.Set("replaceFace",       Napi::Function::New(env, DirectReplaceFace));
+    direct.Set("inferFeature",      Napi::Function::New(env, DirectInferFeature));
+    direct.Set("faceCount",         Napi::Function::New(env, DirectFaceCount));
+    exports.Set("direct", direct);
+
+    // -------- Healing (Forge-23) — sew / fill / validity ---------------
+    auto healing = Napi::Object::New(env);
+    healing.Set("sewShape",                    Napi::Function::New(env, HealSew));
+    healing.Set("simplifyShape",               Napi::Function::New(env, HealSimplify));
+    healing.Set("autoFillMissingFaces",        Napi::Function::New(env, HealAutoFill));
+    healing.Set("autoRepairSelfIntersection",  Napi::Function::New(env, HealAutoRepair));
+    healing.Set("harmonizeNormals",            Napi::Function::New(env, HealHarmonizeNormals));
+    healing.Set("checkValidity",               Napi::Function::New(env, HealCheckValidity));
+    exports.Set("heal", healing);
 
     return exports;
 }

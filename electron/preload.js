@@ -188,6 +188,30 @@ const forgeApi = {
     importStl:  (filepath)                     => kernel.io.importStl(filepath),
     exportStl:  (handle, filepath, lt, at, asc) => kernel.io.exportStl(handle, filepath, lt ?? 0.1, at ?? 0.5, !!asc),
   } : null,
+
+  // direct modeling (Forge-23) — synchronous-technology face editing.
+  // Every operation returns a new handle; the caller owns its lifecycle.
+  // Face ids are 1-based into the BREP face table (TopExp::MapShapes order).
+  direct: kernel && kernel.direct ? {
+    pushPullFace:      (h, faceId, distance)            => kernel.direct.pushPullFace(h, faceId, distance),
+    moveFace:          (h, faceId, translation)         => kernel.direct.moveFace(h, faceId, translation),
+    rotateFace:        (h, faceId, axisOrigin, axisDir, angleRad) =>
+      kernel.direct.rotateFace(h, faceId, axisOrigin, axisDir, angleRad),
+    deleteFaceAndHeal: (h, faceIds)                     => kernel.direct.deleteFaceAndHeal(h, faceIds),
+    replaceFace:       (h, faceId, spec)                => kernel.direct.replaceFace(h, faceId, spec),
+    inferFeature:      (h, faceId)                      => kernel.direct.inferFeature(h, faceId),
+    faceCount:         (h)                              => kernel.direct.faceCount(h),
+  } : null,
+
+  // healing (Forge-23) — sew open shells, fill holes, simplify, repair, validate.
+  heal: kernel && kernel.heal ? {
+    sewShape:                   (h, tol)        => kernel.heal.sewShape(h, tol ?? 1e-3),
+    simplifyShape:              (h, opts)       => kernel.heal.simplifyShape(h, opts ?? {}),
+    autoFillMissingFaces:       (h, tol)        => kernel.heal.autoFillMissingFaces(h, tol ?? 1e-3),
+    autoRepairSelfIntersection: (h, tol)        => kernel.heal.autoRepairSelfIntersection(h, tol ?? 1e-3),
+    harmonizeNormals:           (h)             => kernel.heal.harmonizeNormals(h),
+    checkValidity:              (h)             => kernel.heal.checkValidity(h),
+  } : null,
 };
 
 if (kernel) {
