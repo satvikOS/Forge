@@ -58,6 +58,7 @@ add_library(forge_kernel SHARED
     src/Tessellate.cpp
     src/MassProps.cpp
     src/Transform.cpp
+    src/ComponentRegistry.cpp
 )
 
 set_target_properties(forge_kernel PROPERTIES

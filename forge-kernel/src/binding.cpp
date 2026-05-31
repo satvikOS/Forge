@@ -13,6 +13,7 @@
 #include "forge/Tessellate.hpp"
 #include "forge/MassProps.hpp"
 #include "forge/Transform.hpp"
+#include "forge/ComponentRegistry.hpp"
 
 #include <Standard_Version.hxx>
 
@@ -20,128 +21,283 @@ using namespace forge;
 
 namespace {
 
+// safe() wraps a binding body so that std::exceptions from the C++
+// kernel surface as JS Errors instead of crashing the V8 isolate.
+// NAPI_CPP_EXCEPTIONS only converts Napi::Error; anything else (e.g.
+// std::invalid_argument from ShapeRegistry::get on a stale handle)
+// would otherwise abort the process.
+template <typename Fn>
+Napi::Value safe(const Napi::CallbackInfo& info, Fn&& fn) {
+    try {
+        return fn();
+    } catch (const Napi::Error&) {
+        throw;
+    } catch (const std::exception& e) {
+        throw Napi::Error::New(info.Env(), e.what());
+    } catch (...) {
+        throw Napi::Error::New(info.Env(), "forge: unknown native exception");
+    }
+}
+
 uint32_t requireHandle(const Napi::CallbackInfo& info, std::size_t idx) {
     if (info.Length() <= idx || !info[idx].IsNumber()) {
-        throw Napi::TypeError::New(info.Env(), "forge: expected handle (uint32) at arg " + std::to_string(idx));
+        throw Napi::TypeError::New(info.Env(),
+            "forge: expected handle (uint32) at arg " + std::to_string(idx));
     }
     return info[idx].As<Napi::Number>().Uint32Value();
 }
 
 double requireNumber(const Napi::CallbackInfo& info, std::size_t idx, const char* what) {
     if (info.Length() <= idx || !info[idx].IsNumber()) {
-        throw Napi::TypeError::New(info.Env(), std::string("forge: expected number for ") + what);
+        throw Napi::TypeError::New(info.Env(),
+            std::string("forge: expected number for ") + what);
     }
     return info[idx].As<Napi::Number>().DoubleValue();
 }
 
+Transform4x4 readTransform(const Napi::CallbackInfo& info, std::size_t idx) {
+    if (info.Length() <= idx || !info[idx].IsTypedArray()) {
+        throw Napi::TypeError::New(info.Env(),
+            "forge: transform must be a Float64Array of 16 row-major doubles");
+    }
+    auto arr = info[idx].As<Napi::Float64Array>();
+    if (arr.ElementLength() != 16) {
+        throw Napi::TypeError::New(info.Env(), "forge: transform must have 16 elements");
+    }
+    Transform4x4 t;
+    std::copy(arr.Data(), arr.Data() + 16, t.m.begin());
+    return t;
+}
+
+AABB readAABB(const Napi::CallbackInfo& info, std::size_t idx) {
+    if (info.Length() <= idx || !info[idx].IsTypedArray()) {
+        throw Napi::TypeError::New(info.Env(),
+            "forge: AABB must be a Float64Array [minX,minY,minZ,maxX,maxY,maxZ]");
+    }
+    auto arr = info[idx].As<Napi::Float64Array>();
+    if (arr.ElementLength() != 6) {
+        throw Napi::TypeError::New(info.Env(), "forge: AABB must have 6 elements");
+    }
+    return AABB{
+        arr.Data()[0], arr.Data()[1], arr.Data()[2],
+        arr.Data()[3], arr.Data()[4], arr.Data()[5],
+    };
+}
+
 // ----------------------------------------------------------- primitives
 Napi::Value MakeBox(const Napi::CallbackInfo& info) {
-    auto h = makeBox(requireNumber(info,0,"dx"), requireNumber(info,1,"dy"), requireNumber(info,2,"dz"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeBox(requireNumber(info,0,"dx"), requireNumber(info,1,"dy"), requireNumber(info,2,"dz")));
+    });
 }
 Napi::Value MakeCylinder(const Napi::CallbackInfo& info) {
-    auto h = makeCylinder(requireNumber(info,0,"radius"), requireNumber(info,1,"height"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeCylinder(requireNumber(info,0,"radius"), requireNumber(info,1,"height")));
+    });
 }
 Napi::Value MakeSphere(const Napi::CallbackInfo& info) {
-    auto h = makeSphere(requireNumber(info,0,"radius"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(), makeSphere(requireNumber(info,0,"radius")));
+    });
 }
 Napi::Value MakeCone(const Napi::CallbackInfo& info) {
-    auto h = makeCone(requireNumber(info,0,"r1"), requireNumber(info,1,"r2"), requireNumber(info,2,"h"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeCone(requireNumber(info,0,"r1"), requireNumber(info,1,"r2"), requireNumber(info,2,"h")));
+    });
 }
 Napi::Value MakeTorus(const Napi::CallbackInfo& info) {
-    auto h = makeTorus(requireNumber(info,0,"majorR"), requireNumber(info,1,"minorR"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeTorus(requireNumber(info,0,"majorR"), requireNumber(info,1,"minorR")));
+    });
 }
 
 // ----------------------------------------------------------- booleans
-Napi::Value Fuse(const Napi::CallbackInfo& info)   { return Napi::Number::New(info.Env(), fuse(requireHandle(info,0), requireHandle(info,1))); }
-Napi::Value Cut(const Napi::CallbackInfo& info)    { return Napi::Number::New(info.Env(), cut(requireHandle(info,0), requireHandle(info,1))); }
-Napi::Value Common(const Napi::CallbackInfo& info) { return Napi::Number::New(info.Env(), common(requireHandle(info,0), requireHandle(info,1))); }
+Napi::Value Fuse(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(), fuse(requireHandle(info,0), requireHandle(info,1)));
+    });
+}
+Napi::Value Cut(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(), cut(requireHandle(info,0), requireHandle(info,1)));
+    });
+}
+Napi::Value Common(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(), common(requireHandle(info,0), requireHandle(info,1)));
+    });
+}
 
 // ----------------------------------------------------------- transform
 Napi::Value Translate(const Napi::CallbackInfo& info) {
-    auto h = translate(requireHandle(info,0),
-                       requireNumber(info,1,"dx"),
-                       requireNumber(info,2,"dy"),
-                       requireNumber(info,3,"dz"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            translate(requireHandle(info,0),
+                      requireNumber(info,1,"dx"),
+                      requireNumber(info,2,"dy"),
+                      requireNumber(info,3,"dz")));
+    });
 }
 Napi::Value Rotate(const Napi::CallbackInfo& info) {
-    auto h = rotate(requireHandle(info,0),
-                    requireNumber(info,1,"ax"),
-                    requireNumber(info,2,"ay"),
-                    requireNumber(info,3,"az"),
-                    requireNumber(info,4,"angleRad"));
-    return Napi::Number::New(info.Env(), h);
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            rotate(requireHandle(info,0),
+                   requireNumber(info,1,"ax"),
+                   requireNumber(info,2,"ay"),
+                   requireNumber(info,3,"az"),
+                   requireNumber(info,4,"angleRad")));
+    });
 }
 
 // ----------------------------------------------------------- tessellate
-// Returns { positions: Float32Array, normals: Float32Array, indices: Uint32Array }
 Napi::Value Tessellate(const Napi::CallbackInfo& info) {
-    auto h = requireHandle(info, 0);
-    double linTol = info.Length() > 1 && info[1].IsNumber() ? info[1].As<Napi::Number>().DoubleValue() : 0.1;
-    double angTol = info.Length() > 2 && info[2].IsNumber() ? info[2].As<Napi::Number>().DoubleValue() : 0.5;
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        double linTol = info.Length() > 1 && info[1].IsNumber() ? info[1].As<Napi::Number>().DoubleValue() : 0.1;
+        double angTol = info.Length() > 2 && info[2].IsNumber() ? info[2].As<Napi::Number>().DoubleValue() : 0.5;
 
-    Mesh m = tessellate(h, linTol, angTol);
+        Mesh m = tessellate(h, linTol, angTol);
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
 
-    auto env = info.Env();
-    auto out = Napi::Object::New(env);
+        auto positions = Napi::Float32Array::New(env, m.positions.size());
+        std::copy(m.positions.begin(), m.positions.end(), positions.Data());
+        out.Set("positions", positions);
 
-    auto positions = Napi::Float32Array::New(env, m.positions.size());
-    std::copy(m.positions.begin(), m.positions.end(), positions.Data());
-    out.Set("positions", positions);
+        auto normals = Napi::Float32Array::New(env, m.normals.size());
+        std::copy(m.normals.begin(), m.normals.end(), normals.Data());
+        out.Set("normals", normals);
 
-    auto normals = Napi::Float32Array::New(env, m.normals.size());
-    std::copy(m.normals.begin(), m.normals.end(), normals.Data());
-    out.Set("normals", normals);
+        auto indices = Napi::Uint32Array::New(env, m.indices.size());
+        std::copy(m.indices.begin(), m.indices.end(), indices.Data());
+        out.Set("indices", indices);
 
-    auto indices = Napi::Uint32Array::New(env, m.indices.size());
-    std::copy(m.indices.begin(), m.indices.end(), indices.Data());
-    out.Set("indices", indices);
-
-    out.Set("triangleCount", Napi::Number::New(env, static_cast<double>(m.indices.size() / 3)));
-    return out;
+        out.Set("triangleCount", Napi::Number::New(env, static_cast<double>(m.indices.size() / 3)));
+        return out;
+    });
 }
 
 // ----------------------------------------------------------- mass props
 Napi::Value MassProps(const Napi::CallbackInfo& info) {
-    auto p = massProperties(requireHandle(info, 0));
-    auto env = info.Env();
-    auto out = Napi::Object::New(env);
-    out.Set("volume", p.volume);
-    out.Set("area", p.area);
-    auto com = Napi::Array::New(env, 3);
-    com.Set(uint32_t{0}, p.cx);
-    com.Set(uint32_t{1}, p.cy);
-    com.Set(uint32_t{2}, p.cz);
-    out.Set("centerOfMass", com);
-    return out;
+    return safe(info, [&]() -> Napi::Value {
+        auto p = massProperties(requireHandle(info, 0));
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("volume", p.volume);
+        out.Set("area", p.area);
+        auto com = Napi::Array::New(env, 3);
+        com.Set(uint32_t{0}, p.cx);
+        com.Set(uint32_t{1}, p.cy);
+        com.Set(uint32_t{2}, p.cz);
+        out.Set("centerOfMass", com);
+        return out;
+    });
 }
 
-// ----------------------------------------------------------- lifecycle
+// ----------------------------------------------------------- shape lifecycle
 Napi::Value Retain(const Napi::CallbackInfo& info) {
-    ShapeRegistry::instance().retain(requireHandle(info, 0));
-    return info.Env().Undefined();
+    return safe(info, [&]() -> Napi::Value {
+        ShapeRegistry::instance().retain(requireHandle(info, 0));
+        return info.Env().Undefined();
+    });
 }
 Napi::Value Release(const Napi::CallbackInfo& info) {
-    ShapeRegistry::instance().release(requireHandle(info, 0));
-    return info.Env().Undefined();
+    return safe(info, [&]() -> Napi::Value {
+        ShapeRegistry::instance().release(requireHandle(info, 0));
+        return info.Env().Undefined();
+    });
 }
 Napi::Value LiveCount(const Napi::CallbackInfo& info) {
-    return Napi::Number::New(info.Env(), static_cast<double>(ShapeRegistry::instance().liveCount()));
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(ShapeRegistry::instance().liveCount()));
+    });
+}
+
+// ----------------------------------------------------------- components
+Napi::Value AddInstance(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto comp = requireHandle(info, 0);
+        auto xform = readTransform(info, 1);
+        return Napi::Number::New(info.Env(),
+            ComponentRegistry::instance().addInstance(comp, xform));
+    });
+}
+Napi::Value RemoveInstance(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        ComponentRegistry::instance().removeInstance(requireHandle(info, 0));
+        return info.Env().Undefined();
+    });
+}
+Napi::Value UpdateTransform(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto id = requireHandle(info, 0);
+        auto xform = readTransform(info, 1);
+        ComponentRegistry::instance().updateTransform(id, xform);
+        return info.Env().Undefined();
+    });
+}
+Napi::Value InstanceCount(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(ComponentRegistry::instance().count()));
+    });
+}
+Napi::Value QueryAABB(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        AABB box = readAABB(info, 0);
+        auto hits = ComponentRegistry::instance().queryAABB(box);
+        auto arr = Napi::Uint32Array::New(info.Env(), hits.size());
+        std::copy(hits.begin(), hits.end(), arr.Data());
+        return arr;
+    });
+}
+Napi::Value GetInstanceAABB(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto id = requireHandle(info, 0);
+        auto a = ComponentRegistry::instance().getAABB(id);
+        auto arr = Napi::Float64Array::New(info.Env(), 6);
+        arr.Data()[0] = a.minX; arr.Data()[1] = a.minY; arr.Data()[2] = a.minZ;
+        arr.Data()[3] = a.maxX; arr.Data()[4] = a.maxY; arr.Data()[5] = a.maxZ;
+        return arr;
+    });
+}
+Napi::Value InstanceExists(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Boolean::New(info.Env(),
+            ComponentRegistry::instance().exists(requireHandle(info, 0)));
+    });
+}
+Napi::Value ReserveInstances(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        if (info.Length() < 1 || !info[0].IsNumber()) {
+            throw Napi::TypeError::New(info.Env(), "forge: reserveInstances expects a number");
+        }
+        ComponentRegistry::instance().reserve(info[0].As<Napi::Number>().Uint32Value());
+        return info.Env().Undefined();
+    });
+}
+Napi::Value InstanceBytesUsed(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(ComponentRegistry::instance().bytesUsed()));
+    });
 }
 
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
-    auto env = info.Env();
-    auto out = Napi::Object::New(env);
-    out.Set("forgeKernel", "0.1.0");
-    out.Set("occt", OCC_VERSION_STRING_EXT);
-    out.Set("napiCpp", NAPI_VERSION);
-    return out;
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("forgeKernel", "0.1.0");
+        out.Set("occt", OCC_VERSION_STRING_EXT);
+        out.Set("napiCpp", NAPI_VERSION);
+        return out;
+    });
 }
 
 } // namespace
@@ -166,6 +322,16 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("retain",    Napi::Function::New(env, Retain));
     exports.Set("release",   Napi::Function::New(env, Release));
     exports.Set("liveCount", Napi::Function::New(env, LiveCount));
+
+    exports.Set("addInstance",      Napi::Function::New(env, AddInstance));
+    exports.Set("removeInstance",   Napi::Function::New(env, RemoveInstance));
+    exports.Set("updateTransform",  Napi::Function::New(env, UpdateTransform));
+    exports.Set("instanceCount",    Napi::Function::New(env, InstanceCount));
+    exports.Set("queryAABB",        Napi::Function::New(env, QueryAABB));
+    exports.Set("getInstanceAABB",  Napi::Function::New(env, GetInstanceAABB));
+    exports.Set("instanceExists",   Napi::Function::New(env, InstanceExists));
+    exports.Set("reserveInstances", Napi::Function::New(env, ReserveInstances));
+    exports.Set("instanceBytesUsed",Napi::Function::New(env, InstanceBytesUsed));
 
     exports.Set("version", Napi::Function::New(env, Version));
     return exports;
