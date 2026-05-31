@@ -115,4 +115,117 @@ DynamicResult solveDynamic(const Mesh& m, const Material& mat,
                            double tEnd, double dt,
                            double rayleighAlpha, double rayleighBeta);
 
+// =====================================================================
+// Forge-12b additions: steady thermal, nonlinear-geometric static,
+// fatigue life from a stress history.
+// =====================================================================
+
+// ---- steady thermal ------------------------------------------------------
+//
+// Solves ∇·(k ∇T) = q on the same hex mesh used by solveStatic.
+// Element K-matrix is the standard 3D conduction stiffness on the 8-node
+// linear hex; element heat source is lumped equally to corner nodes; convective
+// BCs are applied face-by-face with the standard Robin condition
+// (k ∂T/∂n + h (T − T∞) = 0). Dirichlet temperatures are imposed by row/col
+// elimination as in the structural path.
+struct ThermalMaterial {
+    double k; // thermal conductivity (W/(m·K))
+};
+struct ThermalNodalT {
+    std::uint32_t nodeId;
+    double        T; // K (or °C — only the difference matters in steady)
+};
+struct ThermalElemSource {
+    std::uint32_t elemId;
+    double        q; // volumetric source W/m³
+};
+struct ThermalConvection {
+    std::uint32_t faceId;   // 0..5 AABB face id
+    double        h;        // convective coefficient (W/(m²·K))
+    double        Tinf;     // ambient temperature
+};
+struct ThermalResult {
+    std::vector<double> T;           // nodal temperatures
+    std::vector<double> elemFluxMag; // per element |q| (W/m²)
+    double maxT = 0;
+    double minT = 0;
+    double residual = 0;
+};
+ThermalResult solveThermal(const Mesh& m, const ThermalMaterial& mat,
+                           const std::vector<ThermalNodalT>&     dirichlet,
+                           const std::vector<ThermalElemSource>& sources,
+                           const std::vector<ThermalConvection>& convection);
+
+// ---- nonlinear static (geometric only) -----------------------------------
+//
+// Newton-Raphson over geometric nonlinearity using the updated Lagrangian
+// formulation truncated to total-Lagrangian first order:
+//   K_T(u) = K_L + K_σ(σ(u))   (material + geometric tangent)
+//   residual r(u) = K_L u − f_ext − f_int_correction
+// where f_int_correction comes from the second-order strain term. We solve
+// f_ext at each load step in `loadSteps` sub-increments, updating K_T each
+// Newton iteration. Convergence is measured on the relative norm of the
+// out-of-balance force ‖r‖ / ‖f_ext‖.
+//
+// Honest scope: material nonlinearity (plasticity / hyperelasticity) is
+// queued for a follow-up slice — the current implementation includes
+// geometric softening only.
+struct NonlinearConfig {
+    int    loadSteps     = 5;
+    int    maxNewton     = 20;
+    double residualTol   = 1e-3;  // ‖r‖ / ‖f_ext‖
+};
+struct NonlinearResult {
+    std::vector<std::vector<double>> stepDisplacements; // [step][3N]
+    std::vector<double>              stepResiduals;     // last ‖r‖ / ‖f‖ per step
+    std::vector<int>                 stepIterations;    // Newton iters used per step
+    bool                             converged = true;
+    double                           cpuMs = 0;
+};
+NonlinearResult solveNonlinearStatic(const Mesh& m, const Material& mat,
+                                     const std::vector<LoadNodal>& loads,
+                                     const std::vector<BCPinned>&  bcs,
+                                     const NonlinearConfig& cfg);
+
+// ---- fatigue life --------------------------------------------------------
+//
+// Inputs:
+//   stressHistory  — flat array, [nElem * nSteps] storing scalar stress
+//                    amplitude per element per time step (use von-Mises or
+//                    principal). For sinusoidal loading at frequency f, just
+//                    pass two columns (min, max) and `cyclesPerSample = 1`.
+//   sn             — { N: [...], S: [...] } sorted by N ascending. Stress
+//                    units = Pa; cycles = dimensionless.
+//   meanCorrection — kGoodman | kSoderberg | kNone.
+//   ultimateStress / yieldStress — required for Goodman / Soderberg.
+//   cyclesPerSample — multiplier for cycle counts (sinusoidal: 1 per pair).
+//
+// Returns per-element cycles-to-failure (Inf if below endurance, 0 if
+// already failed) plus the worst-case element id.
+enum MeanStressCorrection : int {
+    kNone      = 0,
+    kGoodman   = 1,
+    kSoderberg = 2,
+};
+struct SNCurve {
+    std::vector<double> N;
+    std::vector<double> S;
+};
+struct FatigueConfig {
+    SNCurve sn;
+    int     meanCorrection = kNone;
+    double  ultimateStress = 0;
+    double  yieldStress    = 0;
+    double  cyclesPerSample = 1.0;
+};
+struct FatigueResult {
+    std::vector<double> cyclesToFailure; // per element
+    double minLife       = 0;            // min over all elements
+    std::uint32_t minLifeElem = 0;
+    double maxAmplitude  = 0;            // worst per-element stress amplitude (Pa)
+};
+FatigueResult fatigueLife(const std::vector<double>& stressHistory,
+                          std::size_t nElem, std::size_t nSteps,
+                          const FatigueConfig& cfg);
+
 } // namespace forge::fea

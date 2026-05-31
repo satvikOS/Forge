@@ -144,7 +144,8 @@ const forgeApi = {
     liveCount:     ()                       => kernel.sketcher.liveCount(),
   } : null,
 
-  // native FEA (Forge-12) — linear static + modal + dynamic Newmark-β.
+  // native FEA (Forge-12 + Forge-12b) — linear static + modal + dynamic
+  // Newmark-β + steady thermal + geometric-nonlinear static + fatigue.
   // Mesh is the brick-grid fallback documented in forge/Fea.hpp; the
   // surface API stays stable once the proper tet mesher lands.
   fea: kernel && kernel.fea ? {
@@ -157,6 +158,23 @@ const forgeApi = {
     solveDynamic: (mesh, material, loads, bcs, tEnd, dt, alpha, beta) =>
       kernel.fea.solveDynamic(mesh, material, loads ?? [], bcs ?? [],
                               tEnd, dt, alpha ?? 0, beta ?? 0),
+    solveThermal: (mesh, material, dirichlet, sources, convection) =>
+      kernel.fea.solveThermal(mesh, material, dirichlet ?? [], sources ?? [], convection ?? []),
+    solveNonlinearStatic: (mesh, material, loads, bcs, cfg) =>
+      kernel.fea.solveNonlinearStatic(mesh, material, loads ?? [], bcs ?? [], cfg ?? {}),
+    fatigueLife: (stressHistory, nElem, nSteps, cfg) =>
+      kernel.fea.fatigueLife(stressHistory, nElem, nSteps, cfg ?? {}),
+    MeanStressCorrection: kernel.fea.MeanStressCorrection
+      ? Object.freeze({ ...kernel.fea.MeanStressCorrection })
+      : Object.freeze({ None: 0, Goodman: 1, Soderberg: 2 }),
+  } : null,
+
+  // native CFD (Forge-12b) — incompressible Navier-Stokes on a staggered
+  // MAC grid via projection-method SIMPLE iteration. Laminar-only; the
+  // header in forge/Cfd.hpp documents the simplifications (no turbulence
+  // model, structured cartesian grid, single-corrector PISO).
+  cfd: kernel && kernel.cfd ? {
+    solveSteadyNS: (cfg) => kernel.cfd.solveSteadyNS(cfg),
   } : null,
 };
 

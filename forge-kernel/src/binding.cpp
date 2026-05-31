@@ -20,6 +20,7 @@
 #include "forge/Fea.hpp"
 #include "forge/Cam.hpp"
 #include "forge/GcodePost.hpp"
+#include "forge/Cfd.hpp"
 
 #include <Standard_Version.hxx>
 #include <cstring>
@@ -1067,6 +1068,287 @@ Napi::Value CamToGcode(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- FEA extras (Forge-12b)
+//
+// JS surface — under `forge.fea`:
+//   solveThermal(meshObj, materialObj, dirichletArr, sourcesArr, convectionArr)
+//     → { T: Float64Array, elemFluxMag: Float64Array, maxT, minT, residual }
+//   solveNonlinearStatic(meshObj, materialObj, loadsArr, bcsArr, cfgObj)
+//     → { stepDisplacements: [Float64Array...], stepResiduals: Float64Array,
+//         stepIterations: Uint32Array, converged: bool, cpuMs }
+//   fatigueLife(stressHistory: Float64Array, nElem, nSteps, cfgObj)
+//     → { cyclesToFailure: Float64Array, minLife, minLifeElem, maxAmplitude }
+
+namespace {
+
+std::vector<forge::fea::ThermalNodalT>
+readDirichlet(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::ThermalNodalT> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea.solveThermal: dirichlet must be array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto o = arr.Get(i).As<Napi::Object>();
+        forge::fea::ThermalNodalT d{};
+        d.nodeId = o.Get("nodeId").As<Napi::Number>().Uint32Value();
+        d.T      = o.Get("T").As<Napi::Number>().DoubleValue();
+        out.push_back(d);
+    }
+    return out;
+}
+
+std::vector<forge::fea::ThermalElemSource>
+readSources(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::ThermalElemSource> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea.solveThermal: sources must be array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto o = arr.Get(i).As<Napi::Object>();
+        forge::fea::ThermalElemSource s{};
+        s.elemId = o.Get("elemId").As<Napi::Number>().Uint32Value();
+        s.q      = o.Get("q").As<Napi::Number>().DoubleValue();
+        out.push_back(s);
+    }
+    return out;
+}
+
+std::vector<forge::fea::ThermalConvection>
+readConvection(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::ThermalConvection> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea.solveThermal: convection must be array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto o = arr.Get(i).As<Napi::Object>();
+        forge::fea::ThermalConvection c{};
+        c.faceId = o.Get("faceId").As<Napi::Number>().Uint32Value();
+        c.h      = o.Get("h").As<Napi::Number>().DoubleValue();
+        c.Tinf   = o.Get("Tinf").As<Napi::Number>().DoubleValue();
+        out.push_back(c);
+    }
+    return out;
+}
+
+} // namespace
+
+Napi::Value FeaSolveThermal(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh = readMesh(env, info[0]);
+        if (!info[1].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.fea.solveThermal: material must be {k}");
+        }
+        auto matObj = info[1].As<Napi::Object>();
+        forge::fea::ThermalMaterial mat{};
+        if (!matObj.Has("k")) {
+            throw Napi::TypeError::New(env, "forge.fea.solveThermal: material.k required");
+        }
+        mat.k = matObj.Get("k").As<Napi::Number>().DoubleValue();
+        auto dirichlet  = readDirichlet (env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto sources    = readSources   (env, info.Length() > 3 ? info[3] : env.Undefined());
+        auto convection = readConvection(env, info.Length() > 4 ? info[4] : env.Undefined());
+        auto r = forge::fea::solveThermal(mesh, mat, dirichlet, sources, convection);
+        auto out = Napi::Object::New(env);
+        auto T = Napi::Float64Array::New(env, r.T.size());
+        std::copy(r.T.begin(), r.T.end(), T.Data());
+        out.Set("T", T);
+        auto fm = Napi::Float64Array::New(env, r.elemFluxMag.size());
+        std::copy(r.elemFluxMag.begin(), r.elemFluxMag.end(), fm.Data());
+        out.Set("elemFluxMag", fm);
+        out.Set("maxT", Napi::Number::New(env, r.maxT));
+        out.Set("minT", Napi::Number::New(env, r.minT));
+        out.Set("residual", Napi::Number::New(env, r.residual));
+        return out;
+    });
+}
+
+Napi::Value FeaSolveNonlinearStatic(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh     = readMesh(env, info[0]);
+        auto material = readMaterial(env, info[1]);
+        auto loads    = readNodalLoads(env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto bcs      = readBCs(env, info.Length() > 3 ? info[3] : env.Undefined());
+        forge::fea::NonlinearConfig cfg;
+        if (info.Length() > 4 && info[4].IsObject()) {
+            auto co = info[4].As<Napi::Object>();
+            if (co.Has("loadSteps"))   cfg.loadSteps   = co.Get("loadSteps").As<Napi::Number>().Int32Value();
+            if (co.Has("maxNewton"))   cfg.maxNewton   = co.Get("maxNewton").As<Napi::Number>().Int32Value();
+            if (co.Has("residualTol")) cfg.residualTol = co.Get("residualTol").As<Napi::Number>().DoubleValue();
+        }
+        auto r = forge::fea::solveNonlinearStatic(mesh, material, loads, bcs, cfg);
+        auto out = Napi::Object::New(env);
+        auto disps = Napi::Array::New(env, r.stepDisplacements.size());
+        for (std::size_t i = 0; i < r.stepDisplacements.size(); ++i) {
+            auto& u = r.stepDisplacements[i];
+            auto ta = Napi::Float64Array::New(env, u.size());
+            std::copy(u.begin(), u.end(), ta.Data());
+            disps.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("stepDisplacements", disps);
+        auto res = Napi::Float64Array::New(env, r.stepResiduals.size());
+        std::copy(r.stepResiduals.begin(), r.stepResiduals.end(), res.Data());
+        out.Set("stepResiduals", res);
+        auto its = Napi::Uint32Array::New(env, r.stepIterations.size());
+        for (std::size_t i = 0; i < r.stepIterations.size(); ++i) its.Data()[i] = r.stepIterations[i];
+        out.Set("stepIterations", its);
+        out.Set("converged", Napi::Boolean::New(env, r.converged));
+        out.Set("cpuMs", Napi::Number::New(env, r.cpuMs));
+        return out;
+    });
+}
+
+Napi::Value FeaFatigueLife(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsTypedArray()) {
+            throw Napi::TypeError::New(env,
+                "forge.fea.fatigueLife: stressHistory must be Float64Array");
+        }
+        auto sh = info[0].As<Napi::Float64Array>();
+        std::vector<double> hist(sh.Data(), sh.Data() + sh.ElementLength());
+        const auto nElem  = info[1].As<Napi::Number>().Uint32Value();
+        const auto nSteps = info[2].As<Napi::Number>().Uint32Value();
+        forge::fea::FatigueConfig cfg;
+        if (!info[3].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.fea.fatigueLife: cfg must be an object");
+        }
+        auto co = info[3].As<Napi::Object>();
+        if (!co.Has("sn") || !co.Get("sn").IsObject()) {
+            throw Napi::TypeError::New(env, "forge.fea.fatigueLife: cfg.sn = { N, S }");
+        }
+        auto sn = co.Get("sn").As<Napi::Object>();
+        auto Narr = sn.Get("N").As<Napi::Array>();
+        auto Sarr = sn.Get("S").As<Napi::Array>();
+        cfg.sn.N.resize(Narr.Length());
+        cfg.sn.S.resize(Sarr.Length());
+        for (uint32_t i = 0; i < Narr.Length(); ++i) cfg.sn.N[i] = Narr.Get(i).As<Napi::Number>().DoubleValue();
+        for (uint32_t i = 0; i < Sarr.Length(); ++i) cfg.sn.S[i] = Sarr.Get(i).As<Napi::Number>().DoubleValue();
+        if (co.Has("meanCorrection")) cfg.meanCorrection = co.Get("meanCorrection").As<Napi::Number>().Int32Value();
+        if (co.Has("ultimateStress")) cfg.ultimateStress = co.Get("ultimateStress").As<Napi::Number>().DoubleValue();
+        if (co.Has("yieldStress"))    cfg.yieldStress    = co.Get("yieldStress").As<Napi::Number>().DoubleValue();
+        if (co.Has("cyclesPerSample"))cfg.cyclesPerSample= co.Get("cyclesPerSample").As<Napi::Number>().DoubleValue();
+        auto r = forge::fea::fatigueLife(hist, nElem, nSteps, cfg);
+        auto out = Napi::Object::New(env);
+        auto cs = Napi::Float64Array::New(env, r.cyclesToFailure.size());
+        std::copy(r.cyclesToFailure.begin(), r.cyclesToFailure.end(), cs.Data());
+        out.Set("cyclesToFailure", cs);
+        out.Set("minLife", Napi::Number::New(env, r.minLife));
+        out.Set("minLifeElem", Napi::Number::New(env, r.minLifeElem));
+        out.Set("maxAmplitude", Napi::Number::New(env, r.maxAmplitude));
+        return out;
+    });
+}
+
+// ----------------------------------------------------------- CFD (Forge-12b)
+//
+// JS surface — under `forge.cfd`:
+//   solveSteadyNS(cfgObj)
+//     → { u: Float64Array, v: Float64Array, w: Float64Array,
+//         p: Float64Array, maxVelocity, reynolds, iterations,
+//         finalResidual, initialResidual, cpuMs, Nx, Ny, Nz }
+
+namespace {
+
+std::vector<forge::cfd::BCFaceVelocity>
+readInlets(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::cfd::BCFaceVelocity> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.cfd: inlets must be array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto o = arr.Get(i).As<Napi::Object>();
+        forge::cfd::BCFaceVelocity in{};
+        in.faceId = o.Get("faceId").As<Napi::Number>().Uint32Value();
+        in.vx = o.Has("vx") ? o.Get("vx").As<Napi::Number>().DoubleValue() : 0.0;
+        in.vy = o.Has("vy") ? o.Get("vy").As<Napi::Number>().DoubleValue() : 0.0;
+        in.vz = o.Has("vz") ? o.Get("vz").As<Napi::Number>().DoubleValue() : 0.0;
+        out.push_back(in);
+    }
+    return out;
+}
+
+std::vector<std::uint32_t> readFaceIdArray(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<std::uint32_t> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.cfd: face id list must be array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        out.push_back(arr.Get(i).As<Napi::Number>().Uint32Value());
+    }
+    return out;
+}
+
+} // namespace
+
+Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.cfd.solveSteadyNS: cfg must be an object");
+        }
+        auto co = info[0].As<Napi::Object>();
+        forge::cfd::CfdConfig cfg;
+        if (!co.Has("domain")) throw Napi::TypeError::New(env, "forge.cfd: cfg.domain required");
+        auto domain = co.Get("domain").As<Napi::Float64Array>();
+        if (domain.ElementLength() != 6) {
+            throw Napi::TypeError::New(env, "forge.cfd: domain must be Float64Array[6]");
+        }
+        cfg.domain = { domain.Data()[0], domain.Data()[1], domain.Data()[2],
+                       domain.Data()[3], domain.Data()[4], domain.Data()[5] };
+        cfg.Nx = co.Get("Nx").As<Napi::Number>().Int32Value();
+        cfg.Ny = co.Get("Ny").As<Napi::Number>().Int32Value();
+        cfg.Nz = co.Get("Nz").As<Napi::Number>().Int32Value();
+        cfg.rho = co.Get("rho").As<Napi::Number>().DoubleValue();
+        cfg.nu  = co.Get("nu").As<Napi::Number>().DoubleValue();
+        if (co.Has("maxIter"))     cfg.maxIter     = co.Get("maxIter").As<Napi::Number>().Int32Value();
+        if (co.Has("residualTol")) cfg.residualTol = co.Get("residualTol").As<Napi::Number>().DoubleValue();
+        cfg.inlets  = readInlets(env, co.Has("inlets")  ? co.Get("inlets")  : env.Undefined());
+        cfg.outlets = readFaceIdArray(env, co.Has("outlets") ? co.Get("outlets") : env.Undefined());
+        cfg.walls   = readFaceIdArray(env, co.Has("walls")   ? co.Get("walls")   : env.Undefined());
+        if (co.Has("lid") && co.Get("lid").IsObject()) {
+            auto lo = co.Get("lid").As<Napi::Object>();
+            cfg.lid.faceId = lo.Get("faceId").As<Napi::Number>().Uint32Value();
+            cfg.lid.vx = lo.Has("vx") ? lo.Get("vx").As<Napi::Number>().DoubleValue() : 0.0;
+            cfg.lid.vy = lo.Has("vy") ? lo.Get("vy").As<Napi::Number>().DoubleValue() : 0.0;
+            cfg.lid.vz = lo.Has("vz") ? lo.Get("vz").As<Napi::Number>().DoubleValue() : 0.0;
+            cfg.useLid = true;
+        }
+        auto r = forge::cfd::solveSteadyNS(cfg);
+        auto out = Napi::Object::New(env);
+        auto u = Napi::Float64Array::New(env, r.u.size()); std::copy(r.u.begin(), r.u.end(), u.Data()); out.Set("u", u);
+        auto v = Napi::Float64Array::New(env, r.v.size()); std::copy(r.v.begin(), r.v.end(), v.Data()); out.Set("v", v);
+        auto w = Napi::Float64Array::New(env, r.w.size()); std::copy(r.w.begin(), r.w.end(), w.Data()); out.Set("w", w);
+        auto p = Napi::Float64Array::New(env, r.p.size()); std::copy(r.p.begin(), r.p.end(), p.Data()); out.Set("p", p);
+        out.Set("maxVelocity", Napi::Number::New(env, r.maxVelocity));
+        out.Set("reynolds",    Napi::Number::New(env, r.reynolds));
+        out.Set("iterations",  Napi::Number::New(env, r.iterations));
+        out.Set("finalResidual",   Napi::Number::New(env, r.finalResidual));
+        out.Set("initialResidual", Napi::Number::New(env, r.initialResidual));
+        out.Set("cpuMs",       Napi::Number::New(env, r.cpuMs));
+        out.Set("Nx", Napi::Number::New(env, cfg.Nx));
+        out.Set("Ny", Napi::Number::New(env, cfg.Ny));
+        out.Set("Nz", Napi::Number::New(env, cfg.Nz));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -1177,12 +1459,21 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 
     exports.Set("sketcher", sketcher);
 
-    // -------- FEA (Forge-12) ---------------------------------------------
+    // -------- FEA (Forge-12 + Forge-12b) ---------------------------------
     auto fea = Napi::Object::New(env);
-    fea.Set("meshFromBrep", Napi::Function::New(env, FeaMeshFromBrep));
-    fea.Set("solveStatic",  Napi::Function::New(env, FeaSolveStatic));
-    fea.Set("solveModal",   Napi::Function::New(env, FeaSolveModal));
-    fea.Set("solveDynamic", Napi::Function::New(env, FeaSolveDynamic));
+    fea.Set("meshFromBrep",        Napi::Function::New(env, FeaMeshFromBrep));
+    fea.Set("solveStatic",         Napi::Function::New(env, FeaSolveStatic));
+    fea.Set("solveModal",          Napi::Function::New(env, FeaSolveModal));
+    fea.Set("solveDynamic",        Napi::Function::New(env, FeaSolveDynamic));
+    fea.Set("solveThermal",        Napi::Function::New(env, FeaSolveThermal));
+    fea.Set("solveNonlinearStatic",Napi::Function::New(env, FeaSolveNonlinearStatic));
+    fea.Set("fatigueLife",         Napi::Function::New(env, FeaFatigueLife));
+    // Mean-stress correction enum mirrored to JS.
+    auto fc = Napi::Object::New(env);
+    fc.Set("None",      Napi::Number::New(env, 0));
+    fc.Set("Goodman",   Napi::Number::New(env, 1));
+    fc.Set("Soderberg", Napi::Number::New(env, 2));
+    fea.Set("MeanStressCorrection", fc);
     exports.Set("fea", fea);
     // -------- cam (2.5D toolpath generators + G-code post) -------------
     auto cam = Napi::Object::New(env);
@@ -1209,6 +1500,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     gcode.Set("Dialect", dialects);
     cam.Set("gcode", gcode);
     exports.Set("cam", cam);
+
+    // -------- CFD (Forge-12b) -------------------------------------------
+    auto cfd = Napi::Object::New(env);
+    cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
+    exports.Set("cfd", cfd);
 
     return exports;
 }
