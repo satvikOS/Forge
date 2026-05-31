@@ -25,6 +25,8 @@
 #include "forge/DirectModeling.hpp"
 #include "forge/Healing.hpp"
 #include "forge/Features.hpp"
+#include "forge/SheetMetal.hpp"
+#include "forge/Weldments.hpp"
 
 #include <Standard_Version.hxx>
 #include <Standard_Failure.hxx>
@@ -1741,6 +1743,54 @@ std::vector<std::uint32_t> readU32Array(const Napi::CallbackInfo& info, std::siz
     return out;
 }
 
+} // namespace part_bind
+
+// ----------------------------------------------------------- sheet metal (Forge-24)
+//
+// JS surface — under `forge.sheetMetal`:
+//   baseFlange(wireHandle, params)                 → handle
+//   edgeFlange(handle, edgeId, params, len, ang, mode) → handle
+//   miterFlange(handle, edgeIds[], params, len, ang)   → handle
+//   hem(handle, edgeId, params, hemType, length)       → handle
+//   sketchedBend(handle, lineHandle, params, ang, r)   → handle
+//   jog(handle, edgeId, params, height, ang)           → handle
+//   closedCorner(handle, vertexId, params, gap)        → handle
+//   cornerRelief(handle, vertexId, params, mode, sz)   → handle
+//   unfold(handle, params)                             → handle
+//   flatPattern(handle, params)
+//      → { wire, bbox: [minX,minY,maxX,maxY], formedHeight }
+//   bends(handle) → [{ angleRad, radius, length, devLength, x0,y0,x1,y1 }, ...]
+namespace sheet_bind {
+
+forge::sheet::SheetMetalParams readParams(const Napi::Env& env, const Napi::Value& v) {
+    forge::sheet::SheetMetalParams p{};
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.sheetMetal: params must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    auto numOr = [&](const char* k, double def) {
+        if (!obj.Has(k) || !obj.Get(k).IsNumber()) return def;
+        return obj.Get(k).As<Napi::Number>().DoubleValue();
+    };
+    p.thickness     = numOr("thickness", 1.0);
+    p.kFactor       = numOr("kFactor",   0.44);
+    p.minBendRadius = numOr("minBendRadius", 0.5);
+    return p;
+}
+
+std::vector<std::uint32_t> readU32Array(const Napi::Env& env, const Napi::Value& v) {
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.sheetMetal: expected uint32 array");
+    }
+    std::vector<std::uint32_t> out;
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+        out.push_back(arr.Get(i).As<Napi::Number>().Uint32Value());
+    }
+    return out;
+}
+
 }  // namespace part_bind
 
 Napi::Value PartExtrudeProfile(const Napi::CallbackInfo& info) {
@@ -2013,6 +2063,368 @@ Napi::Value PartOnCurvePattern(const Napi::CallbackInfo& info) {
     });
 }
 
+Napi::Value SmMakeWireRect(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        double w = requireNumber(info, 0, "w");
+        double h = requireNumber(info, 1, "h");
+        return Napi::Number::New(info.Env(), forge::sheet::makeWireRect(w, h));
+    });
+}
+Napi::Value SmMakeLineEdge(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        double x0 = requireNumber(info, 0, "x0");
+        double y0 = requireNumber(info, 1, "y0");
+        double z0 = requireNumber(info, 2, "z0");
+        double x1 = requireNumber(info, 3, "x1");
+        double y1 = requireNumber(info, 4, "y1");
+        double z1 = requireNumber(info, 5, "z1");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::makeLineEdge(x0, y0, z0, x1, y1, z1));
+    });
+}
+Napi::Value SmBaseFlange(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto wire = requireHandle(info, 0);
+        auto params = sheet_bind::readParams(info.Env(), info[1]);
+        return Napi::Number::New(info.Env(), forge::sheet::baseFlange(wire, params));
+    });
+}
+Napi::Value SmEdgeFlange(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh = requireHandle(info, 0);
+        auto eid = requireHandle(info, 1);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        double len = requireNumber(info, 3, "flangeLengthMm");
+        double ang = requireNumber(info, 4, "angleRad");
+        forge::sheet::ReliefMode mode = forge::sheet::ReliefMode::Rect;
+        if (info.Length() > 5 && info[5].IsString()) {
+            std::string s = info[5].As<Napi::String>();
+            if      (s == "rect")    mode = forge::sheet::ReliefMode::Rect;
+            else if (s == "obround") mode = forge::sheet::ReliefMode::Obround;
+            else if (s == "tear")    mode = forge::sheet::ReliefMode::Tear;
+        }
+        return Napi::Number::New(info.Env(),
+            forge::sheet::edgeFlange(sh, eid, params, len, ang, mode));
+    });
+}
+Napi::Value SmMiterFlange(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto ids = sheet_bind::readU32Array(info.Env(), info[1]);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        double len = requireNumber(info, 3, "flangeLengthMm");
+        double ang = requireNumber(info, 4, "angleRad");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::miterFlange(sh, ids, params, len, ang));
+    });
+}
+Napi::Value SmHem(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto eid = requireHandle(info, 1);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        forge::sheet::HemType ht = forge::sheet::HemType::Closed;
+        if (info[3].IsString()) {
+            std::string s = info[3].As<Napi::String>();
+            if      (s == "closed")    ht = forge::sheet::HemType::Closed;
+            else if (s == "open")      ht = forge::sheet::HemType::Open;
+            else if (s == "tear-drop") ht = forge::sheet::HemType::TearDrop;
+            else if (s == "rolled")    ht = forge::sheet::HemType::Rolled;
+        }
+        double len = requireNumber(info, 4, "length");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::hem(sh, eid, params, ht, len));
+    });
+}
+Napi::Value SmSketchedBend(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh   = requireHandle(info, 0);
+        auto line = requireHandle(info, 1);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        double ang = requireNumber(info, 3, "bendAngleRad");
+        double r   = requireNumber(info, 4, "bendRadius");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::sketchedBend(sh, line, params, ang, r));
+    });
+}
+Napi::Value SmJog(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto eid = requireHandle(info, 1);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        double height = requireNumber(info, 3, "jogHeight");
+        double ang    = requireNumber(info, 4, "angleRad");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::jog(sh, eid, params, height, ang));
+    });
+}
+Napi::Value SmClosedCorner(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto vid = requireHandle(info, 1);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        double gap = requireNumber(info, 3, "gapMm");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::closedCorner(sh, vid, params, gap));
+    });
+}
+Napi::Value SmCornerRelief(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto vid = requireHandle(info, 1);
+        auto params = sheet_bind::readParams(info.Env(), info[2]);
+        forge::sheet::CornerRelief mode = forge::sheet::CornerRelief::Circular;
+        if (info[3].IsString()) {
+            std::string s = info[3].As<Napi::String>();
+            if      (s == "circular")    mode = forge::sheet::CornerRelief::Circular;
+            else if (s == "oval")        mode = forge::sheet::CornerRelief::Oval;
+            else if (s == "rectangular") mode = forge::sheet::CornerRelief::Rectangular;
+        }
+        double sz = requireNumber(info, 4, "sizeMm");
+        return Napi::Number::New(info.Env(),
+            forge::sheet::cornerRelief(sh, vid, params, mode, sz));
+    });
+}
+Napi::Value SmUnfold(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh = requireHandle(info, 0);
+        auto params = sheet_bind::readParams(info.Env(), info[1]);
+        return Napi::Number::New(info.Env(), forge::sheet::unfold(sh, params));
+    });
+}
+Napi::Value SmFlatPattern(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh = requireHandle(info, 0);
+        auto params = sheet_bind::readParams(info.Env(), info[1]);
+        auto fp = forge::sheet::flatPattern(sh, params);
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("wire", Napi::Number::New(env, fp.wire));
+        auto bbox = Napi::Array::New(env, 4);
+        bbox.Set(uint32_t{0}, fp.minX);
+        bbox.Set(uint32_t{1}, fp.minY);
+        bbox.Set(uint32_t{2}, fp.maxX);
+        bbox.Set(uint32_t{3}, fp.maxY);
+        out.Set("bbox", bbox);
+        out.Set("formedHeight", Napi::Number::New(env, fp.formedHeight));
+        return out;
+    });
+}
+Napi::Value SmBends(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh = requireHandle(info, 0);
+        auto env = info.Env();
+        if (!forge::sheet::SheetMetalRegistry::instance().has(sh)) {
+            return Napi::Array::New(env, 0);
+        }
+        const auto& p = forge::sheet::SheetMetalRegistry::instance().cget(sh);
+        auto arr = Napi::Array::New(env, p.bends.size());
+        for (std::size_t i = 0; i < p.bends.size(); ++i) {
+            const auto& b = p.bends[i];
+            auto o = Napi::Object::New(env);
+            o.Set("angleRad",  Napi::Number::New(env, b.angleRad));
+            o.Set("radius",    Napi::Number::New(env, b.radius));
+            o.Set("length",    Napi::Number::New(env, b.length));
+            o.Set("devLength", Napi::Number::New(env, b.devLength));
+            o.Set("x0", Napi::Number::New(env, b.x0));
+            o.Set("y0", Napi::Number::New(env, b.y0));
+            o.Set("x1", Napi::Number::New(env, b.x1));
+            o.Set("y1", Napi::Number::New(env, b.y1));
+            arr.Set(static_cast<std::uint32_t>(i), o);
+        }
+        return arr;
+    });
+}
+
+// ----------------------------------------------------------- weldments (Forge-24)
+namespace weld_bind {
+
+forge::weld::ProfileKind parseProfileKind(const Napi::Env& env, const std::string& s) {
+    if (s == "IBeam")     return forge::weld::ProfileKind::IBeam;
+    if (s == "CBeam")     return forge::weld::ProfileKind::CBeam;
+    if (s == "RectTube")  return forge::weld::ProfileKind::RectTube;
+    if (s == "RoundTube") return forge::weld::ProfileKind::RoundTube;
+    if (s == "Angle")     return forge::weld::ProfileKind::Angle;
+    if (s == "Channel")   return forge::weld::ProfileKind::Channel;
+    if (s == "FlatBar")   return forge::weld::ProfileKind::FlatBar;
+    throw Napi::TypeError::New(env, "forge.weldments: unknown profile kind '" + s + "'");
+}
+
+forge::weld::Alignment parseAlignment(const std::string& s) {
+    if (s == "centroid")     return forge::weld::Alignment::Centroid;
+    if (s == "top-left")     return forge::weld::Alignment::TopLeft;
+    if (s == "top-right")    return forge::weld::Alignment::TopRight;
+    if (s == "bottom-left")  return forge::weld::Alignment::BottomLeft;
+    if (s == "bottom-right") return forge::weld::Alignment::BottomRight;
+    if (s == "mid-left")     return forge::weld::Alignment::MidLeft;
+    if (s == "mid-right")    return forge::weld::Alignment::MidRight;
+    if (s == "top-center")   return forge::weld::Alignment::TopCenter;
+    if (s == "bottom-center")return forge::weld::Alignment::BottomCenter;
+    return forge::weld::Alignment::Centroid;
+}
+
+forge::weld::StructuralProfile readProfile(const Napi::Env& env, const Napi::Value& v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.weldments: profile must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    forge::weld::StructuralProfile p{};
+    if (obj.Has("kind")) {
+        auto kv = obj.Get("kind");
+        if (kv.IsString()) p.kind = parseProfileKind(env, kv.As<Napi::String>());
+        else if (kv.IsNumber()) p.kind = static_cast<forge::weld::ProfileKind>(kv.As<Napi::Number>().Uint32Value());
+    }
+    if (obj.Has("name") && obj.Get("name").IsString()) {
+        p.name = obj.Get("name").As<Napi::String>().Utf8Value();
+    }
+    if (obj.Has("dims") && obj.Get("dims").IsObject()) {
+        auto d = obj.Get("dims").As<Napi::Object>();
+        auto keys = d.GetPropertyNames();
+        for (std::uint32_t i = 0; i < keys.Length(); ++i) {
+            std::string k = keys.Get(i).As<Napi::String>().Utf8Value();
+            p.dims[k] = d.Get(k).As<Napi::Number>().DoubleValue();
+        }
+    }
+    return p;
+}
+
+forge::weld::TrimMode parseTrimMode(const std::string& s) {
+    if (s == "butt")  return forge::weld::TrimMode::Butt;
+    if (s == "miter") return forge::weld::TrimMode::Miter;
+    if (s == "coped") return forge::weld::TrimMode::Coped;
+    return forge::weld::TrimMode::Butt;
+}
+
+forge::weld::BeadKind parseBeadKind(const std::string& s) {
+    if (s == "fillet")        return forge::weld::BeadKind::Fillet;
+    if (s == "square-groove") return forge::weld::BeadKind::SquareGroove;
+    if (s == "V-groove")      return forge::weld::BeadKind::VGroove;
+    return forge::weld::BeadKind::Fillet;
+}
+
+std::vector<std::uint32_t> readU32Array(const Napi::Env& env, const Napi::Value& v) {
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.weldments: expected uint32 array");
+    }
+    std::vector<std::uint32_t> out;
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+        out.push_back(arr.Get(i).As<Napi::Number>().Uint32Value());
+    }
+    return out;
+}
+
+} // namespace weld_bind
+
+Napi::Value WdMakePathEdge(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        double x0 = requireNumber(info, 0, "x0");
+        double y0 = requireNumber(info, 1, "y0");
+        double z0 = requireNumber(info, 2, "z0");
+        double x1 = requireNumber(info, 3, "x1");
+        double y1 = requireNumber(info, 4, "y1");
+        double z1 = requireNumber(info, 5, "z1");
+        return Napi::Number::New(info.Env(),
+            forge::weld::makePathEdge(x0, y0, z0, x1, y1, z1));
+    });
+}
+Napi::Value WdStructuralMember(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto path = requireHandle(info, 0);
+        auto profile = weld_bind::readProfile(info.Env(), info[1]);
+        forge::weld::Alignment align = forge::weld::Alignment::Centroid;
+        if (info.Length() > 2 && info[2].IsString()) {
+            align = weld_bind::parseAlignment(info[2].As<Napi::String>().Utf8Value());
+        }
+        return Napi::Number::New(info.Env(),
+            forge::weld::structuralMember(path, profile, align));
+    });
+}
+Napi::Value WdEndCap(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto eid = requireHandle(info, 1);
+        double thk = requireNumber(info, 2, "capThickness");
+        double off = info.Length() > 3 && info[3].IsNumber()
+                       ? info[3].As<Napi::Number>().DoubleValue() : 0.0;
+        return Napi::Number::New(info.Env(),
+            forge::weld::endCap(sh, eid, thk, off));
+    });
+}
+Napi::Value WdGusset(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto vid = requireHandle(info, 1);
+        double sz = requireNumber(info, 2, "gussetSize");
+        double th = requireNumber(info, 3, "thickness");
+        return Napi::Number::New(info.Env(),
+            forge::weld::gusset(sh, vid, sz, th));
+    });
+}
+Napi::Value WdWeldBead(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sh  = requireHandle(info, 0);
+        auto ids = weld_bind::readU32Array(info.Env(), info[1]);
+        double size = requireNumber(info, 2, "beadSize");
+        forge::weld::BeadKind kind = forge::weld::BeadKind::Fillet;
+        if (info.Length() > 3 && info[3].IsString()) {
+            kind = weld_bind::parseBeadKind(info[3].As<Napi::String>().Utf8Value());
+        }
+        return Napi::Number::New(info.Env(),
+            forge::weld::weldBead(sh, ids, size, kind));
+    });
+}
+Napi::Value WdTrimMember(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto a = requireHandle(info, 0);
+        auto b = requireHandle(info, 1);
+        forge::weld::TrimMode mode = forge::weld::TrimMode::Butt;
+        if (info.Length() > 2 && info[2].IsString()) {
+            mode = weld_bind::parseTrimMode(info[2].As<Napi::String>().Utf8Value());
+        }
+        return Napi::Number::New(info.Env(),
+            forge::weld::trimMember(a, b, mode));
+    });
+}
+Napi::Value WdCutList(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1) {
+            throw Napi::TypeError::New(env, "forge.weldments.cutList: expected handle or handle array");
+        }
+        std::vector<forge::weld::MemberRecord> records;
+        if (info[0].IsArray()) {
+            auto arr = info[0].As<Napi::Array>();
+            for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+                auto h = arr.Get(i).As<Napi::Number>().Uint32Value();
+                auto recs = forge::weld::cutList(h);
+                records.insert(records.end(), recs.begin(), recs.end());
+            }
+        } else {
+            auto h = info[0].As<Napi::Number>().Uint32Value();
+            records = forge::weld::cutList(h);
+        }
+        auto out = Napi::Array::New(env, records.size());
+        for (std::size_t i = 0; i < records.size(); ++i) {
+            const auto& r = records[i];
+            auto o = Napi::Object::New(env);
+            o.Set("memberId",    Napi::Number::New(env, r.memberId));
+            o.Set("profileName", Napi::String::New(env, r.profileName));
+            o.Set("length",      Napi::Number::New(env, r.length));
+            o.Set("qty",         Napi::Number::New(env, r.qty));
+            o.Set("weight",      Napi::Number::New(env, r.weight));
+            std::string trim = "butt";
+            if (r.trim == forge::weld::TrimMode::Miter) trim = "miter";
+            else if (r.trim == forge::weld::TrimMode::Coped) trim = "coped";
+            o.Set("trim",     Napi::String::New(env, trim));
+            o.Set("miterDeg", Napi::Number::New(env, r.miterDeg));
+            out.Set(static_cast<std::uint32_t>(i), o);
+        }
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -2219,6 +2631,33 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     healing.Set("harmonizeNormals",            Napi::Function::New(env, HealHarmonizeNormals));
     healing.Set("checkValidity",               Napi::Function::New(env, HealCheckValidity));
     exports.Set("heal", healing);
+    // -------- Sheet metal (Forge-24) -----------------------------------
+    auto sheetMetal = Napi::Object::New(env);
+    sheetMetal.Set("makeWireRect", Napi::Function::New(env, SmMakeWireRect));
+    sheetMetal.Set("makeLineEdge", Napi::Function::New(env, SmMakeLineEdge));
+    sheetMetal.Set("baseFlange",   Napi::Function::New(env, SmBaseFlange));
+    sheetMetal.Set("edgeFlange",   Napi::Function::New(env, SmEdgeFlange));
+    sheetMetal.Set("miterFlange",  Napi::Function::New(env, SmMiterFlange));
+    sheetMetal.Set("hem",          Napi::Function::New(env, SmHem));
+    sheetMetal.Set("sketchedBend", Napi::Function::New(env, SmSketchedBend));
+    sheetMetal.Set("jog",          Napi::Function::New(env, SmJog));
+    sheetMetal.Set("closedCorner", Napi::Function::New(env, SmClosedCorner));
+    sheetMetal.Set("cornerRelief", Napi::Function::New(env, SmCornerRelief));
+    sheetMetal.Set("unfold",       Napi::Function::New(env, SmUnfold));
+    sheetMetal.Set("flatPattern",  Napi::Function::New(env, SmFlatPattern));
+    sheetMetal.Set("bends",        Napi::Function::New(env, SmBends));
+    exports.Set("sheetMetal", sheetMetal);
+
+    // -------- Weldments (Forge-24) -------------------------------------
+    auto weldments = Napi::Object::New(env);
+    weldments.Set("makePathEdge",     Napi::Function::New(env, WdMakePathEdge));
+    weldments.Set("structuralMember", Napi::Function::New(env, WdStructuralMember));
+    weldments.Set("endCap",           Napi::Function::New(env, WdEndCap));
+    weldments.Set("gusset",           Napi::Function::New(env, WdGusset));
+    weldments.Set("weldBead",         Napi::Function::New(env, WdWeldBead));
+    weldments.Set("trimMember",       Napi::Function::New(env, WdTrimMember));
+    weldments.Set("cutList",          Napi::Function::New(env, WdCutList));
+    exports.Set("weldments", weldments);
 
     return exports;
 }

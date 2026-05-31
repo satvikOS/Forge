@@ -246,6 +246,36 @@ const forgeApi = {
       kernel.part.mirrorPattern(shape, mirrorPlane),
     onCurvePattern:     (shape, pathSk, count) =>
       kernel.part.onCurvePattern(shape, pathSk, count),
+  // sheet-metal authoring (Forge-24) — base flange + edge/miter/hem/bend/
+  // jog + corner ops + unfold + flat-pattern. Defensive null guard so
+  // older kernels without the sheet-metal namespace just hide the
+  // workbench instead of crashing.
+  sheetMetal: kernel && kernel.sheetMetal ? {
+    makeWireRect: (w, h)                                => kernel.sheetMetal.makeWireRect(w, h),
+    makeLineEdge: (x0, y0, z0, x1, y1, z1)              => kernel.sheetMetal.makeLineEdge(x0, y0, z0, x1, y1, z1),
+    baseFlange:   (wire, params)                        => kernel.sheetMetal.baseFlange(wire, params),
+    edgeFlange:   (sh, edgeId, params, len, ang, mode)  => kernel.sheetMetal.edgeFlange(sh, edgeId, params, len, ang, mode ?? 'rect'),
+    miterFlange:  (sh, edgeIds, params, len, ang)       => kernel.sheetMetal.miterFlange(sh, edgeIds, params, len, ang),
+    hem:          (sh, edgeId, params, hemType, length) => kernel.sheetMetal.hem(sh, edgeId, params, hemType ?? 'closed', length),
+    sketchedBend: (sh, line, params, ang, r)            => kernel.sheetMetal.sketchedBend(sh, line, params, ang, r),
+    jog:          (sh, edgeId, params, height, ang)     => kernel.sheetMetal.jog(sh, edgeId, params, height, ang),
+    closedCorner: (sh, vertexId, params, gap)           => kernel.sheetMetal.closedCorner(sh, vertexId, params, gap),
+    cornerRelief: (sh, vertexId, params, mode, size)    => kernel.sheetMetal.cornerRelief(sh, vertexId, params, mode ?? 'circular', size),
+    unfold:       (sh, params)                          => kernel.sheetMetal.unfold(sh, params),
+    flatPattern:  (sh, params)                          => kernel.sheetMetal.flatPattern(sh, params),
+    bends:        (sh)                                  => kernel.sheetMetal.bends(sh),
+  } : null,
+
+  // weldments authoring (Forge-24) — structural members, end caps, gussets,
+  // weld beads, member trims, BOM cut list.
+  weldments: kernel && kernel.weldments ? {
+    makePathEdge:     (x0, y0, z0, x1, y1, z1)          => kernel.weldments.makePathEdge(x0, y0, z0, x1, y1, z1),
+    structuralMember: (path, profile, alignment)        => kernel.weldments.structuralMember(path, profile, alignment ?? 'centroid'),
+    endCap:           (sh, openingEdgeId, capThk, off)  => kernel.weldments.endCap(sh, openingEdgeId, capThk, off ?? 0),
+    gusset:           (sh, vertexId, size, thk)         => kernel.weldments.gusset(sh, vertexId, size, thk),
+    weldBead:         (sh, edgeIds, beadSize, kind)     => kernel.weldments.weldBead(sh, edgeIds, beadSize, kind ?? 'fillet'),
+    trimMember:       (a, b, mode)                      => kernel.weldments.trimMember(a, b, mode ?? 'butt'),
+    cutList:          (root)                            => kernel.weldments.cutList(root),
   } : null,
 };
 

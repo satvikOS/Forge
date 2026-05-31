@@ -104,6 +104,8 @@ add_library(forge_kernel SHARED
     src/DirectModeling.cpp
     src/Healing.cpp
     src/Features.cpp
+    src/SheetMetal.cpp
+    src/Weldments.cpp
     ${PLANEGCS_SRC}
 )
 

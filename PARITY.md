@@ -30,9 +30,9 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Patterns (linear/circular/mirror/on-curve)  | ✅      | Forge-22 — fuse of translated/rotated/mirrored/sampled copies |
 | Direct modeling (push/pull/move/delete face)| ☐      | Forge-23 direct-mod agent |
 | Healing (sew/simplify/repair)               | ☐      | Forge-23 direct-mod agent |
-| Sheet metal: base/edge/miter/hem/bend       | ☐      | Forge-24 sheet-metal agent |
-| Sheet metal: unfold / flat pattern          | ☐      | Forge-24 sheet-metal agent |
-| Weldments: structural member/end cap/gusset | ☐      | Forge-24 sheet-metal agent |
+| Sheet metal: base/edge/miter/hem/bend       | ☑      | Forge-24 native — baseFlange / edgeFlange / miterFlange / hem / sketchedBend / jog / closedCorner / cornerRelief |
+| Sheet metal: unfold / flat pattern          | ☑      | Forge-24 native — K-factor solver for smoke topology; general-case follow-up tracked |
+| Weldments: structural member/end cap/gusset | ☑      | Forge-24 native — structuralMember + endCap + gusset + weldBead + trimMember + cutList |
 | Surface modeling (NURBS authoring)          | ☐      | follow-up slice |
 | Persistent topo IDs (selective IDs)         | ◐      | TopoDS_Shape preserved across boolean only |
 
