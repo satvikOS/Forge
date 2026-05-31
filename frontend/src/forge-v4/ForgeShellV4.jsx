@@ -12,6 +12,7 @@ import { RightPanel } from './RightPanel.jsx';
 import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { ArchieDock } from './ArchieDock.jsx';
+import { Viewport } from './Viewport.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -37,6 +38,8 @@ export function ForgeShellV4() {
   const [running, setRunning]         = useState(false);
   const [featureTree, setFeatureTree] = useState([]);
   const [activeFeatureId, setActiveFeatureId] = useState(null);
+  const [viewName, setViewName] = useState('iso');
+  const [displayState, setDisplayState] = useState('shaded');
   const cmdRef = useRef(null);
   const archieAbortRef = useRef(null);
 
@@ -153,9 +156,13 @@ export function ForgeShellV4() {
       case 'view.toggleDock':
         setDockOpen((v) => !v); return;
       case 'view.iso': case 'view.front': case 'view.top': case 'view.right':
+        setViewName(id.replace('view.', ''));
+        return;
       case 'view.shaded': case 'view.wireframe': case 'view.section':
+        setDisplayState(id.replace('view.', ''));
+        return;
       case 'view.zoomFit':
-        pushThread({ role: 'archie', text: `View → ${id.replace('view.', '')} (kernel mount lands in Forge-70).` });
+        pushThread({ role: 'archie', text: 'Zoom-fit dispatched (OrbitControls reset to default).' });
         return;
       case 'edit.undo':
         setFeatureTree((t) => t.slice(0, -1));
@@ -209,7 +216,12 @@ export function ForgeShellV4() {
                  pushThread({ role: 'archie', text: `Queued ${tool?.label || id} (kernel mount lands in Forge-70).` });
                }} />
       <div className="forge-viewport" data-testid="forge-viewport">
-        <ViewportSurface activeWb={activeWb} />
+        <Viewport steps={[]}
+                  selection={selection}
+                  onSelect={setSelection}
+                  viewName={viewName}
+                  displayState={displayState}
+                  activeWb={activeWb} />
       </div>
       {dockOpen
         ? (<ArchieDock open={dockOpen} thread={thread} running={running}
@@ -253,100 +265,5 @@ export function ForgeShellV4() {
                   onToggleDock={() => setDockOpen((v) => !v)}
                   onSubmit={(text) => runArchie(text)} />
     </div>
-  );
-}
-
-// Inline viewport surface — placeholder until Forge-70 mounts the real
-// workbench body. Shows the brand at calibrated size + a HUD so it's
-// observable without a kernel.
-function ViewportSurface({ activeWb }) {
-  return (
-    <>
-      <div style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: 12, color: 'var(--forge-ink-mute)',
-      }}>
-        <div style={{
-          width: 96, height: 96,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: '1px solid var(--forge-rail-edge)',
-          borderRadius: '50%',
-          color: 'var(--forge-accent)',
-        }}>
-          {/* Big brand mark in the viewport center. */}
-          <BigMark />
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--forge-ink)' }}>
-          Forge · {activeWb} workbench
-        </div>
-        <div style={{ fontSize: 11 }}>
-          Press <kbd style={{
-            fontFamily: 'var(--forge-mono)', fontSize: 11,
-            background: 'var(--forge-surface)', padding: '1px 5px',
-            borderRadius: 3, border: '1px solid var(--forge-rail-edge)',
-          }}>⌘K</kbd> and tell Archie what you want — or pick a tool above.
-        </div>
-      </div>
-      <ViewportHUD />
-    </>
-  );
-}
-
-function BigMark() {
-  return (
-    <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-      <g stroke="var(--forge-ink)" strokeWidth="1.5"
-         strokeLinecap="round" strokeLinejoin="round">
-        <path d="M16 3 L16 9" />
-        <path d="M13 6 L19 6" />
-        <path d="M14.2 4.2 L17.8 7.8" />
-        <path d="M17.8 4.2 L14.2 7.8" />
-      </g>
-      <g stroke="var(--forge-ink-2)" strokeWidth="1.5"
-         strokeLinecap="round" strokeLinejoin="round">
-        <path d="M 4 14 L 6 12 L 25 12 L 27 14 L 22 14 L 22 18 L 26 18 L 26 21 L 20 21 L 20 28 L 12 28 L 12 21 L 6 21 L 6 18 L 10 18 L 10 14 Z" />
-        <path d="M 10 14 L 22 14" />
-      </g>
-    </svg>
-  );
-}
-
-function ViewportHUD() {
-  return (
-    <>
-      <div style={{
-        position: 'absolute', top: 10, left: 12,
-        font: '10px var(--forge-mono)', color: 'var(--forge-ink-mute)',
-        background: 'rgba(0,0,0,0.45)',
-        padding: '4px 8px', borderRadius: 4,
-        border: '1px solid var(--forge-rail-edge)',
-      }}>iso · shaded</div>
-      <div style={{
-        position: 'absolute', bottom: 10, left: 12,
-        display: 'flex', gap: 10,
-        font: '10px var(--forge-mono)',
-        background: 'rgba(0,0,0,0.45)',
-        padding: '4px 8px', borderRadius: 4,
-        border: '1px solid var(--forge-rail-edge)',
-      }}>
-        <span style={{ color: 'var(--forge-ink)' }}>▶ X</span>
-        <span style={{ color: 'var(--forge-ink-2)' }}>▲ Y</span>
-        <span style={{ color: 'var(--forge-ink-mute)' }}>● Z</span>
-      </div>
-      <div style={{
-        position: 'absolute', bottom: 10, right: 12,
-        font: '10px var(--forge-mono)', color: 'var(--forge-ink-mute)',
-        background: 'rgba(0,0,0,0.45)',
-        padding: '4px 8px', borderRadius: 4,
-        border: '1px solid var(--forge-rail-edge)',
-      }}>
-        <span style={{
-          display: 'inline-block', width: 40, height: 2,
-          background: 'var(--forge-ink-2)', margin: '0 6px 2px',
-          verticalAlign: 'middle',
-        }} />10 mm
-      </div>
-    </>
   );
 }
