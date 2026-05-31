@@ -70,6 +70,47 @@ export function ForgeShellV4() {
     setThread((t) => [...t, { id: `m-${t.length}`, ts: Date.now(), ...m }]);
   }
 
+  // Forge-66 — menu action dispatcher. Each id matches the spec in
+  // Menus.jsx. Unknown actions route into the thread as Archie prompts.
+  function handleMenuAction(id) {
+    switch (id) {
+      case 'view.theme':
+        setTheme((t) => t === 'dark' ? 'light' : 'dark'); return;
+      case 'view.toggleRight':
+        setRightCollapsed((v) => !v); return;
+      case 'view.toggleDock':
+        setDockOpen((v) => !v); return;
+      case 'view.iso': case 'view.front': case 'view.top': case 'view.right':
+      case 'view.shaded': case 'view.wireframe': case 'view.section':
+      case 'view.zoomFit':
+        pushThread({ role: 'archie', text: `View → ${id.replace('view.', '')} (kernel mount lands in Forge-70).` });
+        return;
+      case 'edit.undo':
+        setFeatureTree((t) => t.slice(0, -1));
+        pushThread({ role: 'archie', text: 'Undo.' });
+        return;
+      case 'edit.selectNone':
+        setSelection({ kind: 'none', ids: [] }); return;
+      case 'file.settings': case 'tools.settings':
+        pushThread({ role: 'archie', text: 'Settings overlay opens in Forge-69.' });
+        return;
+      case 'file.quit':
+        if (typeof window !== 'undefined' && window.forge && window.forge.app?.quit) {
+          window.forge.app.quit();
+        }
+        return;
+      case 'tools.search':
+        cmdRef.current?.focus(); return;
+      case 'help.about':
+        pushThread({ role: 'archie', text: 'Forge v0.4.0 — Archie-first parametric MCAD on OCCT. Built by satvikOS. Original visual IP — no infringement on CATIA / NX / SolidWorks / Creo / AutoCAD.' });
+        setDockOpen(true);
+        return;
+      default:
+        pushThread({ role: 'archie', text: `${id} (wired in a follow-up).` });
+        setDockOpen(true);
+    }
+  }
+
   // The actual viewport will be replaced by the workbench body in
   // Forge-70. For now we show a calibrated empty-state with the
   // brand mark + a hint, so the v4 shell is observable end-to-end.
@@ -77,7 +118,7 @@ export function ForgeShellV4() {
     <div className="forge-app"
          data-testid="forge-app"
          data-archie-open={String(dockOpen)}>
-      <TopBar activeWb={activeWb} onMenu={() => {}} />
+      <TopBar activeWb={activeWb} onMenuAction={(id) => handleMenuAction(id)} />
       <WorkbenchRail activeId={activeWb}
                      onSwitch={(id) => { setActiveWb(id); setActiveTool(null); }} />
       <Toolbar workbenchId={activeWb}

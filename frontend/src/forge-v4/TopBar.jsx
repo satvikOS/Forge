@@ -4,10 +4,9 @@
 import React from 'react';
 import { ForgeMark } from './icons/Logo.jsx';
 import { WORKBENCHES } from './WorkbenchRail.jsx';
+import { MenuBar } from './Menus.jsx';
 
-const MENUS = ['File', 'Edit', 'View', 'Tools', 'Help'];
-
-export function TopBar({ activeWb, onMenu, version = '0.4.0' }) {
+export function TopBar({ activeWb, onMenuAction, version = '0.4.0' }) {
   const wb = WORKBENCHES.find((w) => w.id === activeWb) || WORKBENCHES[0];
   return (
     <header className="forge-topbar" role="banner" data-testid="forge-topbar">
@@ -15,16 +14,7 @@ export function TopBar({ activeWb, onMenu, version = '0.4.0' }) {
         <ForgeMark size={20} title="Forge" />
         <span>Forge</span>
       </span>
-      <nav className="forge-topbar-menus" aria-label="Application menu">
-        {MENUS.map((m) => (
-          <button key={m}
-                  type="button"
-                  className="forge-topbar-menu"
-                  onClick={() => onMenu?.(m.toLowerCase())}>
-            {m}
-          </button>
-        ))}
-      </nav>
+      <MenuBar onAction={onMenuAction} />
       <span className="forge-topbar-spacer" />
       <span className="forge-topbar-wb-chip" data-testid="forge-topbar-wb-chip">
         Workbench · <strong>{wb.label}</strong>
