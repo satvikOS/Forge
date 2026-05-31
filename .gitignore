@@ -75,3 +75,12 @@ _scrape_hermes/
 Video-611.mp4
 video611-frames/
 _extract611.mjs
+test-results/
+.claude/
+
+# Forge — autonomous-build cruft
+dist-electron/
+*.dmg
+*.AppImage
+*.zip
+*.exe

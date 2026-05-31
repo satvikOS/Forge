@@ -1,9 +1,0 @@
-{
-  "partID": "MRBR-SNS-RTD-0001",
-  "name": "PT100 RTD Temperature Sensor",
-  "category": "SNS",
-  "subsystem": "RTD",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

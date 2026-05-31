@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-HOU-FLG-0002",
-  "name": "Housing Flange Outlet",
-  "category": "HOU",
-  "subsystem": "FLG",
-  "material": "Inconel 718",
-  "classification": "Class 3",
-  "quantity": 1
-}

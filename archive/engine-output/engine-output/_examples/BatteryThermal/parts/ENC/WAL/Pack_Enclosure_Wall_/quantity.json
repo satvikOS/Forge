@@ -1,9 +1,0 @@
-{
-  "partID": "BTRM-ENC-WAL-0004",
-  "name": "Pack Enclosure Wall 4",
-  "category": "ENC",
-  "subsystem": "WAL",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-BRG-WHB-0006",
-  "name": "Wheel Bearing L-3-2",
-  "category": "BRG",
-  "subsystem": "WHB",
-  "material": "Steel AISI 4340",
-  "classification": "Class 3",
-  "quantity": 1
-}

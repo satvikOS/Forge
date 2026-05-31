@@ -1,9 +1,0 @@
-{
-  "partID": "MRBR-COIL-WIN-0001",
-  "name": "Electromagnetic Coil (1200 turns × 0.5mm enamelled Cu)",
-  "category": "COIL",
-  "subsystem": "WIN",
-  "material": "Copper C11000",
-  "classification": "Class 3",
-  "quantity": 1
-}

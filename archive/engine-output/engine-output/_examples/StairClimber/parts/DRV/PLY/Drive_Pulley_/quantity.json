@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-DRV-PLY-0004",
-  "name": "Drive Pulley 4",
-  "category": "DRV",
-  "subsystem": "PLY",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

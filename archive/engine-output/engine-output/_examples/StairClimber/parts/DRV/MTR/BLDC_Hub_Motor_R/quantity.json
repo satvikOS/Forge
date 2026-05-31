@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-DRV-MTR-0002",
-  "name": "BLDC Hub Motor R",
-  "category": "DRV",
-  "subsystem": "MTR",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

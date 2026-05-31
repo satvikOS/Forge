@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-SEAL-MTR-0001",
-  "name": "Mating Ring (Stellite-coated Inconel)",
-  "category": "SEAL",
-  "subsystem": "MTR",
-  "material": "Inconel 718",
-  "classification": "Class 3",
-  "quantity": 1
-}

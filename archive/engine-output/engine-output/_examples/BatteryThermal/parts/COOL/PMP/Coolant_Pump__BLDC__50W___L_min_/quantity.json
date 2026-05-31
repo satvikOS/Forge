@@ -1,9 +1,0 @@
-{
-  "partID": "BTRM-COOL-PMP-0001",
-  "name": "Coolant Pump (BLDC, 50W, 8 L/min)",
-  "category": "COOL",
-  "subsystem": "PMP",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

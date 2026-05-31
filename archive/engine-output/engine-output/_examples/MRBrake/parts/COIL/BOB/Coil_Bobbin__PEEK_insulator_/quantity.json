@@ -1,9 +1,0 @@
-{
-  "partID": "MRBR-COIL-BOB-0001",
-  "name": "Coil Bobbin (PEEK insulator)",
-  "category": "COIL",
-  "subsystem": "BOB",
-  "material": "Nylon 6/6",
-  "classification": "Class 3",
-  "quantity": 1
-}

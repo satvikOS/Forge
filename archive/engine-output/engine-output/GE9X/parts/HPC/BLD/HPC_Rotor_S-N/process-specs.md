@@ -1,7 +1,0 @@
-# Process Specifications — GE9X-HPC-BLD-0767
-
-**Heat Treat:** HT per AMS 2774, solution + double age
-**Surface Finish:** Ra ≤ 0.8 μm (32 μin)
-**NDT:** FPI per ASTM E1417 Type I Method A, accept per Section X
-**Surface Treatment:** — none —
-**Coating:** — none —

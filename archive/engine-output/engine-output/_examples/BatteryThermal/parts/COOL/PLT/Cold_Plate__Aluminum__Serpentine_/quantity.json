@@ -1,9 +1,0 @@
-{
-  "partID": "BTRM-COOL-PLT-0001",
-  "name": "Cold Plate (Aluminum, Serpentine)",
-  "category": "COOL",
-  "subsystem": "PLT",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

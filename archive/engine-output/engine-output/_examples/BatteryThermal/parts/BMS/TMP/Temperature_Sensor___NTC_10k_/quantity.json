@@ -1,9 +1,0 @@
-{
-  "partID": "BTRM-BMS-TMP-0016",
-  "name": "Temperature Sensor 16 (NTC 10k)",
-  "category": "BMS",
-  "subsystem": "TMP",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

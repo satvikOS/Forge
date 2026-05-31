@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-BAT-MCU-0001",
-  "name": "Microcontroller (control + safety logic)",
-  "category": "BAT",
-  "subsystem": "MCU",
-  "material": "ABS Plastic",
-  "classification": "Class 3",
-  "quantity": 1
-}

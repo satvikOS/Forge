@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-HOU-OUT-0001",
-  "name": "Outer Housing (Inconel 718 forging)",
-  "category": "HOU",
-  "subsystem": "OUT",
-  "material": "Inconel 718",
-  "classification": "Class 3",
-  "quantity": 1
-}

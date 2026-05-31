@@ -1,9 +1,0 @@
-{
-  "partID": "BTRM-COOL-RES-0001",
-  "name": "Coolant Reservoir (1.5 L)",
-  "category": "COOL",
-  "subsystem": "RES",
-  "material": "ABS Plastic",
-  "classification": "Class 3",
-  "quantity": 1
-}

@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-BUF-REG-0001",
-  "name": "Helium Pressure Regulator",
-  "category": "BUF",
-  "subsystem": "REG",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

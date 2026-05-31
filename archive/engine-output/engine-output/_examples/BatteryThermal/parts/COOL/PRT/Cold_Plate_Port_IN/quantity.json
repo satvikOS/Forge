@@ -1,9 +1,0 @@
-{
-  "partID": "BTRM-COOL-PRT-0001",
-  "name": "Cold Plate Port IN",
-  "category": "COOL",
-  "subsystem": "PRT",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

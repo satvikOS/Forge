@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-CRGO-PLT-0001",
-  "name": "Cargo Platform",
-  "category": "CRGO",
-  "subsystem": "PLT",
-  "material": "Aluminum 6061-T6",
-  "classification": "Class 3",
-  "quantity": 1
-}

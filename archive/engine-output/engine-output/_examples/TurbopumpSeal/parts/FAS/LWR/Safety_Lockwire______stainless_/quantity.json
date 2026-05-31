@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-FAS-LWR-0012",
-  "name": "Safety Lockwire 12 (0.032\" stainless)",
-  "category": "FAS",
-  "subsystem": "LWR",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

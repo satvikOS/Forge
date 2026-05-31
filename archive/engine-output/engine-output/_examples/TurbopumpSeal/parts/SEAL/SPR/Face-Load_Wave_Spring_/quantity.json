@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-SEAL-SPR-0008",
-  "name": "Face-Load Wave Spring 8",
-  "category": "SEAL",
-  "subsystem": "SPR",
-  "material": "Inconel 718",
-  "classification": "Class 3",
-  "quantity": 1
-}

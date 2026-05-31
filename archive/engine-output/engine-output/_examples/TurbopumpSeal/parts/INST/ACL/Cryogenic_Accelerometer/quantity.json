@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-INST-ACL-0001",
-  "name": "Cryogenic Accelerometer",
-  "category": "INST",
-  "subsystem": "ACL",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

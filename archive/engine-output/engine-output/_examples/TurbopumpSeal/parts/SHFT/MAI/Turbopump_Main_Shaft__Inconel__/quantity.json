@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-SHFT-MAI-0001",
-  "name": "Turbopump Main Shaft (Inconel 718)",
-  "category": "SHFT",
-  "subsystem": "MAI",
-  "material": "Inconel 718",
-  "classification": "Class 1",
-  "quantity": 1
-}

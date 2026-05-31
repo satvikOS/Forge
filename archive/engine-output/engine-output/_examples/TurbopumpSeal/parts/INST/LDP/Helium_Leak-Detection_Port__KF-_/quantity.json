@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-INST-LDP-0001",
-  "name": "Helium Leak-Detection Port (KF-16)",
-  "category": "INST",
-  "subsystem": "LDP",
-  "material": "Stainless Steel 316",
-  "classification": "Class 3",
-  "quantity": 1
-}

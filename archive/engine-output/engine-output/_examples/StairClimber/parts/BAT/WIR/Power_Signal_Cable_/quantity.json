@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-BAT-WIR-0008",
-  "name": "Power/Signal Cable 8",
-  "category": "BAT",
-  "subsystem": "WIR",
-  "material": "Copper C11000",
-  "classification": "Class 3",
-  "quantity": 1
-}

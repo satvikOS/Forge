@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-FAS-BLT-0080",
-  "name": "M6 Bolt 80",
-  "category": "FAS",
-  "subsystem": "BLT",
-  "material": "Steel AISI 4340",
-  "classification": "Class 3",
-  "quantity": 1
-}

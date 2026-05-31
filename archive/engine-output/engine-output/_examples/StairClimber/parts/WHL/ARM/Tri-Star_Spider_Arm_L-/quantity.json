@@ -1,9 +1,0 @@
-{
-  "partID": "STCL-WHL-ARM-0003",
-  "name": "Tri-Star Spider Arm L-3",
-  "category": "WHL",
-  "subsystem": "ARM",
-  "material": "Steel AISI 4340",
-  "classification": "Class 3",
-  "quantity": 1
-}

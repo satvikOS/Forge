@@ -1,9 +1,0 @@
-{
-  "partID": "TPSL-INST-PT-0001",
-  "name": "Cryogenic Pressure Transducer (Kulite XCS)",
-  "category": "INST",
-  "subsystem": "PT",
-  "material": "Inconel 718",
-  "classification": "Class 3",
-  "quantity": 1
-}
