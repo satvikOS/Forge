@@ -17,8 +17,18 @@ if(NOT DEFINED CMAKE_JS_INC)
                     OUTPUT_VARIABLE NODE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif()
 
-# Node-API C++ wrapper (header-only).
+# Node-API C++ wrapper (header-only). Prefer the sibling `node_modules`,
+# else fall back to either the FORGE_NODE_MODULES CMake/-D variable or
+# the env var of the same name (lets worktree builds reuse the real
+# repo's node_modules without needing a symlink).
 set(NODE_ADDON_API_DIR "${CMAKE_SOURCE_DIR}/../node_modules/node-addon-api")
+if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
+    if(DEFINED FORGE_NODE_MODULES AND EXISTS "${FORGE_NODE_MODULES}/node-addon-api/napi.h")
+        set(NODE_ADDON_API_DIR "${FORGE_NODE_MODULES}/node-addon-api")
+    elseif(DEFINED ENV{FORGE_NODE_MODULES} AND EXISTS "$ENV{FORGE_NODE_MODULES}/node-addon-api/napi.h")
+        set(NODE_ADDON_API_DIR "$ENV{FORGE_NODE_MODULES}/node-addon-api")
+    endif()
+endif()
 if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
     message(FATAL_ERROR "node-addon-api not found at ${NODE_ADDON_API_DIR}. Run `npm install` at repo root.")
 endif()
@@ -92,6 +102,8 @@ add_library(forge_kernel SHARED
     src/MassProps.cpp
     src/Transform.cpp
     src/ComponentRegistry.cpp
+    src/BVH.cpp
+    src/LOD.cpp
     src/AssemblySolver.cpp
     src/Drawings.cpp
     src/Sketcher.cpp

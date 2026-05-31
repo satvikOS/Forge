@@ -1,4 +1,5 @@
 #include "forge/ComponentRegistry.hpp"
+#include "forge/BVH.hpp"
 
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
@@ -7,6 +8,9 @@
 #include <stdexcept>
 
 namespace forge {
+
+ComponentRegistry::ComponentRegistry() = default;
+ComponentRegistry::~ComponentRegistry() = default;
 
 ComponentRegistry& ComponentRegistry::instance() {
     static ComponentRegistry s;
@@ -18,10 +22,15 @@ void ComponentRegistry::reserve(std::size_t n) {
     slots_.reserve(n);
 }
 
+void ComponentRegistry::markBvhDirty() {
+    bvhDirty_ = true;
+}
+
 InstanceId ComponentRegistry::addInstance(ShapeHandle component, const Transform4x4& xform) {
     AABB aabb = computeAABB(component, xform);
 
     std::lock_guard<std::mutex> g(mtx_);
+    markBvhDirty();
     if (!freeList_.empty()) {
         const auto idx = freeList_.back();
         freeList_.pop_back();
@@ -39,6 +48,7 @@ void ComponentRegistry::removeInstance(InstanceId id) {
     if (idx >= slots_.size() || !slots_[idx].alive) return;
     slots_[idx].alive = false;
     freeList_.push_back(static_cast<std::uint32_t>(idx));
+    markBvhDirty();
 }
 
 void ComponentRegistry::updateTransform(InstanceId id, const Transform4x4& xform) {
@@ -61,6 +71,7 @@ void ComponentRegistry::updateTransform(InstanceId id, const Transform4x4& xform
         const auto idx = static_cast<std::size_t>(id - 1);
         slots_[idx].xform = xform;
         slots_[idx].aabb = newAabb;
+        markBvhDirty();
     }
 }
 
@@ -103,10 +114,43 @@ AABB ComponentRegistry::getAABB(InstanceId id) const {
     return slots_[idx].aabb;
 }
 
+void ComponentRegistry::ensureBvhLocked() const {
+    if (!bvhDirty_ && bvh_) return;
+    if (!bvh_) bvh_ = std::make_unique<BVH>();
+    std::vector<AABB> boxes;
+    std::vector<InstanceId> ids;
+    boxes.reserve(slots_.size());
+    ids.reserve(slots_.size());
+    for (std::size_t i = 0; i < slots_.size(); ++i) {
+        if (!slots_[i].alive) continue;
+        boxes.push_back(slots_[i].aabb);
+        ids.push_back(static_cast<InstanceId>(i + 1));
+    }
+    bvh_->build(boxes, ids);
+    bvhDirty_ = false;
+}
+
+std::size_t ComponentRegistry::buildBvh() const {
+    std::lock_guard<std::mutex> g(mtx_);
+    ensureBvhLocked();
+    return bvh_ ? bvh_->primCount() : 0;
+}
+
+bool ComponentRegistry::isBvhFresh() const {
+    std::lock_guard<std::mutex> g(mtx_);
+    return !bvhDirty_ && bvh_ && !bvh_->empty();
+}
+
 std::vector<InstanceId> ComponentRegistry::queryAABB(const AABB& box) const {
     std::vector<InstanceId> hits;
     std::lock_guard<std::mutex> g(mtx_);
     hits.reserve(64);
+    if (!bvhDirty_ && bvh_ && !bvh_->empty()) {
+        bvh_->queryAABB(box, hits);
+        return hits;
+    }
+    // Fallback linear scan — preserved so the bench's first query still
+    // works when callers forgot to call buildBvh().
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         const auto& s = slots_[i];
         if (!s.alive) continue;
@@ -117,10 +161,39 @@ std::vector<InstanceId> ComponentRegistry::queryAABB(const AABB& box) const {
     return hits;
 }
 
+std::vector<InstanceId> ComponentRegistry::queryRay(double ox, double oy, double oz,
+                                                    double dx, double dy, double dz) const {
+    std::vector<InstanceId> hits;
+    std::lock_guard<std::mutex> g(mtx_);
+    ensureBvhLocked();
+    if (!bvh_ || bvh_->empty()) return hits;
+    BvhRay r{ox, oy, oz, dx, dy, dz};
+    hits.reserve(32);
+    bvh_->queryRay(r, hits);
+    return hits;
+}
+
+std::vector<InstanceId> ComponentRegistry::queryFrustum(
+    const std::array<double,24>& planes) const {
+    std::vector<InstanceId> hits;
+    std::lock_guard<std::mutex> g(mtx_);
+    ensureBvhLocked();
+    if (!bvh_ || bvh_->empty()) return hits;
+    std::array<BvhPlane,6> p;
+    for (int i = 0; i < 6; ++i) {
+        p[i] = BvhPlane{ planes[4*i+0], planes[4*i+1], planes[4*i+2], planes[4*i+3] };
+    }
+    hits.reserve(1024);
+    bvh_->queryFrustum(p, hits);
+    return hits;
+}
+
 std::size_t ComponentRegistry::bytesUsed() const {
     std::lock_guard<std::mutex> g(mtx_);
+    std::size_t bvhBytes = bvh_ ? bvh_->bytesUsed() : 0;
     return slots_.capacity() * sizeof(Slot) +
-           freeList_.capacity() * sizeof(std::uint32_t);
+           freeList_.capacity() * sizeof(std::uint32_t) +
+           bvhBytes;
 }
 
 // ---------------------------------------------------------------- AABB

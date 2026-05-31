@@ -23,11 +23,16 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <vector>
 #include <Bnd_Box.hxx>
 
 namespace forge {
+
+class BVH;
+struct BvhRay;
+struct BvhPlane;
 
 using InstanceId = std::uint32_t;
 constexpr InstanceId kInvalidInstance = 0;
@@ -68,12 +73,23 @@ public:
     Transform4x4 getTransform(InstanceId id) const;
     AABB         getAABB(InstanceId id) const;
 
-    // O(N) linear scan today; sufficient for the 100k benchmark target
-    // on a single M-series core (<5 ms typical). Callback receives the
-    // dense slot index — pass it back to liveIds() to map to InstanceId.
+    // queryAABB uses the cached BVH when it's fresh (built since the last
+    // add/remove/update); otherwise falls back to a linear scan. Either
+    // way the return value is stable.
     std::vector<InstanceId> queryAABB(const AABB& box) const;
 
-    // Total memory accounted for by the registry's flat storage.
+    // Ray + frustum queries always use the BVH; they call buildBvh() on
+    // demand if the index is dirty. For picking + view culling.
+    std::vector<InstanceId> queryRay(double ox, double oy, double oz,
+                                     double dx, double dy, double dz) const;
+    std::vector<InstanceId> queryFrustum(const std::array<double,24>& planes) const;
+
+    // Force-rebuild the BVH. Safe to call repeatedly; no-op if already
+    // fresh. Returns the number of primitives indexed.
+    std::size_t buildBvh() const;
+    bool        isBvhFresh() const;
+
+    // Total memory accounted for by the registry's flat storage + BVH.
     std::size_t bytesUsed() const;
 
     // ---- bulk-load helper ----
@@ -82,7 +98,8 @@ public:
     void reserve(std::size_t n);
 
 private:
-    ComponentRegistry() = default;
+    ComponentRegistry();
+    ~ComponentRegistry();
 
     struct Slot {
         ShapeHandle  component;
@@ -93,10 +110,17 @@ private:
 
     AABB computeAABB(ShapeHandle component, const Transform4x4& xform) const;
     AABB transformAABB(const Bnd_Box& local, const Transform4x4& x) const;
+    void markBvhDirty();
+    void ensureBvhLocked() const;
 
     mutable std::mutex mtx_;
     std::vector<Slot>  slots_;
     std::vector<std::uint32_t> freeList_;
+
+    // BVH cache. `bvhDirty_` flips on every mutation; queries that need it
+    // fresh call ensureBvhLocked() (called under mtx_).
+    mutable std::unique_ptr<BVH> bvh_;
+    mutable bool                 bvhDirty_ = true;
 };
 
 } // namespace forge

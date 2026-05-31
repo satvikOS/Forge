@@ -3,6 +3,7 @@
 #include "forge/ShapeRegistry.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace forge {
@@ -17,5 +18,25 @@ struct Mesh {
 // (typically mm); `angularTol` is in radians; both are passed straight to
 // BRepMesh_IncrementalMesh as Deflection and Angle.
 Mesh tessellate(ShapeHandle h, double linearTol, double angularTol);
+
+// Submit a tessellation job to the kernel's worker pool. `done(mesh)` is
+// invoked on a worker thread once OCCT finishes. The pool size is
+// `hardware_concurrency() - 1` (always ≥1), shared across calls so 100
+// queued shapes finish in roughly N / pool-size × per-shape time.
+//
+// OCCT's BRepMesh_IncrementalMesh isn't fully thread-safe across shapes
+// that share underlying topology, but distinct top-level shapes can be
+// safely tessellated in parallel and that's how the bench uses it.
+void tessellateAsync(ShapeHandle h, double linearTol, double angularTol,
+                     std::function<void(Mesh)> done);
+
+// Block until every queued tessellation completes — used by tests/perf
+// smokes to gate timing measurements.
+void waitForTessellationIdle();
+
+// Pool diagnostics for the perf smoke test.
+std::size_t tessellationPoolSize();
+std::size_t tessellationQueued();
+std::size_t tessellationCompletedSinceLaunch();
 
 } // namespace forge

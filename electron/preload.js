@@ -70,6 +70,22 @@ const forgeApi = {
   tessellate: (h, linTol, angTol)   => kernel.tessellate(h, linTol, angTol),
   massProps:  (h)                   => kernel.massProps(h),
 
+  // Forge-25 worker-thread tessellation. Returns a Promise<Mesh>; the
+  // C++ pool is sized (hardware_concurrency-1) so the V8 main thread
+  // keeps a core. Renderer should batch dozens of shapes here and await
+  // them with Promise.all() rather than calling `tessellate()` in a loop.
+  tessellateAsync:       (h, linTol, angTol) => kernel.tessellateAsync(h, linTol, angTol),
+  tessellationPoolSize:  ()                  => kernel.tessellationPoolSize(),
+  tessellationWaitIdle:  ()                  => kernel.tessellationWaitIdle(),
+
+  // Forge-25 LOD chain — three pre-tessellated levels cached per ShapeHandle.
+  LODLevel:        Object.freeze({ Low: 0, Med: 1, High: 2 }),
+  tessellateLOD:   (h, level)                                => kernel.tessellateLOD(h, level),
+  selectLOD:       (id, eyeX, eyeY, eyeZ, fovRad, screenPxH) =>
+    kernel.selectLOD(id, eyeX, eyeY, eyeZ, fovRad, screenPxH),
+  clearLODCache:   ()                                        => kernel.clearLODCache(),
+  lodCacheEntries: ()                                        => kernel.lodCacheEntries(),
+
   // shape lifecycle
   retain:    (h) => kernel.retain(h),
   release:   (h) => kernel.release(h),
@@ -85,6 +101,13 @@ const forgeApi = {
   instanceExists:    (id)           => kernel.instanceExists(id),
   reserveInstances:  (n)            => kernel.reserveInstances(n),
   instanceBytesUsed: ()             => kernel.instanceBytesUsed(),
+
+  // Forge-25 BVH queries — caller must invoke buildBvh() once after a
+  // batch of add/remove/update to make subsequent queries O(log N).
+  buildBvh:     ()                          => kernel.buildBvh(),
+  isBvhFresh:   ()                          => kernel.isBvhFresh(),
+  queryRay:     (origin3, dir3)             => kernel.queryRay(origin3, dir3),
+  queryFrustum: (planes24)                  => kernel.queryFrustum(planes24),
 
   // mate-constraint solver (Forge-7) — `forge.assembly`.
   assembly: kernel && kernel.assembly ? {

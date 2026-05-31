@@ -14,6 +14,8 @@
 #include "forge/MassProps.hpp"
 #include "forge/Transform.hpp"
 #include "forge/ComponentRegistry.hpp"
+#include "forge/BVH.hpp"
+#include "forge/LOD.hpp"
 #include "forge/AssemblySolver.hpp"
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
@@ -27,6 +29,8 @@
 #include "forge/Features.hpp"
 #include "forge/SheetMetal.hpp"
 #include "forge/Weldments.hpp"
+
+#include <array>
 
 #include <Standard_Version.hxx>
 #include <Standard_Failure.hxx>
@@ -307,6 +311,174 @@ Napi::Value InstanceBytesUsed(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         return Napi::Number::New(info.Env(),
             static_cast<double>(ComponentRegistry::instance().bytesUsed()));
+    });
+}
+
+// ----------------------------------------------------------- BVH (Forge-25)
+//
+// Spatial index over instance AABBs. Build is O(N log N) SAH-binned;
+// queries are O(log N + k). Build is lazy — queryAABB falls back to the
+// linear scan when the BVH is dirty so callers that never call buildBvh()
+// keep the historical semantics.
+Napi::Value BuildBvh(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(ComponentRegistry::instance().buildBvh()));
+    });
+}
+Napi::Value IsBvhFresh(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Boolean::New(info.Env(),
+            ComponentRegistry::instance().isBvhFresh());
+    });
+}
+Napi::Value QueryRay(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        if (info.Length() < 2 || !info[0].IsTypedArray() || !info[1].IsTypedArray()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.queryRay(origin: Float64Array[3], dir: Float64Array[3])");
+        }
+        auto o = info[0].As<Napi::Float64Array>();
+        auto d = info[1].As<Napi::Float64Array>();
+        if (o.ElementLength() != 3 || d.ElementLength() != 3) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.queryRay: origin and dir must each be Float64Array[3]");
+        }
+        auto hits = ComponentRegistry::instance().queryRay(
+            o.Data()[0], o.Data()[1], o.Data()[2],
+            d.Data()[0], d.Data()[1], d.Data()[2]);
+        auto arr = Napi::Uint32Array::New(info.Env(), hits.size());
+        std::copy(hits.begin(), hits.end(), arr.Data());
+        return arr;
+    });
+}
+Napi::Value QueryFrustum(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        if (info.Length() < 1 || !info[0].IsTypedArray()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.queryFrustum(planes: Float64Array[24])");
+        }
+        auto p = info[0].As<Napi::Float64Array>();
+        if (p.ElementLength() != 24) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.queryFrustum: planes must have 24 elements (6 × (a,b,c,d))");
+        }
+        std::array<double,24> arrIn{};
+        std::copy(p.Data(), p.Data() + 24, arrIn.begin());
+        auto hits = ComponentRegistry::instance().queryFrustum(arrIn);
+        auto arr = Napi::Uint32Array::New(info.Env(), hits.size());
+        std::copy(hits.begin(), hits.end(), arr.Data());
+        return arr;
+    });
+}
+
+// ----------------------------------------------------------- LOD (Forge-25)
+Napi::Value TessellateLOD(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        const auto lvlInt = requireHandle(info, 1);
+        if (lvlInt > 2) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.tessellateLOD: level must be 0|1|2 (Low|Med|High)");
+        }
+        const auto& m = tessellateLOD(h, static_cast<LODLevel>(lvlInt));
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        auto positions = Napi::Float32Array::New(env, m.positions.size());
+        std::copy(m.positions.begin(), m.positions.end(), positions.Data());
+        out.Set("positions", positions);
+        auto normals = Napi::Float32Array::New(env, m.normals.size());
+        std::copy(m.normals.begin(), m.normals.end(), normals.Data());
+        out.Set("normals", normals);
+        auto indices = Napi::Uint32Array::New(env, m.indices.size());
+        std::copy(m.indices.begin(), m.indices.end(), indices.Data());
+        out.Set("indices", indices);
+        out.Set("triangleCount", Napi::Number::New(env, static_cast<double>(m.indices.size() / 3)));
+        out.Set("level", Napi::Number::New(env, lvlInt));
+        return out;
+    });
+}
+Napi::Value SelectLOD(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto id = requireHandle(info, 0);
+        const double ex = requireNumber(info, 1, "eyeX");
+        const double ey = requireNumber(info, 2, "eyeY");
+        const double ez = requireNumber(info, 3, "eyeZ");
+        const double fov = requireNumber(info, 4, "fovRad");
+        const double sh  = requireNumber(info, 5, "screenHeightPx");
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(selectLOD(id, ex, ey, ez, fov, sh)));
+    });
+}
+Napi::Value ClearLODCache(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        clearLODCache();
+        return info.Env().Undefined();
+    });
+}
+Napi::Value LODCacheEntries(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(), static_cast<double>(lodCacheEntries()));
+    });
+}
+
+// ----------------------------------------------------------- async tessellate
+//
+// Returns a JS Promise that resolves to { positions, normals, indices,
+// triangleCount } once a worker thread finishes the OCCT mesh. We use a
+// Napi::ThreadSafeFunction so the worker thread can hand the result back
+// to V8 from the main JS thread.
+Napi::Value TessellateAsync(const Napi::CallbackInfo& info) {
+    auto env = info.Env();
+    auto h = requireHandle(info, 0);
+    double linTol = info.Length() > 1 && info[1].IsNumber()
+        ? info[1].As<Napi::Number>().DoubleValue() : 0.1;
+    double angTol = info.Length() > 2 && info[2].IsNumber()
+        ? info[2].As<Napi::Number>().DoubleValue() : 0.5;
+
+    auto deferred = Napi::Promise::Deferred::New(env);
+
+    struct Box { Mesh mesh; bool ok; std::string err; };
+    auto* slot = new Box{};
+
+    auto tsfn = Napi::ThreadSafeFunction::New(
+        env, Napi::Function(), "forge.tessellateAsync", 0, 1);
+
+    tessellateAsync(h, linTol, angTol, [slot, tsfn, deferred](Mesh m) mutable {
+        slot->mesh = std::move(m);
+        slot->ok = true;
+        tsfn.BlockingCall([slot, deferred](Napi::Env env, Napi::Function) {
+            auto out = Napi::Object::New(env);
+            auto positions = Napi::Float32Array::New(env, slot->mesh.positions.size());
+            std::copy(slot->mesh.positions.begin(), slot->mesh.positions.end(), positions.Data());
+            out.Set("positions", positions);
+            auto normals = Napi::Float32Array::New(env, slot->mesh.normals.size());
+            std::copy(slot->mesh.normals.begin(), slot->mesh.normals.end(), normals.Data());
+            out.Set("normals", normals);
+            auto indices = Napi::Uint32Array::New(env, slot->mesh.indices.size());
+            std::copy(slot->mesh.indices.begin(), slot->mesh.indices.end(), indices.Data());
+            out.Set("indices", indices);
+            out.Set("triangleCount", Napi::Number::New(env,
+                static_cast<double>(slot->mesh.indices.size() / 3)));
+            deferred.Resolve(out);
+            delete slot;
+        });
+        tsfn.Release();
+    });
+
+    return deferred.Promise();
+}
+
+Napi::Value TessellationPoolSize(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(tessellationPoolSize()));
+    });
+}
+Napi::Value TessellationWaitIdle(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        waitForTessellationIdle();
+        return info.Env().Undefined();
     });
 }
 
@@ -2469,6 +2641,28 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("instanceExists",   Napi::Function::New(env, InstanceExists));
     exports.Set("reserveInstances", Napi::Function::New(env, ReserveInstances));
     exports.Set("instanceBytesUsed",Napi::Function::New(env, InstanceBytesUsed));
+
+    // ---- BVH spatial index (Forge-25) ---------------------------------
+    exports.Set("buildBvh",     Napi::Function::New(env, BuildBvh));
+    exports.Set("isBvhFresh",   Napi::Function::New(env, IsBvhFresh));
+    exports.Set("queryRay",     Napi::Function::New(env, QueryRay));
+    exports.Set("queryFrustum", Napi::Function::New(env, QueryFrustum));
+
+    // ---- LOD chain (Forge-25) -----------------------------------------
+    exports.Set("tessellateLOD",   Napi::Function::New(env, TessellateLOD));
+    exports.Set("selectLOD",       Napi::Function::New(env, SelectLOD));
+    exports.Set("clearLODCache",   Napi::Function::New(env, ClearLODCache));
+    exports.Set("lodCacheEntries", Napi::Function::New(env, LODCacheEntries));
+    auto lodLevels = Napi::Object::New(env);
+    lodLevels.Set("Low",  Napi::Number::New(env, 0));
+    lodLevels.Set("Med",  Napi::Number::New(env, 1));
+    lodLevels.Set("High", Napi::Number::New(env, 2));
+    exports.Set("LODLevel", lodLevels);
+
+    // ---- worker-thread tessellation (Forge-25) ------------------------
+    exports.Set("tessellateAsync",       Napi::Function::New(env, TessellateAsync));
+    exports.Set("tessellationPoolSize",  Napi::Function::New(env, TessellationPoolSize));
+    exports.Set("tessellationWaitIdle",  Napi::Function::New(env, TessellationWaitIdle));
 
     // ---- assembly solver (Forge-7) — wrapped under "assembly" namespace.
     auto assembly = Napi::Object::New(env);

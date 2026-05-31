@@ -10,7 +10,14 @@
 #include <TopoDS_Face.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
+#include <mutex>
+#include <queue>
+#include <thread>
+#include <vector>
 
 namespace forge {
 
@@ -93,6 +100,124 @@ Mesh tessellate(ShapeHandle h, double linearTol, double angularTol) {
     }
 
     return out;
+}
+
+// ---------------------------------------------------------------- async pool
+//
+// Lazy-initialised on first tessellateAsync() call. Workers pull jobs off
+// a shared queue under a mutex + condvar. Pool size is
+// max(1, hardware_concurrency()-1) so the main thread always has a core
+// for the V8 isolate while big STEP imports tessellate in the background.
+
+namespace {
+
+struct TessJob {
+    ShapeHandle h;
+    double linTol;
+    double angTol;
+    std::function<void(Mesh)> done;
+};
+
+struct TessPool {
+    std::mutex              mtx;
+    std::condition_variable cv;
+    std::queue<TessJob>     jobs;
+    std::vector<std::thread> workers;
+    std::atomic<std::size_t> inflight{0};      // jobs pulled but not yet finished
+    std::atomic<std::size_t> queued{0};        // jobs waiting in the queue
+    std::atomic<std::size_t> completed{0};
+    std::atomic<bool>       stop{false};
+    std::condition_variable idleCv;
+    std::mutex              idleMtx;
+
+    void workerLoop() {
+        for (;;) {
+            TessJob job;
+            {
+                std::unique_lock<std::mutex> g(mtx);
+                cv.wait(g, [&]{ return stop || !jobs.empty(); });
+                if (stop && jobs.empty()) return;
+                job = std::move(jobs.front());
+                jobs.pop();
+                queued.store(jobs.size(), std::memory_order_relaxed);
+                inflight.fetch_add(1, std::memory_order_relaxed);
+            }
+            try {
+                Mesh m = tessellate(job.h, job.linTol, job.angTol);
+                if (job.done) job.done(std::move(m));
+            } catch (...) {
+                // Swallow — the done callback signature has no error path.
+                if (job.done) job.done(Mesh{});
+            }
+            completed.fetch_add(1, std::memory_order_relaxed);
+            inflight.fetch_sub(1, std::memory_order_relaxed);
+            {
+                std::lock_guard<std::mutex> g(idleMtx);
+                idleCv.notify_all();
+            }
+        }
+    }
+};
+
+// Static singleton — destructor sets stop+joins, so V8 exit doesn't
+// abort with libc++abi when worker threads outlive the main thread.
+struct PoolHolder {
+    TessPool p;
+    ~PoolHolder() {
+        {
+            std::lock_guard<std::mutex> g(p.mtx);
+            p.stop = true;
+        }
+        p.cv.notify_all();
+        for (auto& th : p.workers) {
+            if (th.joinable()) th.join();
+        }
+    }
+};
+
+TessPool& pool() {
+    static PoolHolder holder;
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        unsigned hc = std::thread::hardware_concurrency();
+        unsigned n = (hc > 1) ? hc - 1 : 1;
+        for (unsigned i = 0; i < n; ++i) {
+            holder.p.workers.emplace_back([] { pool().workerLoop(); });
+        }
+    });
+    return holder.p;
+}
+
+} // namespace
+
+void tessellateAsync(ShapeHandle h, double linearTol, double angularTol,
+                     std::function<void(Mesh)> done) {
+    auto& p = pool();
+    {
+        std::lock_guard<std::mutex> g(p.mtx);
+        p.jobs.push(TessJob{h, linearTol, angularTol, std::move(done)});
+        p.queued.store(p.jobs.size(), std::memory_order_relaxed);
+    }
+    p.cv.notify_one();
+}
+
+void waitForTessellationIdle() {
+    auto& p = pool();
+    std::unique_lock<std::mutex> g(p.idleMtx);
+    p.idleCv.wait(g, [&] {
+        std::lock_guard<std::mutex> jg(p.mtx);
+        return p.jobs.empty() && p.inflight.load() == 0;
+    });
+}
+
+std::size_t tessellationPoolSize() {
+    return pool().workers.size();
+}
+std::size_t tessellationQueued() {
+    return pool().queued.load(std::memory_order_relaxed);
+}
+std::size_t tessellationCompletedSinceLaunch() {
+    return pool().completed.load(std::memory_order_relaxed);
 }
 
 } // namespace forge
