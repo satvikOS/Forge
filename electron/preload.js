@@ -299,10 +299,11 @@ const forgeApi = {
     autoRepairSelfIntersection: (h, tol)        => kernel.heal.autoRepairSelfIntersection(h, tol ?? 1e-3),
     harmonizeNormals:           (h)             => kernel.heal.harmonizeNormals(h),
     checkValidity:              (h)             => kernel.heal.checkValidity(h),
-  // part features (Forge-22) — extrude / revolve / sweep / loft / shell /
-  // fillet / chamfer / draft / hole / rib / patterns. Defensive null
-  // guard: older addons that predate Forge-22 may not ship `forge.part`;
-  // PartOps.js detects that and surfaces a friendly error in the UI.
+  } : null,
+
+  // part features (Forge-22 + Forge-36 closures) — extrude / revolve /
+  // sweep / loft / shell / fillet / chamfer / draft / hole / rib /
+  // patterns / sweepWithGuides / loftWithGuides / shellMultiThickness.
   part: kernel && kernel.part ? {
     extrudeProfile:     (sk, distance, direction) =>
       kernel.part.extrudeProfile(sk, distance, direction),
@@ -334,6 +335,29 @@ const forgeApi = {
       kernel.part.mirrorPattern(shape, mirrorPlane),
     onCurvePattern:     (shape, pathSk, count) =>
       kernel.part.onCurvePattern(shape, pathSk, count),
+    // Forge-36 closures of the §1 ◐ partial rows.
+    sweepWithGuides:    (profileSk, pathSk, guideSks) =>
+      kernel.part.sweepWithGuides(profileSk, pathSk, guideSks ?? []),
+    loftWithGuides:     (sectionHandles, guideSks, ruled, closed) =>
+      kernel.part.loftWithGuides(sectionHandles, guideSks ?? [], !!ruled, !!closed),
+    shellMultiThickness: (shape, faceIdsToRemove, baseThickness, perFaceOverrides) =>
+      kernel.part.shellMultiThickness(shape, faceIdsToRemove ?? [], baseThickness, perFaceOverrides ?? []),
+  } : null,
+
+  // NURBS surfacing (Forge-36) — build/trim/sew/refine/eval/intersect/
+  // project/classA-analyse over `Geom_BSplineSurface` faces.
+  surfacing: kernel && kernel.surfacing ? {
+    buildPatch:    (grid, uDegree, vDegree, uKnots, vKnots) =>
+      kernel.surfacing.buildPatch(grid, uDegree ?? 3, vDegree ?? 3, uKnots ?? null, vKnots ?? null),
+    trim:          (face, uvFlat)             => kernel.surfacing.trim(face, uvFlat),
+    sew:           (faces, tolerance)         => kernel.surfacing.sew(faces, tolerance ?? 1e-3),
+    refine:        (face, uTimes, vTimes)     => kernel.surfacing.refine(face, uTimes ?? 1, vTimes ?? 1),
+    eval:          (face, u, v)               => kernel.surfacing.eval(face, u, v),
+    intersect:     (faceA, faceB)             => kernel.surfacing.intersect(faceA, faceB),
+    projectPoint:  (face, pt)                 => kernel.surfacing.projectPoint(face, pt),
+    classAAnalyse: (face, samples)            => kernel.surfacing.classAAnalyse(face, samples ?? 16),
+  } : null,
+
   // sheet-metal authoring (Forge-24) — base flange + edge/miter/hem/bend/
   // jog + corner ops + unfold + flat-pattern. Defensive null guard so
   // older kernels without the sheet-metal namespace just hide the

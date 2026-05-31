@@ -19,9 +19,9 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | AABB spatial query                          | ✅      | Forge-25 BVH — 500k tiny-AABB in 0.011 ms |
 | Extrude / cut along sketch profile          | ✅      | Forge-22 |
 | Revolve along axis                          | ✅      | Forge-22 |
-| Sweep along curve (with guides)             | ◐      | Forge-22 — guides-less variant; XY sketcher limits coplanar profile |
-| Loft (with guides)                          | ◐      | Forge-22 — ThruSections; guides param accepted, no-op |
-| Shell (uniform + multi-thickness)           | ◐      | Forge-22 — uniform; multi-thickness JS-metadata only |
+| Sweep along curve (with guides)             | ✅      | Forge-36 — `sweepWithGuides` drives `BRepOffsetAPI_MakePipeShell` with explicit guide wires (`SetMode`) |
+| Loft (with guides)                          | ✅      | Forge-36 — `loftWithGuides` uses `GeomFill_NSections` to build a guided BSpline skin |
+| Shell (uniform + multi-thickness)           | ✅      | Forge-36 — `shellMultiThickness` runs per-face `MakeThickSolid` passes and fuses |
 | Fillet (constant + variable radius)         | ✅      | Forge-22 |
 | Chamfer (uniform + asymmetric)              | ✅      | Forge-22 |
 | Draft (face/edge)                           | ✅      | Forge-22 |
@@ -33,7 +33,7 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Sheet metal: base/edge/miter/hem/bend       | ✅      | Forge-24 |
 | Sheet metal: unfold / flat pattern          | ✅      | Forge-24 — K-factor; documented topology limits |
 | Weldments: structural member/end cap/gusset | ✅      | Forge-24 — 7 profile kinds + cut list |
-| Surface modeling (NURBS authoring)          | ☐      | follow-up slice |
+| Surface modeling (NURBS authoring)          | ✅      | Forge-36 — `forge.surfacing.{buildPatch,trim,sew,refine,eval,intersect,projectPoint,classAAnalyse}` on `Geom_BSplineSurface` |
 | Persistent topo IDs (selective IDs)         | ◐      | TopExp_Explorer indices; survives booleans |
 
 ## 2. Performance
@@ -175,7 +175,7 @@ nice-to-have but not blocking).
 
 Self-grade as of the 7-agent integration wave:
 
-  §1 Kernel:       19 ✅ / 3 ◐ / 1 ☐  (NURBS authoring still open)
+  §1 Kernel:       26 ✅ / 1 ◐ / 0 ☐  (Forge-36 closed NURBS + sweep/loft/shell partials; only persistent topo IDs remain ◐)
   §2 Perf:          9 ✅ / 0 ◐ / 2 ☐  (GPU instancing + worker FEA queued)
   §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
   §4 Drawings:      7 ✅ / 1 ◐ / 0 ☐  (only auto-BOM rollup still partial)

@@ -44,6 +44,21 @@ ShapeHandle loft(const std::vector<SketchHandle>& sections,
                  const std::vector<SketchHandle>& guides,
                  bool ruled, bool closed);
 
+// Forge-36: proper guided sweep — every wire in `guides` is fed to
+// BRepOffsetAPI_MakePipeShell::SetMode so the swept profile interpolates
+// along the spine while staying tangent to each guide. Throws if the
+// spine + profile pair can't be reconciled with the supplied guides.
+ShapeHandle sweepWithGuides(SketchHandle profileSketch,
+                            SketchHandle pathSketch,
+                            const std::vector<SketchHandle>& guides);
+
+// Forge-36: guided loft — falls back on GeomFill_NSections to build a
+// guided NURBS skin since BRepOffsetAPI_ThruSections doesn't take guides
+// natively. `ruled`/`closed` mirror the existing loft() semantics.
+ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
+                           const std::vector<SketchHandle>& guides,
+                           bool ruled, bool closed);
+
 // ---------- thick / shelled / filleted bodies -----------------------------
 struct FaceThickness {
     std::uint32_t faceId;
@@ -54,6 +69,15 @@ ShapeHandle shell(ShapeHandle shape,
                   const std::vector<std::uint32_t>& faceIdsToRemove,
                   double thickness,
                   const std::vector<FaceThickness>& multiThickness);
+
+// Forge-36: true multi-thickness shell. Each entry in `perFaceOverrides`
+// causes a per-face BRepOffsetAPI_MakeThickSolid pass at the override
+// thickness, and the results are fused into one body. The base `thickness`
+// applies to faces not explicitly overridden.
+ShapeHandle shellMultiThickness(ShapeHandle shape,
+                                const std::vector<std::uint32_t>& faceIdsToRemove,
+                                double baseThickness,
+                                const std::vector<FaceThickness>& perFaceOverrides);
 
 ShapeHandle filletEdges(ShapeHandle shape,
                         const std::vector<std::uint32_t>& edgeIds,

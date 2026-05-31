@@ -33,6 +33,7 @@
 #include "forge/Features.hpp"
 #include "forge/SheetMetal.hpp"
 #include "forge/Weldments.hpp"
+#include "forge/Nurbs.hpp"
 
 #include <array>
 
@@ -3183,6 +3184,270 @@ Napi::Value WdCutList(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- part features (Forge-36 closures)
+//
+// sweepWithGuides / loftWithGuides / shellMultiThickness — the three
+// closures for §1's "Sweep with guides", "Loft with guides", and
+// "Shell (multi-thickness)" partial rows.
+Napi::Value PartSweepWithGuides(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto prof = requireHandle(info, 0);
+        auto path = requireHandle(info, 1);
+        std::vector<forge::SketchHandle> guides;
+        if (info.Length() > 2 && info[2].IsArray()) {
+            auto a = info[2].As<Napi::Array>();
+            for (uint32_t i = 0; i < a.Length(); ++i) {
+                guides.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+            }
+        }
+        return Napi::Number::New(env, forge::part::sweepWithGuides(prof, path, guides));
+    });
+}
+
+Napi::Value PartLoftWithGuides(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsArray()) {
+            throw Napi::TypeError::New(env,
+                "forge.part.loftWithGuides: sections must be array of handles");
+        }
+        std::vector<forge::SketchHandle> sections;
+        auto a = info[0].As<Napi::Array>();
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            sections.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+        }
+        std::vector<forge::SketchHandle> guides;
+        if (info.Length() > 1 && info[1].IsArray()) {
+            auto g = info[1].As<Napi::Array>();
+            for (uint32_t i = 0; i < g.Length(); ++i) {
+                guides.push_back(g.Get(i).As<Napi::Number>().Uint32Value());
+            }
+        }
+        bool ruled  = info.Length() > 2 && info[2].IsBoolean() ? info[2].As<Napi::Boolean>().Value() : false;
+        bool closed = info.Length() > 3 && info[3].IsBoolean() ? info[3].As<Napi::Boolean>().Value() : false;
+        return Napi::Number::New(env,
+            forge::part::loftWithGuides(sections, guides, ruled, closed));
+    });
+}
+
+Napi::Value PartShellMultiThickness(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        auto faces = part_bind::readU32Array(info, 1, "faceIdsToRemove");
+        double t = requireNumber(info, 2, "baseThickness");
+        std::vector<forge::part::FaceThickness> overrides;
+        if (info.Length() > 3 && info[3].IsArray()) {
+            auto a = info[3].As<Napi::Array>();
+            overrides.reserve(a.Length());
+            for (uint32_t i = 0; i < a.Length(); ++i) {
+                auto o = a.Get(i).As<Napi::Object>();
+                forge::part::FaceThickness ft{};
+                ft.faceId    = o.Get("faceId").As<Napi::Number>().Uint32Value();
+                ft.thickness = o.Get("thickness").As<Napi::Number>().DoubleValue();
+                overrides.push_back(ft);
+            }
+        }
+        return Napi::Number::New(env,
+            forge::part::shellMultiThickness(h, faces, t, overrides));
+    });
+}
+
+// ----------------------------------------------------------- NURBS surfacing (Forge-36)
+//
+// JS surface — under `forge.surfacing`:
+//   buildPatch({ uCount, vCount, xyz: Float64Array }, uDegree?, vDegree?, uKnots?, vKnots?) → handle
+//   trim(face, uvFlatArray) → handle
+//   sew([face, …], tolerance?) → handle
+//   refine(face, uTimes, vTimes) → handle
+//   eval(face, u, v) → { point, du, dv, normal, gaussian, mean }
+//   intersect(faceA, faceB) → handle
+//   projectPoint(face, [px, py, pz]) → { uv, point, distance }
+//   classAAnalyse(face, samples?) → { minK, maxK, avgK, isophoteCount }
+namespace surf_bind {
+
+forge::surfacing::ControlGrid readControlGrid(const Napi::Env& env, const Napi::Value& v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env,
+            "forge.surfacing: control grid must be { uCount, vCount, xyz }");
+    }
+    auto obj = v.As<Napi::Object>();
+    forge::surfacing::ControlGrid g{};
+    g.uCount = obj.Get("uCount").As<Napi::Number>().Uint32Value();
+    g.vCount = obj.Get("vCount").As<Napi::Number>().Uint32Value();
+    auto xyz = obj.Get("xyz");
+    if (!xyz.IsTypedArray()) {
+        throw Napi::TypeError::New(env,
+            "forge.surfacing: control grid .xyz must be a Float64Array");
+    }
+    auto ta = xyz.As<Napi::Float64Array>();
+    g.xyz.assign(ta.Data(), ta.Data() + ta.ElementLength());
+    return g;
+}
+
+std::vector<double> readF64Array(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<double> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (v.IsTypedArray()) {
+        auto ta = v.As<Napi::Float64Array>();
+        out.assign(ta.Data(), ta.Data() + ta.ElementLength());
+        return out;
+    }
+    if (v.IsArray()) {
+        auto a = v.As<Napi::Array>();
+        out.reserve(a.Length());
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            out.push_back(a.Get(i).As<Napi::Number>().DoubleValue());
+        }
+        return out;
+    }
+    throw Napi::TypeError::New(env, "forge.surfacing: expected Float64Array or Array of numbers");
+}
+
+Napi::Array vec3ToArr(Napi::Env env, const std::array<double, 3>& v) {
+    auto a = Napi::Array::New(env, 3);
+    a.Set(uint32_t{0}, v[0]);
+    a.Set(uint32_t{1}, v[1]);
+    a.Set(uint32_t{2}, v[2]);
+    return a;
+}
+
+} // namespace surf_bind
+
+Napi::Value SurfBuildPatch(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto grid = surf_bind::readControlGrid(env, info[0]);
+        std::uint32_t uDeg = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().Uint32Value() : 3;
+        std::uint32_t vDeg = (info.Length() > 2 && info[2].IsNumber())
+            ? info[2].As<Napi::Number>().Uint32Value() : 3;
+        auto uKnots = surf_bind::readF64Array(env, info.Length() > 3 ? info[3] : env.Undefined());
+        auto vKnots = surf_bind::readF64Array(env, info.Length() > 4 ? info[4] : env.Undefined());
+        return Napi::Number::New(env,
+            forge::surfacing::buildNurbsPatch(grid, uDeg, vDeg, uKnots, vKnots));
+    });
+}
+
+Napi::Value SurfTrim(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        auto uv = surf_bind::readF64Array(env, info[1]);
+        return Napi::Number::New(env, forge::surfacing::trimNurbsFace(h, uv));
+    });
+}
+
+Napi::Value SurfSew(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.surfacing.sew: expected handle array");
+        }
+        auto a = info[0].As<Napi::Array>();
+        std::vector<forge::ShapeHandle> handles;
+        handles.reserve(a.Length());
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            handles.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+        }
+        double tol = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().DoubleValue() : 1e-3;
+        return Napi::Number::New(env, forge::surfacing::sewNurbsFaces(handles, tol));
+    });
+}
+
+Napi::Value SurfRefine(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        std::uint32_t uTimes = info.Length() > 1 && info[1].IsNumber()
+            ? info[1].As<Napi::Number>().Uint32Value() : 0;
+        std::uint32_t vTimes = info.Length() > 2 && info[2].IsNumber()
+            ? info[2].As<Napi::Number>().Uint32Value() : 0;
+        return Napi::Number::New(info.Env(), forge::surfacing::refineNurbs(h, uTimes, vTimes));
+    });
+}
+
+Napi::Value SurfEval(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        double u = requireNumber(info, 1, "u");
+        double v = requireNumber(info, 2, "v");
+        auto r = forge::surfacing::evalSurface(h, u, v);
+        auto out = Napi::Object::New(env);
+        out.Set("point",  surf_bind::vec3ToArr(env, r.point));
+        out.Set("du",     surf_bind::vec3ToArr(env, r.du));
+        out.Set("dv",     surf_bind::vec3ToArr(env, r.dv));
+        out.Set("normal", surf_bind::vec3ToArr(env, r.normal));
+        out.Set("gaussian", Napi::Number::New(env, r.gaussian));
+        out.Set("mean",     Napi::Number::New(env, r.mean));
+        return out;
+    });
+}
+
+Napi::Value SurfIntersect(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto a = requireHandle(info, 0);
+        auto b = requireHandle(info, 1);
+        return Napi::Number::New(info.Env(), forge::surfacing::intersectSurfaces(a, b));
+    });
+}
+
+Napi::Value SurfProjectPoint(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        if (info.Length() < 2 || (!info[1].IsTypedArray() && !info[1].IsArray())) {
+            throw Napi::TypeError::New(env,
+                "forge.surfacing.projectPoint: pt must be [x,y,z]");
+        }
+        double px = 0.0, py = 0.0, pz = 0.0;
+        if (info[1].IsTypedArray()) {
+            auto ta = info[1].As<Napi::Float64Array>();
+            if (ta.ElementLength() < 3) {
+                throw Napi::TypeError::New(env,
+                    "forge.surfacing.projectPoint: pt array must have 3 elements");
+            }
+            px = ta.Data()[0]; py = ta.Data()[1]; pz = ta.Data()[2];
+        } else {
+            auto a = info[1].As<Napi::Array>();
+            if (a.Length() < 3) {
+                throw Napi::TypeError::New(env,
+                    "forge.surfacing.projectPoint: pt array must have 3 elements");
+            }
+            px = a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+            py = a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+            pz = a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+        }
+        auto r = forge::surfacing::projectPointToSurface(h, px, py, pz);
+        auto out = Napi::Object::New(env);
+        auto uv = Napi::Array::New(env, 2);
+        uv.Set(uint32_t{0}, r.u);
+        uv.Set(uint32_t{1}, r.v);
+        out.Set("uv", uv);
+        out.Set("point", surf_bind::vec3ToArr(env, r.point));
+        out.Set("distance", Napi::Number::New(env, r.distance));
+        return out;
+    });
+}
+
+Napi::Value SurfClassA(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        std::uint32_t samples = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().Uint32Value() : 16;
+        auto r = forge::surfacing::classAAnalyse(h, samples);
+        auto out = Napi::Object::New(env);
+        out.Set("minK",          Napi::Number::New(env, r.minK));
+        out.Set("maxK",          Napi::Number::New(env, r.maxK));
+        out.Set("avgK",          Napi::Number::New(env, r.avgK));
+        out.Set("isophoteCount", Napi::Number::New(env, static_cast<double>(r.isophoteCount)));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -3395,7 +3660,23 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("circularPattern",     Napi::Function::New(env, PartCircularPattern));
     part.Set("mirrorPattern",       Napi::Function::New(env, PartMirrorPattern));
     part.Set("onCurvePattern",      Napi::Function::New(env, PartOnCurvePattern));
+    // Forge-36 closures of the §1 partial rows.
+    part.Set("sweepWithGuides",     Napi::Function::New(env, PartSweepWithGuides));
+    part.Set("loftWithGuides",      Napi::Function::New(env, PartLoftWithGuides));
+    part.Set("shellMultiThickness", Napi::Function::New(env, PartShellMultiThickness));
     exports.Set("part", part);
+
+    // -------- NURBS surfacing (Forge-36) -------------------------------
+    auto surfacing = Napi::Object::New(env);
+    surfacing.Set("buildPatch",     Napi::Function::New(env, SurfBuildPatch));
+    surfacing.Set("trim",           Napi::Function::New(env, SurfTrim));
+    surfacing.Set("sew",            Napi::Function::New(env, SurfSew));
+    surfacing.Set("refine",         Napi::Function::New(env, SurfRefine));
+    surfacing.Set("eval",           Napi::Function::New(env, SurfEval));
+    surfacing.Set("intersect",      Napi::Function::New(env, SurfIntersect));
+    surfacing.Set("projectPoint",   Napi::Function::New(env, SurfProjectPoint));
+    surfacing.Set("classAAnalyse",  Napi::Function::New(env, SurfClassA));
+    exports.Set("surfacing", surfacing);
 
     // -------- IO exchange (Forge-21) — STEP / BREP / STL ----------------
     auto io = Napi::Object::New(env);
