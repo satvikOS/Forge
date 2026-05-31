@@ -121,6 +121,21 @@ const forgeApi = {
     writePoint:    (h, pid, x, y)           => kernel.sketcher.writePoint(h, pid, x, y),
     liveCount:     ()                       => kernel.sketcher.liveCount(),
   } : null,
+
+  // native FEA (Forge-12) — linear static + modal + dynamic Newmark-β.
+  // Mesh is the brick-grid fallback documented in forge/Fea.hpp; the
+  // surface API stays stable once the proper tet mesher lands.
+  fea: kernel && kernel.fea ? {
+    meshFromBrep: (h, targetElemSize) =>
+      kernel.fea.meshFromBrep(h, targetElemSize),
+    solveStatic:  (mesh, material, loads, pressureLoads, bcs) =>
+      kernel.fea.solveStatic(mesh, material, loads ?? [], pressureLoads ?? [], bcs ?? []),
+    solveModal:   (mesh, material, bcs, nModes) =>
+      kernel.fea.solveModal(mesh, material, bcs ?? [], nModes ?? 3),
+    solveDynamic: (mesh, material, loads, bcs, tEnd, dt, alpha, beta) =>
+      kernel.fea.solveDynamic(mesh, material, loads ?? [], bcs ?? [],
+                              tEnd, dt, alpha ?? 0, beta ?? 0),
+  } : null,
 };
 
 if (kernel) {

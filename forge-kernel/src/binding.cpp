@@ -17,6 +17,7 @@
 #include "forge/AssemblySolver.hpp"
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
+#include "forge/Fea.hpp"
 
 #include <Standard_Version.hxx>
 #include <cstring>
@@ -580,6 +581,270 @@ Napi::Value SketcherLiveCount(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- FEA (Forge-12)
+//
+// JS surface — under `forge.fea`:
+//   meshFromBrep(handle, targetElemSize)
+//     → { nodes: Float64Array, tets: Uint32Array,
+//         nodeToFace: Uint32Array, elemNodeCount: 8, nodeCount, elemCount }
+//   solveStatic(meshObj, materialObj, loadsArr, pressureLoadsArr, bcsArr)
+//     → { u: Float64Array, vonMises: Float64Array,
+//         maxVonMises, maxAtElem, residual }
+//   solveModal(meshObj, materialObj, bcsArr, nModes)
+//     → { eigenvalues: Float64Array, eigenvectors: [Float64Array...], nModes }
+//   solveDynamic(meshObj, materialObj, loadsArr, bcsArr,
+//                tEnd, dt, rayleighAlpha, rayleighBeta)
+//     → { displacements: [Float64Array...], times: Float64Array,
+//         maxStressEnvelope: Float64Array, cpuMs, stepCount }
+//
+// The mesh object can be the literal output of meshFromBrep — we read its
+// `nodes`/`tets`/`nodeToFace`/`elemNodeCount` fields back into the C++
+// `forge::fea::Mesh` struct. Materials, loads and BCs are plain JS objects.
+
+namespace {
+
+forge::fea::Mesh readMesh(const Napi::Env& env, const Napi::Value& v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.fea: mesh must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    if (!obj.Has("nodes") || !obj.Get("nodes").IsTypedArray()) {
+        throw Napi::TypeError::New(env, "forge.fea: mesh.nodes must be Float64Array");
+    }
+    if (!obj.Has("tets") || !obj.Get("tets").IsTypedArray()) {
+        throw Napi::TypeError::New(env, "forge.fea: mesh.tets must be Uint32Array");
+    }
+    forge::fea::Mesh m;
+    auto nodesArr = obj.Get("nodes").As<Napi::Float64Array>();
+    m.nodes.assign(nodesArr.Data(), nodesArr.Data() + nodesArr.ElementLength());
+    auto tetsArr = obj.Get("tets").As<Napi::Uint32Array>();
+    m.tets.assign(tetsArr.Data(), tetsArr.Data() + tetsArr.ElementLength());
+    if (obj.Has("nodeToFace") && obj.Get("nodeToFace").IsTypedArray()) {
+        auto nf = obj.Get("nodeToFace").As<Napi::Uint32Array>();
+        m.nodeToFace.assign(nf.Data(), nf.Data() + nf.ElementLength());
+    }
+    if (obj.Has("elemNodeCount") && obj.Get("elemNodeCount").IsNumber()) {
+        m.elemNodeCount = obj.Get("elemNodeCount").As<Napi::Number>().Uint32Value();
+    }
+    return m;
+}
+
+forge::fea::Material readMaterial(const Napi::Env& env, const Napi::Value& v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.fea: material must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    forge::fea::Material mat{};
+    auto reqNum = [&](const char* k) {
+        if (!obj.Has(k) || !obj.Get(k).IsNumber()) {
+            throw Napi::TypeError::New(env,
+                std::string("forge.fea: material.") + k + " required (number)");
+        }
+        return obj.Get(k).As<Napi::Number>().DoubleValue();
+    };
+    mat.E   = reqNum("E");
+    mat.nu  = reqNum("nu");
+    mat.rho = reqNum("rho");
+    return mat;
+}
+
+std::vector<forge::fea::LoadNodal>
+readNodalLoads(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::LoadNodal> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea: loads must be an array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto el = arr.Get(i);
+        if (!el.IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.fea: each load entry must be {nodeId, fx, fy, fz}");
+        }
+        auto o = el.As<Napi::Object>();
+        forge::fea::LoadNodal L{};
+        L.nodeId = o.Has("nodeId") ? o.Get("nodeId").As<Napi::Number>().Uint32Value() : 0u;
+        L.fx     = o.Has("fx") ? o.Get("fx").As<Napi::Number>().DoubleValue() : 0.0;
+        L.fy     = o.Has("fy") ? o.Get("fy").As<Napi::Number>().DoubleValue() : 0.0;
+        L.fz     = o.Has("fz") ? o.Get("fz").As<Napi::Number>().DoubleValue() : 0.0;
+        out.push_back(L);
+    }
+    return out;
+}
+
+std::vector<forge::fea::LoadPressure>
+readPressureLoads(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::LoadPressure> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea: pressureLoads must be an array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto el = arr.Get(i);
+        if (!el.IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.fea: each pressure entry must be {faceId, pressure}");
+        }
+        auto o = el.As<Napi::Object>();
+        forge::fea::LoadPressure P{};
+        P.faceId   = o.Has("faceId") ? o.Get("faceId").As<Napi::Number>().Uint32Value() : 0u;
+        P.pressure = o.Has("pressure") ? o.Get("pressure").As<Napi::Number>().DoubleValue() : 0.0;
+        out.push_back(P);
+    }
+    return out;
+}
+
+std::vector<forge::fea::BCPinned>
+readBCs(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::BCPinned> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea: bcs must be an array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto el = arr.Get(i);
+        if (!el.IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.fea: each BC entry must be {nodeId, fx, fy, fz}");
+        }
+        auto o = el.As<Napi::Object>();
+        forge::fea::BCPinned B{};
+        B.nodeId = o.Has("nodeId") ? o.Get("nodeId").As<Napi::Number>().Uint32Value() : 0u;
+        B.fx     = o.Has("fx") ? o.Get("fx").As<Napi::Boolean>().Value() : false;
+        B.fy     = o.Has("fy") ? o.Get("fy").As<Napi::Boolean>().Value() : false;
+        B.fz     = o.Has("fz") ? o.Get("fz").As<Napi::Boolean>().Value() : false;
+        out.push_back(B);
+    }
+    return out;
+}
+
+Napi::Object meshToJs(const Napi::Env& env, const forge::fea::Mesh& m) {
+    auto out = Napi::Object::New(env);
+    auto nodes = Napi::Float64Array::New(env, m.nodes.size());
+    std::copy(m.nodes.begin(), m.nodes.end(), nodes.Data());
+    out.Set("nodes", nodes);
+    auto tets = Napi::Uint32Array::New(env, m.tets.size());
+    std::copy(m.tets.begin(), m.tets.end(), tets.Data());
+    out.Set("tets", tets);
+    auto nodeToFace = Napi::Uint32Array::New(env, m.nodeToFace.size());
+    std::copy(m.nodeToFace.begin(), m.nodeToFace.end(), nodeToFace.Data());
+    out.Set("nodeToFace", nodeToFace);
+    out.Set("elemNodeCount", Napi::Number::New(env, m.elemNodeCount));
+    out.Set("nodeCount", Napi::Number::New(env,
+        static_cast<double>(m.nodes.size() / 3)));
+    out.Set("elemCount", Napi::Number::New(env,
+        static_cast<double>(m.tets.size() / m.elemNodeCount)));
+    return out;
+}
+
+} // namespace
+
+Napi::Value FeaMeshFromBrep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        const double targetSize = requireNumber(info, 1, "targetElemSize");
+        auto mesh = forge::fea::meshFromBRep(h, targetSize);
+        return meshToJs(info.Env(), mesh);
+    });
+}
+
+Napi::Value FeaSolveStatic(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh     = readMesh(env, info[0]);
+        auto material = readMaterial(env, info[1]);
+        auto loads    = readNodalLoads(env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto pres     = readPressureLoads(env, info.Length() > 3 ? info[3] : env.Undefined());
+        auto bcs      = readBCs(env, info.Length() > 4 ? info[4] : env.Undefined());
+
+        auto r = forge::fea::solveStatic(mesh, material, loads, pres, bcs);
+        auto out = Napi::Object::New(env);
+        auto u = Napi::Float64Array::New(env, r.u.size());
+        std::copy(r.u.begin(), r.u.end(), u.Data());
+        out.Set("u", u);
+        auto vm = Napi::Float64Array::New(env, r.vonMises.size());
+        std::copy(r.vonMises.begin(), r.vonMises.end(), vm.Data());
+        out.Set("vonMises", vm);
+        out.Set("maxVonMises", Napi::Number::New(env, r.maxVonMises));
+        out.Set("maxAtElem",   Napi::Number::New(env, r.maxAtElem));
+        out.Set("residual",    Napi::Number::New(env, r.residual));
+        return out;
+    });
+}
+
+Napi::Value FeaSolveModal(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh     = readMesh(env, info[0]);
+        auto material = readMaterial(env, info[1]);
+        auto bcs      = readBCs(env, info.Length() > 2 ? info[2] : env.Undefined());
+        const int nModes = info.Length() > 3 && info[3].IsNumber()
+            ? info[3].As<Napi::Number>().Int32Value() : 3;
+
+        auto r = forge::fea::solveModal(mesh, material, bcs, nModes);
+        auto out = Napi::Object::New(env);
+        auto vals = Napi::Float64Array::New(env, r.eigenvalues.size());
+        std::copy(r.eigenvalues.begin(), r.eigenvalues.end(), vals.Data());
+        out.Set("eigenvalues", vals);
+        auto vecsArr = Napi::Array::New(env, r.eigenvectors.size());
+        for (std::size_t i = 0; i < r.eigenvectors.size(); ++i) {
+            auto& phi = r.eigenvectors[i];
+            auto ta = Napi::Float64Array::New(env, phi.size());
+            std::copy(phi.begin(), phi.end(), ta.Data());
+            vecsArr.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("eigenvectors", vecsArr);
+        out.Set("nModes", Napi::Number::New(env, r.nModes));
+        return out;
+    });
+}
+
+Napi::Value FeaSolveDynamic(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh     = readMesh(env, info[0]);
+        auto material = readMaterial(env, info[1]);
+        auto loads    = readNodalLoads(env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto bcs      = readBCs(env, info.Length() > 3 ? info[3] : env.Undefined());
+        const double tEnd  = requireNumber(info, 4, "tEnd");
+        const double dt    = requireNumber(info, 5, "dt");
+        const double alpha = info.Length() > 6 && info[6].IsNumber()
+            ? info[6].As<Napi::Number>().DoubleValue() : 0.0;
+        const double betaR = info.Length() > 7 && info[7].IsNumber()
+            ? info[7].As<Napi::Number>().DoubleValue() : 0.0;
+
+        auto r = forge::fea::solveDynamic(mesh, material, loads, bcs,
+                                          tEnd, dt, alpha, betaR);
+        auto out = Napi::Object::New(env);
+        auto times = Napi::Float64Array::New(env, r.times.size());
+        std::copy(r.times.begin(), r.times.end(), times.Data());
+        out.Set("times", times);
+
+        auto disps = Napi::Array::New(env, r.displacements.size());
+        for (std::size_t i = 0; i < r.displacements.size(); ++i) {
+            auto& u = r.displacements[i];
+            auto ta = Napi::Float64Array::New(env, u.size());
+            std::copy(u.begin(), u.end(), ta.Data());
+            disps.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("displacements", disps);
+
+        auto env_ = Napi::Float64Array::New(env, r.maxStressEnvelope.size());
+        std::copy(r.maxStressEnvelope.begin(), r.maxStressEnvelope.end(), env_.Data());
+        out.Set("maxStressEnvelope", env_);
+        out.Set("cpuMs", Napi::Number::New(env, r.cpuMs));
+        out.Set("stepCount", Napi::Number::New(env,
+            static_cast<double>(r.displacements.size())));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -689,6 +954,14 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     sketcher.Set("statuses", statuses);
 
     exports.Set("sketcher", sketcher);
+
+    // -------- FEA (Forge-12) ---------------------------------------------
+    auto fea = Napi::Object::New(env);
+    fea.Set("meshFromBrep", Napi::Function::New(env, FeaMeshFromBrep));
+    fea.Set("solveStatic",  Napi::Function::New(env, FeaSolveStatic));
+    fea.Set("solveModal",   Napi::Function::New(env, FeaSolveModal));
+    fea.Set("solveDynamic", Napi::Function::New(env, FeaSolveDynamic));
+    exports.Set("fea", fea);
 
     return exports;
 }

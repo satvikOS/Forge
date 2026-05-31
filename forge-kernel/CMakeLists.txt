@@ -95,6 +95,7 @@ add_library(forge_kernel SHARED
     src/AssemblySolver.cpp
     src/Drawings.cpp
     src/Sketcher.cpp
+    src/Fea.cpp
     ${PLANEGCS_SRC}
 )
 
