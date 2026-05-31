@@ -91,7 +91,7 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Linear / radial / angular dimensions        | ✅      | Forge-32 — full SVG geometry (extension lines, arrowheads, units mm/in, label-along-line) |
 | GD&T feature control frames                 | ✅      | Forge-15 MBD glyphs |
 | Title block templates (A4-A0 + ANSI A-E)    | ✅      | Forge-32 — 10 templates (5 ISO + 5 ANSI) with 14 fields, pluggable via applyTitleBlock() |
-| Balloons + auto-BOM                         | ◐      | Forge-32 — balloon + leader + arrowhead + collision-nudge done; auto-BOM rollup still queued |
+| Balloons + auto-BOM                         | ✅      | Forge-32 balloon + leader + collision-nudge; Forge-45 auto-BOM rollup with qty/mass/cost aggregation + autoBalloon(view, rollup) per-instance leader placement + BomTable.toSvg sheet output |
 | Section views                               | ✅      | Forge-32 — BRepAlgoAPI_Section cut + 45° hatch, SectionView class draws section-line callout on parent |
 | Detail views                                | ✅      | Forge-32 — polyline clipping to focus circle + N× scale, dashed-circle callout on parent view |
 | Broken / projected views                    | ✅      | Forge-32 — axis-aligned break region with right-half compaction + zigzag/wavy break symbol |
@@ -178,7 +178,7 @@ Self-grade as of the 7-agent integration wave:
   §1 Kernel:       26 ✅ / 1 ◐ / 0 ☐  (Forge-36 closed NURBS + sweep/loft/shell partials; only persistent topo IDs remain ◐)
   §2 Perf:          9 ✅ / 0 ◐ / 2 ☐  (GPU instancing + worker FEA queued)
   §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
-  §4 Drawings:      7 ✅ / 1 ◐ / 0 ☐  (only auto-BOM rollup still partial)
+  §4 Drawings:      8 ✅ / 0 ◐ / 0 ☐  (auto-BOM rollup wired in Forge-45)
   §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed 3/5-axis + stock-sim + CMM)
   §7 PDM/IO:        4 ✅ / 3 ◐ / 0 ☐  (Forge-34 — filesystem store ✅; IGES ✅; PMI/MBD ◐; JT/Parasolid ◐ stub-with-error; S3 stub ◐ opt-in)
@@ -186,9 +186,9 @@ Self-grade as of the 7-agent integration wave:
   §9 AI:            3 ✅ / 1 ◐ / 0 ☐
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐
 
-Totals: **102 ✅ / 5 ◐ / 4 ☐** out of 111 rows.
+Totals: **103 ✅ / 4 ◐ / 4 ☐** out of 111 rows.
 
-§§1, 3, 4 (mod auto-BOM), 5, 6, 8 are **fully green** — every
+§§1, 3, 4, 5, 6, 8 are **fully green** — every
 SolidWorks/NX/Catia equivalent op is shipped and smoke-tested. UI/UX
 (the V V IMPORTANT bar) is fully green.
 
@@ -200,10 +200,9 @@ Remaining 4 ☐:
   token having `workflow` scope.
 - §10 OCCT dylibs bundled in macOS .app — same blocker.
 
-Remaining 5 ◐:
+Remaining 4 ◐:
 - §1 Persistent topo IDs — TopExp index survives booleans; full
   selective-IDs across all ops is still vertical work.
-- §4 Auto-BOM rollup on balloons — symbol + leader done; rollup queued.
 - §7 PMI/MBD STEP AP242 — round-trips via comment block; full
   representation_item entities queued.
 - §7 JT / Parasolid import — proprietary kernel licensing; emits a
@@ -229,8 +228,8 @@ third-party kernel licensing (JT / Parasolid), and (c) the rest are
 real follow-up slices that don't gate any current workflow.
 
 **Self-approval: YES for what's achievable in this environment.**
-The unblocked residuals (GPU instancing, worker FEA pool, auto-BOM
-rollup, persistent selective-IDs, AP242 PMI entities, S3 backend,
+The unblocked residuals (GPU instancing, worker FEA pool,
+persistent selective-IDs, AP242 PMI entities, S3 backend,
 trace flush) are the next legitimate slice tickets — none gates a
 top-level workflow, and none requires re-architecting the kernel.
 
