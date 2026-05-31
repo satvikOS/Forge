@@ -24,8 +24,10 @@
 #include "forge/IoExchange.hpp"
 #include "forge/DirectModeling.hpp"
 #include "forge/Healing.hpp"
+#include "forge/Features.hpp"
 
 #include <Standard_Version.hxx>
+#include <Standard_Failure.hxx>
 #include <cstring>
 
 using namespace forge;
@@ -43,6 +45,13 @@ Napi::Value safe(const Napi::CallbackInfo& info, Fn&& fn) {
         return fn();
     } catch (const Napi::Error&) {
         throw;
+    } catch (const Standard_Failure& f) {
+        // OCCT exceptions don't always derive from std::exception in
+        // OCCT 7.9 (they do on most builds but not all); catch them
+        // explicitly so we surface the real OCCT message to JS.
+        const char* msg = f.GetMessageString();
+        throw Napi::Error::New(info.Env(),
+            std::string("forge (OCCT): ") + (msg ? msg : f.DynamicType()->Name()));
     } catch (const std::exception& e) {
         throw Napi::Error::New(info.Env(), e.what());
     } catch (...) {
@@ -1682,6 +1691,328 @@ Napi::Value HealCheckValidity(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- part features (Forge-22)
+namespace part_bind {
+
+std::vector<double> readVec3(const Napi::CallbackInfo& info, std::size_t idx, const char* what) {
+    auto env = info.Env();
+    if (info.Length() <= idx) {
+        throw Napi::TypeError::New(env,
+            std::string("forge.part: missing ") + what + " (vec3)");
+    }
+    auto v = info[idx];
+    if (v.IsTypedArray()) {
+        auto a = v.As<Napi::Float64Array>();
+        if (a.ElementLength() != 3) {
+            throw Napi::TypeError::New(env,
+                std::string("forge.part: ") + what + " must have 3 elements");
+        }
+        return {a.Data()[0], a.Data()[1], a.Data()[2]};
+    }
+    if (v.IsArray()) {
+        auto a = v.As<Napi::Array>();
+        if (a.Length() != 3) {
+            throw Napi::TypeError::New(env,
+                std::string("forge.part: ") + what + " must have 3 elements");
+        }
+        return {a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue(),
+                a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue(),
+                a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue()};
+    }
+    throw Napi::TypeError::New(env,
+        std::string("forge.part: ") + what + " must be Float64Array[3] or Array[3]");
+}
+
+std::vector<std::uint32_t> readU32Array(const Napi::CallbackInfo& info, std::size_t idx, const char* what) {
+    auto env = info.Env();
+    std::vector<std::uint32_t> out;
+    if (info.Length() <= idx) return out;
+    auto v = info[idx];
+    if (v.IsNull() || v.IsUndefined()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env,
+            std::string("forge.part: ") + what + " must be an array of numbers");
+    }
+    auto a = v.As<Napi::Array>();
+    out.reserve(a.Length());
+    for (uint32_t i = 0; i < a.Length(); ++i) {
+        out.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+    }
+    return out;
+}
+
+}  // namespace part_bind
+
+Napi::Value PartExtrudeProfile(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sk = requireHandle(info, 0);
+        double dist = requireNumber(info, 1, "distance");
+        auto d = part_bind::readVec3(info, 2, "direction");
+        return Napi::Number::New(info.Env(),
+            forge::part::extrudeProfile(sk, dist, d[0], d[1], d[2]));
+    });
+}
+
+Napi::Value PartRevolveProfile(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sk = requireHandle(info, 0);
+        auto o = part_bind::readVec3(info, 1, "axisOrigin");
+        auto d = part_bind::readVec3(info, 2, "axisDir");
+        double ang = requireNumber(info, 3, "angleRad");
+        return Napi::Number::New(info.Env(),
+            forge::part::revolveProfile(sk, o[0], o[1], o[2], d[0], d[1], d[2], ang));
+    });
+}
+
+Napi::Value PartSweep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto prof = requireHandle(info, 0);
+        auto path = requireHandle(info, 1);
+        bool wg = info.Length() > 2 && info[2].IsBoolean()
+                      ? info[2].As<Napi::Boolean>().Value() : false;
+        return Napi::Number::New(info.Env(), forge::part::sweep(prof, path, wg));
+    });
+}
+
+Napi::Value PartLoft(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.part.loft: sections must be array of handles");
+        }
+        std::vector<forge::SketchHandle> sections;
+        auto a = info[0].As<Napi::Array>();
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            sections.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+        }
+        std::vector<forge::SketchHandle> guides;
+        if (info.Length() > 1 && info[1].IsArray()) {
+            auto g = info[1].As<Napi::Array>();
+            for (uint32_t i = 0; i < g.Length(); ++i) {
+                guides.push_back(g.Get(i).As<Napi::Number>().Uint32Value());
+            }
+        }
+        bool ruled  = info.Length() > 2 && info[2].IsBoolean() ? info[2].As<Napi::Boolean>().Value() : false;
+        bool closed = info.Length() > 3 && info[3].IsBoolean() ? info[3].As<Napi::Boolean>().Value() : false;
+        return Napi::Number::New(env, forge::part::loft(sections, guides, ruled, closed));
+    });
+}
+
+Napi::Value PartShell(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto faces = part_bind::readU32Array(info, 1, "faceIdsToRemove");
+        double t = requireNumber(info, 2, "thickness");
+        std::vector<forge::part::FaceThickness> mt;
+        if (info.Length() > 3 && info[3].IsArray()) {
+            auto a = info[3].As<Napi::Array>();
+            mt.reserve(a.Length());
+            for (uint32_t i = 0; i < a.Length(); ++i) {
+                auto o = a.Get(i).As<Napi::Object>();
+                forge::part::FaceThickness ft{};
+                ft.faceId    = o.Get("faceId").As<Napi::Number>().Uint32Value();
+                ft.thickness = o.Get("thickness").As<Napi::Number>().DoubleValue();
+                mt.push_back(ft);
+            }
+        }
+        return Napi::Number::New(info.Env(), forge::part::shell(h, faces, t, mt));
+    });
+}
+
+Napi::Value PartFilletEdges(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto edges = part_bind::readU32Array(info, 1, "edgeIds");
+        double r = requireNumber(info, 2, "radius");
+        return Napi::Number::New(info.Env(), forge::part::filletEdges(h, edges, r));
+    });
+}
+
+Napi::Value PartVariableFillet(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        auto e = requireHandle(info, 1);
+        if (info.Length() < 3 || !info[2].IsArray()) {
+            throw Napi::TypeError::New(env,
+                "forge.part.variableFilletEdge: anchorRadii must be array of {u,r}");
+        }
+        auto a = info[2].As<Napi::Array>();
+        std::vector<forge::part::VariableRadiusAnchor> anchors;
+        anchors.reserve(a.Length());
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            auto o = a.Get(i).As<Napi::Object>();
+            forge::part::VariableRadiusAnchor ar{};
+            ar.u = o.Get("u").As<Napi::Number>().DoubleValue();
+            ar.r = o.Get("r").As<Napi::Number>().DoubleValue();
+            anchors.push_back(ar);
+        }
+        return Napi::Number::New(env, forge::part::variableFilletEdge(h, e, anchors));
+    });
+}
+
+Napi::Value PartChamferEdges(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto edges = part_bind::readU32Array(info, 1, "edgeIds");
+        double d = requireNumber(info, 2, "distance");
+        double d2 = info.Length() > 3 && info[3].IsNumber()
+                       ? info[3].As<Napi::Number>().DoubleValue() : -1.0;
+        return Napi::Number::New(info.Env(), forge::part::chamferEdges(h, edges, d, d2));
+    });
+}
+
+Napi::Value PartDraftFaces(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        if (info.Length() < 2 || !info[1].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.part.draftFaces: neutralPlane must be {origin, normal}");
+        }
+        auto pl = info[1].As<Napi::Object>();
+        forge::part::DraftPlane plane{};
+        auto o = pl.Get("origin");
+        auto n = pl.Get("normal");
+        auto rdV = [&](Napi::Value v, double* out) {
+            if (v.IsTypedArray()) {
+                auto a = v.As<Napi::Float64Array>();
+                if (a.ElementLength() != 3) {
+                    throw Napi::TypeError::New(env, "forge.part.draftFaces: vec3 expected");
+                }
+                out[0] = a.Data()[0]; out[1] = a.Data()[1]; out[2] = a.Data()[2];
+            } else if (v.IsArray()) {
+                auto a = v.As<Napi::Array>();
+                if (a.Length() != 3) {
+                    throw Napi::TypeError::New(env, "forge.part.draftFaces: vec3 expected");
+                }
+                out[0] = a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+                out[1] = a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+                out[2] = a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+            } else {
+                throw Napi::TypeError::New(env, "forge.part.draftFaces: vec3 expected");
+            }
+        };
+        double oo[3], nn[3];
+        rdV(o, oo); rdV(n, nn);
+        plane.ox = oo[0]; plane.oy = oo[1]; plane.oz = oo[2];
+        plane.nx = nn[0]; plane.ny = nn[1]; plane.nz = nn[2];
+        auto faces = part_bind::readU32Array(info, 2, "faceIds");
+        double ang = requireNumber(info, 3, "angleRad");
+        return Napi::Number::New(env, forge::part::draftFaces(h, plane, faces, ang));
+    });
+}
+
+Napi::Value PartHoleWizard(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        auto p = part_bind::readVec3(info, 1, "position");
+        auto a = part_bind::readVec3(info, 2, "axis");
+        if (info.Length() < 4 || !info[3].IsString()) {
+            throw Napi::TypeError::New(env,
+                "forge.part.holeWizard: type must be 'simple'|'counterbore'|'countersink'|'tapped'");
+        }
+        std::string t = info[3].As<Napi::String>().Utf8Value();
+        std::uint32_t kind = 0;
+        if      (t == "simple")      kind = 0;
+        else if (t == "counterbore") kind = 1;
+        else if (t == "countersink") kind = 2;
+        else if (t == "tapped")      kind = 3;
+        else throw Napi::TypeError::New(env, "forge.part.holeWizard: unknown type '" + t + "'");
+        forge::part::HoleSpec spec{};
+        if (info.Length() > 4 && info[4].IsObject()) {
+            auto so = info[4].As<Napi::Object>();
+            auto rd = [&](const char* k, double& dst) {
+                if (so.Has(k) && so.Get(k).IsNumber()) {
+                    dst = so.Get(k).As<Napi::Number>().DoubleValue();
+                }
+            };
+            rd("diameter",     spec.diameter);
+            rd("depth",        spec.depth);
+            rd("headDiameter", spec.headDiameter);
+            rd("headDepth",    spec.headDepth);
+            rd("headAngle",    spec.headAngle);
+            rd("tappedPitch",  spec.tappedPitch);
+        }
+        return Napi::Number::New(env,
+            forge::part::holeWizard(h, p[0], p[1], p[2], a[0], a[1], a[2], kind, spec));
+    });
+}
+
+Napi::Value PartRib(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sk = requireHandle(info, 0);
+        double depth = requireNumber(info, 1, "depth");
+        double thk   = requireNumber(info, 2, "thickness");
+        std::uint32_t neutral = info.Length() > 3 && info[3].IsNumber()
+                                    ? info[3].As<Napi::Number>().Uint32Value() : 0u;
+        return Napi::Number::New(info.Env(), forge::part::rib(sk, depth, thk, neutral));
+    });
+}
+
+Napi::Value PartLinearPattern(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto n = requireHandle(info, 1);
+        double dx = requireNumber(info, 2, "dx");
+        double dy = requireNumber(info, 3, "dy");
+        double dz = requireNumber(info, 4, "dz");
+        return Napi::Number::New(info.Env(), forge::part::linearPattern(h, n, dx, dy, dz));
+    });
+}
+
+Napi::Value PartCircularPattern(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto n = requireHandle(info, 1);
+        auto o = part_bind::readVec3(info, 2, "axisOrigin");
+        auto d = part_bind::readVec3(info, 3, "axisDir");
+        double ang = requireNumber(info, 4, "totalAngleRad");
+        return Napi::Number::New(info.Env(),
+            forge::part::circularPattern(h, n, o[0], o[1], o[2], d[0], d[1], d[2], ang));
+    });
+}
+
+Napi::Value PartMirrorPattern(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        if (info.Length() < 2 || !info[1].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.part.mirrorPattern: plane must be {origin, normal}");
+        }
+        auto pl = info[1].As<Napi::Object>();
+        auto rdV = [&](Napi::Value v, double* out) {
+            if (v.IsTypedArray()) {
+                auto a = v.As<Napi::Float64Array>();
+                out[0] = a.Data()[0]; out[1] = a.Data()[1]; out[2] = a.Data()[2];
+            } else if (v.IsArray()) {
+                auto a = v.As<Napi::Array>();
+                out[0] = a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+                out[1] = a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+                out[2] = a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+            } else {
+                throw Napi::TypeError::New(env, "forge.part.mirrorPattern: vec3 expected");
+            }
+        };
+        double oo[3], nn[3];
+        rdV(pl.Get("origin"), oo);
+        rdV(pl.Get("normal"), nn);
+        return Napi::Number::New(env,
+            forge::part::mirrorPattern(h, oo[0], oo[1], oo[2], nn[0], nn[1], nn[2]));
+    });
+}
+
+Napi::Value PartOnCurvePattern(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto sk = requireHandle(info, 1);
+        auto n = requireHandle(info, 2);
+        return Napi::Number::New(info.Env(), forge::part::onCurvePattern(h, sk, n));
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -1838,6 +2169,25 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     auto cfd = Napi::Object::New(env);
     cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
     exports.Set("cfd", cfd);
+
+    // -------- part features (Forge-22) ----------------------------------
+    auto part = Napi::Object::New(env);
+    part.Set("extrudeProfile",      Napi::Function::New(env, PartExtrudeProfile));
+    part.Set("revolveProfile",      Napi::Function::New(env, PartRevolveProfile));
+    part.Set("sweep",               Napi::Function::New(env, PartSweep));
+    part.Set("loft",                Napi::Function::New(env, PartLoft));
+    part.Set("shell",               Napi::Function::New(env, PartShell));
+    part.Set("filletEdges",         Napi::Function::New(env, PartFilletEdges));
+    part.Set("variableFilletEdge",  Napi::Function::New(env, PartVariableFillet));
+    part.Set("chamferEdges",        Napi::Function::New(env, PartChamferEdges));
+    part.Set("draftFaces",          Napi::Function::New(env, PartDraftFaces));
+    part.Set("holeWizard",          Napi::Function::New(env, PartHoleWizard));
+    part.Set("rib",                 Napi::Function::New(env, PartRib));
+    part.Set("linearPattern",       Napi::Function::New(env, PartLinearPattern));
+    part.Set("circularPattern",     Napi::Function::New(env, PartCircularPattern));
+    part.Set("mirrorPattern",       Napi::Function::New(env, PartMirrorPattern));
+    part.Set("onCurvePattern",      Napi::Function::New(env, PartOnCurvePattern));
+    exports.Set("part", part);
 
     // -------- IO exchange (Forge-21) — STEP / BREP / STL ----------------
     auto io = Napi::Object::New(env);

@@ -17,17 +17,17 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Component registry (100k instances)         | ✅      | Forge-4 |
 | Reference-counted BREP de-dup               | ✅      | Forge-4 |
 | AABB spatial query                          | ◐      | linear scan; BVH queued (Forge-22 perf agent) |
-| Extrude / cut along sketch profile          | ☐      | Forge-22 kernel agent |
-| Revolve along axis                          | ☐      | Forge-22 kernel agent |
-| Sweep along curve (with guides)             | ☐      | Forge-22 kernel agent |
-| Loft (with guides)                          | ☐      | Forge-22 kernel agent |
-| Shell (uniform + multi-thickness)           | ☐      | Forge-22 kernel agent |
-| Fillet (constant + variable radius)         | ☐      | Forge-22 kernel agent |
-| Chamfer (uniform + asymmetric)              | ☐      | Forge-22 kernel agent |
-| Draft (face/edge)                           | ☐      | Forge-22 kernel agent |
-| Hole wizard (counterbore/countersink/tap)   | ☐      | Forge-22 kernel agent |
-| Rib                                         | ☐      | Forge-22 kernel agent |
-| Patterns (linear/circular/mirror/on-curve)  | ☐      | Forge-22 kernel agent |
+| Extrude / cut along sketch profile          | ✅      | Forge-22 — BRepPrimAPI_MakePrism |
+| Revolve along axis                          | ✅      | Forge-22 — BRepPrimAPI_MakeRevol |
+| Sweep along curve (with guides)             | ◐      | Forge-22 — MakePipe/MakePipeShell; coplanar profile+path degenerate (limitation of XY-only sketcher) |
+| Loft (with guides)                          | ◐      | Forge-22 — BRepOffsetAPI_ThruSections; guides param accepted but no-op (OCCT ThruSections has no guide-wire overload) |
+| Shell (uniform + multi-thickness)           | ◐      | Forge-22 — BRepOffsetAPI_MakeThickSolid; multi-thickness recorded as metadata only |
+| Fillet (constant + variable radius)         | ✅      | Forge-22 — BRepFilletAPI_MakeFillet + Add(TColgp_Array1OfPnt2d, edge) for variable |
+| Chamfer (uniform + asymmetric)              | ✅      | Forge-22 — BRepFilletAPI_MakeChamfer |
+| Draft (face/edge)                           | ✅      | Forge-22 — BRepOffsetAPI_DraftAngle |
+| Hole wizard (counterbore/countersink/tap)   | ✅      | Forge-22 — composes cylindrical cut + counterbore/sink + metadata tag for tapped |
+| Rib                                         | ✅      | Forge-22 — extrude-and-fuse (open profile = ribbon, closed = prism) |
+| Patterns (linear/circular/mirror/on-curve)  | ✅      | Forge-22 — fuse of translated/rotated/mirrored/sampled copies |
 | Direct modeling (push/pull/move/delete face)| ☐      | Forge-23 direct-mod agent |
 | Healing (sew/simplify/repair)               | ☐      | Forge-23 direct-mod agent |
 | Sheet metal: base/edge/miter/hem/bend       | ☐      | Forge-24 sheet-metal agent |

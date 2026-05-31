@@ -103,6 +103,7 @@ add_library(forge_kernel SHARED
     src/IoExchange.cpp
     src/DirectModeling.cpp
     src/Healing.cpp
+    src/Features.cpp
     ${PLANEGCS_SRC}
 )
 

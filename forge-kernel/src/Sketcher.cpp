@@ -17,6 +17,22 @@
 #include "GCS.h"
 #include "Geo.h"
 
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <GC_MakeCircle.hxx>
+#include <Precision.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Vertex.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
+
 #include <cmath>
 #include <memory>
 #include <mutex>
@@ -407,6 +423,112 @@ void writePoint(SketchHandle h, SketchParamId pid, double x, double y) {
     GCS::Point& p = s.pointByParamId(pid);
     *p.x = x;
     *p.y = y;
+}
+
+// ---------------------------------------------------------------- extractWires
+//
+// Convert each line / circle / arc into a TopoDS_Edge on the Z=0 plane,
+// then stitch lines + arcs into wires by matching endpoints (within
+// Precision::Confusion). Circles become their own closed wire each.
+// Returns the (possibly multi-wire) collection — Features.cpp consumes the
+// first wire for single-profile ops (extrude/revolve) and the full list
+// for ops that want each loop independently (loft sections).
+std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
+    Sketch& s = SketchRegistry::instance().get(h);
+    std::vector<TopoDS_Wire> wires;
+
+    // ---- (A) closed loops: each circle is its own wire --------------------
+    for (const auto& cptr : s.circles) {
+        const GCS::Circle& c = *cptr;
+        gp_Pnt center(*c.center.x, *c.center.y, 0.0);
+        gp_Dir axis(0, 0, 1);
+        gp_Circ circ(gp_Ax2(center, axis), *c.rad);
+        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
+        BRepBuilderAPI_MakeWire mkw(e);
+        if (mkw.IsDone()) wires.push_back(mkw.Wire());
+    }
+
+    // ---- (B) open segments: lines + arcs ---------------------------------
+    // Build each as a TopoDS_Edge, recording the (start, end) 3D points.
+    struct Seg {
+        TopoDS_Edge edge;
+        gp_Pnt a, b;
+    };
+    std::vector<Seg> segs;
+
+    for (const auto& lptr : s.lines) {
+        const GCS::Line& l = *lptr;
+        gp_Pnt p1(*l.p1.x, *l.p1.y, 0.0);
+        gp_Pnt p2(*l.p2.x, *l.p2.y, 0.0);
+        if (p1.Distance(p2) < Precision::Confusion()) continue;  // degenerate
+        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(p1, p2).Edge();
+        segs.push_back({e, p1, p2});
+    }
+
+    for (const auto& aptr : s.arcs) {
+        const GCS::Arc& ar = *aptr;
+        gp_Pnt center(*ar.center.x, *ar.center.y, 0.0);
+        gp_Pnt sp(*ar.start.x, *ar.start.y, 0.0);
+        gp_Pnt ep(*ar.end.x,   *ar.end.y,   0.0);
+        // Midpoint on the arc via startAngle/endAngle so OCCT picks the
+        // correct arc direction. Fall back to a straight-edge if degenerate.
+        const double r = *ar.rad;
+        const double sa = *ar.startAngle;
+        const double ea = *ar.endAngle;
+        if (r < Precision::Confusion() || std::abs(ea - sa) < 1e-9) {
+            continue;
+        }
+        const double ma = sa + 0.5 * (ea - sa);
+        gp_Pnt mp(center.X() + r * std::cos(ma),
+                  center.Y() + r * std::sin(ma), 0.0);
+        GC_MakeArcOfCircle mk(sp, mp, ep);
+        if (!mk.IsDone()) continue;
+        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(mk.Value()).Edge();
+        segs.push_back({e, sp, ep});
+    }
+
+    // ---- (C) stitch segments into wires by endpoint matching -------------
+    std::vector<bool> used(segs.size(), false);
+    auto coincident = [](const gp_Pnt& p, const gp_Pnt& q) {
+        return p.Distance(q) < 1.0e-5;  // 10 µm — looser than Precision::Confusion
+    };
+
+    for (std::size_t i = 0; i < segs.size(); ++i) {
+        if (used[i]) continue;
+        used[i] = true;
+        BRepBuilderAPI_MakeWire mkw(segs[i].edge);
+        gp_Pnt frontPt = segs[i].a;
+        gp_Pnt backPt  = segs[i].b;
+        bool grew = true;
+        while (grew) {
+            grew = false;
+            for (std::size_t j = 0; j < segs.size(); ++j) {
+                if (used[j]) continue;
+                if (coincident(backPt, segs[j].a)) {
+                    mkw.Add(segs[j].edge);
+                    backPt = segs[j].b;
+                    used[j] = true; grew = true;
+                } else if (coincident(backPt, segs[j].b)) {
+                    mkw.Add(segs[j].edge);
+                    backPt = segs[j].a;
+                    used[j] = true; grew = true;
+                } else if (coincident(frontPt, segs[j].b)) {
+                    mkw.Add(segs[j].edge);
+                    frontPt = segs[j].a;
+                    used[j] = true; grew = true;
+                } else if (coincident(frontPt, segs[j].a)) {
+                    mkw.Add(segs[j].edge);
+                    frontPt = segs[j].b;
+                    used[j] = true; grew = true;
+                }
+            }
+        }
+        if (mkw.IsDone()) {
+            wires.push_back(mkw.Wire());
+        }
+    }
+
+    return wires;
 }
 
 }  // namespace forge

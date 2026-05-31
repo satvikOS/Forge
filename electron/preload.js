@@ -211,6 +211,41 @@ const forgeApi = {
     autoRepairSelfIntersection: (h, tol)        => kernel.heal.autoRepairSelfIntersection(h, tol ?? 1e-3),
     harmonizeNormals:           (h)             => kernel.heal.harmonizeNormals(h),
     checkValidity:              (h)             => kernel.heal.checkValidity(h),
+  // part features (Forge-22) — extrude / revolve / sweep / loft / shell /
+  // fillet / chamfer / draft / hole / rib / patterns. Defensive null
+  // guard: older addons that predate Forge-22 may not ship `forge.part`;
+  // PartOps.js detects that and surfaces a friendly error in the UI.
+  part: kernel && kernel.part ? {
+    extrudeProfile:     (sk, distance, direction) =>
+      kernel.part.extrudeProfile(sk, distance, direction),
+    revolveProfile:     (sk, axisOrigin, axisDir, angleRad) =>
+      kernel.part.revolveProfile(sk, axisOrigin, axisDir, angleRad),
+    sweep:              (profileSk, pathSk, withGuides) =>
+      kernel.part.sweep(profileSk, pathSk, !!withGuides),
+    loft:               (sectionHandles, guides, ruled, closed) =>
+      kernel.part.loft(sectionHandles, guides ?? [], !!ruled, !!closed),
+    shell:              (shape, faceIdsToRemove, thickness, multiThickness) =>
+      kernel.part.shell(shape, faceIdsToRemove ?? [], thickness, multiThickness ?? []),
+    filletEdges:        (shape, edgeIds, radius) =>
+      kernel.part.filletEdges(shape, edgeIds, radius),
+    variableFilletEdge: (shape, edgeId, anchorRadii) =>
+      kernel.part.variableFilletEdge(shape, edgeId, anchorRadii),
+    chamferEdges:       (shape, edgeIds, distance, distance2) =>
+      kernel.part.chamferEdges(shape, edgeIds, distance, distance2 ?? -1),
+    draftFaces:         (shape, neutralPlane, faceIds, angleRad) =>
+      kernel.part.draftFaces(shape, neutralPlane, faceIds, angleRad),
+    holeWizard:         (shape, position, axis, type, spec) =>
+      kernel.part.holeWizard(shape, position, axis, type, spec ?? {}),
+    rib:                (sk, depth, thickness, neutralFaceId) =>
+      kernel.part.rib(sk, depth, thickness, neutralFaceId ?? 0),
+    linearPattern:      (shape, count, dx, dy, dz) =>
+      kernel.part.linearPattern(shape, count, dx, dy, dz),
+    circularPattern:    (shape, count, axisOrigin, axisDir, totalAngleRad) =>
+      kernel.part.circularPattern(shape, count, axisOrigin, axisDir, totalAngleRad),
+    mirrorPattern:      (shape, mirrorPlane) =>
+      kernel.part.mirrorPattern(shape, mirrorPlane),
+    onCurvePattern:     (shape, pathSk, count) =>
+      kernel.part.onCurvePattern(shape, pathSk, count),
   } : null,
 };
 

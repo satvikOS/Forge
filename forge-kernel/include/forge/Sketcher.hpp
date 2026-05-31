@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <TopoDS_Wire.hxx>
+
 // Forward-declare planegcs types to avoid bleeding their headers into binding.cpp.
 namespace GCS {
 class System;
@@ -145,5 +147,13 @@ SketchPoint readPoint(SketchHandle h, SketchParamId pid);
 // Mutate a point's coordinates (without resolving). Used to set up "move
 // one point, then solve" workflows from JS.
 void writePoint(SketchHandle h, SketchParamId pid, double x, double y);
+
+// Build OCCT wires (TopoDS_Wire) from the sketch's lines / circles / arcs.
+// The sketch is assumed to live on the XY plane (Z = 0) — every native
+// part-feature consumer (extrude, revolve, sweep, …) re-orients via its
+// own gp_Ax1 / direction inputs. Closed curves (circles) become their own
+// closed wire; line + arc segments are stitched into wires by matching
+// shared endpoints within Precision::Confusion.
+std::vector<TopoDS_Wire> extractWires(SketchHandle h);
 
 }  // namespace forge
