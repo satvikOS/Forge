@@ -72,7 +72,7 @@ viewport dominates. Old rows below are re-evaluated against v3.
 | Always-on command bar (Cmd+K focus)         | ✅      | Forge-48 — bottom 44px bar; Enter submit; Esc clear+blur; Cmd+K focus from anywhere |
 | Bottom timeline (parametric scrub)          | ✅      | Forge-48 layout + Forge-50 driver wiring: rollback via shift+click / double-click / Backspace; truncates the parametric history + announces in the Archie thread; calls `window.forge.rebuild({upToStepId})` when the kernel exposes one |
 | Persistent Archie sidebar                   | ✅      | Forge-48 layout + Forge-49 ForgeRunner streaming + Forge-51 ArchieThreadStore persistence: messages survive reload (localStorage) and steps are per-thread-keyed; `newThread()` opens a clean slate without losing history |
-| Viewport (r3f canvas + orbit)               | ◐      | Forge-48 viewport surface + empty-state; r3f canvas + selection wiring queued Forge-50 (single-doc focus for now) |
+| Viewport (r3f canvas + orbit)               | ✅      | Forge-55 — lazy-loaded r3f Canvas with OrbitControls (damped) + 3 lights + infinite grid + the calibrated copper Forge mark as the "always-something-to-look-at" hero; SSR-safe (empty-state on the server, canvas on the client); kernel meshes resolve through window.forge.tessellate when present |
 | Transform gizmo + measurement + section     | ◐      | Forge-27 modules exist; need re-mount under v3 viewport (Forge-49) |
 | Named views + display states                | ◐      | Forge-27 modules exist; need v3 verb-rail wiring (Forge-49) |
 | Undo / redo (N-step history)                | ◐      | Forge-28 module exists; needs cmd-bar + verb-rail wiring (Forge-49) |

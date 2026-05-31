@@ -150,6 +150,7 @@ export function ForgeShellV3() {
       <ViewportSurface
         selection={selection}
         onSelect={setSelection}
+        steps={steps}
       />
 
       <TimelineStrip
