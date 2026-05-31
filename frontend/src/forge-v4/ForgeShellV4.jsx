@@ -13,6 +13,10 @@ import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { ArchieDock } from './ArchieDock.jsx';
 import { Viewport } from './Viewport.jsx';
+import { QuickAccessBar } from './QuickAccessBar.jsx';
+import { NavSphere } from './NavSphere.jsx';
+import { HeadsUpToolbar } from './HeadsUpToolbar.jsx';
+import { ToastHost, showToast } from './Toast.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -150,7 +154,19 @@ export function ForgeShellV4() {
   function handleMenuAction(id) {
     switch (id) {
       case 'view.theme':
-        setTheme((t) => t === 'dark' ? 'light' : 'dark'); return;
+        setTheme((t) => t === 'dark' ? 'light' : 'dark');
+        showToast({ kind: 'info', text: 'Theme toggled', ttl: 1200 });
+        return;
+      case 'view.normalTo':
+        setViewName('front');
+        showToast({ kind: 'info', text: 'Normal-to → front', ttl: 1200 });
+        return;
+      case 'qat.customise':
+        showToast({ kind: 'info', text: 'QAT customise lands Forge-72', ttl: 2000 });
+        return;
+      case 'file.save':
+        showToast({ kind: 'ok', text: 'Saved (placeholder — wired Forge-72)', ttl: 1500 });
+        return;
       case 'view.toggleRight':
         setRightCollapsed((v) => !v); return;
       case 'view.toggleDock':
@@ -198,6 +214,7 @@ export function ForgeShellV4() {
          data-testid="forge-app"
          data-archie-open={String(dockOpen)}>
       <TopBar activeWb={activeWb} onMenuAction={(id) => handleMenuAction(id)} />
+      <QuickAccessBar onInvoke={(id) => handleMenuAction(id)} />
       <WorkbenchRail activeId={activeWb}
                      onSwitch={(id) => { setActiveWb(id); setActiveTool(null); }} />
       <Toolbar workbenchId={activeWb}
@@ -222,6 +239,13 @@ export function ForgeShellV4() {
                   viewName={viewName}
                   displayState={displayState}
                   activeWb={activeWb} />
+        <HeadsUpToolbar activeDisplay={displayState}
+                        onAction={(id) => handleMenuAction(id)} />
+        <NavSphere activeView={viewName}
+                   onSelectView={(v) => {
+                     setViewName(v);
+                     showToast({ kind: 'info', text: `View → ${v}`, ttl: 1500 });
+                   }} />
       </div>
       {dockOpen
         ? (<ArchieDock open={dockOpen} thread={thread} running={running}
@@ -264,6 +288,7 @@ export function ForgeShellV4() {
                   dockOpen={dockOpen}
                   onToggleDock={() => setDockOpen((v) => !v)}
                   onSubmit={(text) => runArchie(text)} />
+      <ToastHost />
     </div>
   );
 }

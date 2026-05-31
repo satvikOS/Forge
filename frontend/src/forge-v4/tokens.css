@@ -98,6 +98,7 @@
 :root {
   /* zone heights */
   --forge-topbar-h:    36px;
+  --forge-qat-h:       28px;
   --forge-toolbar-h:   40px;
   --forge-statusbar-h: 24px;
   --forge-cmdbar-h:    48px;
@@ -146,6 +147,7 @@ html, body, #root {
   display: grid;
   grid-template-rows:
     var(--forge-topbar-h)
+    var(--forge-qat-h)
     var(--forge-toolbar-h)
     1fr
     var(--forge-statusbar-h)
@@ -156,6 +158,7 @@ html, body, #root {
     auto;
   grid-template-areas:
     "topbar    topbar    topbar"
+    "qat       qat       qat"
     "wb-rail   toolbar   right"
     "wb-rail   viewport  right"
     "wb-rail   statusbar right"
@@ -168,12 +171,128 @@ html, body, #root {
 }
 
 .forge-topbar    { grid-area: topbar; }
+.forge-qat       { grid-area: qat; }
 .forge-wb-rail   { grid-area: wb-rail; }
 .forge-toolbar   { grid-area: toolbar; }
 .forge-viewport  { grid-area: viewport; position: relative; overflow: hidden; }
 .forge-right     { grid-area: right; }
 .forge-statusbar { grid-area: statusbar; }
 .forge-cmdbar    { grid-area: cmdbar; }
+
+/* ============ Quick-Access Toolbar ============ */
+.forge-qat {
+  background: var(--forge-canvas);
+  border-bottom: 1px solid var(--forge-rail-edge);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 2px;
+}
+.forge-qat-btn {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--forge-ink-2);
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-qat-btn:hover {
+  background: var(--forge-surface);
+  color: var(--forge-ink);
+  border-color: var(--forge-rail-edge);
+}
+.forge-qat-btn-customise {
+  margin-left: auto;
+  opacity: 0.6;
+}
+.forge-qat-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--forge-rail-edge);
+  margin: 0 6px;
+}
+
+/* ============ NavSphere ============ */
+.forge-navsphere {
+  position: absolute;
+  top: 8px; right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  background: rgba(0,0,0,0.40);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius);
+  padding: 5px;
+  z-index: 5;
+  pointer-events: auto;
+}
+.forge-navsphere-chips {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+}
+.forge-navsphere-chip {
+  background: var(--forge-surface);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: 2px;
+  color: var(--forge-ink-2);
+  font: 9px/1.2 var(--forge-mono);
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-navsphere-chip:hover {
+  background: var(--forge-surface-2);
+  color: var(--forge-ink);
+}
+.forge-navsphere-chip[data-active="true"] {
+  background: var(--forge-accent-mute);
+  color: var(--forge-ink);
+  border-color: var(--forge-accent);
+}
+
+/* ============ Heads-Up Toolbar ============ */
+.forge-hut {
+  position: absolute;
+  top: 8px; left: 50%; transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(0,0,0,0.40);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius-pill);
+  padding: 3px 6px;
+  z-index: 5;
+}
+.forge-hut-btn {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--forge-radius-pill);
+  color: var(--forge-ink-2);
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-hut-btn:hover {
+  background: var(--forge-surface);
+  color: var(--forge-ink);
+}
+.forge-hut-btn[data-active="true"] {
+  background: var(--forge-accent-mute);
+  color: var(--forge-ink);
+}
+.forge-hut-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--forge-rail-edge);
+  margin: 0 3px;
+}
 
 /* ============ Top bar ============ */
 .forge-topbar {
