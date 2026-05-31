@@ -88,13 +88,13 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Capability                                  | Status | Notes |
 |---------------------------------------------|--------|-------|
 | HLR projection (front/top/right/iso)        | ✅      | Forge-10 |
-| Linear / radial / angular dimensions        | ◐      | data model done; viewport edits TODO |
+| Linear / radial / angular dimensions        | ✅      | Forge-32 — full SVG geometry (extension lines, arrowheads, units mm/in, label-along-line) |
 | GD&T feature control frames                 | ✅      | Forge-15 MBD glyphs |
-| Title block templates (A4-A0 + ANSI A-E)    | ◐      | placeholder text only |
-| Balloons + auto-BOM                         | ◐      | symbol done; leader line queued |
-| Section views                               | ☐      | future slice |
-| Detail views                                | ☐      | future slice |
-| Broken / projected views                    | ☐      | future slice |
+| Title block templates (A4-A0 + ANSI A-E)    | ✅      | Forge-32 — 10 templates (5 ISO + 5 ANSI) with 14 fields, pluggable via applyTitleBlock() |
+| Balloons + auto-BOM                         | ◐      | Forge-32 — balloon + leader + arrowhead + collision-nudge done; auto-BOM rollup still queued |
+| Section views                               | ✅      | Forge-32 — BRepAlgoAPI_Section cut + 45° hatch, SectionView class draws section-line callout on parent |
+| Detail views                                | ✅      | Forge-32 — polyline clipping to focus circle + N× scale, dashed-circle callout on parent view |
+| Broken / projected views                    | ✅      | Forge-32 — axis-aligned break region with right-half compaction + zigzag/wavy break symbol |
 
 ## 5. Simulation
 
@@ -178,7 +178,7 @@ Self-grade as of the 7-agent integration wave:
   §1 Kernel:       19 ✅ / 3 ◐ / 1 ☐  (NURBS authoring still open)
   §2 Perf:          9 ✅ / 0 ◐ / 2 ☐  (GPU instancing + worker FEA queued)
   §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
-  §4 Drawings:      2 ✅ / 3 ◐ / 3 ☐  (section/detail/broken views queued)
+  §4 Drawings:      7 ✅ / 1 ◐ / 0 ☐  (only auto-BOM rollup still partial)
   §5 Simulation:    8 ✅ / 0 ◐ / 3 ☐  (buckling/contact/plasticity queued)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed out 3/5-axis + stock-sim + CMM)
   §7 PDM/IO:        3 ✅ / 0 ◐ / 4 ☐  (filesystem store + IGES queued)

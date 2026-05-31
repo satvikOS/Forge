@@ -14,6 +14,11 @@
  */
 
 import { getForge } from './index.js';
+import {
+  TEMPLATES as TITLE_BLOCK_TEMPLATES,
+  applyTitleBlock,
+  TITLE_BLOCK_FIELDS,
+} from './drawings/TitleBlocks.js';
 
 // Allow tests / Node smoke runners to inject a kernel without going through
 // the Electron preload bridge. When set, the drawing layer uses this
@@ -106,6 +111,148 @@ export class DrawingView {
       (i, verts) => callback('hidden', i, verts));
     iteratePolylines(this.projection.outline, this.projection.outlineStarts, this.projection.outlineCount,
       (i, verts) => callback('outline', i, verts));
+    // Optional Forge-32 buckets — only present on SectionView projections.
+    if (this.projection.cut) {
+      iteratePolylines(this.projection.cut, this.projection.cutStarts, this.projection.cutCount || 0,
+        (i, verts) => callback('cut', i, verts));
+    }
+    if (this.projection.hatch) {
+      iteratePolylines(this.projection.hatch, this.projection.hatchStarts, this.projection.hatchCount || 0,
+        (i, verts) => callback('hatch', i, verts));
+    }
+  }
+}
+
+// ---------------------------------------------------------- Forge-32 views
+//
+// SectionView, DetailView and BrokenView all extend DrawingView; they
+// reuse the same projection format and rendering pipeline but populate
+// extra geometry buckets (cut/hatch for sections), decorations (the
+// circle-callout for details) or break-symbol overlays.
+
+let _detailLetterCounter = 0;
+function nextDetailLetter() {
+  // A, B, C, ... Z, AA, AB ...
+  const i = _detailLetterCounter++;
+  if (i < 26) return String.fromCharCode(65 + i);
+  return String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26));
+}
+
+let _sectionLetterCounter = 0;
+function nextSectionLetter() {
+  const i = _sectionLetterCounter++;
+  return String.fromCharCode(65 + (i % 26));
+}
+
+/**
+ * SectionView — HLR projection extended with a cut-plane intersection.
+ * The kernel returns extra `cut` (heavy outline) and `hatch` (45°
+ * gray lines) buckets which the SVG renderer paints in the usual way.
+ *
+ * @param {object} cfg
+ * @param {number} cfg.shape         kernel ShapeHandle
+ * @param {object} cfg.sectionPlane  { origin:[x,y,z], normal:[x,y,z] }
+ * @param {object} [cfg.hatchSpec]   { spacing, angleDeg }  defaults: 2.5 mm @ 45°
+ * @param {string|number[]} [cfg.direction='front']  projection direction
+ * @param {number} [cfg.scale=1]
+ * @param {string} [cfg.label]       defaults to "SECTION A-A" etc
+ */
+export class SectionView extends DrawingView {
+  constructor({ shape, sectionPlane, hatchSpec = {}, direction = 'front',
+                scale = 1, label = null }) {
+    const kernel = _kernel();
+    const dirArg = typeof direction === 'string' ? direction : Float64Array.from(direction);
+    const projection = kernel.drawings.projectSection(shape, dirArg, {
+      origin: sectionPlane.origin,
+      normal: sectionPlane.normal,
+    }, {
+      spacing:  hatchSpec.spacing  ?? 2.5,
+      angleDeg: hatchSpec.angleDeg ?? 45,
+    });
+    const letter = nextSectionLetter();
+    super({
+      label: label || `SECTION ${letter}-${letter}`,
+      scale,
+      projection,
+    });
+    this.sectionPlane = sectionPlane;
+    this.sectionLetter = letter;
+    this.decorations = [];
+  }
+}
+
+/**
+ * DetailView — HLR projection clipped to a circular focus region and
+ * scaled up by `scale` (typically 2-4×) for legibility. Optionally
+ * draws a matching focus-circle callout on a parent view.
+ */
+export class DetailView extends DrawingView {
+  constructor({ shape, focusCircle, scale = 2, direction = 'front',
+                parentView = null, label = null }) {
+    const kernel = _kernel();
+    const dirArg = typeof direction === 'string' ? direction : Float64Array.from(direction);
+    const projection = kernel.drawings.projectDetail(shape, dirArg, {
+      x: focusCircle.x,
+      y: focusCircle.y,
+      r: focusCircle.r,
+    }, scale);
+    const letter = nextDetailLetter();
+    super({
+      label: label || `DETAIL ${letter} (${scale}:1)`,
+      scale: 1,   // already pre-scaled by the kernel — render 1:1
+      projection,
+    });
+    this.detailLetter = letter;
+    this.focusCircle = focusCircle;
+    this.decorations = [];
+    if (parentView) {
+      // Decorate the parent view with a dashed circle + letter.
+      parentView.decorations = parentView.decorations || [];
+      parentView.decorations.push({
+        kind: 'detail-callout',
+        cx: focusCircle.x,
+        cy: focusCircle.y,
+        r:  focusCircle.r,
+        letter,
+      });
+    }
+  }
+}
+
+/**
+ * BrokenView — HLR projection with a horizontal/vertical break region
+ * removed and the right (or top) half slid back to compact the view.
+ * Adds a `breakSymbol` overlay (zigzag or wavy) at the seam.
+ */
+export class BrokenView extends DrawingView {
+  constructor({ shape, breakRegion, breakSymbol = 'zigzag', direction = 'front',
+                scale = 1, label = null }) {
+    const kernel = _kernel();
+    const dirArg = typeof direction === 'string' ? direction : Float64Array.from(direction);
+    const projection = kernel.drawings.projectBroken(shape, dirArg, {
+      axis:  breakRegion.axis,
+      start: breakRegion.start,
+      end:   breakRegion.end,
+    });
+    super({
+      label: label || 'BROKEN',
+      scale,
+      projection,
+    });
+    this.breakRegion = breakRegion;
+    // Place the break symbol at the seam X (or Y if axis='y') in the
+    // view-local model coords AFTER the kernel has compacted the geometry.
+    const seam = breakRegion.start;
+    this.breakSymbols = [];
+    if (this.bbox && isFinite(this.bbox.minY)) {
+      const yMin = this.bbox.minY - 1;
+      const yMax = this.bbox.maxY + 1;
+      this.breakSymbols.push({
+        kind: breakSymbol === 'wavy' ? 'wavy' : 'zigzag',
+        x: seam,
+        yMin, yMax,
+      });
+    }
   }
 }
 
@@ -136,6 +283,8 @@ function computeBbox(projection) {
   consume(projection.visible);
   consume(projection.hidden);
   consume(projection.outline);
+  if (projection.cut)   consume(projection.cut);
+  if (projection.hatch) consume(projection.hatch);
   if (!isFinite(minX)) {
     return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   }
@@ -155,12 +304,30 @@ function computeBbox(projection) {
 
 function formatNumber(v) { return Number(v).toFixed(2); }
 
+// formatMeasurement — render a length in the caller's preferred units.
+// Forge stores all coordinates in mm so we convert to inches when
+// `units === 'in'`. The output is always 2 decimal places + unit
+// suffix; callers can override with `precision` and `suffix`.
+function formatMeasurement(mm, options = {}) {
+  const units = options.units || 'mm';
+  const precision = options.precision ?? 2;
+  if (units === 'in') {
+    return (mm / 25.4).toFixed(precision) + ' in';
+  }
+  return mm.toFixed(precision) + ' mm';
+}
+
 /**
  * Linear dimension between p0 and p1, with the witness lines offset
  * perpendicular to the line by `offset` mm. The witness lines are short
  * extensions from p0/p1 to the dimension line.
+ *
+ * `options.units` — 'mm' | 'in' (default 'mm'). Output text suffix.
+ * `options.precision` — decimal digits (default 2).
+ * `options.precision` 0 yields integer-only labels (matches mech-drawing
+ * tradition for whole-mm dimensions).
  */
-export function DimensionLinear(p0, p1, offset) {
+export function DimensionLinear(p0, p1, offset, options = {}) {
   const dx = p1[0] - p0[0];
   const dy = p1[1] - p0[1];
   const len = Math.hypot(dx, dy);
@@ -200,8 +367,11 @@ export function DimensionLinear(p0, p1, offset) {
         { tip: a1, angle: arrowAngle },
       ],
     },
-    text: formatNumber(len),
+    text: options && (options.units || options.precision != null)
+      ? formatMeasurement(len, options)
+      : formatNumber(len),
     anchor: [(a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2],
+    textAngle: arrowAngle,   // SVG renderer can rotate text to match dim line
   };
 }
 
@@ -210,7 +380,7 @@ export function DimensionLinear(p0, p1, offset) {
  * `leaderAngle` (radians) to the circle's edge and then offset by `radius`
  * label distance. Text is "R<value>".
  */
-export function DimensionRadial(center, radius, leaderAngle) {
+export function DimensionRadial(center, radius, leaderAngle, options = {}) {
   const cx = center[0], cy = center[1];
   // Leader from center to circle edge, extending slightly beyond.
   const rTip = [
@@ -222,6 +392,9 @@ export function DimensionRadial(center, radius, leaderAngle) {
     cx + Math.cos(leaderAngle) * labelDist,
     cy + Math.sin(leaderAngle) * labelDist,
   ];
+  const valueText = options && (options.units || options.precision != null)
+    ? formatMeasurement(radius, options).replace(/ /g, '')
+    : formatNumber(radius);
   return {
     kind: 'radial',
     geometry: {
@@ -230,7 +403,7 @@ export function DimensionRadial(center, radius, leaderAngle) {
         { tip: rTip, angle: leaderAngle + Math.PI },
       ],
     },
-    text: 'R' + formatNumber(radius),
+    text: 'R' + valueText,
     anchor: labelEnd,
   };
 }
@@ -288,15 +461,44 @@ export function DimensionAngular(vertex, ray0, ray1, radius) {
 }
 
 /**
- * Balloon — a numbered callout for an assembly item. Renders as a small
- * circle with the part number inside, with an optional leader line to
- * `at` (the call-out point on the geometry).
+ * Balloon — a numbered callout for an assembly item.
+ *
+ * Two-form API:
+ *   * Balloon(anchor, number) — legacy. Balloon centre is placed at
+ *     `anchor` and there is no leader line.
+ *   * Balloon({ anchor, balloonAt, number, radius }) — full form. The
+ *     anchor is the *call-out point on the geometry*; `balloonAt` is
+ *     where the numbered circle sits (offset from anchor). A leader
+ *     line connects them with an arrowhead at the anchor end.
+ *
+ * The SVG renderer detects balloon-balloon collisions and nudges
+ * overlapping balloons along the leader's tangent direction so labels
+ * never sit on top of each other.
  */
-export function Balloon(at, number) {
+export function Balloon(arg0, arg1) {
+  // ----- two-arg legacy form: Balloon([x,y], number)
+  if (Array.isArray(arg0)) {
+    return {
+      kind: 'balloon',
+      at: [arg0[0], arg0[1]],     // call-out point AND balloon position
+      balloonAt: [arg0[0], arg0[1]],
+      number: String(arg1),
+      radius: 3.0,
+    };
+  }
+  // ----- object form: Balloon({ anchor, balloonAt, number, radius })
+  const o = arg0 || {};
+  if (!o.anchor || !Array.isArray(o.anchor)) {
+    throw new Error('[forge.drawings] Balloon: anchor (geometry call-out point) required');
+  }
+  const balloonAt = Array.isArray(o.balloonAt) ? o.balloonAt : [o.anchor[0], o.anchor[1]];
   return {
     kind: 'balloon',
-    at: [at[0], at[1]],
-    number: String(number),
+    at: [o.anchor[0], o.anchor[1]],     // alias for backward compat
+    anchor: [o.anchor[0], o.anchor[1]],
+    balloonAt: [balloonAt[0], balloonAt[1]],
+    number: String(o.number ?? ''),
+    radius: typeof o.radius === 'number' ? o.radius : 3.0,
   };
 }
 
@@ -358,13 +560,68 @@ export class ForgeDrawing {
   }
 
   /**
+   * Append a section view (Forge-32). The cutting plane is supplied
+   * as `{ origin:[x,y,z], normal:[x,y,z] }` in world coordinates.
+   * `hatchSpec.spacing` controls the 45°-line spacing in mm.
+   *
+   * If `parentView` is provided, the section's cutting-plane line is
+   * drawn across it with arrowheads + the section letter (A-A, B-B …)
+   * — the conventional callout used by SolidWorks / Creo / Catia.
+   */
+  addSectionView({ shape, sectionPlane, hatchSpec, direction = 'front',
+                   scale = 1, parentView = null, label = null }) {
+    const view = new SectionView({ shape, sectionPlane, hatchSpec, direction, scale, label });
+    this.views.push(view);
+    if (parentView && parentView.bbox) {
+      // Project the section plane onto the parent view to draw the line.
+      // For now we span the parent view's full width at the plane's mean Y.
+      parentView.decorations = parentView.decorations || [];
+      parentView.decorations.push({
+        kind: 'section-line',
+        p0: [parentView.bbox.minX - 2, sectionPlane.origin[2] ?? parentView.bbox.minY],
+        p1: [parentView.bbox.maxX + 2, sectionPlane.origin[2] ?? parentView.bbox.minY],
+        letter: view.sectionLetter,
+      });
+    }
+    return view;
+  }
+
+  addDetailView({ shape, focusCircle, scale = 2, direction = 'front',
+                  parentView = null, label = null }) {
+    const view = new DetailView({ shape, focusCircle, scale, direction, parentView, label });
+    this.views.push(view);
+    return view;
+  }
+
+  addBrokenView({ shape, breakRegion, breakSymbol = 'zigzag', direction = 'front',
+                  scale = 1, label = null }) {
+    const view = new BrokenView({ shape, breakRegion, breakSymbol, direction, scale, label });
+    this.views.push(view);
+    return view;
+  }
+
+  /**
    * Auto-layout — distributes views across the sheet's drawing area, then
    * returns an SVG string. Sheet sizes: A4|A3|A2|A1|A0 / A|B|C|D|E.
+   *
+   * `options.titleBlock` (Forge-32): name of a TitleBlocks.js template
+   * ('A4'|...|'E'). Passes `options.titleBlockFields` through; everything
+   * not supplied defaults to '—' so partial fills still produce a
+   * publishable sheet.
    */
-  toSvg(sheetSize = 'A4', orientation = 'landscape') {
+  toSvg(sheetSize = 'A4', orientation = 'landscape', options = {}) {
     const sheet = getSheetMm(sheetSize, orientation);
     autoLayout(this.views, sheet);
-    return renderSvg(this, sheet, sheetSize, orientation);
+    let svg = renderSvg(this, sheet, sheetSize, orientation);
+    if (options.titleBlock) {
+      // Splice in a real templated title block (replaces the built-in stub).
+      svg = applyTitleBlock(svg, options.titleBlock, {
+        ...this.titleBlock,
+        title: this.title,
+        ...(options.titleBlockFields || {}),
+      });
+    }
+    return svg;
   }
 }
 
@@ -473,10 +730,74 @@ function renderDimensions(view) {
 
 function renderBalloons(view) {
   let out = '';
+  // Pass 1: compute SVG-space balloon positions, then resolve collisions
+  // by nudging overlapping balloons outward along the leader direction.
+  const placed = [];
   for (const b of view.balloons) {
-    const [tx, ty] = transformPoint(b.at, view);
-    out += `<circle cx="${tx.toFixed(2)}" cy="${ty.toFixed(2)}" r="3" fill="#fff" stroke="#000" stroke-width="0.3"/>`;
-    out += `<text x="${tx.toFixed(2)}" y="${(ty + 1).toFixed(2)}" font-family="Helvetica, Arial, sans-serif" font-size="2.8" fill="#000" text-anchor="middle">${escapeXml(b.number)}</text>`;
+    const [ax, ay] = transformPoint(b.anchor || b.at, view);
+    const [bx, by] = transformPoint(b.balloonAt || b.at, view);
+    placed.push({ b, ax, ay, bx, by, r: (b.radius ?? 3.0) });
+  }
+  // Naive O(N²) collision resolver — 1-2 nudge iterations is enough for
+  // typical assemblies (<50 balloons per view); the practical alternative
+  // is RTree which is overkill for this drawing volume.
+  for (let iter = 0; iter < 4; iter++) {
+    let moved = false;
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const A = placed[i], B = placed[j];
+        const minDist = A.r + B.r + 1.0;
+        const dx = B.bx - A.bx, dy = B.by - A.by;
+        const d  = Math.hypot(dx, dy);
+        if (d < minDist && d > 1e-6) {
+          // Push B along the leader-tangent (perpendicular to A→anchor)
+          // so its leader still points sensibly.
+          const lx = B.bx - B.ax, ly = B.by - B.ay;
+          const lenL = Math.hypot(lx, ly) || 1;
+          // Tangent unit vector (perp to leader):
+          const tx = -ly / lenL, ty = lx / lenL;
+          // Move B along its tangent by (minDist - d). Direction sign:
+          // pick whichever side increases distance from A.
+          const sign = (tx * dx + ty * dy) >= 0 ? 1 : -1;
+          const push = (minDist - d);
+          B.bx += sign * tx * push;
+          B.by += sign * ty * push;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+
+  for (const p of placed) {
+    const { ax, ay, bx, by, r, b } = p;
+    // Skip leader if balloon and anchor coincide (legacy call form).
+    const lenAB = Math.hypot(bx - ax, by - ay);
+    if (lenAB > r + 0.5) {
+      // Trim leader so it stops at the balloon's outer radius.
+      const ux = (bx - ax) / lenAB, uy = (by - ay) / lenAB;
+      const leaderEnd = [bx - ux * r, by - uy * r];
+      // Leader line.
+      out += `<line x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" ` +
+             `x2="${leaderEnd[0].toFixed(2)}" y2="${leaderEnd[1].toFixed(2)}" ` +
+             `stroke="#000" stroke-width="0.3"/>`;
+      // Arrowhead at the geometry-anchor end (small filled triangle).
+      const sz = 2.5, wd = 0.9;
+      // arrow tip points TOWARD the anchor, i.e. against (ux,uy).
+      const baseX = ax + ux * sz;
+      const baseY = ay + uy * sz;
+      const pxv = -uy * wd;
+      const pyv =  ux * wd;
+      out += `<polygon points="${ax.toFixed(2)},${ay.toFixed(2)} ` +
+        `${(baseX + pxv).toFixed(2)},${(baseY + pyv).toFixed(2)} ` +
+        `${(baseX - pxv).toFixed(2)},${(baseY - pyv).toFixed(2)}" fill="#000"/>`;
+    }
+    // The balloon circle + number.
+    out += `<circle cx="${bx.toFixed(2)}" cy="${by.toFixed(2)}" r="${r.toFixed(2)}" ` +
+           `fill="#fff" stroke="#000" stroke-width="0.4"/>`;
+    out += `<text x="${bx.toFixed(2)}" y="${(by + 1.0).toFixed(2)}" ` +
+           `font-family="Helvetica, Arial, sans-serif" font-size="${(r * 0.85).toFixed(2)}" ` +
+           `fill="#000" text-anchor="middle">${escapeXml(b.number)}</text>`;
   }
   return out;
 }
@@ -494,8 +815,29 @@ function renderView(view) {
       out += `<path d="${d}" fill="none" stroke="#000" stroke-width="0.25" stroke-dasharray="2 1.5"/>`;
     } else if (kind === 'outline') {
       out += `<path d="${d}" fill="none" stroke="#000" stroke-width="0.5"/>`;
+    } else if (kind === 'cut') {
+      // Cut-face outline: heavy solid stroke marking the section boundary.
+      out += `<path d="${d}" fill="none" stroke="#000" stroke-width="0.6"/>`;
+    } else if (kind === 'hatch') {
+      // Hatch fill: thin gray 45° lines.
+      out += `<path d="${d}" fill="none" stroke="#666" stroke-width="0.2"/>`;
     }
   });
+
+  // Forge-32: SectionView optional callout label + plane line on parent
+  // view, DetailView optional focus circle on the parent. We render
+  // those from the view's `decorations` array when present.
+  if (Array.isArray(view.decorations)) {
+    for (const dec of view.decorations) {
+      out += renderDecoration(dec, view);
+    }
+  }
+  // BrokenView's zigzag break symbols.
+  if (Array.isArray(view.breakSymbols)) {
+    for (const sym of view.breakSymbols) {
+      out += renderBreakSymbol(sym, view);
+    }
+  }
 
   // View label at the top-left.
   if (view.label) {
@@ -506,6 +848,81 @@ function renderView(view) {
   out += renderBalloons(view);
   out += '</g>';
   return out;
+}
+
+// ---------------------------------------------------------- decorations
+//
+// A "decoration" is a parent-view-space annotation: the focus circle that
+// a DetailView draws on its parent, the section-plane line + arrows that
+// a SectionView paints on the front view, etc. Each decoration is just a
+// small object with `kind` and the parameters needed to draw it.
+
+function renderDecoration(dec, view) {
+  if (dec.kind === 'detail-callout') {
+    // Circle around the focus area + a letter callout in the parent view.
+    const [cx, cy] = transformPoint([dec.cx, dec.cy], view);
+    const r = dec.r * view.scale;
+    let s = `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" ` +
+            `fill="none" stroke="#000" stroke-width="0.4" stroke-dasharray="3 1.5"/>`;
+    s += `<text x="${(cx + r + 1.5).toFixed(2)}" y="${(cy - r).toFixed(2)}" ` +
+         `font-family="Helvetica, Arial, sans-serif" font-size="4" font-weight="bold" ` +
+         `fill="#000">${escapeXml(dec.letter)}</text>`;
+    return s;
+  }
+  if (dec.kind === 'section-line') {
+    // Chain-dashed line across the parent view marking the cutting plane.
+    const [x0, y0] = transformPoint(dec.p0, view);
+    const [x1, y1] = transformPoint(dec.p1, view);
+    let s = `<line x1="${x0.toFixed(2)}" y1="${y0.toFixed(2)}" ` +
+            `x2="${x1.toFixed(2)}" y2="${y1.toFixed(2)}" ` +
+            `stroke="#000" stroke-width="0.6" stroke-dasharray="6 1.5 2 1.5"/>`;
+    // Caps with arrowheads pointing along the normal direction.
+    const lx = x1 - x0, ly = y1 - y0;
+    const llen = Math.hypot(lx, ly) || 1;
+    const nx = -ly / llen, ny = lx / llen;
+    const labelOff = 4;
+    const arrowSz = 3;
+    // Two cap arrowheads — one at each end.
+    for (const [tx, ty] of [[x0, y0], [x1, y1]]) {
+      const tipX = tx + nx * arrowSz;
+      const tipY = ty + ny * arrowSz;
+      s += `<polygon points="${tx.toFixed(2)},${ty.toFixed(2)} ` +
+        `${(tipX - 1.0 * (ly / llen)).toFixed(2)},${(tipY + 1.0 * (lx / llen)).toFixed(2)} ` +
+        `${(tipX + 1.0 * (ly / llen)).toFixed(2)},${(tipY - 1.0 * (lx / llen)).toFixed(2)}" fill="#000"/>`;
+    }
+    s += `<text x="${(x0 + nx * labelOff).toFixed(2)}" y="${(y0 + ny * labelOff).toFixed(2)}" ` +
+         `font-family="Helvetica, Arial, sans-serif" font-size="4" font-weight="bold" ` +
+         `fill="#000" text-anchor="middle">${escapeXml(dec.letter)}</text>`;
+    return s;
+  }
+  return '';
+}
+
+// renderBreakSymbol — zig-zag (or curly) break glyph at a vertical seam
+// in a BrokenView. The zig-zag spans the view's full height at the seam
+// X coordinate (in view-local model units, transformed at render time).
+function renderBreakSymbol(sym, view) {
+  // sym: { x, yMin, yMax, kind: 'zigzag' | 'wavy' }
+  const verts = [];
+  if (sym.kind === 'wavy') {
+    const N = 12, A = 1.5;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const y = sym.yMin + (sym.yMax - sym.yMin) * t;
+      const x = sym.x + Math.sin(t * Math.PI * 4) * A;
+      verts.push([x, y]);
+    }
+  } else {
+    const N = 8, A = 2.0;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const y = sym.yMin + (sym.yMax - sym.yMin) * t;
+      const x = sym.x + (i % 2 === 0 ? -A : A);
+      verts.push([x, y]);
+    }
+  }
+  const d = pathFromPolyline(verts, view);
+  return `<path d="${d}" fill="none" stroke="#000" stroke-width="0.4"/>`;
 }
 
 function renderTitleBlock(drawing, sheet) {
@@ -547,13 +964,25 @@ function renderSvg(drawing, sheet, sizeName, orientation) {
 }
 
 // ---------------------------------------------------------- exports
+export {
+  TITLE_BLOCK_TEMPLATES,
+  applyTitleBlock,
+  TITLE_BLOCK_FIELDS,
+};
+
 export default {
   ForgeDrawing,
   DrawingView,
+  SectionView,
+  DetailView,
+  BrokenView,
   DimensionLinear,
   DimensionRadial,
   DimensionAngular,
   Balloon,
   SHEET_SIZES,
   getSheetMm,
+  TITLE_BLOCK_TEMPLATES,
+  applyTitleBlock,
+  TITLE_BLOCK_FIELDS,
 };

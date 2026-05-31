@@ -655,6 +655,204 @@ Napi::Value ProjectShape(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- drawings (Forge-32)
+//
+// Helpers shared by projectSection / projectDetail / projectBroken — they
+// each return a richer ProjectedView (Section adds `cut` + `hatch`).
+
+namespace drawings_bind {
+
+Napi::Object packBucket(const Napi::Env& env, const std::vector<Polyline2D>& polys) {
+    std::size_t totalVerts = 0;
+    for (const auto& p : polys) totalVerts += p.size();
+    auto verts  = Napi::Float32Array::New(env, totalVerts * 2);
+    auto starts = Napi::Uint32Array::New(env, polys.size() + 1);
+    std::size_t vIdx = 0;
+    for (std::size_t i = 0; i < polys.size(); ++i) {
+        starts.Data()[i] = static_cast<std::uint32_t>(vIdx);
+        for (const auto& xy : polys[i]) {
+            verts.Data()[2 * vIdx + 0] = static_cast<float>(xy.first);
+            verts.Data()[2 * vIdx + 1] = static_cast<float>(xy.second);
+            ++vIdx;
+        }
+    }
+    starts.Data()[polys.size()] = static_cast<std::uint32_t>(vIdx);
+    auto out = Napi::Object::New(env);
+    out.Set("verts",  verts);
+    out.Set("starts", starts);
+    out.Set("count",  Napi::Number::New(env, static_cast<double>(polys.size())));
+    return out;
+}
+
+Napi::Object viewToObj(const Napi::Env& env, const ProjectedView& pv) {
+    auto vis = packBucket(env, pv.visible);
+    auto hid = packBucket(env, pv.hidden);
+    auto ol  = packBucket(env, pv.outline);
+    auto cut = packBucket(env, pv.cut);
+    auto htc = packBucket(env, pv.hatch);
+    auto out = Napi::Object::New(env);
+    out.Set("visible",       vis.Get("verts"));
+    out.Set("visibleStarts", vis.Get("starts"));
+    out.Set("visibleCount",  vis.Get("count"));
+    out.Set("hidden",        hid.Get("verts"));
+    out.Set("hiddenStarts",  hid.Get("starts"));
+    out.Set("hiddenCount",   hid.Get("count"));
+    out.Set("outline",       ol.Get("verts"));
+    out.Set("outlineStarts", ol.Get("starts"));
+    out.Set("outlineCount",  ol.Get("count"));
+    out.Set("cut",           cut.Get("verts"));
+    out.Set("cutStarts",     cut.Get("starts"));
+    out.Set("cutCount",      cut.Get("count"));
+    out.Set("hatch",         htc.Get("verts"));
+    out.Set("hatchStarts",   htc.Get("starts"));
+    out.Set("hatchCount",    htc.Get("count"));
+    return out;
+}
+
+ProjectionDirection parseDirection(const Napi::Env& env, const Napi::Value& v) {
+    if (v.IsString()) {
+        std::string name = v.As<Napi::String>();
+        if      (name == "front")     return frontView();
+        else if (name == "top")       return topView();
+        else if (name == "right")     return rightView();
+        else if (name == "iso"
+              || name == "isometric") return isometricView();
+        throw Napi::TypeError::New(env,
+            "forge.drawings: unknown view preset '" + name + "'");
+    }
+    if (v.IsTypedArray()) {
+        auto arr = v.As<Napi::Float64Array>();
+        if (arr.ElementLength() != 3) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings: direction must be Float64Array[3]");
+        }
+        return { arr.Data()[0], arr.Data()[1], arr.Data()[2] };
+    }
+    return frontView();
+}
+
+double objNum(const Napi::Object& o, const char* k, double fallback) {
+    if (!o.Has(k)) return fallback;
+    auto v = o.Get(k);
+    if (!v.IsNumber()) return fallback;
+    return v.As<Napi::Number>().DoubleValue();
+}
+
+} // namespace drawings_bind
+
+Napi::Value ProjectShapeSection(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        ProjectionDirection dir = drawings_bind::parseDirection(env,
+            info.Length() > 1 ? info[1] : env.Undefined());
+
+        if (info.Length() < 3 || !info[2].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.projectSection: expected sectionPlane object {origin:[x,y,z], normal:[x,y,z]}");
+        }
+        auto planeObj = info[2].As<Napi::Object>();
+        SectionPlane plane{};
+        auto readVec3 = [&](const char* k, double& a, double& b, double& c) {
+            auto v = planeObj.Get(k);
+            if (v.IsArray()) {
+                auto arr = v.As<Napi::Array>();
+                if (arr.Length() >= 3) {
+                    a = arr.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+                    b = arr.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+                    c = arr.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+                    return;
+                }
+            }
+            if (v.IsTypedArray()) {
+                auto arr = v.As<Napi::Float64Array>();
+                if (arr.ElementLength() >= 3) {
+                    a = arr.Data()[0]; b = arr.Data()[1]; c = arr.Data()[2];
+                    return;
+                }
+            }
+            throw Napi::TypeError::New(env,
+                std::string("forge.drawings.projectSection: plane.") + k + " must be a 3-element array");
+        };
+        readVec3("origin", plane.ox, plane.oy, plane.oz);
+        readVec3("normal", plane.nx, plane.ny, plane.nz);
+
+        HatchSpec hatch{ 2.5, 45.0 };
+        if (info.Length() > 3 && info[3].IsObject()) {
+            auto h2 = info[3].As<Napi::Object>();
+            hatch.spacing  = drawings_bind::objNum(h2, "spacing",  hatch.spacing);
+            hatch.angleDeg = drawings_bind::objNum(h2, "angleDeg", hatch.angleDeg);
+        }
+
+        ProjectedView pv = projectShapeSection(h, dir, plane, hatch);
+        auto out = drawings_bind::viewToObj(env, pv);
+        auto d = Napi::Array::New(env, 3);
+        d.Set(uint32_t{0}, dir.dx);
+        d.Set(uint32_t{1}, dir.dy);
+        d.Set(uint32_t{2}, dir.dz);
+        out.Set("direction", d);
+        return out;
+    });
+}
+
+Napi::Value ProjectShapeDetail(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        ProjectionDirection dir = drawings_bind::parseDirection(env,
+            info.Length() > 1 ? info[1] : env.Undefined());
+
+        if (info.Length() < 3 || !info[2].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.projectDetail: expected focusCircle {x,y,r}");
+        }
+        auto fc = info[2].As<Napi::Object>();
+        FocusCircle focus{
+            drawings_bind::objNum(fc, "x", 0.0),
+            drawings_bind::objNum(fc, "y", 0.0),
+            drawings_bind::objNum(fc, "r", 0.0),
+        };
+        double scale = info.Length() > 3 && info[3].IsNumber()
+            ? info[3].As<Napi::Number>().DoubleValue() : 2.0;
+
+        ProjectedView pv = projectShapeDetail(h, dir, focus, scale);
+        auto out = drawings_bind::viewToObj(env, pv);
+        out.Set("scale", Napi::Number::New(env, scale));
+        return out;
+    });
+}
+
+Napi::Value ProjectShapeBroken(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        ProjectionDirection dir = drawings_bind::parseDirection(env,
+            info.Length() > 1 ? info[1] : env.Undefined());
+
+        if (info.Length() < 3 || !info[2].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.projectBroken: expected breakRegion {axis, start, end}");
+        }
+        auto br = info[2].As<Napi::Object>();
+        BreakRegion region{};
+        if (br.Has("axis")) {
+            auto av = br.Get("axis");
+            if (av.IsString()) {
+                std::string s = av.As<Napi::String>();
+                region.axis = (s == "y" || s == "Y" || s == "vertical") ? 1 : 0;
+            } else if (av.IsNumber()) {
+                region.axis = av.As<Napi::Number>().Int32Value();
+            }
+        }
+        region.start = drawings_bind::objNum(br, "start", 0.0);
+        region.end   = drawings_bind::objNum(br, "end",   0.0);
+
+        ProjectedView pv = projectShapeBroken(h, dir, region);
+        auto out = drawings_bind::viewToObj(env, pv);
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- sketcher
 Napi::Value SketcherCreate(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -2899,9 +3097,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     assembly.Set("MateKind", kinds);
     exports.Set("assembly", assembly);
 
-    // ---- engineering drawings (Forge-10) — HLR projection.
+    // ---- engineering drawings (Forge-10 + Forge-32) — HLR projection +
+    // section / detail / broken views.
     auto drawings = Napi::Object::New(env);
-    drawings.Set("projectShape", Napi::Function::New(env, ProjectShape));
+    drawings.Set("projectShape",   Napi::Function::New(env, ProjectShape));
+    drawings.Set("projectSection", Napi::Function::New(env, ProjectShapeSection));
+    drawings.Set("projectDetail",  Napi::Function::New(env, ProjectShapeDetail));
+    drawings.Set("projectBroken",  Napi::Function::New(env, ProjectShapeBroken));
     exports.Set("drawings", drawings);
     exports.Set("projectShape", Napi::Function::New(env, ProjectShape));
 

@@ -51,6 +51,8 @@ struct ProjectedView {
     std::vector<Polyline2D> visible;  // V-compound + Rg1LineV + RgNLineV (sharp visible)
     std::vector<Polyline2D> hidden;   // H-compound + Rg1LineH + RgNLineH (sharp hidden)
     std::vector<Polyline2D> outline;  // OutLineV (silhouette visible only)
+    std::vector<Polyline2D> cut;      // Cut-face polylines from BRepAlgoAPI_Section (section views only)
+    std::vector<Polyline2D> hatch;    // Hatch pattern lines (section views only)
 };
 
 // projectShape — run HLR for `direction` and return the three polyline
@@ -58,5 +60,53 @@ struct ProjectedView {
 // visible polylines (some OCCT versions need tessellation before HLR
 // will see curved faces), we tessellate first and re-run.
 ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction);
+
+// ---------------------------------------------------------- Forge-32 extensions
+//
+// Section / detail / broken view projections — extend the basic HLR
+// pipeline with cut-plane intersection (section), polyline-clipping by a
+// circle (detail) and a break-region cut-out (broken).
+
+// Section view: plane is defined by a point on the plane (origin) and
+// the plane normal. We cut the shape with the plane (BRepAlgoAPI_Section),
+// project the cut wires onto the view, and emit a 45°-rotated hatch
+// pattern at `hatchSpacing` mm to mark the cut material.
+struct SectionPlane {
+    double ox, oy, oz;   // a point on the plane
+    double nx, ny, nz;   // plane normal (need not be unit-length)
+};
+
+struct HatchSpec {
+    double spacing;   // distance between hatch lines, mm
+    double angleDeg;  // hatch orientation in the projection plane (default 45)
+};
+
+ProjectedView projectShapeSection(ShapeHandle h,
+                                  ProjectionDirection direction,
+                                  SectionPlane plane,
+                                  HatchSpec hatch);
+
+// Detail view: project normally, then clip polylines to a focus circle
+// (in projection-plane coordinates) and scale by `scale` (typically 2-4×)
+// about the circle centre. The returned ProjectedView lives in the
+// scaled coordinate system.
+struct FocusCircle { double x, y, r; };
+ProjectedView projectShapeDetail(ShapeHandle h,
+                                 ProjectionDirection direction,
+                                 FocusCircle focus,
+                                 double scale);
+
+// Broken view: project normally, then *remove* every polyline whose
+// midpoint along `axis` (0=X, 1=Y) lies in [start, end], and translate
+// everything past `end` back by (end - start). Used to shorten the
+// drawing of long parts.
+struct BreakRegion {
+    int axis;        // 0 = horizontal (X), 1 = vertical (Y) of the projection plane
+    double start;    // start coordinate (inclusive)
+    double end;      // end coordinate (exclusive)
+};
+ProjectedView projectShapeBroken(ShapeHandle h,
+                                 ProjectionDirection direction,
+                                 BreakRegion region);
 
 } // namespace forge

@@ -122,10 +122,18 @@ const forgeApi = {
     clear:         ()          => kernel.assembly.clear(),
   } : null,
 
-  // engineering drawings (Forge-10) — HLR projection of a 3D shape.
+  // engineering drawings (Forge-10 + Forge-32) — HLR projection of a 3D
+  // shape, plus section / detail / broken views.
   // direction = string preset ('front'|'top'|'right'|'iso') or Float64Array [dx,dy,dz].
   drawings: kernel && kernel.drawings ? {
-    projectShape: (h, direction) => kernel.drawings.projectShape(h, direction),
+    projectShape:   (h, direction) =>
+      kernel.drawings.projectShape(h, direction),
+    projectSection: (h, direction, sectionPlane, hatchSpec) =>
+      kernel.drawings.projectSection(h, direction, sectionPlane, hatchSpec ?? {}),
+    projectDetail:  (h, direction, focusCircle, scale) =>
+      kernel.drawings.projectDetail(h, direction, focusCircle, scale ?? 2),
+    projectBroken:  (h, direction, breakRegion) =>
+      kernel.drawings.projectBroken(h, direction, breakRegion),
   } : null,
 
   // 2.5D CAM (Forge-13) — toolpath generators + G-code post.
