@@ -17,7 +17,8 @@
 // kernel-less dev shell), `send` short-circuits to an offline echo so
 // the UI never freezes.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArchieThreadStore } from '../archie-portal/ArchieThreadStore.js';
 
 const ARCHIE_FAKE_REPLY = `I would build that, but the native kernel isn't loaded in this dev shell. ` +
   `When forge-kernel.node is present, this same input runs against Archie at localhost:8080.`;
@@ -25,22 +26,81 @@ const ARCHIE_FAKE_REPLY = `I would build that, but the native kernel isn't loade
 let _msgSeq = 1;
 function nextMsgId() { return `m-${(_msgSeq++).toString(36)}`; }
 
-export function useArchieDriver() {
+// Forge-51 — persistent thread + step store. Pulled in as a singleton
+// so multiple components reading the driver share one persistence
+// surface. Backend defaults to localStorage in the renderer, memory
+// in SSR/tests.
+const _store = new ArchieThreadStore();
+const STEPS_KEY = (threadId) => `forge.v3.steps.${threadId}`;
+
+function loadSteps(backend, threadId) {
+  try { return backend.get(STEPS_KEY(threadId)) || []; } catch { return []; }
+}
+function saveSteps(backend, threadId, steps) {
+  try { backend.set(STEPS_KEY(threadId), steps); } catch {}
+}
+
+export function useArchieDriver({ store = _store } = {}) {
+  // Open / create the active thread on mount. We don't use multiple
+  // threads in v3 yet (Forge-51b will surface a picker); pick the most
+  // recent or create one.
+  const [activeThreadId, setActiveThreadId] = useState(null);
   const [thread, setThread] = useState([]);
   const [steps, setSteps]   = useState([]);
   const [status, setStatus] = useState('idle');
   const [activeStepId, setActiveStepId] = useState(null);
   const abortRef = useRef(null);
 
-  const pushMsg  = useCallback((m) => {
-    setThread((t) => [...t, { id: nextMsgId(), ts: Date.now(), ...m }]);
+  useEffect(() => {
+    const idx = store.index();
+    let t;
+    if (idx.length === 0) {
+      t = store.create({ discipline: 'part', title: 'Untitled thread' });
+    } else {
+      t = store.load(idx[0].id) || store.create({ discipline: 'part' });
+    }
+    setActiveThreadId(t.id);
+    // Hydrate UI thread from persisted messages.
+    const restored = (t.messages || []).map((m) => ({
+      id: m.id,
+      role: m.role,
+      text: m.text || (m.segments || []).map((s) => s.text || '').join('\n'),
+      ts: m.ts,
+    }));
+    setThread(restored);
+    const persistedSteps = loadSteps(store.backend, t.id);
+    setSteps(persistedSteps);
+    setActiveStepId(persistedSteps.length ? persistedSteps[persistedSteps.length - 1].id : null);
+  // store is a stable singleton, intentionally not in deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const pushMsg  = useCallback((m) => {
+    const ts = Date.now();
+    const id = nextMsgId();
+    setThread((t) => [...t, { id, ts, ...m }]);
+    // Persist to store best-effort.
+    try {
+      if (activeThreadId) {
+        const dbThread = store.load(activeThreadId);
+        if (dbThread) {
+          dbThread.messages.push({ id, role: m.role, text: m.text, ts });
+          dbThread.updatedAt = ts;
+          store._save(dbThread);
+        }
+      }
+    } catch { /* persistence is best-effort */ }
+  }, [activeThreadId, store]);
   const pushStep = useCallback((s) => {
     const id = nextMsgId();
-    setSteps((arr) => [...arr, { id, ts: Date.now(), ...s }]);
+    setSteps((arr) => {
+      const next = [...arr, { id, ts: Date.now(), ...s }];
+      if (activeThreadId) saveSteps(store.backend, activeThreadId, next);
+      return next;
+    });
     setActiveStepId(id);
     return id;
-  }, []);
+  }, [activeThreadId, store]);
 
   const cancel = useCallback(() => {
     if (abortRef.current) abortRef.current.abort();
@@ -57,7 +117,6 @@ export function useArchieDriver() {
       const idx = arr.findIndex((s) => s.id === stepId);
       if (idx < 0) return arr;
       const kept = arr.slice(0, idx + 1);
-      // Tell the user.
       const dropped = arr.length - kept.length;
       if (dropped > 0) {
         setThread((t) => [...t, {
@@ -67,8 +126,7 @@ export function useArchieDriver() {
         }]);
       }
       setActiveStepId(stepId);
-      // Best-effort kernel rebuild — gated on window.forge.rebuild
-      // being installed by the RebuildEngine bootstrap (Forge-25).
+      if (activeThreadId) saveSteps(store.backend, activeThreadId, kept);
       if (typeof window !== 'undefined' && window.forge &&
           typeof window.forge.rebuild === 'function') {
         try { window.forge.rebuild({ upToStepId: stepId }); }
@@ -76,7 +134,15 @@ export function useArchieDriver() {
       }
       return kept;
     });
-  }, []);
+  }, [activeThreadId, store]);
+
+  // Forge-51 — start a fresh thread (e.g. user wants a clean slate).
+  const newThread = useCallback(() => {
+    const t = store.create({ discipline: 'part', title: 'Untitled thread' });
+    setActiveThreadId(t.id);
+    setThread([]); setSteps([]); setActiveStepId(null);
+    return t.id;
+  }, [store]);
 
   const send = useCallback(async (prompt) => {
     if (!prompt || typeof prompt !== 'string') return null;
@@ -155,6 +221,6 @@ export function useArchieDriver() {
     }
   }, [pushMsg, pushStep]);
 
-  return { thread, steps, status, activeStepId, send, cancel, rollbackTo,
-           setActiveStepId };
+  return { thread, steps, status, activeStepId, activeThreadId, send, cancel,
+           rollbackTo, setActiveStepId, newThread };
 }

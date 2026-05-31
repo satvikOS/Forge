@@ -71,7 +71,7 @@ viewport dominates. Old rows below are re-evaluated against v3.
 | Verb rail (selection-contextual)            | ✅      | Forge-48 — 5/8/4/8 verbs for none/face/edge/body selection; ≤12 per state ceiling |
 | Always-on command bar (Cmd+K focus)         | ✅      | Forge-48 — bottom 44px bar; Enter submit; Esc clear+blur; Cmd+K focus from anywhere |
 | Bottom timeline (parametric scrub)          | ✅      | Forge-48 layout + Forge-50 driver wiring: rollback via shift+click / double-click / Backspace; truncates the parametric history + announces in the Archie thread; calls `window.forge.rebuild({upToStepId})` when the kernel exposes one |
-| Persistent Archie sidebar                   | ✅      | Forge-48 layout + Forge-49 useArchieDriver wires the real ForgeRunner: streaming tool-call cards, running/cancel state, offline echo when forge-kernel.node absent |
+| Persistent Archie sidebar                   | ✅      | Forge-48 layout + Forge-49 ForgeRunner streaming + Forge-51 ArchieThreadStore persistence: messages survive reload (localStorage) and steps are per-thread-keyed; `newThread()` opens a clean slate without losing history |
 | Viewport (r3f canvas + orbit)               | ◐      | Forge-48 viewport surface + empty-state; r3f canvas + selection wiring queued Forge-50 (single-doc focus for now) |
 | Transform gizmo + measurement + section     | ◐      | Forge-27 modules exist; need re-mount under v3 viewport (Forge-49) |
 | Named views + display states                | ◐      | Forge-27 modules exist; need v3 verb-rail wiring (Forge-49) |
