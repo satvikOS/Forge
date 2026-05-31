@@ -19,6 +19,10 @@ import { HeadsUpToolbar } from './HeadsUpToolbar.jsx';
 import { ToastHost, showToast } from './Toast.jsx';
 import { ToolParamDialog } from './ToolParamDialog.jsx';
 import { schemaFor } from './toolSchemas.js';
+import { RollbackBar } from './RollbackBar.jsx';
+import { ProjectLibrary } from './ProjectLibrary.jsx';
+import { SketchStateBadge } from './SketchStateBadge.jsx';
+import { BodyContextMenu } from './BodyContextMenu.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -46,6 +50,9 @@ export function ForgeShellV4() {
   const [activeFeatureId, setActiveFeatureId] = useState(null);
   const [viewName, setViewName] = useState('iso');
   const [displayState, setDisplayState] = useState('shaded');
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [sketchActive, setSketchActive] = useState(false);
+  const [bodyCtxMenu, setBodyCtxMenu] = useState(null);
   const cmdRef = useRef(null);
   const archieAbortRef = useRef(null);
 
@@ -198,6 +205,16 @@ export function ForgeShellV4() {
         return;
       case 'tools.search':
         cmdRef.current?.focus(); return;
+      case 'tools.library':
+        setLibraryOpen(true); return;
+      case 'sketch.new':
+        setSketchActive(true);
+        setActiveTool('sketch.new');
+        return;
+      case 'sketch.finish':
+        setSketchActive(false);
+        showToast({ kind: 'ok', text: 'Sketch finished', ttl: 1500 });
+        return;
       case 'help.about':
         pushThread({ role: 'archie', text: 'Forge v0.4.0 — Archie-first parametric MCAD on OCCT. Built by satvikOS. Original visual IP — no infringement on CATIA / NX / SolidWorks / Creo / AutoCAD.' });
         setDockOpen(true);
@@ -231,7 +248,11 @@ export function ForgeShellV4() {
                    showToast({ kind: 'info', text: `${id} (no params)`, ttl: 1500 });
                  }
                }} />
-      <div className="forge-viewport" data-testid="forge-viewport">
+      <div className="forge-viewport" data-testid="forge-viewport"
+           onContextMenu={(e) => {
+             e.preventDefault();
+             setBodyCtxMenu({ x: e.clientX, y: e.clientY });
+           }}>
         <Viewport steps={[]}
                   selection={selection}
                   onSelect={setSelection}
@@ -245,7 +266,40 @@ export function ForgeShellV4() {
                      setViewName(v);
                      showToast({ kind: 'info', text: `View → ${v}`, ttl: 1500 });
                    }} />
+        <SketchStateBadge visible={sketchActive}
+                          state="under" nConstraints={0} nDof={4} />
+        <RollbackBar features={featureTree}
+                     activeIndex={featureTree.findIndex((f) => f.id === activeFeatureId)}
+                     onRollback={(i) => {
+                       setActiveFeatureId(featureTree[i]?.id);
+                       showToast({ kind: 'info', text: `Rolled to step ${i + 1}`, ttl: 1500 });
+                     }}
+                     onSuppress={(i) => {
+                       setFeatureTree((arr) => arr.map((n, j) =>
+                         j === i ? { ...n, suppressed: !n.suppressed } : n));
+                     }}
+                     onDelete={(i) => {
+                       setFeatureTree((arr) => arr.filter((_, j) => j !== i));
+                     }} />
       </div>
+      <BodyContextMenu open={!!bodyCtxMenu}
+                       x={bodyCtxMenu?.x || 0}
+                       y={bodyCtxMenu?.y || 0}
+                       selection={selection}
+                       onPick={(it) => {
+                         if (schemaFor(it.id)) setActiveTool(it.id);
+                         else handleMenuAction(it.id);
+                       }}
+                       onClose={() => setBodyCtxMenu(null)} />
+      <ProjectLibrary open={libraryOpen}
+                      onClose={() => setLibraryOpen(false)}
+                      onInsert={(it) => {
+                        const nextId = `f-${featureTree.length}`;
+                        setFeatureTree((t) => [...t, {
+                          id: nextId, label: it.label, icon: it.icon, params: it.spec,
+                        }]);
+                        setActiveFeatureId(nextId);
+                      }} />
       {dockOpen
         ? (<ArchieDock open={dockOpen} thread={thread} running={running}
                        onClose={() => setDockOpen(false)}

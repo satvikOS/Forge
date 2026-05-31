@@ -588,9 +588,10 @@ html, body, #root {
 /* ============ Rollback timeline ============ */
 .forge-rollback {
   position: absolute;
-  top: calc(var(--forge-topbar-h) + var(--forge-qat-h) + var(--forge-toolbar-h) + 12px);
-  right: calc(var(--forge-right-w) + 8px);
+  top: 56px;        /* below the HUT pill */
+  right: 12px;      /* inside viewport, adjacent to right panel boundary */
   z-index: 5;
+  pointer-events: auto;
 }
 .forge-rollback-track {
   display: flex; flex-direction: column;
