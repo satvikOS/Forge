@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Icon } from './icons/Icon.jsx';
+import { Tooltip } from './Tooltip.jsx';
 
 // Tool spec — keyed by workbench. Each group is a {label, tools[]} pair.
 // Tool: { id, label, icon, hint }
@@ -141,19 +142,19 @@ export function Toolbar({ workbenchId, activeTool, onInvoke }) {
         <div key={g.label} className="forge-toolbar-group">
           <span className="forge-toolbar-group-label">{g.label}</span>
           {g.tools.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="forge-tool"
-              data-tool={t.id}
-              data-active={String(activeTool === t.id)}
-              title={t.hint ? `${t.label} (${t.hint})` : t.label}
-              aria-label={t.label}
-              aria-pressed={activeTool === t.id}
-              onClick={() => onInvoke?.(t.id)}
-            >
-              <Icon name={t.icon} size={18} />
-            </button>
+            <Tooltip key={t.id} label={t.label} hint={t.hint} placement="bottom">
+              <button
+                type="button"
+                className="forge-tool"
+                data-tool={t.id}
+                data-active={String(activeTool === t.id)}
+                aria-label={t.label}
+                aria-pressed={activeTool === t.id}
+                onClick={() => onInvoke?.(t.id)}
+              >
+                <Icon name={t.icon} size={18} />
+              </button>
+            </Tooltip>
           ))}
         </div>
       ))}

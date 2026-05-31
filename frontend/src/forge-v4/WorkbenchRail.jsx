@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { Icon } from './icons/Icon.jsx';
+import { Tooltip } from './Tooltip.jsx';
 
 export const WORKBENCHES = [
   { id: 'mech',     icon: 'wb.mech',     label: 'Part' },
@@ -24,19 +25,19 @@ export function WorkbenchRail({ activeId, onSwitch }) {
          aria-label="Workbenches"
          data-testid="forge-wb-rail">
       {WORKBENCHES.map((wb) => (
-        <button
-          key={wb.id}
-          type="button"
-          className="forge-wb-tab"
-          data-wb={wb.id}
-          data-active={String(activeId === wb.id)}
-          onClick={() => onSwitch?.(wb.id)}
-          aria-pressed={activeId === wb.id}
-          title={wb.label}
-        >
-          <Icon name={wb.icon} size={24} className="forge-wb-tab-glyph" />
-          <span className="forge-wb-tab-label">{wb.label}</span>
-        </button>
+        <Tooltip key={wb.id} label={wb.label} placement="right">
+          <button
+            type="button"
+            className="forge-wb-tab"
+            data-wb={wb.id}
+            data-active={String(activeId === wb.id)}
+            onClick={() => onSwitch?.(wb.id)}
+            aria-pressed={activeId === wb.id}
+          >
+            <Icon name={wb.icon} size={24} className="forge-wb-tab-glyph" />
+            <span className="forge-wb-tab-label">{wb.label}</span>
+          </button>
+        </Tooltip>
       ))}
     </nav>
   );
