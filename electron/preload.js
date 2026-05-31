@@ -176,6 +176,18 @@ const forgeApi = {
   cfd: kernel && kernel.cfd ? {
     solveSteadyNS: (cfg) => kernel.cfd.solveSteadyNS(cfg),
   } : null,
+
+  // file I/O (Forge-21) — STEP / BREP / STL import + export. All
+  // operations take absolute filesystem paths; renderer code calls
+  // these from the file menu after the OS file dialog returns a path.
+  io: kernel && kernel.io ? {
+    importStep: (filepath)                     => kernel.io.importStep(filepath),
+    exportStep: (handle, filepath)             => kernel.io.exportStep(handle, filepath),
+    importBrep: (filepath)                     => kernel.io.importBrep(filepath),
+    exportBrep: (handle, filepath)             => kernel.io.exportBrep(handle, filepath),
+    importStl:  (filepath)                     => kernel.io.importStl(filepath),
+    exportStl:  (handle, filepath, lt, at, asc) => kernel.io.exportStl(handle, filepath, lt ?? 0.1, at ?? 0.5, !!asc),
+  } : null,
 };
 
 if (kernel) {

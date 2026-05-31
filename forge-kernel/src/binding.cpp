@@ -21,6 +21,7 @@
 #include "forge/Cam.hpp"
 #include "forge/GcodePost.hpp"
 #include "forge/Cfd.hpp"
+#include "forge/IoExchange.hpp"
 
 #include <Standard_Version.hxx>
 #include <cstring>
@@ -1349,6 +1350,62 @@ Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- IO (Forge-21)
+namespace io_bind {
+std::string requirePath(const Napi::CallbackInfo& info, std::size_t idx) {
+    if (info.Length() <= idx || !info[idx].IsString()) {
+        throw Napi::TypeError::New(info.Env(),
+            "forge.io: expected filepath string at arg " + std::to_string(idx));
+    }
+    return info[idx].As<Napi::String>().Utf8Value();
+}
+}
+
+Napi::Value IoImportStep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::io::importStep(io_bind::requirePath(info, 0)));
+    });
+}
+Napi::Value IoExportStep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Boolean::New(info.Env(),
+            forge::io::exportStep(requireHandle(info, 0), io_bind::requirePath(info, 1)));
+    });
+}
+Napi::Value IoImportBrep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::io::importBrep(io_bind::requirePath(info, 0)));
+    });
+}
+Napi::Value IoExportBrep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Boolean::New(info.Env(),
+            forge::io::exportBrep(requireHandle(info, 0), io_bind::requirePath(info, 1)));
+    });
+}
+Napi::Value IoImportStl(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::io::importStl(io_bind::requirePath(info, 0)));
+    });
+}
+Napi::Value IoExportStl(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto handle = requireHandle(info, 0);
+        const auto path = io_bind::requirePath(info, 1);
+        const double linTol = info.Length() > 2 && info[2].IsNumber()
+            ? info[2].As<Napi::Number>().DoubleValue() : 0.1;
+        const double angTol = info.Length() > 3 && info[3].IsNumber()
+            ? info[3].As<Napi::Number>().DoubleValue() : 0.5;
+        const bool ascii = info.Length() > 4 && info[4].IsBoolean()
+            ? info[4].As<Napi::Boolean>().Value() : false;
+        return Napi::Boolean::New(info.Env(),
+            forge::io::exportStl(handle, path, linTol, angTol, ascii));
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -1505,6 +1562,16 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     auto cfd = Napi::Object::New(env);
     cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
     exports.Set("cfd", cfd);
+
+    // -------- IO exchange (Forge-21) — STEP / BREP / STL ----------------
+    auto io = Napi::Object::New(env);
+    io.Set("importStep", Napi::Function::New(env, IoImportStep));
+    io.Set("exportStep", Napi::Function::New(env, IoExportStep));
+    io.Set("importBrep", Napi::Function::New(env, IoImportBrep));
+    io.Set("exportBrep", Napi::Function::New(env, IoExportBrep));
+    io.Set("importStl",  Napi::Function::New(env, IoImportStl));
+    io.Set("exportStl",  Napi::Function::New(env, IoExportStl));
+    exports.Set("io", io);
 
     return exports;
 }
