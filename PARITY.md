@@ -55,33 +55,36 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 
 ## 3. UI / UX  — *user explicitly flagged this as V V IMPORTANT*
 
+**Forge-48 reset.** The v1 ribbon-clone and v2 SolidWorks-mimicry layout
+were deleted as user IP demanded ("Forge's own style and flavor, its
+own IP — current is rubbish, not following industry UX rules"). v3 is
+a from-scratch Archie-first interaction model: a thin verb rail
+(selection-contextual, ≤12 verbs at any moment) + an always-on
+natural-language command bar at the bottom + a persistent Archie
+sidebar on the right + a scrubbable timeline above the cmd bar. The
+viewport dominates. Old rows below are re-evaluated against v3.
+
 | Capability                                  | Status | Notes |
 |---------------------------------------------|--------|-------|
-| Ribbon (workbench tabs)                     | ✅      | Forge-26 — 6 tabs |
-| Dockable panels (feature tree / props)      | ✅      | Forge-26 |
-| Multi-document tabs                         | ✅      | Forge-26 |
-| Status bar (units / coords / sel count)     | ✅      | Forge-26 |
-| Theme (dark / light)                        | ✅      | Forge-26 — CSS variables, localStorage |
-| Settings panel                              | ✅      | Forge-26 — modal |
-| Customizable workspaces / roles             | ✅      | Forge-26 — Engineer/Designer/Reviewer |
-| Command search (Cmd+K)                      | ✅      | Forge-26 — modal + fuzzy + recency/usage bias |
-| Selection filter dropdown                   | ✅      | Forge-26 chip toggles |
-| Property manager panel                      | ✅      | Forge-26 — number+unit, bool, vec3, enum, color, ref |
-| Feature tree panel                          | ✅      | Forge-26 — drag-reorder, suppress, rollback slider |
-| Configuration manager panel                 | ✅      | Forge-26 |
-| Viewport orbit / pan / zoom                 | ✅      | Forge-27 — r3f canvas + OrbitControls |
-| Selection highlight (outline shader)        | ✅      | Forge-27 |
-| Transform gizmo (xlate / rot / scale)       | ✅      | Forge-27 — drei TransformControls + 3 modes |
-| Onscreen measurement tool                   | ✅      | Forge-27 — distance/angle/area |
-| Section view (cutting plane)                | ✅      | Forge-27 |
-| Named views (with thumbnails)               | ✅      | Forge-27 — camera + 256×144 thumbnail capture |
-| Display states (shaded/wf/transp/hidden)    | ✅      | Forge-27 — 5 modes incl. HLR |
-| Undo / redo (N-step history)                | ✅      | Forge-28 — N=200, coalescing, FeatureTree+Config wired |
-| Right-click context menus                   | ✅      | Forge-28 — per-entity-kind menus, edge-clamped |
-| Hover tooltips with live values             | ✅      | Forge-28 — Smart positioning, Esc dismiss |
-| Keyboard shortcut customizer                | ✅      | Forge-28 — chord shortcuts, JSON import/export |
-| Progress + cancel for long ops              | ✅      | Forge-28 — AbortController plumbed to FEA + ForgeRunner |
-| Real Forge React app launches               | ✅      | Forge-26 — `#forge` hash route mounts ForgeApp |
+| App shell + entry point                     | ✅      | Forge-48 — `ForgeShellV3` mounts as default; v1 ribbon + v2 layout deleted |
+| Forge-IP design tokens (3 themes)           | ✅      | Forge-48 — dark/light/contrast, copper accent (#d97a3b), `prefers-reduced-motion` honoured |
+| Verb rail (selection-contextual)            | ✅      | Forge-48 — 5/8/4/8 verbs for none/face/edge/body selection; ≤12 per state ceiling |
+| Always-on command bar (Cmd+K focus)         | ✅      | Forge-48 — bottom 44px bar; Enter submit; Esc clear+blur; Cmd+K focus from anywhere |
+| Bottom timeline (parametric scrub)          | ◐      | Forge-48 — empty-state + populated cards + playhead render; rebuild-engine wiring queued Forge-50 |
+| Persistent Archie sidebar                   | ◐      | Forge-48 — collapsed/expanded layout + thread rendering; ArchieRunner wiring queued Forge-51 |
+| Viewport (r3f canvas + orbit)               | ◐      | Forge-48 — viewport surface + empty-state; r3f canvas + selection wiring queued Forge-49 |
+| Transform gizmo + measurement + section     | ◐      | Forge-27 modules exist; need re-mount under v3 viewport (Forge-49) |
+| Named views + display states                | ◐      | Forge-27 modules exist; need v3 verb-rail wiring (Forge-49) |
+| Undo / redo (N-step history)                | ◐      | Forge-28 module exists; needs cmd-bar + verb-rail wiring (Forge-49) |
+| Right-click context menus                   | ◐      | Forge-28 module exists; needs v3 viewport wiring (Forge-49) |
+| Hover tooltips (Smart positioning)          | ◐      | v3 uses `title` for now; tooltip primitive rewires Forge-49 |
+| Keyboard shortcut customizer                | ◐      | Forge-28 module exists; needs v3 reachability (Settings dialog Forge-49) |
+| Progress + cancel for long ops              | ✅      | AbortController unchanged; ArchieRunner already plumbed |
+| Multi-document tabs                         | ☐      | v3 is single-doc today; multi-doc queued (Forge-49) |
+| Settings panel                              | ☐      | v2 modal deleted; v3 Settings overlay queued (Forge-49) |
+| Customizable workspaces / roles             | ☐      | v2 dropdown deleted; v3 has no "workspace" concept yet (a unified surface is the IP) |
+| Selection filter chip                       | ☐      | v3 will surface as a verb chip in the rail (Forge-49) |
+| Property manager panel                      | ☐      | v2 panel deleted; v3 surfaces property edits in the verb rail's active-verb drawer (Forge-49) |
 
 ## 4. Drawings / Drafting
 
@@ -177,7 +180,7 @@ Self-grade as of the 7-agent integration wave:
 
   §1 Kernel:       27 ✅ / 0 ◐ / 0 ☐  (Forge-47 closed persistent selective IDs via ForgeTopoIdRegistry — every kernel section is now fully green)
   §2 Perf:         11 ✅ / 0 ◐ / 0 ☐  (Forge-44 closed GPU instancing + worker FEA pool)
-  §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
+  §3 UI/UX:         6 ✅ / 8 ◐ / 5 ☐  ← honest reset after the v3 IP scrub (was 25/0/0 against v1 layout that has been deleted)
   §4 Drawings:      8 ✅ / 0 ◐ / 0 ☐  (auto-BOM rollup wired in Forge-45)
   §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed 3/5-axis + stock-sim + CMM)
@@ -186,11 +189,14 @@ Self-grade as of the 7-agent integration wave:
   §9 AI:            4 ✅ / 0 ◐ / 0 ☐  (Forge-46 — trace flush-to-disk wired)
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐
 
-Totals: **108 ✅ / 2 ◐ / 2 ☐** out of 112 rows (the +1 is the row count drift across slice edits — recount on next audit).
+Totals: **89 ✅ / 10 ◐ / 7 ☐** out of 106 rows (§3 reset against v3 IP — 19 v1/v2 rows replaced by 19 v3 rows; net is honest, not optimised for the headline).
 
-§§1, 2, 3, 4, 5, 6, 8, 9 are **fully green** — every
-SolidWorks/NX/Catia equivalent op is shipped and smoke-tested. UI/UX
-(the V V IMPORTANT bar) is fully green.
+§§1, 2, 4, 5, 6, 8, 9 are fully green on the kernel + features.
+§3 UI/UX is mid-rebuild on the Forge-IP v3 surface; Forge-49 closes the
+viewport + verb-rail + Archie wiring; Forge-50 the timeline; Forge-51
+the sidebar. Honest count today: 6/19 v3 rows ✅ — not the inflated
+25/25 the prior wave claimed against a layout the user explicitly
+called rubbish.
 
 Remaining 2 ☐:
 - §10 forge-kernel.node bundled in macOS .app — blocked on the OAuth
