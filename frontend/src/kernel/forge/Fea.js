@@ -52,6 +52,26 @@ export const FACE_POS_Z = 5;
  * Validate a material object — throws a descriptive Error if any of E, nu,
  * rho is missing or non-positive. Acceptable nu range: (−1, 0.5).
  */
+/**
+ * Cancellation: callers may pass `cancelToken` — either an AbortSignal or
+ * an object with `.aborted` — to abort long FEA runs. We poll between
+ * Newmark iterations and throw a DOMException-compatible 'AbortError'
+ * that the ProgressBus + UI overlay treat as a clean cancellation.
+ */
+export class ForgeAbortError extends Error {
+  constructor(msg = 'Operation aborted') {
+    super(msg);
+    this.name = 'AbortError';
+  }
+}
+
+function checkCancel(token) {
+  if (!token) return;
+  const aborted = (typeof token.aborted === 'boolean') ? token.aborted
+                : (token.signal && token.signal.aborted);
+  if (aborted) throw new ForgeAbortError();
+}
+
 function validateMaterial(mat) {
   if (!mat || typeof mat !== 'object') {
     throw new Error('[forge.fea] material must be an object {E, nu, rho}');
@@ -105,9 +125,16 @@ export class ForgeFEA {
    * @param {Array}  [cfg.pressureLoads] — [{ faceId, pressure }]
    * @param {Array}  cfg.bcs      — [{ nodeId, fx, fy, fz }]
    */
-  runStatic({ material, mesh, loads = [], pressureLoads = [], bcs = [] }) {
+  runStatic({ material, mesh, loads = [], pressureLoads = [], bcs = [], cancelToken = null }) {
     validateMaterial(material);
-    return this._k().fea.solveStatic(mesh, material, loads, pressureLoads, bcs);
+    checkCancel(cancelToken);
+    // The native solveStatic is one shot, so we honour cancellation by
+    // checking the token before invoking + once again on return. Forge-29
+    // will switch the native side to chunked iteration so we can poll
+    // mid-solve too.
+    const result = this._k().fea.solveStatic(mesh, material, loads, pressureLoads, bcs);
+    checkCancel(cancelToken);
+    return result;
   }
 
   /**
@@ -138,7 +165,7 @@ export class ForgeFEA {
    * @param {number} [cfg.beta=0]  — Rayleigh damping β (stiffness-proportional)
    */
   runDynamic({ material, mesh, loads = [], bcs = [], tEnd, dt,
-               alpha = 0, beta = 0 }) {
+               alpha = 0, beta = 0, cancelToken = null, onProgress = null }) {
     validateMaterial(material);
     if (!(tEnd > 0)) throw new Error('[forge.fea] runDynamic: tEnd must be > 0');
     if (!(dt > 0))   throw new Error('[forge.fea] runDynamic: dt must be > 0');
@@ -146,8 +173,23 @@ export class ForgeFEA {
       console.warn(`[forge.fea] runDynamic: dt=${dt} is large relative to tEnd=${tEnd}; ` +
                    `accuracy may suffer.`);
     }
-    return this._k().fea.solveDynamic(mesh, material, loads, bcs,
-                                      tEnd, dt, alpha, beta);
+    checkCancel(cancelToken);
+    // If the kernel exposes a per-step variant we honour cancellation
+    // between iterations; otherwise we wrap the single-shot call.
+    const k = this._k().fea;
+    if (typeof k.solveDynamicStep === 'function' && cancelToken) {
+      const ctx = k.solveDynamicBegin(mesh, material, loads, bcs, tEnd, dt, alpha, beta);
+      const steps = Math.ceil(tEnd / dt);
+      for (let i = 0; i < steps; i++) {
+        checkCancel(cancelToken);
+        k.solveDynamicStep(ctx);
+        if (onProgress) onProgress((i + 1) / steps);
+      }
+      return k.solveDynamicEnd(ctx);
+    }
+    const out = k.solveDynamic(mesh, material, loads, bcs, tEnd, dt, alpha, beta);
+    checkCancel(cancelToken);
+    return out;
   }
 
   // ----- helpers ------------------------------------------------------

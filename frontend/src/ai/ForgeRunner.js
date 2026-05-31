@@ -114,6 +114,7 @@ export async function runForgePrompt({
   autoDefaultClarify = false,
   archie = archieComplete,
   forge,
+  signal = null,         // Forge-28: AbortSignal, honoured by archieComplete
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('[forge.runner] prompt required');
@@ -133,7 +134,11 @@ export async function runForgePrompt({
   ];
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    const completion = await archie({ messages, discipline });
+    if (signal && signal.aborted) {
+      trace.final = { status: 'cancelled' };
+      return trace;
+    }
+    const completion = await archie({ messages, discipline, signal });
     const parsed = parseAssistant(completion);
     const iter = { turn, completion, parsed, toolResponses: [] };
 
