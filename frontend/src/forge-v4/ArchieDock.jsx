@@ -9,7 +9,7 @@ const SAMPLES = [
   'hex bolt M6 length 25 mm',
 ];
 
-export function ArchieDock({ open, thread, running = false, onClose, onTry }) {
+export function ArchieDock({ open, thread, running = false, onClose, onTry, onCancel }) {
   if (!open) return null;
   return (
     <aside className="forge-archie"
@@ -22,6 +22,23 @@ export function ArchieDock({ open, thread, running = false, onClose, onTry }) {
         </span>
         <span>Archie{running ? ' · working' : ''}</span>
         <span style={{ flex: 1 }} />
+        {running && onCancel && (
+          <button type="button" onClick={onCancel}
+                  aria-label="Cancel Archie run"
+                  data-testid="forge-archie-cancel"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--forge-rail-edge)',
+                    color: 'var(--forge-ink-2)',
+                    cursor: 'pointer',
+                    padding: '1px 8px',
+                    borderRadius: 3,
+                    fontSize: 10,
+                    marginRight: 6,
+                  }}>
+            cancel
+          </button>
+        )}
         <button type="button" onClick={onClose}
                 aria-label="Close dock"
                 style={{

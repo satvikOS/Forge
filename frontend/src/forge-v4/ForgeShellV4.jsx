@@ -38,6 +38,7 @@ export function ForgeShellV4() {
   const [featureTree, setFeatureTree] = useState([]);
   const [activeFeatureId, setActiveFeatureId] = useState(null);
   const cmdRef = useRef(null);
+  const archieAbortRef = useRef(null);
 
   // Theme into the data attribute that the tokens.css selectors read.
   useEffect(() => {
@@ -69,6 +70,76 @@ export function ForgeShellV4() {
 
   function pushThread(m) {
     setThread((t) => [...t, { id: `m-${t.length}`, ts: Date.now(), ...m }]);
+  }
+
+  // Forge-69 — Archie runner integration.
+  //   When the user submits in the cmd bar, we open the dock + push a
+  //   "user" message; then dispatch to the local Archie fleet via
+  //   ForgeRunner if it's available + the native kernel is present.
+  //   Tool calls stream into the thread; the run can be cancelled via
+  //   the dock header. Falls back to a friendly offline echo otherwise.
+  async function runArchie(prompt) {
+    if (!prompt) return;
+    setDockOpen(true);
+    pushThread({ role: 'user', text: prompt });
+    const hasKernel = typeof window !== 'undefined' && window.forge &&
+                      typeof window.forge.isReady === 'function' &&
+                      window.forge.isReady();
+    if (!hasKernel) {
+      pushThread({ role: 'archie', text:
+        'I would build that, but the native forge-kernel.node addon isn\'t loaded ' +
+        'in this dev shell. When it ships in the installer (Forge-60+), this same ' +
+        'input runs against Archie at localhost:8080.' });
+      return;
+    }
+    setRunning(true);
+    let runForgePrompt;
+    try {
+      ({ runForgePrompt } = await import('../ai/ForgeRunner.js'));
+    } catch (err) {
+      pushThread({ role: 'archie', text: `Runner load failed: ${err.message}` });
+      setRunning(false); return;
+    }
+    const ac = new AbortController();
+    archieAbortRef.current = ac;
+    try {
+      const trace = await runForgePrompt({
+        prompt,
+        discipline: activeWb === 'mech' ? 'part' : activeWb,
+        signal: ac.signal,
+        forge: window.forge,
+        onTrace: (ev) => {
+          if (ev.kind === 'tool') {
+            pushThread({
+              role: 'tool',
+              text: `${ev.call.name}(${JSON.stringify(ev.call.arguments)}) → ${
+                ev.response?.ok === false ? '✗ ' + (ev.response.error || 'err')
+                                          : '✓'}`,
+            });
+          }
+        },
+      });
+      if (trace.final?.status === 'done' && trace.final.text) {
+        pushThread({ role: 'archie', text: trace.final.text });
+      } else if (trace.final?.status === 'clarify') {
+        pushThread({ role: 'archie', text: `Need: ${trace.final.clarify.question || '…'}` });
+      } else if (trace.final?.status === 'cancelled') {
+        pushThread({ role: 'archie', text: '(cancelled)' });
+      } else if (trace.final?.status === 'maxTurns') {
+        pushThread({ role: 'archie', text: '(max turns — try a smaller step)' });
+      }
+    } catch (err) {
+      pushThread({ role: 'archie', text:
+        err.name === 'AbortError' ? '(cancelled)' : `Error: ${err.message}` });
+    } finally {
+      setRunning(false);
+      archieAbortRef.current = null;
+    }
+  }
+  function cancelArchie() {
+    archieAbortRef.current?.abort();
+    archieAbortRef.current = null;
+    setRunning(false);
   }
 
   // Forge-66 — menu action dispatcher. Each id matches the spec in
@@ -143,11 +214,8 @@ export function ForgeShellV4() {
       {dockOpen
         ? (<ArchieDock open={dockOpen} thread={thread} running={running}
                        onClose={() => setDockOpen(false)}
-                       onTry={(prompt) => {
-                         setDockOpen(true);
-                         pushThread({ role: 'user', text: prompt });
-                         pushThread({ role: 'archie', text: 'Kernel wiring lands in Forge-70 — for now I echo.' });
-                       }} />)
+                       onCancel={cancelArchie}
+                       onTry={(prompt) => runArchie(prompt)} />)
         : (<RightPanel collapsed={rightCollapsed}
                        onToggle={() => setRightCollapsed((v) => !v)}
                        featureTree={featureTree}
@@ -183,11 +251,7 @@ export function ForgeShellV4() {
                   running={running}
                   dockOpen={dockOpen}
                   onToggleDock={() => setDockOpen((v) => !v)}
-                  onSubmit={(text) => {
-                    setDockOpen(true);
-                    pushThread({ role: 'user', text });
-                    pushThread({ role: 'archie', text: `Queued. (Forge-70 wires the live runner.)` });
-                  }} />
+                  onSubmit={(text) => runArchie(text)} />
     </div>
   );
 }
