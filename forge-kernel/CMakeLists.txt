@@ -112,6 +112,7 @@ add_library(forge_kernel SHARED
     src/Sketcher.cpp
     src/Fea.cpp
     src/FeaExtras.cpp
+    src/FeaContact.cpp
     src/Cfd.cpp
     src/Cam.cpp
     src/CamAdvanced.cpp

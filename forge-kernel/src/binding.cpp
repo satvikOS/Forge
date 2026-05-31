@@ -23,6 +23,7 @@
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
+#include "forge/FeaContact.hpp"
 #include "forge/Cam.hpp"
 #include "forge/CamAdvanced.hpp"
 #include "forge/GcodePost.hpp"
@@ -1974,6 +1975,172 @@ Napi::Value FeaFatigueLife(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- FEA Forge-31 — buckling/contact/plasticity
+//
+// JS surface — under `forge.fea`:
+//   solveBuckling(meshObj, materialObj, staticLoadsArr, bcsArr, nModes)
+//     → { loadFactors: Float64Array, modes: [Float64Array...],
+//         firstCriticalLoad, nModes, cpuMs }
+//   solveContact(meshA, meshB, materialObj, loadsA, loadsB, bcsA, bcsB,
+//                contactPairsArr, normalPenalty)
+//     → { uA: Float64Array, uB: Float64Array,
+//         contactPressure: Float64Array, iterations, penaltyUsed,
+//         converged, cpuMs }
+//   solveNonlinearPlastic(meshObj, plasticMatObj, loadsArr, bcsArr, loadSteps)
+//     → { stepDisplacements: [Float64Array...], stepPlasticStrain: [...],
+//         stepStress: [...], stepIterations: Uint32Array,
+//         stepResiduals: Float64Array, converged, cpuMs }
+
+namespace {
+
+std::vector<forge::fea::ContactPair>
+readContactPairs(const Napi::Env& env, const Napi::Value& v) {
+    std::vector<forge::fea::ContactPair> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env,
+            "forge.fea.solveContact: contactPairs must be array");
+    }
+    auto arr = v.As<Napi::Array>();
+    out.reserve(arr.Length());
+    for (uint32_t i = 0; i < arr.Length(); ++i) {
+        auto o = arr.Get(i).As<Napi::Object>();
+        forge::fea::ContactPair p{};
+        p.nodeA = o.Has("nodeA") ? o.Get("nodeA").As<Napi::Number>().Uint32Value() : 0u;
+        p.faceB = o.Has("faceB") ? o.Get("faceB").As<Napi::Number>().Uint32Value() : 0u;
+        out.push_back(p);
+    }
+    return out;
+}
+
+} // namespace
+
+Napi::Value FeaSolveBuckling(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh     = readMesh(env, info[0]);
+        auto material = readMaterial(env, info[1]);
+        auto loads    = readNodalLoads(env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto bcs      = readBCs(env, info.Length() > 3 ? info[3] : env.Undefined());
+        const int nModes = info.Length() > 4 && info[4].IsNumber()
+            ? info[4].As<Napi::Number>().Int32Value() : 3;
+        auto r = forge::fea::solveBuckling(mesh, material, loads, bcs, nModes);
+        auto out = Napi::Object::New(env);
+        auto lf = Napi::Float64Array::New(env, r.loadFactors.size());
+        std::copy(r.loadFactors.begin(), r.loadFactors.end(), lf.Data());
+        out.Set("loadFactors", lf);
+        auto modes = Napi::Array::New(env, r.modes.size());
+        for (std::size_t i = 0; i < r.modes.size(); ++i) {
+            auto& phi = r.modes[i];
+            auto ta = Napi::Float64Array::New(env, phi.size());
+            std::copy(phi.begin(), phi.end(), ta.Data());
+            modes.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("modes", modes);
+        out.Set("firstCriticalLoad", Napi::Number::New(env, r.firstCriticalLoad));
+        out.Set("nModes", Napi::Number::New(env, r.nModes));
+        out.Set("cpuMs",  Napi::Number::New(env, r.cpuMs));
+        return out;
+    });
+}
+
+Napi::Value FeaSolveContact(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto meshA    = readMesh(env, info[0]);
+        auto meshB    = readMesh(env, info[1]);
+        auto material = readMaterial(env, info[2]);
+        auto loadsA   = readNodalLoads(env, info.Length() > 3 ? info[3] : env.Undefined());
+        auto loadsB   = readNodalLoads(env, info.Length() > 4 ? info[4] : env.Undefined());
+        auto bcsA     = readBCs(env, info.Length() > 5 ? info[5] : env.Undefined());
+        auto bcsB     = readBCs(env, info.Length() > 6 ? info[6] : env.Undefined());
+        auto pairs    = readContactPairs(env, info.Length() > 7 ? info[7] : env.Undefined());
+        const double penalty = info.Length() > 8 && info[8].IsNumber()
+            ? info[8].As<Napi::Number>().DoubleValue() : 0.0;
+        auto r = forge::fea::solveContact(meshA, meshB, material,
+                                          loadsA, loadsB, bcsA, bcsB,
+                                          pairs, penalty);
+        auto out = Napi::Object::New(env);
+        auto uA = Napi::Float64Array::New(env, r.uA.size());
+        std::copy(r.uA.begin(), r.uA.end(), uA.Data()); out.Set("uA", uA);
+        auto uB = Napi::Float64Array::New(env, r.uB.size());
+        std::copy(r.uB.begin(), r.uB.end(), uB.Data()); out.Set("uB", uB);
+        auto cp = Napi::Float64Array::New(env, r.contactPressure.size());
+        std::copy(r.contactPressure.begin(), r.contactPressure.end(), cp.Data());
+        out.Set("contactPressure", cp);
+        out.Set("iterations",  Napi::Number::New(env, r.iterations));
+        out.Set("penaltyUsed", Napi::Number::New(env, r.penaltyUsed));
+        out.Set("converged",   Napi::Boolean::New(env, r.converged));
+        out.Set("cpuMs",       Napi::Number::New(env, r.cpuMs));
+        return out;
+    });
+}
+
+Napi::Value FeaSolveNonlinearPlastic(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh  = readMesh(env, info[0]);
+        if (!info[1].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.fea.solveNonlinearPlastic: material must be {E, nu, rho, sigmaY, hardening}");
+        }
+        auto matObj = info[1].As<Napi::Object>();
+        forge::fea::PlasticMaterial mat{};
+        auto reqNum = [&](const char* k) {
+            if (!matObj.Has(k) || !matObj.Get(k).IsNumber()) {
+                throw Napi::TypeError::New(env,
+                    std::string("forge.fea.solveNonlinearPlastic: material.") + k + " required (number)");
+            }
+            return matObj.Get(k).As<Napi::Number>().DoubleValue();
+        };
+        mat.E         = reqNum("E");
+        mat.nu        = reqNum("nu");
+        mat.rho       = reqNum("rho");
+        mat.sigmaY    = reqNum("sigmaY");
+        mat.hardening = matObj.Has("hardening") && matObj.Get("hardening").IsNumber()
+            ? matObj.Get("hardening").As<Napi::Number>().DoubleValue() : 0.0;
+        auto loads = readNodalLoads(env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto bcs   = readBCs(env, info.Length() > 3 ? info[3] : env.Undefined());
+        const int loadSteps = info.Length() > 4 && info[4].IsNumber()
+            ? info[4].As<Napi::Number>().Int32Value() : 5;
+        auto r = forge::fea::solveNonlinearPlastic(mesh, mat, loads, bcs, loadSteps);
+        auto out = Napi::Object::New(env);
+        auto disps = Napi::Array::New(env, r.stepDisplacements.size());
+        for (std::size_t i = 0; i < r.stepDisplacements.size(); ++i) {
+            auto& u = r.stepDisplacements[i];
+            auto ta = Napi::Float64Array::New(env, u.size());
+            std::copy(u.begin(), u.end(), ta.Data());
+            disps.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("stepDisplacements", disps);
+        auto epArr = Napi::Array::New(env, r.stepPlasticStrain.size());
+        for (std::size_t i = 0; i < r.stepPlasticStrain.size(); ++i) {
+            auto& ep = r.stepPlasticStrain[i];
+            auto ta = Napi::Float64Array::New(env, ep.size());
+            std::copy(ep.begin(), ep.end(), ta.Data());
+            epArr.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("stepPlasticStrain", epArr);
+        auto sigArr = Napi::Array::New(env, r.stepStress.size());
+        for (std::size_t i = 0; i < r.stepStress.size(); ++i) {
+            auto& s = r.stepStress[i];
+            auto ta = Napi::Float64Array::New(env, s.size());
+            std::copy(s.begin(), s.end(), ta.Data());
+            sigArr.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("stepStress", sigArr);
+        auto its = Napi::Uint32Array::New(env, r.stepIterations.size());
+        for (std::size_t i = 0; i < r.stepIterations.size(); ++i) its.Data()[i] = r.stepIterations[i];
+        out.Set("stepIterations", its);
+        auto resv = Napi::Float64Array::New(env, r.stepResiduals.size());
+        std::copy(r.stepResiduals.begin(), r.stepResiduals.end(), resv.Data());
+        out.Set("stepResiduals", resv);
+        out.Set("converged", Napi::Boolean::New(env, r.converged));
+        out.Set("cpuMs",     Napi::Number::New(env, r.cpuMs));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- CFD (Forge-12b)
 //
 // JS surface — under `forge.cfd`:
@@ -3600,6 +3767,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     fea.Set("solveThermal",        Napi::Function::New(env, FeaSolveThermal));
     fea.Set("solveNonlinearStatic",Napi::Function::New(env, FeaSolveNonlinearStatic));
     fea.Set("fatigueLife",         Napi::Function::New(env, FeaFatigueLife));
+    fea.Set("solveBuckling",          Napi::Function::New(env, FeaSolveBuckling));
+    fea.Set("solveContact",           Napi::Function::New(env, FeaSolveContact));
+    fea.Set("solveNonlinearPlastic",  Napi::Function::New(env, FeaSolveNonlinearPlastic));
     // Mean-stress correction enum mirrored to JS.
     auto fc = Napi::Object::New(env);
     fc.Set("None",      Napi::Number::New(env, 0));

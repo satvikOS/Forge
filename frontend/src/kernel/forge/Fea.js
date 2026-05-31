@@ -192,6 +192,80 @@ export class ForgeFEA {
     return out;
   }
 
+  /**
+   * Linearised buckling (Forge-31). Returns
+   *   { loadFactors: Float64Array,
+   *     modes: Array<Float64Array>,
+   *     firstCriticalLoad,
+   *     nModes, cpuMs }
+   * where loadFactors[0] is the smallest critical load multiplier and
+   * firstCriticalLoad = loadFactors[0] × Σ‖preload‖.
+   *
+   * The `loads` array is the *axial pre-load* — its magnitude scales the
+   * eigenvalue; its direction sets the sign convention (compressive load
+   * is what produces positive eigenvalues / a real buckling response).
+   */
+  runBuckling({ material, mesh, loads = [], bcs = [], modes = 3 }) {
+    validateMaterial(material);
+    if (!Number.isInteger(modes) || modes < 1) {
+      throw new Error('[forge.fea] runBuckling: modes must be a positive integer');
+    }
+    const k = this._k().fea;
+    if (typeof k.solveBuckling !== 'function') {
+      throw new Error('[forge.fea] runBuckling: native solveBuckling not present (rebuild kernel)');
+    }
+    return k.solveBuckling(mesh, material, loads, bcs, modes);
+  }
+
+  /**
+   * Penalty-method node-to-surface contact between two brick meshes
+   * (Forge-31). Returns
+   *   { uA: Float64Array, uB: Float64Array,
+   *     contactPressure: Float64Array,
+   *     iterations, penaltyUsed, converged, cpuMs }
+   * Each entry of `contactPairs` is `{ nodeA, faceB }`. `normalPenalty` may
+   * be 0 → auto-scaled from diag(K).
+   */
+  runContact({ material, meshA, meshB,
+               loadsA = [], loadsB = [],
+               bcsA = [], bcsB = [],
+               contactPairs = [], normalPenalty = 0 }) {
+    validateMaterial(material);
+    const k = this._k().fea;
+    if (typeof k.solveContact !== 'function') {
+      throw new Error('[forge.fea] runContact: native solveContact not present (rebuild kernel)');
+    }
+    return k.solveContact(meshA, meshB, material,
+                          loadsA, loadsB, bcsA, bcsB,
+                          contactPairs, normalPenalty);
+  }
+
+  /**
+   * Material-nonlinear Newton solve with J2 plasticity + linear isotropic
+   * hardening (Forge-31). `material` is `{ E, nu, rho, sigmaY, hardening }`
+   * — the hardening modulus `H` is in Pa.
+   * Returns
+   *   { stepDisplacements: Array<Float64Array>,
+   *     stepPlasticStrain: Array<Float64Array>,
+   *     stepStress: Array<Float64Array>,
+   *     stepIterations, stepResiduals, converged, cpuMs }.
+   */
+  runNonlinearPlastic({ material, mesh, loads = [], bcs = [], loadSteps = 5 }) {
+    if (!material || typeof material !== 'object') {
+      throw new Error('[forge.fea] runNonlinearPlastic: material must be an object');
+    }
+    if (!(material.E > 0))     throw new Error('[forge.fea] runNonlinearPlastic: material.E > 0');
+    if (!(material.sigmaY > 0))throw new Error('[forge.fea] runNonlinearPlastic: material.sigmaY > 0');
+    if (!Number.isInteger(loadSteps) || loadSteps < 1) {
+      throw new Error('[forge.fea] runNonlinearPlastic: loadSteps must be a positive integer');
+    }
+    const k = this._k().fea;
+    if (typeof k.solveNonlinearPlastic !== 'function') {
+      throw new Error('[forge.fea] runNonlinearPlastic: native solveNonlinearPlastic not present (rebuild kernel)');
+    }
+    return k.solveNonlinearPlastic(mesh, material, loads, bcs, loadSteps);
+  }
+
   // ----- helpers ------------------------------------------------------
 
   /**

@@ -238,6 +238,26 @@ const forgeApi = {
       kernel.fea.solveNonlinearStatic(mesh, material, loads ?? [], bcs ?? [], cfg ?? {}),
     fatigueLife: (stressHistory, nElem, nSteps, cfg) =>
       kernel.fea.fatigueLife(stressHistory, nElem, nSteps, cfg ?? {}),
+    // Forge-31 — buckling / contact / plasticity (defensive: native bindings
+    // may not be present on older kernels, in which case we expose nulls so
+    // the JS facade can degrade gracefully without throwing on import.)
+    solveBuckling: typeof kernel.fea.solveBuckling === 'function'
+      ? (mesh, material, loads, bcs, nModes) =>
+          kernel.fea.solveBuckling(mesh, material, loads ?? [], bcs ?? [], nModes ?? 3)
+      : null,
+    solveContact: typeof kernel.fea.solveContact === 'function'
+      ? (meshA, meshB, material, loadsA, loadsB, bcsA, bcsB, pairs, normalPenalty) =>
+          kernel.fea.solveContact(meshA, meshB, material,
+                                  loadsA ?? [], loadsB ?? [],
+                                  bcsA ?? [], bcsB ?? [],
+                                  pairs ?? [], normalPenalty ?? 0)
+      : null,
+    solveNonlinearPlastic: typeof kernel.fea.solveNonlinearPlastic === 'function'
+      ? (mesh, material, loads, bcs, loadSteps) =>
+          kernel.fea.solveNonlinearPlastic(mesh, material,
+                                           loads ?? [], bcs ?? [],
+                                           loadSteps ?? 5)
+      : null,
     MeanStressCorrection: kernel.fea.MeanStressCorrection
       ? Object.freeze({ ...kernel.fea.MeanStressCorrection })
       : Object.freeze({ None: 0, Goodman: 1, Soderberg: 2 }),

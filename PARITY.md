@@ -107,9 +107,9 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Geometric nonlinear static                  | ✅      | Forge-12b |
 | Fatigue life (S-N + Goodman)                | ✅      | Forge-12b |
 | Incompressible CFD (laminar)                | ✅      | Forge-12b |
-| Buckling                                    | ☐      | future slice |
-| Contact / multi-body                        | ☐      | future slice |
-| Plasticity                                  | ☐      | future slice |
+| Buckling                                    | ✅      | Forge-31 — linearised K + λK_g, Euler ±20% |
+| Contact / multi-body                        | ✅      | Forge-31 — penalty node-to-surface, auto-α |
+| Plasticity                                  | ✅      | Forge-31 — J2 + linear isotropic hardening |
 | Live motion playback                        | ✅      | Forge-12b MotionPlayer |
 
 ## 6. Manufacturing
@@ -179,8 +179,8 @@ Self-grade as of the 7-agent integration wave:
   §2 Perf:          9 ✅ / 0 ◐ / 2 ☐  (GPU instancing + worker FEA queued)
   §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
   §4 Drawings:      7 ✅ / 1 ◐ / 0 ☐  (only auto-BOM rollup still partial)
-  §5 Simulation:    8 ✅ / 0 ◐ / 3 ☐  (buckling/contact/plasticity queued)
-  §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed out 3/5-axis + stock-sim + CMM)
+  §5 Simulation:   11 ✅ / 0 ◐ / 0 ☐  (Forge-31 closed buckling/contact/plasticity — full coverage)
+  §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed 3/5-axis + stock-sim + CMM)
   §7 PDM/IO:        4 ✅ / 3 ◐ / 0 ☐  (Forge-34 — filesystem store ✅; IGES ✅; PMI/MBD ◐; JT/Parasolid ◐ stub-with-error; S3 stub ◐ opt-in)
   §8 Assembly:      8 ✅ / 0 ◐ / 0 ☐  (Forge-35 — hierarchy + exploded + BOM + patterns + smart + interference + motion)
   §9 AI:            3 ✅ / 1 ◐ / 0 ☐
