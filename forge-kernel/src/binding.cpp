@@ -2002,6 +2002,55 @@ Napi::Value IoExportStl(const Napi::CallbackInfo& info) {
     });
 }
 
+// Forge-34 — IGES / JT / Parasolid + PMI.
+Napi::Value IoImportIges(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::io::importIges(io_bind::requirePath(info, 0)));
+    });
+}
+Napi::Value IoImportJt(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::io::importJt(io_bind::requirePath(info, 0)));
+    });
+}
+Napi::Value IoImportParasolid(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            forge::io::importParasolid(io_bind::requirePath(info, 0)));
+    });
+}
+Napi::Value IoExportStepPmi(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto handle = requireHandle(info, 0);
+        const auto path = io_bind::requirePath(info, 1);
+        std::vector<forge::io::PmiNote> notes;
+        if (info.Length() > 2 && info[2].IsArray()) {
+            auto arr = info[2].As<Napi::Array>();
+            notes.reserve(arr.Length());
+            for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+                auto v = arr.Get(i);
+                if (!v.IsObject()) {
+                    throw Napi::TypeError::New(info.Env(),
+                        "forge.io.exportStepWithPmi: notes[i] must be {text, anchorKind?, anchorId?}");
+                }
+                auto o = v.As<Napi::Object>();
+                forge::io::PmiNote n{};
+                n.text       = o.Has("text") && o.Get("text").IsString()
+                               ? o.Get("text").As<Napi::String>().Utf8Value() : std::string();
+                n.anchorKind = o.Has("anchorKind") && o.Get("anchorKind").IsString()
+                               ? o.Get("anchorKind").As<Napi::String>().Utf8Value() : std::string();
+                n.anchorId   = o.Has("anchorId") && o.Get("anchorId").IsNumber()
+                               ? o.Get("anchorId").As<Napi::Number>().Uint32Value() : 0u;
+                notes.push_back(std::move(n));
+            }
+        }
+        return Napi::Boolean::New(info.Env(),
+            forge::io::exportStepWithPmi(handle, path, notes));
+    });
+}
+
 // ----------------------------------------------------------- direct modeling (Forge-23)
 //
 // JS surface — under `forge.direct`:
@@ -3223,6 +3272,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     io.Set("exportBrep", Napi::Function::New(env, IoExportBrep));
     io.Set("importStl",  Napi::Function::New(env, IoImportStl));
     io.Set("exportStl",  Napi::Function::New(env, IoExportStl));
+    // Forge-34: IGES + JT/Parasolid stubs + PMI/MBD STEP AP242 export.
+    io.Set("importIges",       Napi::Function::New(env, IoImportIges));
+    io.Set("importJt",         Napi::Function::New(env, IoImportJt));
+    io.Set("importParasolid",  Napi::Function::New(env, IoImportParasolid));
+    io.Set("exportStepWithPmi",Napi::Function::New(env, IoExportStepPmi));
     exports.Set("io", io);
 
     // -------- Direct modeling (Forge-23) — push/pull/move/delete face ---

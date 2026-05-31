@@ -130,10 +130,10 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | STEP / BREP / STL import + export           | ✅      | Forge-21 |
 | Versioning + lifecycle states               | ✅      | Forge-14 |
 | ECO workflow                                | ✅      | Forge-14 |
-| Filesystem-backed PartStore                 | ☐      | follow-up |
-| Git LFS / S3 blob backend                   | ☐      | follow-up |
-| IGES / JT / Parasolid import                | ☐      | follow-up |
-| PMI / MBD export in STEP AP242              | ☐      | follow-up |
+| Filesystem-backed PartStore                 | ✅      | Forge-34 — `<root>/.forge/parts/<id>/v<n>.json` + content-addressed BREP blobs (SHA-256), 3-version round-trip green |
+| Git LFS / S3 blob backend                   | ◐      | Forge-34 — Git LFS adapter shipped (`GitLfsBackend`); S3 stub throws friendly "not configured" until `aws-sdk` is opted in |
+| IGES / JT / Parasolid import                | ◐      | Forge-34 — IGES via OCCT `IGESControl_Reader` ✅; JT + Parasolid throw "use STEP/IGES" error (proprietary kits not vendored) |
+| PMI / MBD export in STEP AP242              | ◐      | Forge-34 — schema AP242DIS + `/* PMI_FCF: … */` ISO-10303-21 comment block from AnnotationSet; full representation_item entity emission queued |
 
 ## 8. Assembly
 
@@ -181,7 +181,7 @@ Self-grade as of the 7-agent integration wave:
   §4 Drawings:      7 ✅ / 1 ◐ / 0 ☐  (only auto-BOM rollup still partial)
   §5 Simulation:    8 ✅ / 0 ◐ / 3 ☐  (buckling/contact/plasticity queued)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed out 3/5-axis + stock-sim + CMM)
-  §7 PDM/IO:        3 ✅ / 0 ◐ / 4 ☐  (filesystem store + IGES queued)
+  §7 PDM/IO:        4 ✅ / 3 ◐ / 0 ☐  (Forge-34 — filesystem store ✅; IGES ✅; PMI/MBD ◐; JT/Parasolid ◐ stub-with-error; S3 stub ◐ opt-in)
   §8 Assembly:      1 ✅ / 2 ◐ / 5 ☐  (exploded/patterns/interference queued)
   §9 AI:            3 ✅ / 1 ◐ / 0 ☐
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐

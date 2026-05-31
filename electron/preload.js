@@ -240,6 +240,20 @@ const forgeApi = {
     exportBrep: (handle, filepath)             => kernel.io.exportBrep(handle, filepath),
     importStl:  (filepath)                     => kernel.io.importStl(filepath),
     exportStl:  (handle, filepath, lt, at, asc) => kernel.io.exportStl(handle, filepath, lt ?? 0.1, at ?? 0.5, !!asc),
+    // Forge-34 — IGES + JT/Parasolid (stub-with-error) + STEP AP242 PMI.
+    // Defensive `&&`: older kernels predate Forge-34 and will lack these.
+    importIges:        kernel.io.importIges
+                       ? (filepath) => kernel.io.importIges(filepath)
+                       : () => { throw new Error('[forge.io] importIges: kernel < Forge-34'); },
+    importJt:          kernel.io.importJt
+                       ? (filepath) => kernel.io.importJt(filepath)
+                       : () => { throw new Error('[forge.io] importJt: kernel < Forge-34'); },
+    importParasolid:   kernel.io.importParasolid
+                       ? (filepath) => kernel.io.importParasolid(filepath)
+                       : () => { throw new Error('[forge.io] importParasolid: kernel < Forge-34'); },
+    exportStepWithPmi: kernel.io.exportStepWithPmi
+                       ? (h, fp, notes) => kernel.io.exportStepWithPmi(h, fp, notes || [])
+                       : () => { throw new Error('[forge.io] exportStepWithPmi: kernel < Forge-34'); },
   } : null,
 
   // direct modeling (Forge-23) — synchronous-technology face editing.
