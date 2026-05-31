@@ -38,6 +38,7 @@ import { ContextMenu, viewportContextItems } from './Tooltip.jsx';
 import { DocTabs } from './DocTabs.jsx';
 import { SettingsOverlay } from './SettingsOverlay.jsx';
 import { ArchieThreadStore } from '../archie-portal/ArchieThreadStore.js';
+import { useShortcuts, matchEvent } from './useShortcuts.js';
 
 const STORAGE = 'forge.v3';
 
@@ -104,43 +105,42 @@ export function ForgeShellV3() {
 
   useEffect(() => { writeStored('archieCollapsed', archieCollapsed); }, [archieCollapsed]);
 
-  // Global keyboard map:
-  //   Cmd+K       focus the command bar
-  //   Cmd+/       collapse / expand Archie
-  //   Cmd+T       cycle theme dark → light → contrast
-  //   Cmd+D       cycle display state (shaded → wireframe → … → shaded)
-  //   1–7         jump to named view iso/front/back/top/bottom/right/left
-  //   Esc         clear active verb
+  // Global keyboard map driven by the user-overridable shortcut table.
+  // Defaults shipped in SHORTCUT_DEFS; the customizer in SettingsOverlay
+  // lets the user rebind any chord.
+  const shortcuts = useShortcuts();
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const VIEW_KEYS = { '1':'iso','2':'front','3':'back','4':'top','5':'bottom','6':'right','7':'left' };
+    const b = shortcuts.bindings;
+    const VIEW_BIND = {
+      'view.iso': 'iso', 'view.front': 'front', 'view.back': 'back',
+      'view.top': 'top', 'view.bottom': 'bottom',
+      'view.right': 'right', 'view.left': 'left',
+    };
     const onKey = (e) => {
-      const meta = e.metaKey || e.ctrlKey;
-      if (meta && e.key.toLowerCase() === 'k') {
-        e.preventDefault(); cmdRef.current?.focus();
-      } else if (meta && e.key === '/') {
-        e.preventDefault(); setArchieCollapsed((v) => !v);
-      } else if (meta && e.key.toLowerCase() === 't') {
-        e.preventDefault();
-        setTheme((t) => t === 'dark' ? 'light' : t === 'light' ? 'contrast' : 'dark');
-      } else if (meta && e.key.toLowerCase() === 'd') {
-        e.preventDefault(); viewState.cycleDisplay();
-      } else if (meta && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) archie.redo(); else archie.undo();
-      } else if (meta && e.key === ',') {
-        e.preventDefault(); setSettingsOpen(true);
-      } else if (meta && e.key.toLowerCase() === 'n') {
-        e.preventDefault(); archie.newThread();
-      } else if (!meta && e.key === 'Escape') {
-        setActiveVerb(null);
-      } else if (!meta && VIEW_KEYS[e.key] && document.activeElement?.tagName !== 'INPUT') {
-        e.preventDefault(); viewState.applyView(VIEW_KEYS[e.key]);
+      // Don't fire bare-key shortcuts when the user is typing in an input.
+      const inInput = document.activeElement?.tagName === 'INPUT' ||
+                      document.activeElement?.tagName === 'TEXTAREA' ||
+                      document.activeElement?.isContentEditable;
+      if (matchEvent(b['cmd.focus'], e))       { e.preventDefault(); cmdRef.current?.focus(); return; }
+      if (matchEvent(b['archie.toggle'], e))   { e.preventDefault(); setArchieCollapsed((v) => !v); return; }
+      if (matchEvent(b['theme.cycle'], e))     { e.preventDefault();
+        setTheme((t) => t === 'dark' ? 'light' : t === 'light' ? 'contrast' : 'dark'); return; }
+      if (matchEvent(b['display.cycle'], e))   { e.preventDefault(); viewState.cycleDisplay(); return; }
+      if (matchEvent(b['undo'], e))            { e.preventDefault(); archie.undo(); return; }
+      if (matchEvent(b['redo'], e))            { e.preventDefault(); archie.redo(); return; }
+      if (matchEvent(b['settings.open'], e))   { e.preventDefault(); setSettingsOpen(true); return; }
+      if (matchEvent(b['doc.new'], e))         { e.preventDefault(); archie.newThread(); return; }
+      if (matchEvent(b['verb.clear'], e))      { setActiveVerb(null); return; }
+      if (!inInput) {
+        for (const [id, viewId] of Object.entries(VIEW_BIND)) {
+          if (matchEvent(b[id], e)) { e.preventDefault(); viewState.applyView(viewId); return; }
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [viewState, archie]);
+  }, [shortcuts.bindings, viewState, archie]);
 
   // Verb-rail click prefills the command bar with the verb's natural-
   // language stem so the user can finish the sentence ("fillet __mm").
@@ -220,7 +220,8 @@ export function ForgeShellV3() {
       </header>
       <SettingsOverlay open={settingsOpen}
                        onClose={() => setSettingsOpen(false)}
-                       onThemeChange={(t) => setTheme(t)} />
+                       onThemeChange={(t) => setTheme(t)}
+                       shortcuts={shortcuts} />
 
       <VerbRail
         selection={selection}

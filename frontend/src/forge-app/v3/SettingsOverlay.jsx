@@ -6,11 +6,13 @@
 // the backdrop closes; focus is trapped inside while open.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { formatChord } from './useShortcuts.js';
 
 const CATS = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'units',      label: 'Units' },
   { id: 'ai',         label: 'AI / Archie' },
+  { id: 'shortcuts',  label: 'Shortcuts' },
   { id: 'storage',    label: 'Storage' },
   { id: 'about',      label: 'About' },
 ];
@@ -37,7 +39,7 @@ function saveCategory(cat, value) {
   try { localStorage.setItem(`forge.v3.settings.${cat}`, JSON.stringify(value)); } catch {}
 }
 
-export function SettingsOverlay({ open, onClose, onThemeChange }) {
+export function SettingsOverlay({ open, onClose, onThemeChange, shortcuts }) {
   const [active, setActive] = useState('appearance');
   const [values, setValues] = useState(() => {
     const out = {};
@@ -114,14 +116,18 @@ export function SettingsOverlay({ open, onClose, onThemeChange }) {
           </h3>
           <SettingsPanel cat={active}
                          value={values[active]}
-                         onPatch={(k, v) => patch(active, k, v)} />
+                         onPatch={(k, v) => patch(active, k, v)}
+                         shortcuts={shortcuts} />
         </div>
       </div>
     </div>
   );
 }
 
-function SettingsPanel({ cat, value, onPatch }) {
+function SettingsPanel({ cat, value, onPatch, shortcuts }) {
+  if (cat === 'shortcuts' && shortcuts) {
+    return <ShortcutsPanel shortcuts={shortcuts} />;
+  }
   if (cat === 'appearance') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -231,6 +237,74 @@ function SettingsPanel({ cat, value, onPatch }) {
     );
   }
   return null;
+}
+
+function ShortcutsPanel({ shortcuts }) {
+  const [recordingId, setRecordingId] = useState(null);
+  // While "recording", capture the next keydown as the new chord.
+  useEffect(() => {
+    if (!recordingId) return;
+    const onKey = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Escape') { setRecordingId(null); return; }
+      // Build chord string from event.
+      const parts = [];
+      if (e.metaKey || e.ctrlKey) parts.push('mod');
+      if (e.shiftKey) parts.push('shift');
+      if (e.altKey)   parts.push('alt');
+      const k = (e.key || '').toLowerCase();
+      // Ignore lone modifier presses.
+      if (['meta','control','shift','alt'].includes(k)) return;
+      parts.push(k === 'escape' ? 'escape' : k);
+      shortcuts.update(recordingId, parts.join('+'));
+      setRecordingId(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [recordingId, shortcuts]);
+
+  return (
+    <div data-testid="forge-v3-settings-shortcuts"
+         style={{ display: 'flex', flexDirection: 'column', gap: 6,
+                  fontSize: 12, maxHeight: 360, overflowY: 'auto' }}>
+      {shortcuts.defs.map((d) => {
+        const chord = shortcuts.bindings[d.id];
+        const recording = recordingId === d.id;
+        return (
+          <div key={d.id}
+               style={{ display: 'grid',
+                        gridTemplateColumns: '1fr 120px 60px',
+                        alignItems: 'center', gap: 8,
+                        padding: '4px 0',
+                        borderBottom: '1px solid var(--forge-v3-rail-edge)' }}>
+            <span>{d.label}</span>
+            <button type="button"
+                    onClick={() => setRecordingId(recording ? null : d.id)}
+                    style={{
+                      background: recording ? 'var(--forge-v3-accent-mute)' : 'var(--forge-v3-canvas)',
+                      color: recording ? 'var(--forge-v3-accent)' : 'var(--forge-v3-ink)',
+                      border: '1px solid ' + (recording ? 'var(--forge-v3-accent)' : 'var(--forge-v3-rail-edge)'),
+                      borderRadius: 4, padding: '4px 8px',
+                      fontFamily: 'JetBrains Mono, monospace', fontSize: 11,
+                      cursor: 'pointer',
+                    }}>
+              {recording ? 'Press chord…' : formatChord(chord)}
+            </button>
+            <button type="button"
+                    onClick={() => shortcuts.reset(d.id)}
+                    title="Reset to default"
+                    style={{
+                      background: 'transparent', border: 'none',
+                      color: 'var(--forge-v3-ink-mute)',
+                      cursor: 'pointer', fontSize: 11,
+                    }}>
+              reset
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function Field({ label, children }) {
