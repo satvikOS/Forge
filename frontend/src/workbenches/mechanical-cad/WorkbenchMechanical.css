@@ -1,0 +1,307 @@
+/* Mechanical CAD Workbench - Professional Dark Theme */
+
+/* Tool separator in sidebar */
+.tool-separator {
+    width: 28px;
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px auto;
+    flex-shrink: 0;
+}
+
+/* Expand indicator on dropdown buttons */
+.tool-expand-indicator {
+    position: absolute;
+    right: 2px;
+    bottom: 4px;
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.tool-icon-button:hover .tool-expand-indicator {
+    opacity: 0.6;
+}
+
+.tool-icon-button.active .tool-expand-indicator {
+    opacity: 0.8;
+}
+
+/* Tool Dropdown - Fixed positioned via JS */
+.tool-dropdown.smart-positioned {
+    position: fixed;
+    left: auto;
+    top: auto;
+    margin-left: 0;
+    min-width: 240px;
+    max-width: 280px;
+    max-height: 75vh;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    padding: 4px 0;
+    animation: dropdown-enter 0.1s ease-out;
+}
+
+.tool-dropdown.smart-positioned::-webkit-scrollbar {
+    width: 3px;
+}
+
+.tool-dropdown.smart-positioned::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tool-dropdown.smart-positioned::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
+}
+
+/* Dropdown title */
+.dropdown-title {
+    padding: 8px 14px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-orange);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 2px;
+    letter-spacing: 0.02em;
+}
+
+.dropdown-header {
+    padding: 6px 14px 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.dropdown-item {
+    padding: 5px 14px 5px 20px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.06s;
+    user-select: none;
+}
+
+.dropdown-item:hover {
+    background: var(--bg-hover);
+}
+
+.dropdown-item:active {
+    background: var(--accent-primary);
+    color: var(--text-inverse);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 3px 8px;
+}
+
+/* Property value (read-only display) */
+.property-value {
+    font-size: 11px;
+    color: var(--text-secondary);
+    flex: 1;
+    text-align: right;
+}
+
+/* Context Menu */
+.context-menu {
+    position: fixed;
+    min-width: 200px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    padding: 4px 0;
+    animation: dropdown-enter 0.08s ease-out;
+}
+
+.context-menu-item {
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.06s;
+    user-select: none;
+}
+
+.context-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 3px 8px;
+}
+
+/* Action status indicator */
+.action-status {
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+}
+
+.action-status.running {
+    background: var(--accent-blue-muted);
+    color: var(--accent-blue);
+    border: 1px solid var(--accent-blue-border);
+}
+
+.action-status.done {
+    background: var(--color-success-muted);
+    color: var(--color-success);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.action-status.error {
+    background: var(--color-error-muted);
+    color: var(--color-error);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+/* ─── Tool Status Bar ──────────────────────────────────────────────────────── */
+/* OLED-monotone, top-right single slot — never centre over the viewport,
+   never coloured. Severity reads as a grayscale left-border brightness. */
+.tool-status-bar {
+    position: absolute;
+    top: 64px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    max-width: 360px;
+    min-width: 220px;
+    z-index: 100;
+    animation: tool-status-enter 0.15s ease-out;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+    background: rgba(14, 14, 14, 0.94);
+    border: 1px solid #2a2a2a;
+    color: #d6d6d6;
+}
+
+@keyframes tool-status-enter {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.tool-status-bar.tool-status-success {
+    background: rgba(14, 14, 14, 0.94);
+    border-left: 3px solid #6f6f6f;
+    color: #e2e2e2;
+}
+
+.tool-status-bar.tool-status-info {
+    background: rgba(14, 14, 14, 0.94);
+    border-left: 3px solid #4a4a4a;
+    color: #cfcfcf;
+}
+
+.tool-status-bar.tool-status-warn {
+    background: rgba(18, 18, 18, 0.94);
+    border-left: 3px solid #9a9a9a;
+    color: #ededed;
+}
+
+.tool-status-bar.tool-status-error {
+    background: rgba(20, 20, 20, 0.94);
+    border-left: 3px solid #ffffff;
+    color: #ffffff;
+}
+
+.tool-status-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.tool-status-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tool-status-name {
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.9;
+}
+
+.tool-status-message {
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.tool-status-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.6;
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+}
+
+.tool-status-close:hover {
+    opacity: 1;
+}
+
+/* ─── Active Tool Indicator ────────────────────────────────────────────────── */
+.active-tool-indicator {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.8);
+    z-index: 100;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    letter-spacing: 0.3px;
+}
+
+.active-tool-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4caf50;
+    animation: tool-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tool-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ─── Active tool highlight in dropdown ────────────────────────────────────── */
+.dropdown-item.active-tool {
+    background: rgba(33, 150, 243, 0.15);
+    color: var(--accent-blue, #42a5f5);
+    border-left: 2px solid var(--accent-blue, #42a5f5);
+    padding-left: 18px;
+}

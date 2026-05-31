@@ -1,0 +1,292 @@
+/* CutListPanel — UX Tier 6c Weldments Cut List.
+ *
+ * Mounts as a sibling overlay in SwUxOverlays. Modal idiom matches the
+ * Equation Manager (UX Tier 10) so the user sees a consistent overlay
+ * style across the Tier-1 overlay set. Backdrop z-index 50 (modal tier);
+ * sits above the PropertyManagerDock (25–30) but below any future
+ * critical-error toast layer. */
+
+.archdisc-cutlist-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 9, 12, 0.62);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: archdisc-cutlist-fade 0.14s ease-out;
+}
+
+@keyframes archdisc-cutlist-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.archdisc-cutlist-modal {
+  --sw-panel-bg-strong:     rgba(20, 22, 27, 0.96);
+  --sw-panel-border:        rgba(255, 255, 255, 0.10);
+  --sw-panel-border-active: rgba(74, 144, 217, 0.55);
+  --sw-panel-radius:        8px;
+  --sw-panel-shadow:        0 10px 40px rgba(0, 0, 0, 0.65);
+  --sw-text-primary:        #ececef;
+  --sw-text-secondary:      #b8babf;
+  --sw-text-muted:          #6f7176;
+  --sw-accent-info:         #4a90d9;
+  --sw-accent-success:      #3ec77e;
+  --sw-accent-warn:         #fbc068;
+  --sw-accent-danger:       #e35454;
+  --sw-pad-xs: 4px;
+  --sw-pad-sm: 8px;
+  --sw-pad-md: 12px;
+  --sw-pad-lg: 16px;
+
+  width: min(820px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  color: var(--sw-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  animation: archdisc-cutlist-pop 0.16s cubic-bezier(0.2, 0.7, 0.3, 1.1);
+}
+
+@keyframes archdisc-cutlist-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);     }
+}
+
+.archdisc-cutlist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sw-pad-md) var(--sw-pad-md) var(--sw-pad-sm) var(--sw-pad-md);
+  border-bottom: 1px solid var(--sw-panel-border);
+}
+
+.archdisc-cutlist-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sw-pad-sm);
+  color: var(--sw-text-primary);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.archdisc-cutlist-subtitle {
+  font-size: 11px;
+  color: var(--sw-text-secondary);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.archdisc-cutlist-close {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--sw-text-secondary);
+  transition: background 0.08s, color 0.08s, border-color 0.08s;
+}
+.archdisc-cutlist-close:hover {
+  background: rgba(227, 84, 84, 0.18);
+  border-color: rgba(227, 84, 84, 0.40);
+  color: var(--sw-accent-danger);
+}
+
+.archdisc-cutlist-hint {
+  padding: var(--sw-pad-sm) var(--sw-pad-md);
+  font-size: 11px;
+  color: var(--sw-text-secondary);
+  line-height: 1.45;
+  border-bottom: 1px solid var(--sw-panel-border);
+}
+.archdisc-cutlist-hint code {
+  background: rgba(74, 144, 217, 0.12);
+  color: var(--sw-accent-info);
+  border: 1px solid rgba(74, 144, 217, 0.25);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px;
+}
+
+.archdisc-cutlist-table-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: var(--sw-pad-sm) var(--sw-pad-md);
+}
+
+.archdisc-cutlist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.archdisc-cutlist-table thead th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 10px;
+  padding: 4px 6px 6px 6px;
+  border-bottom: 1px solid var(--sw-panel-border);
+  position: sticky;
+  top: 0;
+  background: var(--sw-panel-bg-strong);
+  z-index: 1;
+}
+
+.archdisc-cutlist-table tbody td {
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.archdisc-cutlist-table .col-item     { width: 64px;  text-align: right; color: var(--sw-text-muted); font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+.archdisc-cutlist-table .col-profile  { width: 130px; }
+.archdisc-cutlist-table .col-size     { min-width: 130px; }
+.archdisc-cutlist-table .col-length   { width: 110px; text-align: right; }
+.archdisc-cutlist-table .col-qty      { width: 70px;  text-align: right; }
+.archdisc-cutlist-table .col-total    { width: 130px; text-align: right; }
+
+.archdisc-cutlist-table .col-length,
+.archdisc-cutlist-table .col-total {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--sw-accent-success);
+  font-weight: 500;
+}
+
+.archdisc-cutlist-profile-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  background: rgba(74, 144, 217, 0.16);
+  color: var(--sw-accent-info);
+  border: 1px solid rgba(74, 144, 217, 0.30);
+  border-radius: 4px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: lowercase;
+}
+
+.archdisc-cutlist-table code {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--sw-panel-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--sw-text-primary);
+}
+
+.archdisc-cutlist-qty-badge {
+  display: inline-block;
+  min-width: 28px;
+  padding: 2px 7px;
+  background: rgba(251, 192, 104, 0.16);
+  color: var(--sw-accent-warn);
+  border: 1px solid rgba(251, 192, 104, 0.35);
+  border-radius: 10px;
+  text-align: center;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.archdisc-cutlist-empty-row td {
+  text-align: center;
+  color: var(--sw-text-muted);
+  padding: var(--sw-pad-md);
+  font-style: italic;
+}
+
+.archdisc-cutlist-feedback {
+  margin: var(--sw-pad-xs) var(--sw-pad-md) 0 var(--sw-pad-md);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.archdisc-cutlist-feedback-ok {
+  background: rgba(62, 199, 126, 0.10);
+  color: var(--sw-accent-success);
+  border: 1px solid rgba(62, 199, 126, 0.30);
+}
+.archdisc-cutlist-feedback-err {
+  background: rgba(227, 84, 84, 0.10);
+  color: var(--sw-accent-danger);
+  border: 1px solid rgba(227, 84, 84, 0.30);
+}
+
+.archdisc-cutlist-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sw-pad-md);
+  padding: var(--sw-pad-sm) var(--sw-pad-md) var(--sw-pad-md) var(--sw-pad-md);
+  border-top: 1px solid var(--sw-panel-border);
+}
+.archdisc-cutlist-footer-meta {
+  font-size: 10.5px;
+  color: var(--sw-text-muted);
+}
+.archdisc-cutlist-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sw-pad-sm);
+}
+
+.archdisc-cutlist-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: rgba(74, 144, 217, 0.10);
+  border: 1px solid rgba(74, 144, 217, 0.35);
+  border-radius: 4px;
+  color: var(--sw-accent-info);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background 0.08s, color 0.08s, border-color 0.08s;
+}
+.archdisc-cutlist-action:hover:not(:disabled) {
+  background: rgba(74, 144, 217, 0.30);
+  color: #fff;
+}
+.archdisc-cutlist-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.archdisc-cutlist-done {
+  padding: 5px 14px;
+  background: rgba(74, 144, 217, 0.20);
+  border: 1px solid rgba(74, 144, 217, 0.45);
+  border-radius: 4px;
+  color: var(--sw-accent-info);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  transition: background 0.08s, color 0.08s;
+}
+.archdisc-cutlist-done:hover {
+  background: rgba(74, 144, 217, 0.40);
+  color: #fff;
+}

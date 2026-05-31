@@ -1,14 +1,34 @@
-import React from 'react';
-import { ForgeShellV3 } from './forge-app/v3/ForgeShellV3.jsx';
+import React, { useEffect, useState } from 'react';
+import WorkbenchContainer from './components/Workbench';
+import ForgeApp from './forge-app/ForgeApp.jsx';
+import { Showcase as ForgeShowcase } from './forge-app/design-system/Showcase.jsx';
+import { ForgeAppV2 } from './forge-app/v2/ForgeAppV2.jsx';
 import './styles/index.css';
 import './styles/fonts.css';
 
-// Forge-48: v3 Archie-first shell is the only entry point. The v1
-// ForgeApp ribbon-clone and the v2 SolidWorks-mimicry layout have been
-// retired — the application IS the command bar + verb rail + viewport
-// + Archie sidebar + timeline. There is no separate legacy route.
+/**
+ * ArchDisc - Professional AI-Powered Design Platform
+ * Main application component that renders the workbench container.
+ *
+ * Forge-26: `#forge` (or any hash starting with `forge`) mounts the
+ * new ForgeApp shell instead of the legacy workbench. Lets us iterate
+ * on the new UI behind a route without disturbing the production path.
+ */
 function App() {
-  return <ForgeShellV3 />;
+  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  if (hash && hash.replace(/^#\/?/, '').startsWith('forge')) {
+    const path = hash.replace(/^#\/?/, '');
+    if (path === 'forge/design-showcase') return <ForgeShowcase />;
+    if (path === 'forge-v2') return <ForgeAppV2 />;
+    return <ForgeApp />;
+  }
+  return <WorkbenchContainer />;
 }
 
 export default App;

@@ -55,14 +55,31 @@ export function verbsFor(selectionKind) {
   return VERBS[selectionKind] || VERBS.none;
 }
 
+// Display labels for group headers
+const GROUP_LABELS = {
+  create: 'Create',
+  modify: 'Modify',
+  pattern: 'Pattern',
+  boolean: 'Boolean',
+  transform: 'Transform',
+  inspect: 'Inspect',
+  annotate: 'Annotate',
+};
+
 export function VerbRail({ selection, activeVerb, onVerb }) {
   const verbs = verbsFor(selection?.kind || 'none');
-  // Insert dividers between group changes for visual rhythm.
+  // Insert group headers when the group changes so the user sees the
+  // category structure (Create / Modify / Pattern / …) instead of a
+  // wall of icons.
   const items = [];
   let lastGroup = null;
   for (const v of verbs) {
-    if (lastGroup !== null && v.group !== lastGroup) {
-      items.push({ kind: 'divider', key: `div-${items.length}` });
+    if (v.group !== lastGroup) {
+      items.push({
+        kind: 'group-label',
+        key: `gl-${v.group}`,
+        label: GROUP_LABELS[v.group] || v.group,
+      });
     }
     items.push({ kind: 'verb', verb: v, key: v.id });
     lastGroup = v.group;
@@ -72,23 +89,33 @@ export function VerbRail({ selection, activeVerb, onVerb }) {
     <nav className="forge-v3-verbs"
          aria-label="Forge verbs"
          data-testid="forge-v3-verbs">
-      {items.map((it) => it.kind === 'divider' ? (
-        <span key={it.key} className="forge-v3-verb-divider" aria-hidden="true" />
-      ) : (
-        <button
-          key={it.key}
-          type="button"
-          className="forge-v3-verb"
-          data-verb={it.verb.id}
-          data-active={String(activeVerb === it.verb.id)}
-          title={`${it.verb.label} — ${it.verb.hint}`}
-          aria-label={it.verb.label}
-          aria-pressed={activeVerb === it.verb.id}
-          onClick={() => onVerb(it.verb.id)}
-        >
-          <span aria-hidden="true">{it.verb.icon}</span>
-        </button>
-      ))}
+      {items.map((it) => {
+        if (it.kind === 'group-label') {
+          return (
+            <div key={it.key} className="forge-v3-verb-group-label">
+              {it.label}
+            </div>
+          );
+        }
+        return (
+          <button
+            key={it.key}
+            type="button"
+            className="forge-v3-verb"
+            data-verb={it.verb.id}
+            data-active={String(activeVerb === it.verb.id)}
+            title={`${it.verb.label} — ${it.verb.hint}`}
+            aria-label={it.verb.label}
+            aria-pressed={activeVerb === it.verb.id}
+            onClick={() => onVerb(it.verb.id)}
+          >
+            <span className="forge-v3-verb-glyph" aria-hidden="true">
+              {it.verb.icon}
+            </span>
+            <span className="forge-v3-verb-label">{it.verb.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

@@ -7,7 +7,15 @@
 
 import React from 'react';
 
-export function ArchieSidebar({ collapsed, onToggle, thread, running = false, onCancel }) {
+const SAMPLE_PROMPTS = [
+  { label: 'A 10 mm cube, fillet 2 mm',         prompt: 'a 10mm cube, fillet 2mm' },
+  { label: 'Steel L-bracket 80 × 80 × 50 mm',   prompt: 'steel L-bracket 80x80x50mm with 6mm thickness and 4 mounting holes' },
+  { label: 'Cylinder Ø20 mm, height 30 mm',     prompt: 'a cylinder diameter 20mm height 30mm' },
+  { label: 'Hex bolt M6 × 25 mm',               prompt: 'hex bolt M6 length 25mm' },
+  { label: 'Section view of selected body',     prompt: 'section view at the origin along Y axis' },
+];
+
+export function ArchieSidebar({ collapsed, onToggle, thread, running = false, onCancel, onTrySample }) {
   return (
     <aside className="forge-v3-archie"
            data-collapsed={String(!!collapsed)}
@@ -59,8 +67,29 @@ export function ArchieSidebar({ collapsed, onToggle, thread, running = false, on
       {!collapsed && (
         <div className="forge-v3-archie-thread" data-testid="forge-v3-archie-thread">
           {(!thread || thread.length === 0) ? (
-            <div className="forge-v3-archie-empty">
-              Thread is empty. Type at the bottom; Archie answers here.
+            <div className="forge-v3-archie-welcome" data-testid="forge-v3-archie-welcome">
+              <h4>Welcome to Forge.</h4>
+              <p>Tell me what to build. I drive the kernel — you describe the part.</p>
+              <p style={{ fontSize: 11, color: 'var(--forge-v3-ink-mute)' }}>Try one:</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {SAMPLE_PROMPTS.map((s) => (
+                  <button key={s.label}
+                          type="button"
+                          className="forge-v3-archie-welcome-chip"
+                          onClick={() => onTrySample?.(s.prompt)}>
+                    <code>›</code> {s.label}
+                  </button>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--forge-v3-ink-mute)', marginTop: 8 }}>
+                Or press <kbd style={{
+                  fontFamily: 'JetBrains Mono, monospace',
+                  background: 'var(--forge-v3-surface)',
+                  padding: '1px 4px',
+                  borderRadius: 3,
+                  border: '1px solid var(--forge-v3-rail-edge)',
+                }}>⌘K</kbd> and start typing.
+              </p>
             </div>
           ) : (
             thread.map((m) => (

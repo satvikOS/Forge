@@ -1,0 +1,475 @@
+/*
+ * Forge React shell — visual tokens (Forge-26).
+ *
+ * Theme is a switchable attribute on <html data-forge-theme="dark|light">.
+ * Every color and surface flows from the variables below; component
+ * stylesheets reference --bg / --panel / --accent / --text / --muted
+ * so flipping themes is one attribute write.
+ *
+ * No icon fonts. Where we need a glyph we lean on Unicode (⚙ ☰ ◧ ◨ ▸ ▾).
+ * The follow-up viewport slice (Forge-27) will wire a real icon set.
+ */
+
+:root,
+[data-forge-theme="dark"] {
+  --bg:        #14171c;
+  --panel:    #1c2129;
+  --panel-2:  #232936;
+  --accent:   #4aa3ff;
+  --accent-2: #2c6fb7;
+  --text:     #e6ecf2;
+  --muted:    #8794a3;
+  --border:   #2d3441;
+  --warn:     #ffb74d;
+  --error:    #ef5350;
+  --ok:       #66bb6a;
+}
+
+[data-forge-theme="light"] {
+  --bg:        #f4f6fa;
+  --panel:    #ffffff;
+  --panel-2:  #eef1f6;
+  --accent:   #1e6fd6;
+  --accent-2: #155cb0;
+  --text:     #1c1f24;
+  --muted:    #5d6776;
+  --border:   #d0d7e0;
+  --warn:     #ef6c00;
+  --error:    #c62828;
+  --ok:       #2e7d32;
+}
+
+.forge-app {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  height: 100vh;
+  width: 100vw;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-areas:
+    'topbar'
+    'docbar'
+    'ribbon'
+    'workarea'
+    'status';
+  overflow: hidden;
+}
+
+/* ----------------------------- Topbar --------------------------------- */
+.forge-topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.forge-topbar .brand {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+}
+.forge-topbar .spacer { flex: 1; }
+.forge-topbar button,
+.forge-topbar select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.forge-topbar button:hover { border-color: var(--accent); }
+
+/* --------------------------- Document bar ----------------------------- */
+.forge-docbar {
+  grid-area: docbar;
+  display: flex;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 6px;
+  gap: 2px;
+  overflow-x: auto;
+}
+.forge-doc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+.forge-doc-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.forge-doc-tab .close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.forge-doc-tab .close:hover { color: var(--error); }
+.forge-doc-new {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ------------------------------ Ribbon -------------------------------- */
+.forge-ribbon {
+  grid-area: ribbon;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.forge-ribbon-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.forge-ribbon-tab {
+  padding: 4px 14px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+.forge-ribbon-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.forge-ribbon-body {
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  flex-wrap: wrap;
+}
+.forge-ribbon-group {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+.forge-ribbon-group:last-child { border-right: none; }
+.forge-ribbon-group .group-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+  text-align: center;
+}
+.forge-ribbon-buttons { display: flex; gap: 4px; }
+.forge-ribbon-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  min-width: 56px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.forge-ribbon-button:hover {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+.forge-ribbon-button .glyph { font-size: 16px; line-height: 1; }
+.forge-ribbon-button .shortcut {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* --------------------------- Work area grid --------------------------- */
+.forge-workarea {
+  grid-area: workarea;
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    'left center right'
+    'left bottom right';
+  min-height: 0;
+}
+.forge-dock-left   { grid-area: left;   border-right: 1px solid var(--border); }
+.forge-dock-right  { grid-area: right;  border-left:  1px solid var(--border); }
+.forge-dock-bottom { grid-area: bottom; border-top:   1px solid var(--border); }
+.forge-dock-center { grid-area: center; }
+
+.forge-dock-left, .forge-dock-right {
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.forge-dock-bottom {
+  background: var(--panel-2);
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.forge-dock-center {
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+/* ----------------------------- Panels --------------------------------- */
+.forge-panel {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  min-height: 0;
+}
+.forge-panel-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.forge-panel-header .spacer { flex: 1; }
+.forge-panel-body {
+  padding: 6px 8px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.forge-feature-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.forge-feature-row:hover { background: var(--panel-2); }
+.forge-feature-row.rolled-back { opacity: 0.4; }
+.forge-feature-row.suppressed { text-decoration: line-through; color: var(--muted); }
+.forge-feature-row input[type="checkbox"] { margin: 0; }
+.forge-feature-row .name {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.forge-feature-row .name:focus {
+  border-bottom: 1px solid var(--accent);
+}
+
+.forge-rollback-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.forge-rollback-bar input[type="range"] { flex: 1; }
+
+.forge-config-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+.forge-config-row.active { background: var(--accent-2); color: var(--text); }
+.forge-config-row .name { flex: 1; }
+
+.forge-prop-field {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 0;
+}
+.forge-prop-field .label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.forge-prop-field input,
+.forge-prop-field select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 2px 4px;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+.forge-prop-field .vec3 { display: flex; gap: 2px; }
+.forge-prop-field .vec3 input { width: 40px; }
+.forge-prop-field .error {
+  grid-column: 2;
+  color: var(--error);
+  font-size: 10px;
+}
+
+.forge-sel-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.forge-sel-chip {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.forge-sel-chip.on {
+  background: var(--accent);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* --------------------------- Status bar ------------------------------- */
+.forge-statusbar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.forge-statusbar .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.forge-statusbar .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.forge-statusbar .dot.ok    { background: var(--ok); }
+.forge-statusbar .dot.warn  { background: var(--warn); }
+.forge-statusbar .dot.error { background: var(--error); }
+.forge-statusbar .spacer { flex: 1; }
+
+/* ------------------------ Command palette modal ----------------------- */
+.forge-modal-shade {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+.forge-palette {
+  width: min(560px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.forge-palette input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-2);
+  color: var(--text);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  font-size: 14px;
+  outline: none;
+}
+.forge-palette-results {
+  max-height: 50vh;
+  overflow: auto;
+}
+.forge-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.forge-palette-row.active { background: var(--accent-2); }
+.forge-palette-row .title { flex: 1; }
+.forge-palette-row .category {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+.forge-palette-row .shortcut { color: var(--muted); font-size: 11px; }
+
+/* ------------------------ Settings modal ------------------------------ */
+.forge-settings {
+  width: min(480px, 90vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px 20px;
+}
+.forge-settings h2 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.forge-settings .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.forge-settings .row label { width: 140px; color: var(--muted); }
+.forge-settings .row select,
+.forge-settings .row input {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.forge-settings .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+}

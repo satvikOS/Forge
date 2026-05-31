@@ -31,6 +31,8 @@ export function ViewportSurface({ selection, onSelect, steps = [],
                                   activeVerb = null,
                                   measurement = null,
                                   section = null,
+                                  viewName = 'iso',
+                                  displayState = 'shaded',
                                   onMeasurementPick = null }) {
   // Mount the r3f canvas only client-side. SSR renders the empty-state.
   const [canvasReady, setCanvasReady] = useState(false);
@@ -79,6 +81,11 @@ export function ViewportSurface({ selection, onSelect, steps = [],
         )
         : <ViewportEmptyHint />
       }
+
+      <ViewportHUD viewName={viewName}
+                   displayState={displayState}
+                   selection={selection}
+                   steps={steps} />
     </main>
   );
 }
@@ -91,6 +98,45 @@ export function ViewportSurface({ selection, onSelect, steps = [],
  * with a subtle floor grid + 3 lights. Becomes a real mesh tree when
  * the driver has steps producing geometry.
  */
+// Static HUD overlays that sit above the canvas but outside it — view
+// name + axes triad + scale bar + selection readout. Always visible so
+// the user is never staring at a blank viewport.
+function ViewportHUD({ viewName, displayState, selection, steps }) {
+  return (
+    <>
+      <div className="forge-v3-viewport-hud forge-v3-viewport-hud-view"
+           data-testid="forge-v3-viewport-hud-view">
+        {viewName} · {displayState}
+      </div>
+      <div className="forge-v3-viewport-hud forge-v3-viewport-hud-axes"
+           data-testid="forge-v3-viewport-hud-axes"
+           aria-label="Axes">
+        <span className="ax-x">▶ X</span>
+        <span className="ax-y">▲ Y</span>
+        <span className="ax-z">● Z</span>
+      </div>
+      <div className="forge-v3-viewport-hud forge-v3-viewport-hud-scale"
+           data-testid="forge-v3-viewport-hud-scale"
+           aria-label="Scale">
+        <span className="forge-v3-viewport-hud-scale-bar" /> 10 mm
+      </div>
+      {selection?.kind === 'body' && selection.ids?.length > 0 && (
+        <div className="forge-v3-viewport-hud forge-v3-viewport-hud-selection"
+             data-testid="forge-v3-viewport-hud-selection">
+          <div className="forge-v3-viewport-hud-selection-label">
+            Selected · {selection.kind}
+          </div>
+          <div className="forge-v3-viewport-hud-selection-props">
+            <span>id</span>      <span>#{selection.ids[0]}</span>
+            <span>steps</span>   <span>{steps?.length || 0}</span>
+            <span>state</span>   <span>{displayState}</span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ViewportScene({ bundle, steps, selection, onSelect,
                          activeVerb, measurement, section, onMeasurementPick }) {
   const { Canvas, useFrame } = bundle;

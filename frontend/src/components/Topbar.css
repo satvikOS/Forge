@@ -1,0 +1,211 @@
+/* Topbar - Inline Application Menu Bar */
+/* Renders inside workbench header as a <nav> element */
+
+/* Inline menu trigger container */
+.topbar-menus {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    position: relative;
+}
+
+/* Menu trigger button */
+.topbar-menu-trigger {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 0 10px;
+    font-size: 12px;
+    cursor: pointer;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    border-radius: 0;
+    transition: background 0.08s ease, color 0.08s ease;
+    white-space: nowrap;
+}
+
+.topbar-menu-trigger:hover,
+.topbar-menu-trigger.active {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.topbar-menu-trigger.active {
+    background: var(--bg-active);
+}
+
+/* ─── Dropdown - Fixed position overlay ───────────────────────────────────── */
+.topbar-dropdown {
+    position: fixed;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-width: 240px;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    z-index: 1000;
+    padding: 4px 0;
+    animation: dropdown-enter 0.1s ease-out;
+}
+
+.topbar-dropdown::-webkit-scrollbar {
+    width: 3px;
+}
+
+.topbar-dropdown::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.topbar-dropdown::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
+}
+
+/* ─── Submenu - Fixed position overlay ────────────────────────────────────── */
+.topbar-submenu {
+    position: fixed;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-width: 220px;
+    max-height: 70vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    z-index: 1001;
+    padding: 4px 0;
+    animation: dropdown-enter 0.08s ease-out;
+}
+
+.topbar-submenu::-webkit-scrollbar {
+    width: 3px;
+}
+
+.topbar-submenu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.topbar-submenu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
+}
+
+/* ─── Shared menu item styles ─────────────────────────────────────────────── */
+
+/* Separator */
+.topbar-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 10px;
+}
+
+/* Category header */
+.topbar-category {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 14px 4px;
+    border-left: 2px solid var(--accent-primary);
+    margin-left: 6px;
+}
+
+/* Menu item */
+.topbar-item {
+    padding: 6px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 12px;
+    transition: background 0.06s ease;
+    position: relative;
+}
+
+.topbar-item:hover {
+    background: var(--bg-hover);
+}
+
+.topbar-item.disabled {
+    color: var(--text-disabled);
+    cursor: not-allowed;
+}
+
+.topbar-item.disabled:hover {
+    background: transparent;
+}
+
+.topbar-item-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.topbar-check {
+    color: var(--accent-orange);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.topbar-shortcut {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 20px;
+    white-space: nowrap;
+}
+
+/* Submenu arrow indicator */
+.topbar-submenu-arrow {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 12px;
+}
+
+.topbar-item.has-submenu:hover .topbar-submenu-arrow,
+.topbar-item.submenu-active .topbar-submenu-arrow {
+    color: var(--text-primary);
+}
+
+.topbar-item.submenu-active {
+    background: var(--bg-hover);
+}
+
+/* Submenu panel items */
+.topbar-submenu .topbar-item {
+    padding: 5px 14px;
+}
+
+.topbar-submenu .topbar-item:hover {
+    background: var(--bg-hover);
+}
+
+.topbar-submenu .topbar-item:active {
+    background: var(--accent-primary);
+    color: var(--text-inverse);
+}
+
+/* Action feedback toast */
+.topbar-feedback {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 33, 40, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-color, #2a2d35);
+    color: var(--text-primary, #e2e8f0);
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 9999;
+    pointer-events: none;
+    animation: topbar-fade-in 0.15s ease-out;
+}
+
+@keyframes topbar-fade-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

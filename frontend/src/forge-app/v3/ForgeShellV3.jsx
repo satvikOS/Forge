@@ -244,6 +244,8 @@ export function ForgeShellV3() {
         activeVerb={activeVerb}
         measurement={measurement}
         section={section}
+        viewName={viewState.activeView}
+        displayState={viewState.displayState}
         onMeasurementPick={(pt) => setMeasurement((m) => {
           const limit = m.mode === 'distance' ? 2 : (m.mode === 'angle' ? 3 : 32);
           const next = m.points.length >= limit ? [pt] : [...m.points, pt];
@@ -264,6 +266,7 @@ export function ForgeShellV3() {
         thread={thread}
         running={archie.status === 'running'}
         onCancel={archie.cancel}
+        onTrySample={(prompt) => archie.send(prompt)}
       />
 
       <CommandBar

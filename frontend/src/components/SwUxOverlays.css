@@ -1,0 +1,2101 @@
+/* ArchDisc in-viewport UX overlays — unified visual token set.
+ *
+ * Every overlay mounted ON the viewport (the 4-quadrant layout below) draws
+ * from the SAME visual token set so the surface reads as ONE language, not
+ * a pile of throwaway debug widgets. The tokens live as CSS custom
+ * properties so per-overlay rules can reference them and we never drift
+ * out of sync.
+ *
+ *   --sw-panel-bg            — base panel background (semi-transparent dark)
+ *   --sw-panel-bg-strong     — stronger panel bg for foreground panels
+ *   --sw-panel-border        — uniform border colour
+ *   --sw-panel-border-active — accent border for active / focused panels
+ *   --sw-panel-radius        — uniform corner radius (6 px)
+ *   --sw-panel-shadow        — uniform drop shadow
+ *   --sw-panel-blur          — uniform backdrop blur amount
+ *   --sw-text-primary        — primary text colour on overlays
+ *   --sw-text-secondary      — secondary / metadata text colour
+ *   --sw-text-muted          — disabled / muted text colour
+ *   --sw-accent-info         — informational accent (blue)
+ *   --sw-accent-success      — success / confirm accent (green)
+ *   --sw-accent-warn         — warning / mark accent (amber)
+ *   --sw-accent-danger       — destructive / over-defined accent (red)
+ *
+ * DELIBERATE QUADRANT PLACEMENT — each overlay lives in exactly one
+ * screen region so they never compete for the same pixel:
+ *
+ *   ┌────────────────────────────────────────────────────────────┐
+ *   │ TOP-LEFT       │ TOP-CENTRE     │ TOP-RIGHT                │
+ *   │ Selection      │ Heads-up View  │ Confirmation Corner      │
+ *   │ Priority Bar   │ Toolbar        │ Display/Relations Dock   │
+ *   ├────────────────┼────────────────┼──────────────────────────┤
+ *   │ MID-LEFT       │ VIEWPORT       │ MID-RIGHT                │
+ *   │ PropertyMgr    │ (canvas)       │ (free — no overlay)      │
+ *   │ Dock (active   │                │                          │
+ *   │ tool only)     │                │                          │
+ *   ├────────────────┴────────────────┼──────────────────────────┤
+ *   │ BOTTOM-LEFT                     │ BOTTOM-RIGHT             │
+ *   │ Sketch State + Cursor Readout   │ Toast area (workbench    │
+ *   │ (sketch mode only)              │ wrapper renders here)    │
+ *   └─────────────────────────────────┴──────────────────────────┘
+ *
+ * Auto-Relation Indicator follows the cursor; Dimension Editor anchors to
+ * its dimension target. These are pointer-tracking overlays so they don't
+ * occupy a fixed quadrant.
+ *
+ * Every quadrant overlay HIDES when not relevant (sketch state/cursor
+ * only in sketch mode; confirmation corner only with an active confirmable
+ * tool; PropertyManager dock only with an active docked tool). The
+ * viewport is never crowded with stale chrome.
+ */
+
+.workbench-viewport,
+.workbench-stage {
+  /* Unified token set, scoped to the workbench area so wider app surfaces
+     (settings panels, AI console) can use different visual languages
+     without bleed-through. */
+  --sw-panel-bg:            rgba(18, 19, 23, 0.82);
+  --sw-panel-bg-strong:     rgba(20, 22, 27, 0.94);
+  --sw-panel-border:        rgba(255, 255, 255, 0.08);
+  --sw-panel-border-active: rgba(74, 144, 217, 0.55);
+  --sw-panel-radius:        6px;
+  --sw-panel-shadow:        0 4px 18px rgba(0, 0, 0, 0.55);
+  --sw-panel-blur:          12px;
+  --sw-text-primary:        #ececef;
+  --sw-text-secondary:      #b8babf;
+  --sw-text-muted:          #6f7176;
+  --sw-accent-info:         #4a90d9;
+  --sw-accent-success:      #3ec77e;
+  --sw-accent-warn:         #fbc068;
+  --sw-accent-danger:       #e35454;
+  /* Vertical rhythm + horizontal padding scales — keeps overlays aligned
+     to the same 4 / 8 / 12 px grid the ribbon uses. */
+  --sw-pad-xs: 4px;
+  --sw-pad-sm: 8px;
+  --sw-pad-md: 12px;
+  --sw-pad-lg: 16px;
+}
+
+/* SolidWorks-convention UX overlays — Tier 1 styling.
+ *
+ * Visual style matches the existing ribbon + viewport-overlay tone:
+ *   - Dark glass panels (rgba(20,20,20,.85) + backdrop blur)
+ *   - Subtle white-alpha borders + radius 6px
+ *   - Cursor-pointer interactive elements
+ *   - Colour-state semantics: green (#3ec77e) confirm, red (#e35454) cancel,
+ *     blue (#00ccff) under-def, grey (#999) full-def, red (#ff3030) over-def.
+ *
+ * All overlays mount as siblings inside .workbench-viewport, so they live in
+ * the viewport coordinate space and stay on top of the canvas via z-index 12+.
+ */
+
+/* ─── 1. Confirmation Corner (top-right) ───────────────────────────────── */
+.sw-confirm-corner {
+  position: absolute;
+  /* Top-right quadrant — pinned to the upper-right of the viewport.
+     Sits at the top edge so it never collides with the Heads-up View
+     Toolbar (top-centre) and is the most natural eye-target for a
+     SolidWorks-trained user looking for the confirmation cue. */
+  top: var(--sw-pad-sm);
+  right: var(--sw-pad-sm);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--sw-pad-xs);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 4px 6px 4px var(--sw-pad-md);
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-fade-in 0.12s ease-out;
+}
+
+.sw-confirm-corner-label {
+  font-size: 10px;
+  color: #b8b8b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.sw-confirm-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.08s, border-color 0.08s, transform 0.08s;
+}
+
+.sw-confirm-btn-ok {
+  background: rgba(62, 199, 126, 0.22);
+  border-color: rgba(62, 199, 126, 0.45);
+  color: #3ec77e;
+}
+.sw-confirm-btn-ok:hover {
+  background: rgba(62, 199, 126, 0.45);
+  color: #fff;
+}
+.sw-confirm-btn-ok:active { transform: scale(0.94); }
+
+.sw-confirm-btn-cancel {
+  background: rgba(227, 84, 84, 0.20);
+  border-color: rgba(227, 84, 84, 0.45);
+  color: #e35454;
+}
+.sw-confirm-btn-cancel:hover {
+  background: rgba(227, 84, 84, 0.45);
+  color: #fff;
+}
+.sw-confirm-btn-cancel:active { transform: scale(0.94); }
+
+/* ─── 2. Heads-up View Toolbar (top-centre) ─────────────────────────────── */
+.sw-heads-up-toolbar {
+  position: absolute;
+  top: var(--sw-pad-sm);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 28;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--sw-panel-bg);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 3px 4px;
+  box-shadow: var(--sw-panel-shadow);
+}
+
+.sw-hu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 26px;
+  min-width: 30px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #c8c8c8;
+  font-size: 11px;
+  transition: background 0.08s, color 0.08s;
+}
+
+.sw-hu-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+}
+.sw-hu-btn:active { background: rgba(74, 144, 217, 0.30); }
+
+.sw-hu-btn-drop {
+  padding-right: 4px;
+}
+
+.sw-hu-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.10);
+  margin: 0 3px;
+}
+
+.sw-hu-dropdown-wrap {
+  position: relative;
+}
+
+.sw-hu-menu {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  min-width: 180px;
+  background: rgba(20, 20, 20, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 3px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  z-index: 40;
+}
+
+.sw-hu-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 5px 14px;
+  font-size: 11px;
+  color: #d0d0d0;
+  cursor: pointer;
+  transition: background 0.06s;
+}
+
+.sw-hu-menu-item:hover { background: rgba(74, 144, 217, 0.30); color: #fff; }
+.sw-hu-menu-item-active {
+  background: rgba(74, 144, 217, 0.18);
+  color: #aac8ff;
+}
+
+/* ─── 3. PropertyManager Dock (mid-left, only with an active docked tool) ─ */
+/* The PropertyManager Dock SHOWS UP only when a docked tool is active
+ * (the schema-driven param dialog). It nests below the Selection Priority
+ * Bar (top-left, ~38 px high) so the two never overlap. The user can
+ * collapse the dock to reclaim viewport area via the chevron in its
+ * header — the dock collapses to a thin sliver with the active tool
+ * name still visible. */
+.sw-property-dock {
+  position: absolute;
+  /* Sits just below the Selection Priority Bar (which occupies top-left
+     at top:8, ~30 px height). 48 px clears that bar with a comfortable
+     gap. */
+  top: 48px;
+  left: var(--sw-pad-sm);
+  width: 280px;
+  max-height: calc(100% - 56px);
+  z-index: 26;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border-active);
+  border-left-width: 3px;
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  overflow-y: auto;
+  animation: sw-slide-in-left 0.14s ease-out;
+  transition: width 0.18s ease-out, max-height 0.18s ease-out;
+}
+
+/* Collapsed PropertyManager Dock — shrinks to a 28 px sliver showing only
+ * the title row; clicking the toggle expands it again. */
+.sw-property-dock.sw-property-dock-collapsed {
+  width: 36px;
+  max-height: 36px;
+  overflow: hidden;
+}
+
+.sw-property-dock.sw-property-dock-collapsed .sw-pm-dock-title,
+.sw-property-dock.sw-property-dock-collapsed .sw-pm-dock-blurb,
+.sw-property-dock.sw-property-dock-collapsed .sw-pm-dock-section {
+  display: none;
+}
+
+.sw-pm-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg,
+    rgba(74, 144, 217, 0.20) 0%,
+    rgba(74, 144, 217, 0.05) 100%);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sw-pm-dock-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--sw-text-secondary);
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+  flex-shrink: 0;
+}
+.sw-pm-dock-collapse-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sw-text-primary);
+  border-color: var(--sw-panel-border);
+}
+
+.sw-pm-dock-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e8e8e8;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-pm-dock-actions {
+  display: flex;
+  gap: 3px;
+}
+
+.sw-pm-dock-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.08s, border-color 0.08s;
+}
+
+.sw-pm-dock-btn-ok {
+  background: rgba(62, 199, 126, 0.20);
+  border-color: rgba(62, 199, 126, 0.40);
+  color: #3ec77e;
+}
+.sw-pm-dock-btn-ok:hover { background: rgba(62, 199, 126, 0.45); color: #fff; }
+
+.sw-pm-dock-btn-cancel {
+  background: rgba(227, 84, 84, 0.20);
+  border-color: rgba(227, 84, 84, 0.40);
+  color: #e35454;
+}
+.sw-pm-dock-btn-cancel:hover { background: rgba(227, 84, 84, 0.45); color: #fff; }
+
+.sw-pm-dock-blurb {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #999;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  line-height: 1.4;
+}
+
+.sw-pm-dock-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sw-pm-dock-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #aab;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: background 0.06s;
+}
+
+.sw-pm-dock-section-header:hover { background: rgba(255, 255, 255, 0.06); }
+
+.sw-pm-dock-section-body {
+  padding: 8px 10px;
+}
+
+.sw-pm-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.sw-pm-dock-row-empty {
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+}
+
+.sw-pm-dock-label {
+  flex: 0 0 110px;
+  font-size: 11px;
+  color: #ccc;
+}
+
+.sw-pm-dock-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sw-pm-dock-input {
+  flex: 1;
+  background: #0d0d0d;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 11px 'Consolas', monospace;
+  padding: 4px 6px;
+  outline: none;
+  min-width: 0;
+}
+.sw-pm-dock-input:focus { border-color: #5da5ff; }
+
+.sw-pm-dock-unit {
+  min-width: 28px;
+  font: 10px 'Consolas', monospace;
+  color: #888;
+}
+
+/* When the dock is open, suppress the floating .tpd-backdrop modal so both
+ * UIs don't render. (The dock is the docked replacement.) */
+body.sw-dock-suppress-floating .tpd-backdrop {
+  display: none !important;
+}
+
+/* ─── 4. Sketch State Badge (bottom-left, sketch mode only) ─────────────── */
+.sw-sketch-state {
+  position: absolute;
+  bottom: var(--sw-pad-sm);
+  left: var(--sw-pad-sm);
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sw-pad-sm);
+  padding: 4px var(--sw-pad-md);
+  border-radius: var(--sw-panel-radius);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  color: var(--sw-text-primary);
+  box-shadow: var(--sw-panel-shadow);
+}
+
+.sw-sketch-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #999;
+}
+
+.sw-sketch-state-dof {
+  color: #888;
+  font-weight: 500;
+  font-family: 'Consolas', monospace;
+}
+
+.sw-sketch-state.sw-state-under {
+  border-color: rgba(0, 204, 255, 0.50);
+}
+.sw-sketch-state.sw-state-under .sw-sketch-state-dot { background: #00ccff; box-shadow: 0 0 6px rgba(0, 204, 255, 0.7); }
+.sw-sketch-state.sw-state-under .sw-sketch-state-label { color: #5cdaff; }
+
+.sw-sketch-state.sw-state-full {
+  border-color: rgba(170, 170, 170, 0.50);
+}
+.sw-sketch-state.sw-state-full .sw-sketch-state-dot { background: #cccccc; box-shadow: 0 0 6px rgba(255, 255, 255, 0.4); }
+.sw-sketch-state.sw-state-full .sw-sketch-state-label { color: #f0f0f0; }
+
+.sw-sketch-state.sw-state-over {
+  border-color: rgba(255, 48, 48, 0.55);
+}
+.sw-sketch-state.sw-state-over .sw-sketch-state-dot { background: #ff3030; box-shadow: 0 0 6px rgba(255, 48, 48, 0.7); }
+.sw-sketch-state.sw-state-over .sw-sketch-state-label { color: #ff8080; }
+
+/* ─── 5. Selection Priority Bar (Tier-11a NX-distinctive UX) ────────────── */
+/* Sits at the top of the viewport, offset left of the Heads-up View Toolbar
+ * (which is dead-centre). The bar runs across the upper-left third of the
+ * viewport so the two don't collide. Same dark-glass tone as the other
+ * Tier-1 overlays. The active filter button gets a blue glow that doubles
+ * as the "active mode" cue NX shows on its selection bar. */
+.sw-selection-bar {
+  position: absolute;
+  /* Top-left quadrant. The Heads-up View Toolbar lives dead-centre; the
+     Confirmation Corner lives top-right. The Selection Bar therefore owns
+     the top-left exclusively. Icon-only buttons keep the bar narrow so it
+     never crowds the centre toolbar. */
+  top: var(--sw-pad-sm);
+  left: var(--sw-pad-sm);
+  z-index: 29;        /* above viewport content, below dropdown menus */
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--sw-panel-bg);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 3px 5px 3px var(--sw-pad-sm);
+  box-shadow: var(--sw-panel-shadow);
+}
+
+.sw-selection-bar-label {
+  font-size: 10px;
+  color: #b8b8b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-right: 6px;
+  white-space: nowrap;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding-right: 6px;
+}
+
+.sw-selection-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #c8c8c8;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+  transition: background 0.08s, color 0.08s, border-color 0.08s;
+}
+
+.sw-selection-bar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.sw-selection-bar-btn-active {
+  background: rgba(74, 144, 217, 0.32);
+  color: #fff;
+  border-color: rgba(74, 144, 217, 0.65);
+  box-shadow: 0 0 0 1px rgba(74, 144, 217, 0.20), inset 0 0 6px rgba(74, 144, 217, 0.25);
+}
+
+.sw-selection-bar-btn-active:hover {
+  background: rgba(74, 144, 217, 0.50);
+}
+
+/* By default the buttons are ICON-ONLY so the bar stays narrow enough
+ * that the centre-anchored Heads-up View Toolbar never overlaps it.
+ * Only the ACTIVE button shows its text label, like NX's bar — gives
+ * a clear "current mode" cue without widening the bar to 440 px wide. */
+.sw-selection-bar-btn-label {
+  display: none;
+  white-space: nowrap;
+}
+
+.sw-selection-bar-btn-active .sw-selection-bar-btn-label {
+  display: inline;
+}
+
+/* ─── 6. Display / Delete Relations Dock (Tier-2b) ────────────────────────
+ *
+ * Lives inside the right side of the viewport, below the Heads-up View
+ * Toolbar (top: 60px) so it doesn't collide with the Confirmation Corner.
+ * Same dark-glass style as the PropertyManager Dock. Width: 260px — narrow
+ * enough that the user can still drive sketch tools while inspecting.
+ */
+.sw-relations-dock {
+  position: absolute;
+  /* Mid-right — sits below the Confirmation Corner (which is at top:8,
+     ~32 px high). 48 px clears it. Only visible while a sketch is active
+     AND the user has opened Display Relations — so it never overlays the
+     viewport mid-modelling. */
+  top: 48px;
+  right: var(--sw-pad-sm);
+  z-index: 28;
+  width: 264px;
+  max-height: 60vh;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  display: flex;
+  flex-direction: column;
+  animation: sw-fade-in 0.14s ease-out;
+  font-size: 11px;
+  color: var(--sw-text-primary);
+  overflow: hidden;
+}
+
+.sw-relations-dock-header {
+  padding: 8px 10px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(28, 28, 28, 0.55);
+}
+
+.sw-relations-dock-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: #f0f0f0;
+  text-transform: uppercase;
+}
+
+.sw-relations-dock-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #ccc;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.sw-relations-dock-close:hover {
+  background: rgba(227, 84, 84, 0.40);
+  color: #fff;
+}
+
+.sw-relations-dock-scope {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #b8b8b8;
+}
+
+.sw-relations-dock-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 3px;
+  background: rgba(0, 204, 255, 0.18);
+  color: #87dcff;
+  font-family: 'Consolas', monospace;
+  font-weight: 600;
+}
+
+.sw-relations-dock-body {
+  padding: 4px 6px 10px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.sw-relations-dock-empty {
+  padding: 12px 8px;
+  color: #888;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.sw-relations-dock-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sw-relations-dock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  margin: 2px 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.sw-relations-dock-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sw-relations-dock-row-main {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sw-relations-dock-row-label {
+  font-weight: 600;
+  color: #f0f0f0;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+
+.sw-relations-dock-row-entities {
+  font-family: 'Consolas', monospace;
+  font-size: 9.5px;
+  color: #87dcff;
+}
+
+.sw-relations-dock-row-delete {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #d8a8a8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.sw-relations-dock-row-delete:hover {
+  background: rgba(227, 84, 84, 0.50);
+  color: #fff;
+}
+
+/* Per-relation-type tint for the row label. */
+.sw-relations-dock-row[data-archdisc-relation-type="concentric"] .sw-relations-dock-row-label { color: #97d4ff; }
+.sw-relations-dock-row[data-archdisc-relation-type="midpoint"]   .sw-relations-dock-row-label { color: #b3e7c4; }
+.sw-relations-dock-row[data-archdisc-relation-type="symmetric"]  .sw-relations-dock-row-label { color: #e8c688; }
+.sw-relations-dock-row[data-archdisc-relation-type="collinear"]  .sw-relations-dock-row-label { color: #f0a3c0; }
+.sw-relations-dock-row[data-archdisc-relation-type="fix"]        .sw-relations-dock-row-label { color: #ffd66d; }
+
+/* ─── 7. Sketch Live Cursor Readout (Tier-1 #4) ─────────────────────────── */
+/* Sits just to the right of the SketchStateBadge at the bottom-left of the
+ * viewport. Reads the live X/Y coordinates of the sketch cursor (in mm),
+ * mirroring the SolidWorks status-bar convention. */
+.sw-cursor-readout {
+  position: absolute;
+  bottom: var(--sw-pad-sm);
+  left: 232px;   /* clears the SketchStateBadge (which auto-sizes to ~210 px) */
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sw-pad-xs);
+  padding: 4px var(--sw-pad-md);
+  border-radius: var(--sw-panel-radius);
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  font-weight: 500;
+  color: var(--sw-text-primary);
+  font-family: 'Consolas', monospace;
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-fade-in 0.14s ease-out;
+}
+
+.sw-cursor-axis {
+  color: #9bbcff;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.sw-cursor-val {
+  color: #f0f0f0;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sw-cursor-unit {
+  color: #888;
+  margin-left: 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* ─── 8. Auto-Relation Indicator (Tier-1 #7) ─────────────────────────────── */
+/* Tracks the cursor while drawing a sketch entity. The SW ghost. Position
+ * is set inline (left/top) from pointermove; pointer-events are off so
+ * clicks pass through to the canvas. */
+.sw-auto-relation {
+  position: fixed;
+  z-index: 5000;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: rgba(20, 20, 20, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(120, 200, 255, 0.55);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-family: 'Consolas', monospace;
+  color: #b9deff;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(120, 200, 255, 0.35);
+  animation: sw-fade-in 0.06s ease-out;
+}
+
+.sw-auto-relation-label {
+  color: #f0f8ff;
+  font-weight: 800;
+}
+
+/* Per-relation tint so a quick visual scan tells the user WHICH relation
+ * is about to fire (matches the Tier-2b dock tints). */
+.sw-auto-relation[data-archdisc-auto-relation="horizontal"]    { border-color: rgba(150, 220, 150, 0.65); color: #b3e7c4; }
+.sw-auto-relation[data-archdisc-auto-relation="vertical"]      { border-color: rgba(150, 220, 150, 0.65); color: #b3e7c4; }
+.sw-auto-relation[data-archdisc-auto-relation="coincident"]    { border-color: rgba(120, 220, 250, 0.70); color: #b9deff; }
+.sw-auto-relation[data-archdisc-auto-relation="tangent"]       { border-color: rgba(230, 200, 130, 0.70); color: #e8c688; }
+.sw-auto-relation[data-archdisc-auto-relation="perpendicular"] { border-color: rgba(170, 130, 220, 0.70); color: #d2b3ff; }
+.sw-auto-relation[data-archdisc-auto-relation="parallel"]      { border-color: rgba(240, 160, 192, 0.70); color: #f0a3c0; }
+
+/* ─── 9. Dimension Inline Editor (Tier-1 #6) ─────────────────────────────── */
+/* Anchored to the screen-space projection of the dimension's mid-point.
+ * Floats slightly to the right + above the label so the original
+ * dimension stays readable underneath. */
+.sw-dim-editor {
+  position: fixed;
+  z-index: 6000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 6px;
+  background: rgba(20, 20, 20, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 170, 60, 0.65);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.65);
+  font-family: 'Consolas', monospace;
+  animation: sw-fade-in 0.10s ease-out;
+}
+
+.sw-dim-editor-input {
+  width: 72px;
+  background: #0a0a0a;
+  color: #ffd070;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  font: 12px 'Consolas', monospace;
+  padding: 3px 5px;
+  outline: none;
+  text-align: right;
+}
+.sw-dim-editor-input:focus { border-color: #ffaa3c; box-shadow: 0 0 0 1px rgba(255, 170, 60, 0.35); }
+
+.sw-dim-editor-unit {
+  color: #aaa;
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding-right: 2px;
+}
+
+.sw-dim-editor-ok, .sw-dim-editor-cancel {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.08s, border-color 0.08s;
+}
+
+.sw-dim-editor-ok {
+  background: rgba(62, 199, 126, 0.22);
+  border-color: rgba(62, 199, 126, 0.45);
+  color: #3ec77e;
+}
+.sw-dim-editor-ok:hover { background: rgba(62, 199, 126, 0.50); color: #fff; }
+
+.sw-dim-editor-cancel {
+  background: rgba(227, 84, 84, 0.20);
+  border-color: rgba(227, 84, 84, 0.45);
+  color: #e35454;
+}
+.sw-dim-editor-cancel:hover { background: rgba(227, 84, 84, 0.50); color: #fff; }
+
+/* ─── 10. Rollback Bar — Tier-1 #10 (SP-3c) ─────────────────────────────── */
+/*
+ * Lives just below the Heads-up View Toolbar (top:8 + ~32 toolbar height +
+ * 6 gap = top:48). Centered horizontally so it doesn't fight the
+ * PropertyManager Dock on the left or the Confirmation Corner on the right.
+ *
+ * The strip is the marquee element — every entry is a dot or a flag, the
+ * cursor caret is a vertical line that PULSES while scrubbing so the user
+ * sees their drag have effect. Marks have a visible label so the timeline
+ * has anchor text even at rest.
+ */
+.sw-rollback-bar {
+  /* Legacy horizontal-bar shape — retained for back-compat with any
+     external callers that still mount the bar as an in-viewport overlay.
+     The live workbench mounts the VERTICAL variant in its right-side
+     gutter via Workbench.jsx (see .sw-rollback-bar-vertical below). */
+  position: absolute;
+  top: 48px;       /* just below the Heads-up View Toolbar (top:8 + ~32 height) */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 27;     /* above viewport, below dropdowns */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-radius: var(--sw-panel-radius);
+  padding: 5px var(--sw-pad-sm);
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-fade-in 0.12s ease-out;
+  /* Don't pin the bar at one width — it should grow to fit ~30 entries. */
+  max-width: 78vw;
+}
+
+.sw-rollback-bar-scrubbing {
+  border-color: rgba(74, 144, 217, 0.65);
+  box-shadow: 0 4px 22px rgba(74, 144, 217, 0.35);
+}
+
+.sw-rollback-bar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #b8b8b8;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+.sw-rollback-bar-meta-label { color: #d8d8d8; }
+.sw-rollback-bar-meta-sep { color: rgba(255, 255, 255, 0.25); }
+.sw-rollback-bar-meta-count { color: #9aa3ad; text-transform: none; }
+.sw-rollback-bar-meta-cursor { color: #aac8ff; text-transform: none; }
+
+.sw-rollback-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  color: #c8c8c8;
+  cursor: pointer;
+  transition: background 0.08s, border-color 0.08s, color 0.08s;
+}
+.sw-rollback-step:hover {
+  background: rgba(74, 144, 217, 0.22);
+  border-color: rgba(74, 144, 217, 0.45);
+  color: #fff;
+}
+.sw-rollback-step:active { transform: scale(0.95); }
+
+.sw-rollback-strip {
+  position: relative;
+  flex: 1 1 auto;
+  height: 30px;
+  min-height: 30px;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(0, 0, 0, 0.18) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  cursor: ew-resize;
+  /* Disable native text selection during drag-scrub. */
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+.sw-rollback-strip::before {
+  /* Horizontal baseline rail through the centre — gives the dots a thread. */
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  right: 6px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.sw-rollback-cursor {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 3px;
+  background: linear-gradient(180deg, #4a90d9 0%, #aac8ff 50%, #4a90d9 100%);
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(74, 144, 217, 0.65),
+              0 0 14px rgba(74, 144, 217, 0.35);
+  transition: left 0.10s ease-out;
+}
+
+.sw-rollback-cursor-pulse {
+  animation: sw-rollback-pulse 0.55s ease-in-out infinite alternate;
+}
+
+@keyframes sw-rollback-pulse {
+  from {
+    box-shadow: 0 0 5px rgba(74, 144, 217, 0.45),
+                0 0 12px rgba(74, 144, 217, 0.25);
+    filter: brightness(0.85);
+  }
+  to {
+    box-shadow: 0 0 11px rgba(74, 144, 217, 0.85),
+                0 0 22px rgba(170, 200, 255, 0.55);
+    filter: brightness(1.25);
+  }
+}
+
+/* Baseline flag at the very left of the strip. */
+.sw-rollback-baseline {
+  position: absolute;
+  top: 7px;
+  width: 14px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(120, 130, 140, 0.30);
+  border: 1px solid rgba(160, 170, 180, 0.45);
+  border-radius: 3px;
+  cursor: pointer;
+  color: #cbd1d8;
+  transition: background 0.08s, border-color 0.08s, color 0.08s, transform 0.08s;
+  z-index: 2;
+}
+.sw-rollback-baseline:hover {
+  background: rgba(170, 200, 255, 0.40);
+  border-color: rgba(170, 200, 255, 0.70);
+  color: #fff;
+  transform: scale(1.08);
+}
+.sw-rollback-baseline-active {
+  background: rgba(74, 144, 217, 0.55);
+  border-color: rgba(170, 200, 255, 0.85);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(74, 144, 217, 0.50);
+}
+
+/* Op entry dots — small circles on the rail. */
+.sw-rollback-entry {
+  position: absolute;
+  top: 10px;
+  width: 10px;
+  height: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(154, 163, 173, 0.35);
+  border: 1px solid rgba(200, 208, 216, 0.50);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.10s, border-color 0.10s, transform 0.10s,
+              box-shadow 0.10s;
+  z-index: 3;
+  color: transparent;  /* no icon inside the dot */
+}
+
+.sw-rollback-entry-applied {
+  background: rgba(74, 144, 217, 0.55);
+  border-color: rgba(170, 200, 255, 0.70);
+}
+.sw-rollback-entry-pending {
+  background: rgba(80, 86, 92, 0.45);
+  border-color: rgba(140, 148, 156, 0.45);
+  opacity: 0.65;
+}
+.sw-rollback-entry-current {
+  background: #aac8ff;
+  border-color: #fff;
+  box-shadow: 0 0 6px rgba(170, 200, 255, 0.85),
+              0 0 12px rgba(74, 144, 217, 0.55);
+  transform: scale(1.30);
+}
+.sw-rollback-entry:hover,
+.sw-rollback-entry-hover {
+  background: rgba(170, 200, 255, 0.65);
+  border-color: #fff;
+  transform: scale(1.25);
+}
+
+/* Mark flag — bigger than an entry dot, carries a label. */
+.sw-rollback-mark {
+  position: absolute;
+  top: 4px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px 0 4px;
+  background: rgba(251, 192, 104, 0.30);
+  border: 1px solid rgba(251, 192, 104, 0.65);
+  border-radius: 3px;
+  cursor: pointer;
+  color: #fbc068;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background 0.08s, border-color 0.08s, color 0.08s, transform 0.08s,
+              box-shadow 0.08s;
+  z-index: 4;
+}
+.sw-rollback-mark .sw-rollback-mark-label {
+  pointer-events: none;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sw-rollback-mark:hover {
+  background: rgba(251, 192, 104, 0.55);
+  border-color: #fbc068;
+  color: #fff;
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 2px 8px rgba(251, 192, 104, 0.45);
+}
+.sw-rollback-mark.sw-rollback-entry-current {
+  background: rgba(251, 192, 104, 0.75);
+  border-color: #fff;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(251, 192, 104, 0.65),
+              0 0 18px rgba(251, 192, 104, 0.35);
+  transform: scale(1.08);
+}
+.sw-rollback-mark.sw-rollback-entry-applied { color: #ffd089; }
+.sw-rollback-mark.sw-rollback-entry-pending {
+  background: rgba(140, 110, 70, 0.30);
+  border-color: rgba(180, 145, 95, 0.45);
+  color: #d8b070;
+  opacity: 0.75;
+}
+
+/* Hover tooltip pill that floats below the bar — sits to the side so it
+   doesn't cover the cursor on dense timelines. */
+.sw-rollback-tip {
+  position: absolute;
+  top: 100%;
+  margin-top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 20, 20, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: #d0d0d0;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+}
+.sw-rollback-tip-op { color: #aac8ff; font-weight: 600; }
+.sw-rollback-tip-mark { color: #fbc068; }
+.sw-rollback-tip-ids { color: #9aa3ad; font-family: monospace; font-size: 9.5px; }
+
+/* Context menu (right-click a mark). */
+.sw-rollback-bar-context {
+  position: fixed;
+  z-index: 9001;
+  min-width: 170px;
+  background: rgba(20, 20, 20, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 3px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  font-size: 11px;
+  color: #d0d0d0;
+}
+
+.sw-rollback-bar-context-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px 6px;
+  background: rgba(251, 192, 104, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: #fbc068;
+  font-weight: 600;
+}
+
+.sw-rollback-bar-context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #d0d0d0;
+  cursor: pointer;
+  transition: background 0.06s, color 0.06s;
+}
+.sw-rollback-bar-context-item:hover {
+  background: rgba(74, 144, 217, 0.30);
+  color: #fff;
+}
+.sw-rollback-bar-context-item-danger { color: #e35454; }
+.sw-rollback-bar-context-item-danger:hover { background: rgba(227, 84, 84, 0.30); color: #fff; }
+
+/* Inline rename input — appears over the bar at the active mark. */
+.sw-rollback-bar-rename {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9002;
+  background: rgba(20, 20, 20, 0.96);
+  border: 1px solid rgba(74, 144, 217, 0.65);
+  border-radius: 4px;
+  padding: 4px 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65),
+              0 0 12px rgba(74, 144, 217, 0.35);
+}
+
+.sw-rollback-bar-rename-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 140px;
+  text-align: center;
+}
+
+/* ─── animations ───────────────────────────────────────────────────────── */
+@keyframes sw-fade-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sw-slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── Vertical Rollback Bar — relocated OUT of the viewport overlay ─────── */
+/*
+ * The horizontal `.sw-rollback-bar` rules above remain for back-compat with
+ * any callers that mount the bar in its original top-of-viewport layout.
+ * The live workbench mounts the VERTICAL variant via Workbench.jsx — it
+ * lives in its own ABSOLUTELY POSITIONED gutter inside the .workbench-stage
+ * (see `frontend/src/styles/workbench.css::.workbench-rollback`), so the
+ * bar NEVER overlays the 3D canvas AND opening/closing it does NOT change
+ * the viewport canvas size. The bar is fully collapsible via the chevron
+ * button (state persisted in localStorage so the user's preference
+ * survives reload).
+ */
+.sw-rollback-bar.sw-rollback-bar-vertical {
+  /* Reset the absolute / overlay positioning the horizontal variant uses. */
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  /* Stack from top → bottom: toggle, meta, rewind, strip, ffwd, cursor meta. */
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: var(--sw-pad-sm) 6px;
+  border-radius: 0;
+  border: none;
+  /* Visual separation handled by .workbench-rollback's own border-left /
+     border-right; the bar itself stays unframed so the gutter reads as
+     a single visual region. */
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.sw-rollback-bar.sw-rollback-bar-vertical.sw-rollback-bar-collapsed {
+  padding: 8px 2px;
+  align-items: center;
+}
+
+.sw-rollback-collapse-toggle {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  color: #c8c8c8;
+  cursor: pointer;
+  transition: background 0.08s, border-color 0.08s, color 0.08s;
+  flex-shrink: 0;
+}
+.sw-rollback-collapse-toggle:hover {
+  background: rgba(74, 144, 217, 0.22);
+  border-color: rgba(74, 144, 217, 0.45);
+  color: #fff;
+}
+.sw-rollback-bar-collapsed .sw-rollback-collapse-toggle {
+  align-self: center;
+}
+
+.sw-rollback-bar-vertical .sw-rollback-bar-meta {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0;
+  gap: 4px;
+  font-size: 9.5px;
+}
+
+.sw-rollback-bar-vertical .sw-rollback-bar-meta-footer {
+  margin-top: auto;
+  font-size: 9px;
+  color: #aac8ff;
+}
+
+.sw-rollback-bar-vertical .sw-rollback-step {
+  align-self: center;
+  width: 26px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+/* The strip rotates 90° conceptually — width is fixed-narrow, height is the
+   timeline length. Dots, marks, caret and baseline all position by `top`. */
+.sw-rollback-strip.sw-rollback-strip-vertical {
+  position: relative;
+  flex: 1 1 auto;
+  width: 28px;
+  min-width: 28px;
+  min-height: 180px;
+  height: 100%;
+  align-self: center;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(0, 0, 0, 0.18) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  cursor: ns-resize;
+  overflow: hidden;
+}
+.sw-rollback-bar-collapsed .sw-rollback-strip.sw-rollback-strip-vertical {
+  width: 14px;
+  min-width: 14px;
+}
+
+/* Vertical baseline rail through the centre (replaces the horizontal rail). */
+.sw-rollback-strip.sw-rollback-strip-vertical::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  height: auto;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.10);
+  pointer-events: none;
+}
+
+/* Caret — horizontal stripe across the strip's width, slid along Y. */
+.sw-rollback-cursor.sw-rollback-cursor-vertical {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 0;
+  bottom: auto;
+  width: auto;
+  height: 3px;
+  background: linear-gradient(90deg, #4a90d9 0%, #aac8ff 50%, #4a90d9 100%);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(74, 144, 217, 0.65),
+              0 0 14px rgba(74, 144, 217, 0.35);
+  transition: top 0.10s ease-out;
+}
+
+/* Baseline flag at the TOP of the strip. */
+.sw-rollback-baseline.sw-rollback-baseline-vertical {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 14px;
+}
+.sw-rollback-baseline.sw-rollback-baseline-vertical:hover {
+  transform: translateX(-50%) scale(1.08);
+}
+
+/* Op entry dots — centered horizontally, slid along Y by `top`. */
+.sw-rollback-entry.sw-rollback-entry-vertical {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+}
+.sw-rollback-entry.sw-rollback-entry-vertical:hover,
+.sw-rollback-entry.sw-rollback-entry-vertical.sw-rollback-entry-hover {
+  transform: translateX(-50%) scale(1.25);
+}
+.sw-rollback-entry.sw-rollback-entry-vertical.sw-rollback-entry-current {
+  transform: translateX(-50%) scale(1.30);
+}
+
+/* Mark flags — narrow + tall, labels read across (visible only when the
+   strip is expanded). When collapsed we show just the flag icon. */
+.sw-rollback-mark.sw-rollback-mark-vertical {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px 0 4px;
+  font-size: 9px;
+}
+.sw-rollback-bar-collapsed .sw-rollback-mark.sw-rollback-mark-vertical {
+  min-width: 12px;
+  padding: 0 2px;
+}
+.sw-rollback-mark.sw-rollback-mark-vertical .sw-rollback-mark-label {
+  pointer-events: none;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sw-rollback-mark.sw-rollback-mark-vertical:hover {
+  transform: translateX(-50%) translateY(-1px) scale(1.04);
+}
+.sw-rollback-mark.sw-rollback-mark-vertical.sw-rollback-entry-current {
+  transform: translateX(-50%) scale(1.08);
+}
+
+/* Vertical hover tooltip — flows to the LEFT of the strip so it stays
+   inside the workbench layout (the right edge is the Properties panel). */
+.sw-rollback-tip.sw-rollback-tip-vertical {
+  position: absolute;
+  top: 6px;
+  bottom: auto;
+  left: auto;
+  right: calc(100% + 6px);
+  transform: none;
+  margin: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Tier-11b — Three NX-distinctive UX patterns
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ *   - MultiPlaneStack       (top-right, below ConfirmationCorner)
+ *   - CsysAnchorPanel       (mid-right, below MultiPlaneStack)
+ *   - InlineSketchSession   (mid-left, attached BELOW the PropertyManager
+ *                            Dock; expands into the dock's gutter, which
+ *                            is already reserved at the workbench level)
+ *
+ * Each panel uses the shared visual token set
+ * (--sw-panel-bg-strong / border / radius / shadow / blur) so the family
+ * reads as a coherent UI layer.
+ */
+
+/* ─── 11. Multi-Plane Stack (Tier-11b) ──────────────────────────────────── */
+.sw-multiplane-stack {
+  position: absolute;
+  /* Pins to the upper-right. Slides BELOW the ConfirmationCorner (top:8 +
+     ~32 px) so the two never overlap. Wider than relations dock — 210 px
+     fits the plane name + axis without truncation. */
+  top: 48px;
+  right: var(--sw-pad-sm);
+  width: 218px;
+  z-index: 27;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border-active);
+  border-top: 3px solid var(--sw-accent-info);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-slide-in-right 0.16s ease-out;
+  overflow: hidden;
+}
+
+.sw-multiplane-stack-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg,
+    rgba(74, 144, 217, 0.20) 0%,
+    rgba(74, 144, 217, 0.05) 100%);
+  color: var(--sw-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.sw-multiplane-stack-title { flex: 1; }
+
+.sw-multiplane-stack-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--sw-text-secondary);
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+}
+.sw-multiplane-stack-close:hover {
+  background: rgba(227, 84, 84, 0.18);
+  color: #fff;
+  border-color: rgba(227, 84, 84, 0.45);
+}
+
+.sw-multiplane-stack-hint {
+  padding: 6px 10px;
+  font-size: 10px;
+  color: var(--sw-text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sw-multiplane-stack-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sw-multiplane-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--sw-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.10s, transform 0.10s;
+  position: relative;
+}
+.sw-multiplane-card:last-child { border-bottom: none; }
+.sw-multiplane-card:hover {
+  background: rgba(74, 144, 217, 0.12);
+  transform: translateX(-1px);
+}
+.sw-multiplane-card-picked {
+  background: rgba(62, 199, 126, 0.18) !important;
+  border-left: 3px solid var(--sw-accent-success);
+  padding-left: 9px;
+}
+
+.sw-multiplane-card-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.20);
+}
+
+.sw-multiplane-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sw-multiplane-card-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.sw-multiplane-card-axis {
+  font-size: 9.5px;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sw-multiplane-card-user .sw-multiplane-card-axis::before {
+  content: 'user · ';
+  color: var(--sw-accent-warn);
+}
+
+.sw-multiplane-card-check {
+  color: var(--sw-accent-success);
+  flex-shrink: 0;
+}
+
+/* ─── 12. CSYS Anchor Panel (Tier-11b) ─────────────────────────────────── */
+.sw-csys-anchor-panel {
+  position: absolute;
+  /* Below the MultiPlaneStack (top:48 + ~170 px height) so the two
+     stack vertically on the right edge without overlap. If the
+     MultiPlaneStack is closed, this still renders cleanly because
+     they share the right gutter. 220px wide for CSYS name + position. */
+  top: 232px;
+  right: var(--sw-pad-sm);
+  width: 230px;
+  z-index: 27;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border);
+  border-top: 3px solid var(--sw-text-muted);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  animation: sw-slide-in-right 0.16s ease-out;
+  overflow: hidden;
+}
+
+.sw-csys-anchor-panel-armed {
+  border-color: var(--sw-panel-border-active);
+  border-top-color: var(--sw-accent-info);
+  box-shadow: 0 0 14px rgba(74, 144, 217, 0.18), var(--sw-panel-shadow);
+}
+
+.sw-csys-anchor-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg,
+    rgba(120, 130, 140, 0.18) 0%,
+    rgba(120, 130, 140, 0.02) 100%);
+  color: var(--sw-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.sw-csys-anchor-panel-armed .sw-csys-anchor-header {
+  background: linear-gradient(180deg,
+    rgba(74, 144, 217, 0.22) 0%,
+    rgba(74, 144, 217, 0.05) 100%);
+}
+
+.sw-csys-anchor-title { flex: 1; }
+
+.sw-csys-anchor-toggle {
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sw-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 9px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+}
+.sw-csys-anchor-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--sw-text-primary);
+}
+.sw-csys-anchor-toggle-on {
+  background: rgba(62, 199, 126, 0.30) !important;
+  color: #fff !important;
+  border-color: rgba(62, 199, 126, 0.62);
+  box-shadow: 0 0 6px rgba(62, 199, 126, 0.45);
+}
+
+.sw-csys-anchor-hint {
+  padding: 6px 10px;
+  font-size: 10px;
+  color: var(--sw-text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sw-csys-anchor-targets {
+  display: flex;
+  flex-direction: column;
+}
+
+.sw-csys-anchor-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--sw-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.10s;
+  position: relative;
+}
+.sw-csys-anchor-target:last-child { border-bottom: none; }
+.sw-csys-anchor-target:hover { background: rgba(74, 144, 217, 0.10); }
+.sw-csys-anchor-target-picked {
+  background: rgba(62, 199, 126, 0.18) !important;
+  border-left: 3px solid var(--sw-accent-success);
+  padding-left: 7px;
+}
+
+.sw-csys-anchor-target svg {
+  color: var(--sw-text-secondary);
+  flex-shrink: 0;
+}
+.sw-csys-anchor-target-picked svg {
+  color: var(--sw-accent-success);
+}
+
+.sw-csys-anchor-target-name {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-csys-anchor-target-pos {
+  font-size: 9.5px;
+  color: var(--sw-text-muted);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.sw-csys-anchor-target-user .sw-csys-anchor-target-name::after {
+  content: ' · user';
+  color: var(--sw-accent-warn);
+  font-weight: 500;
+}
+
+.sw-csys-anchor-target-check { color: var(--sw-accent-success); flex-shrink: 0; }
+
+/* ─── 13. Inline Sketch Session (Tier-11b) ─────────────────────────────── */
+/* Lives at the mid-left, anchored to the bottom edge of the PropertyManager
+   Dock (which is at top:48, width:280). The session is the "dialog inside a
+   dialog" — visually attached to the parent dock with a continuous border. */
+.sw-inline-sketch-session {
+  position: absolute;
+  top: 48px;
+  /* Sit RIGHT next to the PropertyManager Dock so the two read as one
+     contiguous workspace. Dock width is 280 px + 8 px gutter. */
+  left: calc(var(--sw-pad-sm) + 280px + 6px);
+  width: 320px;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-panel-bg-strong);
+  backdrop-filter: blur(var(--sw-panel-blur));
+  -webkit-backdrop-filter: blur(var(--sw-panel-blur));
+  border: 1px solid var(--sw-panel-border-active);
+  border-left: 3px solid var(--sw-accent-warn);
+  border-radius: var(--sw-panel-radius);
+  box-shadow: var(--sw-panel-shadow);
+  overflow: hidden;
+  animation: sw-slide-in-left 0.16s ease-out;
+}
+
+/* TOP PANE — pinned parent dialog summary. */
+.sw-inline-sketch-top {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(180deg,
+    rgba(251, 192, 104, 0.16) 0%,
+    rgba(251, 192, 104, 0.02) 100%);
+}
+
+.sw-inline-sketch-parent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sw-text-primary);
+}
+
+.sw-inline-sketch-parent-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-inline-sketch-parent-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sw-inline-sketch-parent-kv {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  background: rgba(0, 0, 0, 0.30);
+  padding: 1px 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sw-inline-sketch-parent-k {
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.sw-inline-sketch-parent-v {
+  color: var(--sw-text-primary);
+  font-weight: 600;
+}
+
+/* BOTTOM PANE — the inline sketch toolbar + numeric editor + preview. */
+.sw-inline-sketch-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.sw-inline-sketch-primitives {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+}
+
+.sw-inline-sketch-primitive-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--sw-text-secondary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s;
+}
+.sw-inline-sketch-primitive-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sw-text-primary);
+}
+.sw-inline-sketch-primitive-btn-active {
+  background: rgba(74, 144, 217, 0.32) !important;
+  color: #fff !important;
+  border-color: rgba(74, 144, 217, 0.62);
+}
+
+.sw-inline-sketch-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sw-inline-sketch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sw-inline-sketch-field-label {
+  font-size: 9px;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.sw-inline-sketch-field-input {
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--sw-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  outline: none;
+  width: 100%;
+}
+.sw-inline-sketch-field-input:focus {
+  border-color: var(--sw-panel-border-active);
+  box-shadow: 0 0 0 1px rgba(74, 144, 217, 0.30);
+}
+
+.sw-inline-sketch-field-unit {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  font-size: 9px;
+  color: var(--sw-text-muted);
+  pointer-events: none;
+}
+
+.sw-inline-sketch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.sw-inline-sketch-preview-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.sw-inline-sketch-preview-empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--sw-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sw-inline-sketch-preview-meta {
+  font-size: 9px;
+  color: var(--sw-text-muted);
+  text-align: center;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.sw-inline-sketch-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sw-inline-sketch-action {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--sw-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.10s, color 0.10s, border-color 0.10s, transform 0.08s;
+}
+
+.sw-inline-sketch-action-cancel {
+  background: rgba(227, 84, 84, 0.18);
+  color: #fff;
+  border-color: rgba(227, 84, 84, 0.45);
+}
+.sw-inline-sketch-action-cancel:hover {
+  background: rgba(227, 84, 84, 0.36);
+}
+.sw-inline-sketch-action-cancel:active { transform: scale(0.96); }
+
+.sw-inline-sketch-action-done {
+  background: rgba(62, 199, 126, 0.26);
+  color: #fff;
+  border-color: rgba(62, 199, 126, 0.60);
+}
+.sw-inline-sketch-action-done:hover {
+  background: rgba(62, 199, 126, 0.46);
+}
+.sw-inline-sketch-action-done:active { transform: scale(0.96); }
+
+/* Slide-in keyframes used by the new panels. */
+@keyframes sw-slide-in-right {
+  from { transform: translateX(12px); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+
+/* Tier-11b — Inline Sketch hook inside the PropertyManager Dock. */
+.sw-pm-dock-inline-sketch-hook {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(251, 192, 104, 0.18);
+  background: linear-gradient(180deg,
+    rgba(251, 192, 104, 0.10) 0%,
+    rgba(251, 192, 104, 0.00) 100%);
+}
+
+.sw-pm-dock-inline-sketch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(251, 192, 104, 0.22);
+  color: var(--sw-text-primary);
+  border: 1px solid rgba(251, 192, 104, 0.55);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.10s, transform 0.08s, border-color 0.10s;
+}
+.sw-pm-dock-inline-sketch-btn:hover {
+  background: rgba(251, 192, 104, 0.42);
+  border-color: rgba(251, 192, 104, 0.85);
+  color: #fff;
+}
+.sw-pm-dock-inline-sketch-btn:active { transform: scale(0.97); }
+
+.sw-pm-dock-inline-sketch-hint {
+  font-size: 9.5px;
+  color: var(--sw-text-muted);
+  text-align: center;
+  font-style: italic;
+}

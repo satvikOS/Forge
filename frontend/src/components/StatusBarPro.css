@@ -1,0 +1,101 @@
+.status-bar-pro {
+  grid-area: statusbar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 22px;
+  padding: 0 10px;
+  background: var(--bg-tertiary, #111122);
+  border-top: 1px solid var(--border-color, #2a2a3e);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary, #888);
+  user-select: none;
+}
+
+.status-left, .status-center, .status-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-left { flex: 1; }
+.status-center { flex: 1; justify-content: center; }
+.status-right { flex: 1; justify-content: flex-end; }
+
+.status-mode {
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.05);
+}
+
+.status-sel {
+  color: var(--text-muted, #666);
+}
+
+.status-sketch {
+  color: #00bbff;
+}
+
+.status-coords {
+  color: var(--text-secondary, #888);
+  letter-spacing: 0.3px;
+}
+
+.status-unit {
+  color: #4a90d9;
+  font-weight: 600;
+}
+
+.status-divider {
+  color: var(--border-color, #333);
+}
+
+.status-fps {
+  color: var(--text-muted, #666);
+}
+
+/* WF-06 — saving / calculating / dirty indicators */
+.status-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #ffb84d;
+  font-weight: 500;
+}
+.status-busy-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffb84d;
+  animation: status-busy-pulse 0.9s ease-in-out infinite;
+}
+.status-busy-elapsed {
+  color: #c8b48a;
+  font-weight: 400;
+}
+@keyframes status-busy-pulse {
+  0%   { transform: scale(1.0); opacity: 0.95; }
+  50%  { transform: scale(1.6); opacity: 0.35; }
+  100% { transform: scale(1.0); opacity: 0.95; }
+}
+
+.status-saved-flash {
+  color: #6ee07d;
+  font-weight: 500;
+  animation: status-saved-fade 2.5s ease-in forwards;
+}
+@keyframes status-saved-fade {
+  0%   { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+
+.status-dirty {
+  color: #ff8b6e;
+  font-weight: 500;
+}

@@ -1,0 +1,266 @@
+.component-info-panel {
+    background: transparent;
+    border-top: 1px solid var(--border-color, #2a2d35);
+    font-size: 11px;
+    overflow: hidden;
+}
+
+.component-info-panel.empty {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    color: #64748b;
+}
+
+.cip-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #1a1d23;
+    border-bottom: 1px solid #2a2d35;
+    cursor: pointer;
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.cip-header:hover {
+    background: #1e2128;
+}
+
+.cip-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cip-id {
+    color: #475569;
+    font-size: 10px;
+    font-weight: 400;
+    font-family: monospace;
+}
+
+.cip-body {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.cip-section {
+    padding: 8px 12px;
+    border-bottom: 1px solid #1e2128;
+}
+
+.cip-section:last-child {
+    border-bottom: none;
+}
+
+.cip-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.cip-props {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+
+.cip-prop {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+}
+
+.prop-label {
+    color: #64748b;
+}
+
+.prop-value {
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.cip-component-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cip-component-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 3px;
+}
+
+.cip-component-item:hover {
+    background: #1e2128;
+}
+
+.comp-vis {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.comp-vis.visible {
+    background: #22c55e;
+}
+
+.comp-vis.hidden {
+    background: #475569;
+}
+
+.comp-name {
+    color: #cbd5e1;
+    flex: 1;
+}
+
+.comp-id {
+    color: #475569;
+    font-size: 9px;
+    font-family: monospace;
+}
+
+/* Compatibility */
+.compat-check-btn {
+    width: 100%;
+    padding: 5px;
+    background: #1e2128;
+    border: 1px solid #2a2d35;
+    border-radius: 4px;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.15s;
+}
+
+.compat-check-btn:hover:not(:disabled) {
+    border-color: #3b82f6;
+    color: #60a5fa;
+}
+
+.compat-check-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.compat-result {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.compat-result.ok {
+    background: #22c55e15;
+    border: 1px solid #22c55e30;
+}
+
+.compat-result.error {
+    background: #ef444415;
+    border: 1px solid #ef444430;
+}
+
+.compat-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.compat-result.ok .compat-status {
+    color: #22c55e;
+}
+
+.compat-result.error .compat-status {
+    color: #ef4444;
+}
+
+.compat-issue {
+    padding: 4px 6px;
+    margin-top: 4px;
+    border-radius: 3px;
+    background: #1e2128;
+}
+
+.issue-type {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-right: 6px;
+}
+
+.severity-interference .issue-type { background: #ef444430; color: #f87171; }
+.severity-functional .issue-type { background: #f59e0b30; color: #fbbf24; }
+.severity-structural .issue-type { background: #ef444430; color: #f87171; }
+.severity-thermal .issue-type { background: #8b5cf630; color: #a78bfa; }
+.severity-manufacturing .issue-type { background: #3b82f630; color: #60a5fa; }
+
+.issue-desc {
+    color: #cbd5e1;
+    font-size: 11px;
+}
+
+.issue-fix {
+    display: block;
+    color: #94a3b8;
+    font-style: italic;
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+/* AI Edit Console */
+.cip-edit-console {
+    display: flex;
+    gap: 4px;
+}
+
+.cip-edit-input {
+    flex: 1;
+    padding: 5px 8px;
+    background: #1a1d23;
+    border: 1px solid #2a2d35;
+    border-radius: 4px;
+    color: #e2e8f0;
+    font-size: 11px;
+    outline: none;
+    font-family: inherit;
+}
+
+.cip-edit-input:focus {
+    border-color: #3b82f6;
+}
+
+.cip-edit-send {
+    padding: 5px 8px;
+    background: #3b82f6;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.cip-edit-send:hover {
+    background: #2563eb;
+}
+
+.cip-edit-send:disabled {
+    background: #374151;
+    cursor: not-allowed;
+}

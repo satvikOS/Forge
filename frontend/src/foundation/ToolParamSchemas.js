@@ -1,0 +1,4583 @@
+/**
+ * ArchDisc Tool Parameter Schemas.
+ *
+ * Each foundation ribbon tool that needs user-tweakable inputs
+ * declares a small schema here. The schema is consumed by
+ * ToolParamDialog (renders the modal) and by ToolExecutionEngine
+ * handlers (read values from the dialog's submit).
+ *
+ * Why centralise: every tool previously hardcoded its inputs at
+ * the top of its handler ("Trent-XWB at FL350 cruise" for Brayton,
+ * "100 kg/s, 8000 RPM" for Compressor Stage, etc.). Industry peers
+ * pop a small dialog before each compute — this matches that UX
+ * while keeping the math identical.
+ *
+ * Schema shape:
+ *   {
+ *     title:  string,
+ *     blurb:  string,         // one-line context for the dialog header
+ *     fields: [{
+ *       name:    string,      // key in the returned values object
+ *       label:   string,
+ *       type:    'number' | 'enum',
+ *       default: number | string,
+ *       unit?:   string,
+ *       min?:    number,
+ *       max?:    number,
+ *       step?:   number,
+ *       options?: string[],   // for enum
+ *       hint?:   string,
+ *     }],
+ *   }
+ *
+ * Handlers call `requestToolParams(toolName)` which returns a
+ * promise resolving to `{values, cancelled}`. If cancelled, the
+ * handler should bail with a soft message.
+ */
+
+export const TOOL_PARAM_SCHEMAS = {
+
+  // ─── ATOMIC SCULPT (pure platform-driven construction) ───────────────────
+  // Every dimension is user-input here. No baked geometry, no catalog
+  // recipe. The e2e (or a human) sequences these to sculpt each part
+  // sketch-by-sketch, feature-by-feature, through the ribbon UI.
+  'Sculpt Rectangle': {
+    title: 'Sculpt — Sketch Rectangle',
+    blurb: 'Start (or continue) the active sculpt part with a rectangle on the chosen plane. Centre + size in mm.',
+    fields: [
+      { name: 'cx', label: 'Centre X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'cy', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'w',  label: 'Width',    type: 'number', default: 100, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'h',  label: 'Height',   type: 'number', default: 100, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'plane', label: 'Plane', type: 'enum', default: 'XY', options: ['XY', 'top', 'bottom'] },
+    ],
+  },
+  'Sculpt Circle': {
+    title: 'Sculpt — Sketch Circle',
+    blurb: 'Add a circle to the active sculpt sketch. Centre + radius in mm.',
+    fields: [
+      { name: 'cx', label: 'Centre X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'cy', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'r',  label: 'Radius',   type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'plane', label: 'Plane', type: 'enum', default: 'XY', options: ['XY', 'top', 'bottom'] },
+    ],
+  },
+  'Sculpt Polygon': {
+    title: 'Sculpt — Sketch N-gon',
+    blurb: 'Add a regular polygon to the active sculpt sketch.',
+    fields: [
+      { name: 'cx', label: 'Centre X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'cy', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'r',  label: 'Circumradius', type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'n',  label: 'Sides',    type: 'number', default: 6, min: 3, step: 1 },
+      { name: 'plane', label: 'Plane', type: 'enum', default: 'XY', options: ['XY', 'top', 'bottom'] },
+    ],
+  },
+  'Sculpt Extrude': {
+    title: 'Sculpt — Extrude',
+    blurb: 'Finish the open sketch and extrude it by the given distance (mm).',
+    fields: [
+      { name: 'distance', label: 'Distance', type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+    ],
+  },
+  'Sculpt Cut': {
+    title: 'Sculpt — Cut',
+    blurb: 'Finish the open sketch and subtract it (through-cut) from the active part.',
+    fields: [
+      { name: 'distance', label: 'Depth', type: 'number', default: 50, unit: 'mm', min: 0.1, step: 1 },
+    ],
+  },
+  'Sculpt Revolve': {
+    title: 'Sculpt — Revolve',
+    blurb: 'Finish the open sketch (X≥0 half-plane) and revolve it around the Y axis.',
+    fields: [
+      { name: 'segments', label: 'Segments', type: 'number', default: 64, min: 3, step: 1 },
+      { name: 'degrees',  label: 'Sweep °',  type: 'number', default: 360, min: 1, max: 360, step: 1 },
+    ],
+  },
+  'Sculpt Loft': {
+    title: 'Sculpt — Loft (Class-A frustum)',
+    blurb: 'Loft a smooth surface between two circular profiles (r1 → r2 over height). Curved transition, not a staircased cone.',
+    fields: [
+      { name: 'r1', label: 'Base radius',  type: 'number', default: 200, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'r2', label: 'Top radius',   type: 'number', default: 80,  unit: 'mm', min: 0.1, step: 1 },
+      { name: 'height', label: 'Height',   type: 'number', default: 400, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+  'Sculpt Pipe': {
+    title: 'Sculpt — Pipe / Harness (swept tube)',
+    blurb: 'Sweep a circular cross-section along a 3-point path (start → bend → end). For hoses, wiring harnesses, exhaust runs.',
+    fields: [
+      { name: 'radius', label: 'Pipe radius', type: 'number', default: 40, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'x1', label: 'Start X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y1', label: 'Start Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z1', label: 'Start Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'x2', label: 'End X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y2', label: 'End Y', type: 'number', default: 1000, unit: 'mm', step: 1 },
+      { name: 'z2', label: 'End Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'bend', label: 'Bend offset', type: 'number', default: 0, unit: 'mm', step: 1, hint: 'lateral bow of the midpoint' },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb9bcc1, step: 1 },
+    ],
+  },
+  // SP-155 — Full-Pipeline Demo. One mega-slice that chains the entire
+  // ArchDisc kernel pipeline on a single sheet-metal L-bracket part
+  // and reports every result. End-to-end professional CAD workflow
+  // in one ribbon click: build → measure → analyse → check → export.
+  'Sculpt Full Pipeline Demo': {
+    title: 'Sculpt — Full Pipeline Demo (build + analyse + interop)',
+    blurb: 'Single-click pipeline: baseFlange + edgeFlange + mass-props + draft + self-intersect QA + HLR + STEP round-trip + GLTF. Real production CAD workflow.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 30,  unit: 'mm', min: 1, step: 1 },
+      { name: 'density',      label: 'Steel density', type: 'number', default: 7850, unit: 'kg/m³', min: 1, step: 100 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8c8d8, step: 1 },
+    ],
+  },
+  // SP-154 — Boundary Boss + Guides (CATIA Multi-Sections Solid with
+  // guides / NX Through-Curves with guides / SW Boundary Boss with
+  // guide curves). 2 profile sections + 2 guide rails that shape the
+  // intermediate sections.
+  'Sculpt Boundary Boss Guides': {
+    title: 'Sculpt — Boundary Boss + Guides (loft with rails)',
+    blurb: 'OCCT-backed boundary boss with 2 guide rails: circle bottom + square top + 2 vertical guides at opposite quadrants.',
+    fields: [
+      { name: 'circleR',    label: 'Bottom circle radius', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'squareS',    label: 'Top square side',      type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'height',     label: 'Height',               type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'circleSegs', label: 'Circle segments',      type: 'number', default: 32, unit: '',  min: 8, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd0c0e0, step: 1 },
+    ],
+  },
+  // SP-153 — Closed Corner (SW Closed Corner / CATIA Sheetmetal Corner
+  // Closure / NX Bridge Transition). Close the triangular gap left
+  // between 2 adjacent edge-flanges with a butt / overlap / underlap
+  // patch.
+  'Sculpt Closed Corner': {
+    title: 'Sculpt — Closed Corner (close perimeter gap)',
+    blurb: 'OCCT-backed sheet metal: base + miterFlange on 2 adjacent edges + closedCorner butt patch. corners[] log appended.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 25,  unit: 'mm', min: 1, step: 1 },
+      { name: 'cornerType',   label: 'Corner type',   type: 'string', default: 'butt', choices: ['butt', 'overlap', 'underlap'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd8c0b8, step: 1 },
+    ],
+  },
+  // SP-152 — Miter Flange (SW Miter Flange / CATIA Miter Wall / NX
+  // Miter Flange). Sweep a flange along multiple adjacent edges with
+  // mitered corner records appended for downstream miter trim.
+  'Sculpt Miter Flange': {
+    title: 'Sculpt — Miter Flange (multi-edge with miter records)',
+    blurb: 'OCCT-backed miter flange: 100×60×2 base + 25mm flange swept along 2 top edges (front + right) with miter records appended.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 25,  unit: 'mm', min: 1, step: 1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 90,  unit: '°',  min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0d8b8, step: 1 },
+    ],
+  },
+  // SP-151 — End Cap (SW Weldments End Cap / CATIA Tube End / NX Cap).
+  // Cap the open end of a structural tube member with a flat plate.
+  // Each member's metadata.weldment.caps[] log records the end.
+  'Sculpt End Cap': {
+    title: 'Sculpt — End Cap (close open tube end)',
+    blurb: 'OCCT-backed weldments end cap: structural member capped at both ends with 4mm plates. caps[] log entries appended.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'capThickness', label: 'Cap thickness', type: 'number', default: 4,   unit: 'mm', min: 1, step: 1 },
+      { name: 'endRef',       label: 'End',           type: 'string', default: 'start', choices: ['start', 'end'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x90a0b0, step: 1 },
+    ],
+  },
+  // SP-150 — Trim Members (SW Weldments Trim/Extend / CATIA Trim /
+  // NX Trim Member). Auto-trim weldment members at shared joints
+  // — butt or mitered — so overlapping ends are removed.
+  'Sculpt Trim Members': {
+    title: 'Sculpt — Trim Members (weldments butt / miter)',
+    blurb: 'OCCT-backed trim: 2 perpendicular members → trim at the shared joint with mitered mode. trims[] log appended.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'mode',         label: 'Trim mode',     type: 'string', default: 'mitered', choices: ['butt', 'mitered'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8090a8, step: 1 },
+    ],
+  },
+  // SP-149 — Gusset (SW Gusset / CATIA Reinforcement Plate / NX Gusset).
+  // Triangular reinforcement plate spanning the corner between 2
+  // weldment members. Stiffens the joint without adding much weight.
+  'Sculpt Gusset': {
+    title: 'Sculpt — Gusset (triangular corner reinforcement)',
+    blurb: 'OCCT-backed weldments gusset: 2 perpendicular members + triangular gusset 100mm legs × 6mm thick at the inner corner.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'gussetSize',   label: 'Gusset leg',    type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'thickness',    label: 'Plate thick',   type: 'number', default: 6,   unit: 'mm', min: 1, step: 1 },
+      { name: 'position',     label: 'Position',      type: 'string', default: 'inner', choices: ['inner', 'outer'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorMember', label: 'Member colour', type: 'number', default: 0x90a8c0, step: 1 },
+      { name: 'colorGusset', label: 'Gusset colour', type: 'number', default: 0x40e090, step: 1 },
+    ],
+  },
+  // SP-148 — Weld Bead (SW Weldments Weld Bead / CATIA Assembly Weld
+  // / NX Weld Bead). Build a fillet weld bead between 2 perpendicular
+  // structural members that share an endpoint joint.
+  'Sculpt Weld Bead': {
+    title: 'Sculpt — Weld Bead (fillet weld at perpendicular corner)',
+    blurb: 'OCCT-backed weld bead: 2 perpendicular structural members + 6mm fillet weld at the shared endpoint joint.',
+    fields: [
+      { name: 'memberLength', label: 'Member length', type: 'number', default: 500, unit: 'mm', min: 50, step: 10 },
+      { name: 'beadSize',     label: 'Bead size',     type: 'number', default: 6,   unit: 'mm', min: 1, step: 1 },
+      { name: 'beadType',     label: 'Bead type',     type: 'string', default: 'fillet', choices: ['fillet', 'square', 'V', 'bevel'] },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorMember', label: 'Member colour', type: 'number', default: 0x90a8c0, step: 1 },
+      { name: 'colorBead',   label: 'Bead colour',   type: 'number', default: 0xe6a040, step: 1 },
+    ],
+  },
+  // SP-147 — Trimmed NURBS Face (CATIA GSD Trim / NX Surface Trim /
+  // SW Trim Surface). Build a NURBS surface with a rectangular trim
+  // window — only the (u,v) interior of the window is rendered.
+  'Sculpt Trimmed NURBS': {
+    title: 'Sculpt — Trimmed NURBS Face (window cut on sail)',
+    blurb: 'OCCT-backed trimmed NURBS: 80×80 bulged sail surface with rectangular trim window [0.25, 0.75] in u and v. Only the inner window survives.',
+    fields: [
+      { name: 'sizeX',    label: 'Patch X size', type: 'number', default: 80, unit: 'mm', min: 10, step: 1 },
+      { name: 'sizeY',    label: 'Patch Y size', type: 'number', default: 80, unit: 'mm', min: 10, step: 1 },
+      { name: 'bulge',    label: 'Bulge',        type: 'number', default: 12, unit: 'mm', min: 0, step: 0.5 },
+      { name: 'trimUMin', label: 'Trim U min',   type: 'number', default: 0.25, unit: '', min: 0, step: 0.05 },
+      { name: 'trimUMax', label: 'Trim U max',   type: 'number', default: 0.75, unit: '', min: 0, step: 0.05 },
+      { name: 'trimVMin', label: 'Trim V min',   type: 'number', default: 0.25, unit: '', min: 0, step: 0.05 },
+      { name: 'trimVMax', label: 'Trim V max',   type: 'number', default: 0.75, unit: '', min: 0, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8d8a8, step: 1 },
+    ],
+  },
+  // SP-146 — Cut List (SW Weldments Cut List / CATIA Stock & Mill /
+  // NX Weldments Cut List). Aggregate every weldment-tagged member
+  // in the scene by (profile, size, length) → one BOM line per
+  // unique cut. Foundation of the fabrication-shop deliverable.
+  'Sculpt Cut List': {
+    title: 'Sculpt — Cut List (Weldments BOM aggregation)',
+    blurb: 'OCCT-backed cut list: build 3 structuralMembers (2 same SHS, 1 different) → cutList groups into 2 BOM lines (qty 2 + qty 1).',
+    fields: [
+      { name: 'rounding', label: 'Length rounding', type: 'number', default: 1, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
+  // SP-145 — Shut-Off Surfaces (CATIA Mold / NX Mold Wizard / SW Shut-
+  // Off Surfaces). Auto-fill free-edge loops on a body so the mold
+  // parting can use a watertight target. Closed bodies report
+  // watertight=true (no free edges → no patches needed).
+  'Sculpt Shut-Off Surfaces': {
+    title: 'Sculpt — Shut-Off Surfaces (close free-edge loops)',
+    blurb: 'OCCT-backed mold prep: scan body for free-edge loops, fill each with an n-sided NURBS patch. Closed sphere is already watertight (0 loops).',
+    fields: [
+      { name: 'sphereR',         label: 'Sphere radius',    type: 'number', default: 20,  unit: 'mm', min: 1, step: 1 },
+      { name: 'maxHoleDiameter', label: 'Max hole Ø',       type: 'number', default: 100, unit: 'mm', min: 1, step: 5 },
+      { name: 'tolerance',       label: 'Heal tolerance',   type: 'number', default: 0.001, unit: 'mm', min: 1e-6, step: 0.0001 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8e6c8, step: 1 },
+    ],
+  },
+  // SP-144 — Replace Face (CATIA Surface Replacement / NX Replace Face
+  // / SW Replace Face). Rebuild a face on a different surface. With
+  // curvedSwap=true, replace with a domed NURBS surface (bulge).
+  'Sculpt Replace Face': {
+    title: 'Sculpt — Replace Face (curved swap with bulge)',
+    blurb: 'OCCT-backed face replace: cube → swap face 6 (top) with a bulged NURBS surface. Volume grows from added bulge.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',    type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'faceIdx', label: 'Face index',  type: 'number', default: 6,  unit: '',   min: 1, step: 1 },
+      { name: 'bulge',   label: 'Bulge',       type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6d0a8, step: 1 },
+    ],
+  },
+  // SP-143 — Sweep Flange (SW Lofted Bend / CATIA Sheetmetal Sweep /
+  // NX Swept Flange). Sweep a flange profile along a polyline path —
+  // the sheet-metal version of swept boss.
+  'Sculpt Sweep Flange': {
+    title: 'Sculpt — Sweep Flange (sheet metal swept lip)',
+    blurb: 'OCCT-backed sheet metal sweep: base flange + swept lip along a 2-point straight path. Bend record type=sweepFlange for downstream Flat Pattern.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'profileWidth', label: 'Profile width', type: 'number', default: 15,  unit: 'mm', min: 1, step: 1 },
+      { name: 'pathLength',   label: 'Path length',   type: 'number', default: 80,  unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8e6d8, step: 1 },
+    ],
+  },
+  // SP-142 — Eval Surface (SW Surface Inquiry / CATIA Measure /
+  // NX Curve & Surface Inspect). Sample point + normal + 1st/2nd
+  // partials + curvatures at (u, v) on a face.
+  'Sculpt Eval Surface': {
+    title: 'Sculpt — Eval Surface (point + normal + κ at (u,v))',
+    blurb: 'OCCT-backed evalSurface: sphere R=20 sampled at 3 (u,v) — Gaussian κ = 1/R² = 2.5e-3 1/mm² (uniform on sphere), normal points radially outward.',
+    fields: [
+      { name: 'sphereR', label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8d2e6, step: 1 },
+    ],
+  },
+  // SP-141 — Per-Face Tessellation (selection-aware rendering +
+  // FEA mesh prep). Each triangle tagged with its source B-rep
+  // face id; face-adjacency map records which faces share edges.
+  'Sculpt Per-Face Tessellation': {
+    title: 'Sculpt — Per-Face Tessellation (face-id mesh)',
+    blurb: 'OCCT-backed per-face tessellation: filleted cube → triangle mesh with face-id tag per triangle + face-adjacency map.',
+    fields: [
+      { name: 'boxSize',    label: 'Box side',        type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',    label: 'Fillet radius',   type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.2, unit: 'mm', min: 0.05, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
+  // SP-140 — Project Points Onto B-Rep (CATIA Project / NX Project Curve
+  // / SW Project Sketch). Project a point cloud onto the nearest face
+  // of a B-rep body — foundation for scan-fit / point-cloud-to-CAD.
+  'Sculpt Project Points': {
+    title: 'Sculpt — Project Points (snap cloud onto B-rep)',
+    blurb: 'OCCT-backed point projection: 100 random points sphere R=22 → projected onto sphere R=20 surface. Each projected point lies on the sphere within tolerance.',
+    fields: [
+      { name: 'sphereR',     label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'cloudR',      label: 'Cloud radius',  type: 'number', default: 22, unit: 'mm', min: 1, step: 1 },
+      { name: 'pointCount',  label: 'Point count',   type: 'number', default: 100, unit: '',   min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody', label: 'Sphere colour', type: 'number', default: 0xa8c8e6, step: 1 },
+      { name: 'colorPts',  label: 'Points colour', type: 'number', default: 0xff8040, step: 1 },
+    ],
+  },
+  // SP-139 — Planar Section (SW Section View / CATIA Section / NX Cross-
+  // Section). Cross-cut a body with a plane → either intersection
+  // curves (drawing views) or split pieces (machining setups).
+  'Sculpt Planar Section': {
+    title: 'Sculpt — Planar Section (cross-cut with plane)',
+    blurb: 'OCCT-backed planar section: sphere R=20 cut at z=5 → intersection circle. Volume preserved across split halves.',
+    fields: [
+      { name: 'sphereR',  label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'planeZ',   label: 'Plane z',       type: 'number', default: 5,  unit: 'mm', step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA', label: 'Top half colour',    type: 'number', default: 0xe6a8a8, step: 1 },
+      { name: 'colorB', label: 'Bottom half colour', type: 'number', default: 0xa8a8e6, step: 1 },
+    ],
+  },
+  // SP-138 — NURBS Refine + Elevate Degree (CATIA GSD Insert Knot /
+  // NX Insert Knot / SW NURBS Tools). h-refinement (knot insertion)
+  // + p-refinement (degree elevation) on a 4×4 NURBS sail. Surface
+  // shape preserved exactly, control net densified.
+  'Sculpt NURBS Refine': {
+    title: 'Sculpt — NURBS Refine + Elevate (h + p refinement)',
+    blurb: 'OCCT-backed NURBS: buildNurbsPatch → refineNurbs (insert knots at 0.25/0.5/0.75) → elevateNurbsDegree. Shape preserved; control net densified.',
+    fields: [
+      { name: 'size',  label: 'Patch size', type: 'number', default: 40, unit: 'mm', min: 10, step: 1 },
+      { name: 'crown', label: 'Crown lift', type: 'number', default: 8,  unit: 'mm', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0d0e0, step: 1 },
+    ],
+  },
+  // SP-137 — Stitch Faces (SW Knit Surface / CATIA Join / NX Sew).
+  // Tolerant sewing of separate faces into a shell — bridges small
+  // gaps and welds shared boundaries within tolerance.
+  'Sculpt Stitch Faces': {
+    title: 'Sculpt — Stitch Faces (tolerant sewing)',
+    blurb: 'OCCT-backed sewing: 2 panels with 0.05mm gap stitched at tol=0.1mm into one continuous sheet.',
+    fields: [
+      { name: 'panelW',    label: 'Panel width',  type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'panelH',    label: 'Panel height', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'gap',       label: 'Gap',          type: 'number', default: 0.05, unit: 'mm', min: 0, step: 0.01 },
+      { name: 'tolerance', label: 'Sewing tol',   type: 'number', default: 0.1,  unit: 'mm', min: 0.01, step: 0.01 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd8b8e6, step: 1 },
+    ],
+  },
+  // SP-136 — Loft Tangent (CATIA Multi-Sections Solid / NX Through-Curves
+  // tangent option / SW Lofted Boss with smoothing). 3 square section
+  // wires lofted with SetSmoothing for G1 tangency between sections.
+  'Sculpt Loft Tangent': {
+    title: 'Sculpt — Loft Tangent (3-section smooth solid)',
+    blurb: 'OCCT-backed loft: 3 square sections (40/20/30 mm at z=0/20/40) with G1 SetSmoothing. Smooth lateral lofted surface.',
+    fields: [
+      { name: 's0', label: 'Section 0 size', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 's1', label: 'Section 1 size', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 's2', label: 'Section 2 size', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'z0', label: 'Section 0 Z',    type: 'number', default: 0,  unit: 'mm', step: 1 },
+      { name: 'z1', label: 'Section 1 Z',    type: 'number', default: 20, unit: 'mm', step: 1 },
+      { name: 'z2', label: 'Section 2 Z',    type: 'number', default: 40, unit: 'mm', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6c8b8, step: 1 },
+    ],
+  },
+  // SP-135 — Pipe Shell Sweep (CATIA Rib Pipe / NX Tube / SW Swept Boss).
+  // Sweep a circular profile along a tortuous right-angle polyline path
+  // with N bends. Real BRepOffsetAPI_MakePipeShell — handles
+  // multi-segment paths cleanly (unlike sweepProfile).
+  'Sculpt Pipe Shell Sweep': {
+    title: 'Sculpt — Pipe Shell Sweep (multi-bend tube)',
+    blurb: 'OCCT-backed pipe shell: Ø8 circle along 3-segment right-angle path (X→Y→Z, 20mm each). MakePipeShell handles multi-bend without sweepProfile limitation.',
+    fields: [
+      { name: 'profileR', label: 'Tube radius', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'segLength', label: 'Segment length', type: 'number', default: 20, unit: 'mm', min: 5, step: 1 },
+      { name: 'bendCount', label: 'Bend count', type: 'number', default: 2,  unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8d8e6, step: 1 },
+    ],
+  },
+  // SP-134 — Edge Curve Evaluation (SW Sketch Tangent / CATIA Reference
+  // Element / NX Curve Inspect). Differential-geometry sample of a
+  // body edge at parameter t in [0,1]: point + tangent + 2nd
+  // derivative + curvature. Foundation for fillet/sweep/loft pipelines.
+  'Sculpt Eval Curve': {
+    title: 'Sculpt — Eval Curve (point + tangent + curvature on edge)',
+    blurb: 'OCCT-backed evalCurve: cylinder Ø40×40 → eval all edges at t=0.5. Top/bottom circle κ=1/R=0.05, vertical seam κ=0.',
+    fields: [
+      { name: 'radius',  label: 'Cylinder radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'height',  label: 'Cylinder height', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8a8e0, step: 1 },
+    ],
+  },
+  // SP-133 — Topology Adjacency (CATIA Selection Sets / NX Edge/Face
+  // Walks / Creo Geometry Query). Three-tier face/edge/vertex
+  // adjacency walks the spine graph. Box → 6F/12E/8V combinatorial
+  // contract verified by adjacency queries.
+  'Sculpt Topology Adjacency': {
+    title: 'Sculpt — Topology Adjacency (face/edge/vertex graph walk)',
+    blurb: 'OCCT-backed adjacency: box → walk facesOfEdge / edgesOfFace / facesOfVertex / edgesOfVertex. Cube combinatorial contract (6F+12E+8V) verified.',
+    fields: [
+      { name: 'boxSize', label: 'Box side', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8b8c8, step: 1 },
+    ],
+  },
+  // SP-132 — NURBS Curvature (analytic Gaussian / mean / principal).
+  // SW Surface Curvature / CATIA GSD Curvature Analysis / NX Curvature.
+  // Differential-geometry curvature on a true NURBS surface (vs the
+  // discrete heatmap of SP-110). Returns gaussian + mean + kMin + kMax
+  // + surface normal + 3D position at a sampled (u,v) parameter.
+  'Sculpt NURBS Curvature': {
+    title: 'Sculpt — NURBS Curvature (analytic principal κ)',
+    blurb: 'OCCT-backed NURBS curvature: 4×4 sail patch, 3 sample points (centre, corner, off-centre). Gaussian κ_max·κ_min vs mean (κ_max+κ_min)/2 reported.',
+    fields: [
+      { name: 'size',  label: 'Patch size',  type: 'number', default: 40, unit: 'mm', min: 10, step: 1 },
+      { name: 'crown', label: 'Crown lift',  type: 'number', default: 8,  unit: 'mm', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0e0c0, step: 1 },
+    ],
+  },
+  // SP-131 — Build NURBS Patch (CATIA GSD / NX Studio Free Form / SW
+  // Surface Loft / Modo NURBS). Build a 4×4 cubic NURBS sail patch
+  // with a crown lift on the inner 2×2 control poles. Foundation for
+  // refine / elevate / curvature pipelines.
+  'Sculpt Build NURBS Patch': {
+    title: 'Sculpt — Build NURBS Patch (4×4 cubic sail)',
+    blurb: 'OCCT-backed NURBS: 4×4 clamped-cubic patch with inner-pole crown lift. Sheet body for Class-A surfacing.',
+    fields: [
+      { name: 'size',  label: 'Patch size',  type: 'number', default: 40, unit: 'mm', min: 10, step: 1 },
+      { name: 'crown', label: 'Crown lift',  type: 'number', default: 8,  unit: 'mm', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd9e3f0, step: 1 },
+    ],
+  },
+  // SP-130 — Classify Point (foundational point-in-solid test).
+  // Returns inside / on / outside. Used by every Boolean, clearance,
+  // DFM, mold-region workflow downstream. SW/CATIA/NX/Creo equivalent.
+  'Sculpt Classify Point': {
+    title: 'Sculpt — Classify Point (inside / on / outside)',
+    blurb: 'OCCT-backed point classifier: sphere R=20 + 4 test points (0,0,0)=inside, (20,0,0)=on, (30,0,0)=outside, (15,0,0)=inside.',
+    fields: [
+      { name: 'sphereR', label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody', label: 'Body colour', type: 'number', default: 0xa8c8e6, step: 1 },
+      { name: 'colorIn',   label: 'Inside colour',  type: 'number', default: 0x40ff40, step: 1 },
+      { name: 'colorOn',   label: 'On colour',      type: 'number', default: 0xffff40, step: 1 },
+      { name: 'colorOut',  label: 'Outside colour', type: 'number', default: 0xff4040, step: 1 },
+    ],
+  },
+  // SP-129 — Ray Fire (NX Measure Ray / CATIA Distance / SW Measure).
+  // Foundational ray-shape intersection used by selection / picking /
+  // mold draft / clearance queries. Returns all hits along the ray
+  // with face, point, normal, UV parameters.
+  'Sculpt Ray Fire': {
+    title: 'Sculpt — Ray Fire (kernel ray query)',
+    blurb: 'OCCT-backed rayFire: sphere R=20 + ray from (-50,0,0) along +X → 2 hits at x=±20. Each hit reports face / point / normal / distance.',
+    fields: [
+      { name: 'sphereR',  label: 'Sphere radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'originX',  label: 'Ray origin X',  type: 'number', default: -50, unit: 'mm', step: 1 },
+      { name: 'originY',  label: 'Ray origin Y',  type: 'number', default: 0,  unit: 'mm', step: 1 },
+      { name: 'originZ',  label: 'Ray origin Z',  type: 'number', default: 0,  unit: 'mm', step: 1 },
+      { name: 'dirX',     label: 'Direction X',   type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'dirY',     label: 'Direction Y',   type: 'number', default: 0,  unit: '',   step: 0.1 },
+      { name: 'dirZ',     label: 'Direction Z',   type: 'number', default: 0,  unit: '',   step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody',  label: 'Body colour',  type: 'number', default: 0xa8c8e6, step: 1 },
+      { name: 'colorHit',   label: 'Hit colour',   type: 'number', default: 0xff4040, step: 1 },
+      { name: 'colorRay',   label: 'Ray colour',   type: 'number', default: 0x40ff40, step: 1 },
+    ],
+  },
+  // SP-128 — Self-Intersection QA (SW Tools/Check Geometry / CATIA Quick
+  // Check / NX Check Tools). 2-tier QA: BRepCheck_Analyzer intrinsic
+  // validity + mesh-level Möller triangle-triangle detector for fine
+  // self-intersection inspection.
+  'Sculpt Self-Intersect QA': {
+    title: 'Sculpt — Self-Intersection QA (2-tier validity check)',
+    blurb: 'OCCT-backed QA: filleted cube → checkSelfIntersection (intrinsic + solid overlap) + selfIntersect (mesh Möller). Validates clean body.',
+    fields: [
+      { name: 'boxSize',    label: 'Box side',        type: 'number', default: 40,  unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',    label: 'Fillet radius',   type: 'number', default: 4,   unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.1, unit: 'mm', min: 0.01, step: 0.01 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x90e0a8, step: 1 },
+    ],
+  },
+  // SP-127 — Flat Pattern (SW Flatten / CATIA Unfold / NX Flatten /
+  // PTC Creo Flat Pattern). Unroll a bent sheet metal body into its
+  // flat manufacturing layout for laser-cutter / waterjet handoff.
+  // Bend allowances applied per the SP-108 / SP-126 recorded data.
+  'Sculpt Flat Pattern': {
+    title: 'Sculpt — Flat Pattern (unroll for fabrication)',
+    blurb: 'OCCT-backed flatPattern: L-bracket (baseFlange + edgeFlange) → unrolled rectangle ready for laser cutting.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 30,  unit: 'mm', min: 1, step: 1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 90,  unit: '°',  min: 1, step: 1 },
+      { name: 'edgeIdx',      label: 'Edge index',    type: 'number', default: 4,   unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBent', label: 'Bent colour', type: 'number', default: 0xd1d6e8, step: 1 },
+      { name: 'colorFlat', label: 'Flat colour', type: 'number', default: 0xe6e6a8, step: 1 },
+    ],
+  },
+  // SP-126 — Sketched Bend (SW Sketched Bend / NX Sketched Bend /
+  // CATIA Sheetmetal Walls on Sketches). Bend the sheet along a
+  // sketched line on a flat face; the bend record carries the
+  // bendPosition convention for downstream Flat Pattern.
+  'Sculpt Sketched Bend': {
+    title: 'Sculpt — Sketched Bend (45° on long edge)',
+    blurb: 'OCCT-backed sheet metal: base + sketched bend along edge. Bend record type=sketchedBend with configurable bendPosition.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 45,  unit: '°',  min: 1, step: 1 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 30,  unit: 'mm', min: 1, step: 1 },
+      { name: 'edgeIdx',      label: 'Edge index',    type: 'number', default: 4,   unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8c8da, step: 1 },
+    ],
+  },
+  // SP-125 — Sheet Metal Hem (SW Sheet Metal / CATIA Generative
+  // Sheetmetal / NX Sheet Metal). Fold a short safety hem (180° closed
+  // / 165° open / 270° rolled / 225° teardrop) back onto the parent
+  // flange. Removes sharp edges + stiffens.
+  'Sculpt Sheet Metal Hem': {
+    title: 'Sculpt — Sheet Metal Hem (safety fold)',
+    blurb: 'OCCT-backed hem: base plate + open hem (165°) on long edge. Bend records carry hemType / hemLength / hemAngleDeg / bendAllowance.',
+    fields: [
+      { name: 'plateX',    label: 'Plate X',     type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'plateY',    label: 'Plate Y',     type: 'number', default: 60,  unit: 'mm', min: 5, step: 1 },
+      { name: 'thickness', label: 'Thickness',   type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'hemType',   label: 'Hem type',    type: 'string', default: 'open', choices: ['closed', 'open', 'rolled', 'teardrop'] },
+      { name: 'hemLength', label: 'Hem length',  type: 'number', default: 8,   unit: 'mm', min: 1, step: 1 },
+      { name: 'edgeIdx',   label: 'Edge index',  type: 'number', default: 4,   unit: '',   min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8dab8, step: 1 },
+    ],
+  },
+  // SP-124 — Mass Properties (SW Mass Properties / CATIA Measure Inertia
+  // / NX Measure / Creo Mass Properties). Real engineering inertia
+  // tensor + principal moments + principal axes via OCCT
+  // GProp_GProps + GProp_PrincipalProps. Critical FEA/CFD prep.
+  'Sculpt Mass Properties': {
+    title: 'Sculpt — Mass Properties (inertia tensor + principal axes)',
+    blurb: 'OCCT-backed mass-properties: volume, surface area, centroid, 3×3 inertia tensor, principal moments, principal axes. Density configurable (kg/m³).',
+    fields: [
+      { name: 'boxSize', label: 'Box side',     type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'density', label: 'Density',      type: 'number', default: 7850, unit: 'kg/m³', min: 1, step: 100 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8c2cc, step: 1 },
+    ],
+  },
+  // SP-123 — Hidden Line Projection (SW Drawing / CATIA Drafting / NX
+  // Drafting class). 2D-drawing-quality HLR projection via OCCT
+  // HLRBRep_Algo. Returns 4 polyline buckets: visible+sharp, visible+
+  // outline (silhouette), hidden+sharp, hidden+outline. Foundation
+  // of all 2D engineering drawing workflows.
+  'Sculpt Hidden Line': {
+    title: 'Sculpt — Hidden Line Projection (2D drawing edges)',
+    blurb: 'OCCT-backed HLR: filleted cube → orthographic projection along view dir → visible + hidden + silhouette polylines for 2D drawing.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',  label: 'Fillet radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'viewX',    label: 'View dir X',    type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'viewY',    label: 'View dir Y',    type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'viewZ',    label: 'View dir Z',    type: 'number', default: 1,  unit: '',   step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorBody',    label: 'Body colour',    type: 'number', default: 0xcccccc, step: 1 },
+      { name: 'colorVisible', label: 'Visible colour', type: 'number', default: 0x000000, step: 1 },
+      { name: 'colorHidden',  label: 'Hidden colour',  type: 'number', default: 0x888888, step: 1 },
+    ],
+  },
+  // SP-122 — Retopologise (Maya / ZBrush / NX Realize Shape / Modo /
+  // 3ds Max retopo). Isotropic remeshing (Botsch-Kobbelt) with optional
+  // pull-back to original B-rep surface. Produces a clean even-density
+  // mesh for downstream simulation, animation, or 3D-print prep.
+  'Sculpt Retopo': {
+    title: 'Sculpt — Retopologise (isotropic remeshing)',
+    blurb: 'OCCT-backed retopo: filleted box → Botsch-Kobbelt remesh with target edge length, surface pull-back enabled. Mesh becomes uniformly dense.',
+    fields: [
+      { name: 'boxSize',     label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',     label: 'Fillet radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'targetEdge',  label: 'Target edge L', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'iterations',  label: 'B-K iterations', type: 'number', default: 5, unit: '',  min: 1, step: 1 },
+      { name: 'deflection',  label: 'Tess deflection', type: 'number', default: 0.5, unit: 'mm', min: 0.05, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8e6a8, step: 1 },
+    ],
+  },
+  // SP-121 — Intersect Surfaces (CATIA GSD Intersect / NX Curve / SW
+  // Curve Through Reference Points). Surface-Surface Intersection (SSI)
+  // foundational geometric op. Sphere + box → SSI gives the trim
+  // circle/loop where the two surfaces meet.
+  'Sculpt Intersect Surfaces': {
+    title: 'Sculpt — Intersect Surfaces (NURBS SSI)',
+    blurb: 'OCCT-backed SSI: 2 spheres → intersection circle. Both bodies have a single spherical face so SSI picks unambiguously.',
+    fields: [
+      { name: 'sphereR',  label: 'Sphere radius',  type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'centerD',  label: 'Centre distance', type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'samples',  label: 'Sample pts',     type: 'number', default: 64, unit: '',   min: 8, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA',    label: 'Sphere A colour', type: 'number', default: 0xa8c1e6, step: 1 },
+      { name: 'colorB',    label: 'Sphere B colour', type: 'number', default: 0xc1e6a8, step: 1 },
+      { name: 'colorCurve', label: 'Curve colour',   type: 'number', default: 0xff8030, step: 1 },
+    ],
+  },
+  // SP-120 — G2 Blend Between Edges (CATIA GSD Bridge / NX Studio Free
+  // Form G2-Blend / SW Boundary Surface). Fit a true G2 (curvature-
+  // continuous) NURBS surface between two body edges with degree-5-in-v
+  // / degree-3-in-u. The analytic surface IS the spine face; tessellated
+  // shell is on .occtWrapper for rendering.
+  'Sculpt G2 Blend': {
+    title: 'Sculpt — G2 Blend (curvature-continuous surface fit)',
+    blurb: 'OCCT-backed G2 blend: fit a degree-5×3 NURBS surface between 2 selected box edges. Analytic surface is the spine face.',
+    fields: [
+      { name: 'boxSize',   label: 'Box side',       type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'edgeA',     label: 'Edge A index',   type: 'number', default: 0,  unit: '',   min: 0, step: 1 },
+      { name: 'edgeB',     label: 'Edge B index',   type: 'number', default: 2,  unit: '',   min: 0, step: 1 },
+      { name: 'uSegments', label: 'U segments',     type: 'number', default: 32, unit: '',   min: 8, step: 4 },
+      { name: 'vSegments', label: 'V segments',     type: 'number', default: 16, unit: '',   min: 4, step: 2 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6a8c1, step: 1 },
+    ],
+  },
+  // SP-119 — Delete Face And Heal (SW Direct Editing / NX Synchronous
+  // Modeling Delete Face / Creo Flexible Modeling). Remove a face from
+  // a body and have OCCT's defeaturer auto-heal the wound by extending
+  // adjacent faces. Box-with-hole → delete hole face → restored box.
+  'Sculpt Delete Face And Heal': {
+    title: 'Sculpt — Delete Face And Heal (defeaturer)',
+    blurb: 'OCCT-backed defeaturer: box with a Ø10 through-hole → delete the cylindrical hole face → BRepAlgoAPI_Defeaturing heals it back to a solid box.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',    type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'holeR',    label: 'Hole radius', type: 'number', default: 5,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc8d8a8, step: 1 },
+    ],
+  },
+  // SP-118 — Push-Pull Face (SW Direct Editing / Creo Flexible Modeling
+  // Push-Pull / NX Synchronous Modeling Move Face). Translate a face
+  // along its outward normal by ±distance. Body remains topologically
+  // connected; adjacent faces are auto-trimmed/extended.
+  'Sculpt Push-Pull Face': {
+    title: 'Sculpt — Push-Pull Face (direct editing)',
+    blurb: 'OCCT-backed push-pull: pick a face, translate by ±distance along its outward normal. Box top face pushed up 20 mm → 40×40×60.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',     type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'faceIdx',  label: 'Face index',   type: 'number', default: 6,  unit: '',   min: 1, step: 1 },
+      { name: 'distance', label: 'Push distance', type: 'number', default: 20, unit: 'mm', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8e6c1, step: 1 },
+    ],
+  },
+    // SP-117 — Clash Detection (SW Interference Detection / NX Check
+  // Tools / CATIA Clash Analysis). Two overlapping boxes, compute the
+  // interference volume + zone + min distance + zone count.
+  'Sculpt Clash Detection': {
+    title: 'Sculpt — Clash Detection (interference + zone)',
+    blurb: 'OCCT-backed clash check: two 40³ boxes shifted by (20,20,0) → interference 20×20×40 = 16,000 mm³. Render the clash zone separately.',
+    fields: [
+      { name: 'boxSize',  label: 'Box side',    type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'shiftX',   label: 'Shift X',     type: 'number', default: 20, unit: 'mm', min: 0, step: 1 },
+      { name: 'shiftY',   label: 'Shift Y',     type: 'number', default: 20, unit: 'mm', min: 0, step: 1 },
+      { name: 'shiftZ',   label: 'Shift Z',     type: 'number', default: 0,  unit: 'mm', min: 0, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA',    label: 'Box A colour',  type: 'number', default: 0x80a8d0, step: 1 },
+      { name: 'colorB',    label: 'Box B colour',  type: 'number', default: 0xd0a890, step: 1 },
+      { name: 'colorZone', label: 'Clash colour',  type: 'number', default: 0xff5060, step: 1 },
+    ],
+  },
+  // SP-116 — Loop Subdivision (Maya/ZBrush/Modo/NX Realize Shape class).
+  // Piecewise-smooth Loop subdivision (Hoppe et al. 1994) on a B-rep:
+  // tessellate, weld, dihedral-detect creases, refine N levels with
+  // sharp-edge preservation. Foundation of organic shape design.
+  'Sculpt Loop Subdivision': {
+    title: 'Sculpt — Loop Subdivision (piecewise-smooth, Hoppe 1994)',
+    blurb: 'OCCT-backed SubD: box → tessellate → Loop subdivision with crease detection. Cube edges preserved as sharp creases.',
+    fields: [
+      { name: 'boxSize',     label: 'Box side',          type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'levels',      label: 'Subdivision levels', type: 'number', default: 2, unit: '',   min: 1, step: 1 },
+      { name: 'dihedralDeg', label: 'Crease threshold',  type: 'number', default: 30, unit: '°',  min: 1, step: 1 },
+      { name: 'deflection',  label: 'Tess deflection',   type: 'number', default: 1.0, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd2a8e6, step: 1 },
+    ],
+  },
+  // SP-115 — Convergent Solid (NX Convergent Modeling / SW Mesh BREP /
+  // CATIA Imagine & Shape class). Build a solid from a tessellated
+  // mesh input via OCCT BRepBuilderAPI_Sewing → MakeSolid pipeline.
+  // The foundation for scan-to-CAD + 3D-print-to-CAD workflows.
+  'Sculpt Convergent Solid': {
+    title: 'Sculpt — Convergent Solid (mesh → B-rep via Sewing)',
+    blurb: 'OCCT-backed mesh-to-B-rep: build a cube from 12 triangle facets via Sewing + MakeSolid. NX Convergent Modeling foundation.',
+    fields: [
+      { name: 'size',      label: 'Cube side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'tolerance', label: 'Sewing tolerance', type: 'number', default: 0.001, unit: 'mm', min: 1e-6, step: 0.001 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa8c6e6, step: 1 },
+    ],
+  },
+  // SP-114 — IGES Export + Round-Trip (legacy CAD interop). IGES 5.3
+  // is still required by older CNC shops and PTC-Creo-class systems.
+  // Completes the interop trio: STEP (modern MCAD) + GLTF (web/AR) +
+  // IGES (legacy + CNC).
+  'Sculpt IGES Round-Trip': {
+    title: 'Sculpt — IGES Round-Trip (legacy CAD interop)',
+    blurb: 'OCCT-backed IGES 5.3 export + parseIgesSummary + importIges → re-render. Conserves volume across the round-trip.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x90c6e6, step: 1 },
+    ],
+  },
+  // SP-113 — GLTF Export (Khronos glTF 2.0 — web/AR/VR/game standard).
+  // Used by Three.js viewers, Blender, Unreal, Babylon.js, model-
+  // viewer, AR Quick Look. Complements STEP for mfg with GLTF for
+  // visualization / collaboration.
+  'Sculpt GLTF Export': {
+    title: 'Sculpt — GLTF Export (Khronos glTF 2.0)',
+    blurb: 'OCCT-backed GLTF export: filleted box → glTF 2.0 JSON. Validate schema header, vert + tri counts, parse with parseGltfSummary.',
+    fields: [
+      { name: 'boxSize',    label: 'Box side',      type: 'number', default: 40,   unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',    label: 'Fillet radius', type: 'number', default: 4,    unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.1, unit: 'mm', min: 0.01, step: 0.01 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xe6c990, step: 1 },
+    ],
+  },
+  // SP-112 — Infer Feature (SW Direct Editing / Creo Flexible Modeling /
+  // NX Synchronous Modeling class). Read-only feature recognition: walk
+  // every face of a filleted cube and classify it (fillet / fillet-corner
+  // / planar-step / etc.) from surface type + spine adjacency.
+  'Sculpt Infer Feature': {
+    title: 'Sculpt — Infer Feature (direct modeling face classification)',
+    blurb: 'OCCT-backed feature recognition: filleted cube → tally face classifications by inferFeature. 6 planar + 12 fillets + 8 corners expected.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd0d4dc, step: 1 },
+    ],
+  },
+  // SP-111 — STEP Export + Import (ISO 10303 round-trip).
+  // Build a body, export to STEP AP203, re-import, render the imported
+  // version, verify volume conservation. Real CAD interop with NX /
+  // CATIA / SolidWorks / Creo.
+  'Sculpt STEP Round-Trip': {
+    title: 'Sculpt — STEP Round-Trip (ISO 10303 export + import)',
+    blurb: 'OCCT-backed STEP AP203 round-trip: filleted box → exportStep → importStep → re-render. Volume conserved.',
+    fields: [
+      { name: 'boxSize', label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR', label: 'Fillet radius', type: 'number', default: 4,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc0d4e8, step: 1 },
+    ],
+  },
+  // SP-110 — Class-A Curvature Analyze (CATIA Free Style / NX Studio
+  // Free Form). Discrete Gaussian curvature heatmap on a tessellated
+  // body — find dents and curvature breaks. Sphere → uniform K = 1/R².
+  'Sculpt Class-A Analyze': {
+    title: 'Sculpt — Class-A Analyze (Gaussian curvature heatmap)',
+    blurb: 'OCCT-backed Class-A QC: tessellate a filleted cube + Gaussian curvature heatmap. Flat faces K≈0, fillet bands K=1/r².',
+    fields: [
+      { name: 'boxSize',   label: 'Box side',      type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'filletR',   label: 'Fillet radius', type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'deflection', label: 'Tess deflection', type: 'number', default: 0.5, unit: 'mm', min: 0.05, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
+  // SP-109 — Sheet Metal Jog (SW Sheet Metal / CATIA Sheetmetal class).
+  // Two perpendicular bends along the SAME flange edge → Z-fold step.
+  // The kernel runs edgeFlange twice with opposite angles; both bend
+  // records carry the jog metadata for downstream Flat Pattern.
+  // (Tried `partingSurface` first but the kernel can't extrude a strip
+  // from a closed circular parting edge — degenerate polyline; logged.)
+  // Companion to SP-101 Parting Line. Build a real ruled SHEET body
+  // extending the parting line outward by `margin` mm on both sides
+  // — drives downstream toolingSplit core/cavity separation.
+  'Sculpt Sheet Metal Jog': {
+    title: 'Sculpt — Sheet Metal Jog (Z-fold)',
+    blurb: 'OCCT-backed sheet metal jog: two bends along a base flange edge form a Z-fold. Two bend records appended for downstream Flat Pattern.',
+    fields: [
+      { name: 'plateX',       label: 'Plate X',       type: 'number', default: 100, unit: 'mm', min: 5,  step: 1 },
+      { name: 'plateY',       label: 'Plate Y',       type: 'number', default: 60,  unit: 'mm', min: 5,  step: 1 },
+      { name: 'thickness',    label: 'Thickness',     type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'jogOffset',    label: 'Jog offset',    type: 'number', default: 10,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'flangeLength', label: 'Flange length', type: 'number', default: 20,  unit: 'mm', min: 1,  step: 1 },
+      { name: 'angleDeg',     label: 'Bend angle',    type: 'number', default: 90,  unit: '°',  min: 1,  step: 1 },
+      { name: 'edgeIdx',      label: 'Edge index',    type: 'number', default: 4,   unit: '',   min: 1,  step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8dabd, step: 1 },
+    ],
+  },
+  // SP-108 — Edge Flange (SW Sheet Metal / CATIA Generative Sheetmetal /
+  // NX Sheet Metal class). baseFlange (flat plate) + edgeFlange off the
+  // long edge → classic L-bracket. The bend record carries kFactor,
+  // bend allowance, and a bend index for downstream Flat Pattern.
+  'Sculpt Edge Flange': {
+    title: 'Sculpt — Edge Flange (sheet metal L-bracket)',
+    blurb: 'OCCT-backed sheet metal: 100×60×2 mm base flange + 30 mm × 90° edge flange off the long edge. Body tagged with sheetMetal metadata.',
+    fields: [
+      { name: 'plateX',    label: 'Plate X',        type: 'number', default: 100, unit: 'mm', min: 5,  step: 1 },
+      { name: 'plateY',    label: 'Plate Y',        type: 'number', default: 60,  unit: 'mm', min: 5,  step: 1 },
+      { name: 'thickness', label: 'Thickness',      type: 'number', default: 2,   unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'flangeL',   label: 'Flange length',  type: 'number', default: 30,  unit: 'mm', min: 1,  step: 1 },
+      { name: 'angleDeg',  label: 'Bend angle',     type: 'number', default: 90,  unit: '°',  min: 1,  step: 1 },
+      { name: 'edgeIdx',   label: 'Edge index',     type: 'number', default: 1,   unit: '',   min: 1,  step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd1d6e8, step: 1 },
+    ],
+  },
+  // SP-107 — Boundary Boss (SW Boundary Boss / CATIA Multi-Sections / NX
+  // Through-Curves). N profile cross-sections lofted with G1 tangency
+  // into a smooth solid. Canonical 2-profile case: circle → square
+  // transition.
+  'Sculpt Boundary Boss': {
+    title: 'Sculpt — Boundary Boss (circle → square loft)',
+    blurb: 'OCCT-backed multi-section loft: round bottom profile to square top profile, G1 smoothing. Volume bounded by min/max cross-section × height.',
+    fields: [
+      { name: 'circleR',  label: 'Bottom circle radius', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'squareS',  label: 'Top square side',      type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'height',   label: 'Height',               type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'circleSegs', label: 'Circle segments',    type: 'number', default: 32, unit: '',  min: 8, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb5e3c1, step: 1 },
+    ],
+  },
+  // SP-106 — Helix Curve (SW Curves / CATIA GSD / NX). Generate a real
+  // OCCT helix wire and render it as a Three.js polyline. Analytic
+  // length formula L = revs·√(p² + (π·D)²) validated.
+  'Sculpt Helix Curve': {
+    title: 'Sculpt — Helix Curve (3D wire primitive)',
+    blurb: 'OCCT-backed helix wire: Ø20×pitch 5×8 turns. Length matches analytic L = revs·√(p² + (π·D)²). Rendered as a Three.js Line.',
+    fields: [
+      { name: 'diameter',    label: 'Diameter',    type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'pitch',       label: 'Pitch',       type: 'number', default: 5,  unit: 'mm/turn', min: 0.1, step: 0.5 },
+      { name: 'revolutions', label: 'Revolutions', type: 'number', default: 8,  unit: '',       min: 0.25, step: 0.5 },
+      { name: 'segsPerRev',  label: 'Segs / rev',  type: 'number', default: 64, unit: '',       min: 8, step: 8 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x60d3a8, step: 1 },
+    ],
+  },
+  // SP-105 — Undercut Analysis (CATIA Mold / NX Mold Wizard).
+  // Companion to SP-100 Draft Analysis: classifies each face as good
+  // (faces +pull) / undercut (faces -pull AND ray-confirmed shadowed)
+  // / neutral. Frustum: 2 good + 1 undercut (bottom cap, shadowed by
+  // top cap).
+  'Sculpt Undercut Analysis': {
+    title: 'Sculpt — Undercut Analysis (mold QC, shadow-ray confirmed)',
+    blurb: 'OCCT-backed undercut QC: sample face normals, shadow-ray test candidates facing −pull. Frustum + +Z pull → 2 good / 1 undercut (bottom cap).',
+    fields: [
+      { name: 'r1', label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2', label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',  label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'threshold', label: 'Threshold (°)', type: 'number', default: 3, unit: '°', min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xf5b074, step: 1 },
+    ],
+  },
+  // SP-104 — N-Sided NURBS Patch (CATIA GSD Adaptive Sweep / NX Studio
+  // Free Form class). Fill a non-4-sided boundary loop with a degree-3×3
+  // NURBS variational surface. The pentagonal-prism top cap is the
+  // canonical 5-sided fill case.
+  'Sculpt N-Sided Patch': {
+    title: 'Sculpt — N-Sided NURBS Patch (pentagonal cap fill)',
+    blurb: 'OCCT-backed Class-A surfacing: pentagonal prism, top cap replaced with a degree-3×3 NURBS variational surface patch (CATIA GSD).',
+    fields: [
+      { name: 'R',       label: 'Pentagon radius', type: 'number', default: 30, unit: 'mm', min: 5, step: 1 },
+      { name: 'h',       label: 'Prism height',    type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'subdivs', label: 'Patch subdivs',   type: 'number', default: 3,  unit: '',   min: 0, step: 1 },
+      { name: 'fairing', label: 'Fairing iters',   type: 'number', default: 40, unit: '',   min: 0, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd3a8f0, step: 1 },
+    ],
+  },
+  // SP-103 — Structural Member (SW/CATIA/NX Weldments class). Sweep an
+  // ISO/ANSI standard structural profile (IPE I-beam, C-channel, square
+  // tube, angle, round tube) along a 3D path. Result is tagged with
+  // weldment metadata for downstream cut-list / drawing BOM ops.
+  'Sculpt Structural Member': {
+    title: 'Sculpt — SHS Beam (ISO 4019 80×80, direct extrude)',
+    blurb: 'OCCT-backed direct extrude of an ISO 4019 80×80 square hollow section profile along a long path. Honest workaround for the weldments builder unit-mix bug.',
+    fields: [
+      { name: 'lengthM', label: 'Length', type: 'number', default: 2, unit: 'm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8094a8, step: 1 },
+    ],
+  },
+  // SP-102 — Tooling Split (NX Mold Wizard / CATIA Mold Tooling class).
+  // Split body into CORE + CAVITY halves via a planar parting surface
+  // through the bounding-box centroid, perpendicular to the pull
+  // direction. Each half is a separately selectable SpineBody tagged
+  // 'core' / 'cavity'.
+  'Sculpt Tooling Split': {
+    title: 'Sculpt — Tooling Split (core / cavity)',
+    blurb: 'OCCT-backed mold tooling split: frustum → core (above midplane) + cavity (below), each tagged. Volume conservation enforced.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',      label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorCore',   label: 'Core colour',   type: 'number', default: 0xf2b5b5, step: 1 },
+      { name: 'colorCavity', label: 'Cavity colour', type: 'number', default: 0xb5d6f2, step: 1 },
+    ],
+  },
+  // SP-101 — Parting Line (CATIA Mold / NX Mold Wizard class). Walks
+  // every edge, finds those where adjacent faces have OPPOSITE draft
+  // signs — that's the silhouette curve the mold splits along. Frustum
+  // bottom circle is the canonical example (positive lateral meets
+  // negative bottom cap).
+  'Sculpt Parting Line': {
+    title: 'Sculpt — Parting Line (mold silhouette)',
+    blurb: 'OCCT-backed parting-line: silhouette curve where positive draft meets negative draft. Frustum bottom circle is the textbook 1-edge case.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',      label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'minDeg', label: 'Min draft (°)', type: 'number', default: 3,  unit: '°',  min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xffd070, step: 1 },
+    ],
+  },
+  // SP-100 — Draft Analysis (CATIA Mold Tooling Design / NX Mold Wizard
+  // class). Read-only QC: sample every face's outward normal against a
+  // pull direction and classify positive/negative/vertical. The frustum
+  // primitive has 1 positive cap, 1 negative cap, and 1 positive lateral
+  // (atan((r1−r2)/h) > 3° threshold).
+  'Sculpt Draft Analysis': {
+    title: 'Sculpt — Draft Analysis (mold-tool QC)',
+    blurb: 'OCCT-backed draft-angle QC: classify every face by mold-open angle. Cone frustum + +Z pull → positive (top + lateral) / negative (bottom).',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h',      label: 'Height',        type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'minDeg', label: 'Min draft (°)', type: 'number', default: 3,  unit: '°',  min: 0, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9be38c, step: 1 },
+    ],
+  },
+  // SP-99 — Partition (NX-class multi-cell volumetric split). Splits a
+  // body into N independent solid pieces using a tool slab — each piece
+  // is a separately selectable SpineBody; total volume is preserved.
+  'Sculpt Partition Box': {
+    title: 'Sculpt — Partition Box (slab-split, multi-cell)',
+    blurb: 'OCCT-backed volumetric partition: a thin slab tool slices the box into 3 cells (below / inside-slab / above). Volume conservation contract enforced.',
+    fields: [
+      { name: 'boxX',   label: 'Box X', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxY',   label: 'Box Y', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxZ',   label: 'Box Z', type: 'number', default: 40,  unit: 'mm', min: 1, step: 1 },
+      { name: 'slabT',  label: 'Slab thickness', type: 'number', default: 1, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb89aff, step: 1 },
+    ],
+  },
+  // SP-98 — Imprint Wire (box + cylinder footprint imprinted on top face).
+  // Topology-only feature-recognition op (CATIA/NX-class). Volume preserved;
+  // top face is split along the imprint circle so the inner disc can later
+  // be selected for emboss/pocket/draft/colour separately.
+  'Sculpt Imprint Wire': {
+    title: 'Sculpt — Imprint Wire (box + cyl footprint)',
+    blurb: 'OCCT-backed face-imprint: project the boundary of a cylinder onto the top face of a box. Volume unchanged; face count grows by one.',
+    fields: [
+      { name: 'boxX',   label: 'Box X', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxY',   label: 'Box Y', type: 'number', default: 100, unit: 'mm', min: 4, step: 1 },
+      { name: 'boxZ',   label: 'Box Z', type: 'number', default: 20,  unit: 'mm', min: 1, step: 1 },
+      { name: 'toolR',  label: 'Tool radius',  type: 'number', default: 20, unit: 'mm', min: 1, step: 0.5 },
+      { name: 'toolH',  label: 'Tool height',  type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa6c1d6, step: 1 },
+    ],
+  },
+  // SP-97 — Hollow Sphere (sphere − inner sphere). Tennis-ball shell /
+  // hollow ornament / spherical pressure-vessel primitive.
+  'Sculpt Hollow Sphere': {
+    title: 'Sculpt — Hollow Sphere (sphere − inner sphere)',
+    blurb: 'OCCT-backed hollow sphere: outer sphere − inner sphere via boolean cut. Pressure-vessel / ornament / tennis-ball-shell primitive.',
+    fields: [
+      { name: 'outerR',    label: 'Outer radius', type: 'number', default: 30, unit: 'mm', min: 2, step: 1 },
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x82c6a3, step: 1 },
+    ],
+  },
+  // SP-96 — Coin (disc + raised inner disc fused). Universal coin /
+  // button / control-knob-with-cap primitive.
+  'Sculpt Coin': {
+    title: 'Sculpt — Coin (disc + raised face)',
+    blurb: 'OCCT-backed coin: large flat disc with a smaller raised disc on top, fused.',
+    fields: [
+      { name: 'outerR',  label: 'Outer radius', type: 'number', default: 25, unit: 'mm', min: 2, step: 1 },
+      { name: 'outerT',  label: 'Coin thickness', type: 'number', default: 3, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'innerR',  label: 'Raised-face radius', type: 'number', default: 18, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'innerT',  label: 'Raised-face height', type: 'number', default: 1, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc7a572, step: 1 },
+    ],
+  },
+  // SP-95 — Hockey Puck (cylinder with both rims filleted). Universal
+  // puck / wheel / disc-with-rounded-edges primitive.
+  'Sculpt Hockey Puck': {
+    title: 'Sculpt — Hockey Puck (cyl + filletAll rims)',
+    blurb: 'OCCT-backed disc with both circular rim edges rounded via filletAll. Puck / wheel / control-knob primitive.',
+    fields: [
+      { name: 'R',      label: 'Radius', type: 'number', default: 40, unit: 'mm', min: 2, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'rim',    label: 'Rim fillet R', type: 'number', default: 4, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x1a1a1a, step: 1 },
+    ],
+  },
+  // SP-94 — Rounded-Top Box (box + half-cylinder fused on top).
+  // Capsule housing / bread loaf / mouse shell primitive.
+  'Sculpt Rounded-Top Box': {
+    title: 'Sculpt — Rounded-Top Box (box + half-cylinder lid)',
+    blurb: 'OCCT-backed box with a half-cylindrical "lid" fused on top. Capsule / mouse-shell / housing primitive.',
+    fields: [
+      { name: 'dx', label: 'Box X (length along cyl axis)', type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy', label: 'Box Y',  type: 'number', default: 50, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz', label: 'Box Z (rectangular portion)',  type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3826b, step: 1 },
+    ],
+  },
+  // SP-93 — Wedge Block (right-triangle prism). Ramp / door stop /
+  // alignment wedge primitive.
+  'Sculpt Wedge Block': {
+    title: 'Sculpt — Wedge Block (right-triangle prism)',
+    blurb: 'OCCT-backed right-triangle prism: ramp / alignment wedge / door stop primitive.',
+    fields: [
+      { name: 'base',   label: 'Base length (X)', type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'rise',   label: 'Rise height (Y)', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',  label: 'Depth (Z)',       type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb8a36b, step: 1 },
+    ],
+  },
+  // SP-92 — Dumbbell (sphere + bar + sphere fused). Gym / weight /
+  // probe-marker / antenna primitive.
+  'Sculpt Dumbbell': {
+    title: 'Sculpt — Dumbbell (sphere + cyl + sphere fused)',
+    blurb: 'OCCT-backed dumbbell: two spheres fused to either end of a cylindrical bar.',
+    fields: [
+      { name: 'barR',     label: 'Bar radius', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'barL',     label: 'Bar length', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'weightR',  label: 'End weight R', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6a7a8a, step: 1 },
+    ],
+  },
+  // SP-91 — V-Groove Box (machining feature). Box with triangular wedge
+  // cut along its length. Universal lathe / mill V-groove primitive.
+  'Sculpt V-Groove Box': {
+    title: 'Sculpt — V-Groove Box (triangular groove cut)',
+    blurb: 'OCCT-backed box with a triangular V-groove cut along its length. Universal V-groove machining primitive.',
+    fields: [
+      { name: 'dx',       label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy',       label: 'Box Y (groove runs along)', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz',       label: 'Box Z', type: 'number', default: 30, unit: 'mm', min: 5, step: 1 },
+      { name: 'grooveW',  label: 'Groove top width', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'grooveD',  label: 'Groove depth', type: 'number', default: 12, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8aa37a, step: 1 },
+    ],
+  },
+  // SP-90 — 3-Axis Cross (X/Y/Z perpendicular tubes fused). Coordinate-
+  // marker / antenna-cross / model-pivot primitive.
+  'Sculpt 3-Axis Cross': {
+    title: 'Sculpt — 3-Axis Cross (X/Y/Z tubes fused)',
+    blurb: 'OCCT-backed cartesian axes marker: 3 perpendicular cylinders along X / Y / Z fused into one body.',
+    fields: [
+      { name: 'R',      label: 'Tube radius', type: 'number', default: 5,  unit: 'mm', min: 1, step: 0.5 },
+      { name: 'length', label: 'Tube length', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3826b, step: 1 },
+    ],
+  },
+  // SP-89 — T-Joint Cylinder (perpendicular tubes fused). Pipe / handrail
+  // / scaffolding-frame junction primitive. Uses OCCT rotate to build a
+  // genuinely perpendicular secondary axis.
+  'Sculpt T-Joint Cylinder': {
+    title: 'Sculpt — T-Joint Cylinder (perpendicular tubes fused)',
+    blurb: 'OCCT-backed T-joint: vertical primary tube + horizontal secondary tube fused at a 90° intersection.',
+    fields: [
+      { name: 'priR',     label: 'Primary R', type: 'number', default: 15, unit: 'mm', min: 1, step: 1 },
+      { name: 'priLen',   label: 'Primary length', type: 'number', default: 100, unit: 'mm', min: 5, step: 5 },
+      { name: 'secR',     label: 'Secondary R', type: 'number', default: 10, unit: 'mm', min: 1, step: 1 },
+      { name: 'secLen',   label: 'Secondary length', type: 'number', default: 120, unit: 'mm', min: 5, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba39a, step: 1 },
+    ],
+  },
+  // SP-88 — Grid Hole Plate (NX / CATIA / Creo / SW linear pattern op).
+  // Rectangular plate with a regular M×N grid of through holes.
+  'Sculpt Grid Hole Plate': {
+    title: 'Sculpt — Grid Hole Plate (M×N drilled pattern)',
+    blurb: 'OCCT-backed plate with a regular M×N grid of through holes. Universal hole-pattern primitive.',
+    fields: [
+      { name: 'plateW',  label: 'Plate width',  type: 'number', default: 120, unit: 'mm', min: 10, step: 10 },
+      { name: 'plateH',  label: 'Plate height', type: 'number', default: 80,  unit: 'mm', min: 10, step: 10 },
+      { name: 'plateT',  label: 'Plate thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'cols',    label: 'Columns', type: 'number', default: 4, min: 1, max: 12, step: 1 },
+      { name: 'rows',    label: 'Rows',    type: 'number', default: 3, min: 1, max: 12, step: 1 },
+      { name: 'holeR',   label: 'Hole radius', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'margin',  label: 'Edge margin', type: 'number', default: 12, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a7aa5, step: 1 },
+    ],
+  },
+  // SP-87 — Sheet Metal Flat Pattern (NX / CATIA / Creo / SW workbench
+  // flagship). Build a baseFlange + edgeFlange (L-shape sheet metal),
+  // then unfold via flatPattern; lay the folded and unfolded versions
+  // in the scene side-by-side.
+  'Sculpt Sheet Metal L-Bracket': {
+    title: 'Sculpt — Sheet Metal L-Bracket + Flat Pattern',
+    blurb: 'OCCT-backed sheet-metal L-bracket: baseFlange + edgeFlange + flatPattern. Folded and unfolded versions land side-by-side.',
+    fields: [
+      { name: 'plateW',        label: 'Base flange width (X)', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'plateH',        label: 'Base flange depth (Y)', type: 'number', default: 50, unit: 'mm', min: 10, step: 5 },
+      { name: 'thickness',     label: 'Sheet thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.3, step: 0.1 },
+      { name: 'flangeLen',     label: 'Edge flange length', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'bendAngleDeg',  label: 'Bend angle', type: 'number', default: 90, unit: '°', min: 10, max: 175, step: 5 },
+      { name: 'separation',    label: 'Folded↔unfolded spacing', type: 'number', default: 120, unit: 'mm', min: 0, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorFolded',   label: 'Folded colour',   type: 'number', default: 0x8aa56b, step: 1 },
+      { name: 'colorFlat',     label: 'Flat colour',     type: 'number', default: 0xa56b8a, step: 1 },
+    ],
+  },
+  // SP-85 — Biconvex Lens (sphere ∩ sphere). Universal optical primitive.
+  'Sculpt Biconvex Lens': {
+    title: 'Sculpt — Biconvex Lens (sphere ∩ sphere)',
+    blurb: 'OCCT-backed biconvex lens: intersection of two spheres offset along Z. Optical / clear-button primitive.',
+    fields: [
+      { name: 'R',          label: 'Sphere radius', type: 'number', default: 40, unit: 'mm', min: 5, step: 1 },
+      { name: 'separation', label: 'Centre separation', type: 'number', default: 60, unit: 'mm', min: 1, step: 1, hint: 'lens thickness = 2·R − separation' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9ac6c6, step: 1 },
+    ],
+  },
+  // SP-86 — Cone with Bore (frustum − cylinder). Universal CAD primitive
+  // for adapter / collar / spindle.
+  'Sculpt Cone with Bore': {
+    title: 'Sculpt — Cone with Bore (frustum − cylinder)',
+    blurb: 'OCCT-backed truncated cone with an axial bore. Adapter / collar / spindle primitive.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 12, unit: 'mm', min: 0,  step: 1 },
+      { name: 'height', label: 'Height',        type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'boreR',  label: 'Bore radius',   type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6a39a, step: 1 },
+    ],
+  },
+  // SP-83 — Boolean Intersect (common). Universal Boolean Intersect /
+  // Common between two intersecting primitives. Box ∩ Sphere etc.
+  'Sculpt Boolean Intersect': {
+    title: 'Sculpt — Boolean Intersect (Box ∩ Sphere via OCCT)',
+    blurb: 'OCCT-backed boolean intersection: keep only the overlap of a box and a sphere.',
+    fields: [
+      { name: 'boxSize',   label: 'Box side', type: 'number', default: 60, unit: 'mm', min: 2, step: 1 },
+      { name: 'sphereR',   label: 'Sphere R', type: 'number', default: 40, unit: 'mm', min: 2, step: 1 },
+      { name: 'sphereDx',  label: 'Sphere X offset', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'sphereDy',  label: 'Sphere Y offset', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'sphereDz',  label: 'Sphere Z offset', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3826b, step: 1 },
+    ],
+  },
+  // SP-84 — Revolved Vase (revolveProfile). A 4-vertex profile in the +X
+  // half plane revolved 360° about Y axis. Vase / lamp / shaft form.
+  'Sculpt Revolved Vase': {
+    title: 'Sculpt — Revolved Vase (4-point profile, OCCT revolveProfile)',
+    blurb: 'OCCT-backed revolved-axisymmetric body: a 4-vertex profile in the +X half plane revolved 360° about Y.',
+    fields: [
+      { name: 'baseR',  label: 'Base radius',  type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'neckR',  label: 'Neck radius',  type: 'number', default: 14, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Height',       type: 'number', default: 80, unit: 'mm', min: 5, step: 1 },
+      { name: 'baseH',  label: 'Base shoulder height', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b9aa3, step: 1 },
+    ],
+  },
+  // SP-82 — OCCT Sweep along L-Path. Circle profile swept along a
+  // 3-segment L-shaped polyline via OCCT sweepProfile. The "tortuous
+  // path" pattern is what real CAM toolpath tubes / wiring harnesses /
+  // pipe runs use; demonstrates OCCT sweep works on multi-segment open
+  // 3D wires.
+  'Sculpt OCCT L-Sweep': {
+    title: 'Sculpt — OCCT L-Sweep (circle swept along L path)',
+    blurb: 'OCCT-backed sweep of a circle profile along a 3-segment L-shaped path.',
+    fields: [
+      { name: 'profileR', label: 'Profile radius', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'segA',     label: 'Vertical segment',  type: 'number', default: 60, unit: 'mm', min: 5, step: 1 },
+      { name: 'segB',     label: 'Horizontal segment', type: 'number', default: 80, unit: 'mm', min: 5, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba38a, step: 1 },
+    ],
+  },
+  // SP-81 — Push-Pull Face (NX Synchronous Technology / CATIA FTA /
+  // Creo Flexible Modeling). Directly modify a body by translating one
+  // of its faces along its normal, regenerating the adjacent walls.
+  // OCCT-backed via BRepFeat_MakePrism (pushPullFace).
+  'Sculpt Push-Pull Box': {
+    title: 'Sculpt — Push-Pull Box (direct +Z face modification)',
+    blurb: 'OCCT-backed push (>0) or pull (<0) of a box top face. Synchronous-tech / direct-modeling op.',
+    fields: [
+      { name: 'dx', label: 'Box X', type: 'number', default: 60, unit: 'mm', min: 4, step: 1 },
+      { name: 'dy', label: 'Box Y', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'dz', label: 'Box Z', type: 'number', default: 30, unit: 'mm', min: 4, step: 1 },
+      { name: 'distance', label: 'Push distance (+) / pull (−)', type: 'number', default: 15, unit: 'mm', step: 1, hint: 'positive grows top, negative shortens' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x7aa382, step: 1 },
+    ],
+  },
+  // SP-79 — Half-Cylinder (cyl − half-space cut).
+  'Sculpt Half-Cylinder': {
+    title: 'Sculpt — Half-Cylinder (cylinder cut in half)',
+    blurb: 'OCCT-backed half-cylinder: cylinder − below-plane box. Half-pipe / channel / mug-handle primitive.',
+    fields: [
+      { name: 'R',      label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Height (Z)', type: 'number', default: 60, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba38a, step: 1 },
+    ],
+  },
+  // SP-80 — Quarter-Sphere (sphere − 2 half-spaces).
+  'Sculpt Quarter-Sphere': {
+    title: 'Sculpt — Quarter-Sphere',
+    blurb: 'OCCT-backed quarter-sphere: sphere − below-Z box − below-Y box. Corner / chamfer-edge primitive.',
+    fields: [
+      { name: 'R', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a6ba3, step: 1 },
+    ],
+  },
+  // SP-77 — Lozenge / Stadium (rectangle + semicircular ends).
+  'Sculpt Lozenge Prism': {
+    title: 'Sculpt — Lozenge / Stadium (rect + 2 semicircles, extruded)',
+    blurb: 'OCCT-backed stadium shape: rectangle with semicircular ends. Pill / control-button primitive.',
+    fields: [
+      { name: 'length', label: 'Total length', type: 'number', default: 80, unit: 'mm', min: 5, step: 1 },
+      { name: 'radius', label: 'End radius',   type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'depth',  label: 'Extrusion depth', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x82a3c6, step: 1 },
+    ],
+  },
+  // SP-78 — D-Shape (circle truncated by a chord).
+  'Sculpt D-Shape Prism': {
+    title: 'Sculpt — D-Shape (truncated circle, extruded)',
+    blurb: 'OCCT-backed D-shape: cylinder − half-space box. Shaft-with-flat / D-bore primitive.',
+    fields: [
+      { name: 'R',      label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'flat',   label: 'Flat distance from centre', type: 'number', default: 18, unit: 'mm', min: 0, step: 1, hint: 'flat side at +X = this distance' },
+      { name: 'depth',  label: 'Extrusion depth', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3c682, step: 1 },
+    ],
+  },
+  // SP-74 — Trapezoid Prism (extruded isoceles trapezoid).
+  'Sculpt Trapezoid Prism': {
+    title: 'Sculpt — Trapezoid Prism (isoceles trapezoid extruded)',
+    blurb: 'OCCT-backed isoceles-trapezoid extrusion. Dovetail / sliding rail primitive.',
+    fields: [
+      { name: 'bottom', label: 'Bottom width', type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'top',    label: 'Top width',    type: 'number', default: 50, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Section height (Y)', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',  label: 'Extrusion depth (Z)', type: 'number', default: 200, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a82a3, step: 1 },
+    ],
+  },
+  // SP-75 — Cross / Plus Prism (extruded "+" shape).
+  'Sculpt Cross Prism': {
+    title: 'Sculpt — Cross Prism (+ shape extruded)',
+    blurb: 'OCCT-backed "+" cross-section extrusion. Switch / star pattern / aerospace stiffener.',
+    fields: [
+      { name: 'armLength', label: 'Arm length',    type: 'number', default: 60, unit: 'mm', min: 1, step: 1, hint: 'centre to tip' },
+      { name: 'armWidth',  label: 'Arm width',     type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',     label: 'Extrusion depth', type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa3829a, step: 1 },
+    ],
+  },
+  // SP-76 — Star Prism (N-point star polygon extruded).
+  'Sculpt Star Prism': {
+    title: 'Sculpt — Star Prism (N-point star extruded)',
+    blurb: 'OCCT-backed regular N-point star polygon extruded along Z.',
+    fields: [
+      { name: 'points',   label: 'Number of points', type: 'number', default: 5, min: 3, max: 16, step: 1 },
+      { name: 'outerR',   label: 'Outer radius', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'innerR',   label: 'Inner radius', type: 'number', default: 14, unit: 'mm', min: 1, step: 1 },
+      { name: 'depth',    label: 'Extrusion depth', type: 'number', default: 15, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6824a, step: 1 },
+    ],
+  },
+  // SP-73 — Whiffle Ball (sphere with N drilled holes). OCCT exact analytic
+  // sphere − N cylindrical bores. Lightweight ball / spherical air-flow
+  // diffuser / decorative shell.
+  'Sculpt Whiffle Ball': {
+    title: 'Sculpt — Whiffle Ball (sphere with N drilled holes)',
+    blurb: 'OCCT-backed sphere with N evenly-spaced cylindrical holes drilled through. Decorative / aerodynamic spherical shell.',
+    fields: [
+      { name: 'R',        label: 'Outer radius', type: 'number', default: 30, unit: 'mm', min: 5, step: 1 },
+      { name: 'holeR',    label: 'Hole radius', type: 'number', default: 5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'rings',    label: 'Rings (latitude)', type: 'number', default: 3, min: 1, max: 10, step: 1 },
+      { name: 'perRing',  label: 'Holes per ring', type: 'number', default: 6, min: 2, max: 24, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6b87a, step: 1 },
+    ],
+  },
+  // SP-71 — Hex Bolt (DIN 933 / ISO 4017). Hex head + cylindrical shaft.
+  // OCCT fuse of hex prism (head) + cylinder (shank).
+  'Sculpt Hex Bolt': {
+    title: 'Sculpt — Hex Bolt (DIN 933 / ISO 4017 form)',
+    blurb: 'OCCT-backed hex bolt: hex head + cylindrical shank, fused.',
+    fields: [
+      { name: 'acrossFlats', label: 'Head AF', type: 'number', default: 24, unit: 'mm', min: 2, step: 1, hint: 'wrench size' },
+      { name: 'headHeight',  label: 'Head height', type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shankR',      label: 'Shank radius', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shankLen',    label: 'Shank length', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x7a6a5a, step: 1 },
+    ],
+  },
+  // SP-72 — Half-Sphere Dome. Sphere − half-space box. Universal CAD
+  // dome / cap / hemisphere.
+  'Sculpt Half-Sphere Dome': {
+    title: 'Sculpt — Half-Sphere Dome (hemisphere via section cut)',
+    blurb: 'OCCT-backed hemisphere: sphere − below-XY box. Dome / cap / cup primitive.',
+    fields: [
+      { name: 'R', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x82a39a, step: 1 },
+    ],
+  },
+  // SP-70 — Polygon Prism (N-sided regular). OCCT extrudeProfile on a
+  // regular N-gon. NX / CATIA / Creo / SW polygon primitive.
+  'Sculpt Polygon Prism': {
+    title: 'Sculpt — Polygon Prism (regular N-gon extruded)',
+    blurb: 'OCCT-backed regular N-gon extruded along Z. N = 3 (triangle), 5 (pentagon), 8 (octagon), …',
+    fields: [
+      { name: 'sides',  label: 'Sides (N)', type: 'number', default: 6, min: 3, max: 32, step: 1 },
+      { name: 'radius', label: 'Circumradius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'height', label: 'Height',     type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aaa82, step: 1 },
+    ],
+  },
+  // SP-68 — Constant-R Fillet on all edges (filletAll). Different from
+  // SP-46 (variable r1→r2): every edge gets the same radius. NX Edge
+  // Fillet / CATIA Edge Fillet / Creo Round / SW Fillet.
+  'Sculpt Filleted Box': {
+    title: 'Sculpt — Filleted Box (constant-R on all edges, OCCT)',
+    blurb: 'OCCT-backed box with a constant fillet radius applied to all 12 edges.',
+    fields: [
+      { name: 'dx', label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 4, step: 1 },
+      { name: 'dy', label: 'Box Y', type: 'number', default: 60, unit: 'mm', min: 4, step: 1 },
+      { name: 'dz', label: 'Box Z', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'r',  label: 'Fillet R', type: 'number', default: 5, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+  // SP-69 — Chamfered Box (chamferAll constant distance). NX/CATIA/Creo
+  // / SW Chamfer.
+  'Sculpt Chamfered Box': {
+    title: 'Sculpt — Chamfered Box (constant distance, OCCT)',
+    blurb: 'OCCT-backed box with a constant 45° chamfer applied to all 12 edges.',
+    fields: [
+      { name: 'dx', label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 4, step: 1 },
+      { name: 'dy', label: 'Box Y', type: 'number', default: 60, unit: 'mm', min: 4, step: 1 },
+      { name: 'dz', label: 'Box Z', type: 'number', default: 40, unit: 'mm', min: 4, step: 1 },
+      { name: 'distance', label: 'Chamfer distance', type: 'number', default: 4, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa39aad, step: 1 },
+    ],
+  },
+  // SP-65 — Spool / Yo-yo (NX / CATIA / Creo / SW pattern). Two end
+  // flanges + connecting shaft. OCCT fuse of 3 cylinders.
+  'Sculpt Spool': {
+    title: 'Sculpt — Spool (2 flanges + shaft)',
+    blurb: 'OCCT-backed spool: two end flanges connected by a cylindrical shaft. Wire-spool / yo-yo / sheave hub form.',
+    fields: [
+      { name: 'flangeR', label: 'Flange radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'flangeT', label: 'Flange thickness', type: 'number', default: 5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shaftR',  label: 'Shaft radius', type: 'number', default: 12, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'shaftL',  label: 'Shaft length (between flanges)', type: 'number', default: 30, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b9aa5, step: 1 },
+    ],
+  },
+  // SP-66 — Hex Nut (NX / CATIA / Creo / SW). Hex prism with axial hole.
+  'Sculpt Hex Nut': {
+    title: 'Sculpt — Hex Nut (DIN 934 / ISO 4032 form)',
+    blurb: 'OCCT-backed hex nut: hex prism with central threaded-hole through-cut. Standard fastener primitive.',
+    fields: [
+      { name: 'acrossFlats', label: 'Across-flats (wrench size)', type: 'number', default: 24, unit: 'mm', min: 2, step: 1, hint: 'M16 = 24, M20 = 30, M24 = 36' },
+      { name: 'height', label: 'Nut height',  type: 'number', default: 16, unit: 'mm', min: 1, step: 1 },
+      { name: 'boreR',  label: 'Bore radius', type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a7a6a, step: 1 },
+    ],
+  },
+  // SP-67 — Washer (DIN 125 / ISO 7089). Flat annular disc.
+  'Sculpt Washer': {
+    title: 'Sculpt — Washer (DIN 125 / ISO 7089 plain washer)',
+    blurb: 'OCCT-backed flat washer: outer cyl − bore cyl. Standard fastener washer.',
+    fields: [
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 15, unit: 'mm', min: 1, step: 0.5 },
+      { name: 'boreR',  label: 'Bore radius',  type: 'number', default: 8.5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'thickness', label: 'Thickness', type: 'number', default: 2.5, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a9a9a, step: 1 },
+    ],
+  },
+  // SP-63 — Sphere Primitive (NX / CATIA / Creo / SW). OCCT makeSphere.
+  'Sculpt Sphere Primitive': {
+    title: 'Sculpt — Sphere (OCCT exact analytic surface)',
+    blurb: 'OCCT-backed sphere primitive. The full analytic 4π·R² surface, one face.',
+    fields: [
+      { name: 'R', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb89a82, step: 1 },
+    ],
+  },
+  // SP-64 — Stepped Shaft (NX / CATIA / Creo / SW). Multi-diameter
+  // cylinder via OCCT fuse — rotor / engine-shaft pattern.
+  'Sculpt Stepped Shaft': {
+    title: 'Sculpt — Stepped Shaft (multi-diameter cylinder via fuse)',
+    blurb: 'OCCT-backed stepped shaft with up to 4 segments of different radii. Common rotor / motor shaft / pinion form.',
+    fields: [
+      { name: 'r1', label: 'Segment 1 R', type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h1', label: 'Segment 1 L', type: 'number', default: 30, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'r2', label: 'Segment 2 R', type: 'number', default: 20, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h2', label: 'Segment 2 L', type: 'number', default: 60, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'r3', label: 'Segment 3 R', type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h3', label: 'Segment 3 L', type: 'number', default: 40, unit: 'mm', min: 0, step: 1, hint: '0 to omit' },
+      { name: 'r4', label: 'Segment 4 R', type: 'number', default: 10, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'h4', label: 'Segment 4 L', type: 'number', default: 25, unit: 'mm', min: 0, step: 1, hint: '0 to omit' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a8a72, step: 1 },
+    ],
+  },
+  // SP-62 — Slotted Plate (NX / CATIA / Creo / SW common feature).
+  // Plate with one or more elongated slots — common adjustable-mounting
+  // feature. OCCT-backed via 2 cylinders + box rectangle = slot cutter.
+  'Sculpt Slotted Plate': {
+    title: 'Sculpt — Slotted Plate (elongated slot)',
+    blurb: 'OCCT-backed plate with a centred elongated slot. Common adjustable-mounting feature.',
+    fields: [
+      { name: 'plateW', label: 'Plate width',  type: 'number', default: 120, unit: 'mm', min: 10, step: 10 },
+      { name: 'plateH', label: 'Plate height', type: 'number', default: 60,  unit: 'mm', min: 10, step: 10 },
+      { name: 'plateT', label: 'Plate thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'slotL',  label: 'Slot length',  type: 'number', default: 50, unit: 'mm', min: 1, step: 5 },
+      { name: 'slotR',  label: 'Slot radius',  type: 'number', default: 5,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba58a, step: 1 },
+    ],
+  },
+  // SP-59 — Square HSS Tube (NX / CATIA / Creo / Revit, AISC HSS).
+  'Sculpt Square Tube': {
+    title: 'Sculpt — Square HSS Tube (hollow square section)',
+    blurb: 'OCCT-backed hollow square tube: outer box minus inner box.',
+    fields: [
+      { name: 'side',      label: 'Outer side', type: 'number', default: 50, unit: 'mm', min: 5, step: 5 },
+      { name: 'wall',      label: 'Wall thickness', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'length',    label: 'Length', type: 'number', default: 400, unit: 'mm', min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b8aa5, step: 1 },
+    ],
+  },
+  // SP-60 — Rectangular HSS Tube. Same as SP-59 but rectangular cross-section.
+  'Sculpt Rect Tube': {
+    title: 'Sculpt — Rectangular HSS Tube (hollow rect section)',
+    blurb: 'OCCT-backed hollow rectangular tube: outer box minus inner box.',
+    fields: [
+      { name: 'sideX',    label: 'Outer X', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'sideY',    label: 'Outer Y', type: 'number', default: 40, unit: 'mm', min: 5, step: 5 },
+      { name: 'wall',     label: 'Wall thickness', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'length',   label: 'Length', type: 'number', default: 400, unit: 'mm', min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa56b8a, step: 1 },
+    ],
+  },
+  // SP-61 — Angle Iron (AISC L-shape extruded as a long bar).
+  'Sculpt Angle Iron': {
+    title: 'Sculpt — Angle Iron (long L-shape extruded as a beam)',
+    blurb: 'OCCT-backed long L-shape extrusion. AISC L equal-leg or unequal-leg angles.',
+    fields: [
+      { name: 'legA',      label: 'Leg A (Y)', type: 'number', default: 50, unit: 'mm', min: 5, step: 5 },
+      { name: 'legB',      label: 'Leg B (Z)', type: 'number', default: 50, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness', label: 'Leg thickness', type: 'number', default: 5, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'length',    label: 'Length', type: 'number', default: 500, unit: 'mm', min: 10, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8aa56b, step: 1 },
+    ],
+  },
+  // SP-56 — T-Profile (NX / CATIA / Creo / SW / Revit structural section).
+  // Stem + flange, fused. AISC tee shape.
+  'Sculpt T-Profile': {
+    title: 'Sculpt — T-Profile (structural tee section)',
+    blurb: 'OCCT-backed T section: stem + flange fused. Standard AISC tee shape (e.g. WT, MT, ST).',
+    fields: [
+      { name: 'length', label: 'Length',       type: 'number', default: 500, unit: 'mm', min: 10, step: 10 },
+      { name: 'bf',     label: 'Flange width', type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'd',      label: 'Total depth',  type: 'number', default: 80,  unit: 'mm', min: 10, step: 5 },
+      { name: 'tw',     label: 'Stem thickness', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'tf',     label: 'Flange thickness', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8f9a85, step: 1 },
+    ],
+  },
+  // SP-57 — U-Channel (NX / CATIA / Creo / SW). Bottom plate + 2 walls.
+  'Sculpt U-Channel': {
+    title: 'Sculpt — U-Channel (structural C section)',
+    blurb: 'OCCT-backed U / C section: bottom plate + 2 side walls fused. Standard AISC C-shape.',
+    fields: [
+      { name: 'length',  label: 'Length',     type: 'number', default: 500, unit: 'mm', min: 10, step: 10 },
+      { name: 'bf',      label: 'Outer width (X)', type: 'number', default: 100, unit: 'mm', min: 20, step: 5 },
+      { name: 'd',       label: 'Wall height (Z)', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'tw',      label: 'Wall thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'tf',      label: 'Bottom thickness', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9a858f, step: 1 },
+    ],
+  },
+  // SP-58 — Hex Block (NX / CATIA / Creo / SW). Hexagonal prism via
+  // OCCT extrudeProfile. The canonical nut / wrenching-surface primitive.
+  'Sculpt Hex Block': {
+    title: 'Sculpt — Hex Block (hexagonal prism)',
+    blurb: 'OCCT-backed regular-hexagon prism. The canonical nut / wrenching-surface primitive.',
+    fields: [
+      { name: 'acrossFlats', label: 'Across-flats (S)', type: 'number', default: 24, unit: 'mm', min: 2, step: 1, hint: 'wrench size; ISO M16 = 24' },
+      { name: 'height', label: 'Height (Z)', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x858f9a, step: 1 },
+    ],
+  },
+  // SP-55 — L-Bracket / Angle Bracket (NX / CATIA / Creo / SW / Revit).
+  // Two perpendicular rectangular plates joined at 90°. Canonical
+  // hardware primitive — used everywhere from shelf brackets to
+  // structural gusset plates. OCCT boolean fuse.
+  'Sculpt L-Bracket': {
+    title: 'Sculpt — L-Bracket (90° angle bracket)',
+    blurb: 'OCCT-backed L-shaped angle bracket: vertical leg + horizontal leg joined at a 90° corner.',
+    fields: [
+      { name: 'width',     label: 'Bracket width (X)', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'legA',      label: 'Vertical leg height', type: 'number', default: 80, unit: 'mm', min: 5, step: 5 },
+      { name: 'legB',      label: 'Horizontal leg depth', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness', label: 'Plate thickness', type: 'number', default: 6,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa5b8, step: 1 },
+    ],
+  },
+  // SP-54 — Drilled Flange (NX / CATIA / Creo / SW common assembly part).
+  // A disc with an evenly-spaced bolt circle of holes. OCCT-backed via
+  // makeCylinder + N · makeCylinder + cut. The canonical pipe-flange /
+  // bearing-cap / coupling primitive.
+  'Sculpt Drilled Flange': {
+    title: 'Sculpt — Drilled Flange (bolt-circle pattern)',
+    blurb: 'OCCT-backed flange: disc + bolt-circle of holes. The canonical pipe-flange / bearing-cap primitive.',
+    fields: [
+      { name: 'outerR',       label: 'Outer radius', type: 'number', default: 40, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness',    label: 'Thickness',    type: 'number', default: 10, unit: 'mm', min: 1, step: 1 },
+      { name: 'holeR',        label: 'Hole radius',  type: 'number', default: 3,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'holeCount',    label: 'Hole count',   type: 'number', default: 6,  min: 2, max: 24, step: 1 },
+      { name: 'boltCircleR',  label: 'Bolt-circle R', type: 'number', default: 28, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a9a6b, step: 1 },
+    ],
+  },
+  // SP-53 — Cone Primitive (NX / CATIA / Creo / SW). OCCT makeCone(r1, r2, h).
+  // The exact analytic cone surface. r1 = r2 collapses to a cylinder;
+  // r1 ≠ r2 gives a frustum (truncated cone) or full cone (one r = 0).
+  'Sculpt Cone Primitive': {
+    title: 'Sculpt — Cone (OCCT exact analytic surface)',
+    blurb: 'OCCT-backed cone / frustum: bottom radius r1, top radius r2, height h. Set r2 = 0 for a full cone.',
+    fields: [
+      { name: 'r1',     label: 'Bottom radius', type: 'number', default: 20, unit: 'mm', min: 0,   step: 1 },
+      { name: 'r2',     label: 'Top radius',    type: 'number', default: 8,  unit: 'mm', min: 0,   step: 1, hint: '0 for a full cone' },
+      { name: 'height', label: 'Height',        type: 'number', default: 40, unit: 'mm', min: 1,   step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xb88a4a, step: 1 },
+    ],
+  },
+  // SP-52 — Hollow Cylinder / Bushing (NX / CATIA / Creo / SW primitive).
+  // OCCT-backed: outer cylinder − inner cylinder via boolean cut. The
+  // canonical bushing / sleeve / pipe-section primitive.
+  'Sculpt Hollow Cylinder': {
+    title: 'Sculpt — Hollow Cylinder (OCCT bushing primitive)',
+    blurb: 'OCCT-backed hollow cylinder: outer Ø minus inner Ø, used as bushings, sleeves, pipe sections.',
+    fields: [
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'innerR', label: 'Inner radius', type: 'number', default: 15, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'height', label: 'Height',       type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+  // SP-51 — Torus (NX / CATIA / Creo / SW primitive). OCCT-backed via
+  // makeTorus(majorR, minorR). The exact analytic torus surface, not
+  // a mesh approximation.
+  'Sculpt Torus Primitive': {
+    title: 'Sculpt — Torus (OCCT exact analytic surface)',
+    blurb: 'OCCT-backed torus primitive: ring of major radius R sweeping a circle of minor radius r. The full analytic torus surface.',
+    fields: [
+      { name: 'majorR', label: 'Major radius R', type: 'number', default: 30, unit: 'mm', min: 2, step: 1 },
+      { name: 'minorR', label: 'Minor radius r', type: 'number', default: 8,  unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6826b, step: 1 },
+    ],
+  },
+  // SP-50 — Planar Section / Split (universal CAD section-view op).
+  // OCCT-backed: slice a primitive solid with a user-positioned plane
+  // and lay both pieces in the scene with a small separation so the
+  // section reads as an exploded-view assembly. NX Cut, CATIA Split
+  // Body, Creo Solidify, SolidWorks Cut with Surface — same family.
+  'Sculpt Section Cut': {
+    title: 'Sculpt — Section Cut / Split (OCCT exploded section view)',
+    blurb: 'OCCT-backed solid sliced by a plane; both halves laid in the scene with a small separation.',
+    fields: [
+      { name: 'shape',     label: 'Primitive', type: 'enum',   default: 'box', options: ['box', 'cylinder', 'sphere'] },
+      { name: 'size',      label: 'Size (X/dia/R)', type: 'number', default: 60, unit: 'mm', min: 5, step: 5 },
+      { name: 'sizeY',     label: 'Size Y (box only)', type: 'number', default: 40, unit: 'mm', min: 5, step: 5 },
+      { name: 'sizeZ',     label: 'Size Z (box/cyl ht)', type: 'number', default: 30, unit: 'mm', min: 5, step: 5 },
+      { name: 'planeAxis', label: 'Plane normal', type: 'enum', default: 'Z', options: ['X', 'Y', 'Z'] },
+      { name: 'planeOffset', label: 'Plane offset', type: 'number', default: 0, unit: 'mm', step: 1, hint: 'distance from body centre along the chosen axis' },
+      { name: 'separation', label: 'Piece separation', type: 'number', default: 12, unit: 'mm', min: 0, step: 1, hint: 'how far apart to lay the two halves' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'colorA', label: 'Piece A colour', type: 'number', default: 0xa56b6b, step: 1 },
+      { name: 'colorB', label: 'Piece B colour', type: 'number', default: 0x6b6ba5, step: 1 },
+    ],
+  },
+  // SP-49 — Draft (NX / CATIA / Creo / SW mold-design op). Taper the
+  // side faces of a body by `angleDeg` away from the neutral plane —
+  // the canonical "draft for moldability" feature. OCCT-backed via
+  // BRepOffsetAPI_DraftAngle.
+  'Sculpt Draft Box': {
+    title: 'Sculpt — Draft Box (OCCT DraftAngle for moldability)',
+    blurb: 'OCCT-backed tapered box: build a box and apply a draft angle to the four side faces, neutral plane at z = 0 / pull along +Z.',
+    fields: [
+      { name: 'dx',       label: 'Box X',       type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy',       label: 'Box Y',       type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz',       label: 'Box Z',       type: 'number', default: 40, unit: 'mm', min: 10, step: 5 },
+      { name: 'angleDeg', label: 'Draft angle', type: 'number', default: 5,  unit: '°',  min: 0.5, max: 30, step: 0.5, hint: 'taper of side faces away from neutral plane' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xa56b6b, step: 1 },
+    ],
+  },
+  // SP-48 — Shell (NX / CATIA / Creo / SW universal local op). Hollow
+  // out a closed body by removing one face and offsetting the remaining
+  // shell inward. The canonical hollow-housing primitive every
+  // mechanical CAD ships. OCCT-backed via BRepOffsetAPI_MakeThickSolid.
+  'Sculpt Shell Box': {
+    title: 'Sculpt — Shell Box (OCCT MakeThickSolid)',
+    blurb: 'OCCT-backed hollow box: build a solid box and shell it inward by `wall` mm, removing the +Z face. The canonical NX / CATIA / Creo / SW hollow-housing op.',
+    fields: [
+      { name: 'dx',   label: 'Box X', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'dy',   label: 'Box Y', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'dz',   label: 'Box Z', type: 'number', default: 40, unit: 'mm', min: 10, step: 5 },
+      { name: 'wall', label: 'Wall thickness', type: 'number', default: 3, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6ba58a, step: 1 },
+    ],
+  },
+  // SP-47 — Hole Wizard (NX / CATIA / Creo / SolidWorks universal op).
+  // Drill a hole through a plate via the OCCT-backed B-rep kernel, with
+  // optional counterbore (recess for the screw head) and countersink
+  // (chamfered cone for a flush flat-head screw). Every mechanical CAD
+  // ships this — the most-used op outside of the basic primitives.
+  'Sculpt Hole Wizard': {
+    title: 'Sculpt — Hole Wizard (drilled hole, counterbore, countersink)',
+    blurb: 'OCCT-backed drilled hole through a plate with optional counterbore + countersink. Universal NX / CATIA / Creo / SW op.',
+    fields: [
+      { name: 'plateW', label: 'Plate W (X)', type: 'number', default: 80, unit: 'mm', min: 10, step: 5 },
+      { name: 'plateH', label: 'Plate H (Y)', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'plateT', label: 'Plate thickness (Z)', type: 'number', default: 15, unit: 'mm', min: 1, step: 1 },
+      { name: 'holeR',  label: 'Through-hole R', type: 'number', default: 4, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'holeX',  label: 'Hole X (centre)', type: 'number', default: 0, unit: 'mm', step: 1, hint: 'offset from plate centre' },
+      { name: 'holeY',  label: 'Hole Y (centre)', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'counterbore',      label: 'Counterbore', type: 'enum', default: 'no', options: ['no', 'yes'] },
+      { name: 'counterboreR',     label: 'Counterbore R', type: 'number', default: 7, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'counterboreDepth', label: 'Counterbore depth', type: 'number', default: 5, unit: 'mm', min: 0.1, step: 0.5 },
+      { name: 'countersink',      label: 'Countersink', type: 'enum', default: 'no', options: ['no', 'yes'] },
+      { name: 'countersinkR',     label: 'Countersink top R', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'countersinkAngle', label: 'Countersink angle', type: 'number', default: 90, unit: '°', min: 30, max: 170, step: 5, hint: 'included angle (82° UNF, 90° ISO)' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6b8aa5, step: 1 },
+    ],
+  },
+  // SP-46 — OCCT Variable-Radius Fillet (NX / CATIA / Creo flagship).
+  // Build a box via the OCCT-backed B-rep kernel and apply a
+  // variable-radius fillet where the radius ramps linearly from r1 at
+  // one end of each edge to r2 at the other. The first Sculpt tool
+  // that goes through the EXACT B-rep kernel (frontend/src/kernel/brep,
+  // opencascade.js-backed) rather than manifold-3d — covers a feature
+  // class the mesh kernel can't do at all.
+  'Sculpt Variable Fillet Box': {
+    title: 'Sculpt — Variable Fillet Box (OCCT exact B-rep)',
+    blurb: 'OCCT-backed box with a variable-radius fillet ramped linearly along every edge — the canonical NX / CATIA / Creo finish op.',
+    fields: [
+      { name: 'dx', label: 'Box X (length)', type: 'number', default: 100, unit: 'mm', min: 5, step: 1 },
+      { name: 'dy', label: 'Box Y (depth)',  type: 'number', default: 70,  unit: 'mm', min: 5, step: 1 },
+      { name: 'dz', label: 'Box Z (height)', type: 'number', default: 50,  unit: 'mm', min: 5, step: 1 },
+      { name: 'r1', label: 'Fillet R start', type: 'number', default: 2, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'r2', label: 'Fillet R end',   type: 'number', default: 8, unit: 'mm', min: 0.1, step: 0.1, hint: 'r1 ≠ r2 ⇒ variable; r1 = r2 ⇒ constant fillet' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9c8d6a, step: 1 },
+    ],
+  },
+  // SP-45 — Architectural Wall (Revit / AutoCAD Architecture / ArchiCAD /
+  // FreeCAD BIM ArchWall class). Parametric BIM wall with optional door
+  // and window openings cut through the thickness. The canonical primitive
+  // every architectural CAD uses.
+  'Sculpt Architectural Wall': {
+    title: 'Sculpt — Architectural Wall (BIM with door / window openings)',
+    blurb: 'Parametric building wall with optional door + window openings cut through the full thickness. Revit / ArchiCAD / FreeCAD BIM class.',
+    fields: [
+      { name: 'length',    label: 'Wall length',    type: 'number', default: 4000, unit: 'mm', min: 100, step: 100 },
+      { name: 'height',    label: 'Wall height',    type: 'number', default: 2800, unit: 'mm', min: 100, step: 100 },
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 200,  unit: 'mm', min: 50,  step: 10 },
+      { name: 'door',      label: 'Door opening',   type: 'enum',   default: 'yes', options: ['yes', 'no'] },
+      { name: 'doorX',     label: 'Door centre X',  type: 'number', default: -800, unit: 'mm', step: 50, hint: 'offset along wall length from centre' },
+      { name: 'doorW',     label: 'Door width',     type: 'number', default: 900,  unit: 'mm', min: 100, step: 50 },
+      { name: 'doorH',     label: 'Door height',    type: 'number', default: 2100, unit: 'mm', min: 100, step: 50 },
+      { name: 'window',    label: 'Window opening', type: 'enum',   default: 'yes', options: ['yes', 'no'] },
+      { name: 'windowX',   label: 'Window centre X',  type: 'number', default: 800, unit: 'mm', step: 50 },
+      { name: 'windowZ',   label: 'Window sill Z',    type: 'number', default: 900, unit: 'mm', step: 50, hint: 'sill height above floor' },
+      { name: 'windowW',   label: 'Window width',     type: 'number', default: 1200, unit: 'mm', min: 100, step: 50 },
+      { name: 'windowH',   label: 'Window height',    type: 'number', default: 1200, unit: 'mm', min: 100, step: 50 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6b899, step: 1 },
+    ],
+  },
+  // SP-44 — CAM Pocket Toolpath (Fusion CAM / NX CAM / Creo NC /
+  // Mastercam / SolidCAM "2.5D Pocket"). Concentric-rectangle clearing
+  // path generated as a 3D polyline + visualised as a swept tube. The
+  // entry point into the CAM workbench: real geometric toolpath the
+  // controller would execute, not just G-code text.
+  'Sculpt Pocket Toolpath': {
+    title: 'Sculpt — CAM Pocket Toolpath (2.5D concentric clearing)',
+    blurb: 'Rectangular pocket clearing path: concentric inset rectangles + Z-stepped passes. Rendered as a swept tube so you can see the tool route.',
+    fields: [
+      { name: 'pocketW',     label: 'Pocket width',  type: 'number', default: 100, unit: 'mm', min: 10, step: 5 },
+      { name: 'pocketH',     label: 'Pocket height', type: 'number', default: 70,  unit: 'mm', min: 10, step: 5 },
+      { name: 'pocketDepth', label: 'Pocket depth',  type: 'number', default: 6,   unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'toolDiaMm',   label: 'Tool Ø',        type: 'number', default: 8,   unit: 'mm', min: 1, step: 0.5 },
+      { name: 'stepoverMm',  label: 'Stepover',      type: 'number', default: 4,   unit: 'mm', min: 0.1, step: 0.1, hint: 'radial pass-to-pass shift' },
+      { name: 'depthPerPassMm', label: 'Depth / pass', type: 'number', default: 2, unit: 'mm', min: 0.1, step: 0.1, hint: 'axial cut per Z level' },
+      { name: 'feedMmPerMin', label: 'Feed rate',    type: 'number', default: 800, unit: 'mm/min', min: 10, step: 50 },
+      { name: 'tubeR',       label: 'Path tube R',   type: 'number', default: 0.5, unit: 'mm', min: 0.1, step: 0.1, hint: 'visualisation tube radius' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xff6b3d, step: 1 },
+    ],
+  },
+  // SP-43 — Point Cloud Reconstruction (reverse engineering, the
+  // canonical scan-to-CAD entry point). Sample N noisy points from a
+  // parametric source (sphere / torus / cylinder), run the foundation
+  // density-voxel reconstruct, hand the resulting mesh to
+  // Manifold.ofMesh. The visual demonstrates "messy scan → watertight
+  // solid" — the user picks the source so they can see how each
+  // topology survives the reconstruction.
+  'Sculpt Point Cloud Recon': {
+    title: 'Sculpt — Point Cloud Reconstruction (scan → solid)',
+    blurb: 'Sample noisy points from a parametric source and reverse-engineer the surface back via density voxelization + marching cubes.',
+    fields: [
+      { name: 'source',     label: 'Source shape',  type: 'enum', default: 'sphere', options: ['sphere', 'torus', 'cylinder'] },
+      { name: 'sourceR1',   label: 'Primary radius',type: 'number', default: 50, unit: 'mm', min: 5, step: 1 },
+      { name: 'sourceR2',   label: 'Secondary R',   type: 'number', default: 20, unit: 'mm', min: 1, step: 1, hint: 'torus minor radius (ignored for sphere)' },
+      { name: 'sourceH',    label: 'Height',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1, hint: 'cylinder height (ignored for sphere / torus)' },
+      { name: 'nPoints',    label: 'Sample points', type: 'number', default: 3000, min: 100, max: 50000, step: 100 },
+      { name: 'noiseStdMm', label: 'Scan noise σ',  type: 'number', default: 0.3, unit: 'mm', min: 0, step: 0.05 },
+      { name: 'seed',       label: 'Sample seed',   type: 'number', default: 42, min: 1, step: 1 },
+      { name: 'threshold',  label: 'Iso threshold', type: 'number', default: 0.65, min: 0.1, max: 0.95, step: 0.05 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9c6a8d, step: 1 },
+    ],
+  },
+  // SP-42 — I-Beam (AISC W-shape, AutoCAD / Revit / NX / CATIA / Creo
+  // structural workbench class). 12-vertex CCW cross-section extruded
+  // by the beam length — the canonical rolled-steel structural section.
+  'Sculpt I-Beam': {
+    title: 'Sculpt — I-Beam (AISC W-shape)',
+    blurb: 'Parametric rolled-steel W-shape: pick an AISC preset or dial dimensions directly. 12-vertex extrude.',
+    fields: [
+      { name: 'preset', label: 'AISC preset', type: 'enum', default: 'custom', options: ['custom', 'W8x10', 'W12x26', 'W18x35', 'W24x68'], hint: 'overrides d / bf / tw / tf when not "custom"' },
+      { name: 'd',  label: 'Depth d',          type: 'number', default: 310, unit: 'mm', min: 10,  step: 1 },
+      { name: 'bf', label: 'Flange width bf',  type: 'number', default: 165, unit: 'mm', min: 10,  step: 1 },
+      { name: 'tw', label: 'Web thickness tw', type: 'number', default: 5.8, unit: 'mm', min: 0.5, step: 0.1 },
+      { name: 'tf', label: 'Flange thickness tf', type: 'number', default: 9.7, unit: 'mm', min: 0.5, step: 0.1 },
+      { name: 'length', label: 'Beam length',  type: 'number', default: 1000, unit: 'mm', min: 1, step: 10 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)',  type: 'number', default: 0x9c8d6a, step: 1 },
+    ],
+  },
+  // SP-41 — Pressure Vessel (AutoCAD Plant3D / AVEVA E3D / CADWorx /
+  // NX / CATIA / Creo plant-design). ASME Sec VIII Div 1-style 2:1
+  // ellipsoidal head + cylindrical shell + 2:1 ellipsoidal head,
+  // revolved 360° about the vertical axis. The canonical chemical
+  // process / oil & gas vessel primitive.
+  'Sculpt Pressure Vessel': {
+    title: 'Sculpt — Pressure Vessel (ASME 2:1 ellipsoidal)',
+    blurb: 'Vertical pressure vessel: cylindrical shell + two 2:1 ellipsoidal heads (ASME Sec VIII Div 1). Plant-design class.',
+    fields: [
+      { name: 'D',        label: 'Diameter',        type: 'number', default: 300, unit: 'mm', min: 20, step: 10 },
+      { name: 'L',        label: 'Shell length',    type: 'number', default: 800, unit: 'mm', min: 0,  step: 10 },
+      { name: 'headSegments', label: 'Head segments', type: 'number', default: 32, min: 6, max: 96, step: 1 },
+      { name: 'circularSegments', label: 'Circular segments', type: 'number', default: 64, min: 12, max: 256, step: 4 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',    label: 'Colour (hex)',    type: 'number', default: 0x8aa5b0, step: 1 },
+    ],
+  },
+  // SP-40 — Topology Optimisation (Creo GTO / NX Generative Engineering /
+  // nTopology / Autodesk Generative Design). The flagship generative-
+  // design op: a SIMP solver carves an organic load-path truss out of a
+  // rectangular design domain under a cantilever load with a target
+  // volume fraction. The kernel already shipped optimizeSIMP — this
+  // wires it as a one-shot Sculpt tool.
+  'Sculpt Topology Optimize': {
+    title: 'Sculpt — Topology Optimise (SIMP cantilever)',
+    blurb: 'SIMP topology optimisation of a cantilever box (fix −X face, downward load on +X face). Generative-design organic truss output.',
+    fields: [
+      { name: 'W',  label: 'Design domain X', type: 'number', default: 60, unit: 'mm', min: 10, step: 5 },
+      { name: 'H',  label: 'Design domain Y', type: 'number', default: 40, unit: 'mm', min: 10, step: 5 },
+      { name: 'T',  label: 'Design domain Z', type: 'number', default: 30, unit: 'mm', min: 5,  step: 5 },
+      { name: 'gridN',           label: 'Grid cells (X dir)', type: 'number', default: 10, min: 4, max: 24, step: 1, hint: 'Y and Z scaled in proportion' },
+      { name: 'volumeFraction',  label: 'Target vol fraction',type: 'number', default: 0.35, min: 0.1, max: 0.8, step: 0.05 },
+      { name: 'loadN',           label: 'Cantilever load',    type: 'number', default: 1000, unit: 'N',  min: 1, step: 100 },
+      { name: 'maxIter',         label: 'Max SIMP iters',     type: 'number', default: 18, min: 3, max: 60, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd47a4f, step: 1 },
+    ],
+  },
+  // SP-39 — Voronoi Panel (nTopology / Autodesk Generative Design).
+  // Irregular cellular-pattern panel via 2D Voronoi tessellation.
+  // The "natural-looking" counterpart to SP-38 honeycomb: cells vary
+  // in size and shape, like a sea sponge / aerogel slice / basalt
+  // columns. First real Voronoi math in this kernel.
+  'Sculpt Voronoi Panel': {
+    title: 'Sculpt — Voronoi Panel (irregular generative-design cells)',
+    blurb: 'Voronoi tessellation panel — Poisson-disk seeds + convex-clipped cells, inset by wall thickness. nTopology / Autodesk Generative Design class.',
+    fields: [
+      { name: 'W',        label: 'Panel width',     type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'H',        label: 'Panel height',    type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'T',        label: 'Panel thickness', type: 'number', default: 18, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'minDist',  label: 'Min cell spacing',type: 'number', default: 24, unit: 'mm', min: 4, step: 1, hint: 'lower bound on seed-to-seed distance (Poisson-disk)' },
+      { name: 'wallT',    label: 'Wall thickness',  type: 'number', default: 1.5, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'seed',     label: 'Pattern seed',    type: 'number', default: 42, min: 1, step: 1, hint: 'deterministic — same seed → same layout' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',    label: 'Colour (hex)',    type: 'number', default: 0xb3a3c7, step: 1 },
+    ],
+  },
+  // SP-38 — Honeycomb Panel (NX Composites / CATIA CPD / Creo composites).
+  // The flagship aerospace sandwich-panel core: a rectangular slab with
+  // a flat-top hex grid of cells, every cell separated from its neighbours
+  // by `wallT` of material. Cells overhanging the panel rim are clipped
+  // by the panel rectangle (real bonded-skin terminations).
+  'Sculpt Honeycomb Panel': {
+    title: 'Sculpt — Honeycomb Panel (aerospace sandwich-core)',
+    blurb: 'A flat-top hex-cell honeycomb panel for composite cores. Inset wall thickness; cells clip at the panel edge like a real bonded core.',
+    fields: [
+      { name: 'W',       label: 'Panel width',  type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'H',       label: 'Panel height', type: 'number', default: 200, unit: 'mm', min: 10, step: 5 },
+      { name: 'T',       label: 'Panel thickness', type: 'number', default: 20, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'hexSide', label: 'Hex side (s)', type: 'number', default: 15,  unit: 'mm', min: 1, step: 0.5, hint: 'centre → vertex distance' },
+      { name: 'wallT',   label: 'Wall thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.1, step: 0.1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xd0b67a, step: 1 },
+    ],
+  },
+  // SP-37 — TPMS Lattice infill (nTopology / Creo Lattice / NX Lattice).
+  // Build a watertight Gyroid / Schwarz-P / Diamond lattice inside a
+  // bounding box via Manifold.levelSet. The flagship modern-AM feature
+  // (60-80% mass reduction at a target stiffness, heat exchangers, bio-
+  // scaffolds). First implicit-modelling primitive in this kernel.
+  'Sculpt Lattice': {
+    title: 'Sculpt — TPMS Lattice (gyroid / schwarz-P / diamond infill)',
+    blurb: 'Build a watertight triply-periodic minimal-surface lattice inside a bounding box. Modern AM-class infill (nTopology / Creo Lattice).',
+    fields: [
+      { name: 'family',    label: 'TPMS family',  type: 'enum', default: 'gyroid', options: ['gyroid', 'schwarzP', 'diamond'] },
+      { name: 'form',      label: 'Form',         type: 'enum', default: 'sheet',  options: ['sheet', 'solid'], hint: 'sheet = thick mid-shell, solid = network' },
+      { name: 'sx',        label: 'Box X',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'sy',        label: 'Box Y',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'sz',        label: 'Box Z',        type: 'number', default: 80, unit: 'mm', min: 1, step: 1 },
+      { name: 'cellSize',  label: 'Cell size',    type: 'number', default: 25, unit: 'mm', min: 1, step: 1, hint: 'TPMS period (mm)' },
+      { name: 'isoLevel',  label: 'Iso level',    type: 'number', default: 0.5, min: 0.05, max: 2.5, step: 0.05, hint: 'sheet wall threshold (larger = thicker wall)' },
+      { name: 'resolution',label: 'MC resolution',type: 'number', default: 1.5, unit: 'mm', min: 0.5, step: 0.1, hint: 'marching-cubes spacing — smaller is finer + slower' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',     label: 'Colour (hex)', type: 'number', default: 0xa3c9c7, step: 1 },
+    ],
+  },
+  // SP-36 — Weldment Cope cut (NX/Creo/SolidWorks weldment flagship op).
+  // Two cylindrical tubes (primary along X, secondary at `angleDeg` from
+  // X in the XZ plane, offset perpendicularly by `offset`) — the primary
+  // gets a saddle/fishmouth cut where the secondary intersects it, so
+  // the joint nests cleanly for welding. The planCope geometry is exact
+  // (axes-distance + sin θ); the material removal is a manifold boolean.
+  // BrepWeldments.js:67-70 flagged cope cut as queued Tier-6b — this is it.
+  'Sculpt Cope': {
+    title: 'Sculpt — Cope cut (tube-on-tube weldment saddle)',
+    blurb: 'Cope the primary tube where a secondary tube intersects it — the flagship NX/Creo weldment joint. Both tubes land in the scene; the primary carries the saddle cut.',
+    fields: [
+      { name: 'priR',      label: 'Primary radius',   type: 'number', default: 40, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'secR',      label: 'Secondary radius', type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'priLen',    label: 'Primary length',   type: 'number', default: 600, unit: 'mm', min: 1, step: 10 },
+      { name: 'secLen',    label: 'Secondary length', type: 'number', default: 400, unit: 'mm', min: 1, step: 10 },
+      { name: 'angleDeg',  label: 'Joint angle',      type: 'number', default: 90, unit: '°', min: 5, max: 175, step: 1, hint: 'angle between secondary and primary axes (XZ plane)' },
+      { name: 'offset',    label: 'Axis offset',      type: 'number', default: 0, unit: 'mm', step: 1, hint: 'perpendicular offset of secondary axis (Y direction)' },
+      { name: 'clearance', label: 'Weld clearance',   type: 'number', default: 1.0, unit: 'mm', min: 0, step: 0.1, hint: 'gap added to the cope cutter for weld root' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color',     label: 'Primary colour (hex)',   type: 'number', default: 0xc6a86b, step: 1 },
+      { name: 'secColor',  label: 'Secondary colour (hex)', type: 'number', default: 0x6b9ec6, step: 1 },
+    ],
+  },
+  // SP-35 — Routing first slice (NX/Creo Routing-class). A 4-waypoint
+  // harness/pipe run with an ENFORCED minimum bend radius: interior
+  // corners are replaced with tangent circular arcs (real bend-tool
+  // contract). Honest radius-clamp when a corner has no leg headroom —
+  // the result message reports which bends were honoured / clamped.
+  'Sculpt Route': {
+    title: 'Sculpt — Route (smoothed harness with enforced bends)',
+    blurb: 'Pull a 4-waypoint harness/pipe run through enforced minimum-radius bends — interior corners are replaced with tangent arcs (NX/Creo Routing-class).',
+    fields: [
+      { name: 'diameter', label: 'Tube diameter',   type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'bendR',    label: 'Min bend radius', type: 'number', default: 80, unit: 'mm', min: 0,   step: 1, hint: '0 = sharp corners' },
+      { name: 'x1', label: 'W1 X', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'y1', label: 'W1 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z1', label: 'W1 Z', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'x2', label: 'W2 X', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'y2', label: 'W2 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z2', label: 'W2 Z', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'x3', label: 'W3 X', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'y3', label: 'W3 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z3', label: 'W3 Z', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'x4', label: 'W4 X', type: 'number', default: 1000, unit: 'mm', step: 1 },
+      { name: 'y4', label: 'W4 Y', type: 'number', default:    0, unit: 'mm', step: 1 },
+      { name: 'z4', label: 'W4 Z', type: 'number', default:  500, unit: 'mm', step: 1 },
+      { name: 'arcSamples', label: 'Samples per arc', type: 'number', default: 16, min: 4, max: 64, step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xc6a86b, step: 1 },
+    ],
+  },
+  'Sculpt Perforated Panel': {
+    title: 'Sculpt — Perforated Panel (mesh / grille)',
+    blurb: 'Sketch a panel + cut a grid of holes through it. For radiator grilles, perforated heat shields, vented covers.',
+    fields: [
+      { name: 'w', label: 'Width', type: 'number', default: 1500, unit: 'mm', min: 1, step: 10 },
+      { name: 'h', label: 'Height', type: 'number', default: 500, unit: 'mm', min: 1, step: 10 },
+      { name: 't', label: 'Thickness', type: 'number', default: 6, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'holeR', label: 'Hole radius', type: 'number', default: 9, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'cols', label: 'Columns', type: 'number', default: 40, min: 1, step: 1 },
+      { name: 'rows', label: 'Rows', type: 'number', default: 14, min: 1, step: 1 },
+      { name: 'spacing', label: 'Hole spacing', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x223a52, step: 1 },
+    ],
+  },
+  'Sculpt Circular Pattern': {
+    title: 'Sculpt — Circular Pattern',
+    blurb: 'Pattern the open sketch into a ring of copies about the origin (bolt circles, gear teeth, valve seats). Sketch the feature offset from the origin.',
+    fields: [
+      { name: 'mode', label: 'Mode', type: 'enum', options: ['extrude', 'cut'], default: 'extrude' },
+      { name: 'count', label: 'Count', type: 'number', default: 6, min: 1, step: 1 },
+      { name: 'distance', label: 'Depth', type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'angle', label: 'Spread', type: 'number', default: 360, unit: '°', min: 1, step: 5 },
+    ],
+  },
+  'Sculpt Linear Pattern': {
+    title: 'Sculpt — Linear Pattern',
+    blurb: 'Pattern the open sketch into a straight row (head-bolt rows, cooling fins, rivet lines). Each copy offset by (dx, dy) from the last.',
+    fields: [
+      { name: 'mode', label: 'Mode', type: 'enum', options: ['extrude', 'cut'], default: 'extrude' },
+      { name: 'count', label: 'Count', type: 'number', default: 5, min: 1, step: 1 },
+      { name: 'distance', label: 'Depth', type: 'number', default: 30, unit: 'mm', min: 0.1, step: 1 },
+      { name: 'dx', label: 'Step X', type: 'number', default: 50, unit: 'mm', step: 1 },
+      { name: 'dy', label: 'Step Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
+  'Sculpt Tire': {
+    title: 'Sculpt — Tire (tread wrapped on carcass)',
+    blurb: 'Revolve a tyre carcass then circular-pattern tread blocks around the circumference. Defaults model a Volvo FH 315/80R22.5 drive tyre.',
+    fields: [
+      { name: 'rimR', label: 'Rim radius', type: 'number', default: 286, unit: 'mm', min: 1, step: 1 },
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 537, unit: 'mm', min: 1, step: 1 },
+      { name: 'width', label: 'Section width', type: 'number', default: 315, unit: 'mm', min: 1, step: 5 },
+      { name: 'treadCount', label: 'Tread blocks', type: 'number', default: 54, min: 6, step: 1 },
+      { name: 'treadDepth', label: 'Tread depth', type: 'number', default: 22, unit: 'mm', min: 1, step: 1 },
+      { name: 'axis', label: 'Spin axis', type: 'enum', options: ['X', 'Y', 'Z'], default: 'X' },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x1a1a1a, step: 1 },
+    ],
+  },
+  'Sculpt Bolt Array': {
+    title: 'Sculpt — Bolt Array (instanced)',
+    blurb: 'Sculpt one hex bolt then stamp it `count` times as a single GPU-instanced sub-assembly (one draw call). Hundreds–thousands of fasteners at near-zero cost.',
+    fields: [
+      { name: 'count', label: 'Bolt count', type: 'number', default: 240, min: 1, step: 10 },
+      { name: 'layout', label: 'Layout', type: 'enum', options: ['grid', 'circle'], default: 'grid' },
+      { name: 'spacing', label: 'Grid spacing', type: 'number', default: 64, unit: 'mm', min: 1, step: 2 },
+      { name: 'radius', label: 'Circle radius', type: 'number', default: 320, unit: 'mm', min: 1, step: 5 },
+      { name: 'headR', label: 'Head radius', type: 'number', default: 16, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'headH', label: 'Head height', type: 'number', default: 12, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'shankR', label: 'Shank radius', type: 'number', default: 9, unit: 'mm', min: 0.5, step: 1 },
+      { name: 'shankLen', label: 'Shank length', type: 'number', default: 42, unit: 'mm', min: 1, step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a8d92, step: 1 },
+    ],
+  },
+  'Sculpt Crown Panel': {
+    title: 'Sculpt — Crown Panel (Class-A skin)',
+    blurb: 'A doubly-curved, constant-thickness exterior skin — crowned across the width AND along the length. Smooth (Class-A); verify with Zebra Check.',
+    fields: [
+      { name: 'width', label: 'Width', type: 'number', default: 2000, unit: 'mm', min: 10, step: 10 },
+      { name: 'length', label: 'Length', type: 'number', default: 2400, unit: 'mm', min: 10, step: 10 },
+      { name: 'crownX', label: 'Transverse crown', type: 'number', default: 180, unit: 'mm', min: 0, step: 5 },
+      { name: 'crownZ', label: 'Longitudinal crown', type: 'number', default: 120, unit: 'mm', min: 0, step: 5 },
+      { name: 'thickness', label: 'Thickness', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'nu', label: 'Width samples', type: 'number', default: 30, min: 8, step: 2 },
+      { name: 'nv', label: 'Length stations', type: 'number', default: 26, min: 4, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x33597a, step: 1 },
+    ],
+  },
+  'Sculpt Wing': {
+    title: 'Sculpt — Swept Wing (tapered airfoil)',
+    blurb: 'A real lifting surface — swept leading edge, taper, dihedral, and a NACA airfoil section lofted root→tip. One side per call (root sits on the wing-box; tip outboard).',
+    fields: [
+      { name: 'side', label: 'Side', type: 'select', default: 'R', options: [ { value: 'R', label: 'Right (+X)' }, { value: 'L', label: 'Left (-X)' } ] },
+      { name: 'rootChord', label: 'Root chord', type: 'number', default: 1500, unit: 'mm', min: 50, step: 10 },
+      { name: 'tipChord', label: 'Tip chord', type: 'number', default: 520, unit: 'mm', min: 20, step: 10 },
+      { name: 'span', label: 'Semi-span', type: 'number', default: 3400, unit: 'mm', min: 50, step: 10 },
+      { name: 'sweepDeg', label: 'LE sweep', type: 'number', default: 27, unit: '°', min: 0, max: 60, step: 1 },
+      { name: 'dihedralDeg', label: 'Dihedral', type: 'number', default: 5, unit: '°', min: -10, max: 20, step: 1 },
+      { name: 'rootThick', label: 'Root t/c', type: 'number', default: 0.13, min: 0.04, max: 0.3, step: 0.01 },
+      { name: 'tipThick', label: 'Tip t/c', type: 'number', default: 0.10, min: 0.04, max: 0.3, step: 0.01 },
+      { name: 'n', label: 'Airfoil samples', type: 'number', default: 24, min: 8, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xdfe3e7, step: 1 },
+    ],
+  },
+  'Sculpt Fender Arch': {
+    title: 'Sculpt — Fender Arch (Class-A wheel arch)',
+    blurb: 'A single-curvature crowned skin swept along a circular arch — fender flares, wheel arches, cab corner radii.',
+    fields: [
+      { name: 'archRadius', label: 'Arch radius', type: 'number', default: 560, unit: 'mm', min: 10, step: 10 },
+      { name: 'archSpan', label: 'Arch span', type: 'number', default: 200, unit: '°', min: 20, step: 10 },
+      { name: 'width', label: 'Width', type: 'number', default: 360, unit: 'mm', min: 10, step: 10 },
+      { name: 'section', label: 'Lip height', type: 'number', default: 140, unit: 'mm', min: 5, step: 5 },
+      { name: 'thickness', label: 'Thickness', type: 'number', default: 30, unit: 'mm', min: 1, step: 1 },
+      { name: 'nv', label: 'Arch stations', type: 'number', default: 40, min: 8, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x2c4d6a, step: 1 },
+    ],
+  },
+  'Sculpt Embossed Text': {
+    title: 'Sculpt — Embossed Text (real-font relief)',
+    blurb: 'Extrude any string as smooth real-font 3D lettering (e.g. the VOLVO wordmark) — a true manifold you can mount raised on a panel.',
+    fields: [
+      { name: 'text', label: 'Text', type: 'text', default: 'VOLVO' },
+      { name: 'size', label: 'Cap height', type: 'number', default: 300, unit: 'mm', min: 5, step: 5 },
+      { name: 'depth', label: 'Relief depth', type: 'number', default: 40, unit: 'mm', min: 1, step: 1 },
+      { name: 'curveSegments', label: 'Glyph smoothness', type: 'number', default: 8, min: 2, step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0xcfd3d7, step: 1 },
+    ],
+  },
+  'Sculpt Cam': {
+    title: 'Sculpt — Radial Cam',
+    blurb: 'A disc cam: a base circle with a smooth raised-cosine nose (rise-dwell-fall) that a follower rides. Central bore. Axis +Z.',
+    fields: [
+      { name: 'baseR', label: 'Base radius', type: 'number', default: 120, unit: 'mm', min: 5, step: 2 },
+      { name: 'lift', label: 'Nose lift', type: 'number', default: 70, unit: 'mm', min: 1, step: 2 },
+      { name: 'noseCenter', label: 'Nose angle', type: 'number', default: 90, unit: '°', step: 5 },
+      { name: 'noseWidth', label: 'Nose width', type: 'number', default: 120, unit: '°', min: 10, step: 5 },
+      { name: 'thickness', label: 'Thickness', type: 'number', default: 90, unit: 'mm', min: 2, step: 5 },
+      { name: 'boreR', label: 'Bore radius', type: 'number', default: 40, unit: 'mm', min: 0, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x6a6f76, step: 1 },
+    ],
+  },
+  'Sculpt Bearing': {
+    title: 'Sculpt — Ball Bearing',
+    blurb: 'A rolling-element bearing: outer race + inner race + a ring of balls at the pitch circle. Axis +Z.',
+    fields: [
+      { name: 'boreR', label: 'Bore radius', type: 'number', default: 80, unit: 'mm', min: 2, step: 2 },
+      { name: 'outerR', label: 'Outer radius', type: 'number', default: 160, unit: 'mm', min: 5, step: 2 },
+      { name: 'width', label: 'Width', type: 'number', default: 90, unit: 'mm', min: 2, step: 2 },
+      { name: 'balls', label: 'Ball count', type: 'number', default: 10, min: 4, step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa0a6, step: 1 },
+    ],
+  },
+  'Sculpt Thread': {
+    title: 'Sculpt — Threaded Rod (V-thread)',
+    blurb: 'A real single-start helical V-thread (screws / studs / lead screws). One crest wraps the circumference and spirals up by the pitch. Axis +Y.',
+    fields: [
+      { name: 'length', label: 'Length', type: 'number', default: 600, unit: 'mm', min: 10, step: 10 },
+      { name: 'majorR', label: 'Major radius', type: 'number', default: 80, unit: 'mm', min: 2, step: 1 },
+      { name: 'pitch', label: 'Pitch (lead)', type: 'number', default: 60, unit: 'mm', min: 4, step: 2 },
+      { name: 'threadDepth', label: 'Thread depth', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'sides', label: 'Facets', type: 'number', default: 56, min: 24, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa0a6, step: 1 },
+    ],
+  },
+  'Sculpt Spring': {
+    title: 'Sculpt — Helical Spring',
+    blurb: 'A coil spring: a circular wire swept along a helix (suspension / valve / compression). Keep pitch > 2·wire-radius so coils do not fuse. Axis +Y.',
+    fields: [
+      { name: 'coilR', label: 'Coil radius', type: 'number', default: 120, unit: 'mm', min: 5, step: 5 },
+      { name: 'wireR', label: 'Wire radius', type: 'number', default: 20, unit: 'mm', min: 1, step: 1 },
+      { name: 'pitch', label: 'Pitch (rise/turn)', type: 'number', default: 80, unit: 'mm', min: 4, step: 2 },
+      { name: 'turns', label: 'Turns', type: 'number', default: 8, min: 1, step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa0a6, step: 1 },
+    ],
+  },
+  'Sculpt Gear': {
+    title: 'Sculpt — Spur Gear (involute-style)',
+    blurb: 'A parametric spur gear: module × teeth on standard pitch/addendum/dedendum circles, with a central bore. Two same-module gears mesh at centre distance m·(z1+z2)/2.',
+    fields: [
+      { name: 'module', label: 'Module (m)', type: 'number', default: 8, unit: 'mm', min: 0.5, step: 0.5 },
+      { name: 'teeth', label: 'Teeth (z)', type: 'number', default: 24, min: 6, step: 1 },
+      { name: 'thickness', label: 'Face width', type: 'number', default: 120, unit: 'mm', min: 2, step: 5 },
+      { name: 'boreR', label: 'Bore radius', type: 'number', default: 60, unit: 'mm', min: 0, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a8d92, step: 1 },
+    ],
+  },
+  'Sculpt Flex Pipe': {
+    title: 'Sculpt — Flex Pipe (corrugated bellows)',
+    blurb: 'A corrugated bellows tube (exhaust flex section) — radius oscillates along the axis to form real convolutions. Built along +Z; rotate onto the run.',
+    fields: [
+      { name: 'length', label: 'Length', type: 'number', default: 600, unit: 'mm', min: 10, step: 10 },
+      { name: 'radius', label: 'Mean radius', type: 'number', default: 90, unit: 'mm', min: 2, step: 2 },
+      { name: 'amplitude', label: 'Convolution depth', type: 'number', default: 22, unit: 'mm', min: 1, step: 1 },
+      { name: 'convolutions', label: 'Convolutions', type: 'number', default: 12, min: 1, step: 1 },
+      { name: 'sides', label: 'Facets', type: 'number', default: 36, min: 8, step: 2 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x8a9098, step: 1 },
+    ],
+  },
+  'Sculpt Edge Fillet': {
+    title: 'Sculpt — Edge Fillet (G1 blend)',
+    blurb: 'A tangent-continuous rolling-ball quarter-round run along an axis-aligned edge. Place it in a concave panel junction then Merge to weld a smooth fillet into the corner.',
+    fields: [
+      { name: 'radius', label: 'Fillet radius', type: 'number', default: 80, unit: 'mm', min: 1, step: 2 },
+      { name: 'length', label: 'Run length', type: 'number', default: 1000, unit: 'mm', min: 5, step: 10 },
+      { name: 'segments', label: 'Arc segments', type: 'number', default: 28, min: 4, step: 2 },
+      { name: 'axis', label: 'Edge axis', type: 'enum', options: ['X', 'Y', 'Z'], default: 'Z' },
+      { name: 'quadrant', label: 'Quadrant (0-3)', type: 'enum', options: ['0', '1', '2', '3'], default: '0' },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x', label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y', label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z', label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x33597a, step: 1 },
+    ],
+  },
+  'Sculpt Merge Bodies': {
+    title: 'Sculpt — Merge Bodies (weld watertight)',
+    blurb: 'Boolean-union every solid body into ONE watertight solid (overlapping panels weld at their seams). Exact — keeps smooth Class-A surfaces, no voxelization.',
+    fields: [
+      { name: 'color', label: 'Merged colour (hex)', type: 'number', default: 0x33597a, step: 1 },
+    ],
+  },
+  'Sculpt Zebra Check': {
+    title: 'Sculpt — Zebra Check (Class-A QC)',
+    blurb: 'Overlay striped reflection lines on every body to inspect surface continuity. Smooth, evenly-spaced stripes = clean Class-A; kinks/jumps = discontinuity. Run again to toggle off.',
+    fields: [
+      { name: 'stripeFrequency', label: 'Stripe count', type: 'number', default: 18, min: 1, step: 1 },
+      { name: 'direction', label: 'Direction', type: 'enum', options: ['horizontal', 'vertical'], default: 'horizontal' },
+      { name: 'sharpness', label: 'Edge sharpness', type: 'number', default: 0.85, min: 0, max: 1, step: 0.05 },
+    ],
+  },
+  'Archie Agent': {
+    title: 'Archie — Autonomous Agent',
+    blurb: 'Start Archie: ArchDisc\'s self-directed, self-improving agent. It picks its own goals (grounded in Mech\'s tools), builds geometry hands-free, critiques, learns skills + curates memory, and repeats. maxCycles 0 = non-stop. Watch window.__archdiscAgent.',
+    fields: [
+      { name: 'maxCycles', label: 'Max cycles (0 = non-stop)', type: 'number', default: 0, min: 0, step: 1 },
+      { name: 'cycleDelayMs', label: 'Cycle delay', type: 'number', default: 350, unit: 'ms', min: 0, step: 50 },
+      { name: 'reset', label: 'Reset memory + skills', type: 'enum', options: ['no', 'yes'], default: 'no' },
+    ],
+  },
+  'Stop Archie': {
+    title: 'Archie — Stop',
+    blurb: 'Stop the autonomous agent loop after the current cycle. Memory + learned skills persist.',
+    fields: [],
+  },
+  'Sculpt Place Body': {
+    title: 'Sculpt — Place + Finish Body',
+    blurb: 'Rotate + translate the finished sculpt part into the assembly and register it as a body. Clears the active part for the next one.',
+    fields: [
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°', step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'color', label: 'Colour (hex)', type: 'number', default: 0x9aa3ad, step: 1 },
+    ],
+  },
+
+  // ─── SOLID PRIMITIVES ────────────────────────────────────────────────────
+  'Box': {
+    title: 'Box — Solid Primitive',
+    blurb: 'Create an axis-aligned box. Defaults: 40×40×40 mm. Use position / rotation to place + orient.',
+    fields: [
+      { name: 'dx', label: 'Width (X)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'dy', label: 'Depth (Y)',  type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'dz', label: 'Height (Z)', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°',  step: 1 },
+    ],
+  },
+
+  'Cylinder': {
+    title: 'Cylinder — Solid Primitive',
+    blurb: 'Create a cylinder along +Z. Defaults: r=20 mm, h=40 mm. Position / rotation place + orient the body.',
+    fields: [
+      { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 40, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°',  step: 1 },
+    ],
+  },
+
+  'Sphere': {
+    title: 'Sphere — Solid Primitive',
+    blurb: 'Create a sphere. Default: r=25 mm.',
+    fields: [
+      { name: 'radius', label: 'Radius', type: 'number', default: 25, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+    ],
+  },
+
+  'Cone': {
+    title: 'Cone — Solid Primitive',
+    blurb: 'Create a truncated cone along +Z (r1 = base, r2 = top). Position / rotation place + orient the body.',
+    fields: [
+      { name: 'radius1', label: 'Base radius (r1)', type: 'number', default: 25, unit: 'mm', min: 0,   max: 100000, step: 1 },
+      { name: 'radius2', label: 'Top radius (r2)',  type: 'number', default: 8,  unit: 'mm', min: 0,   max: 100000, step: 1, hint: '0 = sharp apex' },
+      { name: 'height',  label: 'Height',           type: 'number', default: 45, unit: 'mm', min: 0.1, max: 100000, step: 1 },
+      { name: 'x',  label: 'Position X', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'y',  label: 'Position Y', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'z',  label: 'Position Z', type: 'number', default: 0, unit: 'mm', step: 1 },
+      { name: 'rx', label: 'Rotation X', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'ry', label: 'Rotation Y', type: 'number', default: 0, unit: '°',  step: 1 },
+      { name: 'rz', label: 'Rotation Z', type: 'number', default: 0, unit: '°',  step: 1 },
+    ],
+  },
+
+  'Torus': {
+    title: 'Torus — Solid Primitive',
+    blurb: 'Create a torus around +Z. Defaults: R=30 mm, r=10 mm.',
+    fields: [
+      { name: 'majorRadius', label: 'Major radius (R)', type: 'number', default: 30, unit: 'mm', min: 1, max: 1000, step: 1 },
+      { name: 'minorRadius', label: 'Minor radius (r)', type: 'number', default: 10, unit: 'mm', min: 0.1, max: 500, step: 1, hint: 'Must be < major radius' },
+    ],
+  },
+
+  // ─── B-REP FEATURES (arity 1) ─────────────────────────────────────────────
+  'Fillet': {
+    title: 'Fillet — Edge Blend',
+    blurb: 'Apply a constant-radius fillet to all edges of the selected body. Default: r=2 mm.',
+    fields: [
+      { name: 'radius', label: 'Radius', type: 'number', default: 2, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Chamfer': {
+    title: 'Chamfer — Edge Cut',
+    blurb: 'Apply a 45° chamfer to all edges of the selected body. Default: d=2 mm.',
+    fields: [
+      { name: 'distance', label: 'Distance', type: 'number', default: 2, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  // ─── SKETCH TIER-2a — sketch-tab tools ───────────────────────────────────
+  'Sketch Chamfer': {
+    title: 'Sketch Chamfer — 2D Corner Cut',
+    blurb: 'Replace the corner formed by two intersecting sketch lines with a 45° chamfer segment of the given distance.',
+    fields: [
+      { name: 'distance', label: 'Distance', type: 'number', default: 5, unit: 'mm', min: 0.01, max: 500, step: 0.5,
+        hint: 'Chamfer cuts each source line by this distance from their shared corner.' },
+    ],
+  },
+
+  'Convert Entities': {
+    title: 'Convert Entities — Project to Sketch',
+    blurb: 'Project the boundary edges of the picked face/body into the active sketch plane. NX calls this "Curve from Body".',
+    fields: [
+      { name: 'isConstruction', label: 'For construction', type: 'enum', default: 'no',
+        options: ['yes', 'no'], hint: 'Make the projected curves construction (reference-only, excluded from the extrusion boundary).' },
+      { name: 'fixedToSource',  label: 'Fixed to source',  type: 'enum', default: 'yes',
+        options: ['yes', 'no'], hint: 'Pin endpoints to the source position (fully-defined). Disable to leave them free.' },
+    ],
+  },
+
+  // ─── SKETCH TIER-2b — Named geometric relations ──────────────────────────
+  // Five SW relations: Concentric, Midpoint, Symmetric, Collinear, Fix.
+  // Each one is selection-driven (the user pre-picks entities in the
+  // viewport, then clicks the relation). The schema fields below are
+  // GUIDANCE for the PropertyManager dock — they describe what the
+  // current selection should provide, not data the user types in. Each
+  // schema has zero numeric inputs because relations are intent
+  // declarations, not parametric values.
+  'Concentric Relation': {
+    title: 'Concentric — Geometric Relation',
+    blurb: 'Constrain two or more circles / arcs to share a common centre. Pre-select the circles/arcs in the viewport, then click Apply. Drops 2 DoF per additional circle.',
+    fields: [],
+  },
+  'Midpoint Relation': {
+    title: 'Midpoint — Geometric Relation',
+    blurb: 'Constrain a point to lie at the midpoint of a line. Pre-select one point AND one line in the viewport, then click Apply. Drops 2 DoF.',
+    fields: [],
+  },
+  'Symmetric Relation': {
+    title: 'Symmetric — Geometric Relation',
+    blurb: 'Constrain two entities to be mirror images about an axis. Pre-select two entities + one line (the axis); the line is the symmetry axis. Lines, arcs, and circles supported; mixed types reject.',
+    fields: [],
+  },
+  'Collinear Relation': {
+    title: 'Collinear — Geometric Relation',
+    blurb: 'Constrain two or more lines to lie on the same infinite line. Pre-select the lines in the viewport, then click Apply. Drops 2 DoF per additional line.',
+    fields: [],
+  },
+  'Fix Relation': {
+    title: 'Fix — Geometric Relation',
+    blurb: 'Anchor the selected entity at its current position. Pre-select the entity, then click Apply. Drops 2 DoF (point), 4 DoF (line endpoints), 3 DoF (circle = centre+radius), or 6 DoF (arc = centre+start+end).',
+    fields: [],
+  },
+
+  // ─── SKETCH TIER-2c — Sketch transform tools ─────────────────────────────
+  // Five SW transforms: Move / Rotate / Copy / Scale / Stretch.
+  // All selection-driven: pick the entities in the viewport first, then
+  // click the transform button + fill in the geometric parameters.
+  'Move Entities': {
+    title: 'Move Entities — Sketch Translation',
+    blurb: 'Translate the selected sketch entities by (toX-fromX, toY-fromY). Pre-select the entities in the viewport, then specify from-point and to-point. Existing relations follow the moved geometry.',
+    fields: [
+      { name: 'fromX', label: 'From X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'fromY', label: 'From Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toX',   label: 'To X',   type: 'number', default: 10, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toY',   label: 'To Y',   type: 'number', default: 0,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+    ],
+  },
+  'Rotate Entities': {
+    title: 'Rotate Entities — Sketch Rotation',
+    blurb: 'Rotate the selected sketch entities about a centre point by an angle (positive = CCW). Pre-select the entities in the viewport, then specify centre and angle.',
+    fields: [
+      { name: 'centerX', label: 'Centre X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'centerY', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'angleDeg', label: 'Angle',   type: 'number', default: 90, unit: '°', min: -360, max: 360, step: 1 },
+    ],
+  },
+  'Copy Entities': {
+    title: 'Copy Entities — Sketch Duplication',
+    blurb: 'Duplicate the selected sketch entities, placing the copy at (toX-fromX, toY-fromY) from the original. Linked copies stay parametrically coupled; unlinked copies become independent.',
+    fields: [
+      { name: 'fromX', label: 'From X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'fromY', label: 'From Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toX',   label: 'To X',   type: 'number', default: 20, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toY',   label: 'To Y',   type: 'number', default: 0,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'linked', label: 'Linked copy', type: 'enum', default: 'no', options: ['yes', 'no'],
+        hint: 'Linked copies stay distance-constrained to the original (moving the original drags the copy).' },
+    ],
+  },
+  'Scale Entities': {
+    title: 'Scale Entities — Sketch Scaling',
+    blurb: 'Scale the selected sketch entities about a centre point. Set scaleY = scaleX for uniform scaling, or set them independently for non-uniform. Negative scale mirrors the geometry.',
+    fields: [
+      { name: 'centerX', label: 'Centre X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'centerY', label: 'Centre Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'scaleX',  label: 'Scale X',  type: 'number', default: 2, min: -100, max: 100, step: 0.1 },
+      { name: 'scaleY',  label: 'Scale Y',  type: 'number', default: 2, min: -100, max: 100, step: 0.1,
+        hint: 'Set equal to Scale X for uniform scaling. Different values = non-uniform (circles stay circles, radius = geometric mean).' },
+    ],
+  },
+  'Stretch Entities': {
+    title: 'Stretch Entities — Endpoint Translation',
+    blurb: 'Translate the EXPLICITLY-PICKED endpoints by (toX-fromX, toY-fromY). Pre-select the endpoint picks in the viewport (the entities whose endpoints should move); non-picked endpoints stay fixed.',
+    fields: [
+      { name: 'fromX', label: 'From X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'fromY', label: 'From Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toX',   label: 'To X',   type: 'number', default: 5,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'toY',   label: 'To Y',   type: 'number', default: 0,  unit: 'mm', min: -1000, max: 1000, step: 1 },
+    ],
+  },
+
+  'Variable Radius Fillet': {
+    title: 'Variable Radius Fillet',
+    blurb: 'Fillet that transitions from r1 to r2 along each edge. Defaults: r1=1 mm → r2=4 mm.',
+    fields: [
+      { name: 'r1', label: 'Start radius (r1)', type: 'number', default: 1, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+      { name: 'r2', label: 'End radius (r2)',   type: 'number', default: 4, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Shell': {
+    title: 'Shell — Hollow Solid',
+    blurb: 'Hollow the selected solid body, keeping a uniform wall. Default: t=3 mm.',
+    fields: [
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 3, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Draft': {
+    title: 'Draft — Mould Taper',
+    blurb: 'Taper the side faces of the selected body about a fully parametric neutral (parting) plane. Defaults: 5° about the z=0 plane, pulled +Z.',
+    fields: [
+      { name: 'angleDeg', label: 'Draft angle', type: 'number', default: 5, unit: '°', min: 0.1, max: 30, step: 0.5 },
+      { name: 'neutralOriginX', label: 'Neutral plane origin X', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1, hint: 'parting-plane reference point' },
+      { name: 'neutralOriginY', label: 'Neutral plane origin Y', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'neutralOriginZ', label: 'Neutral plane origin Z', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'neutralNormalX', label: 'Neutral plane normal X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'parting-plane normal — any orientation' },
+      { name: 'neutralNormalY', label: 'Neutral plane normal Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'neutralNormalZ', label: 'Neutral plane normal Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'pullDirX', label: 'Pull direction X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'demould / draw direction' },
+      { name: 'pullDirY', label: 'Pull direction Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'pullDirZ', label: 'Pull direction Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+    ],
+  },
+
+  'Offset Shape': {
+    title: 'Offset Shape',
+    blurb: 'Uniformly offset all faces of the selected body outward. Default: d=2 mm.',
+    fields: [
+      { name: 'distance', label: 'Offset distance', type: 'number', default: 2, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Face Fillet': {
+    title: 'Face Fillet — G2 Blend',
+    blurb: 'Build a C2-continuous fill surface over a planar wire boundary. Default: hole box side=6 mm.',
+    fields: [
+      { name: 'holeBoxSize', label: 'Boundary box size', type: 'number', default: 6, unit: 'mm', min: 1, max: 200, step: 1 },
+    ],
+  },
+
+  'Full Round Fillet': {
+    title: 'Full Round Fillet — Cliff-Edge Blend',
+    blurb: 'Large-radius blend on all edges of the selected body. Default: r=8 mm.',
+    fields: [
+      { name: 'radius', label: 'Blend radius', type: 'number', default: 8, unit: 'mm', min: 0.1, max: 200, step: 1 },
+    ],
+  },
+
+  'Corner Mitre': {
+    title: 'Corner Mitre',
+    blurb: 'Auto-mitre all corners by filleting every edge. Default: r=3 mm.',
+    fields: [
+      { name: 'radius', label: 'Mitre radius', type: 'number', default: 3, unit: 'mm', min: 0.01, max: 100, step: 0.5 },
+    ],
+  },
+
+  'Simplify Geometry': {
+    title: 'Simplify Geometry',
+    blurb: 'Remove tiny internal features (small holes, sliver islands) below the minimum feature size, then merge same-domain faces. Default: 1 mm.',
+    fields: [
+      { name: 'minFeatureSize', label: 'Min feature size', type: 'number', default: 1, unit: 'mm', min: 0.01, max: 50, step: 0.1, hint: 'Internal features smaller than this are removed' },
+    ],
+  },
+
+  // ── SP-8 — Healing & repair completion (Area H, T1). ──────────────────────
+  'Auto-Fill Holes': {
+    title: 'Auto-Fill Holes',
+    blurb: 'Automatic: finds every closed open-edge loop (a hole / missing face) of an open-shell body and patches it with an N-sided variational patch, stitching the result back into a watertight body. Selection: pick the body first. Single-loop holes handled correctly; multi-loop holes (a hole bridged by an internal wire) fill the OUTER loop only.',
+    fields: [
+      { name: 'tolerance',         label: 'Closure tolerance', type: 'number', default: 0.001, unit: 'mm', min: 0.0001, max: 1,   step: 0.001, hint: 'Free-bound endpoints within this distance are unified into one loop' },
+      { name: 'subdivisions',      label: 'Patch density',     type: 'number', default: 3,    unit: '',    min: 0,      max: 5,   step: 1,    hint: '1→5 refinement passes per patch' },
+      { name: 'fairingIterations', label: 'Fairing iterations', type: 'number', default: 40,  unit: '',    min: 0,      max: 200, step: 5,    hint: 'Patch bending-energy minimisation iterations' },
+    ],
+  },
+
+  'Auto-Repair Self-Intersection': {
+    title: 'Auto-Repair Self-Intersection',
+    blurb: 'Detect every face-pair crossing in the body (Möller triangle-triangle detector on the tessellation), then heal them via ShapeFix_Shape tolerance widening + ShapeFix_Shell.FixFaceOrientation. Selection: pick the body first. Simple cases (sliver overlaps, single inverted face) repair cleanly; tangled multi-curve crossings are reported as un-repairable with per-pair diagnosis.',
+    fields: [
+      { name: 'tolerance',  label: 'Heal tolerance',  type: 'number', default: 0.01, unit: 'mm', min: 0.0001, max: 1,   step: 0.001, hint: 'ShapeFix max-tolerance for tolerant-edge absorption' },
+      { name: 'deflection', label: 'Detector mesh',   type: 'number', default: 0.1,  unit: 'mm', min: 0.01,   max: 2,   step: 0.01,  hint: 'Tessellation chord deviation for the detector; finer = more sensitive' },
+    ],
+  },
+
+  'Harmonize Normals': {
+    title: 'Harmonize Normals',
+    blurb: 'Walk the body shell and flip every face whose outward-normal disagrees with its neighbours. Backed by ShapeFix_Shell.FixFaceOrientation. Selection: pick the body first. outward=1 (default) makes every normal point OUT; outward=0 makes every normal point IN.',
+    fields: [
+      { name: 'outward',    label: 'Outward (1) / Inward (0)', type: 'number', default: 1,   unit: '',   min: 0,    max: 1, step: 1,    hint: '1 = every face normal points outward; 0 = every face normal points inward' },
+      { name: 'deflection', label: 'Gauss-test mesh',          type: 'number', default: 0.5, unit: 'mm', min: 0.05, max: 5, step: 0.05, hint: 'Tessellation chord deviation for the JS-side consistency verifier' },
+    ],
+  },
+
+  'Subdivide Surface': {
+    title: 'Subdivide Surface — Loop Subdivision',
+    blurb: 'Apply piecewise-smooth Loop subdivision to the selected body. Defaults: 2 levels, 30° crease threshold.',
+    fields: [
+      { name: 'levels',      label: 'Subdivision levels',    type: 'number', default: 2,   unit: '',    min: 1, max: 4,  step: 1,    hint: '1–4 levels; each level 4× triangles' },
+      { name: 'dihedralDeg', label: 'Crease threshold',      type: 'number', default: 30,  unit: '°',   min: 0, max: 90, step: 1,    hint: 'Edges sharper than this are treated as creases' },
+      { name: 'deflection',  label: 'Mesh deflection',       type: 'number', default: 0.5, unit: 'mm',  min: 0.01, max: 2, step: 0.01, hint: 'Controls initial tessellation quality' },
+    ],
+  },
+
+  'Retopo Surface': {
+    title: 'Retopo Surface — Isotropic Remeshing',
+    blurb: 'Retopologise the selected body via Botsch-Kobbelt 2004 isotropic remeshing (split/collapse/flip/tangential-relax). Set targetEdgeLength=0 to use auto (mean baseline edge length). Pull-back (1=on, 0=off) snaps vertices back onto the B-rep surface after each relax step.',
+    fields: [
+      { name: 'targetEdgeLength',  label: 'Target edge length', type: 'number', default: 0,   unit: 'mm', min: 0, max: 100, step: 0.1, hint: '0 = auto (mean edge length of input mesh)' },
+      { name: 'iterations',        label: 'Iterations',         type: 'number', default: 5,   unit: '',   min: 1, max: 10,  step: 1,   hint: '1–10 iterations of split/collapse/flip/relax' },
+      { name: 'pullBackToSurface', label: 'Surface pull-back',  type: 'number', default: 1,   unit: '',   min: 0, max: 1,   step: 1,   hint: '1 = snap vertices onto B-rep surface (recommended); 0 = tangential only' },
+    ],
+  },
+
+  'Catmull-Clark Subdivide': {
+    title: 'Catmull-Clark Subdivide — Quad Mesh',
+    blurb: 'Apply Catmull-Clark subdivision to the selected body. Converts triangles to quads, detects creases, and refines. Defaults: 2 levels, 30° crease threshold, 5° quad-pairing angle.',
+    fields: [
+      { name: 'levels',      label: 'Subdivision levels',      type: 'number', default: 2,  unit: '',  min: 1, max: 4,  step: 1,   hint: '1–4 levels; each level 4× quads' },
+      { name: 'dihedralDeg', label: 'Crease threshold',         type: 'number', default: 30, unit: '°', min: 0, max: 90, step: 1,   hint: 'Quad edges sharper than this become creases' },
+      { name: 'quadAngleDeg', label: 'Tri→quad pairing angle', type: 'number', default: 5,  unit: '°', min: 0, max: 45, step: 1,   hint: 'Max dihedral for pairing coplanar triangles into quads' },
+    ],
+  },
+
+  // ─── FACETER OPTION SURFACE (SP-7, Area I) ───────────────────────────────
+  'Faceter Controls': {
+    title: 'Faceter Controls — Tessellation Quality',
+    blurb: 'Re-facet the selected body with full faceter control. Pick a quality profile (Render = display-tuned; Analysis = simulation/curvature-grade, ~7× finer), then tune the chordal (linear) and angular deflection — the two tolerances a commercial faceter exposes. Set a deflection to 0 to use the profile default. The body re-tessellates live in the viewport.',
+    fields: [
+      { name: 'profile', label: 'Quality profile', type: 'enum', default: 'render',
+        options: ['render', 'analysis'],
+        hint: 'render = display mesh; analysis = fine mesh for simulation / curvature' },
+      { name: 'chordalMm', label: 'Chordal (linear) deflection', type: 'number', default: 0, unit: 'mm',
+        min: 0, max: 50, step: 0.01,
+        hint: 'Max chord-to-surface gap. Smaller = finer. 0 = profile default' },
+      { name: 'angularDeg', label: 'Angular deflection', type: 'number', default: 0, unit: '°',
+        min: 0, max: 80, step: 1,
+        hint: 'Max facet-normal turn per triangle. Smaller = rounder curves. 0 = profile default' },
+      { name: 'minSizeMm', label: 'Minimum triangle edge', type: 'number', default: 0, unit: 'mm',
+        min: 0, max: 10, step: 0.001,
+        hint: 'Floor on triangle edge length — guards against sliver explosion. 0 = auto' },
+    ],
+  },
+
+  'Hidden Line / Silhouette': {
+    title: 'Hidden Line / Silhouette View',
+    blurb: 'Extract the hidden-line projection and silhouette of the selected body along a view direction — the engineering-drawing edge set. Visible sharp edges and silhouette outlines are drawn solid; hidden edges dashed. Uses the exact B-rep hidden-line removal algorithm; the mesh-based silhouette overlay is also rendered for comparison.',
+    fields: [
+      { name: 'viewX', label: 'View direction X', type: 'number', default: 0.55, min: -1, max: 1, step: 0.05,
+        hint: 'Projection / viewing direction' },
+      { name: 'viewY', label: 'View direction Y', type: 'number', default: -0.6, min: -1, max: 1, step: 0.05 },
+      { name: 'viewZ', label: 'View direction Z', type: 'number', default: 0.58, min: -1, max: 1, step: 0.05 },
+      { name: 'showHidden', label: 'Show hidden edges', type: 'enum', default: 'yes',
+        options: ['yes', 'no'], hint: 'Draw occluded edges as dashed lines' },
+    ],
+  },
+
+  // ─── NURBS SURFACE OPS ────────────────────────────────────────────────────
+
+  'NURBS Patch': {
+    title: 'NURBS Patch — sail-like control surface',
+    blurb: 'Build a 4×4 cubic NURBS sail-like patch (size × size base; inner crown height).',
+    fields: [
+      { name: 'size',  label: 'Base size',   type: 'number', default: 40, unit: 'mm', min: 10, max: 200, step: 1, hint: 'Footprint of the patch base (mm)' },
+      { name: 'crown', label: 'Crown height', type: 'number', default: 8,  unit: 'mm', min: 0,  max: 50,  step: 1, hint: 'Z-lift of the inner 2×2 control poles (0 = flat)' },
+    ],
+  },
+
+  'Refine NURBS': {
+    title: 'Refine NURBS — insert mid-knots',
+    blurb: 'Insert knots at u=0.25, 0.5, 0.75 and v=0.25, 0.5, 0.75. Preserves surface shape exactly (h-refinement).',
+    fields: [],
+  },
+
+  'Elevate NURBS': {
+    title: 'Elevate NURBS Degree',
+    blurb: 'Raise the polynomial degree of the NURBS surface (p-refinement). Does not change the shape.',
+    fields: [
+      { name: 'uDegree', label: 'U degree', type: 'number', default: 4, unit: '', min: 2, max: 8, step: 1, hint: 'Target u-degree (must be ≥ current, default cubic=3)' },
+      { name: 'vDegree', label: 'V degree', type: 'number', default: 4, unit: '', min: 2, max: 8, step: 1, hint: 'Target v-degree (must be ≥ current, default cubic=3)' },
+    ],
+  },
+
+  'NURBS Curvature': {
+    title: 'NURBS Curvature — sample point',
+    blurb: 'Sample principal/Gaussian/mean curvature at (u,v) on a NURBS face.',
+    fields: [
+      { name: 'u', label: 'u parameter', type: 'number', default: 0.5, unit: '', min: 0, max: 1, step: 0.05, hint: 'Parameter along u-direction [0, 1]' },
+      { name: 'v', label: 'v parameter', type: 'number', default: 0.5, unit: '', min: 0, max: 1, step: 0.05, hint: 'Parameter along v-direction [0, 1]' },
+    ],
+  },
+
+  // ─── SUB-PROJECT G — AUTO-TRIMMING NURBS B-REP FACE ─────────────────────
+
+  'Trimmed NURBS Patch': {
+    title: 'Trimmed NURBS Patch — windowed sail panel',
+    blurb: 'Build a bicubic NURBS sail surface and auto-trim it to a rectangular parametric sub-domain (UV box trim via BRepBuilderAPI_MakeFace).',
+    fields: [
+      { name: 'sizeX',   label: 'Patch width (X)',  type: 'number', default: 80,   unit: 'mm',  min: 10,  max: 400,  step: 5,    hint: 'Full patch footprint in X (mm)' },
+      { name: 'sizeY',   label: 'Patch depth (Y)',  type: 'number', default: 80,   unit: 'mm',  min: 10,  max: 400,  step: 5,    hint: 'Full patch footprint in Y (mm)' },
+      { name: 'bulge',   label: 'Bulge height',     type: 'number', default: 12,   unit: 'mm',  min: 0,   max: 120,  step: 1,    hint: 'Z-lift of inner 2×2 control poles — makes a real curved surface (0 = flat)' },
+      { name: 'trimMin', label: 'Trim start (UV)',  type: 'number', default: 0.25, unit: '',     min: 0,   max: 0.5,  step: 0.05, hint: 'Normalised start of the trim window in both U and V [0..0.5)' },
+      { name: 'trimMax', label: 'Trim end (UV)',    type: 'number', default: 0.75, unit: '',     min: 0.5, max: 1.0,  step: 0.05, hint: 'Normalised end of the trim window in both U and V (0.5..1]' },
+    ],
+  },
+
+  // ─── SUB-PROJECT G — NURBS SSI ────────────────────────────────────────────
+
+  'Surface-Surface Intersection': {
+    title: 'Surface-Surface Intersection — NURBS SSI',
+    blurb: 'Intersect the first face of two selected bodies via GeomAPI_IntSS. Returns sampled polyline curves along the intersection locus.',
+    fields: [
+      { name: 'samples',   label: 'Samples per curve', type: 'number', default: 32,  unit: '',     min: 8,    max: 256,  step: 8,    hint: 'Number of points sampled along each intersection curve' },
+      { name: 'tolerance', label: 'Tolerance',          type: 'number', default: 1e-6, unit: 'mm', min: 1e-9, max: 1e-2, step: 1e-7, hint: 'Geometric tolerance for SSI (mm)' },
+      { name: 'lineWidth', label: 'Line width',          type: 'number', default: 2,   unit: 'px', min: 0.5,  max: 6,    step: 0.5,  hint: 'Visual line width for intersection curves in the viewport' },
+    ],
+  },
+
+  'N-Sided Patch': {
+    title: 'N-Sided Patch — variational fill of an N-sided opening',
+    blurb: 'Fill an arbitrary non-four-sided boundary loop of the selected body with a smooth surface patch. Ear-clip triangulation of the loop interior, then discrete cotangent-Laplacian variational fairing (minimum bending energy) with the boundary fixed. faceIndex=-1 auto-picks the face with the most edges (the N-sided opening). Adds the fill surface; the body is kept.',
+    fields: [
+      { name: 'faceIndex',         label: 'Boundary face index', type: 'number', default: -1, unit: '', min: -1, max: 400, step: 1, hint: '-1 = auto-pick the face with the most edges; otherwise the face whose outer wire is filled' },
+      { name: 'subdivisions',      label: 'Interior density',    type: 'number', default: 3,  unit: '', min: 0,  max: 5,   step: 1, hint: '1→4 refinement passes; more = smoother fill, more triangles' },
+      { name: 'fairingIterations', label: 'Fairing iterations',  type: 'number', default: 40, unit: '', min: 0,  max: 200, step: 5, hint: 'Discrete bending-energy minimisation iterations' },
+    ],
+  },
+
+  'G2 Blend': {
+    title: 'G2 Blend — curvature-continuous fairing surface',
+    blurb: 'Fair a true G2 (curvature-continuous) blend surface between two edges of the selected body. Degree-5-in-v / degree-3-in-u NURBS — matches position, tangent AND curvature at both edges. Adds the fairing surface; the body is kept.',
+    fields: [
+      { name: 'edgeA',     label: 'Edge A index',     type: 'number', default: 0,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the first boundary edge' },
+      { name: 'edgeB',     label: 'Edge B index',     type: 'number', default: 2,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the second boundary edge' },
+      { name: 'uSegments', label: 'U segments',       type: 'number', default: 32, unit: '', min: 8, max: 128, step: 4, hint: 'Tessellation segments across the boundary parameter' },
+      { name: 'vSegments', label: 'V segments',       type: 'number', default: 16, unit: '', min: 4, max: 64,  step: 2, hint: 'Tessellation segments from edge A to edge B' },
+    ],
+  },
+
+  // ─── SP-10 — Blending suite completion (Area D, T2) ──────────────────────
+  // Four new blending operators on the Part tab Blends group:
+  //   - Hold-Line Blend   : variable-radius G2 surface that touches a hold curve
+  //   - Face-Face Blend   : rolling-ball fillet between two selected faces
+  //   - Setback Corner    : multi-edge vertex blend w/ per-edge setback
+  //   - G3 Blend          : curvature-derivative-continuous blend (degree 7 in v)
+  // Selection: pick the body first. Face/edge/vertex/hold-curve parameters
+  // supplied via the dialog as INDICES into the body's enumeration, plus
+  // numeric setbacks / hold-curve points encoded as small parametric strings.
+
+  'Hold-Line Blend': {
+    title: 'Hold-Line Blend — variable-radius G2 blend constrained to a 3-D hold curve',
+    blurb: 'Build a degree-3×5 G2 blend surface between two edges, with its centreline (rolling-ball locus) constrained to pass within tolerance of a supplied 3-D hold curve. The hold curve is supplied as four offset points (default = thumb-track curve). Variable-reach per station so the midpoint of the blend lands on the hold curve.',
+    fields: [
+      { name: 'edgeA',     label: 'Edge A index',     type: 'number', default: 0,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the first boundary edge' },
+      { name: 'edgeB',     label: 'Edge B index',     type: 'number', default: 2,  unit: '', min: 0, max: 200, step: 1, hint: 'Index of the second boundary edge' },
+      { name: 'holdCenterX', label: 'Hold curve mid X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1, hint: 'Mid-point of the hold curve in mm' },
+      { name: 'holdCenterY', label: 'Hold curve mid Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'holdCenterZ', label: 'Hold curve mid Z', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+      { name: 'holdSpread',  label: 'Hold curve spread', type: 'number', default: 20, unit: 'mm', min: 1, max: 200, step: 1, hint: 'Half-length of the hold curve' },
+      { name: 'uSegments', label: 'U segments',       type: 'number', default: 32, unit: '', min: 8, max: 128, step: 4 },
+      { name: 'vSegments', label: 'V segments',       type: 'number', default: 16, unit: '', min: 4, max: 64,  step: 2 },
+    ],
+  },
+
+  'Face-Face Blend': {
+    title: 'Face-Face Blend — rolling-ball blend between two selected faces',
+    blurb: 'Apply a constant-radius rolling-ball blend along the shared edges between two selected faces of the body. OCCT BRepFilletAPI over the face-pair shared edge set. Selection: pick the body, supply face indices + radius. Adds the filleted body; the original is consumed.',
+    fields: [
+      { name: 'face1', label: 'Face 1 index', type: 'number', default: 0, unit: '', min: 0, max: 1000, step: 1, hint: 'Index of face 1 (0-based unique-face enumeration)' },
+      { name: 'face2', label: 'Face 2 index', type: 'number', default: 1, unit: '', min: 0, max: 1000, step: 1, hint: 'Index of face 2' },
+      { name: 'radius', label: 'Blend radius', type: 'number', default: 4, unit: 'mm', min: 0.05, max: 100, step: 0.5, hint: 'Rolling-ball blend radius' },
+    ],
+  },
+
+  'Setback Corner': {
+    title: 'Setback Corner — multi-edge vertex blend with per-edge setbacks',
+    blurb: 'At a multi-edge vertex (3+ edges meeting), specify a per-edge setback distance; the fillet retracts (smaller radius) near the vertex and expands to full radius further along the edge. Selection: pick the body; supply vertex index + the three per-edge setbacks + the base radius.',
+    fields: [
+      { name: 'vertex',   label: 'Vertex index', type: 'number', default: 0, unit: '', min: 0, max: 10000, step: 1, hint: 'Index of the multi-edge corner vertex' },
+      { name: 'setback1', label: 'Setback edge 1', type: 'number', default: 2, unit: 'mm', min: 0.05, max: 50, step: 0.1 },
+      { name: 'setback2', label: 'Setback edge 2', type: 'number', default: 3, unit: 'mm', min: 0.05, max: 50, step: 0.1 },
+      { name: 'setback3', label: 'Setback edge 3', type: 'number', default: 4, unit: 'mm', min: 0.05, max: 50, step: 0.1 },
+      { name: 'radius',   label: 'Base fillet radius', type: 'number', default: 2, unit: 'mm', min: 0.05, max: 50, step: 0.1, hint: 'Far-from-vertex blend radius' },
+    ],
+  },
+
+  'G3 Blend': {
+    title: 'G3 Blend — curvature-derivative-continuous blend between two edges',
+    blurb: 'Fair a true G3 (third-derivative-continuous) blend surface between two edges. Degree-7-in-v / degree-3-in-u NURBS — matches position, tangent, curvature AND curvature-derivative (jerk) at both edges. The Class-A industrial-design contract beyond G2. Adds the fairing surface; the body is kept.',
+    fields: [
+      { name: 'edgeA',     label: 'Edge A index',     type: 'number', default: 0,  unit: '', min: 0, max: 200, step: 1 },
+      { name: 'edgeB',     label: 'Edge B index',     type: 'number', default: 2,  unit: '', min: 0, max: 200, step: 1 },
+      { name: 'uSegments', label: 'U segments',       type: 'number', default: 32, unit: '', min: 8, max: 128, step: 4 },
+      { name: 'vSegments', label: 'V segments',       type: 'number', default: 16, unit: '', min: 4, max: 64,  step: 2 },
+    ],
+  },
+
+  // ─── SUB-PROJECT G — CLASS-A MODELLING WORKFLOW ───────────────────────────
+
+  'Class-A Analyze': {
+    title: 'Class-A Analyze — Gaussian-curvature heatmap',
+    blurb: 'Tessellate the selected body and colour it by discrete Gaussian curvature (angle-deficit method): red = convex, blue = saddle, white = flat — the production class-A convention. Adds a coloured analysis mesh; the body is kept.',
+    fields: [
+      { name: 'gridSamples', label: 'Analysis resolution', type: 'number', default: 48, unit: '', min: 16, max: 128, step: 8, hint: 'Higher = finer tessellation, smoother heatmap (more vertices analysed)' },
+    ],
+  },
+
+  'Zebra Stripes': {
+    title: 'Zebra Stripes — striped-reflection continuity overlay',
+    blurb: 'Overlay a striped-environment reflection on the selected body. Stripes break across a G0 join, kink across a G1 join, and flow smoothly across a G2 join — the classic class-A continuity instrument. Toggling the tool again removes the overlay.',
+    fields: [
+      { name: 'stripeFrequency', label: 'Stripe frequency', type: 'number', default: 16, unit: '', min: 4, max: 64, step: 1, hint: 'Number of stripe bands; more bands reveal finer continuity flaws' },
+      { name: 'direction',       label: 'Stripe direction', type: 'number', default: 0,  unit: '', min: 0, max: 1,  step: 1, hint: '0 = horizontal stripes, 1 = vertical stripes' },
+    ],
+  },
+
+  // ─── SUB-PROJECT F — FINAL §3 CAPABILITIES ────────────────────────────────
+
+  'Sweep Tortuous': {
+    title: 'Tortuous-path Sweep',
+    blurb: 'Sweep a circular profile along a tortuous polyline path.',
+    fields: [
+      { name: 'profileRadius', label: 'Profile radius', type: 'number', default: 4,  unit: 'mm', min: 0.1, max: 50,  step: 0.5, hint: 'Circular profile radius (mm)' },
+      { name: 'segLength',     label: 'Segment length', type: 'number', default: 20, unit: 'mm', min: 1,   max: 200, step: 1,   hint: 'Length of each polyline segment (mm)' },
+      { name: 'bendCount',     label: 'Bend count',     type: 'number', default: 2,  unit: '',   min: 1,   max: 6,   step: 1,   hint: 'Number of right-angle bends (1–6)' },
+    ],
+  },
+
+  'Loft Tangent': {
+    title: 'Tangent-Smoothed Loft',
+    blurb: 'Loft 3 square sections with tangent smoothing (SetSmoothing).',
+    fields: [
+      { name: 's0', label: 'Section 0 side', type: 'number', default: 40, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Side length of bottom section' },
+      { name: 's1', label: 'Section 1 side', type: 'number', default: 20, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Side length of middle section' },
+      { name: 's2', label: 'Section 2 side', type: 'number', default: 30, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Side length of top section' },
+      { name: 'z0', label: 'Z height 0',     type: 'number', default: 0,  unit: 'mm', min: 0, max: 200, step: 1, hint: 'Z position of bottom section' },
+      { name: 'z1', label: 'Z height 1',     type: 'number', default: 20, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Z position of middle section' },
+      { name: 'z2', label: 'Z height 2',     type: 'number', default: 40, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Z position of top section' },
+    ],
+  },
+
+  'Stitch Faces': {
+    title: 'Tolerant Stitching',
+    blurb: 'Stitch two planar panels across a small gap using BRepBuilderAPI_Sewing.',
+    fields: [
+      { name: 'gap',       label: 'Gap',        type: 'number', default: 0.05, unit: 'mm', min: 0,     max: 1,   step: 0.01, hint: 'Gap between panel edges (mm)' },
+      { name: 'tolerance', label: 'Tolerance',  type: 'number', default: 0.1,  unit: 'mm', min: 0.001, max: 1,   step: 0.01, hint: 'Sewing tolerance (must be > gap)' },
+      { name: 'panelW',    label: 'Panel width', type: 'number', default: 20,  unit: 'mm', min: 1,     max: 200, step: 1,    hint: 'Width of each panel (mm)' },
+      { name: 'panelH',    label: 'Panel height', type: 'number', default: 20, unit: 'mm', min: 1,     max: 200, step: 1,    hint: 'Height of each panel (mm)' },
+    ],
+  },
+
+  'Convergent Solid': {
+    title: 'Convergent Modeling (Facet→B-rep)',
+    blurb: 'Build a solid from a facet mesh via Sewing + MakeSolid_3 (convergent modeling pipeline).',
+    fields: [
+      { name: 'size',      label: 'Cube size',  type: 'number', default: 20,    unit: 'mm', min: 1,      max: 200, step: 1,     hint: 'Side length of the demo cube (mm)' },
+      { name: 'tolerance', label: 'Tolerance',  type: 'number', default: 0.001, unit: 'mm', min: 0.0001, max: 0.1, step: 0.001, hint: 'Sewing tolerance for triangle edge stitching' },
+    ],
+  },
+
+  // ─── B-REP BOOLEANS (arity 2 / Infinity) ─────────────────────────────────
+  // Combine, Subtract, Intersect, Combine (Non-Manifold), Lattice Fuse have
+  // no parameters — a schema entry with empty fields ensures the dialog
+  // can be future-extended and `requestToolParams` resolves immediately
+  // with an empty values object when bypass is active.
+
+  'Combine': {
+    title: 'Combine (Boolean Fuse)',
+    blurb: 'Fuse two selected bodies into one. Select two bodies then click Combine.',
+    fields: [],
+  },
+
+  'Subtract': {
+    title: 'Subtract (Boolean Cut)',
+    blurb: 'Subtract the second selected body from the first. Select tool body last.',
+    fields: [],
+  },
+
+  'Intersect': {
+    title: 'Intersect (Boolean Common)',
+    blurb: 'Keep only the volume common to both selected bodies.',
+    fields: [],
+  },
+
+  'Combine (Non-Manifold)': {
+    title: 'Combine (Non-Manifold)',
+    blurb: 'Multi-shell compound of two selected bodies sharing a face (non-manifold topology).',
+    fields: [],
+  },
+
+  'Combine (Coincident)': {
+    title: 'Combine (Coincident) — Fuzzy Fuse',
+    blurb: 'Fuse two selected bodies that are nearly touching within a tolerance. Default: tol=0.01 mm.',
+    fields: [
+      { name: 'tolerance', label: 'Fuzzy tolerance', type: 'number', default: 0.01, unit: 'mm', min: 0.0001, max: 1, step: 0.001 },
+    ],
+  },
+
+  'Lattice Fuse': {
+    title: 'Lattice Fuse — N-ary Boolean',
+    blurb: 'Single-pass fuse of all selected bodies (≥2). Efficient for lattice structures.',
+    fields: [],
+  },
+
+  // ─── SP-5 BOOLEAN COMPLETION (Area C) ────────────────────────────────────
+  // Imprint, Partition, Section — split/imprint/slice without losing volume.
+  // All three accept a viewport selection: Imprint takes (body, tool), Partition
+  // takes (body, tool₁, …, toolₙ ≥ 1), Section takes (body) and resolves the
+  // plane from the dialog params (origin + normal) or an optional 3-point pick.
+
+  'Imprint': {
+    title: 'Imprint — Project Tool Footprint onto Body',
+    blurb: 'Project the tool body\'s boundary edges onto the recipient body\'s faces as new edges, splitting faces along the projection curves WITHOUT changing the body\'s volume. Selection: pick the body first, then the tool.',
+    fields: [],
+  },
+
+  'Partition': {
+    title: 'Partition — Split Body by Tools',
+    blurb: 'Split the selected body along one or more tool surfaces / solids into multiple pieces. Volume is conserved (Σ pieces = original). Selection: pick the body first, then ≥ 1 tools.',
+    fields: [],
+  },
+
+  'Section': {
+    title: 'Section — Planar Cut',
+    blurb: 'Cut the selected body by a plane (origin + normal). Output: \'curves\' returns the intersection wire body (cross-section outline); \'split\' partitions the body into the two half-pieces. Selection: pick the body to section.',
+    fields: [
+      { name: 'output',  label: 'Output mode',        type: 'string', default: 'curves', hint: '\'curves\' (intersection wire) or \'split\' (partition into halves)' },
+      { name: 'originX', label: 'Plane origin X',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'originY', label: 'Plane origin Y',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'originZ', label: 'Plane origin Z',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'normalX', label: 'Plane normal X',     type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'normalY', label: 'Plane normal Y',     type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'normalZ', label: 'Plane normal Z',     type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+    ],
+  },
+
+  // ─── SP-9 DIRECT / SYNCHRONOUS MODELING (Area E) ─────────────────────────
+  // Push-Pull, Move Face, Delete Face, Infer Feature — selection-driven
+  // direct edits on a chosen face. faceIndex is a 1-based positional index
+  // into the body's spine faces (matches the SpineBody.body.faces() order);
+  // an explicit persistent id string can also be supplied (the kernel op
+  // accepts either via resolveFace).
+
+  'Push-Pull': {
+    title: 'Push-Pull — Direct Face Edit',
+    blurb: 'Extrude (push, distance > 0 → add material) or cut (pull, distance < 0 → remove material) the selected face along its outward normal. Selection: pick the body first; faceIndex picks which face (1-based positional index into spine faces).',
+    fields: [
+      { name: 'faceIndex', label: 'Face index',  type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to push/pull' },
+      { name: 'distance',  label: 'Distance',    type: 'number', default: 5, unit: 'mm', min: -500, max: 500, step: 0.5, hint: 'positive = push (add material), negative = pull (cut)' },
+    ],
+  },
+
+  'Move Face': {
+    title: 'Move Face — Translate Face by Delta',
+    blurb: 'Translate a planar / cylindrical face by a 3-vector. The normal-aligned component moves the face along its outward normal; the tangential component is a documented residual gap (face-slide). Selection: pick the body first; faceIndex picks which face.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to move' },
+      // UX Tier-12a — translation is now the universal Specify Vector
+      // picker. legacyKeys map the picker's x/y/z to tx/ty/tz so the
+      // existing handler (`Number(values.tx) || 0`, etc.) keeps working.
+      // Default = (0,0,2) custom — face-normal-default is the most common
+      // Move-Face intent (push the face out by 2 mm).
+      { name: 'translation', label: 'Translation', type: 'vector',
+        default: { mode: 'custom', x: 0, y: 0, z: 2 },
+        legacyKeys: { x: 'tx', y: 'ty', z: 'tz' },
+        hint: 'Delta vector — CSYS axis / custom dx/dy/dz / sketch line / face normal.' },
+    ],
+  },
+
+  'Delete Face': {
+    title: 'Delete Face — Remove & Heal',
+    blurb: 'Remove the selected face from the body and automatically heal the resulting opening by extending the adjacent faces (BRepAlgoAPI_Defeaturing). Result: a closed solid with one fewer face. Selection: pick the body first; faceIndex picks which face to remove.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to remove' },
+    ],
+  },
+
+  'Infer Feature': {
+    title: 'Infer Feature — Classify Face Context',
+    blurb: 'Given a face the user is gesturing on, return what FEATURE that face belongs to (hole / boss / fillet / chamfer / boss-face / pocket-floor / planar-step / sculpted-face) using spine adjacency + SP-4 surface evaluation. Pure read — no geometry change. Selection: pick the body first; faceIndex picks which face to classify.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to classify' },
+    ],
+  },
+
+  // ─── TOPOLOGY / DIRECT EDIT ───────────────────────────────────────────────
+  'Replace Face': {
+    title: 'Replace Face',
+    blurb: 'Swap a face of the selected body onto a new surface. Curved swap (1) re-seats the face onto an arbitrary curved NURBS surface — fresh pcurves are generated natively in ArchDisc\'s topology kernel by Newton point-inversion. Same-surface (0) rebuilds the face from its boundary wire.',
+    fields: [
+      { name: 'faceIndex', label: 'Face index', type: 'number', default: 1, unit: '', min: 1, max: 999, step: 1, hint: '1-based index of the face to replace' },
+      { name: 'curvedSwap', label: 'Curved swap', type: 'number', default: 1, unit: '', min: 0, max: 1, step: 1, hint: '1 = re-seat onto an arbitrary curved NURBS surface (native pcurves); 0 = same-surface boundary-wire rebuild' },
+      { name: 'bulge', label: 'Curved-swap bulge', type: 'number', default: 0, unit: 'mm', min: 0, max: 200, step: 1, hint: 'Peak interior lift of the new curved surface (0 = auto, scales with the face size)' },
+    ],
+  },
+
+  // ─── SURFACING (arity 0 — internal profile) ───────────────────────────────
+  'Thicken': {
+    title: 'Thicken — Sheet to Solid',
+    blurb: 'Thicken the selected open-surface body (sheet / shell) into a watertight solid. Default wall: 3 mm.',
+    fields: [
+      { name: 'thickness', label: 'Wall thickness', type: 'number', default: 3, unit: 'mm', min: 0.1, max: 100, step: 0.5, hint: 'offset applied to the selected open surface' },
+    ],
+  },
+
+  'Sweep Boss': {
+    title: 'Sweep Boss',
+    blurb: 'Sweep a circular profile along a straight path. Defaults: r=8 mm, length=60 mm.',
+    fields: [
+      { name: 'radius', label: 'Profile radius', type: 'number', default: 8,  unit: 'mm', min: 0.1, max: 1000, step: 1 },
+      { name: 'length', label: 'Path length',    type: 'number', default: 60, unit: 'mm', min: 1,   max: 5000, step: 1 },
+    ],
+  },
+
+  'Loft Boss': {
+    title: 'Loft Boss',
+    blurb: 'Loft between a square bottom section and a square top section. Defaults: bottom=40 mm, top=16 mm, h=50 mm.',
+    fields: [
+      { name: 'bottomSize', label: 'Bottom section side', type: 'number', default: 40, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'topSize',    label: 'Top section side',    type: 'number', default: 16, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'height',     label: 'Height',              type: 'number', default: 50, unit: 'mm', min: 1, max: 5000, step: 1 },
+    ],
+  },
+
+  // ─── THERMODYNAMIC / ROTATING MACHINERY ───────────────────────────────────
+  'Brayton Cycle': {
+    title: 'Brayton Cycle — Turbofan Inputs',
+    blurb: 'Define the engine cycle. Defaults match Rolls-Royce Trent XWB at FL350.',
+    fields: [
+      { name: 'altitudeM',     label: 'Cruise altitude',  type: 'number', default: 10670, unit: 'm',  min: 0,    max: 15000, step: 100 },
+      { name: 'machNumber',    label: 'Cruise Mach',      type: 'number', default: 0.85,  unit: 'M',  min: 0,    max: 1.2,   step: 0.01 },
+      { name: 'bypassRatio',   label: 'Bypass ratio',     type: 'number', default: 9.6,   unit: ':1', min: 0,    max: 18,    step: 0.1, hint: 'High-bypass turbofans: 8–12' },
+      { name: 'fanPR',         label: 'Fan pressure ratio', type: 'number', default: 1.45, unit: '',  min: 1.1,  max: 2.0,   step: 0.05 },
+      { name: 'compressorPR',  label: 'HP/IP compressor PR', type: 'number', default: 34.5, unit: '', min: 5,   max: 60,    step: 0.5, hint: 'Total OPR = fanPR × this' },
+      { name: 'T4_K',          label: 'TIT (T₄)',         type: 'number', default: 1750,  unit: 'K',  min: 1200, max: 2100,  step: 10 },
+      { name: 'massFlowKgS',   label: 'Core mass flow',   type: 'number', default: 1300,  unit: 'kg/s', min: 50, max: 2000,  step: 10 },
+    ],
+  },
+
+  'Compressor Stage': {
+    title: 'Compressor Stage — Mean-line Inputs',
+    blurb: 'Single axial fan/compressor stage. Defaults: 100 kg/s, 8 000 RPM, sea-level inlet.',
+    fields: [
+      { name: 'massFlowKgS', label: 'Mass flow',     type: 'number', default: 100,    unit: 'kg/s', min: 1,   max: 1500, step: 1 },
+      { name: 'T_t1_K',      label: 'Inlet total T', type: 'number', default: 288.15, unit: 'K',    min: 200, max: 800,  step: 1 },
+      { name: 'P_t1_Pa',     label: 'Inlet total P', type: 'number', default: 101325, unit: 'Pa',   min: 1e4, max: 5e6,  step: 1000 },
+      { name: 'rpm',         label: 'Shaft speed',   type: 'number', default: 8000,   unit: 'RPM',  min: 1000, max: 30000, step: 100 },
+      { name: 'r_tip_m',     label: 'Tip radius',    type: 'number', default: 0.6,    unit: 'm',    min: 0.05, max: 1.5,  step: 0.01 },
+      { name: 'hubToTip',    label: 'Hub-to-tip',    type: 'number', default: 0.45,   unit: '',     min: 0.2,  max: 0.95, step: 0.01 },
+      { name: 'axialMach1',  label: 'Inlet axial M', type: 'number', default: 0.5,    unit: 'M',    min: 0.3,  max: 0.7,  step: 0.01 },
+      { name: 'deltaTtotal_K', label: 'ΔT_t per stage', type: 'number', default: 25, unit: 'K',    min: 5,    max: 60,   step: 1 },
+      { name: 'polytropicEff', label: 'η_poly',     type: 'number', default: 0.90,    unit: '',     min: 0.7,  max: 0.97, step: 0.01 },
+    ],
+  },
+
+  'Combustor': {
+    title: 'Annular Combustor — Sizing Inputs',
+    blurb: 'Lefebvre rules. Defaults match a 25 kg/s engine cruise design point.',
+    fields: [
+      { name: 'massFlowKgS',     label: 'Core flow',         type: 'number', default: 25,   unit: 'kg/s', min: 5,    max: 500,  step: 1 },
+      { name: 'T_t3_K',          label: 'Inlet T (post-HPC)', type: 'number', default: 850, unit: 'K',    min: 500,  max: 1200, step: 10 },
+      { name: 'P_t3_Pa',         label: 'Inlet P',            type: 'number', default: 3.7e6, unit: 'Pa', min: 5e5,  max: 1e7,  step: 1e5 },
+      { name: 'T_t4_K',          label: 'Target TIT',         type: 'number', default: 1750, unit: 'K',  min: 1300, max: 2100, step: 10 },
+      { name: 'residenceTime_ms', label: 'Residence time',    type: 'number', default: 10,   unit: 'ms', min: 2,    max: 50,   step: 1 },
+    ],
+  },
+
+  // ─── STRUCTURAL ──────────────────────────────────────────
+  'Linear Static FEA': {
+    title: 'Linear Static FEA — Cantilever Inputs',
+    blurb: 'Quad-tet Mirtich-validated cantilever solver. Defaults: 100×10×10 mm Al-6061 beam, 100 N tip load.',
+    fields: [
+      { name: 'L_mm',      label: 'Length',         type: 'number', default: 100, unit: 'mm',  min: 10,  max: 5000, step: 1 },
+      { name: 'b_mm',      label: 'Width',          type: 'number', default: 10,  unit: 'mm',  min: 1,   max: 500,  step: 1 },
+      { name: 'h_mm',      label: 'Height',         type: 'number', default: 10,  unit: 'mm',  min: 1,   max: 500,  step: 1 },
+      { name: 'P_N',       label: 'Tip load',       type: 'number', default: 100, unit: 'N',   min: 1,   max: 1e6,  step: 1 },
+      { name: 'E_MPa',     label: 'E',              type: 'number', default: 68900, unit: 'MPa', min: 1000, max: 500000, step: 1000 },
+      { name: 'nu',        label: 'Poisson ν',      type: 'number', default: 0.33, unit: '',   min: 0,    max: 0.49, step: 0.01 },
+      { name: 'yield_MPa', label: 'Yield strength', type: 'number', default: 276, unit: 'MPa', min: 50,   max: 3000, step: 10 },
+    ],
+  },
+
+  'Fatigue Analysis': {
+    title: 'Fatigue Analysis — Goodman + Basquin Inputs',
+    blurb: 'Defaults: AISI 4340 fully-reversed bending (σ = ±400 MPa), surface ground (k_a=0.93), R=90 %.',
+    fields: [
+      { name: 'sigmaMax',         label: 'σ_max',           type: 'number', default: 400,  unit: 'MPa', min: -2000, max: 2000, step: 5 },
+      { name: 'sigmaMin',         label: 'σ_min',           type: 'number', default: -400, unit: 'MPa', min: -2000, max: 2000, step: 5 },
+      { name: 'materialName',     label: 'Material key',    type: 'string', default: '4340',                                                hint: 'lookup key in MaterialDB' },
+      { name: 'surfaceFinish',    label: 'k_a (surface)',   type: 'number', default: 0.93, unit: '',    min: 0.5,   max: 1.0,  step: 0.01 },
+      { name: 'size',             label: 'k_b (size)',      type: 'number', default: 1.0,  unit: '',    min: 0.6,   max: 1.0,  step: 0.01 },
+      { name: 'load',             label: 'k_c (load type)', type: 'number', default: 1.0,  unit: '',    min: 0.5,   max: 1.0,  step: 0.01 },
+      { name: 'temperature',      label: 'k_d (temp)',      type: 'number', default: 1.0,  unit: '',    min: 0.5,   max: 1.0,  step: 0.01 },
+      { name: 'reliability',      label: 'k_e (R)',         type: 'number', default: 0.897, unit: '',   min: 0.5,   max: 1.0,  step: 0.001 },
+    ],
+  },
+
+  'Rotordynamics': {
+    title: 'Rotordynamics — Shaft + Disk Inputs',
+    blurb: 'Defaults: steel Ø30 × 600 mm shaft, mid-span 5 kg disk, simply-supported.',
+    fields: [
+      { name: 'length_mm',   label: 'Shaft length',  type: 'number', default: 600,  unit: 'mm',     min: 50,   max: 5000, step: 5 },
+      { name: 'diameter_mm', label: 'Shaft Ø',       type: 'number', default: 30,   unit: 'mm',     min: 5,    max: 500,  step: 1 },
+      { name: 'E_MPa',       label: 'E',             type: 'number', default: 200000, unit: 'MPa',  min: 50000, max: 500000, step: 1000 },
+      { name: 'density_g_per_mm3', label: 'ρ',       type: 'number', default: 7.85e-6, unit: 'g/mm³', min: 1e-6, max: 2e-5, step: 1e-7 },
+      { name: 'disk_mass_kg', label: 'Mid-disk mass', type: 'number', default: 5.0,  unit: 'kg',    min: 0.1,   max: 200,  step: 0.1 },
+      { name: 'disk_position_mm', label: 'Disk position', type: 'number', default: 300, unit: 'mm', min: 1,    max: 5000, step: 1 },
+      { name: 'numModes',    label: '# modes',       type: 'number', default: 4,    unit: '',       min: 1,     max: 12,   step: 1 },
+    ],
+  },
+
+  'Bearing Life': {
+    title: 'Bearing Life — Lundberg-Palmgren Inputs',
+    blurb: 'Defaults: SKF 6210-class deep-groove ball bearing, 4 kN radial + 2 kN axial @ 1700 RPM.',
+    fields: [
+      { name: 'Fr_kN',  label: 'Radial load',  type: 'number', default: 4,    unit: 'kN', min: 0,   max: 1000, step: 0.1 },
+      { name: 'Fa_kN',  label: 'Axial load',   type: 'number', default: 2,    unit: 'kN', min: 0,   max: 1000, step: 0.1 },
+      { name: 'C_kN',   label: 'C (dynamic)',  type: 'number', default: 35.1, unit: 'kN', min: 1,   max: 5000, step: 0.1 },
+      { name: 'C0_kN',  label: 'C₀ (static)',  type: 'number', default: 23.2, unit: 'kN', min: 1,   max: 5000, step: 0.1 },
+      { name: 'rpm',    label: 'Shaft speed',  type: 'number', default: 1700, unit: 'RPM', min: 10, max: 200000, step: 10 },
+      { name: 'type',   label: 'Element type', type: 'string', default: 'ball', hint: 'ball | roller' },
+    ],
+  },
+
+  'Gear Mesh': {
+    title: 'Gear Mesh — AGMA Inputs',
+    blurb: 'Defaults: Shigley Ex 14-4 spur pinion (17 T, m=6 mm, F=75 mm, 1.5 kW @ 1750 RPM).',
+    fields: [
+      { name: 'teeth',         label: '# teeth',         type: 'number', default: 17,   unit: '',    min: 8,    max: 200,  step: 1 },
+      { name: 'module_mm',     label: 'Module',          type: 'number', default: 6,    unit: 'mm',  min: 0.5,  max: 30,   step: 0.25 },
+      { name: 'faceWidth_mm',  label: 'Face width',      type: 'number', default: 75,   unit: 'mm',  min: 5,    max: 500,  step: 1 },
+      { name: 'power_W',       label: 'Power',           type: 'number', default: 1500, unit: 'W',   min: 10,   max: 1e6,  step: 10 },
+      { name: 'rpm',           label: 'Pinion speed',    type: 'number', default: 1750, unit: 'RPM', min: 10,   max: 50000, step: 10 },
+      { name: 'J',             label: 'AGMA J (bend)',   type: 'number', default: 0.31, unit: '',    min: 0.1,  max: 0.6,  step: 0.01 },
+      { name: 'I',             label: 'AGMA I (cont.)',  type: 'number', default: 0.10, unit: '',    min: 0.05, max: 0.30, step: 0.01 },
+      { name: 'allowable_bending_MPa',  label: 'σ_bending limit', type: 'number', default: 250,  unit: 'MPa', min: 50,   max: 1500, step: 10 },
+      { name: 'allowable_contact_MPa',  label: 'σ_contact limit', type: 'number', default: 1100, unit: 'MPa', min: 100,  max: 3000, step: 10 },
+    ],
+  },
+
+  'Shaft Sizing': {
+    title: 'Shaft Sizing — DE-Goodman / ASME Elliptic',
+    blurb: 'Defaults: AISI 1050 CD shaft, M=70 N·m reversed bending + T=45 N·m steady torque, n=1.5.',
+    fields: [
+      { name: 'M_Nm',    label: 'Bending moment', type: 'number', default: 70,  unit: 'N·m', min: 0,   max: 1e6, step: 1 },
+      { name: 'T_Nm',    label: 'Torque',         type: 'number', default: 45,  unit: 'N·m', min: 0,   max: 1e6, step: 1 },
+      { name: 'Sut_MPa', label: 'S_ut',           type: 'number', default: 690, unit: 'MPa', min: 100, max: 3000, step: 10 },
+      { name: 'Sy_MPa',  label: 'S_y',            type: 'number', default: 580, unit: 'MPa', min: 50,  max: 3000, step: 10 },
+      { name: 'Se_MPa',  label: 'S_e (Marin)',    type: 'number', default: 276, unit: 'MPa', min: 30,  max: 2000, step: 10 },
+      { name: 'n',       label: 'Design SF',      type: 'number', default: 1.5, unit: '',    min: 1,   max: 5,    step: 0.1 },
+      { name: 'Kf',      label: 'K_f (bend)',     type: 'number', default: 1.6, unit: '',    min: 1,   max: 4,    step: 0.05 },
+      { name: 'Kfs',     label: 'K_fs (torsion)', type: 'number', default: 1.3, unit: '',    min: 1,   max: 4,    step: 0.05 },
+    ],
+  },
+
+  'Bolted Joint': {
+    title: 'Bolted Joint — Wileman Stiffness + Goodman',
+    blurb: 'Defaults: M10×1.5 grade 8.8, 25 mm grip, 6 kN external load, 75 % preload.',
+    fields: [
+      { name: 'boltSize',         label: 'Bolt size',         type: 'string', default: 'M10',  hint: 'M5 | M6 | M8 | M10 | M12 | M16 | M20' },
+      { name: 'grade',            label: 'Grade',             type: 'string', default: '8.8',   hint: '4.6 | 5.8 | 8.8 | 10.9 | 12.9' },
+      { name: 'grip_mm',          label: 'Grip length',       type: 'number', default: 25,  unit: 'mm',  min: 1,   max: 500, step: 1 },
+      { name: 'P_ext_N',          label: 'External load',     type: 'number', default: 6000, unit: 'N',  min: 0,   max: 1e6, step: 10 },
+      { name: 'preloadFraction',  label: 'Preload fraction',  type: 'number', default: 0.75, unit: '',   min: 0.3, max: 0.9, step: 0.01 },
+    ],
+  },
+
+  'Spring Design': {
+    title: 'Helical Spring — Wahl Stress + Sines Fatigue',
+    blurb: 'Defaults: music-wire d=2 mm, D=20 mm, 14 active coils, 0–20 N load.',
+    fields: [
+      { name: 'd_mm',     label: 'Wire Ø',          type: 'number', default: 2,  unit: 'mm', min: 0.1, max: 50,  step: 0.05 },
+      { name: 'D_mm',     label: 'Coil mean Ø',     type: 'number', default: 20, unit: 'mm', min: 1,   max: 500, step: 0.5 },
+      { name: 'N_active', label: 'Active coils',    type: 'number', default: 14, unit: '',   min: 2,   max: 100, step: 1 },
+      { name: 'F_min_N',  label: 'F_min',           type: 'number', default: 0,  unit: 'N',  min: -1e5, max: 1e5, step: 1 },
+      { name: 'F_max_N',  label: 'F_max',           type: 'number', default: 20, unit: 'N',  min: -1e5, max: 1e5, step: 1 },
+      { name: 'material', label: 'Material key',    type: 'string', default: 'music_wire_A228', hint: 'music_wire_A228 | hard_drawn_A227 | chrome_silicon_A401' },
+      { name: 'ends',     label: 'End condition',   type: 'string', default: 'closed_ground',   hint: 'plain | plain_ground | closed | closed_ground' },
+    ],
+  },
+
+  'Pressure Vessel': {
+    title: 'Pressure Vessel — ASME BPVC Inputs',
+    blurb: 'Defaults: P=1 MPa, R=200 mm, t=5 mm; ASME with S=138 MPa, E=0.85, CA=1.5 mm.',
+    fields: [
+      { name: 'P_MPa',                label: 'Design pressure', type: 'number', default: 1,    unit: 'MPa', min: 0.01, max: 200, step: 0.1 },
+      { name: 'r_inner_mm',           label: 'Inner radius',    type: 'number', default: 200,  unit: 'mm',  min: 5,    max: 5000, step: 1 },
+      { name: 't_mm',                 label: 'Wall thickness',  type: 'number', default: 5,    unit: 'mm',  min: 0.5,  max: 200,  step: 0.5 },
+      { name: 'allowableStress_MPa',  label: 'Allowable stress S', type: 'number', default: 138, unit: 'MPa', min: 30,  max: 1000, step: 5 },
+      { name: 'jointEfficiency',      label: 'Joint efficiency E', type: 'number', default: 0.85, unit: '',   min: 0.5, max: 1.0,  step: 0.05 },
+      { name: 'corrosionAllowance_mm', label: 'Corrosion allowance', type: 'number', default: 1.5, unit: 'mm', min: 0,  max: 20,   step: 0.5 },
+    ],
+  },
+
+  'Stress Concentration': {
+    title: 'Stress Concentration — Peterson Curves',
+    blurb: 'Defaults: shoulder D/d=2, r/d=0.1, hole d/W=0.3, notch r=2 mm in 4340 (S_ut = 1280 MPa).',
+    fields: [
+      { name: 'D_over_d',        label: 'Shoulder D/d',  type: 'number', default: 2.0, unit: '', min: 1.05, max: 5.0, step: 0.05 },
+      { name: 'r_over_d',        label: 'Shoulder r/d',  type: 'number', default: 0.1, unit: '', min: 0.01, max: 1.0, step: 0.01 },
+      { name: 'hole_d_over_W',   label: 'Plate hole d/W', type: 'number', default: 0.3, unit: '', min: 0.05, max: 0.8, step: 0.05 },
+      { name: 'notch_radius_mm', label: 'Notch radius',  type: 'number', default: 2,   unit: 'mm', min: 0.1, max: 20,   step: 0.1 },
+      { name: 'Sut_MPa',         label: 'S_ut',          type: 'number', default: 1280, unit: 'MPa', min: 200, max: 3000, step: 10 },
+    ],
+  },
+
+  'Forced Vibration': {
+    title: 'Forced Vibration — SDOF FRF',
+    blurb: 'Defaults: m=5 kg, k=1000 N/m, ζ=0.05; peak D at resonance = 1/(2ζ) = 10.',
+    fields: [
+      { name: 'm_kg',       label: 'Mass',         type: 'number', default: 5,    unit: 'kg',    min: 0.01, max: 1e5, step: 0.1 },
+      { name: 'k_N_per_m',  label: 'Stiffness',    type: 'number', default: 1000, unit: 'N/m',   min: 1,    max: 1e9,  step: 10 },
+      { name: 'zeta',       label: 'Damping ratio', type: 'number', default: 0.05, unit: '',     min: 0.001, max: 0.5,  step: 0.005 },
+      { name: 'F0_N',       label: 'Forcing amp',  type: 'number', default: 10,   unit: 'N',     min: 0.01, max: 1e6,  step: 0.1 },
+    ],
+  },
+
+  'Blade Cooling': {
+    title: 'HPT Blade Cooling — Inputs',
+    blurb: 'Thermal-resistance model. Defaults: CMSX-4 + 0.3 mm YSZ TBC at T_gas = 1750 K.',
+    fields: [
+      { name: 'T_gas_K',     label: 'Gas T',         type: 'number', default: 1750, unit: 'K', min: 1200, max: 2100, step: 10 },
+      { name: 'T_coolant_K', label: 'Coolant T',     type: 'number', default: 800,  unit: 'K', min: 500,  max: 1000, step: 10 },
+      { name: 't_metal_m',   label: 'Metal thickness', type: 'number', default: 0.0015, unit: 'm', min: 0.0005, max: 0.005, step: 0.0001 },
+      { name: 'k_metal',     label: 'k_metal',       type: 'number', default: 24,   unit: 'W/m·K', min: 5,  max: 50, step: 1 },
+      { name: 't_TBC_m',     label: 'TBC thickness', type: 'number', default: 0.0003, unit: 'm', min: 0, max: 0.001, step: 0.00005 },
+      { name: 'k_TBC',       label: 'k_TBC',         type: 'number', default: 1.0,  unit: 'W/m·K', min: 0.3, max: 3, step: 0.1 },
+    ],
+  },
+
+  // ─── GEOMETRY (parametric — orchestration plans drive these) ──────
+  // Plans may also pass non-dialog params: Extrude Boss `profile`,
+  // Revolve Boss `profile`, the pattern tools `axis`/`useCurrentBody`.
+  'Extrude Boss': {
+    title: 'Extrude Boss — Inputs',
+    blurb: 'Extrude a rectangular profile. Defaults: 80×50 mm × 25 mm box.',
+    fields: [
+      { name: 'width',  label: 'Width',  type: 'number', default: 80, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'depth',  label: 'Depth',  type: 'number', default: 50, unit: 'mm', min: 1, max: 5000, step: 1 },
+      { name: 'height', label: 'Height', type: 'number', default: 25, unit: 'mm', min: 1, max: 5000, step: 1 },
+    ],
+  },
+
+  // ─── UX TIER 11D — BOOLEAN-INSIDE-EXTRUDE (NX takeaway #104) ──────────────
+  //
+  // NX collapses ArchDisc's previously-separate Extrude Boss + Extrude Cut
+  // ribbon tools into ONE `Extrude` tool with a Boolean toggle at the top of
+  // the dialog (None / Unite / Subtract / Intersect). The default boolean
+  // mode is `'none'` for a brand-new body; when the user has an existing
+  // body in the scene the handler auto-detects and switches the dock
+  // default to `'unite'` (NX's "use the target body" inference).
+  //
+  // The kernel ops themselves are unchanged — Tier-11d is a pure UX
+  // consolidation that dispatches to the existing foundation extrude +
+  // manifold boolean ops based on the picked boolean mode. The legacy
+  // `Extrude Boss` + `Extrude Cut` ribbon entries are kept as
+  // deprecated/hidden direct-access buttons for one release cycle so
+  // existing integration specs + AI plans keep working unchanged.
+  //
+  //   boolean='none'      → extrude + add as a new body (Boss behaviour).
+  //   boolean='unite'     → extrude + fuse with the current target body.
+  //   boolean='subtract'  → extrude + cut from the current target body (Cut).
+  //   boolean='intersect' → extrude + common with the current target body.
+  //
+  // The dialog renders every field; the handler reads only the relevant
+  // subset based on `boolean`. Hints document which mode each field
+  // applies to.
+  'Extrude': {
+    title: 'Extrude — Inputs (NX-unified Boss + Cut)',
+    blurb: 'NX-style unified Extrude. Pick a Boolean mode (None=new body / Unite=fuse / Subtract=cut / Intersect=common); the handler reads the depth + draft fields and dispatches to the existing foundation extrude + manifold boolean ops. Default boolean=none for new bodies; auto-flips to `unite` when an existing target body is selected (NX behaviour). The rectangular profile defaults can be overridden by an orchestration plan via `profile` (closed wire pts) for arbitrary shapes.',
+    fields: [
+      { name: 'boolean',    label: 'Boolean',       type: 'enum',   default: 'none',
+        options: ['none', 'unite', 'subtract', 'intersect'],
+        hint: 'none=add as new body; unite=fuse with target; subtract=cut from target; intersect=common with target. Default auto-flips to unite when a target body is selected.' },
+      { name: 'width',      label: 'Width',         type: 'number', default: 80, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'rect profile X extent (centred on origin); ignored if `profile` param supplies an explicit closed wire' },
+      { name: 'depth',      label: 'Depth (Y)',     type: 'number', default: 50, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'rect profile Y extent (centred on origin); ignored if `profile` param supplies an explicit closed wire' },
+      { name: 'distance',   label: 'Distance (Z)',  type: 'number', default: 25, unit: 'mm', min: 0.1, max: 5000, step: 1,    hint: 'extrude depth along the direction vector — the NX "Distance" field' },
+      // UX Tier-12a — direction is now the universal Specify Vector picker
+      // (NX takeaway #117). Backward compat: the dialog commit path also
+      // emits dirX / dirY / dirZ from the picker's x/y/z so the existing
+      // foundation Extrude handler (which reads `values.dirX/dirY/dirZ`)
+      // keeps working unchanged.
+      { name: 'direction',  label: 'Direction',     type: 'vector',
+        default: { mode: 'csys', x: 0, y: 0, z: 1, csysAxis: '+Z' },
+        legacyKeys: { x: 'dirX', y: 'dirY', z: 'dirZ' },
+        hint: 'CSYS axis / custom vector / sketch line / face normal. Default +Z.' },
+      { name: 'draft',      label: 'Draft angle',   type: 'number', default: 0,  unit: 'deg', min: -30, max: 30,  step: 0.5,  hint: 'per-side taper angle (NX "Draft" field); 0 = straight prism. Positive = outward taper, negative = inward' },
+      { name: 'posX',       label: 'Position X',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1,  hint: 'translates the resulting prism before the boolean (NX positions the Section against the target body via the sketch plane offset)' },
+      { name: 'posY',       label: 'Position Y',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'posZ',       label: 'Position Z',    type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 1 },
+    ],
+  },
+  'Revolve Boss': {
+    title: 'Revolve Boss — Inputs',
+    blurb: 'Revolve a (radius,height) profile 360°. Defaults: stepped shaft.',
+    fields: [
+      { name: 'revolveSegs', label: 'Revolution segments', type: 'number', default: 64, unit: '', min: 8, max: 256, step: 8 },
+    ],
+  },
+  'Linear Pattern': {
+    title: 'Linear Pattern — Inputs',
+    blurb: 'N copies of a seed body along an axis. Defaults: 4× Ø6×15 mm @ 20 mm along +X.',
+    fields: [
+      { name: 'count',      label: 'Count',       type: 'number', default: 4,  unit: '',  min: 1, max: 200, step: 1 },
+      { name: 'spacing',    label: 'Spacing',     type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+      // UX Tier-12a — direction is now the universal Specify Vector picker.
+      // legacyKeys writes the picker's x/y/z into dirX/dirY/dirZ for any
+      // caller that still reads the individual components; the handler
+      // itself prefers `values.direction.x/y/z` (or falls back to
+      // legacy `values.axis` array shape for AI-plan callers).
+      { name: 'direction',  label: 'Direction',   type: 'vector',
+        default: { mode: 'csys', x: 1, y: 0, z: 0, csysAxis: '+X' },
+        legacyKeys: { x: 'dirX', y: 'dirY', z: 'dirZ' },
+        hint: 'Axis the N copies sit along — CSYS axis / custom vector / sketch line / face normal. Default +X.' },
+      { name: 'seedRadius', label: 'Seed radius', type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 1000, step: 0.5 },
+      { name: 'seedHeight', label: 'Seed height', type: 'number', default: 15, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+    ],
+  },
+  'Circular Pattern': {
+    title: 'Circular Pattern — Inputs',
+    blurb: 'N copies around an axis. Defaults: 6 fins around +Z at R=20 mm.',
+    fields: [
+      { name: 'count',  label: 'Count',  type: 'number', default: 6,  unit: '',  min: 1, max: 400, step: 1 },
+      { name: 'radius', label: 'Radius', type: 'number', default: 20, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+    ],
+  },
+
+  // ─── UX TIER 11C — UNIFIED PATTERN FEATURE (NX takeaway #2) ────────────────
+  //
+  // NX consolidates Linear / Circular / Curve-Driven / Sketch-Driven / etc.
+  // into ONE "Pattern Feature" tool with a Layout selector at the top of
+  // the dialog. ArchDisc previously shipped Linear Pattern + Circular
+  // Pattern as separate ribbon entries; this unified schema replaces them
+  // on the ribbon while leaving the kernel ops (and the underlying
+  // 'Linear Pattern' / 'Circular Pattern' handlers) intact for backward
+  // compatibility with AI plans + direct API callers.
+  //
+  // Fields are listed for every layout; the handler reads only the
+  // relevant subset based on `layout`. The dialog renders every field
+  // (no conditional rendering in the schema layer) — hints document which
+  // layout each field applies to so the user can ignore the rest.
+  //
+  //   layout='linear'   → uses dirX/Y/Z + count + spacing
+  //   layout='circular' → uses axisX/Y/Z + count + angle
+  //   layout='polygon'  → uses axisX/Y/Z + count + polygonRadius + startAngle
+  //                       (implemented as N circular-pattern instances at
+  //                        equal angular increments on a circle of
+  //                        radius=polygonRadius)
+  //
+  // Queued (not yet implemented; will surface as the 'sketchDriven' and
+  // 'reference' layouts in a follow-up): NX-style sketch-driven pattern
+  // (place instances at each point in a driver sketch) + reference pattern
+  // (pattern-of-a-pattern propagating the seed of another feature).
+  'Pattern': {
+    title: 'Pattern Feature — Unified Layouts',
+    blurb: 'NX-style unified Pattern Feature. Pick a layout (linear / circular / polygon); the handler reads only the relevant fields. Pattern of the currently-selected foundation body (useCurrentBody=true) OR a default Ø6×15 mm seed cylinder.',
+    fields: [
+      { name: 'layout',         label: 'Layout',                type: 'enum',   default: 'linear',
+        options: ['linear', 'circular', 'polygon'],
+        hint: 'linear=along a direction; circular=around an axis; polygon=N copies at equal angles on a circle of polygonRadius. sketchDriven + reference queued for a follow-up.' },
+      { name: 'count',          label: 'Count',                 type: 'number', default: 4,   unit: '',   min: 1,    max: 400,  step: 1 },
+      // ─ linear-layout inputs
+      { name: 'spacing',        label: 'Spacing (linear)',      type: 'number', default: 20,  unit: 'mm', min: 0.1,  max: 5000, step: 1,    hint: 'linear layout only — distance between adjacent copies along the direction vector' },
+      { name: 'dirX',           label: 'Direction X (linear)',  type: 'number', default: 1,   unit: '',   min: -1,   max: 1,    step: 0.05, hint: 'linear layout only — unit vector; default (1,0,0) = +X' },
+      { name: 'dirY',           label: 'Direction Y (linear)',  type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      { name: 'dirZ',           label: 'Direction Z (linear)',  type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      // ─ circular / polygon shared axis
+      { name: 'axisX',          label: 'Axis X (circ/poly)',    type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05, hint: 'circular + polygon — rotation axis through origin; default (0,0,1) = +Z' },
+      { name: 'axisY',          label: 'Axis Y (circ/poly)',    type: 'number', default: 0,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      { name: 'axisZ',          label: 'Axis Z (circ/poly)',    type: 'number', default: 1,   unit: '',   min: -1,   max: 1,    step: 0.05 },
+      // ─ circular-layout inputs
+      { name: 'angle',          label: 'Total angle (circular)',type: 'number', default: 360, unit: 'deg', min: 1,   max: 360,  step: 1,    hint: 'circular layout only — sweep angle of the N copies; 360 = full revolution' },
+      { name: 'radius',         label: 'Radius (circular)',     type: 'number', default: 20,  unit: 'mm', min: 0.1,  max: 5000, step: 1,    hint: 'circular layout only — seed offset from axis; ignored if useCurrentBody=true' },
+      // ─ polygon-layout inputs
+      { name: 'polygonRadius',  label: 'Radius (polygon)',      type: 'number', default: 30,  unit: 'mm', min: 0.1,  max: 5000, step: 1,    hint: 'polygon layout only — circle radius on which the N copies sit' },
+      { name: 'startAngle',     label: 'Start angle (polygon)', type: 'number', default: 0,   unit: 'deg', min: -360, max: 360, step: 1,    hint: 'polygon layout only — angular offset of the first copy' },
+    ],
+  },
+
+  'Impact Simulation': {
+    title: 'Impact Simulation — Explicit Dynamics',
+    blurb: 'Mass-spring transient impact. Defaults: a 1.8 kg bird-strike-class impact at 90 m/s.',
+    fields: [
+      { name: 'gridN',          label: 'Panel grid (N×N)', type: 'number', default: 11,  unit: '',    min: 5, max: 25, step: 2 },
+      { name: 'panelSize_mm',   label: 'Panel size',       type: 'number', default: 220, unit: 'mm',  min: 50, max: 2000, step: 10 },
+      { name: 'stiffness',      label: 'Spring stiffness', type: 'number', default: 9000, unit: 'N/m', min: 500, max: 1e5, step: 500 },
+      { name: 'nodeMass',       label: 'Node mass',        type: 'number', default: 0.05, unit: 'kg',  min: 0.005, max: 1, step: 0.005 },
+      { name: 'breakStrain',    label: 'Spring break strain', type: 'number', default: 0.25, unit: '', min: 0.05, max: 1, step: 0.05 },
+      { name: 'impactSpeed_ms', label: 'Impact speed',     type: 'number', default: 90,  unit: 'm/s', min: 1, max: 400, step: 5 },
+      { name: 'impactorMass_kg', label: 'Impactor mass',   type: 'number', default: 1.8, unit: 'kg',  min: 0.05, max: 50, step: 0.05 },
+      { name: 'damping',        label: 'Viscous damping',  type: 'number', default: 1.5, unit: 'N·s/m', min: 0, max: 20, step: 0.5 },
+    ],
+  },
+  'Blade Row': {
+    title: 'Blade Row — Turbomachinery',
+    blurb: 'A ring of lofted, twisted aerofoils. The same tool builds a fan, compressor or turbine row.',
+    fields: [
+      { name: 'count',      label: 'Blade count', type: 'number', default: 24,  unit: '',  min: 2, max: 200, step: 1 },
+      { name: 'rHub',       label: 'Hub radius',  type: 'number', default: 100, unit: 'mm', min: 5, max: 3000, step: 5 },
+      { name: 'rTip',       label: 'Tip radius',  type: 'number', default: 300, unit: 'mm', min: 10, max: 3000, step: 5 },
+      { name: 'xMid',       label: 'Axial position', type: 'number', default: 0, unit: 'mm', min: -10000, max: 10000, step: 10 },
+      { name: 'chordHub',   label: 'Hub chord',   type: 'number', default: 80,  unit: 'mm', min: 2, max: 1000, step: 1 },
+      { name: 'chordTip',   label: 'Tip chord',   type: 'number', default: 60,  unit: 'mm', min: 2, max: 1000, step: 1 },
+      { name: 'thickRatio', label: 'Thickness ratio', type: 'number', default: 0.10, unit: '', min: 0.02, max: 0.3, step: 0.01 },
+      { name: 'staggerHub', label: 'Hub stagger', type: 'number', default: 0.9, unit: 'rad', min: -1.5, max: 1.5, step: 0.05 },
+      { name: 'staggerTip', label: 'Tip stagger', type: 'number', default: 0.4, unit: 'rad', min: -1.5, max: 1.5, step: 0.05 },
+    ],
+  },
+
+  // ─── DRAWING WORKBENCH — UX TIER 8a (Auxiliary / Crop / Broken Views) ────
+  //
+  // Each schema pops a small dialog before generating the corresponding
+  // 2D drawing sheet. The Auxiliary View dialog takes the projection
+  // direction (face-normal); the Crop View dialog takes a rectangle in
+  // paper-space mm; the Broken View dialog takes two break X positions.
+  // Defaults are sane for a generic 100-mm-class part; the in-app handler
+  // also accepts overrides via `window.__archdiscDrawingViewParams` so an
+  // e2e or AI plan can plug in real face-derived numbers.
+  'Auxiliary View': {
+    title: 'Auxiliary View — Project Normal to Face',
+    blurb: 'Generate a drawing view projected perpendicular to a picked face. The face normal is the projection direction.',
+    fields: [
+      { name: 'nx',    label: 'Normal X', type: 'number', default: 1.0, unit: '', min: -10, max: 10, step: 0.05 },
+      { name: 'ny',    label: 'Normal Y', type: 'number', default: 0.0, unit: '', min: -10, max: 10, step: 0.05 },
+      { name: 'nz',    label: 'Normal Z', type: 'number', default: 0.5, unit: '', min: -10, max: 10, step: 0.05, hint: 'Magnitude is irrelevant; direction only' },
+      { name: 'label', label: 'View label', type: 'enum', default: 'A', options: ['A', 'B', 'C', 'D', 'E', 'F'] },
+    ],
+  },
+  'Crop View': {
+    title: 'Crop View — Clip Drawing to Region',
+    blurb: 'Clip the front view to a rectangular boundary in paper-space mm. Use to focus on a detail without generating a separate Detail view.',
+    fields: [
+      { name: 'x', label: 'Crop X (paper mm, from view centre)', type: 'number', default: -25, unit: 'mm', min: -200, max: 200, step: 1 },
+      { name: 'y', label: 'Crop Y (paper mm, from view centre)', type: 'number', default: -20, unit: 'mm', min: -200, max: 200, step: 1 },
+      { name: 'w', label: 'Crop width',  type: 'number', default: 60, unit: 'mm', min: 1, max: 400, step: 1 },
+      { name: 'h', label: 'Crop height', type: 'number', default: 50, unit: 'mm', min: 1, max: 400, step: 1 },
+    ],
+  },
+  'Broken View': {
+    title: 'Broken View — Foreshorten Long Part',
+    blurb: 'Drop a stretch from the middle of the drawing and connect with a zig-zag break line. For long shafts / beams / rods.',
+    fields: [
+      { name: 'breakStartFrac', label: 'Break start (frac. of length)', type: 'number', default: 0.35, unit: '', min: 0.05, max: 0.95, step: 0.05 },
+      { name: 'breakEndFrac',   label: 'Break end (frac. of length)',   type: 'number', default: 0.65, unit: '', min: 0.05, max: 0.95, step: 0.05, hint: 'Must be > start' },
+      { name: 'axis',           label: 'Long axis',                     type: 'enum',   default: 'x',  options: ['x', 'y'] },
+    ],
+  },
+
+  // ─── ASSEMBLY TIER-7a — Standard mates (Parallel / Perpendicular / Tangent / Lock) ──
+  //
+  // Four new SW standard mates that complete the standard-mate set
+  // (Coincident / Distance / Concentric / Angle already exposed). Each is
+  // selection-driven: the user pre-picks two components (or two faces / two
+  // edges of the components) in the viewport, then clicks the mate. The
+  // axis vectors below are GUIDANCE that the handler honours when the
+  // selection doesn't carry an explicit axis — defaults to component Z-axis
+  // (the most common case for cylindrical / face-normal mates).
+  'Parallel Mate': {
+    title: 'Parallel — Standard Assembly Mate',
+    blurb: 'Constrain two faces / edges / axes of two components to be parallel (or anti-parallel). Pre-select TWO components, then click. Removes 2 rotational DOF.',
+    fields: [
+      { name: 'axisAx', label: 'Axis A — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component A (default Z)' },
+      { name: 'axisAy', label: 'Axis A — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisAz', label: 'Axis A — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBx', label: 'Axis B — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component B (default Z)' },
+      { name: 'axisBy', label: 'Axis B — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBz', label: 'Axis B — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'antiparallel', label: 'Anti-parallel', type: 'enum', default: 'no', options: ['no', 'yes'],
+        hint: 'no = vectors point the same way; yes = opposite direction' },
+    ],
+  },
+  'Perpendicular Mate': {
+    title: 'Perpendicular — Standard Assembly Mate',
+    blurb: 'Constrain two faces / edges / axes of two components to be at 90° to each other. Pre-select TWO components, then click. Removes 1 rotational DOF.',
+    fields: [
+      { name: 'axisAx', label: 'Axis A — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component A (default Z)' },
+      { name: 'axisAy', label: 'Axis A — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisAz', label: 'Axis A — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBx', label: 'Axis B — X', type: 'number', default: 0, min: -1, max: 1, step: 0.1, hint: 'Local-frame axis of component B (default Z)' },
+      { name: 'axisBy', label: 'Axis B — Y', type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisBz', label: 'Axis B — Z', type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+    ],
+  },
+  'Tangent Mate': {
+    title: 'Tangent — Standard Assembly Mate',
+    blurb: 'Constrain a point/anchor on component B to touch a cylindrical/spherical surface on component A at radius R. Pre-select TWO components (A = cylinder, B = touching component), then click. Removes 1 DOF.',
+    fields: [
+      { name: 'axisOriginX', label: 'Cyl. axis origin X (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'axisOriginY', label: 'Cyl. axis origin Y (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'axisOriginZ', label: 'Cyl. axis origin Z (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'axisDirX',    label: 'Cyl. axis dir X',  type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisDirY',    label: 'Cyl. axis dir Y',  type: 'number', default: 0, min: -1, max: 1, step: 0.1 },
+      { name: 'axisDirZ',    label: 'Cyl. axis dir Z',  type: 'number', default: 1, min: -1, max: 1, step: 0.1 },
+      { name: 'pointBx',     label: 'Anchor on B — X (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'pointBy',     label: 'Anchor on B — Y (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'pointBz',     label: 'Anchor on B — Z (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 1 },
+      { name: 'radius',      label: 'Cylinder radius',  type: 'number', default: 10, unit: 'mm', min: 0.01, max: 5000, step: 0.5 },
+    ],
+  },
+  'Lock Mate': {
+    title: 'Lock — Standard Assembly Mate',
+    blurb: 'Fully constrain two components in their CURRENT relative position. Pre-select TWO components, then click. Removes all 6 DOF (3 trans + 3 rot) — the two components become a rigid sub-assembly.',
+    fields: [],
+  },
+
+  // ─── ASSEMBLY TIER-7b — Advanced mates (Width / Path / Distance-Limit) ──
+  //
+  // Three SolidWorks-advanced mates that complete the SW advanced-mate
+  // family in ArchDisc. Each contributes a real residual equation +
+  // correct DOF reduction (see kernel MateSolver Tier-7b satisfiers +
+  // foundation KinematicsCore residual helpers):
+  //
+  //   Width          — TAB on partB centred equidistantly between two
+  //                    reference anchors on partA. 1 trans DOF.
+  //   Path           — point on partB lies on a polyline curve in
+  //                    partA's local frame. 2 trans DOF (the two
+  //                    components normal to the local tangent).
+  //   Distance-Limit — distance(A↔B) constrained to [min, max] — slack
+  //                    in range (0 DOF removed), 1 DOF at either clamp.
+  //
+  'Width Mate': {
+    title: 'Width — Advanced Assembly Mate',
+    blurb: 'Centre a TAB on component B equidistantly between two reference faces on component A. Pre-select TWO components, then click. Removes 1 translational DOF along the gap normal.',
+    fields: [
+      { name: 'refA1x', label: 'Ref A1 — X (A-local)', type: 'number', default: -10, unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Left/first reference anchor on component A.' },
+      { name: 'refA1y', label: 'Ref A1 — Y (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'refA1z', label: 'Ref A1 — Z (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'refA2x', label: 'Ref A2 — X (A-local)', type: 'number', default: 10,  unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Right/second reference anchor on component A.' },
+      { name: 'refA2y', label: 'Ref A2 — Y (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'refA2z', label: 'Ref A2 — Z (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'tabBx',  label: 'Tab on B — X (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Centred face / mid-anchor on component B.' },
+      { name: 'tabBy',  label: 'Tab on B — Y (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'tabBz',  label: 'Tab on B — Z (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+    ],
+  },
+  'Path Mate': {
+    title: 'Path — Advanced Assembly Mate',
+    blurb: 'Constrain a point on component B to lie on a path curve in component A\'s local frame. The path is supplied as a polyline (via __archdiscPathMatePath = [[x,y,z], ...] mm in A-local frame, or built from the schema endpoints + segment count). Removes 2 translational DOF; the along-path DOF is free.',
+    fields: [
+      { name: 'startX',   label: 'Path start — X (A-local)', type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'startY',   label: 'Path start — Y (A-local)', type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'startZ',   label: 'Path start — Z (A-local)', type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'endX',     label: 'Path end — X (A-local)',   type: 'number', default: 100,  unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'endY',     label: 'Path end — Y (A-local)',   type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'endZ',     label: 'Path end — Z (A-local)',   type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBx',  label: 'Anchor on B — X (B-local)',type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBy',  label: 'Anchor on B — Y (B-local)',type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBz',  label: 'Anchor on B — Z (B-local)',type: 'number', default: 0,    unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'segments', label: 'Polyline segments',        type: 'number', default: 32,   min: 2, max: 512, step: 1, hint: 'Used when no __archdiscPathMatePath override is set — straight-line samples from start to end.' },
+    ],
+  },
+  'Distance-Limit Mate': {
+    title: 'Distance-Limit — Advanced Assembly Mate',
+    blurb: 'Constrain the distance between two anchors on components A and B to stay within [min, max]. Slack inside the range (0 DOF removed); clamps at either limit (1 DOF removed). Pre-select TWO components, then click.',
+    fields: [
+      { name: 'pointAx', label: 'Anchor A — X (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAy', label: 'Anchor A — Y (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAz', label: 'Anchor A — Z (A-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBx', label: 'Anchor B — X (B-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBy', label: 'Anchor B — Y (B-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBz', label: 'Anchor B — Z (B-local)', type: 'number', default: 0,   unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'minDist', label: 'Min distance', type: 'number', default: 0,   unit: 'mm', min: 0, max: 10000, step: 0.5, hint: 'Lower clamp — distance ≥ this.' },
+      { name: 'maxDist', label: 'Max distance', type: 'number', default: 150, unit: 'mm', min: 0, max: 10000, step: 0.5, hint: 'Upper clamp — distance ≤ this. Set huge to disable the upper limit.' },
+    ],
+  },
+
+  // ─── UX TIER 7c — Mechanical Mates (Gear + Hinge) ────────────────────
+  //
+  // Two mechanical-mate kinds that go beyond geometric constraint into
+  // kinematic coupling:
+  //   - GEAR  : two along-axis rotations coupled by a fixed ratio
+  //             (theta_A * ratio - theta_B === phase mod 2 pi). 1 rotational DOF.
+  //   - HINGE : concentric + coincident-on-axis = 5 DOF removed, leaving
+  //             one rotational DOF about the shared axis, optionally
+  //             clamped by [angleMin, angleMax].
+  //
+  'Gear Mate': {
+    title: 'Gear — Mechanical Assembly Mate',
+    blurb: 'Couple two rotational components by a fixed gear ratio so that theta_A * ratio - theta_B === phase (mod 2 pi). Pre-select TWO components, then click. Removes 1 rotational DOF; translational + perpendicular rotational DOFs remain free. Gear ratio = omega_B / omega_A (so a 2:1 reduction has ratio 0.5; for tooth counts N_A:N_B set ratio = N_A / N_B).',
+    fields: [
+      { name: 'axisAx',    label: 'Axis A — X (A-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',    label: 'Axis A — Y (A-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',    label: 'Axis A — Z (A-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',    label: 'Axis B — X (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',    label: 'Axis B — Y (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',    label: 'Axis B — Z (B-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'gearRatio', label: 'Gear ratio (wB / wA)', type: 'number', default: 1, min: -100, max: 100, step: 0.01, hint: 'Positive ratio = same direction; negative = belt reverse direction.' },
+      { name: 'phase',     label: 'Phase offset', type: 'number', default: 0, unit: 'rad', min: -100, max: 100, step: 0.01, hint: 'Set the relative phase at theta_A = 0.' },
+    ],
+  },
+  'Hinge Mate': {
+    title: 'Hinge — Mechanical Assembly Mate',
+    blurb: 'Single rotational DOF about a shared axis — equivalent to concentric + coincident-along-axis (5 DOF removed). Optional angle limits clamp the remaining hinge angle. Pre-select TWO components, then click.',
+    fields: [
+      { name: 'axisOriginAx', label: 'Pivot A — X (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy', label: 'Pivot A — Y (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz', label: 'Pivot A — Z (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisDirAx',    label: 'Hinge axis A — X',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAy',    label: 'Hinge axis A — Y',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAz',    label: 'Hinge axis A — Z',     type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginBx', label: 'Pivot B — X (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginBy', label: 'Pivot B — Y (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginBz', label: 'Pivot B — Z (B-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisDirBx',    label: 'Hinge axis B — X',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirBy',    label: 'Hinge axis B — Y',     type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirBz',    label: 'Hinge axis B — Z',     type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'angleMin',     label: 'Angle min',            type: 'number', default: -180, unit: 'deg', min: -3600, max: 3600, step: 1, hint: 'Lower angle clamp (deg). Set -3600 for free spin in the negative direction.' },
+      { name: 'angleMax',     label: 'Angle max',            type: 'number', default: 180,  unit: 'deg', min: -3600, max: 3600, step: 1, hint: 'Upper angle clamp (deg). Set +3600 for free spin in the positive direction.' },
+    ],
+  },
+  // ─── UX TIER 7c-rest — Screw + Rack-Pinion mechanical mates ──────────
+  //
+  // Both couple a rotational coordinate to a translational coordinate by a
+  // single scalar parameter — Screw uses `pitch` (mm/rev) and divides by
+  // 2π so one full turn advances by `pitch`; Rack-Pinion uses
+  // `pinionRadius` (mm) directly so θ rad of pinion rotation moves the
+  // rack by R·θ mm (rolling-without-slipping). Each removes 1 DOF.
+  //
+  'Screw Mate': {
+    title: 'Screw — Mechanical Assembly Mate',
+    blurb: 'Couple a rotation of part A about its axis to a translation of part B along the same axis by `pitch` (mm/rev). Real leadscrew / CNC linear-stage kinematics — one full revolution advances the carriage by `pitch` mm. Pre-select TWO components, then click. Removes 1 DOF. Handedness toggle: Right-hand (default) vs Left-hand reverses the coupling sign.',
+    fields: [
+      { name: 'axisAx',         label: 'Axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',         label: 'Axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',         label: 'Axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',         label: 'Axis B — X (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',         label: 'Axis B — Y (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',         label: 'Axis B — Z (B-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginAx',   label: 'Axis origin A — X',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy',   label: 'Axis origin A — Y',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz',   label: 'Axis origin A — Z',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pitch',          label: 'Pitch',                 type: 'number', default: 2, unit: 'mm/rev', min: -50, max: 50, step: 0.01, hint: 'Lead per revolution. One full turn of A advances B by `pitch` mm.' },
+      { name: 'handedness',     label: 'Handedness',            type: 'enum',   default: 'right', options: ['right', 'left'], hint: 'Right-hand thread (default) vs left-hand reverses the rotation-to-translation direction.' },
+    ],
+  },
+  'Rack-Pinion Mate': {
+    title: 'Rack-Pinion — Mechanical Assembly Mate',
+    blurb: 'Couple a rotation of pinion (part A) about its axis to a translation of rack (part B) along the tangent line by `pinionRadius`. Rolling-without-slipping kinematics: θ rad of pinion rotation advances the rack by R·θ mm. Pre-select pinion then rack, then click. Removes 1 DOF.',
+    fields: [
+      { name: 'axisAx',         label: 'Pinion axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',         label: 'Pinion axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',         label: 'Pinion axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',         label: 'Rack tangent B — X (B-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',         label: 'Rack tangent B — Y (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',         label: 'Rack tangent B — Z (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginAx',   label: 'Pinion axis origin — X',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy',   label: 'Pinion axis origin — Y',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz',   label: 'Pinion axis origin — Z',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pinionRadius',   label: 'Pinion pitch radius',          type: 'number', default: 10, unit: 'mm', min: -500, max: 500, step: 0.1, hint: 'Pitch radius of the pinion. θ rad of rotation moves the rack by R·θ mm. Negative = rack on the opposite side (reverses direction).' },
+    ],
+  },
+
+  // ─── UX TIER 7c-final — Cam + Universal-Joint mechanical mates (6/6) ───
+  //
+  // Cam — point-on-cam-surface contact. The follower's contact point stays
+  // on the cam profile (the cam's perimeter polyline in its rotating frame).
+  // As the cam rotates, the follower translates radially. Schema drives:
+  //   - cam rotation axis (local-frame direction)
+  //   - cam profile shape (enum: ellipse / circle / heart; semi-axes in mm)
+  //   - profile-sample count (resolution of the polyline)
+  //   - follower contact point (B-local, mm)
+  //   - follower translation axis (local-frame direction)
+  // Profile polyline is generated procedurally from the shape parameters in
+  // the ToolExecutionEngine handler so the schema stays user-friendly.
+  //
+  // Universal-Joint — velocity-coupling between two non-collinear shafts
+  // through a cross-pin at angle `crossAngle` (the misalignment angle
+  // between the input and output shafts; default 90° for a standard Cardan
+  // joint but most automotive drivelines run 10°–30°). Static residual:
+  //   cos(crossAngle) · θ_A − θ_B  →  0.
+  // Schema drives the two axis directions + the cross-angle in degrees.
+  //
+  'Cam Mate': {
+    title: 'Cam — Mechanical Assembly Mate',
+    blurb: 'Point-on-cam-surface contact. The follower\'s contact point stays on the cam profile as the cam rotates. Removes 1 DOF. Profile polyline is generated from the chosen shape (ellipse / circle / heart) + semi-axis dimensions; the handler transforms it into the cam\'s rotating frame so it spins with the cam. Pre-select cam, then follower.',
+    fields: [
+      { name: 'axisDirAx',   label: 'Cam axis A — X (A-local)', type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAy',   label: 'Cam axis A — Y (A-local)', type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'axisDirAz',   label: 'Cam axis A — Z (A-local)', type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'profileShape',label: 'Profile shape',            type: 'enum',   default: 'ellipse', options: ['ellipse', 'circle', 'heart'], hint: 'Ellipse = standard automotive cam lobe; Circle = round (no lift, sanity check); Heart = symmetric dual-lobe.' },
+      { name: 'profileA',    label: 'Semi-major axis (a)',      type: 'number', default: 20, unit: 'mm', min: 0.1, max: 500, step: 0.1, hint: 'Cam max radius (the far point of the lobe).' },
+      { name: 'profileB',    label: 'Semi-minor axis (b)',      type: 'number', default: 12, unit: 'mm', min: 0.1, max: 500, step: 0.1, hint: 'Cam min radius (the near point of the lobe). Lift = a − b.' },
+      { name: 'profileSamples', label: 'Profile sample count',  type: 'number', default: 64, min: 8, max: 512, step: 1, hint: 'Polyline resolution. 64 samples is plenty for smooth contact.' },
+      { name: 'followerPtBx',label: 'Follower point B — X',     type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'followerPtBy',label: 'Follower point B — Y',     type: 'number', default: -25, unit: 'mm', min: -5000, max: 5000, step: 0.5, hint: 'Contact point on the follower in B-local. Should sit ON the cam profile in world space at the initial pose.' },
+      { name: 'followerPtBz',label: 'Follower point B — Z',     type: 'number', default: 0,  unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'followerAxisDirBx', label: 'Follower axis B — X', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'followerAxisDirBy', label: 'Follower axis B — Y', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001, hint: 'Direction the follower can slide. Typically the radial direction from the cam centre.' },
+      { name: 'followerAxisDirBz', label: 'Follower axis B — Z', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+    ],
+  },
+  'Universal-Joint Mate': {
+    title: 'Universal-Joint — Mechanical Assembly Mate',
+    blurb: 'Velocity-coupling between two non-collinear shafts through a cross-pin at angle `crossAngle` (the misalignment angle between input and output shafts). Static residual: cos(crossAngle) · θ_A − θ_B → 0. Real Cardan-joint kinematics. Removes 2 DOF (axis-alignment-up-to-cross + along-axis phase coupling); 1 rotational + 3 translational DOFs remain. Pre-select input shaft, then output shaft.',
+    fields: [
+      { name: 'axisAx',     label: 'Input axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',     label: 'Input axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',     label: 'Input axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',     label: 'Output axis B — X (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',     label: 'Output axis B — Y (B-local)', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',     label: 'Output axis B — Z (B-local)', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'crossAngle', label: 'Cross-angle',                 type: 'number', default: 15, unit: 'deg', min: 0, max: 90, step: 0.1, hint: 'Misalignment angle between input and output shafts. Real automotive drivelines run 10°–30°. 0 = in-line rigid coupling; 90° = Cardan singularity (decouples).' },
+    ],
+  },
+
+  // ─── UX TIER 7b-rest — Symmetric + Linear-Coupler + Angle-Limit (advanced 6/6) ─
+  //
+  // Symmetric  — two entity points mirror about a symmetry plane anchored on A.
+  //              Removes 3 DOF (midpoint along normal + 2 perpendicular AB).
+  // Linear-Coupler — translation of A along its axis ↔ translation of B along
+  //                  its axis, coupled by `ratio`. Pure translational analogue
+  //                  of Gear. Removes 1 DOF.
+  // Angle-Limit  — relative rotation of B vs A about a shared axis clamped to
+  //                [angleMin, angleMax]. Pure rotational analogue of Distance-
+  //                Limit (slack in-range; 1 DOF when clamped).
+  //
+  'Symmetric Mate': {
+    title: 'Symmetric — Advanced Assembly Mate',
+    blurb: 'Two entity points (one on A, one on B) mirror about a symmetry plane anchored on A. Pre-select TWO components, then click. Removes 3 DOF (midpoint lies in the plane + AB-line is perpendicular to the plane). Real CAD symmetry — two bolts at mirrored holes, two arms scissor-mounted symmetrically about a centreline.',
+    fields: [
+      { name: 'planeOriginAx', label: 'Plane origin A — X (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'planeOriginAy', label: 'Plane origin A — Y (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'planeOriginAz', label: 'Plane origin A — Z (A-local)', type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'planeNormalAx', label: 'Plane normal A — X',           type: 'number', default: 1, unit: '',   min: -1, max: 1, step: 0.001, hint: 'Symmetry-plane normal. (1,0,0) = YZ plane, (0,1,0) = XZ plane, (0,0,1) = XY plane.' },
+      { name: 'planeNormalAy', label: 'Plane normal A — Y',           type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'planeNormalAz', label: 'Plane normal A — Z',           type: 'number', default: 0, unit: '',   min: -1, max: 1, step: 0.001 },
+      { name: 'pointAx',       label: 'Entity A — X (A-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAy',       label: 'Entity A — Y (A-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointAz',       label: 'Entity A — Z (A-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBx',       label: 'Entity B — X (B-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBy',       label: 'Entity B — Y (B-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'pointBz',       label: 'Entity B — Z (B-local)',       type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+    ],
+  },
+  'Linear-Coupler Mate': {
+    title: 'Linear-Coupler — Advanced Assembly Mate',
+    blurb: 'Translation of part A along its axis coupled to translation of part B along its axis by `ratio`. Pure translational analogue of Gear. Residual: tA · ratio − tB → 0. Pre-select TWO components, then click. Removes 1 DOF. Real CAD coupling: two carriages on parallel rails coupled by a cable+pulley pair (ratio = pulley_R_out / pulley_R_in).',
+    fields: [
+      { name: 'axisAx',         label: 'Axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',         label: 'Axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',         label: 'Axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',         label: 'Axis B — X (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',         label: 'Axis B — Y (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',         label: 'Axis B — Z (B-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisOriginAx',   label: 'Axis origin A — X',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAy',   label: 'Axis origin A — Y',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'axisOriginAz',   label: 'Axis origin A — Z',     type: 'number', default: 0, unit: 'mm', min: -5000, max: 5000, step: 0.5 },
+      { name: 'ratio',          label: 'Coupling ratio',        type: 'number', default: 1, unit: '',   min: -20, max: 20, step: 0.01, hint: 'tA · ratio − tB → 0. 1 = 1:1 coupling; -1 = opposite-direction; 2 = B moves twice as fast as A; 0.5 = B at half-speed.' },
+    ],
+  },
+  'Angle-Limit Mate': {
+    title: 'Angle-Limit — Advanced Assembly Mate',
+    blurb: 'Relative rotation of part B versus part A about a shared axis clamped to [angleMin, angleMax]. Pure rotational analogue of Distance-Limit: 0 DOF removed inside the range (slack), 1 DOF removed when clamped at a limit. Pre-select TWO components, then click. Real CAD: a safety pivot limiting a scissor-arm angle to 0°–60°.',
+    fields: [
+      { name: 'axisAx',     label: 'Axis A — X (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAy',     label: 'Axis A — Y (A-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisAz',     label: 'Axis A — Z (A-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBx',     label: 'Axis B — X (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBy',     label: 'Axis B — Y (B-local)',  type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'axisBz',     label: 'Axis B — Z (B-local)',  type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.001 },
+      { name: 'angleMin',   label: 'Angle min',             type: 'number', default: -90, unit: 'deg', min: -3600, max: 3600, step: 0.5, hint: 'Lower angle clamp (deg).' },
+      { name: 'angleMax',   label: 'Angle max',             type: 'number', default: +90, unit: 'deg', min: -3600, max: 3600, step: 0.5, hint: 'Upper angle clamp (deg).' },
+    ],
+  },
+
+  // ─── UX TIER 8b — Model Items + BOM + Auto-Balloon ─────────────────────
+  //
+  // Three drafting-tab tools that turn a 3D part / assembly into a
+  // dimensioned, annotated, balloon-labelled drawing sheet. All three are
+  // selection-driven — read the active body or the registered assembly —
+  // so the schemas only carry the few user-tweakable options.
+  'Model Items': {
+    title: 'Model Items — Auto-Import Part Dimensions',
+    blurb: 'Project every parametric dimension from the active body\'s feature history (sketch widths, extrude depths, fillet radii, etc.) onto the FRONT drawing view with auto-placed leader lines.',
+    fields: [
+      { name: 'viewKind', label: 'Target view', type: 'enum', default: 'front', options: ['front', 'top', 'right', 'iso'], hint: 'Currently FRONT is wired; others coming.' },
+    ],
+  },
+  'BOM': {
+    title: 'BOM — Bill of Materials Table',
+    blurb: 'Build a Bill-of-Materials table from every body in the scene. Pulls partNumber / description / material from each body\'s attribute bag (set via BodyRegistry.attachAttribute or the Body Properties panel).',
+    fields: [
+      { name: 'mergeByPartNumber', label: 'Merge identical part numbers', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'Yes = four identical bolts → one row qty 4; No = four rows qty 1.' },
+    ],
+  },
+  'Auto-Balloon': {
+    title: 'Auto-Balloon — Number Every Component',
+    blurb: 'Drop a numbered balloon callout on each component, linked to its BOM row. Auto-placement uses radial layout around the assembly centroid with overlap detection.',
+    fields: [
+      { name: 'balloonRadius', label: 'Balloon radius', type: 'number', default: 5, unit: 'mm', min: 2, max: 12, step: 0.5 },
+      { name: 'mergeByPartNumber', label: 'Merge identical part numbers', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'Match the BOM merge setting.' },
+    ],
+  },
+
+  // ─── UX TIER 8c — Title Block + Sheet Format ──────────────────────────
+  'Title Block': {
+    title: 'Title Block — Engineering Drawing Header',
+    blurb: 'Stamp a real ASME / ISO engineering title block in the bottom-right corner of the active sheet. 3-row grid: Title (part number + description), Properties (drawn-by / date / material / scale / sheet / standard / units / tolerance), Approval. The block becomes part of the drawing SVG and prints with it.',
+    fields: [
+      { name: 'partNumber',  label: 'Part Number',   type: 'string', default: 'PN-0001',              hint: 'Top-line identifier (e.g. CR-2104-A).' },
+      { name: 'description', label: 'Description',   type: 'string', default: 'Untitled Part',        hint: 'One-line part description.' },
+      { name: 'drawnBy',     label: 'Drawn By',      type: 'string', default: 'A.Eng',                hint: 'Initials or name of the drafter.' },
+      { name: 'date',        label: 'Date',          type: 'string', default: new Date().toISOString().slice(0, 10) },
+      { name: 'material',    label: 'Material',      type: 'string', default: 'AISI 1020 Steel',      hint: 'Per BOM or as-shown.' },
+      { name: 'scale',       label: 'Scale',         type: 'string', default: '1:1',                  hint: 'Print scale (1:1, 1:2, 2:1, etc.).' },
+      { name: 'sheetN',      label: 'Sheet number',  type: 'number', default: 1, min: 1, max: 99, step: 1 },
+      { name: 'sheetTotal',  label: 'Sheets total',  type: 'number', default: 1, min: 1, max: 99, step: 1 },
+      { name: 'approval',    label: 'Approved',      type: 'string', default: 'PENDING' },
+      { name: 'size',        label: 'Sheet size',    type: 'enum',   default: 'A3', options: ['A0', 'A1', 'A2', 'A3', 'A4', 'ANSI-A', 'ANSI-B', 'ANSI-C', 'ANSI-D', 'ANSI-E'] },
+      { name: 'orientation', label: 'Orientation',   type: 'enum',   default: 'landscape', options: ['landscape', 'portrait'] },
+    ],
+  },
+  'Sheet Format': {
+    title: 'Sheet Format — Change Drawing Sheet Size',
+    blurb: 'Re-render the drawing sheet at a different ISO / ANSI size + orientation. Updates the viewBox, redraws the double-line ASME border, and fits a mini title block into the new corner. Real-world mm: A0=841×1189, A1=594×841, A2=420×594, A3=297×420, A4=210×297, ANSI-A=216×279, ANSI-B=279×432, ANSI-C=432×559, ANSI-D=559×864, ANSI-E=864×1118.',
+    fields: [
+      { name: 'size',        label: 'Sheet size',    type: 'enum',   default: 'A3', options: ['A0', 'A1', 'A2', 'A3', 'A4', 'ANSI-A', 'ANSI-B', 'ANSI-C', 'ANSI-D', 'ANSI-E'] },
+      { name: 'orientation', label: 'Orientation',   type: 'enum',   default: 'landscape', options: ['landscape', 'portrait'] },
+      { name: 'partName',    label: 'Sheet title',   type: 'string', default: 'Sheet', hint: 'Shown in the mini corner block.' },
+    ],
+  },
+
+  // ─── UX TIER 12 — Stepped Section Line + Tabular Note (NX-distinctive) ──
+  //
+  // Two Drafting ops the SW gap list missed but the Siemens NX synthesis
+  // flagged (`siemens-nx-course-synthesis.md` §6 items 112 + 114).
+  //
+  //   Stepped Section Line — multi-segment cut path with right-angle jogs;
+  //   composite cross-section hops between parallel planes.
+  //
+  //   Tabular Note         — generic editable N×M table (NOT BOM-linked).
+  //   Used for hole charts, revision blocks, tolerance tables.
+  //
+  // Both schemas carry sane defaults for a generic 100-mm-class part; e2e
+  // / AI plans bypass the dialog by stashing real polyline / column /
+  // row data at `window.__archdiscSteppedSectionPoints` and
+  // `window.__archdiscTabularNoteData` respectively.
+  'Stepped Section Line': {
+    title: 'Stepped Section Line — Multi-Plane Cut with Jogs',
+    blurb: 'Build a multi-segment section line on the FRONT view (right-angle jogs allowed). Each segment defines a cutting plane; the result is a composite cross-section that hops between parallel planes (NX "Section Line → Stand Alone"). Stash a real polyline at __archdiscSteppedSectionPoints = [{x,y}, ...] to override the dialog defaults.',
+    fields: [
+      { name: 'label',  label: 'Section label', type: 'enum',   default: 'A', options: ['A', 'B', 'C', 'D', 'E', 'F'] },
+      { name: 'p0x',    label: 'P0 — X (paper mm)', type: 'number', default: -30, unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p0y',    label: 'P0 — Y (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p1x',    label: 'P1 — X (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p1y',    label: 'P1 — Y (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p2x',    label: 'P2 — X (paper mm)', type: 'number', default: 0,   unit: 'mm', min: -300, max: 300, step: 1, hint: 'Right-angle jog: keep px constant from previous point.' },
+      { name: 'p2y',    label: 'P2 — Y (paper mm)', type: 'number', default: 20,  unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p3x',    label: 'P3 — X (paper mm)', type: 'number', default: 30,  unit: 'mm', min: -300, max: 300, step: 1 },
+      { name: 'p3y',    label: 'P3 — Y (paper mm)', type: 'number', default: 20,  unit: 'mm', min: -300, max: 300, step: 1 },
+    ],
+  },
+  'Tabular Note': {
+    title: 'Tabular Note — Generic N×M Annotation Table',
+    blurb: 'Place an editable annotation table anywhere on the sheet (NOT BOM-linked). Used for hole charts, revision blocks, tolerance tables, inspection sheets. Stash real columns + rows at __archdiscTabularNoteData = {columns: [{label, width}], rows: [[...], ...]} to fill the cells.',
+    fields: [
+      { name: 'title',    label: 'Table title',  type: 'string', default: 'HOLE CHART' },
+      { name: 'x',        label: 'X (paper mm)', type: 'number', default: 30,  unit: 'mm', min: 0,   max: 1500, step: 1 },
+      { name: 'y',        label: 'Y (paper mm)', type: 'number', default: 30,  unit: 'mm', min: 0,   max: 1500, step: 1 },
+      { name: 'cols',     label: 'Columns',      type: 'number', default: 4,   min: 1, max: 10, step: 1 },
+      { name: 'rows',     label: 'Rows',         type: 'number', default: 3,   min: 1, max: 30, step: 1 },
+      { name: 'colWidth', label: 'Default col width', type: 'number', default: 30, unit: 'mm', min: 6, max: 120, step: 1 },
+      { name: 'size',        label: 'Sheet size',   type: 'enum',   default: 'A3', options: ['A0', 'A1', 'A2', 'A3', 'A4', 'ANSI-A', 'ANSI-B', 'ANSI-C', 'ANSI-D', 'ANSI-E'] },
+      { name: 'orientation', label: 'Orientation',  type: 'enum',   default: 'landscape', options: ['landscape', 'portrait'] },
+    ],
+  },
+
+  // ─── UX TIER 5a — Sheet Metal workbench foundation ────────────────────
+  //
+  // Three foundational sheet-metal ops with their param schemas. Base
+  // Flange seeds the part + stamps the sheet-metal metadata; Edge Flange
+  // grows a bent wall off any selected edge; Flat Pattern unfolds the
+  // bent part to its laser-cut layout.
+  'Base Flange': {
+    title: 'Base Flange — Sheet Metal Foundation',
+    blurb: 'Create the FIRST sheet-metal feature. A rectangular sketch profile is thickened by the sheet thickness, and the resulting body is tagged as sheet metal — thickness, K-factor, and bend radius travel with the body so every downstream sheet-metal op can ask. Defaults: 100×80 mm, t=1.5 mm, K=0.4.',
+    fields: [
+      { name: 'width',      label: 'Width (X)',     type: 'number', default: 100,  unit: 'mm', min: 1,    max: 5000, step: 1, hint: 'Sketch profile width.' },
+      { name: 'depth',      label: 'Depth (Y)',     type: 'number', default: 80,   unit: 'mm', min: 1,    max: 5000, step: 1, hint: 'Sketch profile depth.' },
+      { name: 'thickness',  label: 'Sheet thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.1, max: 50,   step: 0.1, hint: 'Material gauge.' },
+      { name: 'kFactor',    label: 'K-factor',      type: 'number', default: 0.4,  min: 0,    max: 1,    step: 0.05, hint: 'Neutral-fibre ratio (0..1). SW default 0.4.' },
+      { name: 'bendRadius', label: 'Bend radius',   type: 'number', default: 1.5,  unit: 'mm', min: 0.1, max: 100,  step: 0.1, hint: 'Inside bend radius — typically equal to thickness.' },
+    ],
+  },
+  'Edge Flange': {
+    title: 'Edge Flange — Sheet Metal Bend',
+    blurb: 'Pick an edge on a sheet-metal body and extrude a flange off it. Length sets how far the flange extends; angle sets the bend (90° = perpendicular). The bend allowance is computed from the part\'s K-factor + bend radius. Pre-select the sheet-metal body; choose an edge index for the picked edge.',
+    fields: [
+      { name: 'edgeIndex',  label: 'Edge index (1-based)', type: 'number', default: 1, min: 1, max: 1000, step: 1, hint: 'Visible-edge order; defaults walk in spine order.' },
+      { name: 'length',     label: 'Flange length',  type: 'number', default: 25, unit: 'mm', min: 1,  max: 1000, step: 1 },
+      { name: 'angleDeg',   label: 'Bend angle',     type: 'number', default: 90, unit: '°',  min: 0,  max: 180,  step: 1, hint: '0 = co-planar; 90 = perpendicular wall.' },
+      { name: 'bendRadius', label: 'Bend radius (override)', type: 'number', default: 0,  unit: 'mm', min: 0,  max: 100,  step: 0.1, hint: '0 = use body\'s recorded bend radius.' },
+    ],
+  },
+  'Flat Pattern': {
+    title: 'Flat Pattern — Unfold to Manufacturing Layout',
+    blurb: 'Unfold the picked sheet-metal part into its FLAT manufacturing layout (the developed shape sent to the laser cutter). Each bend is unrolled CO-PLANAR with the base, with the developed length = (flange length + bend allowance) via the part\'s K-factor. Result face count = 1 (base) + N (one per flange).',
+    fields: [],
+  },
+
+  // ─── UX TIER 5b — Sheet Metal additions ───────────────────────────────
+  //
+  // Four sheet-metal ops that extend the Tier-5a foundation: Hem (fold an
+  // edge over itself), Jog (Z-step offset in the sheet), Miter Flange
+  // (multi-edge flange with mitered corners), Sketched Bend (bend along a
+  // user-drawn line). Each one records its bend(s) on
+  // body.metadata.sheetMetal.bends[] so Flat Pattern unfolds them too.
+  'Hem': {
+    title: 'Hem — Fold an Edge Over Itself',
+    blurb: 'Pick a sheet-metal edge and fold it BACK onto the body. Closed = 180° flush; Open = ~165° leaving a small gap; Rolled = smooth curl; Teardrop = rolled with a pointed end. Used in fabrication to remove sharp edges (finger safety) and stiffen the part.',
+    fields: [
+      { name: 'edgeIndex', label: 'Edge index (1-based)', type: 'number', default: 1, min: 1, max: 1000, step: 1, hint: 'Visible-edge order; defaults walk spine order.' },
+      { name: 'hemType', label: 'Hem type', type: 'enum',
+        options: ['closed', 'open', 'rolled', 'teardrop'],
+        default: 'closed', hint: 'closed=180° flush; open=~165°; rolled=270° curl; teardrop=225° pointed.' },
+      { name: 'hemLength', label: 'Hem length', type: 'number', default: 6, unit: 'mm', min: 1, max: 200, step: 0.5, hint: 'How far the hem extends — typically 4× thickness.' },
+    ],
+  },
+  'Jog': {
+    title: 'Jog — Stepped Z-Fold in the Sheet',
+    blurb: 'Create a stepped offset in the sheet (a Z-fold). The first bend lifts the sheet perpendicular by the jog offset; the second bend flattens it back parallel to the original. Two bends recorded — both with type=jog. Used for connector clearance / standoff between two parallel sheet sections.',
+    fields: [
+      { name: 'edgeIndex', label: 'Jog-line edge index', type: 'number', default: 1, min: 1, max: 1000, step: 1, hint: 'The edge along which the jog folds.' },
+      { name: 'jogOffset', label: 'Jog offset', type: 'number', default: 10, unit: 'mm', min: 0.5, max: 500, step: 0.5, hint: 'Perpendicular step size between the two parallel sheet sections.' },
+      { name: 'angleDeg', label: 'Jog angle', type: 'number', default: 90, unit: '°', min: 1, max: 179, step: 1, hint: '90 = perpendicular Z-step; smaller = shallower jog.' },
+      { name: 'flangeLength', label: 'Top flange length', type: 'number', default: 20, unit: 'mm', min: 1, max: 500, step: 1, hint: 'Length of the offset top section.' },
+    ],
+  },
+  'Miter Flange': {
+    title: 'Miter Flange — Multi-Edge Flange with Mitered Corners',
+    blurb: 'Sweep a flange along a sequence of connected edges. Adjacent flange segments meet at MITERED corners (45° bisector trim recorded in metadata for clean joints). The killer feature: a single op grows all four perimeter flanges of a tray / lid / pan in one move. Pick the edge sequence by index; the op walks them in order.',
+    fields: [
+      { name: 'edge1', label: 'Edge 1 (index)', type: 'number', default: 1,  min: 0, max: 1000, step: 1 },
+      { name: 'edge2', label: 'Edge 2 (index)', type: 'number', default: 0,  min: 0, max: 1000, step: 1, hint: '0 = skip; otherwise visible-edge index.' },
+      { name: 'edge3', label: 'Edge 3 (index)', type: 'number', default: 0,  min: 0, max: 1000, step: 1, hint: '0 = skip.' },
+      { name: 'edge4', label: 'Edge 4 (index)', type: 'number', default: 0,  min: 0, max: 1000, step: 1, hint: '0 = skip.' },
+      { name: 'length',   label: 'Flange length', type: 'number', default: 20, unit: 'mm', min: 1, max: 1000, step: 1 },
+      { name: 'angleDeg', label: 'Bend angle',    type: 'number', default: 90, unit: '°',  min: 0, max: 180,  step: 1 },
+      { name: 'position', label: 'Material position', type: 'enum',
+        options: ['outside', 'inside'], default: 'outside',
+        hint: 'outside = flange grows outward; inside = flange contained within material.' },
+    ],
+  },
+  'Sketched Bend': {
+    title: 'Sketched Bend — Bend Along a User-Drawn Line',
+    blurb: 'The most general sheet-metal bend: pick an edge (the bend line) on a flat face and supply the bend angle. The sheet folds along the line by the angle. Position controls whether the bend allowance is laid above, below, or centered on the line (recorded for Flat Pattern).',
+    fields: [
+      { name: 'edgeIndex', label: 'Bend-line edge index', type: 'number', default: 1, min: 1, max: 1000, step: 1 },
+      { name: 'angleDeg',  label: 'Bend angle',           type: 'number', default: 45, unit: '°', min: 0, max: 179, step: 1, hint: '0 = no bend; 90 = perpendicular fold.' },
+      { name: 'flangeLength', label: 'Free-side length',  type: 'number', default: 30, unit: 'mm', min: 1, max: 1000, step: 1, hint: 'Length of the bent (free) side.' },
+      { name: 'bendPosition', label: 'Bend position', type: 'enum',
+        options: ['centered', 'above', 'below'], default: 'centered',
+        hint: 'Where the bend allowance is laid relative to the bend line.' },
+    ],
+  },
+
+  // ─── UX TIER 5c — Sheet Metal corner + sweep extensions ───────────────
+  //
+  // Two extension ops: Closed Corner closes the gap between two adjacent
+  // edge-flanges (overlap | butt 45° miter | underlap); Sweep Flange sweeps
+  // a flange profile along an arbitrary (curved / multi-segment) path —
+  // the sheet-metal version of swept boss. Each one records to
+  // body.metadata.sheetMetal — Closed Corner pushes onto corners[], Sweep
+  // Flange pushes onto bends[] with type='sweepFlange'.
+  'Closed Corner': {
+    title: 'Closed Corner — Close the Gap at a Flange Corner',
+    blurb: 'After two adjacent Edge Flanges, a small triangular gap remains at the shared corner. Closed Corner closes it. Overlap = flange A extends over flange B; Butt = both trim to a shared 45° miter; Underlap = flange B extends underneath flange A. Real fabrication operation — the killer follow-on to Edge Flange / Miter Flange.',
+    fields: [
+      { name: 'cornerType', label: 'Corner type', type: 'enum',
+        options: ['overlap', 'butt', 'underlap'], default: 'butt',
+        hint: 'overlap = A over B; butt = symmetric 45° miter; underlap = B under A.' },
+      { name: 'edgeAGap', label: 'Edge A gap', type: 'number', default: 0, unit: 'mm', min: 0, max: 50, step: 0.1, hint: 'Gap along flange A\'s free edge before the patch begins (0 = flush).' },
+      { name: 'edgeBGap', label: 'Edge B gap', type: 'number', default: 0, unit: 'mm', min: 0, max: 50, step: 0.1, hint: 'Gap along flange B\'s free edge before the patch begins (0 = flush).' },
+    ],
+  },
+  'Sweep Flange': {
+    title: 'Sweep Flange — Swept Flange Along a Path',
+    blurb: 'Sweep a flange profile (thickness × profileWidth rectangle) along an arbitrary 3D path — straight, curved, or multi-segment. Unlike Edge Flange (one straight edge per call), Sweep Flange follows the whole path in one move. Records the flange as a bend with type=\'sweepFlange\' so Flat Pattern still walks it.',
+    fields: [
+      { name: 'profileWidth', label: 'Flange height', type: 'number', default: 15, unit: 'mm', min: 0.5, max: 500, step: 0.5, hint: 'How tall the swept lip is (perpendicular to the path).' },
+      { name: 'pathX1', label: 'Path start X', type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathY1', label: 'Path start Y', type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathZ1', label: 'Path start Z', type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathX2', label: 'Path end X',   type: 'number', default: 50, unit: 'mm', step: 0.5 },
+      { name: 'pathY2', label: 'Path end Y',   type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'pathZ2', label: 'Path end Z',   type: 'number', default: 0,  unit: 'mm', step: 0.5 },
+      { name: 'kFactor', label: 'K-factor (override)', type: 'number', default: 0, min: 0, max: 1, step: 0.05, hint: '0 = use body\'s recorded K-factor.' },
+    ],
+  },
+
+  // ─── UX TIER 6a — Weldments workbench foundation ──────────────────────
+  //
+  // Three foundational weldments ops with their param schemas. Structural
+  // Member seeds the part + stamps the weldment metadata; Trim/Extend
+  // joins members at a clean joint (butt or mitered); End Cap closes the
+  // open end of a member.
+  'Structural Member': {
+    title: 'Structural Member — Weldments Foundation',
+    blurb: 'Sweep a STANDARD ISO/ANSI profile (rect tube, square tube, round tube, angle, channel, I-beam) along a 3D path to create a structural member. The body is tagged as a weldment — profile / size / length travel with it so every downstream weldments op can identify it. The path is supplied either via the in-progress 3D sketch or by the start/end points below; the profile is built in the path-start frame.',
+    fields: [
+      { name: 'profile',  label: 'Profile family', type: 'enum',
+        options: ['recttube', 'squaretube', 'roundtube', 'angle', 'channel', 'ibeam'],
+        default: 'recttube', hint: 'ISO/ANSI standard profile family.' },
+      { name: 'size',     label: 'Profile size',  type: 'string', default: '40x60x3',
+        hint: 'Catalogue size label, e.g. 40x60x3 (rect tube), Ø48.3×3.6 (round), 50x50x5 (angle).' },
+      { name: 'length',   label: 'Member length', type: 'number', default: 600, unit: 'mm', min: 10, max: 10000, step: 1,
+        hint: 'Length along the path (when path start/end are not supplied).' },
+      { name: 'startX',   label: 'Start X',       type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'startY',   label: 'Start Y',       type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'startZ',   label: 'Start Z',       type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'endX',     label: 'End X',         type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'endY',     label: 'End Y',         type: 'number', default: 0,   unit: 'mm', step: 1 },
+      { name: 'endZ',     label: 'End Z',         type: 'number', default: 600, unit: 'mm', step: 1, hint: 'When (endX,endY,endZ) ≠ (startX,startY,startZ), the path overrides the length field.' },
+    ],
+  },
+  'Trim/Extend Members': {
+    title: 'Trim/Extend Members — Weldments Joint',
+    blurb: 'Pick 2+ structural-member bodies and trim them at their joint. BUTT mode subtracts each successive member from the first (the first yields to the rest). MITERED mode subtracts a half-space tool from BOTH members at the joint bisector so they meet at a clean mitre. Real boolean trim — face count drops; bodies abut without overlap.',
+    fields: [
+      { name: 'mode', label: 'Trim mode', type: 'enum',
+        options: ['butt', 'mitered'], default: 'mitered',
+        hint: 'butt = first yields to the rest; mitered = both yield at the joint bisector.' },
+    ],
+  },
+  'End Cap': {
+    title: 'End Cap — Close an Open Member End',
+    blurb: 'Pick a weldment member and close one of its open ends with a flat (or thick) cap. The cap is the bounding rectangle of the profile at the picked end, extruded by the cap thickness and fused onto the parent member. Face count rises by ~1 per cap.',
+    fields: [
+      { name: 'end',       label: 'Which end',  type: 'enum',
+        options: ['start', 'end'], default: 'start',
+        hint: 'start = the side where the path begins; end = the far side.' },
+      { name: 'thickness', label: 'Cap thickness', type: 'number', default: 3, unit: 'mm', min: 0.5, max: 50, step: 0.5,
+        hint: 'Cap prism thickness (flat cap = thin; thick cap = chunkier closure).' },
+    ],
+  },
+
+  // ─── UX TIER 6b — Weldments additions ────────────────────────────────────
+  //
+  // Gusset + Weld Bead — reinforcement + welder-spec joint geometry on top
+  // of the Tier-6a structural members. Both ops take TWO pre-selected
+  // weldment-tagged members that share a joint and produce a NEW
+  // weldment-tagged child body, while recording the gusset / weld id on
+  // both parent members' metadata.weldment.gussets[] / welds[].
+  'Gusset': {
+    title: 'Gusset — Triangular Reinforcement Plate',
+    blurb: 'Pre-select TWO structural members that share a joint endpoint. The gusset is a flat plate (triangular by default; 5-sided polygon optional) sitting in the joint plane, fillet-welded between the two members. Real welded-frame reinforcement: drastically stiffens the corner. Both members record the gusset id in their metadata.',
+    fields: [
+      { name: 'type',      label: 'Gusset shape',   type: 'enum',
+        options: ['triangular', 'polygon'], default: 'triangular',
+        hint: 'triangular = 3-sided plate (classic); polygon = 5-sided plate with chopped outer corners.' },
+      { name: 'size',      label: 'Leg length',     type: 'number', default: 100, unit: 'mm', min: 10, max: 1000, step: 1,
+        hint: 'Length of each gusset leg along the member tangent from the joint.' },
+      { name: 'thickness', label: 'Plate thickness', type: 'number', default: 6, unit: 'mm', min: 1, max: 30, step: 0.5,
+        hint: 'Gusset plate thickness; typical 6–10 mm for steel weldments.' },
+      { name: 'position',  label: 'Plate position', type: 'enum',
+        options: ['inner', 'outer'], default: 'inner',
+        hint: 'inner = on the joint-bisector side (between the members); outer = opposite side.' },
+    ],
+  },
+  'Weld Bead': {
+    title: 'Weld Bead — Real Welder-Spec Joint',
+    blurb: 'Pre-select TWO structural members that share a joint. The bead is a small solid (fillet triangle, square rectangle, V-groove triangle, or trapezoidal bevel) swept along the joint corner. Real welder cross-sections — fillet is the canonical right triangle, V-groove for butt welds. Both members record the weld id.',
+    fields: [
+      { name: 'type',   label: 'Weld type', type: 'enum',
+        options: ['fillet', 'square', 'V', 'bevel'], default: 'fillet',
+        hint: 'fillet = right triangle (most common); square = rectangle; V = V-groove; bevel = trapezoid.' },
+      { name: 'size',   label: 'Leg size',  type: 'number', default: 6, unit: 'mm', min: 1, max: 30, step: 0.5,
+        hint: 'Bead cross-section leg dimension; typical 5–10 mm for structural welds.' },
+      { name: 'length', label: 'Bead run length', type: 'number', default: 0, unit: 'mm', min: 0, max: 5000, step: 1,
+        hint: '0 = auto (min of member length, capped). Otherwise the explicit bead run length.' },
+    ],
+  },
+
+  // ─── UX TIER 6c — Weldments Cut List ─────────────────────────────────────
+  //
+  // No-input schema — the Cut List op opens a modal that scans the registry
+  // and renders the BOM. Carried here for introspection symmetry (every
+  // ribbon tool has a schema row even when the field set is empty).
+  'Cut List': {
+    title: 'Cut List — Weldments BOM',
+    blurb: 'Aggregate every weldment-tagged structural member in the scene by (profile, size, length). Opens the Cut List modal with one row per "cut N pieces of <profile>/<size> at <length> mm" item and Copy CSV / Copy TSV actions for the welder.',
+    fields: [],
+  },
+
+  // ─── UX TIER 9 — Mold Tools workbench foundation ──────────────────────
+  //
+  // Three foundational mold-tools ops with their param schemas. Draft
+  // Analysis colour-codes faces by draft angle vs the pull direction;
+  // Parting Line traces the silhouette curve; Tooling Split partitions
+  // the body into core + cavity halves along a planar parting surface.
+  // Bodies are tagged via body.metadata.mold; faces carry mold.draft
+  // SP-2 attributes so the analysis survives downstream ops.
+  'Draft Analysis': {
+    title: 'Draft Analysis — Per-face Pull-direction Classification',
+    blurb: 'Pre-select a moldable body. Each face is classified by its OUTWARD normal vs the pull direction: positive (faces +pull) → green, negative (faces -pull) → red, vertical/undercut (within tolerance of perpendicular to pull) → yellow. Faces carry a `mold.draft` SP-2 attribute so the result survives downstream ops.',
+    fields: [
+      { name: 'pullX',       label: 'Pull X',           type: 'number', default: 0, step: 0.1, hint: 'Pull direction X component (world frame).' },
+      { name: 'pullY',       label: 'Pull Y',           type: 'number', default: 0, step: 0.1, hint: 'Pull direction Y component.' },
+      { name: 'pullZ',       label: 'Pull Z',           type: 'number', default: 1, step: 0.1, hint: 'Pull direction Z component (default +Z = open mold upward).' },
+      { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5,
+        hint: 'Green / yellow cutoff. Faces with |angle| < this are flagged as vertical / undercut.' },
+    ],
+  },
+  'Parting Line': {
+    title: 'Parting Line — Silhouette Curve on the Body',
+    blurb: 'Pre-select a moldable body (or run Draft Analysis first). For every edge of the body the two adjacent faces are checked: an edge lies on the parting line iff its faces have OPPOSITE draft signs (one +, one -), or one is vertical / undercut. Returns the parting curve as a list of edges in the body.',
+    fields: [
+      { name: 'pullX',       label: 'Pull X',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullY',       label: 'Pull Y',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullZ',       label: 'Pull Z',           type: 'number', default: 1, step: 0.1 },
+      { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5,
+        hint: 'Cutoff inherited from Draft Analysis; faces below this are vertical / undercut.' },
+    ],
+  },
+  'Tooling Split': {
+    title: 'Tooling Split — Core + Cavity Mold Halves',
+    blurb: 'Pre-select a moldable body. Builds a PLANAR parting surface perpendicular to the pull direction at the body centroid (configurable height via partingZ) and partitions the body into TWO halves: CORE (faces +pull) and CAVITY (opposite). Each piece is tagged with mold.half. Uses SP-5\'s partition op.',
+    fields: [
+      { name: 'pullX',       label: 'Pull X',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullY',       label: 'Pull Y',           type: 'number', default: 0, step: 0.1 },
+      { name: 'pullZ',       label: 'Pull Z',           type: 'number', default: 1, step: 0.1 },
+      { name: 'partingZ',    label: 'Parting offset',   type: 'number', default: 0, unit: 'mm', step: 0.5,
+        hint: 'Signed offset of the parting plane along pull from body centroid. 0 = centroid (SW default).' },
+      { name: 'minDraftDeg', label: 'Min draft angle',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5 },
+    ],
+  },
+
+  // ─── UX TIER 9b — Mold Tools focused additions ───────────────────────
+  //
+  // Two more SW Mold-Tools ops: Undercut Analysis (deeper than draft —
+  // flags faces that would lock the part in the mold via face-normal +
+  // shadow-ray test) + Shut-Off Surfaces (auto-close through-holes so
+  // the part can be cavity-cut by Tooling Split).
+  'Undercut Analysis': {
+    title: 'Undercut Analysis — Stuck-Face Detection vs Pull',
+    blurb: 'Pre-select a moldable body. For each face: sample the normal at the parametric centre; if n·pull < 0 (face -pull) AND a +pull ray from a point on the face hits another face of the body, the face is flagged as UNDERCUT (red — locked in the mold). Faces facing +pull cleanly are good (green); vertical / perpendicular faces are neutral (yellow). Each face gets a `mold.undercut` SP-2 boolean attribute.',
+    fields: [
+      { name: 'pullX',     label: 'Pull X',     type: 'number', default: 0, step: 0.1, hint: 'Pull direction X component (world frame).' },
+      { name: 'pullY',     label: 'Pull Y',     type: 'number', default: 0, step: 0.1, hint: 'Pull direction Y component.' },
+      { name: 'pullZ',     label: 'Pull Z',     type: 'number', default: 1, step: 0.1, hint: 'Pull direction Z component (default +Z = open mold upward).' },
+      { name: 'threshold', label: 'Threshold',  type: 'number', default: 3, unit: '°', min: 0, max: 45, step: 0.5,
+        hint: 'Faces within ±threshold of perpendicular to pull are neutral (yellow). Faces below pull a further test for shadowing.' },
+    ],
+  },
+  'Shut-Off Surfaces': {
+    title: 'Shut-Off Surfaces — Close Through-Holes for Cavity Cutting',
+    blurb: 'Pre-select a moldable body. Detects closed loops of free edges (through-holes / open shells) and closes every loop ≤ `maxHoleDiameter` with an N-sided patch face via SP-8 autoFillMissingFaces. The result body is watertight — suitable for Tooling Split. Patches are tagged with `mold.shutOff` SP-2 attribute and reported via `metadata.mold.shutOff`.',
+    fields: [
+      { name: 'maxHoleDiameter', label: 'Max hole diameter', type: 'number', default: 50, unit: 'mm', min: 1, max: 1000, step: 1,
+        hint: 'Skip free-edge loops with diameter greater than this. Default 50 mm covers typical cable-entry / vent holes; raise to fill larger openings.' },
+      { name: 'tolerance',       label: 'Free-bound tol.',   type: 'number', default: 0.001, unit: 'mm', min: 0.0001, max: 1, step: 0.0001,
+        hint: 'ShapeFix_FreeBounds close-tolerance — open-edge endpoints within this are unified into a closed wire.' },
+    ],
+  },
+
+  // UX Tier 9c — proper ruled Parting Surface op. Extends the parting line
+  // outward as a SHEET body that can drive Tooling Split's curved-partition
+  // path (replacing the planar default).
+  'Parting Surface': {
+    title: 'Parting Surface — Ruled Sheet from Parting-Line Edges',
+    blurb: 'Pre-select a moldable body (auto-runs Parting Line first if missing). For each parting-line edge, extrudes the edge perpendicular to the pull direction by `margin` mm on BOTH sides (total span = 2 × margin) — producing a ruled SHEET body of lateral strips. Set `extensionMode` to `planar` (default — flat extrusion), `tangent` (extend along surface tangent at the parting line), or `ruled` (single ruled strip between body outline and a bounding ring at margin distance). Result is a sheet body suitable as the `partingSurface` input to Tooling Split.',
+    fields: [
+      { name: 'pullX',         label: 'Pull X',          type: 'number', default: 0, step: 0.1, hint: 'Pull direction X component (world frame).' },
+      { name: 'pullY',         label: 'Pull Y',          type: 'number', default: 0, step: 0.1, hint: 'Pull direction Y component.' },
+      { name: 'pullZ',         label: 'Pull Z',          type: 'number', default: 1, step: 0.1, hint: 'Pull direction Z component (default +Z = open mold upward).' },
+      { name: 'margin',        label: 'Margin',          type: 'number', default: 20, unit: 'mm', min: 1, max: 500, step: 1,
+        hint: 'Half-width of the parting surface — the strip extends `margin` mm on each side of the parting line, totalling 2 × margin across.' },
+      { name: 'extensionMode', label: 'Extension mode',  type: 'enum', default: 'planar',
+        options: ['planar', 'tangent', 'ruled'],
+        hint: 'planar = flat extrusion perpendicular to pull (SW default). tangent = along surface tangent at parting line. ruled = ruled surface between body outline and a planar bounding ring at margin distance.' },
+    ],
+  },
+};
+
+export function getSchemaForTool(toolName) {
+  return TOOL_PARAM_SCHEMAS[toolName] ?? null;
+}
+
+/** Quick default-values object — handlers fall back to these if dialog is bypassed. */
+export function defaultsForTool(toolName) {
+  const schema = TOOL_PARAM_SCHEMAS[toolName];
+  if (!schema) return {};
+  const out = {};
+  for (const f of schema.fields) out[f.name] = f.default;
+  return out;
+}
+
+// ─── Tier-11b — Inline-sketch capability hint ──────────────────────────────
+//
+// NX-distinctive "sketch-inside-a-dialog" pattern. Tools listed below
+// support entering an inline sketch session from inside their PropertyManager
+// Dock instead of forcing the user to exit, create a sketch, then re-open
+// the tool. The InlineSketchSession overlay in SwUxOverlays.jsx reads this
+// set (via INLINE_SKETCH_CAPABLE) so it knows which dock headers should
+// render a "Sketch Profile" hook button.
+//
+// This is a hint, not a new schema field type — the existing 'number' /
+// 'enum' types remain unchanged. Adding a 'sketch-profile' synthetic field
+// type would force every consumer (dock + floating dialog + planner) to
+// special-case it, which is unnecessary: the inline session writes its
+// committed profile to `window.__archdiscPlanParams[tool].profile` which
+// the Extrude Boss handler ALREADY consumes (Path A, line 1539 of
+// ToolExecutionEngine.js).
+export const INLINE_SKETCH_CAPABLE = new Set([
+  'Extrude Boss',
+  'Extrude Cut',
+  // UX Tier 11d — unified Extrude (boolean toggle replaces the Boss/Cut split).
+  // The dock-inline-sketch session writes its committed profile to
+  // window.__archdiscPlanParams['Extrude'].profile which the new handler
+  // consumes the same way as the legacy Boss handler's Path A.
+  'Extrude',
+  'Revolve Boss',
+  'Sweep Boss',
+  'Loft Boss',
+]);
+
+// ─── UX TIER 3A — ADVANCED FEATURES ─────────────────────────────────────────
+// Boundary Boss/Cut, Rib, Helix.
+// All three are selection + dialog driven. The Boundary Boss accepts a list
+// of profile-sketch references (via window.__archdiscBoundaryProfiles +
+// __archdiscBoundaryGuides hooks); the Rib reads window.__archdiscRibLine +
+// window.__archdiscSelectedBodies; the Helix reads explicit axis/dimension
+// inputs from the dialog.
+
+TOOL_PARAM_SCHEMAS['Boundary Boss'] = {
+  title: 'Boundary Boss / Cut',
+  blurb: 'Loft through N profile sketches + 0+ guide curves. Profiles supplied via __archdiscBoundaryProfiles (array of point arrays); guides via __archdiscBoundaryGuides. SetSmoothing(true) gives G1 tangency between sections. The `role` toggle is informational — Boundary CUT is achieved by a subsequent boolean against the parent body.',
+  fields: [
+    { name: 'smooth',      label: 'G1 tangency between sections', type: 'enum', default: 'yes', options: ['yes', 'no'], hint: 'SetSmoothing(true) — smooth loft' },
+    { name: 'role',        label: 'Role',                          type: 'enum', default: 'boss', options: ['boss', 'cut'], hint: 'Cut variant achieved by boolean subtract against parent body' },
+  ],
+};
+
+TOOL_PARAM_SCHEMAS['Rib'] = {
+  title: 'Rib',
+  blurb: 'Parametric thin wall between a sketched LINE and a parent body. The line is supplied via __archdiscRibLine = [{x,y,z}, {x,y,z}] in mm. The parent body is the currently-selected body. The rib block is built then intersected with the body so the rib only fills space inside the body (SW canonical rib pattern).',
+  fields: [
+    { name: 'thickness',     label: 'Thickness',         type: 'number', default: 3,  unit: 'mm', min: 0.1, max: 100, step: 0.5 },
+    { name: 'extrudeHeight', label: 'Extrude height',    type: 'number', default: 20, unit: 'mm', min: 0.5, max: 1000, step: 1, hint: 'how far the rib extrudes along the sketch-plane normal' },
+    { name: 'direction',     label: 'Direction',         type: 'enum',   default: 'normal', options: ['normal', 'parallel'], hint: 'normal = perpendicular to sketch plane; parallel = in-plane stiffener' },
+  ],
+};
+
+TOOL_PARAM_SCHEMAS['Helix'] = {
+  title: 'Helix',
+  blurb: 'Real 3D helical CURVE (wire body). Constant pitch when pitchStart=pitchEnd; linear taper otherwise. Returns a kind=wire SpineBody whose polyline can drive Sweep Boss. Real helix math: arc length = revs · sqrt(pitch² + (π·D)²).',
+  fields: [
+    { name: 'diameter',     label: 'Diameter',     type: 'number', default: 20, unit: 'mm', min: 0.5,  max: 5000, step: 0.5 },
+    { name: 'pitchStart',   label: 'Start pitch',  type: 'number', default: 4,  unit: 'mm/turn', min: 0.1, max: 1000, step: 0.1 },
+    { name: 'pitchEnd',     label: 'End pitch',    type: 'number', default: 4,  unit: 'mm/turn', min: 0.1, max: 1000, step: 0.1, hint: 'set ≠ start pitch for a linearly-tapered (variable) helix' },
+    { name: 'revolutions',  label: 'Revolutions',  type: 'number', default: 5,  unit: 'turns', min: 0.25, max: 200, step: 0.25 },
+    { name: 'direction',    label: 'Direction',    type: 'enum',   default: 'ccw', options: ['ccw', 'cw'], hint: 'ccw = right-hand helix (standard screw thread); cw = left-hand' },
+    { name: 'segmentsPerRev', label: 'Segments per revolution', type: 'number', default: 64, unit: '', min: 8, max: 512, step: 4, hint: 'polyline resolution; higher = smoother helix' },
+  ],
+};
+
+// ─── UX TIER 4 (focused) — EXTRUDED / REVOLVED SURFACE ──────────────────────
+// SW "Extruded Surface" + "Revolved Surface" — sheet-body variants of the
+// SP-6 Extrude/Revolve Boss ops. Prism/revolve the WIRE (not a face); no
+// caps; result kind='sheet'. Profile points are supplied either via the
+// orchestration plan's `profile` param, the live sketch's getSolidProfile
+// (auto-built from the active interactive sketch), or the dialog's depth/
+// angle defaults (which fall back to a simple rectangle / arc profile).
+
+TOOL_PARAM_SCHEMAS['Extruded Surface'] = {
+  title: 'Extruded Surface',
+  blurb: 'Sheet-body extrude — sweep the input wire\'s EDGES along a direction (no caps). Result kind=sheet. The profile may be open or closed; supply via active sketch, the orchestration plan\'s `profile` param, or rely on the rectangle-default fallback.',
+  fields: [
+    { name: 'depth',     label: 'Depth',     type: 'number', default: 40, unit: 'mm', min: 0.1, max: 5000, step: 1 },
+    { name: 'dirX',      label: 'Direction X', type: 'number', default: 0,  unit: '',  min: -1, max: 1, step: 0.05, hint: 'unit vector; default (0,0,1) = +Z' },
+    { name: 'dirY',      label: 'Direction Y', type: 'number', default: 0,  unit: '',  min: -1, max: 1, step: 0.05 },
+    { name: 'dirZ',      label: 'Direction Z', type: 'number', default: 1,  unit: '',  min: -1, max: 1, step: 0.05 },
+  ],
+};
+
+TOOL_PARAM_SCHEMAS['Revolved Surface'] = {
+  title: 'Revolved Surface',
+  blurb: 'Sheet-body revolve — sweep the input wire\'s EDGES around an axis (no caps). Result kind=sheet. Profile may be open or closed; axis is supplied as { origin: [x,y,z], direction: [dx,dy,dz] } via the dialog defaults below.',
+  fields: [
+    { name: 'angle',     label: 'Revolution angle', type: 'number', default: 360, unit: 'deg', min: 1, max: 360, step: 1 },
+    { name: 'axisOriginX', label: 'Axis origin X', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+    { name: 'axisOriginY', label: 'Axis origin Y', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+    { name: 'axisOriginZ', label: 'Axis origin Z', type: 'number', default: 0, unit: 'mm', min: -1000, max: 1000, step: 1 },
+    { name: 'axisDirX',  label: 'Axis direction X', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.05, hint: 'default (0,0,1) = +Z' },
+    { name: 'axisDirY',  label: 'Axis direction Y', type: 'number', default: 0, unit: '', min: -1, max: 1, step: 0.05 },
+    { name: 'axisDirZ',  label: 'Axis direction Z', type: 'number', default: 1, unit: '', min: -1, max: 1, step: 0.05 },
+  ],
+};
+
+/** True iff the tool supports the NX-distinctive dialog-in-dialog sketch
+ *  session. Consumers (the InlineSketchSession overlay) read this to
+ *  decide whether to render a "Sketch Profile" hook button. */
+export function isInlineSketchCapable(toolName) {
+  return INLINE_SKETCH_CAPABLE.has(toolName);
+}
+
+// ─── UX TIER 10 — PARAMETRIC INFRASTRUCTURE ─────────────────────────────────
+// Equation Manager: opens a full-page modal (EquationManager.jsx) where the
+// user adds / edits / deletes global variables and expressions. Zero numeric
+// inputs in the schema — the dialog itself is the table. The schema is here
+// so the planner / orchestration layer can recognise the tool name and the
+// handler is selection-independent.
+TOOL_PARAM_SCHEMAS['Equation Manager'] = {
+  title: 'Equation Manager — Global Variables',
+  blurb: 'Open the Equation Manager modal. Define global variables (width, height, holeSpacing…), use them in sketch dimensions via the "=expr" syntax (e.g. =width/4), and watch downstream geometry reflow when a variable changes.',
+  fields: [],
+};
