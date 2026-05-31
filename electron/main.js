@@ -67,6 +67,9 @@ function createWindow() {
       contextIsolation: true,
       webgl: true,
       enableWebSQL: false,
+      // Bridge the native Forge kernel into the renderer via contextBridge.
+      preload: path.join(__dirname, 'preload.js'),
+      sandbox: false, // preload needs `require` to load the .node addon
     },
     backgroundColor: '#000000',
     show: false,

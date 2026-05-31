@@ -13,8 +13,9 @@
     "electron:build:win": "cd frontend && npx vite build && npx electron-builder --win --x64",
     "electron:start": "npx electron .",
     "vercel-build": "cd frontend && npm run build",
-    "forge:kernel": "cd forge-kernel && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j",
-    "forge:kernel:test": "node forge-kernel/test/smoke.js"
+    "forge:kernel": "cd forge-kernel && ../node_modules/.bin/cmake-js configure --CDCMAKE_BUILD_TYPE=Release && ../node_modules/.bin/cmake-js build",
+    "forge:kernel:test": "node forge-kernel/test/smoke.js && node forge-kernel/test/bench_100k.js",
+    "forge:bridge:test": "node forge-kernel/test/bridge_smoke.js"
   },
   "keywords": [
     "cad",
