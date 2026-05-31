@@ -33,6 +33,7 @@ import { TimelineStrip } from './TimelineStrip.jsx';
 import { ArchieSidebar } from './ArchieSidebar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { useArchieDriver } from './useArchieDriver.js';
+import { useViewState } from './useViewState.js';
 
 const STORAGE = 'forge.v3';
 
@@ -58,6 +59,15 @@ export function ForgeShellV3() {
   const [section, setSection] = useState({ enabled: false, plane: { normal: [1,0,0], constant: 0 } });
   const cmdRef = useRef(null);
   const archie = useArchieDriver();
+  // Views + display states tied to the active thread for persistence.
+  const viewState = useViewState({
+    threadId: archie.activeThreadId,
+    backend: (typeof localStorage !== 'undefined') ? {
+      get: (k) => { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : null; } catch { return null; } },
+      set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+      del: (k) => { try { localStorage.removeItem(k); } catch {} },
+    } : null,
+  });
 
   // Reset measurement points when leaving the measure verb.
   useEffect(() => {
@@ -81,25 +91,36 @@ export function ForgeShellV3() {
 
   useEffect(() => { writeStored('archieCollapsed', archieCollapsed); }, [archieCollapsed]);
 
-  // Cmd/Ctrl+K focuses the command bar from anywhere. Esc clears it.
+  // Global keyboard map:
+  //   Cmd+K       focus the command bar
+  //   Cmd+/       collapse / expand Archie
+  //   Cmd+T       cycle theme dark → light → contrast
+  //   Cmd+D       cycle display state (shaded → wireframe → … → shaded)
+  //   1–7         jump to named view iso/front/back/top/bottom/right/left
+  //   Esc         clear active verb
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const VIEW_KEYS = { '1':'iso','2':'front','3':'back','4':'top','5':'bottom','6':'right','7':'left' };
     const onKey = (e) => {
       const meta = e.metaKey || e.ctrlKey;
       if (meta && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        cmdRef.current?.focus();
+        e.preventDefault(); cmdRef.current?.focus();
       } else if (meta && e.key === '/') {
-        e.preventDefault();
-        setArchieCollapsed((v) => !v);
+        e.preventDefault(); setArchieCollapsed((v) => !v);
       } else if (meta && e.key.toLowerCase() === 't') {
         e.preventDefault();
         setTheme((t) => t === 'dark' ? 'light' : t === 'light' ? 'contrast' : 'dark');
+      } else if (meta && e.key.toLowerCase() === 'd') {
+        e.preventDefault(); viewState.cycleDisplay();
+      } else if (!meta && e.key === 'Escape') {
+        setActiveVerb(null);
+      } else if (!meta && VIEW_KEYS[e.key] && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault(); viewState.applyView(VIEW_KEYS[e.key]);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [viewState]);
 
   // Verb-rail click prefills the command bar with the verb's natural-
   // language stem so the user can finish the sentence ("fillet __mm").
@@ -141,7 +162,7 @@ export function ForgeShellV3() {
           style={{ fontSize: 11, opacity: 0.6 }}
           data-testid="forge-v3-status"
         >
-          0.3.0 · {archie.status}
+          {viewState.displayState} · {viewState.activeView} · 0.3.0 · {archie.status}
         </span>
       </header>
 
