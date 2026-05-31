@@ -12,7 +12,6 @@ import { RightPanel } from './RightPanel.jsx';
 import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { ArchieDock } from './ArchieDock.jsx';
-import { WelcomeOverlay, ROLES } from './WelcomeOverlay.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -36,10 +35,6 @@ export function ForgeShellV4() {
   const [dockOpen, setDockOpen]       = useState(false);
   const [thread, setThread]           = useState([]);
   const [running, setRunning]         = useState(false);
-  const [welcomeOpen, setWelcomeOpen] = useState(
-    () => stored.get('role', null) === null
-  );
-  const [role, setRole] = useState(() => stored.get('role', 'pro'));
   const [featureTree, setFeatureTree] = useState([]);
   const cmdRef = useRef(null);
 
@@ -97,7 +92,7 @@ export function ForgeShellV4() {
                  pushThread({ role: 'archie', text: `Queued ${id} (kernel mount lands in Forge-70).` });
                }} />
       <div className="forge-viewport" data-testid="forge-viewport">
-        <ViewportSurface activeWb={activeWb} role={role} />
+        <ViewportSurface activeWb={activeWb} />
       </div>
       {dockOpen
         ? (<ArchieDock open={dockOpen} thread={thread} running={running}
@@ -122,11 +117,6 @@ export function ForgeShellV4() {
                     pushThread({ role: 'user', text });
                     pushThread({ role: 'archie', text: `Queued. (Forge-70 wires the live runner.)` });
                   }} />
-      <WelcomeOverlay open={welcomeOpen}
-                      onPick={(r) => {
-                        setRole(r); stored.set('role', r);
-                        setWelcomeOpen(false);
-                      }} />
     </div>
   );
 }
@@ -134,7 +124,7 @@ export function ForgeShellV4() {
 // Inline viewport surface — placeholder until Forge-70 mounts the real
 // workbench body. Shows the brand at calibrated size + a HUD so it's
 // observable without a kernel.
-function ViewportSurface({ activeWb, role }) {
+function ViewportSurface({ activeWb }) {
   return (
     <>
       <div style={{
@@ -171,7 +161,7 @@ function ViewportSurface({ activeWb, role }) {
 function BigMark() {
   return (
     <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-      <g stroke="var(--forge-accent)" strokeWidth="1.5"
+      <g stroke="var(--forge-ink)" strokeWidth="1.5"
          strokeLinecap="round" strokeLinejoin="round">
         <path d="M16 3 L16 9" />
         <path d="M13 6 L19 6" />
@@ -205,9 +195,9 @@ function ViewportHUD() {
         padding: '4px 8px', borderRadius: 4,
         border: '1px solid var(--forge-rail-edge)',
       }}>
-        <span style={{ color: '#e26a6a' }}>▶ X</span>
-        <span style={{ color: '#5cc88f' }}>▲ Y</span>
-        <span style={{ color: '#4aa0e1' }}>● Z</span>
+        <span style={{ color: 'var(--forge-ink)' }}>▶ X</span>
+        <span style={{ color: 'var(--forge-ink-2)' }}>▲ Y</span>
+        <span style={{ color: 'var(--forge-ink-mute)' }}>● Z</span>
       </div>
       <div style={{
         position: 'absolute', bottom: 10, right: 12,
@@ -218,7 +208,7 @@ function ViewportHUD() {
       }}>
         <span style={{
           display: 'inline-block', width: 40, height: 2,
-          background: 'var(--forge-accent)', margin: '0 6px 2px',
+          background: 'var(--forge-ink-2)', margin: '0 6px 2px',
           verticalAlign: 'middle',
         }} />10 mm
       </div>

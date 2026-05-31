@@ -48,12 +48,13 @@
   --forge-ink-mute:    #757a85;
   --forge-ink-faint:   #3d4250;
 
-  /* Accent — single copper */
-  --forge-accent:        #d97a3b;
-  --forge-accent-hover:  #e98a47;
-  --forge-accent-press:  #c46529;
-  --forge-accent-mute:   rgba(217,122,59,0.16);
-  --forge-accent-rim:    rgba(217,122,59,0.42);
+  /* Accent — monochrome white in dark mode (pure OLED rule).
+     Active state is bright-white-on-black; no chromatic break. */
+  --forge-accent:        #ebecef;
+  --forge-accent-hover:  #ffffff;
+  --forge-accent-press:  #c0c5cf;
+  --forge-accent-mute:   rgba(255,255,255,0.08);
+  --forge-accent-rim:    rgba(255,255,255,0.28);
 
   /* Signal — grey-tinted, never primary colors */
   --forge-ok:    #5cc88f;
@@ -79,11 +80,12 @@
   --forge-ink-mute:    #7a7f8a;
   --forge-ink-faint:   #b8bcc4;
 
-  --forge-accent:        #c46529;        /* slightly toned-down copper */
-  --forge-accent-hover:  #b35a22;
-  --forge-accent-press:  #a04d1c;
-  --forge-accent-mute:   rgba(196,101,41,0.12);
-  --forge-accent-rim:    rgba(196,101,41,0.35);
+  /* Accent — monochrome deep graphite in light mode. */
+  --forge-accent:        #14161b;
+  --forge-accent-hover:  #000000;
+  --forge-accent-press:  #2a2d34;
+  --forge-accent-mute:   rgba(20,22,27,0.07);
+  --forge-accent-rim:    rgba(20,22,27,0.20);
 
   --forge-ok:    #2d9b65;
   --forge-warn:  #b8870a;
@@ -401,7 +403,7 @@ html, body, #root {
 /* ============ Command bar (always on) ============ */
 .forge-cmdbar {
   background: var(--forge-canvas);
-  border-top: 1px solid var(--forge-accent-rim);
+  border-top: 1px solid var(--forge-rail-edge);
   display: flex;
   align-items: center;
   padding: 0 14px;

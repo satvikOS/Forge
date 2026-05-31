@@ -21,7 +21,7 @@ import React from 'react';
 export function ForgeMark({
   size = 24,
   stroke = 'currentColor',
-  sparkColor = 'var(--forge-accent, #d97a3b)',
+  sparkColor = 'var(--forge-accent, currentColor)',
   strokeWidth = 1.5,
   title = 'Forge',
   ...rest
@@ -112,7 +112,7 @@ export function ForgeLockup({ size = 32, title = 'Forge', ...rest }) {
 
 // Inner reusable mark used by the lockup so we don't recursively pull
 // the whole component (which would re-emit a <svg>).
-function ForgeMarkRaw({ accent = 'var(--forge-accent, #d97a3b)' }) {
+function ForgeMarkRaw({ accent = 'var(--forge-accent, currentColor)' }) {
   return (
     <g>
       <g stroke={accent} strokeWidth="1.5"
