@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import WorkbenchContainer from './components/Workbench';
 import ForgeApp from './forge-app/ForgeApp.jsx';
+import { Showcase as ForgeShowcase } from './forge-app/design-system/Showcase.jsx';
 import './styles/index.css';
 import './styles/fonts.css';
 
@@ -21,6 +22,8 @@ function App() {
   }, []);
 
   if (hash && hash.replace(/^#\/?/, '').startsWith('forge')) {
+    const path = hash.replace(/^#\/?/, '');
+    if (path === 'forge/design-showcase') return <ForgeShowcase />;
     return <ForgeApp />;
   }
   return <WorkbenchContainer />;
