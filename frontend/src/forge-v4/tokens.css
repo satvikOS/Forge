@@ -465,6 +465,126 @@ html, body, #root {
     radial-gradient(ellipse at 50% 35%, #f6f7f9 0%, var(--forge-canvas) 70%);
 }
 
+/* ============ Tool param dock (left side, when tool active) ============ */
+.forge-tool-dock {
+  position: fixed;
+  top: calc(var(--forge-topbar-h) + var(--forge-qat-h) + var(--forge-toolbar-h) + 8px);
+  left: calc(var(--forge-wb-rail-w) + 8px);
+  width: 260px;
+  max-height: calc(100vh - var(--forge-topbar-h) - var(--forge-qat-h) - var(--forge-toolbar-h) - var(--forge-statusbar-h) - var(--forge-cmdbar-h) - 24px);
+  background: var(--forge-canvas-3);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius-lg);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+  display: flex; flex-direction: column;
+  z-index: 600;
+}
+.forge-tool-dock-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--forge-rail-edge);
+  background: var(--forge-canvas);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--forge-ink);
+  border-radius: var(--forge-radius-lg) var(--forge-radius-lg) 0 0;
+}
+.forge-tool-dock-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.forge-tool-dock-footer {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--forge-rail-edge);
+  background: var(--forge-canvas);
+  border-radius: 0 0 var(--forge-radius-lg) var(--forge-radius-lg);
+}
+.forge-tool-dock-btn {
+  flex: 1;
+  background: var(--forge-surface);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius);
+  color: var(--forge-ink);
+  font: inherit; font-size: 11px;
+  padding: 5px 8px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 4px;
+}
+.forge-tool-dock-btn[data-kind="confirm"] {
+  background: var(--forge-accent-mute);
+  border-color: var(--forge-accent);
+  color: var(--forge-ink);
+}
+.forge-tool-dock-btn:hover { background: var(--forge-surface-2); }
+.forge-tool-dock-btn[data-kind="confirm"]:hover { background: var(--forge-accent-mute); }
+
+.forge-tool-field { display: flex; flex-direction: column; gap: 4px; }
+.forge-tool-field-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--forge-ink-mute);
+}
+.forge-tool-field-row { display: inline-flex; align-items: center; gap: 4px; }
+.forge-tool-input {
+  flex: 1;
+  background: var(--forge-canvas);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: 3px;
+  color: var(--forge-ink);
+  font: inherit; font-size: 12px;
+  padding: 4px 6px;
+}
+.forge-tool-input:focus { outline: none; border-color: var(--forge-accent); }
+.forge-tool-field-unit {
+  font-size: 10px;
+  color: var(--forge-ink-mute);
+  font-family: var(--forge-mono);
+  padding: 0 4px;
+}
+.forge-tool-pick { cursor: pointer; text-align: left; font-family: var(--forge-mono); font-size: 11px; }
+
+/* ============ Confirmation Corner ============ */
+.forge-confirmation-corner {
+  position: absolute;
+  top: 10px; left: 50%;
+  transform: translateX(calc(-50% + 200px));
+  display: flex; align-items: center;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius);
+  padding: 4px 6px 4px 10px;
+  gap: 8px;
+  z-index: 6;
+  pointer-events: auto;
+  font-size: 11px;
+  color: var(--forge-ink);
+}
+.forge-confirmation-label {
+  font-weight: 500;
+  color: var(--forge-ink-2);
+}
+.forge-confirmation-btn {
+  width: 22px; height: 22px;
+  background: transparent;
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: 3px;
+  color: var(--forge-ink-2);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.forge-confirmation-btn[data-kind="confirm"]:hover {
+  background: var(--forge-ok); color: #fff; border-color: var(--forge-ok);
+}
+.forge-confirmation-btn[data-kind="cancel"]:hover {
+  background: var(--forge-err); color: #fff; border-color: var(--forge-err);
+}
+
 /* ============ Right panel ============ */
 .forge-right {
   background: var(--forge-canvas-2);

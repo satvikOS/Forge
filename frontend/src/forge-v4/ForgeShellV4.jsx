@@ -17,6 +17,8 @@ import { QuickAccessBar } from './QuickAccessBar.jsx';
 import { NavSphere } from './NavSphere.jsx';
 import { HeadsUpToolbar } from './HeadsUpToolbar.jsx';
 import { ToastHost, showToast } from './Toast.jsx';
+import { ToolParamDialog } from './ToolParamDialog.jsx';
+import { schemaFor } from './toolSchemas.js';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -220,17 +222,14 @@ export function ForgeShellV4() {
       <Toolbar workbenchId={activeWb}
                activeTool={activeTool}
                onInvoke={(id) => {
-                 setActiveTool(id);
-                 const groups = toolsForWorkbench(activeWb);
-                 const tool = groups.flatMap((g) => g.tools).find((t) => t.id === id);
-                 const nextId = `f-${featureTree.length}`;
-                 setFeatureTree((t) => [...t, {
-                   id: nextId,
-                   label: (tool?.label || id) + ' ' + (featureTree.length + 1),
-                   icon: tool?.icon || 'sketch.point',
-                 }]);
-                 setActiveFeatureId(nextId);
-                 pushThread({ role: 'archie', text: `Queued ${tool?.label || id} (kernel mount lands in Forge-70).` });
+                 // If the tool has a schema, open the param dock; otherwise
+                 // just toggle activeTool (the legacy click-feedback path).
+                 if (schemaFor(id)) {
+                   setActiveTool(id);
+                 } else {
+                   setActiveTool(id);
+                   showToast({ kind: 'info', text: `${id} (no params)`, ttl: 1500 });
+                 }
                }} />
       <div className="forge-viewport" data-testid="forge-viewport">
         <Viewport steps={[]}
@@ -289,6 +288,22 @@ export function ForgeShellV4() {
                   onToggleDock={() => setDockOpen((v) => !v)}
                   onSubmit={(text) => runArchie(text)} />
       <ToastHost />
+      <ToolParamDialog activeTool={activeTool}
+                       selection={selection}
+                       onConfirm={(tool, params) => {
+                         const nextId = `f-${featureTree.length}`;
+                         setFeatureTree((t) => [...t, {
+                           id: nextId,
+                           label: (schemaFor(tool)?.title || tool) + ' ' + (featureTree.length + 1),
+                           icon: toolsForWorkbench(activeWb).flatMap((g) => g.tools).find((tt) => tt.id === tool)?.icon || 'sketch.point',
+                           params,
+                         }]);
+                         setActiveFeatureId(nextId);
+                         setActiveTool(null);
+                         showToast({ kind: 'ok',
+                           text: `${schemaFor(tool)?.title || tool} applied`, ttl: 1500 });
+                       }}
+                       onCancel={() => { setActiveTool(null); }} />
     </div>
   );
 }
