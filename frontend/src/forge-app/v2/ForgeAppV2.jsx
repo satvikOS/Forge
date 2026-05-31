@@ -30,8 +30,41 @@ import { FeatureTreePanel } from './panels/FeatureTreePanel.jsx';
 import { PropertyPanel } from './panels/PropertyPanel.jsx';
 import { StatusBar } from './panels/StatusBar.jsx';
 import { ArchiePortal } from '../archie-portal/ArchiePortal.jsx';
+import { CommandPalette, useCommandPalette } from './overlays/CommandPalette.jsx';
+import { WelcomeOverlay } from './overlays/WelcomeOverlay.jsx';
+import { SettingsDialog } from './overlays/SettingsDialog.jsx';
 
 const THEME_KEY = 'forge.theme.v2';
+const WELCOME_KEY = 'forge.welcome.dismissed';
+
+// Sample command list for the palette. The ribbon's TAB_GROUPS will be
+// wired into a unified registry in a follow-up slice; for now we hand-curate
+// the most-reached commands here so Cmd+K feels alive.
+const PALETTE_COMMANDS = [
+  { id: 'file.new',   label: 'New project',        category: 'File',     icon: 'fileNew',  shortcut: 'Cmd N' },
+  { id: 'file.open',  label: 'Open project…',      category: 'File',     icon: 'fileOpen', shortcut: 'Cmd O' },
+  { id: 'file.save',  label: 'Save',               category: 'File',     icon: 'fileSave', shortcut: 'Cmd S' },
+  { id: 'file.export.step',  label: 'Export STEP', category: 'File',     icon: 'fileExport' },
+  { id: 'edit.undo',  label: 'Undo',               category: 'Edit',     icon: 'undo',     shortcut: 'Cmd Z' },
+  { id: 'edit.redo',  label: 'Redo',               category: 'Edit',     icon: 'redo',     shortcut: 'Cmd Shift Z' },
+  { id: 'view.frame', label: 'Frame all',          category: 'View',     icon: 'frame',    shortcut: 'F' },
+  { id: 'view.section', label: 'Section view',     category: 'View',     icon: 'cut' },
+  { id: 'part.box',   label: 'Box',                category: 'Part',     icon: 'box' },
+  { id: 'part.cylinder', label: 'Cylinder',        category: 'Part',     icon: 'cylinder' },
+  { id: 'part.extrude', label: 'Extrude',          category: 'Part',     icon: 'extrude',  shortcut: 'E' },
+  { id: 'part.fillet', label: 'Fillet',            category: 'Part',     icon: 'fillet',   shortcut: 'F' },
+  { id: 'part.hole', label: 'Hole wizard',         category: 'Part',     icon: 'hole' },
+  { id: 'sketch.new', label: 'New sketch',         category: 'Sketch',   icon: 'sketchTab', shortcut: 'S' },
+  { id: 'sketch.dim', label: 'Smart dimension',    category: 'Sketch',   icon: 'drawingTab', shortcut: 'D' },
+  { id: 'asm.mate',   label: 'Mate',               category: 'Assembly', icon: 'mate',     shortcut: 'M' },
+  { id: 'asm.explode', label: 'Exploded view',     category: 'Assembly', icon: 'exploded' },
+  { id: 'sim.static', label: 'Run static FEA',     category: 'Simulate', icon: 'simulateTab' },
+  { id: 'sim.cfd',    label: 'Run CFD',            category: 'Simulate', icon: 'sweep' },
+  { id: 'mfg.profile', label: 'CAM profile',       category: 'Manufacture', icon: 'frame' },
+  { id: 'mfg.gcode',  label: 'Post G-code',        category: 'Manufacture', icon: 'fileExport' },
+  { id: 'settings',   label: 'Open Settings…',     category: 'Tools',    icon: 'settings' },
+  { id: 'help.welcome', label: 'Show welcome screen', category: 'Help',  icon: 'help' },
+];
 
 export function ForgeAppV2() {
   const [theme, setTheme] = useState(() =>
@@ -59,10 +92,30 @@ export function ForgeAppV2() {
   const [selection, setSelection] = useState(null);
   const [cursor] = useState(null);
 
+  // Overlays
+  const { open: paletteOpen, openPalette, closePalette } = useCommandPalette();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(() => {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(WELCOME_KEY) !== '1';
+  });
+
+  // Recent commands stack — capped at 8.
+  const [recentCommands, setRecentCommands] = useState([]);
+
   const onInvoke = useCallback((id, cmd) => {
-    announce(`Command: ${cmd.label}`);
-    // wire to ForgeToolBridge in a follow-up slice
+    announce(`Command: ${cmd?.label || id}`);
+    // route a couple of well-known ids locally; others reach the bridge in a follow-up
+    if (id === 'settings') { setSettingsOpen(true); return; }
+    if (id === 'help.welcome') { setWelcomeOpen(true); return; }
+    if (id === 'file.new') { newDoc(); return; }
+    setRecentCommands((cur) => [id, ...cur.filter((x) => x !== id)].slice(0, 8));
   }, []);
+
+  const dismissWelcome = () => {
+    setWelcomeOpen(false);
+    if (typeof localStorage !== 'undefined') localStorage.setItem(WELCOME_KEY, '1');
+  };
 
   const newDoc = () => {
     const id = `d${docs.length + 1}`;
@@ -88,7 +141,9 @@ export function ForgeAppV2() {
     <ToastProvider>
       <WorkspaceShell
         titleBar={
-          <TitleBar onNewDoc={newDoc} theme={theme} onThemeChange={setTheme} />
+          <TitleBar onNewDoc={newDoc} theme={theme} onThemeChange={setTheme}
+            onOpenPalette={openPalette}
+            onOpenSettings={() => setSettingsOpen(true)} />
         }
         ribbon={<Ribbon onInvoke={onInvoke} />}
         documentTabs={
@@ -118,12 +173,34 @@ export function ForgeAppV2() {
           />
         }
       />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={closePalette}
+        commands={PALETTE_COMMANDS}
+        features={[]}
+        recent={recentCommands}
+        onInvoke={(it) => onInvoke(it.id, { label: it.label })}
+      />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        theme={theme}
+        onThemeChange={setTheme}
+      />
+      <WelcomeOverlay
+        open={welcomeOpen}
+        onClose={dismissWelcome}
+        onNewProject={() => { dismissWelcome(); newDoc(); }}
+        onOpenSample={() => { dismissWelcome(); /* TODO load sample */ }}
+        onTakeTour={dismissWelcome}
+        recent={[]}
+      />
       <ToastHost />
     </ToastProvider>
   );
 }
 
-function TitleBar({ onNewDoc, theme, onThemeChange }) {
+function TitleBar({ onNewDoc, theme, onThemeChange, onOpenPalette, onOpenSettings }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
       <span style={{
@@ -151,13 +228,13 @@ function TitleBar({ onNewDoc, theme, onThemeChange }) {
       <span style={{ flex: 1 }} />
       <Inline gap="var(--space-2)">
         <Tooltip content="Search commands (Cmd K)">
-          <IconButton size="sm" icon={<Icon name="search" />} label="Command palette" />
+          <IconButton size="sm" icon={<Icon name="search" />} label="Command palette" onClick={onOpenPalette} />
         </Tooltip>
         <Tooltip content="Help (?)">
           <IconButton size="sm" icon={<Icon name="help" />} label="Help" />
         </Tooltip>
         <Tooltip content="Settings">
-          <IconButton size="sm" icon={<Icon name="settings" />} label="Settings" />
+          <IconButton size="sm" icon={<Icon name="settings" />} label="Settings" onClick={onOpenSettings} />
         </Tooltip>
       </Inline>
     </div>
