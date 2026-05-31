@@ -102,6 +102,66 @@ export class ForgeCam {
     const raw = this._cam.faceMill(shape, fid, tool, params, zTop, depth);
     return wrapToolpath(raw);
   }
+
+  // ----------------------------------------------------------- Forge-33
+  /**
+   * 3-axis adaptive clearing. Engagement-arc-modulated feed: the cutting
+   * feedrate is scaled by min(1, localR/minRadius) so tight pockets get
+   * a lower feedrate automatically.
+   *
+   * @param {object} cfg
+   * @param {number} cfg.shape     forge shape handle
+   * @param {Float64Array|number[]} cfg.stockAabb   [minX,minY,minZ,maxX,maxY,maxZ]
+   * @param {object} cfg.tool      Tool
+   * @param {object} cfg.params    CuttingParams
+   * @param {object} cfg.adaptive  { stepover, zMax, zMin, helixAngle, minRadius }
+   */
+  async adaptiveClear({ shape, stockAabb, tool, params, adaptive }) {
+    const raw = this._cam.adaptiveClear(shape,
+      stockAabb instanceof Float64Array ? stockAabb : Float64Array.from(stockAabb),
+      tool, params, adaptive);
+    return wrapToolpath(raw);
+  }
+
+  /**
+   * Indexed multi-axis (3+2/4+1/5-axis). Pass an array of [A,B,C] degree
+   * triples; output is a single toolpath whose `.perOrientation` field
+   * gives the sub-path start indices.
+   */
+  async multiAxisIndexed({ shape, tool, params, orientations, zTop, zBottom }) {
+    const raw = this._cam.multiAxisIndexed(shape, tool, params, orientations, zTop, zBottom);
+    return Object.assign(wrapToolpath(raw), { perOrientation: raw.perOrientation });
+  }
+
+  /**
+   * Continuous 5-axis along a sketched surface path. Each station has
+   * (x,y,z,nx,ny,nz). The returned toolpath carries an `axisOrientations`
+   * Float32Array of (a,b,c) Euler degrees per move.
+   */
+  async multiAxisContinuous({ shape, tool, params, path }) {
+    const raw = this._cam.multiAxisContinuous(shape, tool, params, path);
+    return Object.assign(wrapToolpath(raw), { axisOrientations: raw.axisOrientations });
+  }
+
+  /**
+   * Voxel stock simulation. `stockAabb` is the 6-element Float64Array,
+   * `toolpath` is any toolpath emitted by this module, `tool` carries
+   * the diameter used to envelope-stamp each cutting segment.
+   */
+  async simulateStock({ stockAabb, toolpath, tool, gridResolution = 50 }) {
+    return this._cam.simulateStock(
+      stockAabb instanceof Float64Array ? stockAabb : Float64Array.from(stockAabb),
+      toolpath, tool, gridResolution);
+  }
+
+  /**
+   * CMM inspection program. `features` is an array of
+   * `{ kind: 'plane'|'cylinder'|'point', topo: faceId, label }`. Returns
+   * { points: Float64Array (6 doubles per probe), pointsPerFeature, text }.
+   */
+  async generateCmm({ shape, features, gauge }) {
+    return this._cam.generateCmm(shape, features, gauge);
+  }
 }
 
 export default ForgeCam;

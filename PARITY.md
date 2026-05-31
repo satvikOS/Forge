@@ -118,10 +118,10 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 |---------------------------------------------|--------|-------|
 | CAM profile / pocket / drill / face-mill    | ✅      | Forge-13 |
 | G-code post (Fanuc/Haas/LinuxCNC/Grbl)      | ✅      | Forge-13 |
-| 3-axis adaptive clearing                    | ☐      | future slice |
-| 5-axis indexed / continuous                 | ☐      | future slice |
-| Stock simulation                            | ☐      | future slice |
-| Inspection (CMM) program                    | ☐      | future slice |
+| 3-axis adaptive clearing                    | ✅      | Forge-33 — Archimedean spiral + engagement-arc feed modulation |
+| 5-axis indexed / continuous                 | ✅      | Forge-33 — indexed (A,B,C) orientations + continuous swarf w/ Euler triple per move |
+| Stock simulation                            | ✅      | Forge-33 — voxel sim (50³ cap, doc'd tradeoff); residue histogram + collision count |
+| Inspection (CMM) program                    | ✅      | Forge-33 — DMIS-flavoured probe path for plane/cylinder/point features |
 
 ## 7. PDM / PLM / I/O
 
@@ -180,7 +180,7 @@ Self-grade as of the 7-agent integration wave:
   §3 UI/UX:        25 ✅ / 0 ◐ / 0 ☐  ← the V V IMPORTANT bar, fully green
   §4 Drawings:      2 ✅ / 3 ◐ / 3 ☐  (section/detail/broken views queued)
   §5 Simulation:    8 ✅ / 0 ◐ / 3 ☐  (buckling/contact/plasticity queued)
-  §6 Manufacturing: 2 ✅ / 0 ◐ / 4 ☐  (3/5-axis + stock-sim + CMM queued)
+  §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed out 3/5-axis + stock-sim + CMM)
   §7 PDM/IO:        3 ✅ / 0 ◐ / 4 ☐  (filesystem store + IGES queued)
   §8 Assembly:      1 ✅ / 2 ◐ / 5 ☐  (exploded/patterns/interference queued)
   §9 AI:            3 ✅ / 1 ◐ / 0 ☐

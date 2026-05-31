@@ -111,6 +111,7 @@ add_library(forge_kernel SHARED
     src/FeaExtras.cpp
     src/Cfd.cpp
     src/Cam.cpp
+    src/CamAdvanced.cpp
     src/GcodePost.cpp
     src/IoExchange.cpp
     src/DirectModeling.cpp

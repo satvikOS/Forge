@@ -143,6 +143,28 @@ const forgeApi = {
       kernel.cam.drill(shape, holes, tool, params, zTop, zBottom, !!peck),
     faceMill: (shape, faceId, tool, params, zTop, depth) =>
       kernel.cam.faceMill(shape, faceId, tool, params, zTop, depth),
+    // Forge-33 — advanced CAM. Defensive forwarders that no-op gracefully on
+    // older kernels (returns null instead of crashing the renderer).
+    adaptiveClear: kernel.cam.adaptiveClear
+      ? (shape, stockAabb, tool, params, adaptive) =>
+          kernel.cam.adaptiveClear(shape, stockAabb, tool, params, adaptive)
+      : null,
+    multiAxisIndexed: kernel.cam.multiAxisIndexed
+      ? (shape, tool, params, orientations, zTop, zBottom) =>
+          kernel.cam.multiAxisIndexed(shape, tool, params, orientations, zTop, zBottom)
+      : null,
+    multiAxisContinuous: kernel.cam.multiAxisContinuous
+      ? (shape, tool, params, path) =>
+          kernel.cam.multiAxisContinuous(shape, tool, params, path)
+      : null,
+    simulateStock: kernel.cam.simulateStock
+      ? (stockAabb, toolpath, tool, gridResolution) =>
+          kernel.cam.simulateStock(stockAabb, toolpath, tool, gridResolution ?? 50)
+      : null,
+    generateCmm: kernel.cam.generateCmm
+      ? (shape, features, gauge) =>
+          kernel.cam.generateCmm(shape, features, gauge)
+      : null,
     gcode: kernel.cam.gcode ? {
       Dialect: Object.freeze({ ...kernel.cam.gcode.Dialect }),
       toGcode: (toolpath, dialect, safeZ) =>

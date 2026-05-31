@@ -21,6 +21,7 @@
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
 #include "forge/Cam.hpp"
+#include "forge/CamAdvanced.hpp"
 #include "forge/GcodePost.hpp"
 #include "forge/Cfd.hpp"
 #include "forge/IoExchange.hpp"
@@ -1235,6 +1236,218 @@ Napi::Value CamFaceMill(const Napi::CallbackInfo& info) {
         double depth = requireNumber(info, 5, "depth");
         auto tp = forge::cam::faceMill(shape, faceId, tool, params, zTop, depth);
         return cam_bind::packToolpath(info.Env(), tp);
+    });
+}
+
+// ----------------------------------------------------------- cam advanced (Forge-33)
+namespace camadv_bind {
+
+forge::cam::StockAABB readStock(Napi::Env env, Napi::Value v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.cam.adv: stock must be { aabb: Float64Array[6] } or Float64Array[6]");
+    }
+    forge::cam::StockAABB s{};
+    if (v.IsTypedArray()) {
+        auto a = v.As<Napi::Float64Array>();
+        if (a.ElementLength() != 6) {
+            throw Napi::TypeError::New(env, "forge.cam.adv: stock AABB must have 6 elements");
+        }
+        s.minX = a.Data()[0]; s.minY = a.Data()[1]; s.minZ = a.Data()[2];
+        s.maxX = a.Data()[3]; s.maxY = a.Data()[4]; s.maxZ = a.Data()[5];
+        return s;
+    }
+    auto obj = v.As<Napi::Object>();
+    Napi::Value av = obj.Has("aabb") ? obj.Get("aabb") : obj.Get("bbox");
+    if (!av.IsTypedArray()) {
+        throw Napi::TypeError::New(env, "forge.cam.adv: stock.aabb must be Float64Array[6]");
+    }
+    auto a = av.As<Napi::Float64Array>();
+    if (a.ElementLength() != 6) {
+        throw Napi::TypeError::New(env, "forge.cam.adv: stock.aabb must have 6 elements");
+    }
+    s.minX = a.Data()[0]; s.minY = a.Data()[1]; s.minZ = a.Data()[2];
+    s.maxX = a.Data()[3]; s.maxY = a.Data()[4]; s.maxZ = a.Data()[5];
+    return s;
+}
+
+forge::cam::AdaptiveParams readAdaptive(Napi::Env env, Napi::Value v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.cam.adv: adaptive params must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    forge::cam::AdaptiveParams ap{};
+    ap.stepover   = obj.Has("stepover")   ? obj.Get("stepover").As<Napi::Number>().DoubleValue()   : 1.0;
+    ap.zMax       = obj.Has("zMax")       ? obj.Get("zMax").As<Napi::Number>().DoubleValue()       : 0.0;
+    ap.zMin       = obj.Has("zMin")       ? obj.Get("zMin").As<Napi::Number>().DoubleValue()       : 0.0;
+    ap.helixAngle = obj.Has("helixAngle") ? obj.Get("helixAngle").As<Napi::Number>().DoubleValue() : 5.0;
+    ap.minRadius  = obj.Has("minRadius")  ? obj.Get("minRadius").As<Napi::Number>().DoubleValue()  : 1.0;
+    return ap;
+}
+
+} // namespace camadv_bind
+
+Napi::Value CamAdaptiveClear(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto shape  = requireHandle(info, 0);
+        auto stock  = camadv_bind::readStock(env, info[1]);
+        auto tool   = cam_bind::readTool(env, info[2]);
+        auto params = cam_bind::readParams(env, info[3]);
+        auto adapt  = camadv_bind::readAdaptive(env, info[4]);
+        auto tp = forge::cam::adaptiveClear3Axis(shape, stock, tool, params, adapt);
+        return cam_bind::packToolpath(env, tp);
+    });
+}
+
+Napi::Value CamMultiAxisIndexed(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto shape  = requireHandle(info, 0);
+        auto tool   = cam_bind::readTool(env, info[1]);
+        auto params = cam_bind::readParams(env, info[2]);
+        if (!info[3].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.cam.multiAxisIndexed: orientations must be Array of [A,B,C]");
+        }
+        auto arr = info[3].As<Napi::Array>();
+        std::vector<std::array<double, 3>> orient;
+        orient.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto el = arr.Get(i);
+            if (!el.IsArray()) {
+                throw Napi::TypeError::New(env, "forge.cam.multiAxisIndexed: orientation entry must be [A,B,C]");
+            }
+            auto a = el.As<Napi::Array>();
+            std::array<double, 3> abc{0.0, 0.0, 0.0};
+            for (uint32_t j = 0; j < a.Length() && j < 3; ++j) {
+                abc[j] = a.Get(j).As<Napi::Number>().DoubleValue();
+            }
+            orient.push_back(abc);
+        }
+        double zTop = requireNumber(info, 4, "zTop");
+        double zBottom = requireNumber(info, 5, "zBottom");
+        std::vector<forge::cam::OrientedToolpath> per;
+        auto tp = forge::cam::multiAxisIndexed(shape, tool, params, orient, zTop, zBottom, &per);
+        auto out = cam_bind::packToolpath(env, tp).As<Napi::Object>();
+        auto perArr = Napi::Array::New(env, per.size());
+        for (uint32_t i = 0; i < per.size(); ++i) {
+            auto o = Napi::Object::New(env);
+            auto ab = Napi::Array::New(env, 3);
+            ab.Set(uint32_t{0}, per[i].abc[0]);
+            ab.Set(uint32_t{1}, per[i].abc[1]);
+            ab.Set(uint32_t{2}, per[i].abc[2]);
+            o.Set("abc", ab);
+            o.Set("startMove", Napi::Number::New(env, static_cast<double>(per[i].startMove)));
+            perArr.Set(i, o);
+        }
+        out.Set("perOrientation", perArr);
+        return out;
+    });
+}
+
+Napi::Value CamMultiAxisContinuous(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto shape  = requireHandle(info, 0);
+        auto tool   = cam_bind::readTool(env, info[1]);
+        auto params = cam_bind::readParams(env, info[2]);
+        if (!info[3].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.cam.multiAxisContinuous: path must be Array of {x,y,z,nx,ny,nz}");
+        }
+        auto arr = info[3].As<Napi::Array>();
+        std::vector<forge::cam::SurfaceStation> path;
+        path.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto el = arr.Get(i).As<Napi::Object>();
+            forge::cam::SurfaceStation s{};
+            s.x  = el.Has("x")  ? el.Get("x").As<Napi::Number>().DoubleValue()  : 0.0;
+            s.y  = el.Has("y")  ? el.Get("y").As<Napi::Number>().DoubleValue()  : 0.0;
+            s.z  = el.Has("z")  ? el.Get("z").As<Napi::Number>().DoubleValue()  : 0.0;
+            s.nx = el.Has("nx") ? el.Get("nx").As<Napi::Number>().DoubleValue() : 0.0;
+            s.ny = el.Has("ny") ? el.Get("ny").As<Napi::Number>().DoubleValue() : 0.0;
+            s.nz = el.Has("nz") ? el.Get("nz").As<Napi::Number>().DoubleValue() : 1.0;
+            path.push_back(s);
+        }
+        auto out = forge::cam::multiAxisContinuous(shape, tool, params, path);
+        auto outObj = cam_bind::packToolpath(env, out.tp).As<Napi::Object>();
+        auto orient = Napi::Float32Array::New(env, out.axisOrientations.size() * 3);
+        for (std::size_t i = 0; i < out.axisOrientations.size(); ++i) {
+            orient.Data()[i * 3 + 0] = static_cast<float>(out.axisOrientations[i][0]);
+            orient.Data()[i * 3 + 1] = static_cast<float>(out.axisOrientations[i][1]);
+            orient.Data()[i * 3 + 2] = static_cast<float>(out.axisOrientations[i][2]);
+        }
+        outObj.Set("axisOrientations", orient);
+        return outObj;
+    });
+}
+
+Napi::Value CamSimulateStock(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto stock = camadv_bind::readStock(env, info[0]);
+        if (!info[1].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.cam.simulateStock: toolpath must be an object");
+        }
+        auto tp = cam_bind::readToolpathFromObject(env, info[1].As<Napi::Object>());
+        auto tool = cam_bind::readTool(env, info[2]);
+        std::uint32_t gridN = info.Length() > 3 && info[3].IsNumber()
+            ? info[3].As<Napi::Number>().Uint32Value() : 50u;
+        auto rep = forge::cam::simulateStock(stock, tp, tool, gridN);
+        auto out = Napi::Object::New(env);
+        out.Set("remainingVolume", Napi::Number::New(env, rep.remainingVolume));
+        out.Set("initialVolume",   Napi::Number::New(env, rep.initialVolume));
+        out.Set("maxCutDepth",     Napi::Number::New(env, rep.maxCutDepth));
+        out.Set("collisionCount",  Napi::Number::New(env, rep.collisionCount));
+        out.Set("gridResolution",  Napi::Number::New(env, rep.gridResolution));
+        auto hist = Napi::Float64Array::New(env, rep.residueDistribution.size());
+        std::copy(rep.residueDistribution.begin(), rep.residueDistribution.end(), hist.Data());
+        out.Set("residueDistribution", hist);
+        return out;
+    });
+}
+
+Napi::Value CamGenerateCmm(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto shape = requireHandle(info, 0);
+        if (!info[1].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.cam.generateCmm: features must be Array");
+        }
+        auto arr = info[1].As<Napi::Array>();
+        std::vector<forge::cam::InspectionFeature> features;
+        features.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto el = arr.Get(i).As<Napi::Object>();
+            forge::cam::InspectionFeature f{};
+            std::string k = el.Has("kind") ? el.Get("kind").As<Napi::String>().Utf8Value() : "point";
+            if      (k == "plane")    f.kind = forge::cam::InspectionFeatureKind::Plane;
+            else if (k == "cylinder") f.kind = forge::cam::InspectionFeatureKind::Cylinder;
+            else                      f.kind = forge::cam::InspectionFeatureKind::Point;
+            f.topo  = el.Has("topo")  ? el.Get("topo").As<Napi::Number>().Uint32Value() : forge::cam::kAutoFaceId;
+            f.label = el.Has("label") ? el.Get("label").As<Napi::String>().Utf8Value()  : ("F" + std::to_string(i));
+            features.push_back(f);
+        }
+        if (!info[2].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.cam.generateCmm: gauge must be { stepover, probeRadius }");
+        }
+        auto gObj = info[2].As<Napi::Object>();
+        forge::cam::CmmGauge g{};
+        g.stepover    = gObj.Has("stepover")    ? gObj.Get("stepover").As<Napi::Number>().DoubleValue()    : 5.0;
+        g.probeRadius = gObj.Has("probeRadius") ? gObj.Get("probeRadius").As<Napi::Number>().DoubleValue() : 1.0;
+        auto prog = forge::cam::generateCmm(shape, features, g);
+        auto out = Napi::Object::New(env);
+        auto pts = Napi::Float64Array::New(env, prog.points.size() * 6);
+        for (std::size_t i = 0; i < prog.points.size(); ++i) {
+            const auto& p = prog.points[i];
+            pts.Data()[i * 6 + 0] = p.x;  pts.Data()[i * 6 + 1] = p.y;  pts.Data()[i * 6 + 2] = p.z;
+            pts.Data()[i * 6 + 3] = p.nx; pts.Data()[i * 6 + 4] = p.ny; pts.Data()[i * 6 + 5] = p.nz;
+        }
+        out.Set("points", pts);
+        out.Set("pointCount", Napi::Number::New(env, static_cast<double>(prog.points.size())));
+        auto per = Napi::Uint32Array::New(env, prog.pointsPerFeature.size());
+        std::copy(prog.pointsPerFeature.begin(), prog.pointsPerFeature.end(), per.Data());
+        out.Set("pointsPerFeature", per);
+        out.Set("text", Napi::String::New(env, prog.text));
+        return out;
     });
 }
 
@@ -2751,6 +2964,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     cam.Set("pocket",   Napi::Function::New(env, CamPocket));
     cam.Set("drill",    Napi::Function::New(env, CamDrill));
     cam.Set("faceMill", Napi::Function::New(env, CamFaceMill));
+    cam.Set("adaptiveClear",       Napi::Function::New(env, CamAdaptiveClear));
+    cam.Set("multiAxisIndexed",    Napi::Function::New(env, CamMultiAxisIndexed));
+    cam.Set("multiAxisContinuous", Napi::Function::New(env, CamMultiAxisContinuous));
+    cam.Set("simulateStock",       Napi::Function::New(env, CamSimulateStock));
+    cam.Set("generateCmm",         Napi::Function::New(env, CamGenerateCmm));
 
     auto toolTypes = Napi::Object::New(env);
     toolTypes.Set("EndMill",  Napi::Number::New(env, forge::cam::Tool::EndMill));
