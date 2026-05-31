@@ -182,17 +182,70 @@ export function deriveLineage(inputFaces, outputFaces, inputPids, {
  * (the convention every Forge op uses). Caller normally gets this
  * from `registry.livePids('face').map((pid) => pid)` for the input.
  */
+/**
+ * Forge-60 — convert a kernel-emitted lineage entry (from forge.lineageFor)
+ * into the registry-shaped entry. Maps `oldIndices[]` back to pids via
+ * the caller-supplied `oldPidByIndex` map.
+ */
+function kernelEntryToRegistry(e, oldPidByIndex) {
+  const out = {
+    kind: e.kind,
+    entityKind: e.entityKind || 'face',
+    originOp: e.originOp || 'op',
+  };
+  if (e.kind === 'survivor') {
+    out.oldPid = oldPidByIndex[e.oldIndices[0]];
+    out.newOcctIndex = e.newIndices[0];
+  } else if (e.kind === 'split') {
+    out.oldPid = oldPidByIndex[e.oldIndices[0]];
+    out.newOcctIndices = e.newIndices.slice();
+  } else if (e.kind === 'merge') {
+    out.oldPids = e.oldIndices.map((i) => oldPidByIndex[i]);
+    out.newOcctIndex = e.newIndices[0];
+  } else if (e.kind === 'birth') {
+    out.newOcctIndex = e.newIndices[0];
+  } else if (e.kind === 'death') {
+    out.oldPid = oldPidByIndex[e.oldIndices[0]];
+  }
+  return out;
+}
+
+/**
+ * Prefer the C++ kernel's Modified/Generated emission over JS centroid
+ * heuristics when `forge.lineageFor` is available. Returns null if the
+ * kernel didn't record anything for this handle.
+ */
+function tryKernelLineage(forge, outHandle, aPids, originOp) {
+  if (!forge || typeof forge.lineageFor !== 'function') return null;
+  let kernelEntries;
+  try { kernelEntries = forge.lineageFor(outHandle); }
+  catch { return null; }
+  if (!Array.isArray(kernelEntries) || kernelEntries.length === 0) return null;
+  // Map old TopExp indices (1-based) to caller-supplied pids.
+  const oldPidByIndex = {};
+  for (let i = 0; i < aPids.length; i++) oldPidByIndex[i + 1] = aPids[i];
+  return kernelEntries.map((e) => {
+    const out = kernelEntryToRegistry(e, oldPidByIndex);
+    out.originOp = e.originOp || originOp;
+    return out;
+  });
+}
+
 export function cutWithLineage({ forge, registry, aHandle, bHandle, aPids,
                                  tessellateOpts = {} }) {
   if (!forge || !forge.cut) throw new Error('[lineage] forge.cut not present');
-  const meshA   = forge.tessellate(aHandle, tessellateOpts.linTol ?? 0.1,
-                                            tessellateOpts.angTol ?? 0.5);
   const outHandle = forge.cut(aHandle, bHandle);
-  const meshOut = forge.tessellate(outHandle, tessellateOpts.linTol ?? 0.1,
+  // Forge-60: prefer kernel emission, fall back to JS derivation.
+  let lineage = tryKernelLineage(forge, outHandle, aPids, 'cut');
+  if (!lineage) {
+    const meshA   = forge.tessellate(aHandle, tessellateOpts.linTol ?? 0.1,
                                               tessellateOpts.angTol ?? 0.5);
-  const inFaces  = summariseFaces(meshA);
-  const outFaces = summariseFaces(meshOut);
-  const lineage  = deriveLineage(inFaces, outFaces, aPids, { originOp: 'cut' });
+    const meshOut = forge.tessellate(outHandle, tessellateOpts.linTol ?? 0.1,
+                                                tessellateOpts.angTol ?? 0.5);
+    const inFaces  = summariseFaces(meshA);
+    const outFaces = summariseFaces(meshOut);
+    lineage  = deriveLineage(inFaces, outFaces, aPids, { originOp: 'cut' });
+  }
   if (registry) registry.applyOp('cut', lineage);
   return { outHandle, lineage };
 }
@@ -200,14 +253,17 @@ export function cutWithLineage({ forge, registry, aHandle, bHandle, aPids,
 export function fuseWithLineage({ forge, registry, aHandle, bHandle, aPids,
                                   tessellateOpts = {} }) {
   if (!forge || !forge.fuse) throw new Error('[lineage] forge.fuse not present');
-  const meshA   = forge.tessellate(aHandle, tessellateOpts.linTol ?? 0.1,
-                                            tessellateOpts.angTol ?? 0.5);
   const outHandle = forge.fuse(aHandle, bHandle);
-  const meshOut = forge.tessellate(outHandle, tessellateOpts.linTol ?? 0.1,
+  let lineage = tryKernelLineage(forge, outHandle, aPids, 'fuse');
+  if (!lineage) {
+    const meshA   = forge.tessellate(aHandle, tessellateOpts.linTol ?? 0.1,
                                               tessellateOpts.angTol ?? 0.5);
-  const inFaces  = summariseFaces(meshA);
-  const outFaces = summariseFaces(meshOut);
-  const lineage  = deriveLineage(inFaces, outFaces, aPids, { originOp: 'fuse' });
+    const meshOut = forge.tessellate(outHandle, tessellateOpts.linTol ?? 0.1,
+                                                tessellateOpts.angTol ?? 0.5);
+    const inFaces  = summariseFaces(meshA);
+    const outFaces = summariseFaces(meshOut);
+    lineage  = deriveLineage(inFaces, outFaces, aPids, { originOp: 'fuse' });
+  }
   if (registry) registry.applyOp('fuse', lineage);
   return { outHandle, lineage };
 }

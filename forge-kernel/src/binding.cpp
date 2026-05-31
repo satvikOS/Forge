@@ -35,6 +35,7 @@
 #include "forge/SheetMetal.hpp"
 #include "forge/Weldments.hpp"
 #include "forge/Nurbs.hpp"
+#include "forge/LineageRegistry.hpp"
 
 #include <array>
 
@@ -3639,6 +3640,49 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("fuse",   Napi::Function::New(env, Fuse));
     exports.Set("cut",    Napi::Function::New(env, Cut));
     exports.Set("common", Napi::Function::New(env, Common));
+
+    // Forge-60 — Lineage emission from BRepAlgoAPI_*::Modified() /
+    // Generated() / IsDeleted(). JS-side ForgeTopoIdRegistry consumes
+    // the entries via `forge.lineageFor(handle)`.
+    exports.Set("lineageFor", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          Napi::Env env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsNumber()) {
+            throw Napi::TypeError::New(env2, "lineageFor(handle): handle must be a number");
+          }
+          ShapeHandle h = info[0].As<Napi::Number>().Uint32Value();
+          auto entries = LineageRegistry::instance().get(h);
+          Napi::Array arr = Napi::Array::New(env2, entries.size());
+          for (size_t i = 0; i < entries.size(); ++i) {
+            const auto& e = entries[i];
+            Napi::Object o = Napi::Object::New(env2);
+            const char* kindStr = "survivor";
+            switch (e.kind) {
+              case LineageEntry::Kind::Survivor: kindStr = "survivor"; break;
+              case LineageEntry::Kind::Split:    kindStr = "split";    break;
+              case LineageEntry::Kind::Merge:    kindStr = "merge";    break;
+              case LineageEntry::Kind::Birth:    kindStr = "birth";    break;
+              case LineageEntry::Kind::Death:    kindStr = "death";    break;
+            }
+            o.Set("kind", Napi::String::New(env2, kindStr));
+            o.Set("entityKind", Napi::String::New(env2, e.entityKind));
+            o.Set("originOp",   Napi::String::New(env2, e.originOp));
+            Napi::Array oldArr = Napi::Array::New(env2, e.oldIndices.size());
+            for (size_t j = 0; j < e.oldIndices.size(); ++j) {
+              oldArr.Set((uint32_t)j, Napi::Number::New(env2, e.oldIndices[j]));
+            }
+            Napi::Array newArr = Napi::Array::New(env2, e.newIndices.size());
+            for (size_t j = 0; j < e.newIndices.size(); ++j) {
+              newArr.Set((uint32_t)j, Napi::Number::New(env2, e.newIndices[j]));
+            }
+            o.Set("oldIndices", oldArr);
+            o.Set("newIndices", newArr);
+            arr.Set((uint32_t)i, o);
+          }
+          return arr;
+        });
+      }));
 
     exports.Set("translate", Napi::Function::New(env, Translate));
     exports.Set("rotate",    Napi::Function::New(env, Rotate));

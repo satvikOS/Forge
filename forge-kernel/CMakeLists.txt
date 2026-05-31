@@ -98,6 +98,7 @@ add_library(forge_kernel SHARED
     src/ShapeRegistry.cpp
     src/Primitives.cpp
     src/Booleans.cpp
+    src/LineageRegistry.cpp
     src/Tessellate.cpp
     src/MassProps.cpp
     src/Transform.cpp
