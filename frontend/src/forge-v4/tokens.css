@@ -97,22 +97,30 @@
 /* Geometry — consistent everywhere */
 :root {
   /* zone heights */
-  --forge-topbar-h:    36px;
-  --forge-qat-h:       28px;
-  --forge-toolbar-h:   40px;
-  --forge-statusbar-h: 24px;
-  --forge-cmdbar-h:    48px;
+  --forge-topbar-h:    40px;
+  --forge-qat-h:       32px;
+  --forge-toolbar-h:   48px;
+
+  /* spacing ladder */
+  --forge-space-1: 4px;
+  --forge-space-2: 8px;
+  --forge-space-3: 12px;
+  --forge-space-4: 16px;
+  --forge-space-5: 24px;
+  --forge-space-6: 32px;
+  --forge-statusbar-h: 26px;
+  --forge-cmdbar-h:    52px;
 
   /* rails */
-  --forge-wb-rail-w:   60px;     /* left workbench rail */
-  --forge-right-w:     320px;    /* right panel (props + tree) */
-  --forge-right-collapsed-w: 32px;
-  --forge-archie-w:    360px;    /* archie dock when open */
+  --forge-wb-rail-w:   72px;     /* left workbench rail */
+  --forge-right-w:     340px;    /* right panel (props + tree) */
+  --forge-right-collapsed-w: 36px;
+  --forge-archie-w:    380px;    /* archie dock when open */
 
   /* tool grid */
-  --forge-tool-row-h:  32px;     /* "comfortable" density */
-  --forge-tool-size:   28px;     /* icon button */
-  --forge-tool-gap:    2px;
+  --forge-tool-row-h:  36px;     /* "comfortable" density */
+  --forge-tool-size:   32px;     /* icon button */
+  --forge-tool-gap:    3px;
 
   /* corners + transitions */
   --forge-radius:      4px;

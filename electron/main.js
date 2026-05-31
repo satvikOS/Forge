@@ -57,10 +57,10 @@ function initAutoUpdater() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
-    minWidth: 1280,
-    minHeight: 720,
+    width: 1680,
+    height: 1050,
+    minWidth: 1400,
+    minHeight: 900,
     title: 'ArchDisc Forge',
     webPreferences: {
       nodeIntegration: false,
