@@ -102,6 +102,17 @@ const forgeApi = {
     mateCount:     ()          => kernel.assembly.mateCount(),
     clear:         ()          => kernel.assembly.clear(),
   } : null,
+
+  // engineering drawings (Forge-10) — HLR projection of a 3D shape to
+  // 2D polylines. direction can be a string preset ('front'|'top'|
+  // 'right'|'iso') or a Float64Array [dx, dy, dz]. Returns:
+  //   { visible:Float32Array, visibleStarts:Uint32Array, visibleCount,
+  //     hidden:Float32Array,  hiddenStarts:Uint32Array,  hiddenCount,
+  //     outline:Float32Array, outlineStarts:Uint32Array, outlineCount,
+  //     direction:[dx,dy,dz] }
+  drawings: kernel && kernel.drawings ? {
+    projectShape: (h, direction) => kernel.drawings.projectShape(h, direction),
+  } : null,
 };
 
 if (kernel) {

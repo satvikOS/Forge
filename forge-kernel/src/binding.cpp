@@ -15,8 +15,10 @@
 #include "forge/Transform.hpp"
 #include "forge/ComponentRegistry.hpp"
 #include "forge/AssemblySolver.hpp"
+#include "forge/Drawings.hpp"
 
 #include <Standard_Version.hxx>
+#include <cstring>
 
 using namespace forge;
 
@@ -366,6 +368,101 @@ Napi::Value ClearMates(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- drawings
+//
+// projectShape(handle, presetName?: string)
+//   → { visible:Float32Array, visibleStarts:Uint32Array,
+//        hidden:Float32Array,  hiddenStarts:Uint32Array,
+//        outline:Float32Array, outlineStarts:Uint32Array,
+//        direction:[dx,dy,dz] }
+//
+// The Float32Array packs every polyline's vertices as x0,y0,x1,y1,...
+// `*Starts[i]` is the *vertex index* (i.e. byte offset / 8) of polyline i's
+// first vertex. `*Starts[polylineCount]` is the total vertex count, so
+// polyline i runs from starts[i] to starts[i+1].
+//
+// View direction comes from either:
+//   * arg[1] string preset: "front" | "top" | "right" | "iso"
+//   * else arg[1] Float64Array [dx, dy, dz]
+//   * else default to "front".
+Napi::Value ProjectShape(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+
+        ProjectionDirection dir = frontView();
+        if (info.Length() > 1 && info[1].IsString()) {
+            std::string name = info[1].As<Napi::String>();
+            if      (name == "front")     dir = frontView();
+            else if (name == "top")       dir = topView();
+            else if (name == "right")     dir = rightView();
+            else if (name == "iso"
+                  || name == "isometric") dir = isometricView();
+            else {
+                throw Napi::TypeError::New(env,
+                    "forge.drawings.projectShape: unknown preset '" + name + "'");
+            }
+        } else if (info.Length() > 1 && info[1].IsTypedArray()) {
+            auto arr = info[1].As<Napi::Float64Array>();
+            if (arr.ElementLength() != 3) {
+                throw Napi::TypeError::New(env,
+                    "forge.drawings.projectShape: direction must be Float64Array[3]");
+            }
+            dir = { arr.Data()[0], arr.Data()[1], arr.Data()[2] };
+        }
+
+        ProjectedView pv = projectShape(h, dir);
+
+        // ---- packer ----
+        auto pack = [&](const std::vector<Polyline2D>& polys) -> Napi::Object {
+            std::size_t totalVerts = 0;
+            for (const auto& p : polys) totalVerts += p.size();
+
+            auto verts  = Napi::Float32Array::New(env, totalVerts * 2);
+            auto starts = Napi::Uint32Array::New(env, polys.size() + 1);
+
+            std::size_t vIdx = 0;
+            for (std::size_t i = 0; i < polys.size(); ++i) {
+                starts.Data()[i] = static_cast<std::uint32_t>(vIdx);
+                for (const auto& xy : polys[i]) {
+                    verts.Data()[2 * vIdx + 0] = static_cast<float>(xy.first);
+                    verts.Data()[2 * vIdx + 1] = static_cast<float>(xy.second);
+                    ++vIdx;
+                }
+            }
+            starts.Data()[polys.size()] = static_cast<std::uint32_t>(vIdx);
+
+            auto out = Napi::Object::New(env);
+            out.Set("verts",  verts);
+            out.Set("starts", starts);
+            out.Set("count",  Napi::Number::New(env, static_cast<double>(polys.size())));
+            return out;
+        };
+
+        auto vis = pack(pv.visible);
+        auto hid = pack(pv.hidden);
+        auto out_ = pack(pv.outline);
+
+        auto out = Napi::Object::New(env);
+        out.Set("visible",       vis.Get("verts"));
+        out.Set("visibleStarts", vis.Get("starts"));
+        out.Set("visibleCount",  vis.Get("count"));
+        out.Set("hidden",        hid.Get("verts"));
+        out.Set("hiddenStarts",  hid.Get("starts"));
+        out.Set("hiddenCount",   hid.Get("count"));
+        out.Set("outline",       out_.Get("verts"));
+        out.Set("outlineStarts", out_.Get("starts"));
+        out.Set("outlineCount",  out_.Get("count"));
+
+        auto d = Napi::Array::New(env, 3);
+        d.Set(uint32_t{0}, dir.dx);
+        d.Set(uint32_t{1}, dir.dy);
+        d.Set(uint32_t{2}, dir.dz);
+        out.Set("direction", d);
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- diagnostics
 Napi::Value Version(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -411,7 +508,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("reserveInstances", Napi::Function::New(env, ReserveInstances));
     exports.Set("instanceBytesUsed",Napi::Function::New(env, InstanceBytesUsed));
 
-    // ---- assembly solver — wrapped under "assembly" namespace object.
+    // ---- assembly solver (Forge-7) — wrapped under "assembly" namespace.
     auto assembly = Napi::Object::New(env);
     assembly.Set("addMate",       Napi::Function::New(env, AddMate));
     assembly.Set("removeMate",    Napi::Function::New(env, RemoveMate));
@@ -432,6 +529,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     kinds.Set("Fixed",         Napi::Number::New(env, 7));
     assembly.Set("MateKind", kinds);
     exports.Set("assembly", assembly);
+
+    // ---- engineering drawings (Forge-10) — HLR projection.
+    auto drawings = Napi::Object::New(env);
+    drawings.Set("projectShape", Napi::Function::New(env, ProjectShape));
+    exports.Set("drawings", drawings);
+    exports.Set("projectShape", Napi::Function::New(env, ProjectShape));
 
     exports.Set("version", Napi::Function::New(env, Version));
     return exports;

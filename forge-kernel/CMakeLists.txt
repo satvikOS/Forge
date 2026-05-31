@@ -67,6 +67,7 @@ add_library(forge_kernel SHARED
     src/Transform.cpp
     src/ComponentRegistry.cpp
     src/AssemblySolver.cpp
+    src/Drawings.cpp
 )
 
 set_target_properties(forge_kernel PROPERTIES
