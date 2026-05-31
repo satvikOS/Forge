@@ -198,6 +198,62 @@ void AssemblySolver::clearAll() {
     lastResidual_ = 0;
 }
 
+std::vector<Mate> AssemblySolver::listMates() const {
+    std::lock_guard<std::mutex> g(mtx_);
+    std::vector<Mate> out;
+    out.reserve(mates_.size());
+    for (const auto& slot : mates_) {
+        if (slot.alive) out.push_back(slot.mate);
+    }
+    return out;
+}
+
+Mate AssemblySolver::getMate(MateId id) const {
+    if (id == kInvalidMate) {
+        throw std::invalid_argument("AssemblySolver::getMate — invalid mate id");
+    }
+    std::lock_guard<std::mutex> g(mtx_);
+    const auto idx = static_cast<std::size_t>(id - 1);
+    if (idx >= mates_.size() || !mates_[idx].alive) {
+        throw std::invalid_argument("AssemblySolver::getMate — unknown mate id");
+    }
+    return mates_[idx].mate;
+}
+
+void AssemblySolver::setMateValue(MateId id, double value) {
+    if (id == kInvalidMate) {
+        throw std::invalid_argument("AssemblySolver::setMateValue — invalid mate id");
+    }
+    std::lock_guard<std::mutex> g(mtx_);
+    const auto idx = static_cast<std::size_t>(id - 1);
+    if (idx >= mates_.size() || !mates_[idx].alive) {
+        throw std::invalid_argument("AssemblySolver::setMateValue — unknown mate id");
+    }
+    mates_[idx].mate.value = value;
+}
+
+MateId AssemblySolver::findDrivingMate(InstanceId inst, std::uint32_t topoId) const {
+    std::lock_guard<std::mutex> g(mtx_);
+    MateId distance = kInvalidMate, angle = kInvalidMate;
+    for (std::size_t i = 0; i < mates_.size(); ++i) {
+        const auto& slot = mates_[i];
+        if (!slot.alive || !slot.mate.active) continue;
+        const auto& m = slot.mate;
+        const bool refsInst =
+            (m.a.inst == inst && m.a.topoId == topoId) ||
+            (m.b.inst == inst && m.b.topoId == topoId);
+        if (!refsInst) continue;
+        const auto id = static_cast<MateId>(i + 1);
+        if (m.kind == MateKind::Distance && distance == kInvalidMate) {
+            distance = id;
+        } else if (m.kind == MateKind::Angle && angle == kInvalidMate) {
+            angle = id;
+        }
+    }
+    if (distance != kInvalidMate) return distance;
+    return angle;
+}
+
 // ---------------------------------------------------------------- residuals
 
 namespace {

@@ -140,13 +140,13 @@ Legend:  ✅ = shipped and tested  ◐ = partial (gap noted)  ☐ = not started
 | Capability                                  | Status | Notes |
 |---------------------------------------------|--------|-------|
 | Mate solver (8 kinds)                       | ✅      | Forge-7 |
-| Sub-assembly hierarchy                      | ◐      | flat instance list today |
-| Exploded views                              | ☐      | future slice |
-| BOM aggregation                             | ◐      | mass props OK; rollup UI queued |
-| Component patterns                          | ☐      | future slice |
-| Smart components (config-driven)            | ☐      | future slice |
-| Interference detection                      | ☐      | future slice |
-| Motion study                                | ☐      | future slice |
+| Sub-assembly hierarchy                      | ✅      | Forge-35 — AssemblyHierarchy parentOf/childrenOf + composed worldTransform |
+| Exploded views                              | ✅      | Forge-35 — ExplodedView rAF ramp 0→1, per-instance direction |
+| BOM aggregation                             | ✅      | Forge-35 — BomRollup walks hierarchy, aggregates duplicates |
+| Component patterns                          | ✅      | Forge-35 — linear/circular/mirror/on-curve instance patterns |
+| Smart components (config-driven)            | ✅      | Forge-35 — SmartComponent wraps configMap, context-aware partId |
+| Interference detection                      | ✅      | Forge-35 — BVH-broad-phase + BRepAlgoAPI_Common with volume |
+| Motion study                                | ✅      | Forge-35 — sweeps driver mate, re-solves, captures Frame[] |
 
 ## 9. AI / Autonomy
 
@@ -182,7 +182,7 @@ Self-grade as of the 7-agent integration wave:
   §5 Simulation:    8 ✅ / 0 ◐ / 3 ☐  (buckling/contact/plasticity queued)
   §6 Manufacturing: 6 ✅ / 0 ◐ / 0 ☐  (Forge-33 closed out 3/5-axis + stock-sim + CMM)
   §7 PDM/IO:        4 ✅ / 3 ◐ / 0 ☐  (Forge-34 — filesystem store ✅; IGES ✅; PMI/MBD ◐; JT/Parasolid ◐ stub-with-error; S3 stub ◐ opt-in)
-  §8 Assembly:      1 ✅ / 2 ◐ / 5 ☐  (exploded/patterns/interference queued)
+  §8 Assembly:      8 ✅ / 0 ◐ / 0 ☐  (Forge-35 — hierarchy + exploded + BOM + patterns + smart + interference + motion)
   §9 AI:            3 ✅ / 1 ◐ / 0 ☐
   §10 CI/CD:        3 ✅ / 0 ◐ / 2 ☐
 

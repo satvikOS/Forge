@@ -110,6 +110,8 @@ const forgeApi = {
   queryFrustum: (planes24)                  => kernel.queryFrustum(planes24),
 
   // mate-constraint solver (Forge-7) — `forge.assembly`.
+  // Forge-35 adds hierarchy + interference + motion-study entries; every
+  // one is defensively null-guarded so a pre-Forge-35 kernel still loads.
   assembly: kernel && kernel.assembly ? {
     MateKind: kernel.assembly.MateKind,
     addMate:       (kind, ia, ta, ib, tb, value) =>
@@ -120,6 +122,25 @@ const forgeApi = {
     solve:         ()          => kernel.assembly.solve(),
     mateCount:     ()          => kernel.assembly.mateCount(),
     clear:         ()          => kernel.assembly.clear(),
+    clearHierarchy:     kernel.assembly.clearHierarchy
+      ? () => kernel.assembly.clearHierarchy()
+      : null,
+    setParent:          kernel.assembly.setParent
+      ? (child, parent) => kernel.assembly.setParent(child, parent ?? 0)
+      : null,
+    getChildren:        kernel.assembly.getChildren
+      ? (parent) => kernel.assembly.getChildren(parent ?? 0)
+      : null,
+    worldTransform:     kernel.assembly.worldTransform
+      ? (inst) => kernel.assembly.worldTransform(inst)
+      : null,
+    detectInterference: kernel.assembly.detectInterference
+      ? (ids, tolerance) => kernel.assembly.detectInterference(ids ?? [], tolerance ?? 0)
+      : null,
+    runMotionStudy:     kernel.assembly.runMotionStudy
+      ? (motor, axis, totalAngleRad, steps) =>
+          kernel.assembly.runMotionStudy(motor, axis, totalAngleRad, steps)
+      : null,
   } : null,
 
   // engineering drawings (Forge-10 + Forge-32) — HLR projection of a 3D

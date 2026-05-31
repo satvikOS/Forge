@@ -17,6 +17,9 @@
 #include "forge/BVH.hpp"
 #include "forge/LOD.hpp"
 #include "forge/AssemblySolver.hpp"
+#include "forge/AssemblyHierarchy.hpp"
+#include "forge/InterferenceDetection.hpp"
+#include "forge/MotionStudy.hpp"
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
@@ -557,6 +560,129 @@ Napi::Value ClearMates(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         AssemblySolver::instance().clearAll();
         return info.Env().Undefined();
+    });
+}
+
+// ----------------------------------------------------------- hierarchy (Forge-35)
+namespace {
+Napi::Float64Array transformToTypedArray(Napi::Env env, const Transform4x4& x) {
+    auto arr = Napi::Float64Array::New(env, 16);
+    std::copy(x.m.begin(), x.m.end(), arr.Data());
+    return arr;
+}
+} // namespace
+
+Napi::Value ClearHierarchy(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        AssemblyHierarchy::instance().clearAll();
+        return info.Env().Undefined();
+    });
+}
+
+Napi::Value SetParent(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto child = static_cast<InstanceId>(requireHandle(info, 0));
+        // parent may be 0 (root) — accept directly.
+        if (info.Length() < 2 || !info[1].IsNumber()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.assembly.setParent: expected (childId, parentId)");
+        }
+        const auto parent = static_cast<InstanceId>(
+            info[1].As<Napi::Number>().Uint32Value());
+        AssemblyHierarchy::instance().setParent(child, parent);
+        return info.Env().Undefined();
+    });
+}
+
+Napi::Value GetChildren(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        if (info.Length() < 1 || !info[0].IsNumber()) {
+            throw Napi::TypeError::New(info.Env(),
+                "forge.assembly.getChildren: expected (parentId)");
+        }
+        const auto parent = static_cast<InstanceId>(
+            info[0].As<Napi::Number>().Uint32Value());
+        auto kids = AssemblyHierarchy::instance().getChildren(parent);
+        auto arr = Napi::Uint32Array::New(info.Env(), kids.size());
+        std::copy(kids.begin(), kids.end(), arr.Data());
+        return arr;
+    });
+}
+
+Napi::Value WorldTransform(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        const auto id = static_cast<InstanceId>(requireHandle(info, 0));
+        auto x = AssemblyHierarchy::instance().worldTransform(id);
+        return transformToTypedArray(info.Env(), x);
+    });
+}
+
+Napi::Value DetectInterference(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsArray()) {
+            throw Napi::TypeError::New(env,
+                "forge.assembly.detectInterference: arg 0 must be an InstanceId array");
+        }
+        auto idArr = info[0].As<Napi::Array>();
+        std::vector<InstanceId> ids;
+        ids.reserve(idArr.Length());
+        for (std::uint32_t i = 0; i < idArr.Length(); ++i) {
+            auto v = idArr.Get(i);
+            if (!v.IsNumber()) {
+                throw Napi::TypeError::New(env,
+                    "forge.assembly.detectInterference: instance ids must be numbers");
+            }
+            ids.push_back(static_cast<InstanceId>(v.As<Napi::Number>().Uint32Value()));
+        }
+        const double tol = info.Length() > 1 && info[1].IsNumber()
+            ? info[1].As<Napi::Number>().DoubleValue() : 0.0;
+
+        auto pairs = detectInterference(ids, tol);
+        auto out = Napi::Array::New(env, pairs.size());
+        for (std::size_t i = 0; i < pairs.size(); ++i) {
+            auto o = Napi::Object::New(env);
+            o.Set("instA",  Napi::Number::New(env, pairs[i].instA));
+            o.Set("instB",  Napi::Number::New(env, pairs[i].instB));
+            o.Set("volume", Napi::Number::New(env, pairs[i].volume));
+            out.Set(static_cast<std::uint32_t>(i), o);
+        }
+        return out;
+    });
+}
+
+Napi::Value RunMotionStudy(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const auto motor = static_cast<InstanceId>(requireHandle(info, 0));
+        const auto axis  = static_cast<std::uint32_t>(requireHandle(info, 1));
+        const double totalAngle = requireNumber(info, 2, "totalAngleRad");
+        const auto steps = static_cast<std::uint32_t>(requireHandle(info, 3));
+
+        auto run = runMotionStudy(motor, axis, totalAngle, steps);
+
+        auto out = Napi::Object::New(env);
+        auto framesArr = Napi::Array::New(env, run.frames.size());
+        for (std::size_t i = 0; i < run.frames.size(); ++i) {
+            const auto& f = run.frames[i];
+            auto fo = Napi::Object::New(env);
+            fo.Set("t", Napi::Number::New(env, f.t));
+            fo.Set("value", Napi::Number::New(env, f.value));
+            fo.Set("converged", Napi::Boolean::New(env, f.converged));
+            auto transforms = Napi::Object::New(env);
+            for (const auto& [id, xform] : f.transforms) {
+                transforms.Set(std::to_string(id),
+                    transformToTypedArray(env, xform));
+            }
+            fo.Set("transforms", transforms);
+            framesArr.Set(static_cast<std::uint32_t>(i), fo);
+        }
+        out.Set("frames", framesArr);
+        out.Set("allConverged", Napi::Boolean::New(env, run.allConverged));
+        out.Set("maxResidual",  Napi::Number::New(env, run.maxResidual));
+        out.Set("stepCount",
+            Napi::Number::New(env, static_cast<double>(run.frames.size())));
+        return out;
     });
 }
 
@@ -3133,6 +3259,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     assembly.Set("solve",         Napi::Function::New(env, SolveAssembly));
     assembly.Set("mateCount",     Napi::Function::New(env, MateCount));
     assembly.Set("clear",         Napi::Function::New(env, ClearMates));
+    // Forge-35 — hierarchy + interference + motion.
+    assembly.Set("clearHierarchy",     Napi::Function::New(env, ClearHierarchy));
+    assembly.Set("setParent",          Napi::Function::New(env, SetParent));
+    assembly.Set("getChildren",        Napi::Function::New(env, GetChildren));
+    assembly.Set("worldTransform",     Napi::Function::New(env, WorldTransform));
+    assembly.Set("detectInterference", Napi::Function::New(env, DetectInterference));
+    assembly.Set("runMotionStudy",     Napi::Function::New(env, RunMotionStudy));
     // Mate-kind integer codes (must mirror MateKind in AssemblySolver.hpp).
     auto kinds = Napi::Object::New(env);
     kinds.Set("Coincident",    Napi::Number::New(env, 0));

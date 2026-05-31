@@ -108,6 +108,20 @@ public:
     // successive runs in the same process start fresh.
     void clearAll();
 
+    // ---- Forge-35: motion-study introspection ----
+    // Lists every active mate in stable insertion order. Used by the
+    // motion-study driver to find / mutate a driver mate's `value`.
+    std::vector<Mate> listMates() const;
+    // Look up a mate's parameters by id.
+    Mate getMate(MateId id) const;
+    // Update a mate's `value` (Distance mm, Angle radians). No-op on
+    // mate kinds that ignore `value`.
+    void setMateValue(MateId id, double value);
+    // Find the first active mate whose schema references the given
+    // (inst, topoId) and whose kind is Distance or Angle. Returns
+    // kInvalidMate if none. Preference order: Distance, then Angle.
+    MateId findDrivingMate(InstanceId inst, std::uint32_t topoId) const;
+
 private:
     AssemblySolver() = default;
 

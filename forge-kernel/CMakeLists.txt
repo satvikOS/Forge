@@ -105,6 +105,9 @@ add_library(forge_kernel SHARED
     src/BVH.cpp
     src/LOD.cpp
     src/AssemblySolver.cpp
+    src/AssemblyHierarchy.cpp
+    src/InterferenceDetection.cpp
+    src/MotionStudy.cpp
     src/Drawings.cpp
     src/Sketcher.cpp
     src/Fea.cpp
