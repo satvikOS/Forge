@@ -45,6 +45,20 @@ nsis:
   shortcutName: ArchDisc Forge
 
 # ------------------------------------------------------------------ macOS
+# NOTE: no Apple Developer cert configured — builds are UNSIGNED.
+# - macOS Gatekeeper will block first launch (right-click > Open to bypass).
+# - Auto-update is unreliable without notarisation.
+# To sign properly, provide CSC_LINK / CSC_KEY_PASSWORD + APPLE_ID /
+# APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID secrets and replace
+# `identity: "-"` below with `notarize: true`.
+#
+# `identity: "-"` is the ad-hoc signing identity required by Apple Silicon —
+# **arm64 .dmg fails to build with `identity: null` because dyld on Apple
+# Silicon refuses to load an unsigned bundle**. Ad-hoc signing satisfies
+# the dyld constraint without producing a Gatekeeper-trusted bundle.
+# Combined with `hardenedRuntime: false` (which would otherwise require a
+# real cert), we get an installable-but-quarantined .dmg on both x64 and
+# arm64.
 mac:
   category: public.app-category.graphics-design
   target:
@@ -59,13 +73,9 @@ mac:
         - x64
         - arm64
   artifactName: ArchDiscForge-${version}-${arch}.${ext}
-  hardenedRuntime: true
-  # NOTE: no Apple Developer cert configured — builds are UNSIGNED and
-  # NOT notarized. macOS Gatekeeper will block first launch (right-click >
-  # Open to bypass). macOS auto-update is unreliable without notarization.
-  # Provide CSC_LINK / CSC_KEY_PASSWORD + APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
-  # / APPLE_TEAM_ID secrets and set notarize: true to sign + notarize.
-  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: "-"
 
 dmg:
   artifactName: ArchDiscForge-${version}-${arch}.${ext}
