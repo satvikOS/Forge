@@ -1,48 +1,48 @@
-# ArchDisc - AI-Powered CAD Platform
+# ArchDisc Forge
 
-**Now with automatic AWS deployment via GitHub Actions!** 🚀
+Native parametric mechanical CAD built on a high-performance C++ kernel.
+The geometric core links directly to OCCT 7.9 and FreeCAD's authoring
+layers; **no WASM** — the kernel runs as a native `forge-kernel.node`
+addon loaded by the Electron desktop app.
 
-## Quick Deploy
+## What Forge is
 
-ArchDisc automatically deploys to AWS whenever you push code.
+- Solid + surface modeling with the OCCT BREP kernel.
+- Parametric sketcher with a 2D constraint solver (planegcs upstream).
+- Assembly system designed for **100,000+ component instances** with
+  reference-counted BREP de-duplication and a BVH spatial index built
+  in C++.
+- Feature tree authoring, drawings, GD&T, configurations, FEA, CAM,
+  PDM — see `BRAND.md` for the staged rollout plan and `ARCHITECTURE.md`
+  for the layered design.
 
-**Live Status:** Check deployment at https://github.com/satvikOS/archdiscv1/actions
+## Status
 
-## Features
+Pre-1.0, slice-numbered. Latest slice prefix is `Forge-N`. Earlier work
+shipped under the `SP-N` prefix when the product was named ArchDisc Mech.
 
-- ✅ Mechanical CAD workbench
-- ✅ Parametric modeling
-- ✅ FEA simulation integration
-- ✅ LLM-powered autonomous design
-- ✅ Cloud rendering
-- ✅ Global CDN delivery via CloudFront
-- ✅ Serverless architecture (Lambda + API Gateway)
+## Build
 
-## Deployment
+Native toolchain:
 
-This application automatically deploys to AWS using GitHub Actions.
+```sh
+brew install cmake opencascade
+```
 
-**See:** `QUICKSTART_DEPLOYMENT.md` for setup guide.
+App:
 
-## Architecture
+```sh
+npm install
+npm run forge:kernel        # build forge-kernel.node
+npm run electron:dev        # launch the Electron app
+```
 
-- **Frontend:** React + Vite → S3 → CloudFront
-- **Backend:** Node.js → Lambda (15min timeout for LLM workflows)
-- **API:** API Gateway REST API
-- **Database:** DynamoDB
-- **Storage:** S3
+## Branches
 
-## Cost
+- `archdisc` — active development. Every push is a discrete slice.
 
-- Development: $8-15/month
-- Production: $100-500/month
+## Repos
 
-## Documentation
-
-- Quick Start: `QUICKSTART_DEPLOYMENT.md`
-- GitHub Actions Setup: `.github/DEPLOYMENT_SETUP.md`
-- AWS Architecture: `docs/AWS_DEPLOYMENT.md`
-
----
-
-**Auto-deployment configured** ✅ | **AWS Secrets configured** ✅ | **Ready to deploy** 🚀
+- This repo (Forge) — desktop app + native kernel.
+- `archdisc-Studio` — separate sibling repo for the 3D-content product.
+- `archdisc-Models` — the Archie local-fleet LLM provider both apps use.

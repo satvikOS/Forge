@@ -61,7 +61,7 @@ function createWindow() {
     height: 1080,
     minWidth: 1280,
     minHeight: 720,
-    title: 'ArchDisc — AI-Powered CAD Platform',
+    title: 'ArchDisc Forge',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

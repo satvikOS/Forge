@@ -1,7 +1,7 @@
 {
-  "name": "archdisc-Mech",
+  "name": "archdisc-forge",
   "version": "1.0.0",
-  "description": "ArchDisc - Professional 3D Architectural Design Platform",
+  "description": "ArchDisc Forge — native parametric MCAD on OCCT + FreeCAD",
   "type": "commonjs",
   "main": "electron/main.js",
   "scripts": {
@@ -9,15 +9,21 @@
     "build": "cd frontend && npm run build",
     "start": "node backend/server.js",
     "electron:dev": "cd frontend && npx vite --port 3000 & sleep 3 && npx electron . --dev",
-    "electron:build": "cd frontend && npx vite build && npx electron-builder --win --x64",
+    "electron:build": "cd frontend && npx vite build && npx electron-builder --mac --arm64",
+    "electron:build:win": "cd frontend && npx vite build && npx electron-builder --win --x64",
     "electron:start": "npx electron .",
-    "vercel-build": "cd frontend && npm run build"
+    "vercel-build": "cd frontend && npm run build",
+    "forge:kernel": "cd forge-kernel && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j",
+    "forge:kernel:test": "node forge-kernel/test/smoke.js"
   },
   "keywords": [
-    "architecture",
-    "3d",
-    "design",
-    "ai"
+    "cad",
+    "mcad",
+    "parametric",
+    "opencascade",
+    "occt",
+    "freecad",
+    "electron"
   ],
   "author": "",
   "license": "ISC",

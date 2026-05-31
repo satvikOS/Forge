@@ -1,5 +1,5 @@
-appId: com.archdisc.cad
-productName: ArchDisc
+appId: com.archdisc.forge
+productName: ArchDisc Forge
 copyright: Copyright © 2026 ArchDisc Inc.
 
 directories:
@@ -32,7 +32,7 @@ win:
     - target: nsis
       arch:
         - x64
-  artifactName: ArchDisc-Setup-${version}.${ext}
+  artifactName: ArchDiscForge-Setup-${version}.${ext}
   # NOTE: no code-signing cert configured — builds are UNSIGNED. Windows
   # SmartScreen will warn on first launch. Provide an Authenticode cert
   # (CSC_LINK / CSC_KEY_PASSWORD secrets) to sign.
@@ -42,7 +42,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: ArchDisc
+  shortcutName: ArchDisc Forge
 
 # ------------------------------------------------------------------ macOS
 mac:
@@ -58,7 +58,7 @@ mac:
       arch:
         - x64
         - arm64
-  artifactName: ArchDisc-${version}-${arch}.${ext}
+  artifactName: ArchDiscForge-${version}-${arch}.${ext}
   hardenedRuntime: true
   # NOTE: no Apple Developer cert configured — builds are UNSIGNED and
   # NOT notarized. macOS Gatekeeper will block first launch (right-click >
@@ -68,7 +68,7 @@ mac:
   identity: null
 
 dmg:
-  artifactName: ArchDisc-${version}-${arch}.${ext}
+  artifactName: ArchDiscForge-${version}-${arch}.${ext}
 
 # ------------------------------------------------------------------ Linux
 linux:
@@ -77,4 +77,4 @@ linux:
       arch:
         - x64
   category: Graphics
-  artifactName: ArchDisc-${version}-${arch}.${ext}
+  artifactName: ArchDiscForge-${version}-${arch}.${ext}
