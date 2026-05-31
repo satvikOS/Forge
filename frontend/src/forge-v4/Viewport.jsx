@@ -28,7 +28,9 @@ function ViewportFallback() {
 
 export function Viewport({ steps = [], selection, onSelect,
                            viewName = 'iso', displayState = 'shaded',
-                           activeWb = 'mech' }) {
+                           activeWb = 'mech',
+                           gizmoMode = null,           // 'translate'|'rotate'|'scale'|null
+                           onGizmoChange = null }) {
   const [bundle, setBundle] = useState(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -53,7 +55,8 @@ export function Viewport({ steps = [], selection, onSelect,
         <Suspense fallback={<ViewportFallback />}>
           <ViewportScene bundle={bundle} steps={steps}
                          selection={selection} onSelect={onSelect}
-                         viewName={viewName} displayState={displayState} />
+                         viewName={viewName} displayState={displayState}
+                         gizmoMode={gizmoMode} onGizmoChange={onGizmoChange} />
         </Suspense>
       ) : <ViewportFallback />}
       <ViewportHUD viewName={viewName} displayState={displayState}
@@ -63,10 +66,18 @@ export function Viewport({ steps = [], selection, onSelect,
 }
 
 function ViewportScene({ bundle, steps, selection, onSelect,
-                         viewName, displayState }) {
+                         viewName, displayState,
+                         gizmoMode, onGizmoChange }) {
   const { Canvas, useFrame } = bundle.r3f;
-  const { OrbitControls, Grid } = bundle.drei;
+  const { OrbitControls, Grid, TransformControls, GizmoHelper, GizmoViewport } = bundle.drei;
   const THREE = bundle.three;
+  const selectedRef = React.useRef(null);
+  const [gizmoBusy, setGizmoBusy] = React.useState(false);
+  // Show gizmo when a body is selected OR (as a demo path with no kernel)
+  // when only the brand mark is in the scene — so the user can see the
+  // gizmo working immediately without loading geometry first.
+  const showGizmo = !!gizmoMode;
+
   return (
     <Canvas
       camera={{ position: cameraFor(viewName), fov: 45, near: 0.1, far: 5000 }}
@@ -86,12 +97,30 @@ function ViewportScene({ bundle, steps, selection, onSelect,
             fadeDistance={140}
             fadeStrength={1.4}
             infiniteGrid />
-      <ForgeMark3D THREE={THREE} useFrame={useFrame} />
+      <ForgeMark3D THREE={THREE} useFrame={useFrame} ref={selectedRef} />
       <SceneMeshes THREE={THREE} steps={steps}
                    selection={selection} onSelect={onSelect}
-                   displayState={displayState} />
+                   displayState={displayState}
+                   selectedRef={selectedRef} />
+      {showGizmo && selectedRef.current && (
+        <TransformControls
+          object={selectedRef.current}
+          mode={gizmoMode}
+          size={1.0}
+          onMouseDown={() => setGizmoBusy(true)}
+          onMouseUp={() => setGizmoBusy(false)}
+          onObjectChange={() => onGizmoChange?.(selectedRef.current)}
+        />
+      )}
       <OrbitControls makeDefault enableDamping dampingFactor={0.08}
-                     minDistance={5} maxDistance={300} />
+                     minDistance={5} maxDistance={300}
+                     enabled={!gizmoBusy} />
+      {GizmoHelper && GizmoViewport && (
+        <GizmoHelper alignment="bottom-right" margin={[88, 88]}>
+          <GizmoViewport axisColors={['#e26a6a', '#5cc88f', '#4aa0e1']}
+                         labelColor="#ebecef" />
+        </GizmoHelper>
+      )}
     </Canvas>
   );
 }
@@ -114,8 +143,9 @@ function getBgColor(state) {
 
 // Calibrated 10 mm Forge mark — anvil silhouette + spark — rotating
 // gently as the hero when no part is loaded.
-function ForgeMark3D({ THREE, useFrame }) {
+const ForgeMark3D = React.forwardRef(function ForgeMark3D({ THREE, useFrame }, fwdRef) {
   const group = React.useRef();
+  React.useImperativeHandle(fwdRef, () => group.current, []);
   useFrame((_, dt) => { if (group.current) group.current.rotation.y += dt * 0.12; });
   return (
     <group ref={group}>
@@ -139,10 +169,10 @@ function ForgeMark3D({ THREE, useFrame }) {
       </mesh>
     </group>
   );
-}
+});
 
 // Kernel-driven meshes — resolved through window.forge.tessellate.
-function SceneMeshes({ THREE, steps, selection, onSelect, displayState }) {
+function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selectedRef }) {
   const [meshes, setMeshes] = useState([]);
   useEffect(() => {
     if (typeof window === 'undefined' || !window.forge ||

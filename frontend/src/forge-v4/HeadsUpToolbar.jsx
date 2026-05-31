@@ -16,10 +16,14 @@ const HUT_TOOLS = [
   { id: 'view.wireframe',  label: 'Wireframe',    icon: 'view.wireframe' },
   { id: 'view.section',    label: 'Section',      icon: 'view.section' },
   { sep: true, id: 's2' },
+  { id: 'gizmo.translate', label: 'Move (T)',     icon: 'sketch.line',     hint: 'T' },
+  { id: 'gizmo.rotate',    label: 'Rotate (R)',   icon: 'edit.redo',       hint: 'R' },
+  { id: 'gizmo.scale',     label: 'Scale (Y)',    icon: 'misc.expand_r',   hint: 'Y' },
+  { sep: true, id: 's3' },
   { id: 'view.normalTo',   label: 'Normal to',    icon: 'misc.expand_r' },
 ];
 
-export function HeadsUpToolbar({ activeDisplay = 'shaded', onAction }) {
+export function HeadsUpToolbar({ activeDisplay = 'shaded', activeGizmo = null, onAction }) {
   return (
     <div className="forge-hut"
          role="toolbar"
@@ -32,7 +36,7 @@ export function HeadsUpToolbar({ activeDisplay = 'shaded', onAction }) {
           <button type="button"
                   className="forge-hut-btn"
                   data-hut-id={t.id}
-                  data-active={String(t.id === `view.${activeDisplay}`)}
+                  data-active={String(t.id === `view.${activeDisplay}` || t.id === `gizmo.${activeGizmo}`)}
                   onClick={() => onAction?.(t.id)}
                   aria-label={t.label}>
             <Icon name={t.icon} size={14} />

@@ -54,6 +54,7 @@ export function ForgeShellV4() {
   const [activeFeatureId, setActiveFeatureId] = useState(null);
   const [viewName, setViewName] = useState('iso');
   const [displayState, setDisplayState] = useState('shaded');
+  const [gizmoMode, setGizmoMode] = useState(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [sketchActive, setSketchActive] = useState(false);
   const [bodyCtxMenu, setBodyCtxMenu] = useState(null);
@@ -99,6 +100,15 @@ export function ForgeShellV4() {
         e.preventDefault(); setTopologyOpen((v) => !v);
       } else if (e.key === 'F1') {
         e.preventDefault(); setHelpOpen((v) => !v);
+      } else if (!meta && e.key.toLowerCase() === 't' &&
+                 document.activeElement?.tagName !== 'INPUT') {
+        setGizmoMode((m) => m === 'translate' ? null : 'translate');
+      } else if (!meta && e.key.toLowerCase() === 'r' &&
+                 document.activeElement?.tagName !== 'INPUT') {
+        setGizmoMode((m) => m === 'rotate' ? null : 'rotate');
+      } else if (!meta && e.key.toLowerCase() === 'y' &&
+                 document.activeElement?.tagName !== 'INPUT') {
+        setGizmoMode((m) => m === 'scale' ? null : 'scale');
       } else if (meta && e.key.toLowerCase() === 'p') {
         e.preventDefault(); setPreviewOpen((v) => !v);
       } else if (!meta && e.key === 'Escape') {
@@ -219,6 +229,18 @@ export function ForgeShellV4() {
       case 'view.shaded': case 'view.wireframe': case 'view.section':
         setDisplayState(id.replace('view.', ''));
         return;
+      case 'gizmo.translate':
+        setGizmoMode((m) => m === 'translate' ? null : 'translate');
+        showToast({ kind: 'info', text: 'Gizmo · Translate', ttl: 1200 });
+        return;
+      case 'gizmo.rotate':
+        setGizmoMode((m) => m === 'rotate' ? null : 'rotate');
+        showToast({ kind: 'info', text: 'Gizmo · Rotate', ttl: 1200 });
+        return;
+      case 'gizmo.scale':
+        setGizmoMode((m) => m === 'scale' ? null : 'scale');
+        showToast({ kind: 'info', text: 'Gizmo · Scale', ttl: 1200 });
+        return;
       case 'view.zoomFit':
         pushThread({ role: 'archie', text: 'Zoom-fit dispatched (OrbitControls reset to default).' });
         return;
@@ -299,8 +321,15 @@ export function ForgeShellV4() {
                   onSelect={setSelection}
                   viewName={viewName}
                   displayState={displayState}
-                  activeWb={activeWb} />
+                  activeWb={activeWb}
+                  gizmoMode={gizmoMode}
+                  onGizmoChange={(obj) => {
+                    if (obj) showToast({ kind: 'info',
+                      text: `${gizmoMode}: x=${obj.position.x.toFixed(1)} y=${obj.position.y.toFixed(1)} z=${obj.position.z.toFixed(1)}`,
+                      ttl: 800 });
+                  }} />
         <HeadsUpToolbar activeDisplay={displayState}
+                        activeGizmo={gizmoMode}
                         onAction={(id) => handleMenuAction(id)} />
         <NavSphere activeView={viewName}
                    onSelectView={(v) => {
