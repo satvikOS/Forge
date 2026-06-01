@@ -448,10 +448,14 @@ function InstancedGroup({ THREE, members, displayState, onSelect, selection }) {
     if (!ref.current) return;
     const m = new THREE.Matrix4();
     members.forEach((mb, i) => {
-      // No explicit transform — instance positions decided by group cells if
-      // present, else stagger along X for visual proof of instancing.
-      const xform = mb.body.spec?.cells?.[i] || { x: 0, y: 0, z: 0 };
-      m.makeTranslation(xform.x, xform.y, xform.z);
+      // Per-body position priority:
+      //   1. body.xform  — explicit translation set by the producer
+      //   2. body.spec.cells[0]  — single-cell position from kernelDispatch
+      //   3. fallback grid stagger so instancing is still visible
+      const xform = mb.body.xform
+                  || mb.body.spec?.cells?.[0]
+                  || { x: (i % 20) * 4 - 38, y: 0, z: Math.floor(i / 20) * 4 - 38 };
+      m.makeTranslation(xform.x || 0, xform.y || 0, xform.z || 0);
       ref.current.setMatrixAt(i, m);
     });
     ref.current.instanceMatrix.needsUpdate = true;

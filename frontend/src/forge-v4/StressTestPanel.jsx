@@ -39,8 +39,6 @@ import {
   generateMixedScene,
 } from './stressScenes.js';
 
-const VIEWS = ['iso', 'front', 'back', 'top', 'bottom', 'right', 'left'];
-
 /* =====================================================================
  * Draw-call estimator. Mirrors Viewport.SceneMeshes.instanceKeyFor()
  * so the panel's "est draw calls" label matches what the renderer will
