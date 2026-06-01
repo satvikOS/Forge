@@ -777,6 +777,17 @@ export function ForgeShellV4() {
         window.__forgeOpenRibbonCustomiser?.(true); return;
       case 'tools.library':
         setLibraryOpen(true); return;
+      case 'tools.materials':
+        // Forge-154 — material catalogue picker.
+        window.__forgeOpenMaterialPicker?.(true); return;
+      case 'tools.selectionMode': {
+        // Forge-158 — rotate through body / face / edge / vertex pick modes.
+        const next = window.__forgeOpenSelectionMode?.();
+        if (next) {
+          showToast({ kind: 'info', text: `Selection mode: ${next}`, ttl: 1400 });
+        }
+        return;
+      }
       case 'tools.configurations':
         setConfigsOpen(true); return;
       case 'tools.explode':
@@ -792,12 +803,46 @@ export function ForgeShellV4() {
       case 'tools.surfacing':
         window.__forgeOpenSurfacing?.(true);
         return;
+      case 'tools.draft':
+        // Forge-149 — open Draft (2D drafting) workbench. The
+        // DraftWorkbenchHost mounted in App.jsx registers
+        // __forgeOpenDraft on mount.
+        window.__forgeOpenDraft?.({ theme });
+        return;
       case 'tools.standardParts':
         window.__forgeOpenStandardParts?.(true);
         return;
       case 'tools.cam':
       case 'workbench.mfg':
         window.__forgeOpenCam?.({ bodies });
+        return;
+      // Forge-152 — Industrial robot workbench. Manual menu click
+      // opens the panel directly; it does NOT post to Archie's thread.
+      // The host (RobotWorkbenchHost in App.jsx) registers
+      // window.__forgeOpenRobot on mount.
+      case 'tools.robot':
+      case 'workbench.robot':
+        window.__forgeOpenRobot?.({ theme });
+        return;
+      // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
+      // Manual menu click switches to the arch workbench, opens the
+      // tool panel + the project tree. Does NOT post to Archie's thread.
+      case 'tools.arch':
+      case 'workbench.arch':
+        setActiveWb('arch');
+        window.__forgeOpenArchWorkbench?.();
+        window.__forgeOpenSiteHierarchy?.(true);
+        return;
+      case 'tools.archSite':
+        window.__forgeOpenSiteHierarchy?.(true);
+        return;
+      case 'tools.mesh':
+      case 'workbench.mesh':
+        // Forge-151 — Mesh workbench. Publishes the active bodies so
+        // the panel's "Solid → Mesh" picker finds the latest native
+        // body to tessellate.
+        window.__forgeBodies = bodies;
+        window.__forgeOpenMesh?.({ theme });
         return;
       case 'tools.bundle':
       case 'file.exportBundle':
@@ -844,6 +889,10 @@ export function ForgeShellV4() {
         return;
       case 'tools.equations':
         setEquationsOpen(true); return;
+      case 'tools.spreadsheet':
+        // Forge-153 — parametric spreadsheet workbench. The host
+        // mounted in App.jsx registers __forgeOpenSpreadsheet on mount.
+        window.__forgeOpenSpreadsheet?.(true); return;
       case 'tools.topology':
         setTopologyOpen(true); return;
       case 'tools.skeleton':

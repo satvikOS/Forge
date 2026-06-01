@@ -183,7 +183,12 @@ export function IfcExportPanel({ open, onClose, payload }) {
     const tMap = loadIfcTypeMap();
     for (const b of bodies) {
       if (!b?.id) continue;
-      sMap[b.id] = payload?.storeyByBody?.[b.id] || 'Storey 1';
+      // Forge-150 — prefer the per-body ifcStorey tag (set by the Arch
+      // workbench / SiteHierarchy) over the bare default. The payload
+      // override still wins when present.
+      sMap[b.id] = payload?.storeyByBody?.[b.id]
+        || b.ifcStorey
+        || 'Storey 1';
       if (!tMap[b.id]) tMap[b.id] = b.ifcType || IFC_TYPE_DEFAULT;
     }
     setStoreyByBody(sMap);

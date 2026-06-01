@@ -11,12 +11,19 @@ import { Tooltip } from './Tooltip.jsx';
 
 export const WORKBENCHES = [
   { id: 'mech',     icon: 'wb.mech',     label: 'Part' },
-  { id: 'drawing',  icon: 'wb.drawing',  label: 'Draft' },
+  { id: 'draft',    icon: 'sketch.line', label: 'Draft' },
+  { id: 'drawing',  icon: 'wb.drawing',  label: 'Drawing' },
   { id: 'sheet',    icon: 'wb.sheet',    label: 'Sheet' },
   { id: 'weld',     icon: 'wb.weldments',label: 'Weld' },
   { id: 'mold',     icon: 'wb.mold',     label: 'Mold' },
   { id: 'sim',      icon: 'wb.sim',      label: 'Sim' },
   { id: 'mfg',      icon: 'wb.mfg',      label: 'Mfg' },
+  // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
+  { id: 'arch',     icon: 'wb.arch',     label: 'Arch' },
+  // Forge-151 — Mesh workbench (polygonal mesh tools).
+  { id: 'mesh',     icon: 'select.body', label: 'Mesh' },
+  // Forge-152 — Industrial 6-axis robot workbench (KUKA / ABB / FANUC).
+  { id: 'robot',    icon: 'wb.robot',    label: 'Robot' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

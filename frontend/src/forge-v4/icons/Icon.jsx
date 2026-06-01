@@ -80,6 +80,25 @@ const PATHS = {
       <path d="M5 8l-2 6h10l-2 -6" />
     </>
   ),
+  'wb.robot': (
+    // articulated robot arm — base + shoulder + elbow + gripper
+    <>
+      <path d="M3 14h4v-2H3z" />
+      <path d="M5 12V8l4 -3l3 4l-2 2v3" />
+      <circle cx="5" cy="8" r="0.7" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="5" r="0.7" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="9" r="0.7" fill="currentColor" stroke="none" />
+      <path d="M9 13h3v1h1v-1" />
+    </>
+  ),
+  'wb.arch': (
+    // pitched-roof house + door silhouette — Architecture / BIM
+    <>
+      <path d="M2 8l6 -5l6 5v6H2z" />
+      <path d="M7 14v-4h2v4" />
+      <path d="M2 8l6 -5l6 5" />
+    </>
+  ),
 
   // ──────────────── menus ────────────────
   'menu.file':    (<><path d="M3 2h7l3 3v9H3z" /><path d="M10 2v3h3" /></>),

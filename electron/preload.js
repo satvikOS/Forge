@@ -308,6 +308,17 @@ const forgeApi = {
     exportStepWithPmi: kernel.io.exportStepWithPmi
                        ? (h, fp, notes) => kernel.io.exportStepWithPmi(h, fp, notes || [])
                        : () => { throw new Error('[forge.io] exportStepWithPmi: kernel < Forge-34'); },
+    // Forge-151 — write raw bytes to a tmp file so the renderer can
+    // round-trip a generated mesh through importStl(). Pure file
+    // I/O — no kernel dependency.
+    writeTmpStl: (name, bytes) => {
+      const safe = String(name || 'forge-mesh').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const p = path.join(os.tmpdir(), `${safe}-${Date.now()}.stl`);
+      const buf = bytes instanceof Uint8Array ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+                                              : Buffer.from(bytes);
+      fs.writeFileSync(p, buf);
+      return p;
+    },
   } : null,
 
   // direct modeling (Forge-23) — synchronous-technology face editing.

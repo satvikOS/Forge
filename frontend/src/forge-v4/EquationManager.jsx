@@ -10,8 +10,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Icon } from './icons/Icon.jsx';
-import { subscribe as subscribeSheet, snapshot as snapshotSheet,
-         listBindings as listSheetBindings } from './spreadsheetStore.js';
+import { subscribe as subscribeSheet,
+         snapshot as snapshotSheet } from './spreadsheetStore.js';
 
 const STORAGE_KEY = 'forge.v4.equations';
 
@@ -124,19 +124,20 @@ export function solveEquations(vars, extraEnv = null) {
 function useSheetEnv() {
   const get = useCallback(() => snapshotSheet(), []);
   const sheet = useSyncExternalStore(subscribeSheet, get, get);
-  // Build { name: number } from { name: { cellId, value } } — skip
-  // bindings whose underlying cell is empty or non-numeric so the
-  // EquationManager only sees clean parameters.
-  return useState.length /* keep linter quiet on unused */, (() => {
+  // Build { name: number } from { name: cellId } — skip bindings whose
+  // underlying cell is empty or non-numeric so the EquationManager only
+  // sees clean parameters. Memoize on the snapshot version so the env
+  // object reference is stable across renders.
+  return useMemo(() => {
     const env = {};
-    for (const [name, info] of Object.entries(sheet.bindings || {})) {
-      const v = info && typeof info === 'object'
-        ? (sheet.cells?.[info.cellId]?.value ?? null)
-        : null;
+    for (const [name, cellRef] of Object.entries(sheet.bindings || {})) {
+      // bindings map is { name: cellId } in spreadsheetStore.
+      const id = typeof cellRef === 'string' ? cellRef : cellRef?.cellId;
+      const v = id ? (sheet.cells?.[id]?.value ?? null) : null;
       if (typeof v === 'number' && Number.isFinite(v)) env[name] = v;
     }
     return env;
-  })();
+  }, [sheet]);
 }
 
 export function EquationManager({ open, onClose }) {

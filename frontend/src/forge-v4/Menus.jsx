@@ -96,7 +96,12 @@ export const MENU_SPEC = {
       { id: 'tools.ribbon',     label: 'Customise Ribbons…', icon: 'misc.settings' },
       SEP,
       { id: 'tools.library',   label: 'Standard Parts Library…', icon: 'misc.search' },
+      // Forge-154 — engineering material catalogue picker (200+ alloys).
+      { id: 'tools.materials', label: 'Material Library…',  icon: 'misc.search' },
+      // Forge-158 — AIS-style subshape pick mode rotator.
+      { id: 'tools.selectionMode', label: 'Selection Mode (Body / Face / Edge / Vertex)', icon: 'select.body' },
       { id: 'tools.equations', label: 'Equation Manager…', icon: 'measure.distance', shortcut: '⌘E' },
+      { id: 'tools.spreadsheet', label: 'Spreadsheet…',     icon: 'archie.formula' },
       { id: 'tools.topology',  label: 'Topology Inspector…', icon: 'select.body', shortcut: '⌘I' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
       SEP,
@@ -115,6 +120,8 @@ export const MENU_SPEC = {
       { id: 'tools.directEdit', label: 'Direct Edit…',     icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
+      // Forge-149 — Draft workbench (FreeCAD Draft parity).
+      { id: 'tools.draft',      label: 'Draft (2D)…',       icon: 'sketch.line' },
       SEP,
       { id: 'tools.demoProject',  label: 'Build sample bracket…', icon: 'archie.spark' },
       { id: 'tools.ship',          label: 'Ship · naval architecture…', icon: 'wb.mfg' },
@@ -125,7 +132,15 @@ export const MENU_SPEC = {
       { id: 'tools.scenarios',    label: 'Scenario Runner…',     icon: 'wb.sim' },
       { id: 'tools.convergence',  label: 'FEA Convergence…',     icon: 'measure.distance' },
       { id: 'tools.weldments',    label: 'Weldments…',           icon: 'wb.weldments' },
+      // Forge-151 — Mesh workbench (polygonal mesh tools).
+      { id: 'tools.mesh',         label: 'Mesh…',                icon: 'select.body' },
       { id: 'tools.cam',          label: 'CAM (Manufacturing)…', icon: 'wb.mfg' },
+      // Forge-152 — Industrial robot workbench (KUKA KR6, ABB IRB1200,
+      // FANUC LR Mate). FK/IK with real DH tables + post-processors.
+      { id: 'tools.robot',        label: 'Robot (6-axis)…',      icon: 'wb.robot' },
+      // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
+      { id: 'tools.arch',         label: 'Arch / BIM…',          icon: 'wb.arch' },
+      { id: 'tools.archSite',     label: 'Arch · Project tree…', icon: 'wb.drawing' },
       SEP,
       { id: 'tools.explode',      label: 'Exploded view…',       icon: 'misc.expand_r' },
       { id: 'tools.walkthrough',  label: 'Walk-through…',        icon: 'archie.send' },

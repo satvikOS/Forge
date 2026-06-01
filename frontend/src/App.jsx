@@ -37,6 +37,17 @@ import { PathTracedRenderHost } from './forge-v4/PathTracedRender.jsx';
 import { RoleSwitcherHost } from './forge-v4/RoleSwitcher.jsx';
 import { RibbonCustomiserHost } from './forge-v4/RibbonCustomiser.jsx';
 import { CommandPaletteHost } from './forge-v4/CommandPalette.jsx';
+// Forge-149 — Draft workbench (FreeCAD Draft parity).
+import { DraftWorkbenchHost } from './forge-v4/DraftWorkbench.jsx';
+// Forge-153 — Spreadsheet workbench (FreeCAD parametric spreadsheet).
+import { SpreadsheetWorkbenchHost } from './forge-v4/SpreadsheetWorkbench.jsx';
+// Forge-151 — Mesh workbench (polygonal mesh tools).
+import { MeshWorkbenchHost } from './forge-v4/MeshWorkbench.jsx';
+// Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
+import { ArchWorkbenchHost } from './forge-v4/ArchWorkbench.jsx';
+import { SiteHierarchyHost } from './forge-v4/SiteHierarchy.jsx';
+// Forge-152 — Industrial 6-axis robot workbench (KUKA / ABB / FANUC).
+import { RobotWorkbenchHost } from './forge-v4/RobotWorkbench.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -94,6 +105,12 @@ function App() {
       <RoleSwitcherHost />
       <RibbonCustomiserHost />
       <CommandPaletteHost />
+      <DraftWorkbenchHost />
+      <SpreadsheetWorkbenchHost />
+      <MeshWorkbenchHost />
+      <ArchWorkbenchHost />
+      <SiteHierarchyHost />
+      <RobotWorkbenchHost />
     </ViewportEnvironmentProvider>
   );
 }
