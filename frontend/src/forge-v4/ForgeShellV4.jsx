@@ -33,6 +33,7 @@ import * as Sketch from './sketchSession.js';
 import { massProps, distance, angle, meshArea, meshBounds, detectInterference } from './measureDispatch.js';
 import { ConfigurationsPanel, pushHistory } from './ConfigurationsPanel.jsx';
 import { ExplodedView, WalkthroughPanel } from './ExplodedViewController.jsx';
+import { recordOp, undo as graphUndo, redo as graphRedo, canUndo, canRedo } from './opGraph.js';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -112,6 +113,7 @@ export function ForgeShellV4() {
   const [topologyOpen, setTopologyOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [centerToken, setCenterToken] = useState(0);
+  const [sectionPlane, setSectionPlane] = useState({ enabled: false, axis: 'Z', offset: 0 });
   const [configsOpen, setConfigsOpen] = useState(false);
   const [explodeOpen, setExplodeOpen] = useState(false);
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
@@ -128,8 +130,37 @@ export function ForgeShellV4() {
     stored.set('theme', theme);
   }, [theme]);
   useEffect(() => { stored.set('wb', activeWb); }, [activeWb]);
+  // Forge-118 — subscribe to SectionControlHost updates.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onSection = (e) => setSectionPlane(e.detail);
+    window.addEventListener('forge:section-update', onSection);
+    return () => window.removeEventListener('forge:section-update', onSection);
+  }, []);
   // Forge-95 — snapshot every feature-tree change to the history log.
   useEffect(() => { if (featureTree.length) pushHistory(featureTree); }, [featureTree]);
+
+  // Forge-114 — publish live shell state so portal-mounted panels (BOM,
+  // project bundle, scenario runner, .forge open/save) can read it
+  // without having to be wired through the shell tree.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.__forgeBodies      = bodies;
+    window.__forgeFeatureTree = featureTree;
+    window.__forgeSelection   = selection;
+    window.__forgeActiveWb    = activeWb;
+    window.__forgeTheme       = theme;
+    // setter so loaders can replace the scene from disk:
+    window.__forgeSetBodies = (next) => {
+      setBodies(Array.isArray(next) ? next : []);
+      setFeatureTree((tree) => Array.isArray(next)
+        ? next.map((b) => ({ id: b.id, label: b.name || b.toolId || b.id,
+                             icon: 'archie.spark', params: b.params || {} }))
+        : tree);
+    };
+    window.__forgeAppendBody = (b) => setBodies((arr) => [...arr, b]);
+    window.__forgeReplaceFeatureTree = (next) => setFeatureTree(Array.isArray(next) ? next : []);
+  }, [bodies, featureTree, selection, activeWb, theme]);
 
   // Cmd+K → focus cmd bar; Cmd+/ toggle dock; Cmd+T cycle theme.
   useEffect(() => {
@@ -165,6 +196,14 @@ export function ForgeShellV4() {
       } else if (!meta && e.key.toLowerCase() === 'y' &&
                  document.activeElement?.tagName !== 'INPUT') {
         setGizmoMode((m) => m === 'scale' ? null : 'scale');
+      } else if (meta && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        graphUndo({ setBodies, setFeatureTree });
+        showToast({ kind: 'info', text: 'Undo', ttl: 800 });
+      } else if (meta && e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        graphRedo({ setBodies, setFeatureTree });
+        showToast({ kind: 'info', text: 'Redo', ttl: 800 });
       } else if (meta && e.key.toLowerCase() === 'p') {
         e.preventDefault(); setPreviewOpen((v) => !v);
       } else if (!meta && e.key.toLowerCase() === 'h' &&
@@ -560,8 +599,12 @@ export function ForgeShellV4() {
       case 'view.iso': case 'view.front': case 'view.top': case 'view.right':
         setViewName(id.replace('view.', ''));
         return;
-      case 'view.shaded': case 'view.wireframe': case 'view.section':
+      case 'view.shaded': case 'view.wireframe':
         setDisplayState(id.replace('view.', ''));
+        return;
+      case 'view.section':
+        setDisplayState('section');
+        window.__forgeOpenSection?.(true);
         return;
       case 'gizmo.translate':
         setGizmoMode((m) => m === 'translate' ? null : 'translate');
@@ -732,6 +775,7 @@ export function ForgeShellV4() {
                   centerToken={centerToken}
                   sketchOverlay={currentSketch && sketchRev >= 0
                     ? Sketch.entityWorldGeometry(currentSketch) : null}
+                  sectionPlane={sectionPlane}
                   onGizmoChange={(obj) => {
                     if (obj) showToast({ kind: 'info',
                       text: `${gizmoMode}: x=${obj.position.x.toFixed(1)} y=${obj.position.y.toFixed(1)} z=${obj.position.z.toFixed(1)}`,
@@ -927,23 +971,32 @@ export function ForgeShellV4() {
                            currentSketch: currentSketch?.kernel ?? null,
                          };
                          const r = dispatchTool(tool, params, ctx);
-                         setFeatureTree((t) => [...t, {
+                         const beforeSnap = { bodies, featureTree };
+                         const nextFeat = [...featureTree, {
                            id: nextId,
                            label: `${title} ${featureTree.length + 1}`,
                            icon: toolsForWorkbench(activeWb).flatMap((g) => g.tools).find((tt) => tt.id === tool)?.icon || 'sketch.point',
                            params,
-                         }]);
+                         }];
+                         setFeatureTree(nextFeat);
+                         let nextBodies = bodies;
                          if (r.kind === 'native') {
-                           setBodies((b) => [...b, {
+                           nextBodies = [...bodies, {
                              id: nextId, kind: 'native', handle: r.handle,
                              toolId: tool, params, name: title,
-                           }]);
+                           }];
+                           setBodies(nextBodies);
                          } else if (r.kind === 'synthetic') {
-                           setBodies((b) => [...b, {
+                           nextBodies = [...bodies, {
                              id: nextId, kind: 'synthetic', spec: r.spec,
                              toolId: tool, params, name: title,
-                           }]);
+                           }];
+                           setBodies(nextBodies);
                          }
+                         // Forge-115 — capture op for undo/redo.
+                         recordOp({ op: tool, params,
+                                    before: beforeSnap,
+                                    after: { bodies: nextBodies, featureTree: nextFeat } });
                          setActiveFeatureId(nextId);
                          setActiveTool(null);
                          showToast({ kind: 'ok',

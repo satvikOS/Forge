@@ -33,6 +33,7 @@ export const CommandBar = forwardRef(function CommandBar(
       <input
         ref={inputRef}
         className="forge-cmdbar-input"
+        data-testid="forge-cmdbar-input"
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}

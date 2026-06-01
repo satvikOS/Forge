@@ -1,6 +1,17 @@
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
+
+// Forge-112 — ffmpeg-static binary path, loaded lazily so a dev environment
+// missing the dep can still boot the rest of the shell. Resolved once at
+// require-time; the IPC handler below surfaces a clear error if it's null.
+let ffmpegBinary = null;
+try {
+  ffmpegBinary = require('ffmpeg-static');
+} catch (err) {
+  console.warn('[forge.video] ffmpeg-static not installed:', err.message);
+}
 
 // File I/O dialog plumbing (Forge-87): renderer calls the bridge in preload,
 // preload sends a request to main, main shows the native dialog and returns
@@ -53,6 +64,84 @@ ipcMain.handle('io:writeBlob', async (_evt, { filepath, base64, bytes }) => {
     return { ok: true, path: filepath, bytes: buf.length };
   } catch (err) {
     return { ok: false, error: err.message };
+  }
+});
+
+// Forge-112 — transcode a WebM (VP9 from MediaRecorder) to H.264 MP4 using
+// the bundled ffmpeg-static binary. The renderer writes the recorded blob
+// to disk first via io:writeBlob, then calls this with the resulting path.
+//
+// Args: { srcPath } — absolute path to a .webm on the local filesystem.
+// The output is written next to it with a .mp4 extension (foo.webm →
+// foo.mp4). We hard-fail loudly on any ffmpeg error — codec missing,
+// permission denied, malformed input — rather than silently fall back to
+// a copy of the .webm; the operator needs the real stderr to debug.
+ipcMain.handle('io:transcodeWebmToMp4', async (_evt, { srcPath } = {}) => {
+  const startedAt = Date.now();
+  try {
+    if (!srcPath || typeof srcPath !== 'string') {
+      throw new Error('srcPath required');
+    }
+    if (!fs.existsSync(srcPath)) {
+      throw new Error(`source not found: ${srcPath}`);
+    }
+    if (!ffmpegBinary) {
+      throw new Error('ffmpeg-static binary unavailable — `npm install ffmpeg-static` at repo root');
+    }
+    // Derive the mp4 path from the source path. We deliberately replace
+    // the trailing .webm (case-insensitive) rather than always appending
+    // .mp4 so foo.webm → foo.mp4 (not foo.webm.mp4).
+    const mp4Path = srcPath.replace(/\.webm$/i, '') + '.mp4';
+    // Clean any stale artefact so a previous-run mp4 can't masquerade
+    // as a successful transcode if ffmpeg actually fails partway.
+    try { fs.unlinkSync(mp4Path); } catch { /* fresh */ }
+
+    // -y: overwrite if it crept back. -c:v libx264 + crf 18 + preset slow
+    // gives near-visually-lossless quality. yuv420p for QuickTime/Safari
+    // compatibility. +faststart relocates moov atom to the front so the
+    // file is playable while still downloading.
+    const args = [
+      '-y',
+      '-i', srcPath,
+      '-c:v', 'libx264',
+      '-preset', 'slow',
+      '-crf', '18',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      mp4Path,
+    ];
+
+    const result = await new Promise((resolve) => {
+      const child = spawn(ffmpegBinary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      let stdout = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('error', (err) => resolve({ code: -1, stderr: err.message, stdout }));
+      child.on('close', (code) => resolve({ code, stderr, stdout }));
+    });
+
+    const durationMs = Date.now() - startedAt;
+    if (result.code !== 0) {
+      // Surface ffmpeg's tail of stderr (full log is too noisy for a toast).
+      const tail = result.stderr.split('\n').filter(Boolean).slice(-6).join('\n');
+      return {
+        ok: false,
+        durationMs,
+        error: `ffmpeg exit ${result.code}\n${tail || '(no stderr)'}`,
+      };
+    }
+    if (!fs.existsSync(mp4Path)) {
+      return {
+        ok: false,
+        durationMs,
+        error: `ffmpeg reported success but ${mp4Path} is missing`,
+      };
+    }
+    const bytes = fs.statSync(mp4Path).size;
+    return { ok: true, mp4Path, durationMs, bytes };
+  } catch (err) {
+    return { ok: false, durationMs: Date.now() - startedAt, error: err.message };
   }
 });
 

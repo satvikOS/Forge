@@ -33,7 +33,8 @@ export function Viewport({ steps = [], selection, onSelect,
                            gizmoMode = null,           // 'translate'|'rotate'|'scale'|null
                            onGizmoChange = null,
                            centerToken = 0,            // bump to recentre camera on origin
-                           sketchOverlay = null }) {   // {lines, circles, arcs} from current sketch
+                           sketchOverlay = null,       // {lines, circles, arcs} from current sketch
+                           sectionPlane = null }) {    // {axis:'X'|'Y'|'Z', offset:number, enabled:bool}
   const [bundle, setBundle] = useState(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -62,7 +63,8 @@ export function Viewport({ steps = [], selection, onSelect,
                          theme={theme}
                          gizmoMode={gizmoMode} onGizmoChange={onGizmoChange}
                          centerToken={centerToken}
-                         sketchOverlay={sketchOverlay} />
+                         sketchOverlay={sketchOverlay}
+                         sectionPlane={sectionPlane} />
         </Suspense>
       ) : <ViewportFallback />}
       <ViewportHUD viewName={viewName} displayState={displayState}
@@ -74,7 +76,7 @@ export function Viewport({ steps = [], selection, onSelect,
 function ViewportScene({ bundle, steps, selection, onSelect,
                          viewName, displayState, theme,
                          gizmoMode, onGizmoChange, centerToken,
-                         sketchOverlay }) {
+                         sketchOverlay, sectionPlane }) {
   const { Canvas } = bundle.r3f;
   const { OrbitControls, Grid, TransformControls, GizmoHelper, GizmoViewport, Html, Line } = bundle.drei;
   const THREE = bundle.three;
@@ -84,10 +86,21 @@ function ViewportScene({ bundle, steps, selection, onSelect,
   const showGizmo = !!gizmoMode && !!selectedRef.current;
   const labelInk = theme === 'light' ? '#14161b' : '#ebecef';
 
+  // Forge-118 — build clipping planes from sectionPlane prop.
+  const clippingPlanes = React.useMemo(() => {
+    if (!sectionPlane?.enabled) return [];
+    const axis = (sectionPlane.axis || 'X').toUpperCase();
+    const off = Number(sectionPlane.offset) || 0;
+    const n = axis === 'X' ? [-1,0,0] : axis === 'Y' ? [0,-1,0] : [0,0,-1];
+    const plane = new THREE.Plane(new THREE.Vector3(n[0], n[1], n[2]), off);
+    return [plane];
+  }, [THREE, sectionPlane?.enabled, sectionPlane?.axis, sectionPlane?.offset]);
+
   return (
     <Canvas
       camera={{ position: cameraFor(viewName), fov: 45, near: 0.1, far: 5000 }}
-      gl={{ antialias: true, alpha: false }}
+      gl={{ antialias: true, alpha: false, localClippingEnabled: true }}
+      onCreated={({ gl }) => { gl.clippingPlanes = clippingPlanes; gl.localClippingEnabled = true; }}
       style={{ width: '100%', height: '100%' }}
       data-testid="forge-v4-canvas"
     >
@@ -383,6 +396,15 @@ function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selected
             <mesh key={m.key}
                   geometry={m.geometry}
                   ref={(el) => { if (selectedRef) selectedRef.current = el; }}
+                  onPointerOver={(e) => {
+                    e.stopPropagation();
+                    if (typeof window !== 'undefined') window.__forgeHovered = m.body;
+                  }}
+                  onPointerOut={(e) => {
+                    e.stopPropagation();
+                    if (typeof window !== 'undefined' && window.__forgeHovered === m.body)
+                      window.__forgeHovered = null;
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelect?.({ kind: 'body', ids: [m.body?.handle ?? m.id] });

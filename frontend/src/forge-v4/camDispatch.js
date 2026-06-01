@@ -1,4 +1,5 @@
 // Forge-92 — CAM dispatch.
+// Forge-114 — toolpath + simulation calls now publish a progress row.
 //
 // Wraps the window.forge.cam.* native namespace. Mirrors the convention
 // already established in kernelDispatch.js: guard the call when the
@@ -9,6 +10,58 @@
 // possible. No placeholder toolpaths. No fake G-code. The only fallback
 // is an explicit `{ ok:false, kind:'no-kernel' }` so the panel renders a
 // clear "kernel not ready" notice rather than a synthesized program.
+
+import { startJob, updateJob, finishJob } from './progressBus.js';
+
+// Shared progress-wrapper for the synchronous CAM calls. See the long
+// comment in simulationDispatch.js for the rationale on the fake stepper.
+function withProgress(label, fn, { estMs = 1500 } = {}) {
+  let cancelled = false;
+  const job = startJob({
+    label,
+    total: 100,
+    onCancel: () => { cancelled = true; },
+  });
+  let stepHandle = null;
+  if (typeof setInterval === 'function') {
+    const startedAt = Date.now();
+    stepHandle = setInterval(() => {
+      if (cancelled) return;
+      const elapsed = Date.now() - startedAt;
+      const pct = Math.min(90, (elapsed / estMs) * 90);
+      const eta_s = estMs > elapsed ? (estMs - elapsed) / 1000 : null;
+      updateJob(job.id, { pct, eta_s, message: 'Running' });
+    }, 100);
+  }
+  const stop = (result) => {
+    if (stepHandle != null) clearInterval(stepHandle);
+    if (cancelled) {
+      finishJob(job.id, { result: { cancelled: true } });
+      const out = (result && typeof result === 'object')
+        ? { ...result, _cancelled: true }
+        : { _cancelled: true };
+      return out;
+    }
+    updateJob(job.id, { pct: 100, message: 'Done' });
+    finishJob(job.id, { result });
+    return result;
+  };
+  try {
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result.then(stop, (err) => {
+        if (stepHandle != null) clearInterval(stepHandle);
+        finishJob(job.id, { result: { error: err && err.message ? err.message : String(err) } });
+        throw err;
+      });
+    }
+    return stop(result);
+  } catch (err) {
+    if (stepHandle != null) clearInterval(stepHandle);
+    finishJob(job.id, { result: { error: err && err.message ? err.message : String(err) } });
+    throw err;
+  }
+}
 
 function camNS() {
   if (typeof window === 'undefined') return null;
@@ -89,51 +142,54 @@ export function makeToolpath(opType, shape, target, tool, params) {
   const c = camNS();
   if (!c) return _err('no-kernel', 'forge.cam not ready');
   const fid = (target && target.faceId != null) ? target.faceId : autoFaceId();
-  try {
-    switch (opType) {
-      case 'profile': {
-        const tp = c.profile(shape, fid, tool, params,
-          target.zTop, target.zBottom, target.leadIn || 0);
-        return _ok(tp);
-      }
-      case 'pocket': {
-        const tp = c.pocket(shape, fid, tool, params,
-          target.zTop, target.zBottom);
-        return _ok(tp);
-      }
-      case 'drill': {
-        if (!Array.isArray(target.holes) || target.holes.length === 0) {
-          return _err('error', 'drill: holes array required');
+  const toolName = (tool && (tool.name || tool.id)) ? ` · ${tool.name || tool.id}` : '';
+  return withProgress(`CAM ${opType}${toolName}`, () => {
+    try {
+      switch (opType) {
+        case 'profile': {
+          const tp = c.profile(shape, fid, tool, params,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
         }
-        const tp = c.drill(shape, target.holes, tool, params,
-          target.zTop, target.zBottom, !!target.peck);
-        return _ok(tp);
+        case 'pocket': {
+          const tp = c.pocket(shape, fid, tool, params,
+            target.zTop, target.zBottom);
+          return _ok(tp);
+        }
+        case 'drill': {
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'drill: holes array required');
+          }
+          const tp = c.drill(shape, target.holes, tool, params,
+            target.zTop, target.zBottom, !!target.peck);
+          return _ok(tp);
+        }
+        case 'face': {
+          const tp = c.faceMill(shape, fid, tool, params,
+            target.zTop, target.depth);
+          return _ok(tp);
+        }
+        case 'adaptive': {
+          const aabb = asAabb(target.stockAabb);
+          const tp = c.adaptiveClear(shape, aabb, tool, params, target.adaptive);
+          return _ok(tp);
+        }
+        case '5axis-indexed': {
+          const tp = c.multiAxisIndexed(shape, tool, params,
+            target.orientations, target.zTop, target.zBottom);
+          return _ok(tp);
+        }
+        case '5axis-cont': {
+          const tp = c.multiAxisContinuous(shape, tool, params, target.path);
+          return _ok(tp);
+        }
+        default:
+          return _err('error', `unknown opType: ${opType}`);
       }
-      case 'face': {
-        const tp = c.faceMill(shape, fid, tool, params,
-          target.zTop, target.depth);
-        return _ok(tp);
-      }
-      case 'adaptive': {
-        const aabb = asAabb(target.stockAabb);
-        const tp = c.adaptiveClear(shape, aabb, tool, params, target.adaptive);
-        return _ok(tp);
-      }
-      case '5axis-indexed': {
-        const tp = c.multiAxisIndexed(shape, tool, params,
-          target.orientations, target.zTop, target.zBottom);
-        return _ok(tp);
-      }
-      case '5axis-cont': {
-        const tp = c.multiAxisContinuous(shape, tool, params, target.path);
-        return _ok(tp);
-      }
-      default:
-        return _err('error', `unknown opType: ${opType}`);
+    } catch (err) {
+      return _err('error', err.message || String(err));
     }
-  } catch (err) {
-    return _err('error', err.message || String(err));
-  }
+  }, { estMs: 1500 });
 }
 
 /** Run the voxel stock simulator on a toolpath. */
@@ -142,12 +198,16 @@ export function simulate(stockAabb, toolpath, tool, gridResolution = 50) {
   if (!c || typeof c.simulateStock !== 'function') {
     return { ok: false, kind: 'no-kernel', error: 'simulateStock unavailable' };
   }
-  try {
-    const rep = c.simulateStock(asAabb(stockAabb), toolpath, tool, gridResolution);
-    return { ok: true, kind: 'native', report: rep };
-  } catch (err) {
-    return { ok: false, kind: 'error', error: err.message };
-  }
+  const moveCount = (toolpath && toolpath.moveCount) || 0;
+  const label = `CAM Simulate · ${moveCount} moves`;
+  return withProgress(label, () => {
+    try {
+      const rep = c.simulateStock(asAabb(stockAabb), toolpath, tool, gridResolution);
+      return { ok: true, kind: 'native', report: rep };
+    } catch (err) {
+      return { ok: false, kind: 'error', error: err.message };
+    }
+  }, { estMs: 3500 });
 }
 
 /** CMM inspection program. */

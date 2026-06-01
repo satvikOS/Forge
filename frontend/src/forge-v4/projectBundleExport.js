@@ -22,6 +22,7 @@
 // invent placeholder entries.
 
 import JSZip from 'jszip';
+import { startJob, updateJob, finishJob } from './progressBus.js';
 
 // ────────────────────────────────────────────── helpers
 
@@ -362,75 +363,135 @@ export async function exportProjectBundle(args) {
 
   const forge = (typeof window !== 'undefined' ? window.forge : null);
 
-  const zip = new JSZip();
-  const manifest = {
-    name: projectName,
-    exportedAt: isoNow(),
-    forgeVersion: FORGE_VERSION,
-    kernel: forge?.version ? (() => { try { return forge.version(); } catch { return null; } })() : null,
-    sections: { ...sections },
-    featureTree: featureTree.map((n) => ({
-      id: n.id, label: n.label, suppressed: !!n.suppressed,
-      params: n.params || {},
-    })),
-    bodies: [],
-    drawings: [],
-    cam: [],
-    sim: [],
-    configurations: {},
-    bom: {},
-    totals: {},
-  };
-
-  if (sections.cad)      await addCadFiles(zip, bodies, manifest.bodies);
-  if (sections.drawings) addDrawings(zip, drawings, manifest.drawings);
-  if (sections.bom)      addBom(zip, bom, manifest.bom);
-  if (sections.cam)      addCam(zip, camOps, manifest.cam);
-  if (sections.sim)      addSimulations(zip, simulations, manifest.sim);
-  if (sections.configs)  addConfigurations(zip, configurations, manifest.configurations);
-
-  manifest.totals = {
-    bodies:         manifest.bodies.length,
-    drawings:       manifest.drawings.length,
-    cam:            manifest.cam.length,
-    sim:            manifest.sim.length,
-    bomRows:        manifest.bom.rows || 0,
-    configurations: manifest.configurations.count || 0,
-  };
-
-  // manifest goes last so it sees the real per-section results.
-  zip.file('manifest.json', JSON.stringify(manifest, null, 2));
-
-  // Generate the binary blob (Uint8Array — no Blob needed; preload uses bytes).
-  const u8 = await zip.generateAsync({
-    type: 'uint8array',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 6 },
+  // Forge-114: register a progress row for the duration of the bundle build.
+  // Unlike the kernel solvers we have REAL section boundaries, so we publish
+  // an honest 0 / 14 / 28 / 42 / 56 / 70 / 84 / 95 / 100 % walk.
+  let cancelled = false;
+  const job = startJob({
+    label: `Bundle · ${projectName}`,
+    total: 100,
+    onCancel: () => { cancelled = true; },
   });
 
-  // Resolve save path: caller can pass `filepath`, or we prompt now.
-  let outPath = filepath;
-  if (!outPath) {
-    if (!forge?.dialog?.saveFile) {
-      return { ok: false, error: 'no save dialog available', manifest };
-    }
-    outPath = await forge.dialog.saveFile({
-      title: 'Export Project Bundle',
-      defaultPath: `${safeName(projectName)}-bundle.zip`,
-      filters: [{ name: 'ZIP archive', extensions: ['zip'] }],
-    });
-    if (!outPath) return { ok: false, error: 'cancelled', manifest };
-  }
+  const tickCancelled = () => {
+    if (!cancelled) return false;
+    finishJob(job.id, { result: { cancelled: true } });
+    return true;
+  };
 
-  // Ship the bytes to disk via the preload bridge.
-  if (!forge?.dialog?.writeBlob) {
-    return { ok: false, error: 'writeBlob bridge missing', manifest };
+  try {
+    updateJob(job.id, { pct: 2, message: 'Preparing manifest' });
+
+    const zip = new JSZip();
+    const manifest = {
+      name: projectName,
+      exportedAt: isoNow(),
+      forgeVersion: FORGE_VERSION,
+      kernel: forge?.version ? (() => { try { return forge.version(); } catch { return null; } })() : null,
+      sections: { ...sections },
+      featureTree: featureTree.map((n) => ({
+        id: n.id, label: n.label, suppressed: !!n.suppressed,
+        params: n.params || {},
+      })),
+      bodies: [],
+      drawings: [],
+      cam: [],
+      sim: [],
+      configurations: {},
+      bom: {},
+      totals: {},
+    };
+
+    if (sections.cad) {
+      updateJob(job.id, { pct: 12, message: 'Exporting CAD (STEP / STL / BREP)' });
+      await addCadFiles(zip, bodies, manifest.bodies);
+      if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+    }
+    if (sections.drawings) {
+      updateJob(job.id, { pct: 30, message: 'Embedding drawings' });
+      addDrawings(zip, drawings, manifest.drawings);
+      if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+    }
+    if (sections.bom) {
+      updateJob(job.id, { pct: 44, message: 'Writing BOM' });
+      addBom(zip, bom, manifest.bom);
+      if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+    }
+    if (sections.cam) {
+      updateJob(job.id, { pct: 58, message: 'Posting CAM G-code' });
+      addCam(zip, camOps, manifest.cam);
+      if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+    }
+    if (sections.sim) {
+      updateJob(job.id, { pct: 72, message: 'Embedding simulations' });
+      addSimulations(zip, simulations, manifest.sim);
+      if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+    }
+    if (sections.configs) {
+      updateJob(job.id, { pct: 82, message: 'Writing configurations' });
+      addConfigurations(zip, configurations, manifest.configurations);
+      if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+    }
+
+    manifest.totals = {
+      bodies:         manifest.bodies.length,
+      drawings:       manifest.drawings.length,
+      cam:            manifest.cam.length,
+      sim:            manifest.sim.length,
+      bomRows:        manifest.bom.rows || 0,
+      configurations: manifest.configurations.count || 0,
+    };
+
+    // manifest goes last so it sees the real per-section results.
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+
+    updateJob(job.id, { pct: 90, message: 'Compressing ZIP' });
+
+    // Generate the binary blob (Uint8Array — no Blob needed; preload uses bytes).
+    const u8 = await zip.generateAsync({
+      type: 'uint8array',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+    if (tickCancelled()) return { ok: false, error: 'cancelled', manifest };
+
+    updateJob(job.id, { pct: 96, message: 'Writing to disk' });
+
+    // Resolve save path: caller can pass `filepath`, or we prompt now.
+    let outPath = filepath;
+    if (!outPath) {
+      if (!forge?.dialog?.saveFile) {
+        finishJob(job.id, { result: { error: 'no save dialog' } });
+        return { ok: false, error: 'no save dialog available', manifest };
+      }
+      outPath = await forge.dialog.saveFile({
+        title: 'Export Project Bundle',
+        defaultPath: `${safeName(projectName)}-bundle.zip`,
+        filters: [{ name: 'ZIP archive', extensions: ['zip'] }],
+      });
+      if (!outPath) {
+        finishJob(job.id, { result: { cancelled: true } });
+        return { ok: false, error: 'cancelled', manifest };
+      }
+    }
+
+    // Ship the bytes to disk via the preload bridge.
+    if (!forge?.dialog?.writeBlob) {
+      finishJob(job.id, { result: { error: 'writeBlob bridge missing' } });
+      return { ok: false, error: 'writeBlob bridge missing', manifest };
+    }
+    const result = await forge.dialog.writeBlob(outPath, u8);
+    if (!result?.ok) {
+      finishJob(job.id, { result: { error: result?.error || 'writeBlob failed' } });
+      return { ok: false, error: result?.error || 'writeBlob failed', manifest };
+    }
+    updateJob(job.id, { pct: 100, message: 'Saved' });
+    finishJob(job.id, { result: { ok: true, path: result.path, bytes: result.bytes } });
+    return { ok: true, path: result.path, bytes: result.bytes, manifest };
+  } catch (err) {
+    finishJob(job.id, { result: { error: err && err.message ? err.message : String(err) } });
+    throw err;
   }
-  const result = await forge.dialog.writeBlob(outPath, u8);
-  if (!result?.ok) {
-    return { ok: false, error: result?.error || 'writeBlob failed', manifest };
-  }
-  return { ok: true, path: result.path, bytes: result.bytes, manifest };
 }
 
 // Re-exports for tests and panels.

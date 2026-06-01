@@ -466,6 +466,16 @@ const forgeApi = {
     },
   },
 
+  // Forge-112 — video transcode bridge. The renderer's MediaRecorder only
+  // emits WebM/VP9 from a <canvas> stream; if the user wants a real .mp4 we
+  // ship the bytes to disk via writeBlob and then call this to run ffmpeg
+  // in the main process. Returns { ok, mp4Path, durationMs, error? } —
+  // never throws over the bridge.
+  video: {
+    transcodeWebmToMp4: (srcPath) =>
+      ipcRenderer.invoke('io:transcodeWebmToMp4', { srcPath }),
+  },
+
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
   // weld beads, member trims, BOM cut list.
   weldments: kernel && kernel.weldments ? {
@@ -497,6 +507,10 @@ if (kernel) {
         const base64 = Buffer.from(bytes).toString('base64');
         return ipcRenderer.invoke('io:writeBlob', { filepath, base64 });
       },
+    },
+    video: {
+      transcodeWebmToMp4: (srcPath) =>
+        ipcRenderer.invoke('io:transcodeWebmToMp4', { srcPath }),
     },
   });
 }

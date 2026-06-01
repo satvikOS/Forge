@@ -20,6 +20,7 @@
  */
 
 import { dispatchToolCall, systemPromptTools } from './ForgeToolBridge.js';
+import { getPersona, normaliseDiscipline } from './disciplinePersonas.js';
 
 const ARCHIE_BASE_URL = 'http://localhost:8080';
 
@@ -50,6 +51,43 @@ const PLAN_RE      = /<plan>([\s\S]*?)<\/plan>/g;
 export function buildSystemPrompt(discipline) {
   const tools = JSON.stringify(systemPromptTools(discipline), null, 2);
   return SYSTEM_TEMPLATE(discipline, tools);
+}
+
+/**
+ * Forge-113 — compose the persona + base system prompt + few-shot
+ * examples into the OpenAI-compat message array Archie consumes.
+ *
+ * The persona system message goes FIRST so the model reads "who you
+ * are right now" before the strict-rules + <tools> JSON block.
+ * Few-shot turns are then injected as alternating user/assistant
+ * messages so the conversation pattern matches the LoRA training mix.
+ *
+ * The composed persona is also exposed on the renderer at
+ * `window.__forgeLastPersona` so the e2e suite can introspect which
+ * persona actually drove the latest run.
+ */
+export function buildMessages({ prompt, discipline }) {
+  const persona = getPersona(discipline);
+  const baseSystem = buildSystemPrompt(discipline);
+  const personaSystem = persona.system + '\n\n' + baseSystem;
+  const messages = [{ role: 'system', content: personaSystem }];
+  for (const ex of persona.examples) {
+    messages.push({ role: 'user', content: ex.user });
+    messages.push({ role: 'assistant', content: ex.assistant });
+  }
+  messages.push({ role: 'user', content: prompt });
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__forgeLastPersona = {
+      id: persona.id,
+      requested: discipline,
+      normalised: normaliseDiscipline(discipline),
+      tools: persona.tools,
+      exampleCount: persona.examples.length,
+      systemHead: personaSystem.slice(0, 240),
+      ts: new Date().toISOString(),
+    };
+  }
+  return { messages, persona };
 }
 
 /**
@@ -127,11 +165,11 @@ export async function runForgePrompt({
     final: null,
   };
 
-  const system = buildSystemPrompt(discipline);
-  const messages = [
-    { role: 'system', content: system },
-    { role: 'user', content: prompt },
-  ];
+  // Forge-113 — persona-aware composition. Replaces the legacy
+  // [system, user] pair with [persona+system, ...few-shot, user].
+  const { messages, persona } = buildMessages({ prompt, discipline });
+  trace.persona = { id: persona.id, exampleCount: persona.examples.length,
+                    toolCount: persona.tools.length };
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal && signal.aborted) {
@@ -203,5 +241,9 @@ export { _flushIfEnabled as flushArchieTrace };
  */
 export function installForgeRunner(globalObj = (typeof window !== 'undefined' ? window : globalThis)) {
   globalObj.__forgeRun = (opts) => runForgePrompt(opts || {});
-  globalObj.__forgeEngine = { dispatchToolCall, buildSystemPrompt, parseAssistant };
+  globalObj.__forgeEngine = { dispatchToolCall, buildSystemPrompt,
+                              parseAssistant, buildMessages, getPersona };
+  // Forge-113 — convenience getter so e2e + dev tools can confirm the
+  // persona that drove the last completion without grepping the trace.
+  globalObj.__forgeGetPersona = (d) => getPersona(d);
 }
